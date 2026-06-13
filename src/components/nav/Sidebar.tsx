@@ -646,7 +646,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <button
           type="button"
           className="navitem"
-          style={{ width: "100%", background: "none", textAlign: "left", font: "inherit" }}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
           onClick={() => setExternal(STEP2CK)}
           title="Step 2 CK Bank"
         >
@@ -660,7 +660,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
             key={m.id}
             type="button"
             className="navitem url-module"
-            style={{ width: "100%", background: "none", textAlign: "left", font: "inherit" }}
+            style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
             onClick={() => setExternal(m)}
             title={m.url}
           >
@@ -684,7 +684,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <button
           type="button"
           className="navitem"
-          style={{ width: "100%", background: "none", textAlign: "left", font: "inherit" }}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
           onClick={() => setAddOpen(true)}
           title="Add a module by URL"
         >
@@ -695,7 +695,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <button
           type="button"
           className="navitem"
-          style={{ width: "100%", background: "none", textAlign: "left", font: "inherit" }}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
           onClick={() => toast("New boards are coming — drag-and-drop board builder is next.", "info", "Boards")}
           title="New Board"
         >
