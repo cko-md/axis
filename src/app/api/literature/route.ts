@@ -286,12 +286,11 @@ function normalizeDate(raw?: string): string {
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   // `topic` may be a single key or a comma-separated set; we merge across them.
-  const topicKeys = (params.get("topic") || "neuroscience")
-    .toLowerCase()
+  const rawKeys = (params.get("topic") || "neuroscience")
     .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s in TOPICS);
-  if (topicKeys.length === 0) topicKeys.push("neuroscience");
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const topicKeys = rawKeys.length ? rawKeys : ["neuroscience"];
   const customQuery = params.get("q")?.trim();
 
   const cacheKey = customQuery ? `q:${customQuery}` : `t:${[...topicKeys].sort().join("+")}`;
@@ -301,13 +300,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ...cached.payload, cached: true });
   }
 
-  // Build per-source query terms. With a custom query we honour it verbatim;
-  // otherwise we OR the selected topics together for each source.
-  const topics = topicKeys.map((k) => TOPICS[k]);
-  const pubmedQuery = customQuery || topics.map((t) => `(${t.pubmed})`).join(" OR ");
-  const biorxivKeyword = customQuery || topics.map((t) => t.biorxiv).join(" ");
-  const arxivQuery = customQuery || topics.map((t) => t.arxiv).join(" OR ");
-  const label = customQuery || topics.map((t) => t.label).join(" · ");
+  // Build per-source query terms. Unknown keys fall back to verbatim free-text search.
+  const topicDefs = topicKeys.map((k) =>
+    TOPICS[k] ?? { label: k, pubmed: k, biorxiv: k, arxiv: k },
+  );
+  const pubmedQuery = customQuery || topicDefs.map((t) => `(${t.pubmed})`).join(" OR ");
+  const biorxivKeyword = customQuery || topicDefs.map((t) => t.biorxiv).join(" ");
+  const arxivQuery = customQuery || topicDefs.map((t) => t.arxiv).join(" OR ");
+  const label = customQuery || topicDefs.map((t) => t.label).join(" · ");
 
   const sources: { name: string; ok: boolean; count: number }[] = [];
 

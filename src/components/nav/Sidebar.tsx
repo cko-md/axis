@@ -141,6 +141,7 @@ const ICONS: Record<string, React.ReactNode> = {
   library:    <path d="M3 7l2-3h6l2 3h6a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" />,
   recipes:    <path d="M6 3v18M6 5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6M10 9h6M10 13h6" />,
   chart:      <path d="M4 19V5M4 19h16M8 15l3-4 3 3 4-6" />,
+  gallery:    <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 15l5-5 4 4 3-3 6 6" /></>,
   system:     <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.7a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z" /></>,
   app:        <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 9h6v6H9z" /></>,
   add:        <path d="M12 5v14M5 12h14" />,
@@ -449,6 +450,9 @@ export function Sidebar({ collapsed, onToggle }: Props) {
   const [groupLabels, setGroupLabels] = useState<Record<string, string>>({});
 
   const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: "", role: "", bio: "", photo: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
   const spotify = useSpotify();
   const supabase = useMemo(() => createClient(), []);
 
@@ -470,15 +474,43 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       if (!user) { setProfile(null); return; }
       const { data } = await supabase
         .from("profiles")
-        .select("display_name, role_title")
+        .select("display_name, role_title, bio, avatar_url")
         .eq("id", user.id)
         .maybeSingle();
-      setProfile({
-        name: data?.display_name || user.email?.split("@")[0] || "Account",
-        role: data?.role_title || user.email || "",
+      const name = data?.display_name || user.email?.split("@")[0] || "Account";
+      const role = data?.role_title || user.email || "";
+      setProfile({ name, role });
+      setProfileForm({
+        name,
+        role,
+        bio: data?.bio ?? "",
+        photo: data?.avatar_url ?? "",
       });
     })();
   }, [supabase]);
+
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("profiles").upsert({
+        id: user.id,
+        display_name: profileForm.name.trim(),
+        role_title: profileForm.role.trim(),
+        bio: profileForm.bio.trim(),
+        avatar_url: profileForm.photo.trim(),
+        updated_at: new Date().toISOString(),
+      });
+      setProfile({ name: profileForm.name.trim() || "Account", role: profileForm.role.trim() });
+      setProfileOpen(false);
+      toast("Profile saved", "success", "Profile");
+    } catch {
+      toast("Could not save profile", "error", "Profile");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -561,9 +593,9 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       <div className="sb-top">
         <div className="mark">
           <svg viewBox="0 0 30 30" fill="none" style={{ width: 30, height: 30 }}>
-            <circle cx="23.5" cy="7.5" r="6" fill="rgba(255,140,74,.5)" />
-            <circle cx="23.5" cy="7.5" r="2.1" fill="#ff7a3d" />
-            <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="#c9a86a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="23.5" cy="7.5" r="6" fill="rgba(255,155,60,.45)" />
+            <circle cx="23.5" cy="7.5" r="2.1" fill="#FF8C3A" />
+            <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="#16B8F3" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M3 24 H27" stroke="#9aa7b8" strokeWidth="1.1" strokeLinecap="round" opacity=".7" />
           </svg>
         </div>
@@ -703,15 +735,19 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       {!collapsed && (
         <div className="sidefoot">
           {profile ? (
-            <div className="profile" style={{ alignItems: "center" }}>
-              <div className="avatar">{profile.name[0]?.toUpperCase() ?? "A"}</div>
+            <div className="profile" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => setProfileOpen(true)} title="Edit profile">
+              {profileForm.photo ? (
+                <img src={profileForm.photo} alt={profile.name} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} />
+              ) : (
+                <div className="avatar">{profile.name[0]?.toUpperCase() ?? "A"}</div>
+              )}
               <div className="pmeta">
                 <div className="pn">{profile.name}</div>
                 <div className="pr">{profile.role}</div>
               </div>
               <button
                 type="button"
-                onClick={signOut}
+                onClick={(e) => { e.stopPropagation(); void signOut(); }}
                 title="Sign out"
                 aria-label="Sign out"
                 style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", padding: 4 }}
@@ -766,6 +802,57 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           placeholder="uworld.com"
           className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
         />
+      </Modal>
+
+      {/* Profile modal */}
+      <Modal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        title="Profile"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setProfileOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={() => void saveProfile()} disabled={profileSaving}>
+              {profileSaving ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        {profileForm.photo && (
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+            <img
+              src={profileForm.photo}
+              alt="Profile"
+              style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--line)" }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+        )}
+        {(["name", "role", "photo"] as const).map((field) => (
+          <div key={field} style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
+              {field === "photo" ? "Photo URL" : field === "name" ? "Display Name" : "Role / Title"}
+            </label>
+            <input
+              value={profileForm[field]}
+              onChange={(e) => setProfileForm((p) => ({ ...p, [field]: e.target.value }))}
+              placeholder={field === "name" ? "Your name" : field === "role" ? "Resident Physician, Neurosurgery" : "https://…"}
+              className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+            />
+          </div>
+        ))}
+        <div>
+          <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
+            Bio
+          </label>
+          <textarea
+            value={profileForm.bio}
+            onChange={(e) => setProfileForm((p) => ({ ...p, bio: e.target.value }))}
+            placeholder="A short bio or description…"
+            rows={3}
+            style={{ width: "100%", padding: "8px 12px", borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 13, resize: "vertical", outline: "none" }}
+          />
+        </div>
       </Modal>
     </aside>
   );

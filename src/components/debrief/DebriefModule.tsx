@@ -74,9 +74,27 @@ export function DebriefModule() {
         <p style={{ color: "var(--ink-dim)", fontFamily: "var(--serif)", fontSize: 17, lineHeight: 1.5 }}>
           What moved the needle this week, and what will you say no to next week to protect the manuscript?
         </p>
-        <div className="capture" style={{ margin: "14px 0 0", padding: "11px 14px" }}>
-          <input placeholder="Write your reflection…" style={{ padding: "3px 0" }} />
-        </div>
+        <textarea
+          placeholder="Write your reflection…"
+          rows={5}
+          style={{
+            width: "100%",
+            marginTop: 14,
+            padding: "11px 14px",
+            background: "var(--glass)",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--r)",
+            color: "var(--ink)",
+            fontFamily: "var(--serif)",
+            fontSize: 15,
+            lineHeight: 1.7,
+            resize: "vertical",
+            outline: "none",
+            transition: "border-color .15s",
+          }}
+          onFocus={(e) => (e.target.style.borderColor = "var(--line-strong)")}
+          onBlur={(e) => (e.target.style.borderColor = "var(--line)")}
+        />
       </div>
     </>
   );

@@ -29,9 +29,12 @@ export function LiteratureModule() {
   const { toast } = useToast();
   const {
     topics,
+    customTopics,
     query,
     setQuery,
     toggleTopic,
+    addCustomTopic,
+    removeCustomTopic,
     feed,
     loading,
     error,
@@ -39,6 +42,9 @@ export function LiteratureModule() {
     runSearch,
     clearSearch,
   } = useLiterature();
+
+  const [addingTopic, setAddingTopic] = useState(false);
+  const [topicDraft, setTopicDraft] = useState("");
 
   const [readerId, setReaderId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -145,26 +151,71 @@ export function LiteratureModule() {
             key={t.key}
             className={`chip${topics.includes(t.key) && !query ? " on" : ""}`}
             onClick={() => {
-              if (query) {
-                setDraft("");
-                clearSearch();
-                setQuery("");
-              }
+              if (query) { setDraft(""); clearSearch(); setQuery(""); }
               toggleTopic(t.key);
             }}
           >
             {t.label}
           </span>
         ))}
-        {query && (
+        {customTopics.map((t) => (
           <span
-            className="chip on"
+            key={t.key}
+            className={`chip${topics.includes(t.key) && !query ? " on" : ""}`}
+            style={{ position: "relative", paddingRight: 22 }}
             onClick={() => {
-              setDraft("");
-              clearSearch();
+              if (query) { setDraft(""); clearSearch(); setQuery(""); }
+              toggleTopic(t.key);
             }}
           >
-            ✕ “{query}”
+            {t.label}
+            <span
+              style={{
+                position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+                fontSize: 9, cursor: "pointer", color: "var(--ink-faint)", lineHeight: 1,
+              }}
+              onClick={(e) => { e.stopPropagation(); removeCustomTopic(t.key); }}
+              title="Remove topic"
+            >✕</span>
+          </span>
+        ))}
+        {addingTopic ? (
+          <span className="chip" style={{ padding: "0 4px", gap: 4, display: "inline-flex", alignItems: "center" }}>
+            <input
+              autoFocus
+              value={topicDraft}
+              onChange={(e) => setTopicDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && topicDraft.trim()) {
+                  addCustomTopic(topicDraft.trim());
+                  setTopicDraft("");
+                  setAddingTopic(false);
+                }
+                if (e.key === "Escape") { setTopicDraft(""); setAddingTopic(false); }
+              }}
+              placeholder="Topic name…"
+              style={{
+                background: "none", border: "none", outline: "none",
+                color: "var(--ink)", fontFamily: "var(--narrow)", fontSize: 10.5,
+                letterSpacing: ".08em", textTransform: "uppercase", width: 110,
+              }}
+            />
+            <span
+              style={{ cursor: "pointer", color: "var(--ink-faint)", fontSize: 11 }}
+              onClick={() => { setTopicDraft(""); setAddingTopic(false); }}
+            >✕</span>
+          </span>
+        ) : (
+          <span
+            className="chip"
+            onClick={() => setAddingTopic(true)}
+            style={{ color: "var(--ink-faint)", borderStyle: "dashed" }}
+            title="Add custom topic"
+          >+ Topic</span>
+        )}
+        {query && (
+          <span className="chip on" onClick={() => { setDraft(""); clearSearch(); }}>
+            ✕ "{query}"
           </span>
         )}
       </div>

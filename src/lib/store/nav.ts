@@ -28,6 +28,7 @@ export const DEFAULT_NAV: NavGroup[] = [
   { section: "Life", items: [
     { href: "/vitality", label: "Vitality", icon: "fitness", title: "Vitality — training and nutrition" },
     { href: "/atelier", label: "Atelier", icon: "atelier" },
+    { href: "/gallery", label: "Gallery", icon: "gallery", title: "Gallery — art, poetry, and reading" },
     { href: "/people", label: "People", icon: "people" },
     { href: "/briefing", label: "Briefing", icon: "briefing" },
     { href: "/listening-vault", label: "Listening Vault", icon: "vault", title: "Listening Vault — music room" },

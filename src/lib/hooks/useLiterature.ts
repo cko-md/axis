@@ -23,7 +23,7 @@ export type FeedState = {
   fallback: boolean;
 };
 
-export const TOPICS: { key: string; label: string }[] = [
+export const DEFAULT_TOPICS: { key: string; label: string }[] = [
   { key: "neuroscience", label: "Neuroscience" },
   { key: "dbs", label: "DBS / Functional" },
   { key: "connectomics", label: "Connectomics" },
@@ -31,20 +31,36 @@ export const TOPICS: { key: string; label: string }[] = [
   { key: "methods", label: "Methods / Stats" },
 ];
 
-const VALID = new Set(TOPICS.map((t) => t.key));
-const LS_KEY = "axis.literature.topics";
-const REFRESH_MS = 4 * 60 * 1000; // 4 minutes
+// Re-exported alias so existing imports keep working
+export const TOPICS = DEFAULT_TOPICS;
 
-function readLocalTopics(): string[] {
+const BUILT_IN_KEYS = new Set(DEFAULT_TOPICS.map((t) => t.key));
+const LS_KEY         = "axis.literature.topics";
+const LS_CUSTOM_KEY  = "axis.literature.custom_topics";
+const REFRESH_MS     = 4 * 60 * 1000;
+
+function readLocalTopics(customKeys: Set<string>): string[] {
   if (typeof window === "undefined") return ["neuroscience"];
   try {
     const raw = window.localStorage.getItem(LS_KEY);
     if (!raw) return ["neuroscience"];
-    const arr = (JSON.parse(raw) as string[]).filter((t) => VALID.has(t));
+    const allValid = new Set([...BUILT_IN_KEYS, ...customKeys]);
+    const arr = (JSON.parse(raw) as string[]).filter((t) => allValid.has(t));
     return arr.length ? arr : ["neuroscience"];
   } catch {
     return ["neuroscience"];
   }
+}
+
+function readCustomTopics(): { key: string; label: string }[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(window.localStorage.getItem(LS_CUSTOM_KEY) ?? "[]") as { key: string; label: string }[];
+  } catch { return []; }
+}
+
+function writeCustomTopics(custom: { key: string; label: string }[]) {
+  try { window.localStorage.setItem(LS_CUSTOM_KEY, JSON.stringify(custom)); } catch {}
 }
 
 function writeLocalTopics(topics: string[]) {
@@ -56,6 +72,7 @@ function writeLocalTopics(topics: string[]) {
 }
 
 export function useLiterature() {
+  const [customTopics, setCustomTopicsState] = useState<{ key: string; label: string }[]>([]);
   const [topics, setTopicsState] = useState<string[]>(["neuroscience"]);
   const [query, setQuery] = useState<string>("");
   const [feed, setFeed] = useState<FeedState>({
@@ -72,11 +89,18 @@ export function useLiterature() {
   const userId = useRef<string | null>(null);
   const prefsTable = useRef(true); // flips false if the table is missing — falls back to localStorage
 
+  // ── Load custom topics from localStorage on mount
+  useEffect(() => {
+    const custom = readCustomTopics();
+    setCustomTopicsState(custom);
+  }, []);
+
   // ── Load persisted topic selection: Supabase for signed-in users, else localStorage.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const local = readLocalTopics();
+      const customKeys = new Set(readCustomTopics().map((t) => t.key));
+      const local = readLocalTopics(customKeys);
       if (!cancelled) setTopicsState(local);
       try {
         const { data: auth } = await supabase.current.auth.getUser();
@@ -94,7 +118,8 @@ export function useLiterature() {
           return;
         }
         if (!cancelled && data?.topics?.length) {
-          const valid = (data.topics as string[]).filter((t) => VALID.has(t));
+          const allKeys = new Set([...BUILT_IN_KEYS, ...readCustomTopics().map((t) => t.key)]);
+          const valid = (data.topics as string[]).filter((t) => allKeys.has(t));
           if (valid.length) {
             setTopicsState(valid);
             writeLocalTopics(valid);
@@ -125,13 +150,44 @@ export function useLiterature() {
 
   const setTopics = useCallback(
     (next: string[]) => {
-      const cleaned = next.filter((t) => VALID.has(t));
+      const allKeys = new Set([...BUILT_IN_KEYS, ...customTopics.map((t) => t.key)]);
+      const cleaned = next.filter((t) => allKeys.has(t));
       const final = cleaned.length ? cleaned : ["neuroscience"];
       setTopicsState(final);
       persistTopics(final);
     },
-    [persistTopics],
+    [persistTopics, customTopics],
   );
+
+  const addCustomTopic = useCallback((label: string) => {
+    const key = label.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    if (!key || BUILT_IN_KEYS.has(key)) return;
+    setCustomTopicsState((prev) => {
+      if (prev.some((t) => t.key === key)) return prev;
+      const next = [...prev, { key, label: label.trim() }];
+      writeCustomTopics(next);
+      return next;
+    });
+    setTopicsState((prev) => {
+      const next = [...prev, key];
+      persistTopics(next);
+      return next;
+    });
+  }, [persistTopics]);
+
+  const removeCustomTopic = useCallback((key: string) => {
+    setCustomTopicsState((prev) => {
+      const next = prev.filter((t) => t.key !== key);
+      writeCustomTopics(next);
+      return next;
+    });
+    setTopicsState((prev) => {
+      const next = prev.filter((t) => t !== key);
+      const final = next.length ? next : ["neuroscience"];
+      persistTopics(final);
+      return final;
+    });
+  }, [persistTopics]);
 
   const toggleTopic = useCallback(
     (key: string) => {
@@ -209,10 +265,13 @@ export function useLiterature() {
 
   return {
     topics,
+    customTopics,
     query,
     setQuery,
     toggleTopic,
     setTopics,
+    addCustomTopic,
+    removeCustomTopic,
     feed,
     loading,
     error,
