@@ -485,22 +485,56 @@ export function ConsoleModule() {
         <button type="button" className="capt-go" onClick={handleCapture}>Capture</button>
       </div>
 
-      <Modal open={pickerOpen} onClose={() => setPickerOpen(false)} title="Swap Widget" footer={<Button variant="ghost" onClick={() => setPickerOpen(false)}>Cancel</Button>}>
-        <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
-          {WIDGET_CATALOG.map((w) => (
-            <button key={w.id} type="button" onClick={() => {
-              if (swapIdx === null) return;
-              const next = [...widgetIds];
-              next[swapIdx] = w.id;
-              setWidgetIds(next);
-              save(next, widgetTexts);
-              setPickerOpen(false);
-              setSwapIdx(null);
-            }} className="flex items-center gap-3 rounded border border-[var(--line)] p-3 text-left transition hover:border-[var(--accent-2)]">
-              <span className="text-lg">{w.icon}</span>
-              <span><strong className="block text-sm">{w.label}</strong></span>
-            </button>
-          ))}
+      <Modal open={pickerOpen} onClose={() => setPickerOpen(false)} title="Choose Widget" footer={<Button variant="ghost" onClick={() => setPickerOpen(false)}>Cancel</Button>}>
+        <p style={{ fontSize: 11.5, color: "var(--ink-faint)", marginBottom: 12 }}>
+          Select a widget for slot {swapIdx !== null ? swapIdx + 1 : "—"}
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflowY: "auto" }}>
+          {WIDGET_CATALOG.map((w) => {
+            const isActive = widgetIds.includes(w.id);
+            const isCurrent = swapIdx !== null && widgetIds[swapIdx] === w.id;
+            return (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => {
+                  if (swapIdx === null) return;
+                  const next = [...widgetIds];
+                  next[swapIdx] = w.id;
+                  setWidgetIds(next);
+                  save(next, widgetTexts);
+                  setPickerOpen(false);
+                  setSwapIdx(null);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "9px 12px",
+                  border: `1px solid ${isCurrent ? "var(--accent)" : "var(--line)"}`,
+                  borderRadius: "var(--r)",
+                  background: isCurrent ? "var(--glass-2)" : "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "border-color 0.14s, background 0.14s",
+                }}
+              >
+                <span style={{ fontSize: 18, lineHeight: 1, width: 24, textAlign: "center", color: "var(--gold)", fontFamily: "var(--mono)" }}>{w.icon}</span>
+                <span style={{ flex: 1 }}>
+                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>{w.label}</span>
+                  <span style={{ display: "block", fontSize: 11, color: "var(--ink-faint)", marginTop: 1 }}>{w.hint}</span>
+                </span>
+                {w.category && (
+                  <span style={{ fontSize: 9.5, fontFamily: "var(--narrow)", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px" }}>
+                    {w.category}
+                  </span>
+                )}
+                {isActive && !isCurrent && (
+                  <span style={{ fontSize: 9.5, fontFamily: "var(--mono)", color: "var(--accent)", opacity: 0.7 }}>active</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </Modal>
     </>

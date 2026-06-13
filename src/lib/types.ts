@@ -37,6 +37,7 @@ export type WidgetCatalogItem = {
   label: string;
   value: string;
   hint: string;
+  category?: string;
 };
 
 export type ConsoleWidgetConfig = {

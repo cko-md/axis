@@ -1,13 +1,69 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useNotes, isLocked, visibleTags, type Note } from "@/lib/hooks/useNotes";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { NotesEditor } from "./NotesEditor";
 import styles from "./NotesEditor.module.css";
 
-const FOLDERS = ["All Notes", "Research", "Manuscripts", "Grants", "Clinical", "Personal"];
+const DEFAULT_FOLDERS = ["All Notes", "Research", "Manuscripts", "Grants", "Clinical", "Personal"];
+const FOLDER_ORDER_KEY = "axis-notes-folder-order";
+
+function SortableFolder({
+  folder,
+  active,
+  count,
+  onPick,
+}: {
+  folder: string;
+  active: string;
+  count: number;
+  onPick: (f: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: folder });
+  return (
+    <div
+      ref={setNodeRef}
+      suppressHydrationWarning
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      {...attributes}
+    >
+      <div
+        className={folder === active ? "coll on" : "coll"}
+        style={{ display: "flex", alignItems: "center", gap: 8 }}
+        onClick={() => onPick(folder)}
+      >
+        <span
+          {...listeners}
+          className="block-drag-handle"
+          style={{ cursor: "grab", fontSize: 12, color: "var(--ink-faint)", flexShrink: 0 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          ⠿
+        </span>
+        {FOLDER_ICON}
+        {folder}
+        <span className="cc">{count}</span>
+      </div>
+    </div>
+  );
+}
 
 const FOLDER_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -51,8 +107,34 @@ export function NotesModule() {
   const { notes, loading, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock } = useNotes();
   const { toast } = useToast();
 
+  const [folders, setFolders] = useState<string[]>(DEFAULT_FOLDERS);
   const [activeFolder, setActiveFolder] = useState("All Notes");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(FOLDER_ORDER_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as string[];
+        if (DEFAULT_FOLDERS.every((f) => parsed.includes(f)) && parsed.length === DEFAULT_FOLDERS.length) {
+          setFolders(parsed);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function handleFolderDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const from = folders.indexOf(active.id as string);
+    const to = folders.indexOf(over.id as string);
+    const next = arrayMove(folders, from, to);
+    setFolders(next);
+    localStorage.setItem(FOLDER_ORDER_KEY, JSON.stringify(next));
+  }
   const [draft, setDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -170,16 +252,22 @@ export function NotesModule() {
       <div className="divider" />
 
       <div style={{ display: "grid", gridTemplateColumns: "170px 250px 1fr", gap: 16, alignItems: "start" }}>
-        {/* ── Folders ── */}
+        {/* ── Folders (drag to reorder) ── */}
         <div>
           <div className="seclabel">Folders</div>
-          {FOLDERS.map((f) => (
-            <div key={f} className={f === activeFolder ? "coll on" : "coll"} onClick={() => setActiveFolder(f)}>
-              {FOLDER_ICON}
-              {f}
-              <span className="cc">{folderCounts[f] ?? 0}</span>
-            </div>
-          ))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFolderDragEnd}>
+            <SortableContext items={folders} strategy={verticalListSortingStrategy}>
+              {folders.map((f) => (
+                <SortableFolder
+                  key={f}
+                  folder={f}
+                  active={activeFolder}
+                  count={folderCounts[f] ?? 0}
+                  onPick={setActiveFolder}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
 
         {/* ── Note list ── */}

@@ -92,18 +92,23 @@
   --on-accent: #0a0b0e;
 }
 
-/* dim — lifted warm-tinted dark */
+/* dim — amber study lamp: warm brown-black ground, distinct from cold void-dark */
 html.dim {
-  --bg: #121419;
-  --surface: #181b22;
-  --surface-2: #1e222b;
-  --surface-3: #262b36;
-  --line: rgba(205, 195, 177, 0.19);
-  --line-strong: rgba(214, 204, 186, 0.32);
-  --edge: rgba(244, 238, 228, 0.14);
-  --metal-edge: rgba(244, 238, 228, 0.14);
-  --glass: rgba(232, 228, 220, 0.06);
-  --glass-2: rgba(232, 228, 220, 0.1);
+  --bg: #0e0c09;
+  --surface: #151209;
+  --surface-2: #1c180f;
+  --surface-3: #241f14;
+  --line: rgba(215, 200, 168, 0.2);
+  --line-strong: rgba(224, 208, 176, 0.34);
+  --edge: rgba(248, 238, 215, 0.16);
+  --metal-edge: rgba(248, 238, 215, 0.16);
+  --glass: rgba(240, 228, 196, 0.06);
+  --glass-2: rgba(240, 228, 196, 0.11);
+  --gold: #d4a843;
+  --gold-2: #e8c068;
+  --ink: #f0e8d8;
+  --ink-2: #d8ccb8;
+  --ink-dim: #a89880;
 }
 
 /* slate — the ultramarine room: cool ground, marine pops, gold stays */
@@ -226,10 +231,10 @@ body::before {
   position: absolute;
   inset: -30%;
   background:
-    radial-gradient(44% 40% at 80% 10%, rgba(201, 164, 99, 0.26), transparent 58%),
-    radial-gradient(48% 44% at 6% 98%, rgba(63, 111, 176, 0.22), transparent 56%),
-    radial-gradient(40% 36% at 96% 94%, rgba(194, 96, 63, 0.16), transparent 58%),
-    radial-gradient(36% 32% at 28% 38%, rgba(110, 155, 199, 0.1), transparent 62%);
+    radial-gradient(44% 40% at 80% 10%, rgba(201, 164, 99, 0.32), transparent 58%),
+    radial-gradient(48% 44% at 6% 98%, rgba(63, 111, 176, 0.28), transparent 56%),
+    radial-gradient(40% 36% at 96% 94%, rgba(194, 96, 63, 0.20), transparent 58%),
+    radial-gradient(36% 32% at 28% 38%, rgba(110, 155, 199, 0.14), transparent 62%);
   filter: blur(26px);
   animation: dfdrift 30s ease-in-out infinite alternate;
   will-change: transform;
@@ -283,51 +288,53 @@ body::before {
   100% { opacity: 0.85; transform: translate3d(2%, -1%, 0); }
 }
 
-/* light mode: gallery-quality north-facing skylight with warm bokeh */
+/* light mode: gallery track lighting — vivid amber cone from upper-right,
+   north-facing skylight overhead, warm vignette at edges.
+   Must be high-opacity to read against the warm parchment ground. */
 html.light .depthfield .wash {
   background:
-    radial-gradient(68% 58% at 80% -6%, rgba(195, 158, 72, 0.32), transparent 58%),
-    radial-gradient(52% 46% at 14% 108%, rgba(155, 122, 60, 0.18), transparent 54%),
-    linear-gradient(162deg, rgba(255, 252, 242, 0.22), transparent 38%);
+    radial-gradient(60% 54% at 94% -2%, rgba(186, 144, 44, 0.82), transparent 54%),
+    radial-gradient(52% 48% at -2% 108%, rgba(148, 116, 48, 0.38), transparent 52%),
+    linear-gradient(168deg, rgba(254, 248, 226, 0.46), transparent 36%);
   opacity: 1;
   animation: none;
 }
 
 html.light .depthfield .aurora {
   background:
-    radial-gradient(62% 52% at 86% -8%, rgba(201, 164, 72, 0.44), transparent 54%),
-    radial-gradient(50% 44% at 8% 106%, rgba(170, 138, 68, 0.26), transparent 52%),
-    radial-gradient(38% 34% at 50% 55%, rgba(225, 205, 155, 0.12), transparent 62%);
-  filter: blur(38px);
-  opacity: 0.95;
+    radial-gradient(56% 48% at 94% -4%, rgba(196, 158, 58, 0.92), transparent 50%),
+    radial-gradient(46% 42% at 6% 112%, rgba(168, 134, 54, 0.52), transparent 48%),
+    radial-gradient(36% 32% at 54% 56%, rgba(232, 212, 158, 0.32), transparent 60%);
+  filter: blur(44px);
+  opacity: 1;
   animation: none;
 }
 
 html.light .depthfield .aurora2 {
   background:
-    radial-gradient(44% 38% at 28% 16%, rgba(255, 248, 224, 0.18), transparent 58%),
-    radial-gradient(38% 34% at 88% 78%, rgba(178, 145, 80, 0.14), transparent 56%);
-  opacity: 0.85;
+    radial-gradient(48% 42% at 28% 14%, rgba(255, 248, 218, 0.26), transparent 56%),
+    radial-gradient(42% 38% at 90% 80%, rgba(185, 150, 78, 0.30), transparent 54%);
+  filter: blur(28px);
+  opacity: 1;
   animation: none;
 }
 
-/* warm corner vignette — feels like gallery wall receding at edges */
-html.light .depthfield .vig {
-  display: block;
-  background: radial-gradient(118% 112% at 50% 28%, transparent 44%, rgba(165, 155, 135, 0.22) 80%, rgba(148, 138, 118, 0.48) 100%);
-  box-shadow: inset 0 0 160px 20px rgba(148, 138, 118, 0.28);
-}
-
-/* skylight haze — bright centre-top, like diffused roof panel */
+/* architectural skylight — bright diffused zone at centre-top */
 html.light .depthfield .haze {
-  display: block;
-  background: radial-gradient(160% 90% at 50% 36%, rgba(255, 252, 240, 0.72), transparent 64%);
+  background:
+    radial-gradient(130% 72% at 50% -8%, rgba(255, 252, 234, 0.92), transparent 58%),
+    radial-gradient(80% 58% at 50% 0%, rgba(255, 248, 222, 0.64), transparent 66%);
 }
 
-/* gold top-edge fall — the gallery track lighting catches the cornice */
+/* gallery wall vignette — edges and floor recede in warm shadow */
+html.light .depthfield .vig {
+  background: radial-gradient(118% 112% at 50% 28%, transparent 42%, rgba(162, 152, 130, 0.28) 80%, rgba(136, 124, 102, 0.56) 100%);
+  box-shadow: inset 0 0 200px 28px rgba(132, 120, 98, 0.34);
+}
+
+/* cornice glint — track lighting catches the top edge */
 html.light .depthfield .fall {
-  display: block;
-  background: linear-gradient(180deg, rgba(201, 164, 72, 0.1), transparent 22%);
+  background: linear-gradient(180deg, rgba(192, 152, 54, 0.24), transparent 28%);
 }
 
 .grain {
@@ -346,20 +353,21 @@ html.light .grain {
 }
 
 /* dim — warmer/amber aurora, late-afternoon light quality */
+/* dim — amber dominates: gold pushed to warm ember tones, marine as counterpoint */
 html.dim .depthfield .aurora {
   background:
-    radial-gradient(44% 40% at 80% 10%, rgba(220, 178, 95, 0.32), transparent 56%),
-    radial-gradient(48% 44% at 6% 98%, rgba(63, 111, 176, 0.22), transparent 56%),
-    radial-gradient(40% 36% at 96% 94%, rgba(194, 96, 63, 0.18), transparent 58%),
-    radial-gradient(36% 32% at 28% 38%, rgba(110, 155, 199, 0.1), transparent 62%);
+    radial-gradient(52% 48% at 78% 8%, rgba(228, 186, 88, 0.44), transparent 54%),
+    radial-gradient(44% 40% at 4% 94%, rgba(180, 120, 48, 0.32), transparent 56%),
+    radial-gradient(38% 34% at 98% 96%, rgba(212, 108, 52, 0.22), transparent 58%),
+    radial-gradient(34% 30% at 30% 40%, rgba(88, 60, 18, 0.14), transparent 62%);
   filter: blur(28px);
 }
 
 html.dim .depthfield .wash {
   background:
-    radial-gradient(60% 70% at 82% 6%, rgba(220, 178, 95, 0.22), transparent 62%),
-    radial-gradient(64% 72% at 4% 102%, rgba(63, 111, 176, 0.16), transparent 60%),
-    linear-gradient(118deg, rgba(210, 110, 72, 0.08), transparent 46%);
+    radial-gradient(62% 72% at 84% 4%, rgba(228, 186, 72, 0.28), transparent 60%),
+    radial-gradient(66% 74% at 2% 104%, rgba(185, 130, 52, 0.22), transparent 58%),
+    linear-gradient(118deg, rgba(212, 120, 64, 0.10), transparent 44%);
 }
 
 /* slate — cold electric: marine aurora dominates, gold stays as accent */
@@ -409,6 +417,16 @@ html.slate .depthfield .wash {
 html.light .sidebar {
   background: linear-gradient(180deg, rgba(232, 228, 218, 0.88), rgba(218, 214, 203, 0.94));
   border-right-color: rgba(90, 76, 55, 0.22);
+}
+
+html.dim .sidebar {
+  background: linear-gradient(180deg, rgba(22, 18, 10, 0.82), rgba(14, 12, 9, 0.92));
+  border-right-color: rgba(215, 200, 168, 0.18);
+}
+
+html.dim .topbar {
+  background: rgba(14, 12, 9, 0.58);
+  border-bottom-color: rgba(215, 200, 168, 0.18);
 }
 
 .sb-top {
@@ -488,6 +506,10 @@ html.light .sidebar {
   text-transform: uppercase;
   color: var(--ink-faint);
   padding: 14px 10px 6px;
+}
+
+html.light .navlabel {
+  color: var(--ink-dim);
 }
 
 .navitem {
@@ -805,12 +827,24 @@ h1.hero em {
   color: var(--gold);
 }
 
+/* light mode: richer gold on parchment — `--gold` is already deeper (#b8922e),
+   but the display text needs the accent variant for visual punch */
+html.light .hero-title em,
+html.light h1.hero em {
+  color: var(--gold-deep);
+}
+
 .sub {
   color: var(--ink-dim);
   margin-top: 8px;
   max-width: 62ch;
   font-size: 12.5px;
   font-weight: 300;
+}
+
+/* light mode: sub text on parchment cards must be ink-2, not ink-dim */
+html.light .sub {
+  color: var(--ink-2);
 }
 
 h2.sec {
