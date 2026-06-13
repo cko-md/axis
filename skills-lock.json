@@ -1,0 +1,1721 @@
+{
+  "version": 1,
+  "skills": {
+    "activecampaign-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/activecampaign-automation/SKILL.md",
+      "computedHash": "74a74fe8202844f98764d6f5a01b68e845e3b27aa23b333cf3232c55f8e4308b"
+    },
+    "agent-analytics": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/agent-analytics/SKILL.md",
+      "computedHash": "8f40b01765b117ec77489b7d65e91f0d143ed7ac750ab8b32fbddebb2e3726f8"
+    },
+    "airtable-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/airtable-automation/SKILL.md",
+      "computedHash": "e95bd114473b2277d40803d831d1b0252ab014a06b1fa643a0949869cf43dfde"
+    },
+    "amplitude-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/amplitude-automation/SKILL.md",
+      "computedHash": "e1070a42abdfb3b13665ac473ce22f6adb89c99fbcd9e1e932942bf033e7c381"
+    },
+    "app-router": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/nextjs-expert/skills/app-router/SKILL.md",
+      "computedHash": "ee341a793d7ca0afd2de974a7a03f584df5d03040dd2e56dd92b62e457a3e938"
+    },
+    "artifacts-builder": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/artifacts-builder/SKILL.md",
+      "computedHash": "0ed70c0e84a1dc405b5c90cd3024bfca14b9e95b3ecb0b8cb00a76f08756eb3d"
+    },
+    "asana-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/asana-automation/SKILL.md",
+      "computedHash": "a6b3d174910c6ac85f1ef14694f73f9ee8814ccf80490f9b6702dd35bcad26e1"
+    },
+    "aurakit": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/aurakit/SKILL.md",
+      "computedHash": "97b113fb7050ee50be5734e3bc04ae6fbba708674482de898612b22b06bdcc4b"
+    },
+    "auth-patterns": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/nextjs-expert/skills/auth-patterns/SKILL.md",
+      "computedHash": "4bdb0482068d55e0defe4065f2e6874541508252a0960f9ab322b77bc4887710"
+    },
+    "bamboohr-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/bamboohr-automation/SKILL.md",
+      "computedHash": "dfef5a3b5715e61cd943a4e7f400bd3134e385a3f10f705db4d58b93589e9960"
+    },
+    "basecamp-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/basecamp-automation/SKILL.md",
+      "computedHash": "3df2b762a7062ba0a822956040c2fb556884168c50df3d295d6434d5e7db1fe9"
+    },
+    "bitbucket-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/bitbucket-automation/SKILL.md",
+      "computedHash": "ec97b355cb1f79284cd4ce448a967c7e7c346ad0a470a24faedeedf166e9be72"
+    },
+    "box-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/box-automation/SKILL.md",
+      "computedHash": "48cd22cf95cccd37e917e5d4df7dfc5fcd006e91b86172a1b6c84672b207a3dd"
+    },
+    "brand-guidelines": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/brand-guidelines/SKILL.md",
+      "computedHash": "3bfb17a3b3c7c86bc786315e59ee94d83e71b8c5c39a86d396ed733923f5c6b5"
+    },
+    "brevo-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/brevo-automation/SKILL.md",
+      "computedHash": "455cf2f0acf9e11fdda4187e3d04f868c843e0f112aa17b3a713582644074496"
+    },
+    "brief": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/brief/SKILL.md",
+      "computedHash": "83a2ff365a4b3ef09706060302c03b3e3c6e2bb8fa662649f7082055cfd93ff5"
+    },
+    "browser-use": {
+      "source": "browser-use/browser-use",
+      "sourceType": "github",
+      "skillPath": "skills/browser-use/SKILL.md",
+      "computedHash": "c2f6bb1deba21399380e80e9eab963836c50ae77ad2dea21bd5ea10e66da707e"
+    },
+    "build": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/shipwright/skills/build/SKILL.md",
+      "computedHash": "2ab8c3b9367ed430bfeda3dd2d32ef3942be860bcf728a887d57881930b83c07"
+    },
+    "cal-com-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/cal-com-automation/SKILL.md",
+      "computedHash": "499b983974883a8c2e35cb56660bf7d0fddd39ee50857df38a7090dfe22991a0"
+    },
+    "calendly-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/calendly-automation/SKILL.md",
+      "computedHash": "b79aa78baebf0b3ee5c30fdf071e5207811dc7aaa0a81ba7a9084951ea4547ec"
+    },
+    "canva-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/canva-automation/SKILL.md",
+      "computedHash": "78e8f8ac5d3bd9a4a1d859277bf1ad074056e06c8b590ab255d03f2b2462f43c"
+    },
+    "canvas-design": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/canvas-design/SKILL.md",
+      "computedHash": "e494fe6a6c5b4966736fde9d06837b038dab8ad475afe584fe98f1bf73dd2f57"
+    },
+    "capture": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/capture/SKILL.md",
+      "computedHash": "7c738af78f82477e380c45476041b2c0edf94138d2dd1045086a4fd57579012e"
+    },
+    "cf-proxy": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/cf-proxy/SKILL.md",
+      "computedHash": "608fb014860c1b833b0ec81a0bdfc5caed32f263afbe992782165637d45542a6"
+    },
+    "changelog-generator": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/changelog-generator/SKILL.md",
+      "computedHash": "57769f52c66e5d186282dcc34c7da97a7242abbe5ae7b062d8dc5dd89b274abe"
+    },
+    "circleci-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/circleci-automation/SKILL.md",
+      "computedHash": "7587904fcbba1757555dbfabfffe84382e9ecabd92b4a507cd0845dd0ef72c04"
+    },
+    "clawring": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/clawring/SKILL.md",
+      "computedHash": "2ed09ebd07cb584b7760cbfd6c245e0e8ede1238fd8123bab58f0b399223cd58"
+    },
+    "clickup-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/clickup-automation/SKILL.md",
+      "computedHash": "0c238522f37ee5f50cba36810d38263d92c541a9d5f50ec7c7d1aa1ae376480f"
+    },
+    "close-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/close-automation/SKILL.md",
+      "computedHash": "d1637da8b48188901dd8ed69d53f872150cf65f5355682aa5d729f1710785f79"
+    },
+    "coda-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/coda-automation/SKILL.md",
+      "computedHash": "bb76494ffd6655e6cfbff0a5ad30f8833e1d1815771bb48348d06e2f415e96c1"
+    },
+    "coinpaprika-api": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/coinpaprika-api/SKILL.md",
+      "computedHash": "d389838d66954757dfd16da81ca49b42c008965fa44030c6f2b0f5721f01bab6"
+    },
+    "competitive-ads-extractor": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/competitive-ads-extractor/SKILL.md",
+      "computedHash": "c339169633ad60507cf8d9ac86c3cfadd96fff5264705f582528c1aad2f5570b"
+    },
+    "confluence-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/confluence-automation/SKILL.md",
+      "computedHash": "105e476dfebd7afe5203b425b0b44b0fb0d058e2d8f9d6c9c2b23df3a0682266"
+    },
+    "content-research-writer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/content-research-writer/SKILL.md",
+      "computedHash": "7fdbbc6a229676e48c04eaa110ec092ecb6110b1928677bf3364df56ddcb7208"
+    },
+    "convertkit-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/convertkit-automation/SKILL.md",
+      "computedHash": "14176cdb1bd1bf93cecd0ff427bdd7cca6549224aac12d701e2cd8e996826690"
+    },
+    "datadog-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/datadog-automation/SKILL.md",
+      "computedHash": "5f60601983ef7fb1f1fe727ccec82d173b31ff5831fb7366e622d7d81ba7b111"
+    },
+    "debrief": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/debrief/SKILL.md",
+      "computedHash": "85678b53c43d60147ec99ebaf53051c9f1f9f363437c67a2bbd7e830dcdeb6c3"
+    },
+    "developer-growth-analysis": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/developer-growth-analysis/SKILL.md",
+      "computedHash": "dc0b4bfb3a913cb8c443f2fe086dc38e4c9c0b2d29efa2715cd6a7c4352a11b9"
+    },
+    "dexpaprika-api": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/dexpaprika-api/SKILL.md",
+      "computedHash": "92db6bde745a9947af0d122502ea4080ddf6acc2d82644b520d54931df89dfa0"
+    },
+    "discord-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/discord-automation/SKILL.md",
+      "computedHash": "060c88611509bf44ac182b08d187046bafc90c60e9456ada7a9b018c6378db08"
+    },
+    "distill": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/distill/SKILL.md",
+      "computedHash": "ca569fb087fb7962a1538a1a7cb9b4e4db5e2d0716a9dc262ea92dfd06c12df1"
+    },
+    "docusign-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/docusign-automation/SKILL.md",
+      "computedHash": "b0883a942f7467d54e878b04c1539dcc66f0bf5c1114f13a0862d88044974721"
+    },
+    "docx": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/docx/SKILL.md",
+      "computedHash": "b4f127a4f7e1dc012be0f547fd9b3a651d6f04a9f1a0ee449c6ab500b5bdde24"
+    },
+    "domain-name-brainstormer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/domain-name-brainstormer/SKILL.md",
+      "computedHash": "34748ca006a8321b92dc003417b7af7fe28041b623d03c824078337073f0f70f"
+    },
+    "dropbox-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/dropbox-automation/SKILL.md",
+      "computedHash": "82538270a65d986d9fd765aab39d4551db20a29ed2ccf5a31fe4be0d3aabe203"
+    },
+    "excalidraw-diagram": {
+      "source": "coleam00/excalidraw-diagram-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "fc91249969c7c1adc1f810ddfe10f18e206b78609467bb4955248e9138932e8a"
+    },
+    "figma-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/figma-automation/SKILL.md",
+      "computedHash": "362f5cab6341e313eb178ffc93ab01cd0bf3e6044b3496395531d51a121dd5c2"
+    },
+    "file-organizer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/file-organizer/SKILL.md",
+      "computedHash": "c8078e05e8cfb8af73eee389ed4c337b7808d72433a9c897b999ed159ff72362"
+    },
+    "forget": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/forget/SKILL.md",
+      "computedHash": "304d8d4183ed2be2fb6ca99584902401079984a369d15645c9619d2b4bb75b4a"
+    },
+    "freshdesk-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/freshdesk-automation/SKILL.md",
+      "computedHash": "70a8f12498c6c25a31dfc61117fded4ef813c96d7aa1c4377c21812052556e62"
+    },
+    "freshservice-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/freshservice-automation/SKILL.md",
+      "computedHash": "5102337883ca22eb36a86ce287f0bf6178962041f5649de8c3af5c06ed5c0853"
+    },
+    "frontend-design": {
+      "source": "anthropics/claude-code",
+      "sourceType": "github",
+      "skillPath": "plugins/frontend-design/skills/frontend-design/SKILL.md",
+      "computedHash": "e8118284a6365753790d44bb2758a6032b3af27fa84696428d9233f2be0f4e78"
+    },
+    "gingiris-growth-playbooks": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/gingiris-growth-playbooks/SKILL.md",
+      "computedHash": "2a2095df8d0d149ff9f7cffe18d5fd33b5ecd0541699dd1f191ac398f4137c7c"
+    },
+    "github-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/github-automation/SKILL.md",
+      "computedHash": "79b7cdd4b58c825675c80f7caa193af996de912e0b923bc4ae1ac7ba7afba4ef"
+    },
+    "gitlab-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/gitlab-automation/SKILL.md",
+      "computedHash": "264935d11c00b794a5c993e46659a83787827d6f411358a6552e865a48a648b9"
+    },
+    "gmail-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/gmail-automation/SKILL.md",
+      "computedHash": "1feb239b5f1f2fa88563ce2bca62486a9d3d928356f44f371498f44b3c60d9f3"
+    },
+    "google-analytics-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/google-analytics-automation/SKILL.md",
+      "computedHash": "61ff0f138e6c00da60d19bd81f20c305889428e1ffa5143fd315fd578163bd3d"
+    },
+    "google-calendar-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/google-calendar-automation/SKILL.md",
+      "computedHash": "fc24e4ae947e33e641f607da046b55590650d39975b9353f661c8a5d7e424511"
+    },
+    "google-drive-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/google-drive-automation/SKILL.md",
+      "computedHash": "fbb0122ada18d187e87e270b7d7afee63bf816150027aaaf6a2679f9df8f2830"
+    },
+    "google-drive-upload": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/google-drive-upload/SKILL.md",
+      "computedHash": "bc4c062ce232144925758d9eba8e90adbf37d479a68dff35e49ffb48cdbc6dc1"
+    },
+    "googlesheets-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/googlesheets-automation/SKILL.md",
+      "computedHash": "5895398a7b536a07038c6f9574c87ac4b4abd09cd895d51e2bb8adf685196ed3"
+    },
+    "gws-admin-reports": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-admin-reports/SKILL.md",
+      "computedHash": "119e59c6e5f007563eca290300424e928a23aaf272bc790f1733538221c07a9d"
+    },
+    "gws-calendar": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-calendar/SKILL.md",
+      "computedHash": "0c5956e1069552444b00bf45381f08ffa9a7bca9810fefb1801866216008bcfc"
+    },
+    "gws-calendar-agenda": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-calendar-agenda/SKILL.md",
+      "computedHash": "794bca1f324fa3a29dd1b98be990c690bcf9e36807fba8634042a36439d26c3e"
+    },
+    "gws-calendar-insert": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-calendar-insert/SKILL.md",
+      "computedHash": "6cfef1caf4117b716e73a5ee4c3ab017bcf72617e9291c2812c052a77281bfbb"
+    },
+    "gws-chat": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-chat/SKILL.md",
+      "computedHash": "b8399b81d524a3c95146a5e026bb5d7974f80c5264c29cbb16ceb0786ce43ff2"
+    },
+    "gws-chat-send": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-chat-send/SKILL.md",
+      "computedHash": "b3fccfdd5283652163104e9e56d9f045b37540bd52d280088d22a15c97f4b8cc"
+    },
+    "gws-classroom": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-classroom/SKILL.md",
+      "computedHash": "b8dc11ae32b7e922e89df7f2f0a0dbfc9039fe9672bf5a57766711297d4f3fa5"
+    },
+    "gws-docs": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-docs/SKILL.md",
+      "computedHash": "10dc2a8aa8cb28524a9d285ddba5602c24c21cbb640718fce522b58d90ee7b97"
+    },
+    "gws-docs-write": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-docs-write/SKILL.md",
+      "computedHash": "fdf46eb60dcdd455a8d8c13dc70cbc855c97063be7d2071cd8c3defee62e60d6"
+    },
+    "gws-drive": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-drive/SKILL.md",
+      "computedHash": "d637ff849b82a9fc195bcfedea260cffe94eaa31b843b28cd04313b1720bb153"
+    },
+    "gws-drive-upload": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-drive-upload/SKILL.md",
+      "computedHash": "0a5cb1978c1eb483bb223363a316dc6a73998b4158c0f4ebcf18882155a57bc8"
+    },
+    "gws-events": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-events/SKILL.md",
+      "computedHash": "8fc135105525b5e24c343f61071f66656ed58dc660c1ec14e1d5fc0db441d0eb"
+    },
+    "gws-events-renew": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-events-renew/SKILL.md",
+      "computedHash": "f40b7517c109f7302a40b74807edb5d7ed014c67ef88fb280ada27cd49cc81e6"
+    },
+    "gws-events-subscribe": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-events-subscribe/SKILL.md",
+      "computedHash": "d5b6b0e16812ed935a05f5d1bb7b4d9b20d87cfe5d5cefea4e7cb6e42e1bcc4a"
+    },
+    "gws-forms": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-forms/SKILL.md",
+      "computedHash": "1f8a7f74106e00fa51a6505f16cf58d5e63c12dc90099920c3d2ed7a67cad6ea"
+    },
+    "gws-gmail": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail/SKILL.md",
+      "computedHash": "5e5b5fdb4b4f347310d929657ed773abcaf528b5ac0a68deee12d3d38d307642"
+    },
+    "gws-gmail-forward": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-forward/SKILL.md",
+      "computedHash": "53790c38df818d91e3e214d80c016b50c67489a57d0e1764f1bcc2c31e754db8"
+    },
+    "gws-gmail-read": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-read/SKILL.md",
+      "computedHash": "fb90ad1652e456d953e8d2094bffa955df171e362c7d31590797ec9ca84b3727"
+    },
+    "gws-gmail-reply": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-reply/SKILL.md",
+      "computedHash": "908f72d3f5a7e9e53f4ecb3cfad6e146a0798aa55ba684629796baddbe5e766a"
+    },
+    "gws-gmail-reply-all": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-reply-all/SKILL.md",
+      "computedHash": "2d848bf4503a1eaeca2051c51e107cc5a1c3ce2e7b772bddc86e3600c69084ab"
+    },
+    "gws-gmail-send": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-send/SKILL.md",
+      "computedHash": "87f48e0c57b05e143b9e206e9fd17585bcc7bfc3cf16e2bdd889c250e5eb8d34"
+    },
+    "gws-gmail-triage": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-triage/SKILL.md",
+      "computedHash": "404d060677fd09d2ddb4c4008817b430114a60a97e99cd94cf1308ec9b26db97"
+    },
+    "gws-gmail-watch": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-gmail-watch/SKILL.md",
+      "computedHash": "ecba93f87ac43d64f154e337c3a6be2139fc4a2e78263b880169ce220398f4c7"
+    },
+    "gws-keep": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-keep/SKILL.md",
+      "computedHash": "96279229273dc04afa1a1c5cfa5a23c7797178946c5de0b28e6d81cffb4286b4"
+    },
+    "gws-meet": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-meet/SKILL.md",
+      "computedHash": "7186520b77ca74133bc1d6c9dedbe2502bad70a095d0c2881859324a45d120f1"
+    },
+    "gws-modelarmor": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-modelarmor/SKILL.md",
+      "computedHash": "7d0ffdbe62471c9b15aedc81771d6d0990dba5ada1f61ae31fd645b7c60a7c93"
+    },
+    "gws-modelarmor-create-template": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-modelarmor-create-template/SKILL.md",
+      "computedHash": "98d2cad8f117751149ecb1d12d2cff8eb7a441477d32f9809dcda3b13ad03cd4"
+    },
+    "gws-modelarmor-sanitize-prompt": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-modelarmor-sanitize-prompt/SKILL.md",
+      "computedHash": "798b25bc9e415eee94e0d4d8e504c898f2488c4d198b91345ea45714364d1448"
+    },
+    "gws-modelarmor-sanitize-response": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-modelarmor-sanitize-response/SKILL.md",
+      "computedHash": "04c6711b35086537e5649311809b0df671281c718c11cfb81f98a5c9419911af"
+    },
+    "gws-people": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-people/SKILL.md",
+      "computedHash": "6f6c4e5cd4cd20d57a8e912d3d1ec483a4d3f2de88ed168eaf20e04dafa01e79"
+    },
+    "gws-script": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-script/SKILL.md",
+      "computedHash": "799025ea93e295538fdecdff445dc2c054c388e1ecaebafeb3195fb5607b2f97"
+    },
+    "gws-script-push": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-script-push/SKILL.md",
+      "computedHash": "e4103e5221d03fd90d77b1ce3864dafaa8f104de3420187d9aaf566fe1f83b0e"
+    },
+    "gws-shared": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-shared/SKILL.md",
+      "computedHash": "b197590681ce3d5a52e9c15a68652b5445d111dbfc0dc453f68fb0785aac443c"
+    },
+    "gws-sheets": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-sheets/SKILL.md",
+      "computedHash": "21c951f8bf399bb941740ab8b048157b43088ad96b743976e88abb0046d263d2"
+    },
+    "gws-sheets-append": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-sheets-append/SKILL.md",
+      "computedHash": "00c79cd5e3f621474220a90f2c9baf5aa5732ef3c0354cdba6b8ff5921bccd36"
+    },
+    "gws-sheets-read": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-sheets-read/SKILL.md",
+      "computedHash": "082f6b6ee503a7438b12338024471f772f90193326cca3b6428e2450879785ff"
+    },
+    "gws-slides": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-slides/SKILL.md",
+      "computedHash": "5018c4b5578fae15b5c5212ad5a68263721c59c40e4bbecd8f4494cc93cb5471"
+    },
+    "gws-tasks": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-tasks/SKILL.md",
+      "computedHash": "c18db1a0ddecb2c4f1d3999d4021c77da621b51da6e9b4a24783a4ef16859c76"
+    },
+    "gws-workflow": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-workflow/SKILL.md",
+      "computedHash": "f123bdb9dd59271e93f0c04469a55ca9b0dbf599fc9722944659a083ed1e66ce"
+    },
+    "gws-workflow-email-to-task": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-workflow-email-to-task/SKILL.md",
+      "computedHash": "24ca7296342b71eed2077154727485e96cb5317f76d20204472bc471131232b2"
+    },
+    "gws-workflow-file-announce": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-workflow-file-announce/SKILL.md",
+      "computedHash": "243abf3004274a4ec42ac5d8874f40b76d26ac52c84504b928a0c2d2be09051e"
+    },
+    "gws-workflow-meeting-prep": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-workflow-meeting-prep/SKILL.md",
+      "computedHash": "72561f3f0f5b1a6de2e6028b232fe2bba9a4d60a97df1012afbf34c5b53c9cf2"
+    },
+    "gws-workflow-standup-report": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-workflow-standup-report/SKILL.md",
+      "computedHash": "ea178b78a537f5e1a44e9ab87627f1618870a0b0e2b1e588c6336308c52a91ea"
+    },
+    "gws-workflow-weekly-digest": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gws-workflow-weekly-digest/SKILL.md",
+      "computedHash": "292bcf04593f7980caee1a0392784ca6b653d36be07a991922fbcdfcc1a5fa27"
+    },
+    "handoff": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/handoff/SKILL.md",
+      "computedHash": "57aa00774264680e2b44d0bd805e324027161f358d764fbb2ac9bef82cda9a10"
+    },
+    "help": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/help/SKILL.md",
+      "computedHash": "72b42977a52a7484692844673600261fa76840ca522429e1cdc4cc111fb62b03"
+    },
+    "helpdesk-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/helpdesk-automation/SKILL.md",
+      "computedHash": "d92b7e2c13856eb9097b0d83e72c65f904ce75bfdd7aae4875bbcf7fd839416e"
+    },
+    "hubspot-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/hubspot-automation/SKILL.md",
+      "computedHash": "638091618cf6fcef039904bc9137b4ff685ffa3c84134fba146bcc81a3861646"
+    },
+    "image-enhancer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/image-enhancer/SKILL.md",
+      "computedHash": "9d16416314dca3ce4f0868b16c6a795dc68feffec5cbf2168d64a8b9f1b4d477"
+    },
+    "immich-photo-manager": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/immich-photo-manager/SKILL.md",
+      "computedHash": "4ee7969256a163b66e1f83cc9199b48a69727d7d9e71314364a73b6b5c16612d"
+    },
+    "init": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/init/SKILL.md",
+      "computedHash": "ad43a0d9303859a4ca05f709c4c804e00fe57dd6f2a2d57c57c661eb5854359e"
+    },
+    "instagram-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/instagram-automation/SKILL.md",
+      "computedHash": "7630efcca32afef8ab2576e57d6282846a8b46440e410048ef1021e7f797cf18"
+    },
+    "intercom-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/intercom-automation/SKILL.md",
+      "computedHash": "7cc73023e38076d1972b25970a592e5453a30dc2fbc3e464e19a5315abc51261"
+    },
+    "interface-design": {
+      "source": "Dammyjay93/interface-design",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/interface-design/SKILL.md",
+      "computedHash": "981da2a0d61da22ad243981c22754dd5b03518a59b5ede040e6a10e992d71b87"
+    },
+    "internal-comms": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/internal-comms/SKILL.md",
+      "computedHash": "71f39f0c5e6aa0ec75c3caab141f4195522809c446f0e5f9d9c5ec1627a82000"
+    },
+    "invoice-organizer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/invoice-organizer/SKILL.md",
+      "computedHash": "babccc922504b062d2a4ceaa1dca0212e239e204cb327b32031d27077db66baa"
+    },
+    "ios-hig-design-guide": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/ios-hig-design-guide/SKILL.md",
+      "computedHash": "8321edd62c4fb62ea40b74944e5aed2c142522bd69044d7ccdfff494ff98a006"
+    },
+    "jira-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/jira-automation/SKILL.md",
+      "computedHash": "37575b9aaa5659a62e3f2fa85561a56c1817220572f41f9aa26b5fc9e3690b58"
+    },
+    "json-canvas": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/json-canvas/SKILL.md",
+      "computedHash": "8e3c597560f1e682b382877c6033c93787a9a63b4cfcee79624d64e0533ee239"
+    },
+    "kegg-analysis": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/kegg-mcp-server/skills/kegg-analysis/SKILL.md",
+      "computedHash": "8bb8c7a6ae52683c576e93be6b326e6168bb128c26fdd351c4a218c38c863f5f"
+    },
+    "klaviyo-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/klaviyo-automation/SKILL.md",
+      "computedHash": "15a1c67eca1c16d05e347fcd983c4d67a1482a290ad9dd459351e04815ff3650"
+    },
+    "lead-research-assistant": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/lead-research-assistant/SKILL.md",
+      "computedHash": "401e81dce79205893fe7342b3618f64e658f59408e74dba38d4b72aeb8d2e464"
+    },
+    "linear-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/linear-automation/SKILL.md",
+      "computedHash": "c016b3d683c17ed1d5248fc25d784634f2ffa119fc045dd246cc6a4d96ac4b2a"
+    },
+    "linkedin-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/linkedin-automation/SKILL.md",
+      "computedHash": "b7cb7041973aeae745547e0aef4bae2001f15ea285dac4b720a4d0fd983f12f7"
+    },
+    "lobsterdomains": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/lobsterdomains/SKILL.md",
+      "computedHash": "7b27609606b0c8f06bf3399ebb7e432c7c646b7c13e202507750368f7824157a"
+    },
+    "macos-design": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/macos-design/SKILL.md",
+      "computedHash": "f11b40ab54178d229db23ebaba9a1455d88a1b351dc8b06f9469efbf6d2cdd4a"
+    },
+    "mailchimp-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/mailchimp-automation/SKILL.md",
+      "computedHash": "18cd3b4ea6097d159f4f37c8f55d1c18b80c8f1f1f4c89093c59b5bbfa72a257"
+    },
+    "make-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/make-automation/SKILL.md",
+      "computedHash": "038e47c00248d70586efccba1d3961371369ba1cd622cc68dfe5bfee8414f340"
+    },
+    "mcp-builder": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/mcp-builder/SKILL.md",
+      "computedHash": "e45ded39ce0b08b358717cb980ec467a7b5b71b19da1e18b44fe77dc94fad195"
+    },
+    "meeting-insights-analyzer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/meeting-insights-analyzer/SKILL.md",
+      "computedHash": "8bc5c71f7547a6d9f306f295bbcbea90364c9fec6093e79f31ba5a1a0f87a538"
+    },
+    "microsoft-teams-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/microsoft-teams-automation/SKILL.md",
+      "computedHash": "648cac21ea8c26e0b1d5537345538434a9562021d5ed06729cd8ba324bcbf7fe"
+    },
+    "miro-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/miro-automation/SKILL.md",
+      "computedHash": "24e71a49d3733f4818c88f7cc029cd13a832e40bf4649653be67dc23353abe30"
+    },
+    "mixpanel-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/mixpanel-automation/SKILL.md",
+      "computedHash": "15efac492e6abaf03111dcdf25137c6bc77580027f0192bd756a9f61a4c96878"
+    },
+    "monday-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/monday-automation/SKILL.md",
+      "computedHash": "4a7fc2a57f42183fa0f2497371c0856b6b3b724b4befe3660c6c9515b46ddd6c"
+    },
+    "morning-ai": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/morning-ai/SKILL.md",
+      "computedHash": "8494b891f23e1afeca7cf41db67996c938086c16ba13f7b7d34b2df5a21fe613"
+    },
+    "notion-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/notion-automation/SKILL.md",
+      "computedHash": "b426fc740649243948a73c31ad6cf57c0a3c5c5a0254c0aa20915356cb1ffe37"
+    },
+    "obsidian-bases": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/obsidian-bases/SKILL.md",
+      "computedHash": "779c25253629fcf757697b015de2417765b3b9ec6e2f7f11fd043b885b5b3042"
+    },
+    "obsidian-markdown": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/obsidian-markdown/SKILL.md",
+      "computedHash": "a0c0aa05bc7a5d6198f07a7377ac4953285cde8289b56a1190e09e1ae6016466"
+    },
+    "oiloil-ui-ux-guide": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/oiloil-ui-ux-guide/SKILL.md",
+      "computedHash": "a4dea1b1815961734b51aeaf69a472dc5475ef74a67fe1b515aa15c425a4d0cf"
+    },
+    "one-drive-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/one-drive-automation/SKILL.md",
+      "computedHash": "18f9afd7c3031a06c72eadf6b1ff4df3663ad7cad41342b11db7702ca7d8e9e9"
+    },
+    "ops": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops/SKILL.md",
+      "computedHash": "25c80efb0fc53ae232b32fc486fa38a403f526984f5922ee930f6509716703d6"
+    },
+    "ops-comms": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-comms/SKILL.md",
+      "computedHash": "f68e685ccdf00dbdb6025b99d2e9d3e75208a8a58583cdac3506b79d023c2201"
+    },
+    "ops-daemon": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-daemon/SKILL.md",
+      "computedHash": "27704fc7ec1e813ea692b913eaf4b68192a13600c2b0585412e8d1158d5bd5b9"
+    },
+    "ops-dash": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-dash/SKILL.md",
+      "computedHash": "e192ceb728bb7f8272d423392cddc000a3dabde449598322746247102b4a35c9"
+    },
+    "ops-deploy": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-deploy/SKILL.md",
+      "computedHash": "bbb04272099af75f407216f980f5daf4496b0041ae12e1b6aaac383d36a90e82"
+    },
+    "ops-doctor": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-doctor/SKILL.md",
+      "computedHash": "7d84eb303a019e977bd12349bbdb9928b8bc3cf3242262afc2d7cfe4c8cac1d1"
+    },
+    "ops-ecom": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-ecom/SKILL.md",
+      "computedHash": "1875f2213c7154c246ec0d9f6fd70f7576e6ada0e44bb2cd363fe749df6d2bc7"
+    },
+    "ops-fires": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-fires/SKILL.md",
+      "computedHash": "08c88c4382b8ee19cd61fb255b0200e799a8c514c9fb3580100721ead6a308a8"
+    },
+    "ops-go": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-go/SKILL.md",
+      "computedHash": "d979bd302c8b0395efbccef7791d2c945f2e60cda540721969bf6f10ed946aa8"
+    },
+    "ops-gtm": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-gtm/SKILL.md",
+      "computedHash": "34322eac9670a34f9d12f2199a699291ce6b46abe8c010df85cc764722652454"
+    },
+    "ops-inbox": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-inbox/SKILL.md",
+      "computedHash": "dd14df66c655ac2c1d9dc576fd2369a9a0b80d88df61f96c430b6d21b84b20d7"
+    },
+    "ops-integrate": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-integrate/SKILL.md",
+      "computedHash": "c3076eaf900fef445a3d4a4cfa646732dd548cdd9184f9e3e3774269b1b80458"
+    },
+    "ops-linear": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-linear/SKILL.md",
+      "computedHash": "523151ab65ee4fe19172bea776496c46cc468b0b0f0b3882fa9a168907ed6aef"
+    },
+    "ops-marketing": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-marketing/SKILL.md",
+      "computedHash": "e396aba7fb35fd761705c16e4d2e235ca3c47bc70486ecfd8ef70754d409f9f5"
+    },
+    "ops-merge": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-merge/SKILL.md",
+      "computedHash": "768aff1f2bcf2376292b7bf4064e13e92eb4631a481da81c9ff27f08eb6b13ad"
+    },
+    "ops-monitor": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-monitor/SKILL.md",
+      "computedHash": "f911e60d670e39520b1a509a15c58ea212692931003214ae18f0c99c682a20ad"
+    },
+    "ops-next": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-next/SKILL.md",
+      "computedHash": "8bcb55191803f05ad8d47a8c711daea448dec78afcff1ec5fedda6345e77b93b"
+    },
+    "ops-orchestrate": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-orchestrate/SKILL.md",
+      "computedHash": "b6b7580a98c22a2ac5ed34ad3c87a3b11e1d5785be0d752446001baa1f67a4b4"
+    },
+    "ops-projects": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-projects/SKILL.md",
+      "computedHash": "2e6b5788908d63feaa48652a369da8750f40e4df4f996b12a71aa818ed9cb387"
+    },
+    "ops-revenue": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-revenue/SKILL.md",
+      "computedHash": "c0dd6b5bf350ff2ae995867150628d40043d774fb6f7f305c8902b9108910cea"
+    },
+    "ops-settings": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-settings/SKILL.md",
+      "computedHash": "5d0f1ef1f939e60faf3017527f22e80d012a5e111bb813bcc284568bfceed047"
+    },
+    "ops-speedup": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-speedup/SKILL.md",
+      "computedHash": "d2868d626b63983279929ede3cccf0a78d748d0e6b0b6cfbcd40c4c2c5fc2693"
+    },
+    "ops-status": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-status/SKILL.md",
+      "computedHash": "ab2aa3f0a25a5f7e9a9ed588bbd79ad962d0b514643863f6bfdd004f75c7ca71"
+    },
+    "ops-triage": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-triage/SKILL.md",
+      "computedHash": "1b0397761f338c974004e177afb37a86cf766ebca0d9f87b6f89c894cce62b1a"
+    },
+    "ops-voice": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-voice/SKILL.md",
+      "computedHash": "b87e1d9ba5505e342f214ccd7f3450b495b4aa5a3a41375d5ecf107efc1c20f1"
+    },
+    "ops-whatsapp-biz": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-whatsapp-biz/SKILL.md",
+      "computedHash": "1f8b8fc785efe86a8e9d1fb6f34cf87921f9bb36f51830055e691ed71c21b687"
+    },
+    "ops-yolo": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/ops-yolo/SKILL.md",
+      "computedHash": "c85e2f3f3118d458de5fc61b7f50aa31dfc1834f9bf13ab0f25a65559a554562"
+    },
+    "outlook-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/outlook-automation/SKILL.md",
+      "computedHash": "89a6573ac552f079b9230d0acec118986f115fd21d26f37089cb3fdb8452c42c"
+    },
+    "outlook-calendar-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/outlook-calendar-automation/SKILL.md",
+      "computedHash": "342ab602a671a442f39d9e8932b1a138b0ca7f8a63bcce426ad80e4605180fa9"
+    },
+    "pagerduty-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/pagerduty-automation/SKILL.md",
+      "computedHash": "f1c2d9ad2e9c42399bc55f0c5ab9af0b44c28ce3caa2a634df9a3ac5996b5570"
+    },
+    "pdf": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/pdf/SKILL.md",
+      "computedHash": "f9042ec98d4d18d5ffb371a2ea8b8e3afcce4533898adfedc93725e0d5c483bd"
+    },
+    "persona-content-creator": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-content-creator/SKILL.md",
+      "computedHash": "15b305780d8b3e4228cbed67a278b088e255465d6533a86781ac7775fbe92b3a"
+    },
+    "persona-customer-support": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-customer-support/SKILL.md",
+      "computedHash": "2e1e37b84630e5a0b217ad11bf35a9ca6003582f44bd655a73705855d8c551cc"
+    },
+    "persona-event-coordinator": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-event-coordinator/SKILL.md",
+      "computedHash": "a0bb37f5df4a742e8e7530b045a507de30a66960760077ad9b2655e360a284fd"
+    },
+    "persona-exec-assistant": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-exec-assistant/SKILL.md",
+      "computedHash": "b01fc996607b8b8d143c21607cf33eb63ed64876ef20c04e5418f9e84d1d9f41"
+    },
+    "persona-hr-coordinator": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-hr-coordinator/SKILL.md",
+      "computedHash": "b5caa92fdf9d9819ecd2216ffec01456409905973eea01bc1e6ebe7578c248d0"
+    },
+    "persona-it-admin": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-it-admin/SKILL.md",
+      "computedHash": "89ff73a44c1ea53954ac01748583781a864683959206c8c075a53cfd6a932d12"
+    },
+    "persona-project-manager": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-project-manager/SKILL.md",
+      "computedHash": "791594e1b7fcabfb2cd0acc32bb3d76c2e10c7521a351f4db328c4231a031cd3"
+    },
+    "persona-researcher": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-researcher/SKILL.md",
+      "computedHash": "66095fa643dcbd4414aff1f2235ea3513c3f3a9218d0c6a2ea24275512888f66"
+    },
+    "persona-sales-ops": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-sales-ops/SKILL.md",
+      "computedHash": "b9301ea015701a2b663faa5c333443f140fe710cb40132d3cb9e69fcecb8bec2"
+    },
+    "persona-team-lead": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-team-lead/SKILL.md",
+      "computedHash": "4be5f55f45c8174820a078262378aa310e7e0fd7cff9df9960691020562d8b1d"
+    },
+    "pipedrive-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/pipedrive-automation/SKILL.md",
+      "computedHash": "f6dd9731a022e5502f4ddfda68b730d7474922474b9538c5b3f3485d1ab69019"
+    },
+    "posthog-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/posthog-automation/SKILL.md",
+      "computedHash": "055cb0f1927df9e6ecb9293306855cadc4878456b57ca1069eeb605d39223371"
+    },
+    "postmark-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/postmark-automation/SKILL.md",
+      "computedHash": "35fb86781036119dc1851ac0e000a3a7b52920466c7955e2648ed9feb4bffc55"
+    },
+    "pptx": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/pptx/SKILL.md",
+      "computedHash": "0a1a2e65c9e328676692f543118a21308358c73edd924193a24947d561a60562"
+    },
+    "pressreleasesonline": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/pressreleasesonline/SKILL.md",
+      "computedHash": "d01ffe7a89f2cffe02ad8c4ae1c9c146fdc27b1c5e38aa62111820276d2ed7d8"
+    },
+    "raffle-winner-picker": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/raffle-winner-picker/SKILL.md",
+      "computedHash": "85c4e9041b228505614e3e9bd33cfafd75a3071a9237f761a35c72bf5a7f21f9"
+    },
+    "read": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/read/SKILL.md",
+      "computedHash": "f4f471bc0665291a22a7e88d173516fc5ea9acfe567d0a098b57ae24086d6171"
+    },
+    "recall": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/recall/SKILL.md",
+      "computedHash": "55806d6238b4f87fdb47aad44818f4685c27c0c3bef2cd5cb373699cf697dbcd"
+    },
+    "recap": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/cashflow/skills/recap/SKILL.md",
+      "computedHash": "9319c7da5a88bcda31bee7ea374348bf54ab2e6a8e80800fa4d8915deeece1d0"
+    },
+    "recipe-backup-sheet-as-csv": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-backup-sheet-as-csv/SKILL.md",
+      "computedHash": "90ad5997a19038b57906a69b42fef8524758e4572350242cc453c94365feafa5"
+    },
+    "recipe-batch-invite-to-event": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-batch-invite-to-event/SKILL.md",
+      "computedHash": "6d6d88d3539b0570fc3a917fdf6db2475b45ce680d216799ed8076aeeaac53e6"
+    },
+    "recipe-block-focus-time": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-block-focus-time/SKILL.md",
+      "computedHash": "1698ac55772d324bd5747c43129fd2ce3424091095eb1d90a49ce26348532337"
+    },
+    "recipe-bulk-download-folder": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-bulk-download-folder/SKILL.md",
+      "computedHash": "33f1f77f9fc4397fe2abad6e42e2e434f5e2c36c47f5a68827f230844d8ff892"
+    },
+    "recipe-collect-form-responses": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-collect-form-responses/SKILL.md",
+      "computedHash": "6fed445a76c42014625bbaaf25d280d01ad76c5658e45291c396af927e54cd2a"
+    },
+    "recipe-compare-sheet-tabs": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-compare-sheet-tabs/SKILL.md",
+      "computedHash": "0413eb1c39e1a521a9b8f9f65890489de189b9d8dc740ef76ed968434fa05952"
+    },
+    "recipe-copy-sheet-for-new-month": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-copy-sheet-for-new-month/SKILL.md",
+      "computedHash": "257fb7b14d88cefb21e13ab465e79dc05aa7fa964dbea0298f8bf493a07cf819"
+    },
+    "recipe-create-classroom-course": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-classroom-course/SKILL.md",
+      "computedHash": "9d02c6d2ae0e0d798b00302560218d9b3354f9dfd22b8d270767a90fad921738"
+    },
+    "recipe-create-doc-from-template": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-doc-from-template/SKILL.md",
+      "computedHash": "dc49e1a728fd73ce6fdb4443dd91c5519cc77efc7685c7e9fdcbf9a4245ebd75"
+    },
+    "recipe-create-events-from-sheet": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-events-from-sheet/SKILL.md",
+      "computedHash": "b2c9bad0c72c732db3db679301b192db92b8c50d3f262605477fecda306b0e23"
+    },
+    "recipe-create-expense-tracker": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-expense-tracker/SKILL.md",
+      "computedHash": "e96639dbaa30920c019ac1db63ff1e427a1e8f22725968d7cd56763b82b5c939"
+    },
+    "recipe-create-feedback-form": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-feedback-form/SKILL.md",
+      "computedHash": "dbf8400bd52e241d287548d4d50fa01f37af2032ae91d90e503018e67d9da3c2"
+    },
+    "recipe-create-gmail-filter": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-gmail-filter/SKILL.md",
+      "computedHash": "47d450f0e3796b03422f5d864ad36d8c93c9a17a189f5a480bed5b204612f0f3"
+    },
+    "recipe-create-meet-space": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-meet-space/SKILL.md",
+      "computedHash": "bdffd0af184a3fc33e882f9c096773d2c72d758069267a80964869aca20a85fd"
+    },
+    "recipe-create-presentation": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-presentation/SKILL.md",
+      "computedHash": "a86914b354970618ce3ac86be3219e0bcf15b98835841774af16409422f87dae"
+    },
+    "recipe-create-shared-drive": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-shared-drive/SKILL.md",
+      "computedHash": "629c8dc5c3c7d9d970ef8facc72c3d3310a2dca2c620e16a714d00cd56c4bca6"
+    },
+    "recipe-create-task-list": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-task-list/SKILL.md",
+      "computedHash": "f7b4f307c452e18f71d11b707ce101f3e1d2da884fc2fc304302086d8d0915bf"
+    },
+    "recipe-create-vacation-responder": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-create-vacation-responder/SKILL.md",
+      "computedHash": "a8663aae0092c81294a1e37d038a23e1332c0f8e7c14d1a30af6e5a2deec0d51"
+    },
+    "recipe-draft-email-from-doc": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-draft-email-from-doc/SKILL.md",
+      "computedHash": "c4d1b2300599b82c74b5912653c1ab4d7bf73c68b84872e547ceda1a63d80c0a"
+    },
+    "recipe-email-drive-link": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-email-drive-link/SKILL.md",
+      "computedHash": "0d083f564cf8548461c31d2d1b36ceb1d5b30f06bb2e00992dba29d0e4b4954d"
+    },
+    "recipe-find-free-time": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-find-free-time/SKILL.md",
+      "computedHash": "bc0e7c666aae2834669c55ea032616487140f92921003d7d29791d948028fca0"
+    },
+    "recipe-find-large-files": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-find-large-files/SKILL.md",
+      "computedHash": "09b1dad5c431202694aab8b4358f3d2ff2691cf39c933410be015f13e9063b78"
+    },
+    "recipe-forward-labeled-emails": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-forward-labeled-emails/SKILL.md",
+      "computedHash": "4998486e65d14c0df4c28bea943eee4e392e5cd0e8999833de51ebec26ba2761"
+    },
+    "recipe-generate-report-from-sheet": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-generate-report-from-sheet/SKILL.md",
+      "computedHash": "9887fea88e29248dd981887d8e4b3ee14c380f53824275a27943fd274050871e"
+    },
+    "recipe-label-and-archive-emails": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-label-and-archive-emails/SKILL.md",
+      "computedHash": "5f60b75c0a0a5c93abd437ca742ed9155495d19b716e9ca07fe6fc0a850c360d"
+    },
+    "recipe-log-deal-update": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-log-deal-update/SKILL.md",
+      "computedHash": "1c65ceeb1e5caa370f61958da1c479e80b0d5218c78c6109ac96d080a3aca18b"
+    },
+    "recipe-organize-drive-folder": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-organize-drive-folder/SKILL.md",
+      "computedHash": "b6cc2f74973fbbda0c28daeb416301950adbc1344f4683dd98313144838b015d"
+    },
+    "recipe-plan-weekly-schedule": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-plan-weekly-schedule/SKILL.md",
+      "computedHash": "806ac44b1468f1c1bbdf1d0f046cbdfe927221da2f129e3e0de50770720ef8ab"
+    },
+    "recipe-post-mortem-setup": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-post-mortem-setup/SKILL.md",
+      "computedHash": "a894effeb3b2441c29dbea7dc1e16ef4c7149d1c22d1904b67efd0e482ec44a2"
+    },
+    "recipe-reschedule-meeting": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-reschedule-meeting/SKILL.md",
+      "computedHash": "bf13cf982fe02c33fdc5eef43041f0b704884bd1e016f9ba4a59334ad239d792"
+    },
+    "recipe-review-meet-participants": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-review-meet-participants/SKILL.md",
+      "computedHash": "d663fefecaf58fde31be82a445353405d6aba698a08836e0e3a1c36bcdefc23b"
+    },
+    "recipe-review-overdue-tasks": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-review-overdue-tasks/SKILL.md",
+      "computedHash": "20a59f99916cef66d0279bf0644918cf2fd885b5aaed89e7409bb23ce6f89e7f"
+    },
+    "recipe-save-email-attachments": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-save-email-attachments/SKILL.md",
+      "computedHash": "da0db4fdfe3fc215a777110aa3c4cc05f575388217a9688ae0292ee03dda6762"
+    },
+    "recipe-save-email-to-doc": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-save-email-to-doc/SKILL.md",
+      "computedHash": "c66ab9bdb4e68a8cfee1bf5cf51ec56c93d19b4902eb11d32152556fbdc85e14"
+    },
+    "recipe-schedule-recurring-event": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-schedule-recurring-event/SKILL.md",
+      "computedHash": "ea82f8bd452d6eccf3e7f939d32367729f7915bf702a35d58c758c41f11feeff"
+    },
+    "recipe-send-team-announcement": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-send-team-announcement/SKILL.md",
+      "computedHash": "6c1c97afb5cd93701420718b4f2155627c2661fd2701b5f1b4bb7bae94f162e6"
+    },
+    "recipe-share-doc-and-notify": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-share-doc-and-notify/SKILL.md",
+      "computedHash": "1778ee258909f0f10e36fb7f2c45b6c65a413c4eb638aee0683035dd4dc1ee96"
+    },
+    "recipe-share-event-materials": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-share-event-materials/SKILL.md",
+      "computedHash": "d9191d749beabe8f8718e3a605a55471c521521169352938224dd7ff5b8e1515"
+    },
+    "recipe-share-folder-with-team": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-share-folder-with-team/SKILL.md",
+      "computedHash": "c8dc58dad08e889716b06fe227ade63672c0d1cfd9536963fc20cc25d562ff32"
+    },
+    "recipe-sync-contacts-to-sheet": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-sync-contacts-to-sheet/SKILL.md",
+      "computedHash": "b6b2eadce3f0b108937c8ddfb0551d86136db8204e04a2f4661d473cf3b59924"
+    },
+    "recipe-watch-drive-changes": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/recipe-watch-drive-changes/SKILL.md",
+      "computedHash": "936bdf68b95314d49fb04069da1b52e5092edef3ff576f483fe8c8323b05f3f3"
+    },
+    "reddit-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/reddit-automation/SKILL.md",
+      "computedHash": "ca20759c32d05eb17422e785dcabc28e276d5b5d8f41d0eee7b39b302bc4fe8b"
+    },
+    "render-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/render-automation/SKILL.md",
+      "computedHash": "8559ed73626ba8c0d9762c36b1e4d90043e4ecb6b65fed8f5606626e4b3459b9"
+    },
+    "resemble-detect": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/resemble-detect/SKILL.md",
+      "computedHash": "84816876f555aceb1275950828c3704b94cf5cd2574e56e4ef10dcb074d13918"
+    },
+    "review": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/origin/skills/review/SKILL.md",
+      "computedHash": "f43243169d86e2d0b6066a46d1332917cc46ffcfe77f54e41bfd42430b0affc7"
+    },
+    "route-handlers": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/nextjs-expert/skills/route-handlers/SKILL.md",
+      "computedHash": "be58104b9aa7531acb7133455ee5ee9acb538af8e21a1cea0a1bcea4d8543bba"
+    },
+    "salesforce-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/salesforce-automation/SKILL.md",
+      "computedHash": "df5d8122adcf59e51adbd4eef01acc4fca2ca806c9d52e9235c54fa3b8cfc0f1"
+    },
+    "segment-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/segment-automation/SKILL.md",
+      "computedHash": "6997fd7c01912c1f90012d80a984eeb29eb729e5b9fe5d44e6c1170e9536302b"
+    },
+    "sendgrid-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/sendgrid-automation/SKILL.md",
+      "computedHash": "96d12edd7320ca795639bebef2bb4f79705b844e558d9bcdd81066074d8609a4"
+    },
+    "sentry-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/sentry-automation/SKILL.md",
+      "computedHash": "9e0878a9668dc8da88974c2faa58954b0517b8d562b911aadb97fd1573b5e19f"
+    },
+    "sequenzy-email-marketing": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/sequenzy-email-marketing/SKILL.md",
+      "computedHash": "7b16b3e76ec5aad843d7ebcef3e4b4cf346a7987b29a98c5fd86e809f9b90094"
+    },
+    "server-actions": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/nextjs-expert/skills/server-actions/SKILL.md",
+      "computedHash": "beb8383b05d1c0a2d11590e6924a5994d30b0c13a4ba8dd64eba4a1ae5e4bc8b"
+    },
+    "server-components": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/nextjs-expert/skills/server-components/SKILL.md",
+      "computedHash": "97cf5d2eb6523d56625df90370174931eb4a77aba804f5eb801aabbff419220a"
+    },
+    "setup": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/setup/SKILL.md",
+      "computedHash": "e85efbeeb14a4bb8ac7642da3f974663259dda54b9ab1e73608e69279a05cb6b"
+    },
+    "shannon": {
+      "source": "unicodeveloper/shannon",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "5dbcc124e13135a2d8feabdb0149c130f46440a0685c24ab17bf01fb6ab60770"
+    },
+    "shopify-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/shopify-automation/SKILL.md",
+      "computedHash": "f5f762d57f27aee0e518ce1fe0cd790ff6ac4a383682496e62560fe6d0a3fba7"
+    },
+    "skill-creator": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/skill-creator/SKILL.md",
+      "computedHash": "627665f3ac34232caaa1f7a20e3d083cb65bc3a7a4e0a407c1e875d9955eed8c"
+    },
+    "skill-share": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/skill-share/SKILL.md",
+      "computedHash": "a581b644a035dcfe0300428e56275902060f9e0bfbb672df2c5ddf193bc882bb"
+    },
+    "skyvern": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/skyvern/SKILL.md",
+      "computedHash": "6f42897b80f0593ffd80b9811159f9294d1f5a6cd6e6bf474df4c59d8dcc93ec"
+    },
+    "slack-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/slack-automation/SKILL.md",
+      "computedHash": "404760e9449971c3135412b90642ad1ddac935aec8d47710d776afb261dca7cc"
+    },
+    "slack-gif-creator": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/slack-gif-creator/SKILL.md",
+      "computedHash": "bffe450a6b6ca0ed6a7bc00c042e15853ccf93e1d33dea2fc1491cb600e26b56"
+    },
+    "slack-message-formatter": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/slack-message-formatter/SKILL.md",
+      "computedHash": "7fe289bc7b7d330e568a8bdd8d61d79f659da0fb2d5de75edbe9f817c47a0d3d"
+    },
+    "slopmop": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/slopmop/skills/slopmop/SKILL.md",
+      "computedHash": "c00bca56ebe28b30d345a33b8a765fab866f9f0c02b2cf36931989b0959c1235"
+    },
+    "socialclaw": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/socialclaw/SKILL.md",
+      "computedHash": "4f7e11cf97cb298d8cee02ea54ddeb9d4896a4b3159dbc061ea0bf590ae9d90f"
+    },
+    "square-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/square-automation/SKILL.md",
+      "computedHash": "928913ff6684ccda371ae071c0c3052e93db350caf4432b5ff5e95b19bc1fdd7"
+    },
+    "stripe-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/stripe-automation/SKILL.md",
+      "computedHash": "e05bfbe557c1163723f41321ac47117f8c0ad67575a83ee4c39ed0f2a9d842f5"
+    },
+    "supabase-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/supabase-automation/SKILL.md",
+      "computedHash": "da2105421ec884ff57da834d964876ec996f4b34e2d8e4610aeecf86b7c36662"
+    },
+    "szamlazz-invoicing": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/szamlazz-invoicing/SKILL.md",
+      "computedHash": "445558ec515bf5f1eb59c970630e853585a14fe1795399d970279fa82aff9643"
+    },
+    "tailored-resume-generator": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/tailored-resume-generator/SKILL.md",
+      "computedHash": "4202aff0cefc3e19a7d4f8978d8eb601aaffbc0302d692b198ce30b51111e92b"
+    },
+    "telegram-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/telegram-automation/SKILL.md",
+      "computedHash": "39c10039d12e428e585f8e6d2c4a8fe09e02a4f0ae6259c98be720107fd6b0c0"
+    },
+    "theme-factory": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/theme-factory/SKILL.md",
+      "computedHash": "498c15bbb28d3434f4de2ee4b816052ad134598a5cfe9c61f59f841dd3b38e5a"
+    },
+    "tidy": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/cashflow/skills/tidy/SKILL.md",
+      "computedHash": "76fccd1204b24c29b252e56344109b0e70a7af0cee0b4904889f787f513ece21"
+    },
+    "tiktok-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/tiktok-automation/SKILL.md",
+      "computedHash": "b52d29305a422e3f9ebd150edca35a7513dbd18922f8a941881e567d89737c36"
+    },
+    "todoist-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/todoist-automation/SKILL.md",
+      "computedHash": "fe7c29fb57e71b22f7880cb9150de9df62f6f7aa1cfde70096e1e849d8273d49"
+    },
+    "tracedocs": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/tracedocs/SKILL.md",
+      "computedHash": "99042197d38063da510d185949e8e545b03f2c65b17eb580839b7a50f3301769"
+    },
+    "trello-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/trello-automation/SKILL.md",
+      "computedHash": "3ac1c658ca9d2d0249d2492d3ca5866514bef922061586d4cd7a7161d26d7ef9"
+    },
+    "tubeify": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/tubeify/SKILL.md",
+      "computedHash": "638a53ff41bdcfa244674bedbee80c79399c165d3d7214f259d3112ad809e446"
+    },
+    "tweetclaw": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/tweetclaw/SKILL.md",
+      "computedHash": "c7bbb22cb3f5109def29a87b1d0a8bc7aa5fd74aa0b351587df4c3154400f5f4"
+    },
+    "twitter-algorithm-optimizer": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/twitter-algorithm-optimizer/SKILL.md",
+      "computedHash": "6c0bf3a8cee43236a29343f71d5418c939517e14ee2d1a6b70e6ec5c6324f289"
+    },
+    "twitter-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/twitter-automation/SKILL.md",
+      "computedHash": "a7750b2258f4af6437728cef8070e08753fc1514b73ba48b0cbcbd9883313055"
+    },
+    "tycana": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/tycana/SKILL.md",
+      "computedHash": "25cc35f8167fd7512af53bcc62c2aae9ec1603b28d1183973dd86205c94b3310"
+    },
+    "uninstall": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/claude-ops/skills/uninstall/SKILL.md",
+      "computedHash": "d64d6a4903b78d00915c6bc7c3340a5f25828528d1d2176c40d620fa7fb951d4"
+    },
+    "valyu-best-practices": {
+      "source": "valyuai/skills",
+      "sourceType": "github",
+      "skillPath": "valyu-search/valyu-best-practices/SKILL.md",
+      "computedHash": "40d76de811b2082566424975ff18af7990b6000b144d4b6187486783b517099b"
+    },
+    "vercel-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/vercel-automation/SKILL.md",
+      "computedHash": "bda0362712634a8a138ddb934dda55394fddedce13af1e7427242b68a0a5ffa1"
+    },
+    "video-downloader": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/video-downloader/SKILL.md",
+      "computedHash": "060b768fe5f41b9712385f955b42755247404d224ebc0a073f0c32769b58122f"
+    },
+    "webapp-testing": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/webapp-testing/SKILL.md",
+      "computedHash": "54ab38f54c264fa1a796de3b4b05545a2e25db18cdc25ae7bcfb6a81196765fd"
+    },
+    "webflow-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/webflow-automation/SKILL.md",
+      "computedHash": "7a94e43749ddc5ba68221f65561b02b774a856842b30c32b03f18c59cf4c5da7"
+    },
+    "whatsapp-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/whatsapp-automation/SKILL.md",
+      "computedHash": "a1f33ca09a5b5f79479475d72a7e557e24018e1d8dd6a195fbd0ee2e48ef6e59"
+    },
+    "wrike-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/wrike-automation/SKILL.md",
+      "computedHash": "75e8379bcca6ff8a02da13f844aa00fe3f16320e6b24c9cbd6ab3bf5ff31d542"
+    },
+    "x-twitter-scraper": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/x-twitter-scraper/SKILL.md",
+      "computedHash": "920c3480410354fb13b96c5f64ccd782c910f13f19545a6c17d448682c84a482"
+    },
+    "xlsx": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/xlsx/SKILL.md",
+      "computedHash": "9b9b447aa27d51f1fd1ba46014827d7eb96cfc9c619d89b2725f03c611f0ec84"
+    },
+    "youtube-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/youtube-automation/SKILL.md",
+      "computedHash": "c938ced706367557d8c70d9285ff69e722b0294719fb6628009b3d12101349c3"
+    },
+    "zendesk-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/zendesk-automation/SKILL.md",
+      "computedHash": "ddfa89c6040a48892dbfe5ee15f9f6f3ea990ecf58c431f0f9cda4e1a4686dbc"
+    },
+    "zoho-crm-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/zoho-crm-automation/SKILL.md",
+      "computedHash": "fa3d33dc3d731a522b33ea9c580b0eafe55f4a88c0e1fdcaf67e8e44cac54af9"
+    },
+    "zoom-automation": {
+      "source": "davepoon/buildwithclaude",
+      "sourceType": "github",
+      "skillPath": "plugins/all-skills/skills/zoom-automation/SKILL.md",
+      "computedHash": "ea96b1084001b41cb148fbc9fd81d093ebebad6a2f12fac8a38ce39fc543feee"
+    }
+  }
+}

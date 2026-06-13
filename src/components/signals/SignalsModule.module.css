@@ -1,0 +1,173 @@
+/* Signals module — local layout only. Colours come from Atelier vars in globals.css. */
+
+.groupLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 18px 0 8px;
+  font-family: var(--narrow);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.groupLabel:first-child {
+  margin-top: 4px;
+}
+.groupCount {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+}
+
+.aiBadge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--marine-2, var(--marine));
+  border: 1px solid color-mix(in srgb, var(--marine) 36%, transparent);
+  background: color-mix(in srgb, var(--marine) 9%, transparent);
+  border-radius: 2px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.suggest {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--marine) 28%, transparent);
+  background: color-mix(in srgb, var(--marine) 7%, transparent);
+  border-radius: var(--rl);
+}
+.suggestHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-family: var(--narrow);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--marine-2, var(--marine));
+}
+.suggestBody {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+}
+.confBar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  margin-top: 8px;
+  overflow: hidden;
+}
+.confFill {
+  height: 100%;
+  background: var(--marine);
+}
+
+.routeRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.routeRow:last-child {
+  border-bottom: none;
+}
+.routeName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.routeMeta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.routeActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.iconBtn {
+  font-family: var(--narrow);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink-dim);
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.iconBtn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.iconBtn.danger:hover {
+  border-color: var(--clay);
+  color: var(--clay);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field.full {
+  grid-column: 1 / -1;
+}
+.fieldLabel {
+  font-family: var(--narrow);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.input,
+.select {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  padding: 7px 9px;
+  outline: none;
+}
+.input:focus,
+.select:focus {
+  border-color: var(--accent);
+}
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.headActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.emptyMini {
+  padding: 14px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
