@@ -11,6 +11,8 @@ import {
   type TrainingKind,
   type TrainingIntensity,
 } from "@/lib/hooks/useTrainingWeek";
+import { WorkoutDetailModal } from "./WorkoutDetailModal";
+import { AIRegimenModal } from "./AIRegimenModal";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -196,6 +198,7 @@ function TrainingWeekPlanner() {
     useTrainingWeek();
   const [editing, setEditing] = useState(false);
   const [openDay, setOpenDay] = useState<number | null>(null);
+  const [detailSession, setDetailSession] = useState<TrainingSession | null>(null);
 
   const byDay = useMemo(() => {
     const map: Record<number, TrainingSession[]> = {};
@@ -275,29 +278,43 @@ function TrainingWeekPlanner() {
                   <div className="tw-meta" style={{ color: "var(--ink-faint)" }}>—</div>
                 )}
 
-                {/* View mode: compact stack of sessions; tap to complete */}
+                {/* View mode: click session to open detail; check icon to toggle complete */}
                 {!editing &&
                   day.map((s) => (
                     <div
                       key={s.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleComplete(s.id);
+                        setDetailSession(s);
                       }}
-                      title="Toggle complete"
-                      style={{ cursor: "pointer" }}
+                      title="View workout detail"
+                      style={{ cursor: "pointer", position: "relative" }}
                     >
                       <div
                         className="tw-sess"
                         style={{
                           textDecoration: s.completed ? "line-through" : "none",
                           color: s.completed ? "var(--ink-faint)" : "var(--ink-2)",
+                          paddingRight: 20,
                         }}
                       >
-                        {s.completed ? "✓ " : ""}{s.title || KIND_LABELS[s.kind]}
+                        {s.title || KIND_LABELS[s.kind]}
                       </div>
                       <div className="tw-meta">{sessionMeta(s)}</div>
                       {s.intensity === "key" && <span className="tw-tag">KEY</span>}
+                      <span
+                        onClick={(e) => { e.stopPropagation(); toggleComplete(s.id); }}
+                        title="Toggle complete"
+                        style={{
+                          position: "absolute", top: 0, right: 0,
+                          fontFamily: "var(--mono)", fontSize: 10,
+                          color: s.completed ? "var(--up)" : "var(--line)",
+                          cursor: "pointer", lineHeight: 1, padding: "2px 4px",
+                          transition: "color .15s",
+                        }}
+                      >
+                        {s.completed ? "✓" : "○"}
+                      </span>
                     </div>
                   ))}
 
@@ -343,8 +360,17 @@ function TrainingWeekPlanner() {
       <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 9 }}>
         {editing
           ? "Add, edit, or remove sessions per day. Changes save automatically."
-          : "Tap a session to mark it complete. Sessions surface in Console, Schedule, and Agenda."}
+          : "Click a session to view / log details. Use ○ to mark complete."}
       </div>
+
+      <WorkoutDetailModal
+        session={detailSession}
+        onClose={() => setDetailSession(null)}
+        onToggleComplete={(id) => {
+          toggleComplete(id);
+          setDetailSession((s) => (s && s.id === id ? { ...s, completed: !s.completed } : s));
+        }}
+      />
     </div>
   );
 }
@@ -355,6 +381,7 @@ export function VitalityModule() {
   const [yogaChip, setYogaChip] = useState("All");
   const [meals, setMeals] = useState(INITIAL_MEALS);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
+  const [regimenModal, setRegimenModal] = useState<"run" | "lift" | null>(null);
 
   const toggleRecipe = (id: string) => setSavedRecipes((s) => ({ ...s, [id]: !s[id] }));
 
@@ -409,7 +436,9 @@ export function VitalityModule() {
             <div className="ex"><span>Wed — Intervals 6×800m</span><span className="es">Z4</span></div>
             <div className="ex"><span>Sat — Long run 16 km</span><span className="es">Z2</span></div>
             <div style={{ marginTop: 14 }}>
-              <span className="aibtn"><AiIcon />Re-plan with AI → Schedule</span>
+              <span className="aibtn" onClick={() => setRegimenModal("run")} style={{ cursor: "pointer" }}>
+                <AiIcon />Re-plan with AI → Schedule
+              </span>
             </div>
           </div>
           <div className="card">
@@ -453,7 +482,9 @@ export function VitalityModule() {
           </div>
         </div>
         <div style={{ marginTop: 16 }}>
-          <span className="aibtn"><AiIcon />Build a Session with AI</span>
+          <span className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
+            <AiIcon />Build a Session with AI
+          </span>
         </div>
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 14 }}>Strength &amp; Conditioning Reads<span className="rule" /></h2>
@@ -485,7 +516,9 @@ export function VitalityModule() {
             <p style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.55, marginBottom: 12 }}>
               Generate a mobility or Pilates flow targeting your tight areas, then drop it into wind-down.
             </p>
-            <span className="aibtn"><AiIcon />Build a Flow with AI</span>
+            <span className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
+              <AiIcon />Build a Flow with AI
+            </span>
           </div>
         </div>
         <h2 className="sec" style={{ marginBottom: 14 }}>Yoga &amp; Pilates Videos<span className="rule" /><span className="count">YouTube API</span></h2>
@@ -671,6 +704,14 @@ export function VitalityModule() {
           </div>
         </div>
       </div>
+
+      {regimenModal && (
+        <AIRegimenModal
+          discipline={regimenModal}
+          open={true}
+          onClose={() => setRegimenModal(null)}
+        />
+      )}
     </>
   );
 }
