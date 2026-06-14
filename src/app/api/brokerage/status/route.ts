@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { getBrokerageCreds } from "../_lib";
 
 /**
  * Brokerage (Public.com) connectivity status. Generic scaffold behind a
@@ -6,15 +8,12 @@ import { NextResponse } from "next/server";
  * { configured: false } with no error when keys are absent so the order
  * ticket can route to local-log mode and show a "Connect Public" prompt.
  */
-export function getBrokerageCreds() {
-  const apiKey = process.env.PUBLIC_API_KEY || process.env.BROKERAGE_API_KEY;
-  const accountId =
-    process.env.PUBLIC_ACCOUNT_ID || process.env.BROKERAGE_ACCOUNT_ID;
-  if (!apiKey) return null;
-  return { apiKey, accountId: accountId ?? null };
-}
 
 export async function GET() {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const creds = getBrokerageCreds();
   return NextResponse.json({
     configured: !!creds,

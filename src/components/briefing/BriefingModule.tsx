@@ -1,6 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import { useToast } from "@/components/ui/Toast";
+
+const SAVED_KEY = "axis-briefing-saved";
+type SavedItem = { id: string; title: string; url: string; savedAt: string; type: "read" | "watch" };
+
+function loadSaved(): SavedItem[] {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "[]"); } catch { return []; }
+}
+function persistSaved(items: SavedItem[]) {
+  localStorage.setItem(SAVED_KEY, JSON.stringify(items));
+}
 
 type Story = {
   id: string;
@@ -11,6 +23,7 @@ type Story = {
   srcLong: string;
   body: string;
   gradient: string;
+  url: string;
   size?: "big" | "wide";
   video?: boolean;
 };
@@ -25,6 +38,7 @@ const STORIES: Story[] = [
     srcLong: "THE NATIVE · 5h AGO · 11 MIN WATCH",
     body: "The conversation traces a deliberate creative path: building a studio ecosystem at home, resisting the pull to relocate, and treating the diaspora as a network to collaborate across rather than an audience to chase.",
     gradient: "linear-gradient(135deg,#242030,#10141b)",
+    url: "https://www.nativemag.com",
     size: "big",
     video: true,
   },
@@ -37,6 +51,7 @@ const STORIES: Story[] = [
     srcLong: "STAT · 2h AGO · 6 MIN READ",
     body: "Trial sponsors are pushing incisionless lesioning past movement disorders into OCD and depression — with stereotactic teams watching the targeting data closely.",
     gradient: "linear-gradient(135deg,#16252a,#10141b)",
+    url: "https://www.statnews.com",
   },
   {
     id: "tsy",
@@ -47,6 +62,7 @@ const STORIES: Story[] = [
     srcLong: "BLOOMBERG · 4h AGO · 5 MIN READ",
     body: "Duration is being treated as portfolio insurance again as growth data softens — a shift with implications for the long end of the curve.",
     gradient: "linear-gradient(135deg,#1d2330,#10141b)",
+    url: "https://www.bloomberg.com",
   },
   {
     id: "ondevice",
@@ -57,6 +73,7 @@ const STORIES: Story[] = [
     srcLong: "THE VERGE · 7h AGO · 8 MIN READ",
     body: "Smaller local models are clearing privacy review faster than cloud inference, and bedside decision-support pilots are the early beneficiaries.",
     gradient: "linear-gradient(135deg,#1a2433,#10141b)",
+    url: "https://www.theverge.com",
     size: "wide",
   },
   {
@@ -68,6 +85,7 @@ const STORIES: Story[] = [
     srcLong: "FT · 1d AGO · 7 MIN READ",
     body: "The bull case rests on data-center capex staying durable through 2027; the bear case is simply the multiple.",
     gradient: "linear-gradient(135deg,#22262f,#10141b)",
+    url: "https://www.ft.com",
   },
 ];
 
@@ -91,10 +109,14 @@ const CAT_TO_FILTER: Record<string, string> = {
 };
 
 export function BriefingModule() {
+  const { open: openInApp } = useWebViewer();
+  const { toast } = useToast();
   const [active, setActive] = useState<Set<string>>(
     () => new Set(CHIPS.filter((c) => c.on).map((c) => c.f)),
   );
   const [readerId, setReaderId] = useState<string>(STORIES[0].id);
+  const [saved, setSaved] = useState<SavedItem[]>(() => loadSaved());
+  const [showSaved, setShowSaved] = useState(false);
 
   const toggleChip = (f: string) => {
     setActive((prev) => {
@@ -105,6 +127,16 @@ export function BriefingModule() {
     });
   };
 
+  const toggleSave = (s: Story, type: "read" | "watch" = "read") => {
+    const already = saved.find((x) => x.id === s.id);
+    const next = already
+      ? saved.filter((x) => x.id !== s.id)
+      : [...saved, { id: s.id, title: s.shortTitle, url: s.url, savedAt: new Date().toISOString(), type }];
+    setSaved(next);
+    persistSaved(next);
+    toast(already ? "Removed from saved" : `Saved for ${type === "watch" ? "later" : "reading"}`, "success", "Briefing");
+  };
+
   const visible = active.has("all")
     ? STORIES
     : STORIES.filter((s) => active.has(CAT_TO_FILTER[s.cat]));
@@ -113,11 +145,16 @@ export function BriefingModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <button
+          type="button"
+          className="feed-manage"
+          style={{ fontSize: 10.5, color: saved.length > 0 ? "var(--gold)" : undefined }}
+          onClick={() => setShowSaved((s) => !s)}
+        >
+          {showSaved ? "← All" : `★ Saved${saved.length > 0 ? ` (${saved.length})` : ""}`}
+        </button>
       </div>
-      <h1 className="hero">Briefing</h1>
       <div className="divider" />
       <div className="feedbar">
         <div className="feedbar-in">
@@ -143,7 +180,7 @@ export function BriefingModule() {
       </div>
       <div className="reader">
         <div className="r-media">
-          <div className="play" />
+          <div className="play" onClick={() => openInApp(reader.url, reader.shortTitle)} style={{ cursor: "pointer" }} title="Open in app" />
           <div className="scrub">
             <span>02:14</span>
             <div className="bar" />
@@ -155,14 +192,68 @@ export function BriefingModule() {
           <h2>{reader.title}</h2>
           <div className="r-src">{reader.srcLong}</div>
           <p>{reader.body}</p>
+          <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              className="sig-go"
+              onClick={() => openInApp(reader.url, reader.shortTitle)}
+              style={{ fontSize: 11 }}
+            >
+              {reader.video ? "Watch in-app →" : "Read in-app →"}
+            </button>
+            <a
+              href={reader.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="feed-manage"
+              style={{ fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+              onClick={(e) => { e.preventDefault(); openInApp(reader.url, reader.shortTitle); }}
+            >
+              {reader.src.split(" · ")[0]} ↗
+            </a>
+            <button
+              type="button"
+              className="feed-manage"
+              style={{ fontSize: 11, color: saved.some((x) => x.id === reader.id) ? "var(--gold)" : undefined }}
+              onClick={() => toggleSave(reader, reader.video ? "watch" : "read")}
+              title={saved.some((x) => x.id === reader.id) ? "Remove from saved" : "Save for later"}
+            >
+              {saved.some((x) => x.id === reader.id) ? "★ Saved" : "☆ Save"}
+            </button>
+          </div>
         </div>
       </div>
+      {/* Saved content panel */}
+      {showSaved && (
+        <div style={{ marginBottom: 20 }}>
+          <h2 className="sec" style={{ marginBottom: 12 }}>Saved<span className="rule" /><span className="count">{saved.length} items</span></h2>
+          {saved.length === 0 ? (
+            <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Nothing saved yet — star stories to read or watch later.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {saved.map((item) => (
+                <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", background: "var(--glass)", borderRadius: "var(--r)", border: "1px solid var(--line)" }}>
+                  <span style={{ fontSize: 9, fontFamily: "var(--narrow)", letterSpacing: ".08em", color: "var(--gold)", textTransform: "uppercase", flexShrink: 0 }}>{item.type}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
+                  </div>
+                  <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => openInApp(item.url, item.title)}>Open →</button>
+                  <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => { setSaved((s) => { const n = s.filter((x) => x.id !== item.id); persistSaved(n); return n; }); }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bento">
         {visible.map((s) => (
           <div
             key={s.id}
             className={`ncard${s.video ? " video" : ""}${s.size === "big" ? " big" : ""}${s.size === "wide" ? " wide" : ""}`}
             onClick={() => setReaderId(s.id)}
+            onDoubleClick={() => openInApp(s.url, s.shortTitle)}
+            title={`Click to preview · Double-click to read in-app`}
           >
             <div className="thumb" style={{ background: s.gradient }}>
               <div className="nc-cat">{s.cat}</div>
@@ -171,6 +262,14 @@ export function BriefingModule() {
                   <span />
                 </div>
               )}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); toggleSave(s, s.video ? "watch" : "read"); }}
+                style={{ position: "absolute", top: 7, right: 7, background: "rgba(7,8,11,.55)", border: "none", borderRadius: 3, width: 24, height: 24, display: "grid", placeItems: "center", cursor: "pointer", color: saved.some((x) => x.id === s.id) ? "#c9a463" : "rgba(193,196,199,.7)", fontSize: 12 }}
+                title={saved.some((x) => x.id === s.id) ? "Remove from saved" : "Save for later"}
+              >
+                {saved.some((x) => x.id === s.id) ? "★" : "☆"}
+              </button>
             </div>
             <div className="nc-b">
               <h4>{s.shortTitle}</h4>

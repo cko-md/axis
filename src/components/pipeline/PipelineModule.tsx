@@ -371,11 +371,10 @@ export function PipelineModule() {
 
   const studyName = (id: string | null) => studies.find((s) => s.id === id)?.title ?? null;
 
+
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Research</div>
-        <div className="rule" />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <button type="button" className="savebtn" onClick={() => setStageModalOpen(true)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <circle cx="12" cy="12" r="3" />
@@ -384,8 +383,6 @@ export function PipelineModule() {
           Customize Stages
         </button>
       </div>
-      <h1 className="hero">Study Pipeline</h1>
-      <div className="divider" />
 
       {loading ? (
         <div className="empty-state">Loading pipeline…</div>

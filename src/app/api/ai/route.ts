@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { aiGenerate, aiJSON } from "@/lib/ai/router";
+import { createClient } from "@/lib/supabase/server";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
@@ -36,7 +38,6 @@ function heuristicRoute(title: string, body?: string): RouteResult {
     tags.push("actionable");
   }
 
-  // Decide destination from the strongest signal.
   let destination: RouteResult["destination"] = "research";
   let label = "Research workspace";
   let reason = "Reads like working notes — keeping it in your research space.";
@@ -45,7 +46,7 @@ function heuristicRoute(title: string, body?: string): RouteResult {
     destination = "task";
     label = "New task";
     const firstLine = text.split("\n").find((l) => l.trim().length > 0)?.trim().slice(0, 80) || title;
-    reason = `Contains an action — turn “${firstLine}” into a tracked task.`;
+    reason = `Contains an action — turn "${firstLine}" into a tracked task.`;
   } else if (tags.includes("citation")) {
     destination = "literature";
     label = "Literature library";
@@ -56,7 +57,8 @@ function heuristicRoute(title: string, body?: string): RouteResult {
 
 export const runtime = "nodejs";
 
-// Heuristic fallbacks — used when ANTHROPIC_API_KEY is absent
+// ── Heuristic fallbacks (no API key) ─────────────────────────────────────────
+
 function heuristicCapture(text: string): CaptureResult {
   const lower = text.toLowerCase();
   let priority: "hi" | "med" | "lo" = "med";
@@ -96,21 +98,79 @@ type RegimenResult = { warmup?: string; items: RegimenItem[]; cooldown?: string 
 type RegimenPlanDay = { dow: number; title: string; kind: string; duration_min: number; intensity: string; items: RegimenItem[]; notes?: string };
 type RegimenPlanResult = { days: RegimenPlanDay[]; summary: string };
 
+function fallbackDeckCards(context: string): Array<{ id: string; title: string; body: string; actionLabel?: string; actionPath?: string }> {
+  const lower = context.toLowerCase();
+  if (lower.includes("literature")) return [
+    { id: "0", title: "Research feed ready", body: "Your active topics have new papers. Check for DBS and plasticity matches.", actionLabel: "View feed", actionPath: "/literature" },
+    { id: "1", title: "Save for later", body: "Star articles to save them offline for reading during downtime.", actionLabel: "Open saved", actionPath: "/literature" },
+  ];
+  if (lower.includes("vitality")) return [
+    { id: "0", title: "Training today", body: "Check your plan for today's session and log it after completion.", actionLabel: "View plan", actionPath: "/vitality" },
+    { id: "1", title: "Recovery note", body: "Log your sleep and HRV to track recovery trends over time." },
+  ];
+  if (lower.includes("fund")) return [
+    { id: "0", title: "Portfolio check", body: "Review your holdings and recent transactions to stay on top of allocations.", actionLabel: "Open fund", actionPath: "/fund" },
+  ];
+  if (lower.includes("briefing")) return [
+    { id: "0", title: "Morning brief ready", body: "Star stories in the briefing to save them for later reading.", actionLabel: "Open briefing", actionPath: "/briefing" },
+  ];
+  return [
+    { id: "0", title: "Good to go", body: "Connect your Anthropic API key to get live AI insights here." },
+    { id: "1", title: "Your command center", body: "Review your tasks and dispatch to start the day with clarity.", actionLabel: "Command", actionPath: "/command" },
+  ];
+}
+
+function heuristicMeetingSummary(text: string): { summary: string } {
+  const bullets = text.split(/[.!?]+/).filter(Boolean).slice(0, 3).map((s) => s.trim()).filter(Boolean);
+  const points = bullets.length ? bullets.join("\n- ") : "See transcript";
+  return { summary: `## Meeting Summary\n\n**Key Points:**\n- ${points}\n\n**Action Items:**\n- Review transcript and add action items\n\n**Decisions Made:**\n- None identified` };
+}
+
 function fallbackRegimen(kind: string, duration: number, intensity: string): RegimenResult {
   if (kind === "run") {
-    if (intensity === "easy") return { warmup: "5 min easy walk/jog", items: [{ name: "Easy run", dist: `${Math.round(duration * 0.16 * 10)/10} km`, zone: "Z1-2" }], cooldown: "5 min walk + stretch" };
+    if (intensity === "easy") return { warmup: "5 min easy walk/jog", items: [{ name: "Easy run", dist: `${Math.round(duration * 0.16 * 10) / 10} km`, zone: "Z1-2" }], cooldown: "5 min walk + stretch" };
     if (intensity === "hard") return { warmup: "10 min easy + 4 strides", items: [{ name: "Warm-up jog", dist: "2 km", zone: "Z2" }, { name: "Intervals", reps: "6", dist: "800m", zone: "Z4-5", rest: "90s" }, { name: "Cool-down jog", dist: "2 km", zone: "Z1-2" }], cooldown: "5 min walk + stretching" };
-    return { warmup: "5 min easy", items: [{ name: "Tempo run", dist: `${Math.round(duration * 0.15 * 10)/10} km`, zone: "Z3-4" }], cooldown: "5 min easy" };
+    return { warmup: "5 min easy", items: [{ name: "Tempo run", dist: `${Math.round(duration * 0.15 * 10) / 10} km`, zone: "Z3-4" }], cooldown: "5 min easy" };
   }
   if (kind === "lift") return { warmup: "5 min cardio + joint mobility", items: [{ name: "Compound A", sets: 4, reps: "5-8", rest: "3 min" }, { name: "Compound B", sets: 3, reps: "8-12", rest: "2 min" }, { name: "Accessory A", sets: 3, reps: "12-15", rest: "60s" }, { name: "Accessory B", sets: 3, reps: "15-20", rest: "60s" }], cooldown: "Foam roll + static stretch" };
   return { items: [{ name: "Session", dist: `${duration} min` }] };
 }
 
+function heuristicNoteSummarize(text: string, title?: string): { summary: string } {
+  const clean = stripHtml(text);
+  const sentences = clean.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean).slice(0, 5);
+  const bullets = sentences.map((s) => `- ${s}`).join("\n");
+  return { summary: `${title ? `**${title}**\n\n` : ""}${bullets || "No content to summarize."}` };
+}
+
+function heuristicNoteRewrite(text: string): { rewritten: string } {
+  return { rewritten: stripHtml(text).trim() };
+}
+
+function heuristicNoteTitle(text: string): { title: string } {
+  const clean = stripHtml(text);
+  const first = clean.split(/[\n.!?]/)[0]?.trim().slice(0, 80) ?? "Untitled";
+  return { title: first || "Untitled" };
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
-  const { mode, text, body } = (await req.json()) as { mode: string; text: string; body?: string };
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { mode, text, body, title } = (await req.json()) as { mode: string; text: string; body?: string; title?: string };
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const hasGemini = !!process.env.GEMINI_API_KEY;
+
+  // No AI keys at all → heuristics only
+  if (!apiKey && !hasGemini) {
+    if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
+    if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
+    if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));
+    if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
     if (mode === "regimen") {
@@ -129,80 +189,184 @@ export async function POST(req: NextRequest) {
       ];
       return NextResponse.json({ days: fallbackDays, summary: "A balanced 4-day running week targeting sub-1:30. Add quality sessions progressively and monitor recovery." } as RegimenPlanResult);
     }
+    if (mode === "companion") return NextResponse.json({ response: "I'm offline right now — check your connection and try again." });
+    if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
     return NextResponse.json(heuristicCapture(text));
   }
 
-  const client = new Anthropic({ apiKey });
+  // Build Anthropic client only when key is available
+  const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
   try {
+    // ── companion ──────────────────────────────────────────────────────────────
+    if (mode === "companion") {
+      if (!anthropic) return NextResponse.json({ response: "Companion requires an Anthropic API key." });
+
+      const ctx = body ? JSON.parse(body) as { context?: string; history?: Array<{ role: string; content: string }>; persona?: string } : {};
+      const context = ctx.context ?? "";
+      const history = (ctx.history ?? []).slice(-10);
+      const persona = ctx.persona ?? "axiom";
+
+      const systemPrompt = persona === "nova"
+        ? `You are Nova, a single-shot oracle embedded in Axis. ${context} Give one direct, precise answer. No lists, no follow-ups. Max 2 sentences. Never start with "I". Be oracular — distilled, final.`
+        : `You are Axiom, the persistent intelligence layer in Axis — a personal operating system for a neuroscience physician-researcher. You hold the thread across the session: reference what was discussed, track open loops, surface what matters next. ${context} Respond with precision and strategic brevity. Avoid filler. When you give lists, keep them to 3 items. Never start your reply with "I". Stay contextually grounded.`;
+
+      // Companion always on Haiku — personality and context continuity matter
+      const msg = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: persona === "nova" ? 120 : 400,
+        system: systemPrompt,
+        messages: [
+          ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+          { role: "user", content: text },
+        ],
+      });
+      return NextResponse.json({ response: (msg.content[0] as { type: string; text: string }).text.trim() });
+    }
+
+    // ── deck-insights ──────────────────────────────────────────────────────────
+    if (mode === "deck-insights") {
+      const ctx = body ? JSON.parse(body) as { context?: string } : {};
+      const context = ctx.context ?? "General module";
+      const raw = await aiGenerate({
+        mode,
+        anthropic,
+        system: `You generate concise contextual intelligence cards for a personal OS. Given the current module and time of day, return ONLY a JSON array of 3–5 objects. Each has: title (string, ≤5 words), body (string, ≤22 words, specific and actionable), optionally: actionLabel (string, ≤3 words), actionPath (string, URL path like "/literature" or "/agenda"). Focus on what the user should pay attention to right now. No markdown, no preamble.`,
+        userMessage: context,
+        maxTokens: 500,
+      });
+      const cards = JSON.parse(raw.text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()) as Array<{ title: string; body: string; actionLabel?: string; actionPath?: string }>;
+      return NextResponse.json({ cards: cards.map((c, i) => ({ ...c, id: String(i) })) });
+    }
+
+    // ── regimen ────────────────────────────────────────────────────────────────
     if (mode === "regimen") {
       const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string; notes?: string } : {};
-      const kind = ctx.kind ?? "other";
-      const duration = ctx.duration_min ?? 45;
-      const intensity = ctx.intensity ?? "moderate";
-      const msg = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 600,
+      const result = await aiJSON<RegimenResult>({
+        mode,
+        anthropic,
         system: `You are an elite personal trainer and running coach. Given a workout session spec, return ONLY a JSON object with keys: warmup (string or null), items (array of exercise objects), cooldown (string or null). Each item has: name (string), and as relevant: sets (number), reps (string like "8-12"), weight (string like "RPE 8" or "BW"), rest (string like "90s"), zone (string like "Z2" or "Z4-5"), dist (string like "6 km"), pace (string like "4:45/km"). Return no more than 8 items. No markdown.`,
-        messages: [{ role: "user", content: `kind: ${kind}\nduration: ${duration} min\nintensity: ${intensity}\ntitle: ${text}\nnotes: ${ctx.notes ?? "none"}` }],
+        userMessage: `kind: ${ctx.kind ?? "other"}\nduration: ${ctx.duration_min ?? 45} min\nintensity: ${ctx.intensity ?? "moderate"}\ntitle: ${text}\nnotes: ${ctx.notes ?? "none"}`,
+        maxTokens: 600,
       });
-      const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-      return NextResponse.json(JSON.parse(raw) as RegimenResult);
+      const { _model: _, ...regimenData } = result;
+      return NextResponse.json(regimenData as RegimenResult);
     }
 
+    // ── regimenPlan ────────────────────────────────────────────────────────────
     if (mode === "regimenPlan") {
       const ctx = body ? JSON.parse(body) as { discipline?: string; weeksPerPlan?: number; daysPerWeek?: number; currentLevel?: string; goal?: string; stravaContext?: string } : {};
-      const stravaSection = ctx.stravaContext
-        ? `\n\nIMPORTANT — adapt the plan to this athlete's real data:\n${ctx.stravaContext}`
-        : "";
-      const msg = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1400,
+      const stravaSection = ctx.stravaContext ? `\n\nIMPORTANT — adapt the plan to this athlete's real data:\n${ctx.stravaContext}` : "";
+      const result = await aiJSON<RegimenPlanResult>({
+        mode,
+        anthropic,
         system: `You are an elite ${ctx.discipline === "run" ? "running" : "strength & conditioning"} coach. Design a structured weekly training plan. Return ONLY a JSON object with keys: days (array), summary (string, 1-2 sentences). Each day object has: dow (0=Mon to 6=Sun), title (string), kind (run|lift|mobility|rest|other), duration_min (number), intensity (easy|moderate|hard|key), notes (string), items (array of exercises, same format as a single session). Include rest days. No markdown.`,
-        messages: [{ role: "user", content: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}` }],
+        userMessage: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}`,
+        maxTokens: 1400,
       });
-      const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-      return NextResponse.json(JSON.parse(raw) as RegimenPlanResult);
+      const { _model: _, ...planData } = result;
+      return NextResponse.json(planData as RegimenPlanResult);
     }
 
+    // ── notes-summarize ────────────────────────────────────────────────────────
+    if (mode === "notes-summarize") {
+      const noteCtx = title ? `Note: "${title}"\n\n` : "";
+      const { text: summary } = await aiGenerate({
+        mode,
+        anthropic,
+        system: "You are an expert note summarizer. Given note content, produce a concise summary as 3-5 Markdown bullet points. Return only the bullets, no preamble.",
+        userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
+        maxTokens: 500,
+      });
+      return NextResponse.json({ summary });
+    }
+
+    // ── notes-rewrite ──────────────────────────────────────────────────────────
+    if (mode === "notes-rewrite") {
+      const { text: rewritten } = await aiGenerate({
+        mode,
+        anthropic,
+        system: "You are an expert editor. Rewrite the given text to be clearer, more concise, and better structured while preserving all key information and the author's voice. Return only the rewritten prose, no preamble.",
+        userMessage: stripHtml(text).slice(0, 6000),
+        maxTokens: 1200,
+      });
+      return NextResponse.json({ rewritten });
+    }
+
+    // ── notes-title ────────────────────────────────────────────────────────────
+    // Gemini eligible — tiny output, simple generation
+    if (mode === "notes-title") {
+      const { text: generated } = await aiGenerate({
+        mode,
+        anthropic,
+        system: "Generate a precise, descriptive title for this note (5-10 words). Return only the title, nothing else.",
+        userMessage: stripHtml(text).slice(0, 3000),
+        maxTokens: 60,
+      });
+      return NextResponse.json({ title: generated });
+    }
+
+    // ── meeting-summary ────────────────────────────────────────────────────────
+    if (mode === "meeting-summary") {
+      const noteCtx = title ? `Note title: ${title}\n\n` : "";
+      const { text: summary } = await aiGenerate({
+        mode,
+        anthropic,
+        system: "You are an expert meeting note-taker. Given a transcript (possibly rough speech-to-text), produce a clean structured summary in Markdown. Format exactly as:\n\n## Meeting Summary\n\n**Key Points:**\n- ...\n\n**Action Items:**\n- ...\n\n**Decisions Made:**\n- ...\n\nKeep each bullet concise (one line). If a section has nothing, write '- None identified'. Return only the Markdown, no preamble.",
+        userMessage: `${noteCtx}Transcript:\n${text.slice(0, 6000)}`,
+        maxTokens: 700,
+      });
+      return NextResponse.json({ summary });
+    }
+
+    // ── route ──────────────────────────────────────────────────────────────────
+    // Gemini eligible — pure JSON routing
     if (mode === "route") {
-      const msg = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 250,
-        system:
-          'You route a research note to the right destination in a personal knowledge OS. Given a note title and body, return ONLY a JSON object with keys: destination ("research" = working research notes, "literature" = a referenced paper/citation to file in the literature library, "task" = an actionable to-do), label (short human destination name, e.g. "New task" or "Literature library"), reason (one sentence, max 22 words, explaining the choice), tags (array of 1-4 short lowercase keywords). No markdown, no explanation.',
-        messages: [{ role: "user", content: `title: ${text}\nbody: ${stripHtml(body ?? "").slice(0, 4000)}` }],
+      const result = await aiJSON<RouteResult>({
+        mode,
+        anthropic,
+        system: 'You route a research note to the right destination in a personal knowledge OS. Given a note title and body, return ONLY a JSON object with keys: destination ("research" = working research notes, "literature" = a referenced paper/citation to file in the literature library, "task" = an actionable to-do), label (short human destination name, e.g. "New task" or "Literature library"), reason (one sentence, max 22 words, explaining the choice), tags (array of 1-4 short lowercase keywords). No markdown, no explanation.',
+        userMessage: `title: ${text}\nbody: ${stripHtml(body ?? "").slice(0, 4000)}`,
+        maxTokens: 250,
       });
-      const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-      const parsed = JSON.parse(raw) as RouteResult;
-      return NextResponse.json(parsed);
+      const { _model: _, ...routeData } = result;
+      return NextResponse.json(routeData as RouteResult);
     }
 
+    // ── triage ─────────────────────────────────────────────────────────────────
+    // Gemini eligible — pure JSON classification
     if (mode === "triage") {
-      const msg = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 200,
-        system:
-          'You are a task router for a personal OS. Given a signal title and optional body, return ONLY a JSON object with keys: title (string, cleaned up), priority ("hi"|"med"|"lo"), category ("clinical"|"research"|"life"|"personal"|"admin"), effort ("~15m"|"~1h"|"~2h"|"~3h+"). No markdown, no explanation.',
-        messages: [{ role: "user", content: `title: ${text}\nbody: ${body ?? ""}` }],
+      const result = await aiJSON<TriageResult>({
+        mode,
+        anthropic,
+        system: 'You are a task router for a personal OS. Given a signal title and optional body, return ONLY a JSON object with keys: title (string, cleaned up), priority ("hi"|"med"|"lo"), category ("clinical"|"research"|"life"|"personal"|"admin"), effort ("~15m"|"~1h"|"~2h"|"~3h+"). No markdown, no explanation.',
+        userMessage: `title: ${text}\nbody: ${body ?? ""}`,
+        maxTokens: 200,
       });
-      const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-      const parsed = JSON.parse(raw) as TriageResult;
-      return NextResponse.json(parsed);
+      const { _model: _, ...triageData } = result;
+      return NextResponse.json(triageData as TriageResult);
     }
 
-    // mode === "capture"
-    const msg = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 150,
-      system:
-        'You are an intelligent personal assistant. Classify this captured thought. Return ONLY a JSON object with keys: label (1-3 words), action (imperative phrase, max 8 words), priority ("hi"|"med"|"lo"). No markdown, no explanation.',
-      messages: [{ role: "user", content: text }],
+    // ── capture (default) ──────────────────────────────────────────────────────
+    // Gemini eligible — tiny classification
+    const result = await aiJSON<CaptureResult>({
+      mode: "capture",
+      anthropic,
+      system: 'You are an intelligent personal assistant. Classify this captured thought. Return ONLY a JSON object with keys: label (1-3 words), action (imperative phrase, max 8 words), priority ("hi"|"med"|"lo"). No markdown, no explanation.',
+      userMessage: text,
+      maxTokens: 150,
     });
-    const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-    const parsed = JSON.parse(raw) as CaptureResult;
-    return NextResponse.json(parsed);
+    const { _model: _, ...captureData } = result;
+    return NextResponse.json(captureData as CaptureResult);
+
   } catch {
+    // ── Error fallbacks ────────────────────────────────────────────────────────
+    if (mode === "companion") return NextResponse.json({ response: "Something went wrong. Try again." });
+    if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
+    if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
+    if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
+    if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));
+    if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
     if (mode === "regimen") {

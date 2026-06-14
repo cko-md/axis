@@ -3,8 +3,18 @@ export type SurfaceTone = "deep" | "mid" | "lifted";
 export type DisplayFace = "instrument" | "playfair" | "grotesk";
 export type BodyFace = "archivo" | "inter" | "plex";
 export type Density = "cozy" | "default" | "compact";
-export type Companion = "deck" | "monolith";
+export type Companion = "deck" | "monolith" | "nova";
 export type Presence = "show" | "hide";
+export type NotifType = "banner" | "silent" | "none";
+export type NotifFeatures = {
+  pomodoro: boolean;
+  agenda: boolean;
+  mail: boolean;
+  contacts: boolean;
+  literature: boolean;
+  markets: boolean;
+  dispatch: boolean;
+};
 
 export type InterfaceSettings = {
   accent: AccentPreset;
@@ -15,6 +25,10 @@ export type InterfaceSettings = {
   density: Density;
   companion: Companion;
   presence: Presence;
+  locationServices: boolean;
+  notifEnabled: boolean;
+  notifType: NotifType;
+  notifFeatures: NotifFeatures;
 };
 
 export const DEFAULT_INTERFACE_SETTINGS: InterfaceSettings = {
@@ -26,6 +40,18 @@ export const DEFAULT_INTERFACE_SETTINGS: InterfaceSettings = {
   density: "default",
   companion: "monolith",
   presence: "hide",
+  locationServices: false,
+  notifEnabled: false,
+  notifType: "banner",
+  notifFeatures: {
+    pomodoro: true,
+    agenda: true,
+    mail: false,
+    contacts: false,
+    literature: false,
+    markets: false,
+    dispatch: true,
+  },
 };
 
 // accent: drives the molten-gold signal channel (--gold family) AND the legacy

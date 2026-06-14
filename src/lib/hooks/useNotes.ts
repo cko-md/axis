@@ -15,6 +15,17 @@ export type Note = {
   updated_at: string;
 };
 
+export type NoteFont = "sans" | "serif" | "mono";
+export const FONT_TAG_PREFIX = "__font:";
+export const getNoteFont = (n: Note): NoteFont => {
+  const tag = n.tags.find((t) => t.startsWith(FONT_TAG_PREFIX));
+  return (tag?.slice(FONT_TAG_PREFIX.length) as NoteFont) ?? "sans";
+};
+export const fontTagsFor = (font: NoteFont, existing: string[]) => [
+  ...existing.filter((t) => !t.startsWith(FONT_TAG_PREFIX)),
+  ...(font === "sans" ? [] : [`${FONT_TAG_PREFIX}${font}`]),
+];
+
 const SEED = [
   { title: "Mechanism — DBS & Network Modulation", body: "Core hypothesis. Variability in clinical response to subthalamic DBS may be better explained by the patient-specific connectivity profile of the stimulated volume than by anatomical electrode position alone.", folder: "Research", tags: ["neuro", "thesis"] },
   { title: "Grant Aims — Restructure", body: "Aim 1 too broad. Split into mechanistic + outcomes arms.", folder: "Grants", tags: ["grant"] },
@@ -32,11 +43,12 @@ export function useNotes() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
+    const { data, error } = await supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
+    if (error) { setLoading(false); return; }
     if (!data?.length) {
       const inserts = SEED.map((n, i) => ({ ...n, user_id: user.id, sort_order: i }));
-      const { data: seeded } = await supabase.from("notes").insert(inserts).select();
-      setNotes((seeded ?? []) as Note[]);
+      const { data: seeded, error: seedError } = await supabase.from("notes").insert(inserts).select();
+      if (!seedError) setNotes((seeded ?? []) as Note[]);
     } else {
       setNotes(data as Note[]);
     }
@@ -48,23 +60,31 @@ export function useNotes() {
   }, [refresh]);
 
   const createNote = async (title: string, folder = "All Notes") => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    const { data } = await supabase
-      .from("notes")
-      .insert({ user_id: user.id, title, body: "", folder, tags: [] })
-      .select()
-      .single();
-    if (data) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({ user_id: user.id, title, body: "", folder, tags: [] })
+        .select()
+        .single();
+      if (error || !data) return null;
       setNotes((prev) => [data as Note, ...prev]);
       return data as Note;
+    } catch (err) {
+      console.error("[useNotes] createNote", err);
+      return null;
     }
-    return null;
   };
 
   const updateNote = async (id: string, patch: Partial<Note>) => {
-    const { data } = await supabase.from("notes").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
-    if (data) setNotes((prev) => prev.map((n) => (n.id === id ? (data as Note) : n)));
+    try {
+      const { data, error } = await supabase.from("notes").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
+      if (error || !data) return;
+      setNotes((prev) => prev.map((n) => (n.id === id ? (data as Note) : n)));
+    } catch (err) {
+      console.error("[useNotes] updateNote", err);
+    }
   };
 
   // Debounced variant for keystroke-driven edits: local state updates immediately,
@@ -94,8 +114,12 @@ export function useNotes() {
   }, [supabase]);
 
   const deleteNote = async (id: string) => {
-    await supabase.from("notes").delete().eq("id", id);
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+    try {
+      const { error } = await supabase.from("notes").delete().eq("id", id);
+      if (!error) setNotes((prev) => prev.filter((n) => n.id !== id));
+    } catch (err) {
+      console.error("[useNotes] deleteNote", err);
+    }
   };
 
   // Lock state is stored as a sentinel tag so no schema migration is needed.
@@ -104,9 +128,15 @@ export function useNotes() {
     if (!note) return false;
     const locked = note.tags.includes(LOCK_TAG);
     const tags = locked ? note.tags.filter((t) => t !== LOCK_TAG) : [...note.tags, LOCK_TAG];
-    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, tags } : n)));
-    await supabase.from("notes").update({ tags, updated_at: new Date().toISOString() }).eq("id", id);
-    return !locked;
+    try {
+      const { error } = await supabase.from("notes").update({ tags, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) return locked;
+      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, tags } : n)));
+      return !locked;
+    } catch (err) {
+      console.error("[useNotes] toggleLock", err);
+      return locked;
+    }
   };
 
   return { notes, loading, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock };
@@ -114,4 +144,5 @@ export function useNotes() {
 
 export const LOCK_TAG = "__locked";
 export const isLocked = (n: Note) => n.tags.includes(LOCK_TAG);
-export const visibleTags = (n: Note) => n.tags.filter((t) => t !== LOCK_TAG);
+export const visibleTags = (n: Note) =>
+  n.tags.filter((t) => t !== LOCK_TAG && !t.startsWith(FONT_TAG_PREFIX));

@@ -36,11 +36,23 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // API routes never redirect to the login page. The Massive proxy requires a
-  // session (it spends your Polygon quota); widget/Spotify routes manage their own auth.
+  // API routes never redirect to the login page.
+  // Financial, AI, and data-mutation routes require a session — returning 401
+  // provides defense-in-depth on top of per-route auth guards.
+  // Widget and Spotify read-only routes are intentionally left open.
   if (pathname.startsWith("/api")) {
-    if (!user && pathname.startsWith("/api/massive")) {
-      return NextResponse.json({ error: "UNAUTHORIZED", message: "Sign in to use market data." }, { status: 401 });
+    const GUARDED_PREFIXES = [
+      "/api/massive",
+      "/api/plaid",
+      "/api/brokerage",
+      "/api/ai",
+      "/api/signals-ai",
+      "/api/strava",
+      "/api/profile",
+      // Note: /api/cron uses CRON_SECRET bearer auth, not user session
+    ];
+    if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {
+      return NextResponse.json({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 });
     }
     return supabaseResponse;
   }

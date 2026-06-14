@@ -3,11 +3,6 @@
 export function MailModule() {
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Daily</div>
-        <div className="rule" />
-      </div>
-      <h1 className="hero">Mail</h1>
       <div className="divider" />
       <div className="setup-state" data-svc="mail">
         <div className="setup-ic">

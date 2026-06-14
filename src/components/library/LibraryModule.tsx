@@ -99,11 +99,6 @@ export function LibraryModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
-      </div>
-      <h1 className="hero">Library</h1>
       <div className="divider" />
       <div className="lib-layout">
         <div>

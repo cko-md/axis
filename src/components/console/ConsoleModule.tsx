@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
+import { useTheme } from "@/components/theme/ThemeProvider";
 import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG } from "@/lib/store/widgets";
 import { formatDateLong } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -30,7 +31,164 @@ import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
+import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
+
+/* ── widget icons ──────────────────────────────────────────────── */
+
+const W = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...props} />
+);
+
+const WIDGET_ICONS: Record<string, React.ReactNode> = {
+  weather: <W><circle cx="8" cy="8" r="2.8"/><line x1="8" y1="1.5" x2="8" y2="3"/><line x1="8" y1="13" x2="8" y2="14.5"/><line x1="1.5" y1="8" x2="3" y2="8"/><line x1="13" y1="8" x2="14.5" y2="8"/><line x1="3.4" y1="3.4" x2="4.4" y2="4.4"/><line x1="11.6" y1="11.6" x2="12.6" y2="12.6"/><line x1="3.4" y1="12.6" x2="4.4" y2="11.6"/><line x1="11.6" y1="4.4" x2="12.6" y2="3.4"/></W>,
+  daylight: <W><path d="M2 11 a6 6 0 0 1 12 0"/><line x1="8" y1="2.5" x2="8" y2="4"/><line x1="2.4" y1="7" x2="3.7" y2="7.7"/><line x1="13.6" y1="7" x2="12.3" y2="7.7"/><line x1="1" y1="11" x2="15" y2="11"/></W>,
+  air: <W><path d="M2 5.5 h7 a2.5 2.5 0 0 1 0 5"/><path d="M2 8.5 h5 a2 2 0 0 1 0 4"/><line x1="2" y1="11.5" x2="5" y2="11.5"/></W>,
+  agenda: <W strokeWidth="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><line x1="2.5" y1="7" x2="13.5" y2="7"/><line x1="5.5" y1="2" x2="5.5" y2="5"/><line x1="10.5" y1="2" x2="10.5" y2="5"/><rect x="5" y="9" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="9" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></W>,
+  markets: <W><polyline points="2,12 5.5,8.5 8.5,10 13.5,4.5"/><polyline points="10.5,4.5 13.5,4.5 13.5,7.5"/></W>,
+  run: <W><polyline points="9.5,2 5,9 8.5,9 6.5,14 12,7 8.5,7"/></W>,
+  sleep: <W><path d="M12.5 11.5 A5.5 5.5 0 1 1 4.5 3.5 A4 4 0 0 0 12.5 11.5Z"/></W>,
+  hrv: <W><polyline points="1,8 4,8 5.5,5 7,11 8.5,6.5 10,9.5 11.5,8 15,8"/></W>,
+  heartrate: <W><path d="M8 13 C6 11 2 8.5 2 5.5 A3 3 0 0 1 8 4.2 A3 3 0 0 1 14 5.5 C14 8.5 10 11 8 13Z"/></W>,
+  vo2max: <W><path d="M8 4 v8"/><path d="M8 6.5 C8 6.5 4.5 6.5 4.5 9.5 C4.5 11.5 6 12.5 8 11.5"/><path d="M8 6.5 C8 6.5 11.5 6.5 11.5 9.5 C11.5 11.5 10 12.5 8 11.5"/></W>,
+  hydration: <W><path d="M8 2 C8 2 3.5 8 3.5 11 A4.5 4.5 0 0 0 12.5 11 C12.5 8 8 2 8 2Z"/><line x1="6" y1="11" x2="7" y2="9" strokeWidth="1" opacity="0.7"/></W>,
+  location: <W><path d="M8 1.5 A4 4 0 0 1 12 5.5 C12 9 8 14.5 8 14.5 C8 14.5 4 9 4 5.5 A4 4 0 0 1 8 1.5Z"/><circle cx="8" cy="5.5" r="1.5" fill="currentColor" stroke="none"/></W>,
+};
+
+function WidgetIcon({ id }: { id: string }) {
+  return WIDGET_ICONS[id] ?? WIDGET_ICONS.agenda;
+}
+
+function widgetIconStyle(id: string, raw?: Record<string, unknown>): { background: string; color: string } {
+  if (id === "air") {
+    const aqi = (raw?.aqi as number) ?? 0;
+    if (aqi <= 50) return { background: "color-mix(in srgb, #7fa86a 14%, transparent)", color: "var(--sage, #7fa86a)" };
+    if (aqi <= 100) return { background: "color-mix(in srgb, #c9a463 14%, transparent)", color: "var(--gold-2)" };
+    return { background: "color-mix(in srgb, #c2603f 14%, transparent)", color: "var(--clay, #c2603f)" };
+  }
+  if (id === "markets") {
+    const chg = (raw?.chg as number) ?? 0;
+    if (chg > 0) return { background: "color-mix(in srgb, #7fa86a 12%, transparent)", color: "var(--up)" };
+    if (chg < 0) return { background: "color-mix(in srgb, #c2603f 12%, transparent)", color: "var(--down)" };
+  }
+  return { background: "color-mix(in srgb, var(--gold) 12%, transparent)", color: "var(--gold-2)" };
+}
+
+function WidgetSecondLine({ id, raw }: { id: string; raw?: Record<string, unknown> }) {
+  if (!raw) return null;
+  if (id === "weather" && raw.humidity !== undefined) {
+    return <div className="tb-raw">Humidity {String(raw.humidity)}%</div>;
+  }
+  if (id === "air" && raw.uv !== undefined) {
+    const aqi = raw.aqi as number;
+    const label = aqi <= 50 ? "Good" : aqi <= 100 ? "Moderate" : "Poor";
+    return <div className="tb-raw">AQI {aqi} · UV {String(raw.uv)} · {label}</div>;
+  }
+  if (id === "markets" && raw.chg !== undefined) {
+    const sign = (raw.chg as number) >= 0 ? "▴" : "▾";
+    return <div className="tb-raw">SPY {sign}{Math.abs(raw.chg as number).toFixed(2)}%</div>;
+  }
+  return null;
+}
+
+/* ── art gallery card ──────────────────────────────────────────── */
+
+type Artwork = {
+  id: number;
+  title: string;
+  artist: string;
+  date: string;
+  medium: string;
+  origin: string;
+  imageUrl: string;
+  artUrl: string;
+};
+
+function ArtGalleryCard() {
+  const [seed, setSeed] = useState(Math.floor(Date.now() / 86400000));
+  const [art, setArt] = useState<Artwork | null>(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [fetching, setFetching] = useState(true);
+
+  useEffect(() => {
+    setFetching(true);
+    setImgLoaded(false);
+    fetch(`/api/widgets/art?seed=${seed}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: Artwork | null) => { setArt(d); setFetching(false); })
+      .catch(() => setFetching(false));
+  }, [seed]);
+
+  return (
+    <Card>
+      <h2 className="sec">
+        Art of the Day<span className="rule" />
+        <span className="count" style={{ cursor: "pointer" }} onClick={() => setSeed((s) => s + 1)} title="Next artwork">Next →</span>
+      </h2>
+      <div className="art-card">
+        {fetching ? (
+          <div className="art-loading">Sourcing from the collection…</div>
+        ) : art ? (
+          <>
+            <a href={art.artUrl} target="_blank" rel="noopener noreferrer" className="art-img-wrap">
+              <img
+                src={art.imageUrl}
+                alt={art.title}
+                className={`art-img${imgLoaded ? " loaded" : ""}`}
+                onLoad={() => setImgLoaded(true)}
+              />
+              <div className="art-overlay" />
+            </a>
+            <div className="art-meta">
+              <div className="art-title">{art.title}</div>
+              <div className="art-artist">
+                {art.artist}
+                {art.date ? <span className="art-date"> · {art.date}</span> : null}
+              </div>
+              {art.medium && <div className="art-medium">{art.medium}</div>}
+              <div className="art-credit">Art Institute of Chicago</div>
+            </div>
+          </>
+        ) : (
+          <div className="art-loading">Artwork unavailable</div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/* ── daily reflections ─────────────────────────────────────────── */
+
+const DAILY_REFLECTIONS = [
+  { text: "The unexamined life is not worth living.", author: "Socrates", source: "Apology" },
+  { text: "Man is condemned to be free.", author: "Jean-Paul Sartre", source: "Existentialism is a Humanism" },
+  { text: "To know what you know and what you do not know — that is true knowledge.", author: "Confucius", source: "Analects" },
+  { text: "The obstacle is the way.", author: "Marcus Aurelius", source: "Meditations" },
+  { text: "Life must be understood backwards, but it must be lived forwards.", author: "Søren Kierkegaard" },
+  { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", author: "Aristotle" },
+  { text: "He who has a why to live can bear almost any how.", author: "Friedrich Nietzsche", source: "Twilight of the Idols" },
+  { text: "Cogito, ergo sum.", author: "René Descartes", source: "Discourse on the Method" },
+  { text: "The limits of my language mean the limits of my world.", author: "Ludwig Wittgenstein", source: "Tractatus" },
+  { text: "One cannot step into the same river twice.", author: "Heraclitus" },
+  { text: "The cave you fear to enter holds the treasure you seek.", author: "Joseph Campbell", source: "The Hero with a Thousand Faces" },
+  { text: "Simplicity is the ultimate sophistication.", author: "Leonardo da Vinci" },
+  { text: "Beauty will save the world.", author: "Fyodor Dostoevsky", source: "The Idiot" },
+  { text: "The journey of a thousand miles begins with one step.", author: "Lao Tzu", source: "Tao Te Ching" },
+  { text: "The soul becomes dyed with the colour of its thoughts.", author: "Marcus Aurelius", source: "Meditations" },
+  { text: "Time you enjoy wasting is not wasted time.", author: "Bertrand Russell" },
+  { text: "All that we see or seem is but a dream within a dream.", author: "Edgar Allan Poe" },
+  { text: "Knowing yourself is the beginning of all wisdom.", author: "Aristotle" },
+  { text: "Not all who wander are lost.", author: "J.R.R. Tolkien", source: "The Fellowship of the Ring" },
+  { text: "The present moment always will have been.", author: "Marcus Aurelius", source: "Meditations" },
+  { text: "To do great work, one must know how to wait.", author: "Leo Tolstoy" },
+  { text: "Between stimulus and response there is a space. In that space is our power to choose.", author: "Viktor Frankl", source: "Man's Search for Meaning" },
+  { text: "The hardest thing in the world is to simplify your life. It's so easy to make it complex.", author: "Yvon Chouinard" },
+  { text: "In the depth of winter I finally learned that there was in me an invincible summer.", author: "Albert Camus" },
+  { text: "Do not pray for an easy life; pray for the strength to endure a difficult one.", author: "Bruce Lee" },
+  { text: "What is not started today is never finished tomorrow.", author: "Johann Wolfgang von Goethe" },
+  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { text: "Excellence is never an accident.", author: "Aristotle" },
+] as const;
 
 /* ── constants ─────────────────────────────────────────────────── */
 
@@ -38,15 +196,32 @@ const CONSOLE_SECTION_ORDER_KEY = "axis-console-sections";
 const DEFAULT_SECTION_ORDER = [
   "widgets",
   "photos",
+  "dispatch-block",
+  "pomodoro",
+  "routine",
   "daily-rings",
   "todays-arc",
   "focus-ranked",
+  "people-spotlight",
   "weekly-devotional",
   "stoic-maxim",
   "markets-body",
+  "art-gallery",
 ] as const;
 
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
+
+const CONSOLE_BLOCK_SIZES_KEY = "axis-console-block-sizes";
+const DEFAULT_BLOCK_SIZES: Record<SectionId, "sm" | "full"> = {
+  "widgets": "full", "photos": "full", "dispatch-block": "full",
+  "pomodoro": "sm", "routine": "full", "daily-rings": "full",
+  "todays-arc": "full", "focus-ranked": "full", "people-spotlight": "full",
+  "weekly-devotional": "full", "stoic-maxim": "full", "markets-body": "full",
+  "art-gallery": "full",
+};
+
+type BlockSizeCtx = { sizes: Record<string, "sm" | "full">; toggle: (id: string) => void };
+const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, toggle: () => {} });
 
 /* ── HeroLine ──────────────────────────────────────────────────── */
 
@@ -88,35 +263,39 @@ function HeroLine({ tasks }: { tasks: Task[] }) {
 
 function DraggableBlock({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { sizes, toggle } = useContext(BlockSizeContext);
+  const size = sizes[id] ?? "full";
   return (
     <div
       ref={setNodeRef}
+      className={`block-wrap${size === "sm" ? " block-sm" : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
         position: "relative",
+        flex: size === "sm" ? "0 0 calc(50% - 13px)" : "0 0 100%",
+        minWidth: 0,
       }}
     >
-      <div
-        {...attributes}
-        {...listeners}
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          cursor: "grab",
-          color: "var(--ink-faint)",
-          fontSize: 14,
-          zIndex: 2,
-          lineHeight: 1,
-          padding: "2px 4px",
-          borderRadius: "var(--r)",
-        }}
-        className="block-drag-handle"
-        title="Drag to reorder"
-      >
-        ⠿
+      <div className="block-controls">
+        <button
+          type="button"
+          onClick={() => toggle(id)}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", fontSize: 13, lineHeight: 1, padding: "2px 3px", borderRadius: "var(--r)" }}
+          title={size === "sm" ? "Expand block" : "Compact block"}
+        >
+          {size === "sm" ? "⊞" : "⊟"}
+        </button>
+        <div
+          {...attributes}
+          {...listeners}
+          style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 14, lineHeight: 1, padding: "2px 4px", borderRadius: "var(--r)" }}
+          className="block-drag-handle"
+          title="Drag to reorder"
+        >
+          ⠿
+        </div>
       </div>
       {children}
     </div>
@@ -128,7 +307,8 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
 export function ConsoleModule() {
   const supabase = useMemo(() => createClient(), []);
   const { toast } = useToast();
-  const { capture } = useSignals();
+  const { interfaceSettings } = useTheme();
+  const { signals, capture, applyClassification } = useSignals();
   const { tasks, toggleDone } = useTasks();
   const [widgetIds, setWidgetIds] = useState<string[]>(DEFAULT_WIDGET_IDS);
   const [widgetTexts, setWidgetTexts] = useState<Record<string, { v: string; k: string }>>({});
@@ -138,29 +318,51 @@ export function ConsoleModule() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [captureText, setCaptureText] = useState("");
-  const { data: liveData, refreshOne, refreshAll } = useWidgetData(widgetIds);
+  const [captMode, setCaptMode] = useState<"task" | "note" | "paper" | null>(null);
+  const [dispatchExpanded, setDispatchExpanded] = useState(false);
+  const [triagingIds, setTriagingIds] = useState<Set<string>>(new Set());
+  const pomModeRef = useRef<"work" | "break">("work");
+  const [pomMode, setPomMode] = useState<"work" | "break">("work");
+  const [pomSec, setPomSec] = useState(25 * 60);
+  const [pomRunning, setPomRunning] = useState(false);
+  const [pomBlocks, setPomBlocks] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    try { return Number(localStorage.getItem(`axis-pom-${new Date().toDateString()}`) ?? "0"); } catch { return 0; }
+  });
+  const { data: liveData, refreshOne, refreshAll } = useWidgetData(widgetIds, interfaceSettings.locationServices);
 
-  // Section ordering state
+  // Section ordering + block size state
   const [sectionOrder, setSectionOrder] = useState<SectionId[]>([...DEFAULT_SECTION_ORDER]);
+  const [blockSizes, setBlockSizes] = useState<Record<SectionId, "sm" | "full">>({ ...DEFAULT_BLOCK_SIZES });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   const topTasks = rankTasks(tasks).slice(0, 3);
+  const { people } = usePeople();
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
 
-  // Load section order from localStorage on mount
+  // Load section order + block sizes from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CONSOLE_SECTION_ORDER_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as SectionId[];
-        // Validate: ensure all current default sections are present
         const allPresent = DEFAULT_SECTION_ORDER.every((id) => parsed.includes(id));
-        if (allPresent && parsed.length === DEFAULT_SECTION_ORDER.length) {
-          setSectionOrder(parsed);
-        }
+        if (allPresent && parsed.length === DEFAULT_SECTION_ORDER.length) setSectionOrder(parsed);
       }
-    } catch {
-      // ignore parse errors
-    }
+      const storedSizes = localStorage.getItem(CONSOLE_BLOCK_SIZES_KEY);
+      if (storedSizes) {
+        const parsedSizes = JSON.parse(storedSizes) as Record<string, "sm" | "full">;
+        setBlockSizes((prev) => ({ ...prev, ...parsedSizes }));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleBlockSize = useCallback((id: string) => {
+    setBlockSizes((prev) => {
+      const next = { ...prev, [id]: prev[id as SectionId] === "sm" ? "full" : "sm" } as Record<SectionId, "sm" | "full">;
+      try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
   }, []);
 
   const load = useCallback(async () => {
@@ -208,14 +410,51 @@ export function ConsoleModule() {
     if (!captureText.trim()) return;
     const text = captureText.trim();
     setCaptureText("");
+
+    // Always create a signal in the inbox
     await capture(text);
+
+    // Call AI for classification
     fetch("/api/ai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode: "capture", text }),
     })
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
+      .then(async (d: { label: string; action: string; priority: "hi" | "med" | "lo" } | null) => {
+        const priority = d?.priority ?? "med";
+
+        // Save to tasks table if captMode is "task"
+        if (captMode === "task") {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from("tasks").insert({
+              user_id: user.id,
+              title: text,
+              priority,
+              status: "open",
+            });
+          }
+          toast(d?.label ? `Task · ${d.label} · ${d.action}` : "Task saved", "success", "Capture");
+          return;
+        }
+
+        // Save to notes table if captMode is "note"
+        if (captMode === "note") {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from("notes").insert({
+              user_id: user.id,
+              title: text,
+              body: "",
+              folder: "Inbox",
+            });
+          }
+          toast(d?.label ? `Note · ${d.label}` : "Note saved", "success", "Capture");
+          return;
+        }
+
+        // Default: show AI classification toast
         if (d?.label && d?.action) {
           toast(`${d.label} · ${d.action}`, "info", "AI");
         } else {
@@ -224,6 +463,68 @@ export function ConsoleModule() {
       })
       .catch(() => toast("Captured to Signals inbox", "success", "Console"));
   };
+
+  const handleTriage = async (s: { id: string; title: string; body: string | null; source: string }) => {
+    setTriagingIds((prev) => new Set(prev).add(s.id));
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "triage", text: s.title, body: s.body ?? "" }),
+      });
+      if (res.ok) {
+        const d = await res.json() as { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
+        await applyClassification(s.id, {
+          signal_type: "action",
+          priority: d.priority,
+          destination: d.category,
+          reason: `${d.category} · ${d.effort}`,
+          confidence: 0.8,
+        });
+        toast(`Triaged · ${d.priority.toUpperCase()} · ${d.category} · ${d.effort}`, "info", "AI");
+      }
+    } catch {
+      toast("Triage failed — check connection", "error", "AI");
+    } finally {
+      setTriagingIds((prev) => { const n = new Set(prev); n.delete(s.id); return n; });
+    }
+  };
+
+  useEffect(() => { pomModeRef.current = pomMode; }, [pomMode]);
+
+  useEffect(() => {
+    if (!pomRunning) return;
+    const pomDate = new Date().toDateString();
+    const id = setInterval(() => {
+      setPomSec((s) => {
+        if (s > 1) return s - 1;
+        const mode = pomModeRef.current;
+        const nextMode: "work" | "break" = mode === "work" ? "break" : "work";
+        const nextSec = nextMode === "work" ? 25 * 60 : 5 * 60;
+        setTimeout(() => {
+          setPomRunning(false);
+          setPomMode(nextMode);
+          setPomSec(nextSec);
+          if (mode === "work") {
+            setPomBlocks((b) => {
+              const n = b + 1;
+              try { localStorage.setItem(`axis-pom-${pomDate}`, String(n)); } catch {}
+              return n;
+            });
+          }
+          const msg = mode === "work"
+            ? "Focus block complete — take a 5-minute break."
+            : "Break over — start the next focus block.";
+          toast(msg, "success", "Pomodoro");
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+            new Notification("Axis · Pomodoro", { body: msg });
+          }
+        }, 0);
+        return 0;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [pomRunning, toast]);
 
   // dnd-kit sensors
   const sensors = useSensors(
@@ -259,21 +560,18 @@ export function ConsoleModule() {
   const widgetsSection = (
     <DraggableBlock key="widgets" id="widgets">
       <div style={{ paddingTop: 4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)" }}>
-          <span className="seclabel" style={{ margin: 0 }}>Console Widgets</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="feed-manage" onClick={refreshAll}>Refresh</button>
-            <button
-              type="button"
-              className="feed-manage"
-              onClick={() => {
-                if (editing) save(widgetIds, widgetTexts);
-                setEditing((e) => !e);
-              }}
-            >
-              {editing ? "Done" : "Customize"}
-            </button>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginBottom: "var(--space-2)" }}>
+          <button type="button" className="feed-manage" onClick={refreshAll}>Refresh</button>
+          <button
+            type="button"
+            className="feed-manage"
+            onClick={() => {
+              if (editing) save(widgetIds, widgetTexts);
+              setEditing((e) => !e);
+            }}
+          >
+            {editing ? "Done" : "Customize"}
+          </button>
         </div>
         <div className="tidbits">
           {widgetIds.map((id, i) => {
@@ -304,8 +602,8 @@ export function ConsoleModule() {
                     ⇄
                   </button>
                 )}
-                <div className="tb-ic">{w.icon}</div>
-                <div>
+                <div className="tb-ic" style={widgetIconStyle(id, live?.raw)}><WidgetIcon id={id} /></div>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="tb-v" contentEditable={editing} suppressContentEditableWarning onBlur={(e) => {
                     const next = { ...widgetTexts, [id]: { v: e.currentTarget.textContent || value, k: hint } };
                     setWidgetTexts(next);
@@ -314,6 +612,7 @@ export function ConsoleModule() {
                     const next = { ...widgetTexts, [id]: { v: value, k: e.currentTarget.textContent || hint } };
                     setWidgetTexts(next);
                   }}>{expandedWidget === id ? `${hint} · tap to collapse` : hint}</div>
+                  {expandedWidget === id && !editing && <WidgetSecondLine id={id} raw={live?.raw} />}
                 </div>
               </div>
             );
@@ -394,13 +693,24 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
+  const todayQuote = DAILY_REFLECTIONS[Math.floor(Date.now() / 86400000) % DAILY_REFLECTIONS.length];
+
   const stoicMaximSection = (
     <DraggableBlock key="stoic-maxim" id="stoic-maxim">
       <Card tick className="quote-card">
-        <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Stoic Maxim of the Day</div>
-        <div className="qtext">You have power over your mind — not outside events.</div>
-        <div className="qauth">— Marcus Aurelius, <em>Meditations</em></div>
+        <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Daily Reflection</div>
+        <div className="qtext">&ldquo;{todayQuote.text}&rdquo;</div>
+        <div className="qauth">
+          — {todayQuote.author}
+          {"source" in todayQuote && todayQuote.source ? <>, <em>{todayQuote.source}</em></> : null}
+        </div>
       </Card>
+    </DraggableBlock>
+  );
+
+  const artGallerySection = (
+    <DraggableBlock key="art-gallery" id="art-gallery">
+      <ArtGalleryCard />
     </DraggableBlock>
   );
 
@@ -416,15 +726,263 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
+  // ── Dispatch block ──────────────────────────────────────────────
+  const unread = signals.filter((s) => !s.read_at).length;
+  const actionable = signals.filter((s) => s.signal_type === "action" && !s.routed_at);
+  const dispatchBlockSection = (
+    <DraggableBlock key="dispatch-block" id="dispatch-block">
+      <Card>
+        <h2 className="sec">
+          Dispatch
+          <span className="rule" />
+          <span className="count" style={{ color: unread > 0 ? "var(--clay)" : "var(--up)" }}>
+            {unread > 0 ? `${unread} unread` : "Clear"}
+          </span>
+          {actionable.length > 3 && (
+            <button
+              type="button"
+              onClick={() => setDispatchExpanded((e) => !e)}
+              style={{ marginLeft: "auto", fontSize: 9, fontFamily: "var(--mono)", color: "var(--ink-faint)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", letterSpacing: ".06em" }}
+            >
+              {dispatchExpanded ? "▲ collapse" : "▾ expand"}
+            </button>
+          )}
+        </h2>
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          {actionable.length === 0 ? (
+            <p style={{ color: "var(--ink-faint)", fontSize: 12 }}>No action items — inbox clear.</p>
+          ) : (
+            (dispatchExpanded ? actionable : actionable.slice(0, 3)).map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 10px", background: "var(--glass)", borderRadius: "var(--r)", border: "1px solid var(--line)" }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: s.metadata?.ai_priority === "hi" ? "var(--clay)" : s.metadata?.ai_priority === "lo" ? "var(--ink-faint)" : "var(--clay)", flexShrink: 0, marginTop: 5 }} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "var(--ink)" }}>{s.title}</div>
+                  {s.body && (
+                    <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>
+                      {dispatchExpanded ? s.body : `${s.body.slice(0, 80)}${s.body.length > 80 ? "…" : ""}`}
+                    </div>
+                  )}
+                  {s.metadata?.ai_reason && (
+                    <div style={{ fontSize: 9.5, fontFamily: "var(--mono)", color: "var(--accent-2)", marginTop: 3 }}>
+                      AI: {s.metadata.ai_reason as string}
+                    </div>
+                  )}
+                  {dispatchExpanded && s.source && (
+                    <div style={{ fontSize: 9.5, fontFamily: "var(--mono)", color: "var(--ink-faint)", marginTop: 4 }}>
+                      Source: {s.source}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "var(--ink-faint)", marginTop: 1 }}>{s.source}</span>
+                  {!s.metadata?.ai_at && (
+                    <button
+                      type="button"
+                      onClick={() => handleTriage(s)}
+                      disabled={triagingIds.has(s.id)}
+                      style={{
+                        fontSize: 8.5, fontFamily: "var(--mono)", letterSpacing: ".06em",
+                        color: triagingIds.has(s.id) ? "var(--ink-faint)" : "var(--accent-2)",
+                        background: "none", border: "1px solid var(--line)", borderRadius: 2,
+                        padding: "1px 5px", cursor: triagingIds.has(s.id) ? "default" : "pointer",
+                        transition: "color 0.14s, border-color 0.14s",
+                      }}
+                    >
+                      {triagingIds.has(s.id) ? "…" : "TRIAGE"}
+                    </button>
+                  )}
+                  {s.metadata?.ai_priority && (
+                    <span style={{ fontSize: 8, fontFamily: "var(--mono)", color: s.metadata.ai_priority === "hi" ? "var(--clay)" : s.metadata.ai_priority === "lo" ? "var(--ink-faint)" : "var(--gold-2)", letterSpacing: ".08em" }}>
+                      {(s.metadata.ai_priority as string).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+          {!dispatchExpanded && actionable.length > 3 && (
+            <button
+              type="button"
+              onClick={() => setDispatchExpanded(true)}
+              style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}
+            >
+              +{actionable.length - 3} more — tap to expand
+            </button>
+          )}
+        </div>
+      </Card>
+    </DraggableBlock>
+  );
+
+  // ── Time-aware routine ──────────────────────────────────────────
+  const hour = new Date().getHours();
+  const isMorning = hour >= 5 && hour < 12;
+  const isEvening = hour >= 18;
+  const routineLabel = isMorning ? "Morning Routine" : isEvening ? "Evening Wind-Down" : "Midday Check";
+  const routineColor = isMorning ? "var(--gold)" : isEvening ? "var(--marine-2)" : "var(--up)";
+  const routineItems: string[] = isMorning
+    ? ["Hydrate before coffee", "Review today's top 3 tasks", "10-min mindfulness", "Check Dispatch inbox", "Block focus time on calendar"]
+    : isEvening
+    ? ["Review what got done", "Prepare top 3 tasks for tomorrow", "Clear Dispatch inbox", "Log open loops", "Screens off by 10 pm"]
+    : ["Midday check: on track?", "Hydrate and move 5 min", "Clear any blocking decisions"];
+  const toggleRoutineItem = (key: string) =>
+    setCheckedItems((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  const routineSection = (
+    <DraggableBlock key="routine" id="routine">
+      <Card>
+        <h2 className="sec">
+          {routineLabel}
+          <span className="rule" />
+          <span className="count" style={{ color: routineColor }}>
+            {checkedItems.size}/{routineItems.length}
+          </span>
+        </h2>
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
+          {routineItems.map((item) => {
+            const done = checkedItems.has(item);
+            return (
+              <button
+                key={item}
+                type="button"
+                onClick={() => toggleRoutineItem(item)}
+                style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+              >
+                <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: 3, border: `1.5px solid ${done ? routineColor : "var(--line-strong)"}`, background: done ? routineColor : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "0.14s" }}>
+                  {done && <svg viewBox="0 0 10 10" fill="none" stroke="#0a0b0e" strokeWidth="2" style={{ width: 7, height: 7 }}><polyline points="1.5,5 4,7.5 8.5,2.5" /></svg>}
+                </span>
+                <span style={{ fontSize: 12, color: done ? "var(--ink-faint)" : "var(--ink-dim)", textDecoration: done ? "line-through" : "none", transition: "0.14s" }}>{item}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+    </DraggableBlock>
+  );
+
+  // ── People CRM spotlight ────────────────────────────────────────
+  const now = new Date();
+  const duePeople = people
+    .filter((p) => p.follow_up_on && new Date(`${p.follow_up_on}T23:59:59`) <= new Date(now.getTime() + 3 * 86400000))
+    .sort((a, b) => (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""))
+    .slice(0, 4);
+  const tagColor: Record<string, string> = { mentor: "var(--marine-2)", collaborator: "var(--up)", friend: "var(--gold-2)" };
+
+  const peopleSpotlightSection = (
+    <DraggableBlock key="people-spotlight" id="people-spotlight">
+      <Card>
+        <h2 className="sec">
+          People · Follow-Up
+          <span className="rule" />
+          <span className="count" style={{ color: duePeople.length > 0 ? "var(--clay)" : "var(--up)" }}>
+            {duePeople.length > 0 ? `${duePeople.length} due` : "All good"}
+          </span>
+        </h2>
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          {duePeople.length === 0 ? (
+            <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>No upcoming follow-ups — add people in the CRM.</p>
+          ) : (
+            duePeople.map((p) => {
+              const daysLeft = p.follow_up_on
+                ? Math.round((new Date(`${p.follow_up_on}T23:59:59`).getTime() - now.getTime()) / 86400000)
+                : null;
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--glass)", borderRadius: "var(--r)", border: "1px solid var(--line)" }}>
+                  <span style={{ width: 28, height: 28, flexShrink: 0, borderRadius: "50%", background: "var(--glass-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--narrow)", fontWeight: 600, fontSize: 11, color: tagColor[p.tag] ?? "var(--ink-dim)" }}>
+                    {p.name.charAt(0).toUpperCase()}
+                  </span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "var(--ink)", fontWeight: 500 }}>{p.name}</div>
+                    {p.role && <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: 1 }}>{p.role}</div>}
+                  </div>
+                  <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: daysLeft !== null && daysLeft <= 0 ? "var(--clay)" : "var(--ink-faint)", flexShrink: 0 }}>
+                    {daysLeft === null ? "" : daysLeft <= 0 ? "overdue" : daysLeft === 0 ? "today" : `${daysLeft}d`}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Card>
+    </DraggableBlock>
+  );
+
+  const pomMin = Math.floor(pomSec / 60).toString().padStart(2, "0");
+  const pomSecStr = (pomSec % 60).toString().padStart(2, "0");
+  const pomIsDefault = pomSec === (pomMode === "work" ? 25 * 60 : 5 * 60);
+
+  const pomodoroSection = (
+    <DraggableBlock key="pomodoro" id="pomodoro">
+      {blockSizes["pomodoro"] === "sm" ? (
+        <Card>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "14px 8px 18px", gap: 10 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: pomMode === "work" ? "var(--clay)" : "var(--up)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              {pomMode === "work" ? "FOCUS" : "BREAK"}{pomBlocks > 0 ? ` · ${pomBlocks}×` : ""}
+            </div>
+            <div style={{ fontFamily: "var(--narrow)", fontSize: 42, fontWeight: 700, letterSpacing: "-0.02em", color: pomMode === "work" ? "var(--clay)" : "var(--up)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+              {pomMin}:{pomSecStr}
+            </div>
+            <div style={{ display: "flex", gap: 5 }}>
+              <button type="button" className="btn-secondary" style={{ fontSize: 11, padding: "4px 12px" }} onClick={() => setPomRunning((r) => !r)}>
+                {pomRunning ? "Pause" : pomIsDefault ? "Start" : "Resume"}
+              </button>
+              <button type="button" className="btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={() => { setPomRunning(false); setPomMode("work"); pomModeRef.current = "work"; setPomSec(25 * 60); }}>
+                ↺
+              </button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card>
+          <h2 className="sec">
+            Pomodoro<span className="rule" />
+            <span className="count" style={{ color: pomMode === "work" ? "var(--clay)" : "var(--up)" }}>
+              {pomMode === "work" ? "Focus" : "Break"}{pomBlocks > 0 ? ` · ${pomBlocks} today` : ""}
+            </span>
+          </h2>
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ fontFamily: "var(--narrow)", fontSize: 52, fontWeight: 700, letterSpacing: "-0.02em", color: pomMode === "work" ? "var(--clay)" : "var(--up)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+              {pomMin}:{pomSecStr}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" className="btn-secondary" style={{ minWidth: 68 }} onClick={() => setPomRunning((r) => !r)}>
+                {pomRunning ? "Pause" : pomIsDefault ? "Start" : "Resume"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => { setPomRunning(false); setPomMode("work"); pomModeRef.current = "work"; setPomSec(25 * 60); }}>
+                Reset
+              </button>
+              <button type="button" className="btn-secondary" style={{ fontSize: 10 }} onClick={() => { const next: "work" | "break" = pomMode === "work" ? "break" : "work"; setPomRunning(false); setPomMode(next); pomModeRef.current = next; setPomSec(next === "work" ? 25 * 60 : 5 * 60); }}>
+                {pomMode === "work" ? "→ Break" : "→ Work"}
+              </button>
+            </div>
+            {pomBlocks > 0 && (
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
+                {Array.from({ length: Math.min(pomBlocks, 12) }).map((_, i) => (
+                  <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--clay)", opacity: 0.65 }} />
+                ))}
+                {pomBlocks > 12 && <span style={{ fontSize: 9, color: "var(--ink-faint)", fontFamily: "var(--mono)", lineHeight: "7px" }}>+{pomBlocks - 12}</span>}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+    </DraggableBlock>
+  );
+
   const sectionMap: Record<SectionId, React.ReactNode> = {
     "widgets": widgetsSection,
     "photos": photosSection,
+    "dispatch-block": dispatchBlockSection,
+    "pomodoro": pomodoroSection,
+    "routine": routineSection,
     "daily-rings": dailyRingsSection,
     "todays-arc": todaysArcSection,
     "focus-ranked": focusRankedSection,
+    "people-spotlight": peopleSpotlightSection,
     "weekly-devotional": weeklyDevotionalSection,
     "stoic-maxim": stoicMaximSection,
     "markets-body": marketsBodySection,
+    "art-gallery": artGallerySection,
   };
 
   // Minimal clone for DragOverlay — just a dim placeholder matching the handle
@@ -455,35 +1013,44 @@ export function ConsoleModule() {
       <div className="eyebrow">{formatDateLong()}</div>
       <HeroLine tasks={tasks} />
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={sectionOrder} strategy={verticalListSortingStrategy}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--section-gap)", marginTop: "var(--section-gap)" }}>
-            {sectionOrder.map((id) => sectionMap[id])}
-          </div>
-        </SortableContext>
-        <DragOverlay>{overlayNode}</DragOverlay>
-      </DndContext>
-
       <div className="capture" style={{ marginTop: "var(--section-gap)" }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M12 5v14M5 12h14" />
         </svg>
         <input
-          placeholder="Capture a thought, task, paper, or expense — I'll file and schedule it…"
+          placeholder="Capture a thought, task, paper, or expense…"
           value={captureText}
           onChange={(e) => setCaptureText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCapture()}
         />
-        <span className="capt-pill">TASK</span>
-        <span className="capt-pill">NOTE</span>
-        <span className="capt-pill">PAPER</span>
+        {(["task", "note", "paper"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            className={`capt-pill${captMode === m ? " on" : ""}`}
+            onClick={() => setCaptMode(captMode === m ? null : m)}
+          >
+            {m.toUpperCase()}
+          </button>
+        ))}
         <button type="button" className="capt-go" onClick={handleCapture}>Capture</button>
       </div>
+
+      <BlockSizeContext.Provider value={{ sizes: blockSizes, toggle: toggleBlockSize }}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={sectionOrder} strategy={verticalListSortingStrategy}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--section-gap)", marginTop: "var(--section-gap)", alignItems: "flex-start" }}>
+              {sectionOrder.map((id) => sectionMap[id])}
+            </div>
+          </SortableContext>
+          <DragOverlay>{overlayNode}</DragOverlay>
+        </DndContext>
+      </BlockSizeContext.Provider>
 
       <Modal open={pickerOpen} onClose={() => setPickerOpen(false)} title="Choose Widget" footer={<Button variant="ghost" onClick={() => setPickerOpen(false)}>Cancel</Button>}>
         <p style={{ fontSize: 11.5, color: "var(--ink-faint)", marginBottom: 12 }}>

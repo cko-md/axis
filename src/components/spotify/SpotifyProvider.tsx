@@ -49,6 +49,7 @@ type SpotifyState = {
   toggleShuffle: () => Promise<void>;
   cycleRepeat: () => Promise<void>;
   playUris: (uris: string[]) => Promise<void>;
+  playContext: (contextUri: string) => Promise<void>;
   queue: (uri: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
@@ -209,6 +210,13 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     [post],
   );
 
+  const playContext = useCallback(
+    async (contextUri: string) => {
+      await post({ action: "play", contextUri });
+    },
+    [post],
+  );
+
   const queue = useCallback(
     async (uri: string): Promise<{ ok: boolean; message?: string }> => {
       const res = await post({ action: "queue", uri });
@@ -244,6 +252,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         toggleShuffle,
         cycleRepeat,
         playUris,
+        playContext,
         queue,
       }}
     >

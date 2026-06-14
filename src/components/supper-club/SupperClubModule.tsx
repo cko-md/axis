@@ -137,15 +137,11 @@ export function SupperClubModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
         <div className="selectbox" onClick={cycleDiet}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" />
           </svg>
           <span>Curate: {DIET_LABEL[diet]}</span>
-        </div>
         <div className="savebtn" onClick={() => setRefreshSeed((s) => s + 1)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4" />
@@ -153,7 +149,7 @@ export function SupperClubModule() {
           Refresh Sources
         </div>
       </div>
-      <h1 className="hero">Supper Club</h1>
+      <div className="divider" />
       <div className="chips" style={{ marginTop: 18 }}>
         {DIETS.map((d) => (
           <span

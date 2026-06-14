@@ -143,8 +143,6 @@ export function ObjectivesModule() {
 
   return (
     <>
-      <div className="modhead"><div className="eyebrow">Plan</div><div className="rule" /></div>
-      <h1 className="hero">Objectives</h1>
       <div className="divider" />
       <div className="crm-toolbar">
         <button type="button" className="sig-go" onClick={() => setObjModalOpen(true)}>+ New Objective</button>

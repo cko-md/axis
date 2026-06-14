@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { parseGeoQuery } from "@/lib/geo/default-location";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET(req: Request) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const geo = parseGeoQuery(new URL(req.url).searchParams);
   try {
     const url = new URL("https://air-quality-api.open-meteo.com/v1/air-quality");
@@ -17,11 +22,10 @@ export async function GET(req: Request) {
     const label = aqi <= 50 ? "Good" : aqi <= 100 ? "Moderate" : "Poor";
     const uvHint = uv >= 6 ? "sunscreen for long run" : uv >= 3 ? "mild UV" : "low UV";
 
-    return NextResponse.json({
-      value: `AQI ${aqi} · ${label}`,
-      hint: `UV ${uv} · ${uvHint}`,
-      raw: { aqi, uv },
-    });
+    return NextResponse.json(
+      { value: `AQI ${aqi} · ${label}`, hint: `UV ${uv} · ${uvHint}`, raw: { aqi, uv } },
+      { headers: { "Cache-Control": "s-maxage=1800, stale-while-revalidate=3600" } },
+    );
   } catch {
     return NextResponse.json({
       value: "AQI 22 · Good",

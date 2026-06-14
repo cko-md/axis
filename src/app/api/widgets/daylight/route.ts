@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { formatDaylight } from "@/lib/daylight";
 import { parseGeoQuery } from "@/lib/geo/default-location";
+import { createClient } from "@/lib/supabase/server";
 
 /** "2026-06-12T05:21" (already local to the queried coords) → "5:21 AM" */
 function localLabel(iso: string) {
@@ -19,6 +20,10 @@ function minusMinutes(iso: string, minutes: number) {
 }
 
 export async function GET(req: Request) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const geo = parseGeoQuery(new URL(req.url).searchParams);
 
   try {
@@ -38,11 +43,10 @@ export async function GET(req: Request) {
     if (!sunrise || !sunset) throw new Error("Missing sun times");
 
     const golden = minusMinutes(sunset, 45);
-    return NextResponse.json({
-      value: formatDaylight(daylightMs),
-      hint: `Sunset ${localLabel(sunset)} · golden hour ${localLabel(golden)}`,
-      raw: { sunrise, sunset, daylightMs },
-    });
+    return NextResponse.json(
+      { value: formatDaylight(daylightMs), hint: `Sunset ${localLabel(sunset)} · golden hour ${localLabel(golden)}`, raw: { sunrise, sunset, daylightMs } },
+      { headers: { "Cache-Control": "s-maxage=3600, stale-while-revalidate=7200" } },
+    );
   } catch {
     return NextResponse.json({
       value: "Daylight unavailable",

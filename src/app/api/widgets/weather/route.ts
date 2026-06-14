@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { parseGeoQuery } from "@/lib/geo/default-location";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET(req: Request) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const geo = parseGeoQuery(new URL(req.url).searchParams);
   try {
     const url = new URL("https://api.open-meteo.com/v1/forecast");
@@ -22,11 +27,10 @@ export async function GET(req: Request) {
     const runHint =
       hour >= 6 && hour <= 9 ? "ideal run window 7–9a" : hour < 6 ? "pre-dawn · quiet hours" : "evening cool-down";
 
-    return NextResponse.json({
-      value: `${temp}°F · ${label}`,
-      hint: `${geo.name} · ${runHint}`,
-      raw: { temp, code, humidity: cur.relative_humidity_2m },
-    });
+    return NextResponse.json(
+      { value: `${temp}°F · ${label}`, hint: `${geo.name} · ${runHint}`, raw: { temp, code, humidity: cur.relative_humidity_2m } },
+      { headers: { "Cache-Control": "s-maxage=900, stale-while-revalidate=1800" } },
+    );
   } catch {
     return NextResponse.json({
       value: "61°F · Clear",

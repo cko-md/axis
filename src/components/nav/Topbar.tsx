@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatClock } from "@/lib/format";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { createClient } from "@/lib/supabase/client";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
 
 type Props = {
   section: string;
@@ -16,6 +17,7 @@ export function Topbar({ section, page, onOpenPalette }: Props) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const { openInterfaceStudio } = useTheme();
   const supabase = useMemo(() => createClient(), []);
+  const { open: openBrowser } = useWebViewer();
 
   useEffect(() => {
     const tick = () => setClock(formatClock());
@@ -50,10 +52,10 @@ export function Topbar({ section, page, onOpenPalette }: Props) {
           <circle cx="11" cy="11" r="7" />
           <path d="M21 21l-4-4" />
         </svg>
-        Search or Command…
+        <span className="srch-text">Search or Command…</span>
         <span className="kbd">⌘K</span>
       </div>
-      <button type="button" className="iconbtn" title="Mini Browser">
+      <button type="button" className="iconbtn" title="Mini Browser" onClick={() => openBrowser("https://www.google.com", "Browser")}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 16, height: 16 }}>
           <circle cx="12" cy="12" r="9" />
           <path d="M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18" />

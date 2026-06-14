@@ -96,26 +96,9 @@ export function FundModule() {
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-    fetch("/api/massive/status")
-      .then((r) => r.json())
-      .then(setApiStatus)
-      .catch(() => null);
-    fetch("/api/plaid/status")
-      .then((r) => r.json())
-      .then((s) => setPlaidConfigured(!!s?.configured))
-      .catch(() => null);
-    fetch("/api/brokerage/status")
-      .then((r) => r.json())
-      .then((s) => setBrokerageConfigured(!!s?.configured))
-      .catch(() => null);
-  }, [loadData]);
-
-  // Pull live bank balances once Plaid is configured. Degrades silently to the
-  // "connect a bank" empty-state when keys are absent (route returns configured:false).
+  // Pull live bank balances — called inline once we know Plaid is configured, avoiding a
+  // render-cycle waterfall (plaidConfigured state → re-render → second useEffect).
   const loadBalances = useCallback(async () => {
-    if (!plaidConfigured) return;
     try {
       const res = await fetch("/api/plaid/balances", {
         method: "POST",
@@ -135,11 +118,30 @@ export function FundModule() {
     } catch {
       // keep empty-state
     }
-  }, [plaidConfigured]);
+  }, []);
 
   useEffect(() => {
-    loadBalances();
-  }, [loadBalances]);
+    Promise.allSettled([
+      loadData(),
+      fetch("/api/massive/status")
+        .then((r) => r.json())
+        .then(setApiStatus)
+        .catch(() => null),
+      fetch("/api/plaid/status")
+        .then((r) => r.json())
+        .then((s: { configured?: boolean } | null) => {
+          const configured = !!s?.configured;
+          setPlaidConfigured(configured);
+          // Fetch balances immediately — no need to wait for a re-render cycle.
+          if (configured) loadBalances();
+        })
+        .catch(() => null),
+      fetch("/api/brokerage/status")
+        .then((r) => r.json())
+        .then((s: { configured?: boolean } | null) => setBrokerageConfigured(!!s?.configured))
+        .catch(() => null),
+    ]);
+  }, [loadData, loadBalances]);
 
   async function refreshQuotes() {
     if (!apiStatus?.configured) {
@@ -310,11 +312,10 @@ export function FundModule() {
     setSearchHits(data.results ?? []);
   }
 
+
   return (
     <div>
-      <div className="modhead">
-        <div className="eyebrow">Capital</div>
-        <div className="rule" />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <button
           type="button"
           className="selectbox"
@@ -328,8 +329,6 @@ export function FundModule() {
           {brokerageConfigured ? "Public ✓" : "Public"} · {plaidConfigured ? "Plaid ✓" : "Plaid"}
         </button>
       </div>
-      <h1 className="hero-title">Fund</h1>
-
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
         <button type="button" className="feed-manage" onClick={() => setAddOpen(true)}>
           Add holding

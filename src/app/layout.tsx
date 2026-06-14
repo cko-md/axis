@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Archivo, Archivo_Narrow, Fraunces, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
+import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
+import { WebViewer } from "@/components/ui/WebViewer";
 import "./globals.css";
 
 const archivo = Archivo({
@@ -38,6 +40,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#0a0b0e" />
         {/* Bebas Neue not available via next/font — load via Google Fonts link */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -47,9 +51,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}>
-        <ThemeProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </ThemeProvider>
+        <WebViewerProvider>
+          <ThemeProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </ThemeProvider>
+          <WebViewer />
+        </WebViewerProvider>
       </body>
     </html>
   );

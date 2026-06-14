@@ -34,13 +34,14 @@ export function useTasks() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("tasks")
       .select("*")
       .eq("user_id", user.id)
       .order("sort_order", { ascending: true });
+    if (error || !data) { setLoading(false); return; }
     const now = Date.now();
-    const normalized = (data ?? []).map((t) => {
+    const normalized = data.map((t) => {
       if (t.status === "open" && t.deadline && new Date(t.deadline).getTime() < now) {
         return { ...t, status: "overdue" as TaskStatus };
       }
@@ -84,8 +85,8 @@ export function useTasks() {
   };
 
   const deleteTask = async (id: string) => {
-    await supabase.from("tasks").delete().eq("id", id);
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    const { error } = await supabase.from("tasks").delete().eq("id", id);
+    if (!error) setTasks((prev) => prev.filter((t) => t.id !== id));
   };
 
   const toggleDone = async (id: string) => {

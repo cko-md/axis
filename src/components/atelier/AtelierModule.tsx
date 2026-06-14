@@ -88,15 +88,10 @@ export function AtelierModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
         <div className="savebtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 5v14M5 12h14" /></svg>
           Add a Pursuit
-        </div>
       </div>
-      <h1 className="hero">Atelier</h1>
 
       <div className="subtabbar" style={{ marginTop: 20 }}>
         <button type="button" className={`subtab${tab === "atl-lang" ? " on" : ""}`} onClick={() => setTab("atl-lang")}>

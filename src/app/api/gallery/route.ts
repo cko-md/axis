@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 const AIC_BASE    = "https://api.artic.edu/api/v1";
 const MET_BASE    = "https://collectionapi.metmuseum.org/public/collection/v1";
+const CMA_BASE    = "https://openaccess-api.clevelandart.org/api";    // free, no key
+const RIKS_BASE   = "https://www.rijksmuseum.nl/api/en/collection";    // needs RIJKS_API_KEY
 const POETRY_BASE = "https://poetrydb.org";
 const GUTENDEX    = "https://gutendex.com/books";
 const OL_BASE     = "https://openlibrary.org";
@@ -9,35 +12,70 @@ const OL_BASE     = "https://openlibrary.org";
 // ── Curated queries by movement ───────────────────────────────────────────────
 
 const AIC_QUERIES: Record<string, string[]> = {
-  Expressionism:        ["expressionism painting", "kirchner expressionism", "ernst ludwig kirchner"],
-  Impressionism:        ["impressionism monet", "impressionist landscape", "renoir impressionism"],
-  Abstract:             ["abstract expressionism", "color field painting", "abstract composition"],
-  Modern:               ["modern art", "modernist painting", "bauhaus design"],
-  Sculpture:            ["rodin sculpture", "bronze sculpture", "marble sculpture"],
-  Minimalism:           ["minimalism art", "geometric abstraction", "frank stella"],
-  Surrealism:           ["surrealism painting", "dali surrealism", "magritte surrealism"],
-  Hyperrealism:         ["hyperrealism painting", "photorealist painting"],
-  "Text Art":           ["text art conceptual", "word painting letters"],
-  Cubism:               ["cubism picasso", "cubist composition", "braque cubism"],
-  "Pop Art":            ["pop art warhol", "pop art lichtenstein", "pop art collage"],
-  Classicism:           ["classical painting allegory", "neoclassical figure"],
-  Rococo:               ["rococo fragonard", "rococo watteau", "rococo boucher"],
-  Romanticism:          ["romanticism delacroix", "romantic landscape turner", "caspar david friedrich"],
-  "Post-Impressionism": ["post impressionism cezanne", "van gogh post impressionism", "gauguin"],
-  Futurism:             ["futurism boccioni", "italian futurism", "futurist composition"],
-  Figurative:           ["figurative painting portrait", "figurative modern figure"],
-  "Fine Art":           ["fine art masterwork", "old masters painting"],
-  Neoclassicism:        ["neoclassicism david", "neoclassical allegory", "ingres neoclassicism"],
-  "Neo-Impressionism":  ["seurat pointillism", "neo impressionism signac", "divisionism"],
+  Expressionism:          ["expressionism painting", "kirchner expressionism", "ernst ludwig kirchner"],
+  Impressionism:          ["impressionism monet", "impressionist landscape", "renoir impressionism"],
+  Abstract:               ["abstract expressionism", "color field painting", "abstract composition"],
+  Modern:                 ["modern art", "modernist painting", "bauhaus design"],
+  Sculpture:              ["rodin sculpture", "bronze sculpture", "marble sculpture"],
+  Minimalism:             ["minimalism art", "geometric abstraction", "frank stella"],
+  Surrealism:             ["surrealism painting", "dali surrealism", "magritte surrealism"],
+  Hyperrealism:           ["hyperrealism painting", "photorealist painting"],
+  "Text Art":             ["text art conceptual", "word painting letters"],
+  Cubism:                 ["cubism picasso", "cubist composition", "braque cubism"],
+  "Pop Art":              ["pop art warhol", "pop art lichtenstein", "pop art collage"],
+  Classicism:             ["classical painting allegory", "neoclassical figure"],
+  Rococo:                 ["rococo fragonard", "rococo watteau", "rococo boucher"],
+  Romanticism:            ["romanticism delacroix", "romantic landscape turner", "caspar david friedrich"],
+  "Post-Impressionism":   ["post impressionism cezanne", "van gogh post impressionism", "gauguin"],
+  Futurism:               ["futurism boccioni", "italian futurism", "futurist composition"],
+  Figurative:             ["figurative painting portrait", "figurative modern figure"],
+  "Fine Art":             ["fine art masterwork", "old masters painting"],
+  Neoclassicism:          ["neoclassicism david", "neoclassical allegory", "ingres neoclassicism"],
+  "Neo-Impressionism":    ["seurat pointillism", "neo impressionism signac", "divisionism"],
+  Baroque:                ["baroque painting caravaggio", "baroque dutch golden age", "rembrandt baroque"],
+  Renaissance:            ["renaissance italian painting", "botticelli renaissance painting", "raphael renaissance"],
+  "Art Deco":             ["art deco design illustration", "art deco poster modernism", "art deco decorative"],
+  Photography:            ["photography documentary", "photography portrait", "photography landscape"],
+  "Asian Art":            ["japanese woodblock print", "ukiyo-e woodblock", "hokusai wave"],
+  "Islamic Art":          ["islamic geometric art", "persian manuscript painting", "arabic calligraphy art"],
+  "African American Art": ["african american art chicago", "african american modernism", "social realism painting"],
+  Afrofuturism:           ["kerry james marshall", "kehinde wiley", "sam gilliam"],
 };
 
 const MET_QUERIES: Record<string, string[]> = {
-  "Harlem Renaissance": ["Harlem Renaissance", "Jacob Lawrence", "Aaron Douglas", "Romare Bearden"],
-  "African American":   ["African American art", "faith ringgold", "kara walker"],
+  "Harlem Renaissance":   ["Jacob Lawrence", "Aaron Douglas", "Romare Bearden", "Harlem Renaissance"],
+  "African American Art": ["Romare Bearden", "faith ringgold", "african american art twentieth century"],
+  Afrofuturism:           ["contemporary African art", "African diaspora modern", "black abstract expressionism"],
+  "Islamic Art":          ["islamic art geometric", "persian miniature", "ottoman art"],
+  "Asian Art":            ["Japanese painting Edo", "Chinese ink painting", "Korean ceramics"],
+};
+
+// Cleveland Museum of Art — free open-access API, no key required
+const CMA_QUERIES: Record<string, string[]> = {
+  Impressionism:         ["monet", "renoir", "pissarro"],
+  "Post-Impressionism":  ["van gogh", "cezanne", "gauguin"],
+  Baroque:               ["rembrandt", "rubens", "caravaggio"],
+  Renaissance:           ["raphael", "titian", "botticelli"],
+  Romanticism:           ["turner", "delacroix", "constable"],
+  "African American Art":["henry ossawa tanner", "romare bearden"],
+  "Asian Art":           ["japanese woodblock", "chinese painting", "ink painting"],
+  "Islamic Art":         ["persian", "ottoman", "islamic manuscript"],
+  Photography:           ["alfred stieglitz", "edward weston", "berenice abbott"],
+  Sculpture:             ["rodin", "brancusi", "degas sculpture"],
+};
+
+// Rijksmuseum — requires RIJKS_API_KEY env var (free, sign up at data.rijksmuseum.nl)
+const RIKS_QUERIES: Record<string, string[]> = {
+  Baroque:          ["Rembrandt", "Vermeer", "Frans Hals"],
+  Renaissance:      ["Raphael", "Leonardo", "Durer"],
+  Impressionism:    ["Monet", "impressionist"],
+  "Golden Age":     ["Dutch Golden Age", "still life flowers"],
+  Romanticism:      ["landscape romantic"],
 };
 
 const ALL_AIC_QUERIES = Object.values(AIC_QUERIES).flat();
 const ALL_MET_QUERIES = Object.values(MET_QUERIES).flat();
+const ALL_CMA_QUERIES = Object.values(CMA_QUERIES).flat();
 
 // ── Curated poets ─────────────────────────────────────────────────────────────
 
@@ -88,21 +126,28 @@ function pick<T>(arr: T[]): T {
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { searchParams } = new URL(req.url);
-  const source = searchParams.get("source") ?? "aic";
-  const q      = searchParams.get("q") ?? "";
+  const source      = searchParams.get("source") ?? "aic";
+  const q           = searchParams.get("q") ?? "";
+  const allowNonPD  = searchParams.get("allowNonPD") === "1";
 
   // ── AIC (Art Institute of Chicago) ────────────────────────────────────────
   if (source === "aic") {
     const query = q || pick(ALL_AIC_QUERIES);
+    const pdFilter = allowNonPD ? "" : `&query[term][is_public_domain]=true`;
     try {
       const data = await safeFetch(
         `${AIC_BASE}/artworks/search?q=${encodeURIComponent(query)}&limit=24` +
         `&fields=id,title,artist_display,date_display,classification_title,image_id,` +
         `medium_display,artist_title,thumbnail,department_title,place_of_origin` +
-        `&query[term][is_public_domain]=true`,
+        pdFilter,
       ) as { data: AICWork[] };
 
+      const derivedGenre = deriveGenre(query);
       const works = (data.data ?? [])
         .filter((w) => w.image_id)
         .map((w) => ({
@@ -112,7 +157,7 @@ export async function GET(req: Request) {
           artist: w.artist_display ?? w.artist_title ?? "Unknown",
           artistTitle: w.artist_title ?? "",
           year: w.date_display ?? "",
-          genre: w.classification_title ?? deriveGenre(query),
+          genre: derivedGenre !== "Fine Art" ? derivedGenre : (w.classification_title ?? "Fine Art"),
           medium: w.medium_display ?? "",
           department: w.department_title ?? "",
           origin: w.place_of_origin ?? "",
@@ -121,7 +166,7 @@ export async function GET(req: Request) {
           aicUrl: `https://www.artic.edu/artworks/${w.id}`,
           isPublicDomain: true,
         }));
-      return NextResponse.json({ works, query });
+      return NextResponse.json({ works, query }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
     } catch {
       return NextResponse.json({ works: [], query });
     }
@@ -130,16 +175,17 @@ export async function GET(req: Request) {
   // ── MET (Metropolitan Museum) ────────────────────────────────────────────
   if (source === "met") {
     const query = q || pick(ALL_MET_QUERIES);
+    const artistSearch = searchParams.get("artistSearch") === "1";
     try {
-      const searchData = await safeFetch(
-        `${MET_BASE}/search?q=${encodeURIComponent(query)}&hasImages=true&isHighlight=true`,
-      ) as { objectIDs?: number[] };
+      const metSearchUrl = `${MET_BASE}/search?q=${encodeURIComponent(query)}&hasImages=true${artistSearch ? "&artistOrCulture=true" : ""}`;
+      const searchData = await safeFetch(metSearchUrl) as { objectIDs?: number[] };
 
       const ids = (searchData.objectIDs ?? []).slice(0, 16);
       const settled = await Promise.allSettled(
         ids.map((id) => fetch(`${MET_BASE}/objects/${id}`, { next: { revalidate: 86400 } }).then((r) => r.json())),
       );
 
+      const derivedMetGenre = deriveGenre(query);
       const works = settled
         .filter((r): r is PromiseFulfilledResult<MetWork> => r.status === "fulfilled")
         .map((r) => r.value)
@@ -151,7 +197,7 @@ export async function GET(req: Request) {
           artist: w.artistDisplayName ?? "Unknown",
           artistTitle: w.artistDisplayName ?? "",
           year: w.objectDate ?? "",
-          genre: w.classification ?? w.medium ?? deriveGenre(query),
+          genre: derivedMetGenre !== "Fine Art" ? derivedMetGenre : (w.classification ?? w.medium ?? "Fine Art"),
           medium: w.medium ?? "",
           department: w.department ?? "",
           origin: w.country ?? "",
@@ -162,7 +208,75 @@ export async function GET(req: Request) {
           isPublicDomain: w.isPublicDomain,
         }));
 
-      return NextResponse.json({ works, query });
+      return NextResponse.json({ works, query }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
+    } catch {
+      return NextResponse.json({ works: [], query });
+    }
+  }
+
+  // ── Cleveland Museum of Art (free, no auth) ─────────────────────────────
+  if (source === "cma") {
+    const query = q || pick(ALL_CMA_QUERIES);
+    try {
+      const data = await safeFetch(
+        `${CMA_BASE}/artworks/?q=${encodeURIComponent(query)}&has_image=1&limit=24&fields=id,title,creators,creation_date,technique,department,images,url,culture`,
+      ) as { data: CMAWork[] };
+
+      const derivedGenre = deriveGenre(query);
+      const works = (data.data ?? [])
+        .filter((w) => w.images?.web?.url)
+        .map((w) => ({
+          id: `cma-${w.id}`,
+          source: "cma",
+          title: w.title ?? "Untitled",
+          artist: w.creators?.map((c) => c.description).join(", ") ?? "Unknown",
+          artistTitle: w.creators?.[0]?.description ?? "",
+          year: w.creation_date ?? "",
+          genre: derivedGenre !== "Fine Art" ? derivedGenre : (w.technique ?? w.department ?? "Fine Art"),
+          medium: w.technique ?? "",
+          department: w.department ?? "",
+          origin: w.culture ?? "",
+          imageUrl: w.images?.web?.url ?? "",
+          thumbUrl: w.images?.web?.url ?? "",
+          cmaUrl: w.url ?? "",
+          isPublicDomain: true,
+        }));
+      return NextResponse.json({ works, query }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
+    } catch {
+      return NextResponse.json({ works: [], query });
+    }
+  }
+
+  // ── Rijksmuseum (requires RIJKS_API_KEY env var) ─────────────────────────
+  if (source === "riks") {
+    const apiKey = process.env.RIJKS_API_KEY;
+    if (!apiKey) return NextResponse.json({ works: [], query: q, error: "RIJKS_API_KEY not configured" });
+    const query = q || pick(Object.values(RIKS_QUERIES).flat());
+    try {
+      const data = await safeFetch(
+        `${RIKS_BASE}?key=${apiKey}&q=${encodeURIComponent(query)}&imgonly=true&ps=20&s=relevance`,
+      ) as { artObjects: RiksWork[] };
+
+      const derivedGenre = deriveGenre(query);
+      const works = (data.artObjects ?? [])
+        .filter((w) => w.webImage?.url)
+        .map((w) => ({
+          id: `riks-${w.objectNumber}`,
+          source: "riks",
+          title: w.title ?? "Untitled",
+          artist: w.principalOrFirstMaker ?? "Unknown",
+          artistTitle: w.principalOrFirstMaker ?? "",
+          year: w.dating?.presentingDate ?? "",
+          genre: derivedGenre,
+          medium: "",
+          department: "",
+          origin: "Netherlands",
+          imageUrl: w.webImage.url.replace("=s0", "=s800"),
+          thumbUrl: w.webImage.url.replace("=s0", "=s400"),
+          riksUrl: w.links?.web ?? "",
+          isPublicDomain: true,
+        }));
+      return NextResponse.json({ works, query }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
     } catch {
       return NextResponse.json({ works: [], query });
     }
@@ -193,7 +307,7 @@ export async function GET(req: Request) {
         .filter((r): r is PromiseFulfilledResult<PoetryDBPoem[]> => r.status === "fulfilled")
         .flatMap((r) => r.value);
 
-      return NextResponse.json({ poems });
+      return NextResponse.json({ poems }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
     } catch {
       return NextResponse.json({ poems: [] });
     }
@@ -204,7 +318,10 @@ export async function GET(req: Request) {
     const count = Math.min(Number(searchParams.get("count") ?? "5"), 10);
     try {
       const poems = await safeFetch(`${POETRY_BASE}/random/${count}`);
-      return NextResponse.json({ poems: Array.isArray(poems) ? poems : [poems] });
+      return NextResponse.json(
+        { poems: Array.isArray(poems) ? poems : [poems] },
+        { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } },
+      );
     } catch {
       return NextResponse.json({ poems: [] });
     }
@@ -231,7 +348,7 @@ export async function GET(req: Request) {
         olUrl: `https://openlibrary.org${w.key}`,
         subjects: [],
       }));
-      return NextResponse.json({ books, subject });
+      return NextResponse.json({ books, subject }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
     } catch {
       return NextResponse.json({ books: [], subject });
     }
@@ -256,7 +373,7 @@ export async function GET(req: Request) {
         downloadCount: b.download_count,
         year: null,
       }));
-      return NextResponse.json({ books });
+      return NextResponse.json({ books }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
     } catch {
       return NextResponse.json({ books: [] });
     }
@@ -282,7 +399,7 @@ export async function GET(req: Request) {
         olUrl: `https://openlibrary.org${w.key}`,
         subjects: [],
       }));
-      return NextResponse.json({ books });
+      return NextResponse.json({ books }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
     } catch {
       return NextResponse.json({ books: [] });
     }
@@ -366,4 +483,25 @@ type OLSubjectResponse = {
     first_publish_year?: number;
     cover_id?: number;
   }>;
+};
+
+type CMAWork = {
+  id: number;
+  title: string;
+  creators?: Array<{ description: string; role?: string }>;
+  creation_date?: string;
+  technique?: string;
+  department?: string;
+  culture?: string;
+  url?: string;
+  images?: { web?: { url: string } };
+};
+
+type RiksWork = {
+  objectNumber: string;
+  title: string;
+  principalOrFirstMaker: string;
+  dating?: { presentingDate?: string };
+  webImage: { url: string };
+  links?: { web?: string };
 };

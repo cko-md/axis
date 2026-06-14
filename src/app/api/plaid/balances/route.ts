@@ -1,17 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getPlaidCreds, plaidHost } from "../status/route";
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { getPlaidCreds, plaidHost } from "../_lib";
 
 /**
- * Fetches account balances for a linked Plaid item.
+ * Fetches account balances for the authenticated user's linked Plaid item.
  *
  * Without keys: returns { configured: false } (200) so the Cash panel renders
  * a calm "connect a bank" empty-state rather than throwing.
  *
- * With keys: exchanges the body access_token for balances. The access_token is
- * passed from the server-held connection record — never exposed to the client
- * beyond this proxy boundary.
+ * With keys: looks up the access_token from the server-side Supabase record
+ * keyed by the authenticated user.id — the client never supplies it.
  */
-export async function POST(request: NextRequest) {
+export async function POST() {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const creds = getPlaidCreds();
   if (!creds) {
     return NextResponse.json({
@@ -22,17 +26,17 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  let accessToken: string | undefined;
-  try {
-    const body = await request.json();
-    accessToken = body?.access_token;
-  } catch {
-    // no body
-  }
+  // Retrieve the stored access_token from the server-side record for this user.
+  // The client must never supply the token directly.
+  const { data: plaidItem, error: itemError } = await supabase
+    .from("plaid_items")
+    .select("access_token")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
-  if (!accessToken) {
+  if (itemError || !plaidItem?.access_token) {
     return NextResponse.json(
-      { configured: true, error: "MISSING_ACCESS_TOKEN" },
+      { configured: true, error: "NO_LINKED_ACCOUNT" },
       { status: 400 },
     );
   }
@@ -44,15 +48,17 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         client_id: creds.clientId,
         secret: creds.secret,
-        access_token: accessToken,
+        access_token: plaidItem.access_token,
       }),
       cache: "no-store",
     });
 
     if (!res.ok) {
+      // Log detail server-side; return only a sanitized code to the client.
       const detail = await res.text();
+      console.error("[plaid/balances] upstream error:", detail);
       return NextResponse.json(
-        { configured: true, error: "PLAID_BALANCES_FAILED", detail },
+        { configured: true, error: "PLAID_BALANCES_FAILED" },
         { status: 502 },
       );
     }
@@ -73,10 +79,9 @@ export async function POST(request: NextRequest) {
       }),
     );
     return NextResponse.json({ configured: true, accounts });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
+  } catch {
     return NextResponse.json(
-      { configured: true, error: "PLAID_BALANCES_FAILED", message },
+      { configured: true, error: "PLAID_BALANCES_FAILED" },
       { status: 502 },
     );
   }

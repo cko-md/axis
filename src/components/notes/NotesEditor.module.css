@@ -418,6 +418,36 @@
 }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
+/* ── Font chips ─────────────────────────────────────────────── */
+.fontChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--narrow);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  user-select: none;
+}
+.fontChip:hover {
+  background: var(--glass);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.fontChipOn {
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
+  color: var(--gold);
+}
+
 /* ── Route suggestion card ──────────────────────────────────── */
 .routeCard {
   margin-top: 4px;

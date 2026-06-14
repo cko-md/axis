@@ -340,11 +340,7 @@ export function ControlRoomModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">System</div>
-        <div className="rule" />
-      </div>
-      <h1 className="hero">Control Room</h1>
+      <div className="divider" />
 
       <div className="subtabbar" style={{ marginTop: 20 }}>
         {TABS.map((t) => (

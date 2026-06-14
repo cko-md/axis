@@ -10,8 +10,8 @@ export type NavGroup = { section: string; items: NavItem[] };
 
 export const DEFAULT_NAV: NavGroup[] = [
   { section: "Daily", items: [
-    { href: "/console", label: "Console", icon: "console" },
-    { href: "/signals", label: "Signals", icon: "signals", title: "Signals — triage incoming items" },
+    { href: "/command", label: "Command", icon: "console" },
+    { href: "/dispatch", label: "Dispatch", icon: "signals", title: "Dispatch — triage incoming items" },
     { href: "/schedule", label: "Schedule", icon: "calendar", title: "Schedule — week, month, day views" },
     { href: "/agenda", label: "Agenda", icon: "agenda", title: "Agenda — ranked tasks and outreach" },
     { href: "/mail", label: "Mail", icon: "mail" },

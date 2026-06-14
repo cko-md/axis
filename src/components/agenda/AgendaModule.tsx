@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -24,6 +24,16 @@ import { useToast } from "@/components/ui/Toast";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
+const DEFAULT_NIGHT_ROUTINE: RoutineStep[] = [
+  { id: "n1", time: "21:30", title: "Screen cap · warm light on", sub: "No bright screens after this point" },
+  { id: "n2", time: "21:40", title: "Prep tomorrow's top 3", sub: "Write in Agenda before closing laptop" },
+  { id: "n3", time: "21:55", title: "Physical reading", sub: "Book only — no phone or tablet" },
+  { id: "n4", time: "22:20", title: "Light mobility or stretch", sub: "10 min floor routine" },
+  { id: "n5", time: "22:35", title: "Skin care & hygiene", sub: "Consistent wind-down signal to the body" },
+  { id: "n6", time: "22:45", title: "Gratitude + wins review", sub: "Three things, written or spoken" },
+  { id: "n7", time: "23:00", title: "Lights out", sub: "Cool room, dark, no devices" },
+];
+
 const DEFAULT_ROUTINE: RoutineStep[] = [
   { id: "1", time: "05:45", title: "Wake · no snooze, lights on", sub: "Phone stays face-down until step 4" },
   { id: "2", time: "05:50", title: "Hydrate + electrolytes", sub: "16 oz water before coffee" },
@@ -44,7 +54,7 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function SortableRow({ step, checked, onToggle }: { step: RoutineStep; checked: boolean; onToggle: () => void }) {
+const SortableRow = memo(function SortableRow({ step, checked, onToggle }: { step: RoutineStep; checked: boolean; onToggle: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: step.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
@@ -57,9 +67,23 @@ function SortableRow({ step, checked, onToggle }: { step: RoutineStep; checked: 
       </div>
     </div>
   );
-}
+});
 
-function TaskBlock({
+const TASK_TOGGLE_STYLE: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--ink-faint)",
+  fontSize: 11,
+  fontFamily: "var(--mono)",
+  letterSpacing: ".08em",
+  cursor: "pointer",
+  padding: "6px 0",
+  display: "block",
+  width: "100%",
+  textAlign: "center",
+};
+
+const TaskBlock = memo(function TaskBlock({
   title,
   category,
   tasks,
@@ -75,13 +99,15 @@ function TaskBlock({
   onDelete: (id: string) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const catTasks = tasks.filter((t) => t.category === category || (category === "clinical" && t.category === "life"));
+  const visibleTasks = expanded ? catTasks : catTasks.slice(0, 3);
 
   return (
     <div className="card">
       <h2 className="sec">{title}<span className="rule" /></h2>
       <div className="tasklist" style={{ marginTop: 14 }}>
-        {catTasks.map((t) => (
+        {visibleTasks.map((t) => (
           <div key={t.id} className={t.status === "done" ? "task done" : "task"}>
             <div className={t.status === "done" ? "check done" : "check"} onClick={() => onToggle(t.id)} />
             <div className="task-main">
@@ -98,6 +124,11 @@ function TaskBlock({
           </div>
         ))}
       </div>
+      {catTasks.length > 3 && (
+        <button type="button" onClick={() => setExpanded((e) => !e)} style={TASK_TOGGLE_STYLE}>
+          {expanded ? "▲ Collapse" : `▼ Show all ${catTasks.length}`}
+        </button>
+      )}
       <div className="addtask">
         <input
           placeholder="+ Add task…"
@@ -113,7 +144,7 @@ function TaskBlock({
       </div>
     </div>
   );
-}
+});
 
 export function AgendaModule() {
   const { tasks, addTask, toggleDone, deleteTask } = useTasks();
@@ -123,6 +154,10 @@ export function AgendaModule() {
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [tuneOpen, setTuneOpen] = useState(false);
   const [newStep, setNewStep] = useState("");
+  const [nightRoutine, setNightRoutine] = useState<RoutineStep[]>(DEFAULT_NIGHT_ROUTINE);
+  const [nightChecks, setNightChecks] = useState<Record<string, boolean>>({});
+  const [nightTuneOpen, setNightTuneOpen] = useState(false);
+  const [newNightStep, setNewNightStep] = useState("");
   const [filterPri, setFilterPri] = useState<string>("all");
 
   const loadRoutine = useCallback(async () => {
@@ -133,14 +168,24 @@ export function AgendaModule() {
     const stored = localStorage.getItem("axis-morning-routine");
     if (stored) setRoutine(JSON.parse(stored));
 
+    const nightStored = localStorage.getItem("axis-night-routine");
+    if (nightStored) setNightRoutine(JSON.parse(nightStored));
+    const nightLocalChecks = localStorage.getItem(`axis-night-routine-checks-${key}`);
+    if (nightLocalChecks) setNightChecks(JSON.parse(nightLocalChecks));
+
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      const { data } = await supabase.from("user_preferences").select("morning_routine, routine_checks").eq("user_id", user.id).maybeSingle();
+      const { data } = await supabase.from("user_preferences").select("morning_routine, routine_checks, night_routine, night_routine_checks").eq("user_id", user.id).maybeSingle();
       if (data?.morning_routine && Array.isArray(data.morning_routine) && data.morning_routine.length) {
         setRoutine(data.morning_routine as RoutineStep[]);
       }
       const rc = data?.routine_checks as Record<string, Record<string, boolean>> | undefined;
       if (rc?.[key]) setChecks(rc[key]);
+      if (data?.night_routine && Array.isArray(data.night_routine) && (data.night_routine as RoutineStep[]).length) {
+        setNightRoutine(data.night_routine as RoutineStep[]);
+      }
+      const nrc = data?.night_routine_checks as Record<string, Record<string, boolean>> | undefined;
+      if (nrc?.[key]) setNightChecks(nrc[key]);
     }
   }, [supabase]);
 
@@ -149,10 +194,34 @@ export function AgendaModule() {
     const last = localStorage.getItem("axis-routine-date");
     if (last !== todayKey()) {
       setChecks({});
+      setNightChecks({});
       localStorage.setItem("axis-routine-date", todayKey());
       localStorage.removeItem(`axis-routine-checks-${last}`);
+      localStorage.removeItem(`axis-night-routine-checks-${last}`);
     }
   }, [loadRoutine]);
+
+  const saveNightRoutine = async (steps: RoutineStep[]) => {
+    setNightRoutine(steps);
+    localStorage.setItem("axis-night-routine", JSON.stringify(steps));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from("user_preferences").upsert({ user_id: user.id, night_routine: steps, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    }
+  };
+
+  const toggleNightCheck = (id: string) => {
+    const key = todayKey();
+    const next = { ...nightChecks, [id]: !nightChecks[id] };
+    setNightChecks(next);
+    localStorage.setItem(`axis-night-routine-checks-${key}`, JSON.stringify(next));
+    const persistNight = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("user_preferences").upsert({ user_id: user.id, night_routine_checks: { [key]: next }, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    };
+    persistNight().catch(() => {});
+  };
 
   const saveRoutine = async (steps: RoutineStep[]) => {
     setRoutine(steps);
@@ -197,23 +266,33 @@ export function AgendaModule() {
     saveRoutine(arrayMove(routine, oldIndex, newIndex));
   };
 
+  const onNightDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = nightRoutine.findIndex((s) => s.id === active.id);
+    const newIndex = nightRoutine.findIndex((s) => s.id === over.id);
+    saveNightRoutine(arrayMove(nightRoutine, oldIndex, newIndex));
+  };
+
   const doneCount = routine.filter((s) => checks[s.id]).length;
+  const nightDoneCount = nightRoutine.filter((s) => nightChecks[s.id]).length;
   const open = tasks.filter((t) => t.status !== "done");
   const overdue = tasks.filter((t) => t.status === "overdue");
   const filtered = filterPri === "all" ? open : open.filter((t) => t.priority === filterPri);
 
-  const parseAndAdd = (title: string, category: TaskCategory) => {
+  const parseAndAdd = useCallback((title: string, category: TaskCategory) => {
     const lower = title.toLowerCase();
     let priority: "hi" | "med" | "lo" = "med";
     if (/high|urgent/.test(lower)) priority = "hi";
     if (/low/.test(lower)) priority = "lo";
     addTask({ title, category, priority });
-  };
+  }, [addTask]);
+
+  const addResearch = useCallback((t: string) => parseAndAdd(t, "research"), [parseAndAdd]);
+  const addClinical = useCallback((t: string) => parseAndAdd(t, "life"), [parseAndAdd]);
 
   return (
     <>
-      <div className="modhead"><div className="eyebrow">Daily</div><div className="rule" /></div>
-      <h1 className="hero">Agenda</h1>
       <div className="divider" />
       <div className="stat-strip">
         <div className="card stat tick"><div className="sv">{open.length}</div><div className="sk">Open</div></div>
@@ -226,8 +305,8 @@ export function AgendaModule() {
         ))}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-        <TaskBlock title="Research" category="research" tasks={filtered} onAdd={(t) => parseAndAdd(t, "research")} onToggle={toggleDone} onDelete={deleteTask} />
-        <TaskBlock title="Clinical & Life" category="clinical" tasks={filtered} onAdd={(t) => parseAndAdd(t, "life")} onToggle={toggleDone} onDelete={deleteTask} />
+        <TaskBlock title="Research" category="research" tasks={filtered} onAdd={addResearch} onToggle={toggleDone} onDelete={deleteTask} />
+        <TaskBlock title="Clinical & Life" category="clinical" tasks={filtered} onAdd={addClinical} onToggle={toggleDone} onDelete={deleteTask} />
       </div>
       <div className="divider" />
       <h2 className="sec" style={{ marginBottom: 14 }}>Reach Out<span className="rule" /><span className="count">From People</span></h2>
@@ -287,6 +366,57 @@ export function AgendaModule() {
                 const next = [...routine];
                 next[i] = { ...s, title: e.target.value };
                 saveRoutine(next);
+              }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="divider" />
+      <h2 className="sec" style={{ marginBottom: 14 }}>Nighttime Routine<span className="rule" /><span className="count">~90 min · {nightDoneCount}/{nightRoutine.length}</span></h2>
+      <div className="routine-grid">
+        <div className="card mr-card tick">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onNightDragEnd} autoScroll={false}>
+            <SortableContext items={nightRoutine.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+              {nightRoutine.map((step) => (
+                <SortableRow key={step.id} step={step} checked={!!nightChecks[step.id]} onToggle={() => toggleNightCheck(step.id)} />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
+        <div className="card" style={{ alignSelf: "start" }}>
+          <div className="seclabel">Tune the Routine</div>
+          <p style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.55, marginBottom: 12 }}>
+            Drag steps to reorder. Resets each night. Saved to your preferences.
+          </p>
+          <span className="aibtn" onClick={() => toast("AI rebuild — Phase 4 stub", "info", "Night Routine")}>Rebuild with AI</span>
+          <div className="addtask" style={{ marginTop: 8 }}>
+            <input
+              placeholder="+ Add a step…"
+              value={newNightStep}
+              onChange={(e) => setNewNightStep(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newNightStep.trim()) {
+                  saveNightRoutine([...nightRoutine, { id: crypto.randomUUID(), time: "—", title: newNightStep.trim(), sub: "" }]);
+                  setNewNightStep("");
+                }
+              }}
+            />
+          </div>
+          <button type="button" className="savebtn" style={{ marginTop: 8 }} onClick={() => setNightTuneOpen(!nightTuneOpen)}>
+            {nightTuneOpen ? "Hide editor" : "Edit times & titles"}
+          </button>
+          {nightTuneOpen && nightRoutine.map((s, i) => (
+            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: 8, marginTop: 8 }}>
+              <input value={s.time} onChange={(e) => {
+                const next = [...nightRoutine];
+                next[i] = { ...s, time: e.target.value };
+                saveNightRoutine(next);
+              }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
+              <input value={s.title} onChange={(e) => {
+                const next = [...nightRoutine];
+                next[i] = { ...s, title: e.target.value };
+                saveNightRoutine(next);
               }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
             </div>
           ))}

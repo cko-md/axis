@@ -9,6 +9,8 @@ type Command = {
   id: string;
   label: string;
   hint: string;
+  group: "navigate" | "action" | "create";
+  icon?: string;
   run: () => void;
 };
 
@@ -17,27 +19,106 @@ type Props = {
   onClose: () => void;
 };
 
+const GROUP_LABELS: Record<Command["group"], string> = {
+  navigate: "Go To",
+  action:   "Actions",
+  create:   "Create",
+};
+
+const GROUP_ORDER: Command["group"][] = ["create", "action", "navigate"];
+
+// Example suggestions shown when the input is empty
+const EXAMPLES = [
+  "open gallery",
+  "new note",
+  "interface studio",
+  "go to vitality",
+  "schedule",
+];
+
 export function CommandPalette({ open, onClose }: Props) {
   const router = useRouter();
   const { openInterfaceStudio } = useTheme();
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [exampleIdx, setExampleIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Cycle placeholder examples
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setExampleIdx((i) => (i + 1) % EXAMPLES.length), 2200);
+    return () => clearInterval(id);
+  }, [open]);
 
   const commands = useMemo<Command[]>(
     () => [
-      ...ALL_NAV_ITEMS.map((item) => ({
-        id: item.href,
-        label: item.label,
-        hint: `Go to · ${item.section}`,
-        run: () => router.push(item.href),
-      })),
+      // ── Create ──────────────────────────────────────────────────────────────
+      {
+        id: "create-note",
+        label: "New Note",
+        hint: "Create · notes",
+        group: "create",
+        icon: "✦",
+        run: () => router.push("/notes"),
+      },
+      {
+        id: "create-event",
+        label: "New Event",
+        hint: "Create · schedule",
+        group: "create",
+        icon: "✦",
+        run: () => router.push("/schedule"),
+      },
+      {
+        id: "create-signal",
+        label: "New Signal",
+        hint: "Create · dispatch",
+        group: "create",
+        icon: "✦",
+        run: () => router.push("/dispatch"),
+      },
+      // ── Actions ─────────────────────────────────────────────────────────────
       {
         id: "action-interface-studio",
         label: "Interface Studio",
-        hint: "Open · theme & appearance",
+        hint: "Action · theme & appearance",
+        group: "action",
+        icon: "◈",
         run: openInterfaceStudio,
       },
+      {
+        id: "action-gallery-discover",
+        label: "Discover Art",
+        hint: "Action · gallery",
+        group: "action",
+        icon: "◈",
+        run: () => router.push("/gallery"),
+      },
+      {
+        id: "action-poetry",
+        label: "Read Poetry",
+        hint: "Action · gallery · poetry",
+        group: "action",
+        icon: "◈",
+        run: () => router.push("/gallery"),
+      },
+      {
+        id: "action-vitality",
+        label: "Log Workout",
+        hint: "Action · vitality",
+        group: "action",
+        icon: "◈",
+        run: () => router.push("/vitality"),
+      },
+      // ── Navigation ──────────────────────────────────────────────────────────
+      ...ALL_NAV_ITEMS.map((item) => ({
+        id: item.href,
+        label: item.label,
+        hint: `Navigate · ${item.section}`,
+        group: "navigate" as const,
+        run: () => router.push(item.href),
+      })),
     ],
     [router, openInterfaceStudio],
   );
@@ -46,7 +127,10 @@ export function CommandPalette({ open, onClose }: Props) {
     const q = query.trim().toLowerCase();
     if (!q) return commands;
     return commands.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q),
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.hint.toLowerCase().includes(q) ||
+        c.group.toLowerCase().includes(q),
     );
   }, [commands, query]);
 
@@ -63,7 +147,6 @@ export function CommandPalette({ open, onClose }: Props) {
     if (open) {
       setQuery("");
       setActiveIdx(0);
-      // focus after the overlay paints
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
@@ -95,17 +178,45 @@ export function CommandPalette({ open, onClose }: Props) {
 
   if (!open) return null;
 
+  // Build grouped display
+  const q = query.trim().toLowerCase();
+  const groupedItems = q
+    ? [{ group: null, items: filtered }]
+    : GROUP_ORDER.map((g) => ({ group: g, items: filtered.filter((c) => c.group === g) })).filter((g) => g.items.length > 0);
+
+  // Flat list for activeIdx tracking
+  const flatItems = groupedItems.flatMap((g) => g.items);
+
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/55 p-4 pt-[14vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/60 p-4 pt-[14vh] backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
     >
-      <div className="card w-full max-w-lg border border-[var(--line-strong)] p-0 shadow-2xl">
-        <div className="flex items-center gap-2 border-b border-[var(--line)] px-4 py-3">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 15, height: 15, color: "var(--ink-faint)" }}>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 560,
+          background: "var(--surface-1)",
+          border: "1px solid var(--line-strong)",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 32px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.04) inset",
+        }}
+      >
+        {/* Search input */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            borderBottom: "1px solid var(--line)",
+            padding: "12px 16px",
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 15, height: 15, color: "var(--ink-faint)", flexShrink: 0 }}>
             <circle cx="11" cy="11" r="7" />
             <path d="M21 21l-4-4" />
           </svg>
@@ -113,30 +224,137 @@ export function CommandPalette({ open, onClose }: Props) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Jump to a module or action…"
-            className="w-full bg-transparent text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-faint)]"
+            placeholder={`Try "${EXAMPLES[exampleIdx]}"…`}
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: 14,
+              color: "var(--ink)",
+              fontFamily: "var(--sans)",
+            }}
           />
-          <span className="kbd">esc</span>
+          <span className="kbd" style={{ flexShrink: 0 }}>esc</span>
         </div>
-        <div className="max-h-[46vh] overflow-y-auto p-2">
-          {filtered.length === 0 ? (
-            <p className="px-3 py-4 text-xs text-[var(--ink-faint)]">No matches.</p>
+
+        {/* Results */}
+        <div style={{ maxHeight: "48vh", overflowY: "auto", padding: "8px 0" }}>
+          {flatItems.length === 0 ? (
+            <p style={{ padding: "16px 20px", fontSize: 12, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>
+              No matches for &ldquo;{query}&rdquo;
+            </p>
           ) : (
-            filtered.map((cmd, i) => (
-              <button
-                key={cmd.id}
-                type="button"
-                onClick={() => runCommand(cmd)}
-                onMouseEnter={() => setActiveIdx(i)}
-                className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition ${
-                  i === activeIdx ? "bg-[var(--surface-2)] text-[var(--ink)]" : "text-[var(--ink-dim)]"
-                }`}
-              >
-                <span>{cmd.label}</span>
-                <span className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-faint)]">{cmd.hint}</span>
-              </button>
+            groupedItems.map(({ group, items }) => (
+              <div key={group ?? "results"}>
+                {group && (
+                  <div
+                    style={{
+                      padding: "6px 16px 4px",
+                      fontSize: 9,
+                      fontFamily: "var(--mono)",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      color: "var(--ink-faint)",
+                    }}
+                  >
+                    {GROUP_LABELS[group]}
+                  </div>
+                )}
+                {items.map((cmd) => {
+                  const globalIdx = flatItems.indexOf(cmd);
+                  const isActive = globalIdx === activeIdx;
+                  return (
+                    <button
+                      key={cmd.id}
+                      type="button"
+                      onClick={() => runCommand(cmd)}
+                      onMouseEnter={() => setActiveIdx(globalIdx)}
+                      style={{
+                        display: "flex",
+                        width: "100%",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 16px",
+                        background: isActive ? "var(--surface-2)" : "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "background 0.1s",
+                      }}
+                    >
+                      {cmd.icon && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: cmd.group === "create"
+                              ? "var(--accent)"
+                              : cmd.group === "action"
+                                ? "var(--gold, #c9a463)"
+                                : "var(--ink-faint)",
+                            fontFamily: "var(--mono)",
+                            width: 14,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {cmd.icon}
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          flex: 1,
+                          fontSize: 13.5,
+                          color: isActive ? "var(--ink)" : "var(--ink-dim)",
+                          fontFamily: "var(--sans)",
+                        }}
+                      >
+                        {cmd.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontFamily: "var(--mono)",
+                          letterSpacing: "0.1em",
+                          textTransform: "uppercase",
+                          color: "var(--ink-faint)",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {cmd.hint}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             ))
           )}
+        </div>
+
+        {/* Footer — keyboard hints */}
+        <div
+          style={{
+            borderTop: "1px solid var(--line)",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          {[
+            { keys: ["↑", "↓"], label: "Navigate" },
+            { keys: ["↵"], label: "Open" },
+            { keys: ["esc"], label: "Close" },
+          ].map(({ keys, label }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              {keys.map((k) => (
+                <span key={k} className="kbd" style={{ fontSize: 9 }}>{k}</span>
+              ))}
+              <span style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>{label}</span>
+            </div>
+          ))}
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)", letterSpacing: "0.08em" }}>
+            ⌘K to toggle
+          </span>
         </div>
       </div>
     </div>

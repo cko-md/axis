@@ -48,10 +48,46 @@ type ReadingItem = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const GENRE_FILTERS = [
-  "All", "Expressionism", "Impressionism", "Abstract", "Surrealism",
-  "Cubism", "Post-Impressionism", "Romanticism", "Modern", "Sculpture",
-  "Pop Art", "Harlem Renaissance", "Minimalism", "Figurative",
+  "All",
+  // African diaspora & contemporary Black art
+  "Harlem Renaissance", "African American Art", "Afrofuturism",
+  // Western movements
+  "Expressionism", "Impressionism", "Abstract", "Surrealism",
+  "Cubism", "Post-Impressionism", "Romanticism", "Baroque", "Renaissance",
+  "Modern", "Minimalism", "Figurative", "Pop Art",
+  // Sculpture & decorative
+  "Sculpture",
+  // Global traditions
+  "Asian Art", "Islamic Art",
+  // Photo & design
+  "Photography", "Art Deco",
 ];
+
+type ArtSource = "aic" | "met" | "cma";
+
+const GENRE_TO_QUERY: Record<string, { source: ArtSource; q: string; artist?: boolean; allowNonPD?: boolean }> = {
+  "Harlem Renaissance":    { source: "aic", q: "jacob lawrence harlem", allowNonPD: true },
+  "African American Art":  { source: "aic", q: "archibald motley chicago", allowNonPD: true },
+  "Afrofuturism":          { source: "aic", q: "kerry james marshall", allowNonPD: true },
+  "Expressionism":         { source: "aic", q: "expressionism painting" },
+  "Impressionism":         { source: "cma", q: "monet" },
+  "Abstract":              { source: "aic", q: "abstract expressionism" },
+  "Surrealism":            { source: "aic", q: "surrealism painting" },
+  "Cubism":                { source: "aic", q: "cubism picasso" },
+  "Post-Impressionism":    { source: "cma", q: "van gogh" },
+  "Romanticism":           { source: "cma", q: "turner" },
+  "Baroque":               { source: "cma", q: "rembrandt" },
+  "Renaissance":           { source: "cma", q: "raphael" },
+  "Modern":                { source: "aic", q: "modern art" },
+  "Minimalism":            { source: "aic", q: "minimalism art" },
+  "Figurative":            { source: "aic", q: "figurative painting portrait" },
+  "Pop Art":               { source: "aic", q: "pop art warhol" },
+  "Sculpture":             { source: "cma", q: "rodin" },
+  "Asian Art":             { source: "cma", q: "japanese woodblock" },
+  "Islamic Art":           { source: "cma", q: "persian" },
+  "Photography":           { source: "cma", q: "alfred stieglitz" },
+  "Art Deco":              { source: "aic", q: "art deco design illustration" },
+};
 
 const AIC_CYCLE_QUERIES = [
   "expressionism painting",
@@ -70,20 +106,31 @@ const AIC_CYCLE_QUERIES = [
   "color field painting",
   "caspar david friedrich",
   "rococo fragonard",
+  "baroque painting caravaggio",
+  "renaissance italian painting",
+  "art deco design illustration",
+  "japanese woodblock print",
+  "photography documentary",
+  "african american art chicago",
+  "kerry james marshall",
 ];
 
 const MET_CYCLE_QUERIES = [
-  "Harlem Renaissance",
   "Jacob Lawrence",
   "Aaron Douglas",
-  "African American art",
+  "Romare Bearden",
+  "Harlem Renaissance",
+  "african american art twentieth century",
+  "contemporary African art",
+  "islamic geometric art",
+  "Japanese painting Edo",
 ];
 
 // Reading categories
 const READING_CATEGORIES = [
   { id: "art-criticism",    label: "Art Criticism",    source: "reading",    topic: "art criticism",        mode: "gutenberg"  },
   { id: "art-history",      label: "Art History",      source: "reading",    topic: "art history",          mode: "gutenberg"  },
-  { id: "architecture",     label: "Architecture",     source: "reading",    topic: "architecture",         mode: "gutenberg"  },
+  { id: "architecture",     label: "Architecture",     source: "articles",   topic: "architectural_theory", mode: "openlibrary"},
   { id: "cultural-theory",  label: "Cultural Theory",  source: "articles",   topic: "cultural_theory",      mode: "openlibrary"},
   { id: "art-philosophy",   label: "Art Philosophy",   source: "articles",   topic: "aesthetics",           mode: "openlibrary"},
 ] as const;
@@ -208,7 +255,7 @@ function saveLocalPins(key: string, pins: Set<string>) {
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
-function useArtGallery(query: string, source: "aic" | "met") {
+function useArtGallery(query: string, source: ArtSource, artistSearch = false, allowNonPD = false) {
   const [works, setWorks] = useState<ArtWork[]>([]);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -218,8 +265,9 @@ function useArtGallery(query: string, source: "aic" | "met") {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    const params = `/api/gallery?source=${source}&q=${encodeURIComponent(query)}${artistSearch ? "&artistSearch=1" : ""}${allowNonPD ? "&allowNonPD=1" : ""}`;
     setLoading(true);
-    fetch(`/api/gallery?source=${source}&q=${encodeURIComponent(query)}`, { signal: ctrl.signal })
+    fetch(params, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((d: { works?: ArtWork[] }) => {
         if (!ctrl.signal.aborted) {
@@ -360,7 +408,7 @@ function ArtCard({
       </div>
       <div
         className="g-meta"
-        style={{ padding: "8px 10px 10px", borderTop: "1px solid var(--line-strong)", background: "var(--surface)" }}
+        style={{ padding: "10px 12px 12px", borderTop: "1px solid var(--line-strong)", background: "var(--surface)" }}
       >
         <div
           className="g-title"
@@ -410,31 +458,66 @@ function ArtDetail({
       style={{
         position: "fixed", inset: 0, zIndex: 9000,
         background: "rgba(10,11,14,0.92)", backdropFilter: "blur(8px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 24,
+        display: "flex", flexDirection: "column",
       }}
     >
+      {/* Always-visible navigation bar */}
       <div
-        className="g-detail"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--surface)", border: "1px solid var(--line-strong)",
-          borderRadius: 2, maxWidth: 900, width: "100%", maxHeight: "90vh",
-          overflowY: "auto", position: "relative",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 24px", flexShrink: 0,
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
         }}
       >
         <button
           type="button"
           onClick={onClose}
           style={{
-            position: "absolute", top: 12, right: 12,
+            display: "flex", alignItems: "center", gap: 8,
+            background: "var(--surface-2)", border: "1px solid var(--line-strong)",
+            color: "var(--ink)", padding: "6px 14px", borderRadius: 2,
+            fontFamily: "var(--narrow)", fontSize: 12, fontWeight: 600,
+            letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer",
+          }}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 12, height: 12 }}>
+            <path d="M10 3L5 8l5 5" />
+          </svg>
+          Back to Gallery
+        </button>
+        <div style={{ fontFamily: "var(--narrow)", fontSize: 12, color: "var(--ink-dim)", letterSpacing: "0.06em", textTransform: "uppercase", maxWidth: "50%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {work.title}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
             background: "var(--surface-2)", border: "1px solid var(--line-strong)",
             color: "var(--ink-dim)", width: 32, height: 32, borderRadius: 2,
-            fontFamily: "var(--mono)", fontSize: 12, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1,
+            fontFamily: "var(--mono)", fontSize: 14, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >✕</button>
+      </div>
 
+      {/* Scrollable content area */}
+      <div
+        style={{
+          flex: 1, overflow: "auto", display: "flex",
+          alignItems: "flex-start", justifyContent: "center",
+          padding: "24px 24px 40px",
+        }}
+        onClick={onClose}
+      >
+        <div
+          className="g-detail"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: "var(--surface)", border: "1px solid var(--line-strong)",
+            borderRadius: 2, maxWidth: 900, width: "100%",
+          }}
+        >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 0 }}>
           {/* Image */}
           <div style={{ background: "#0a0b0e", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
@@ -534,6 +617,7 @@ function ArtDetail({
             )}
           </div>
         </div>
+        </div>
       </div>
     </div>
   );
@@ -572,33 +656,35 @@ function PoetryPanel({
       )}
 
       {!loading && poem && (
-        <div className="g-poem-panel" style={{ padding: "40px 0" }}>
-          {/* Poet byline */}
-          <div style={{
-            fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.16em",
-            color: "var(--accent)", textTransform: "uppercase", marginBottom: 12,
-          }}>
-            {poem.author}
+        <div style={{ padding: "36px 0 32px", maxWidth: 680 }}>
+          {/* Poet overline */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+            <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+            <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, letterSpacing: "0.22em", color: "var(--gold)", textTransform: "uppercase", flexShrink: 0, opacity: 0.8 }}>
+              {poem.author}
+            </span>
+            <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
           </div>
 
           {/* Poem title */}
           <h2 style={{
             fontFamily: "var(--serif)", fontStyle: "italic", fontWeight: 400,
-            fontSize: 26, color: "var(--ink)", lineHeight: 1.2, marginBottom: 28,
+            fontSize: 26, color: "var(--ink-dim)", lineHeight: 1.2, marginBottom: 28,
+            letterSpacing: "-0.01em",
           }}>
-            {poem.title}
+            {poem.title}.
           </h2>
 
           {/* Lines */}
-          <div style={{ borderLeft: "2px solid var(--line-strong)", paddingLeft: 24, marginBottom: 32 }}>
+          <div style={{ borderLeft: "1px solid var(--accent)", paddingLeft: 22, marginBottom: 34 }}>
             {poem.lines.map((line, i) => (
               <div
                 key={i}
                 style={{
-                  fontFamily: "var(--serif)", fontSize: 15, lineHeight: 1.85,
-                  color: line.trim() === "" ? "transparent" : "var(--ink-dim)",
-                  minHeight: line.trim() === "" ? "1em" : undefined,
-                  userSelect: "text",
+                  fontFamily: "var(--serif)", fontSize: 14.5, lineHeight: 1.9,
+                  color: line.trim() === "" ? "transparent" : "var(--ink-faint)",
+                  minHeight: line.trim() === "" ? "0.8em" : undefined,
+                  userSelect: "text", fontWeight: 300, letterSpacing: "0.01em",
                 }}
               >
                 {line || " "}
@@ -607,45 +693,46 @@ function PoetryPanel({
           </div>
 
           {/* Context accordion */}
-          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 16, marginBottom: 24 }}>
+          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 18, marginBottom: 28 }}>
             <button
               type="button"
               onClick={() => setContextOpen((v) => !v)}
               style={{
                 display: "flex", alignItems: "center", gap: 8,
-                fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.12em",
+                fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.14em",
                 color: "var(--ink-faint)", textTransform: "uppercase",
                 background: "none", border: "none", cursor: "pointer", padding: 0,
               }}
             >
-              <span style={{ fontSize: 10 }}>{contextOpen ? "▾" : "▸"}</span>
+              <span style={{ fontSize: 8, opacity: 0.7 }}>{contextOpen ? "▾" : "▸"}</span>
               Poet Context
             </button>
             {contextOpen && (
               <p style={{
                 fontFamily: "var(--serif)", fontStyle: "italic",
-                fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.7,
-                marginTop: 12, marginBottom: 0,
+                fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.8,
+                marginTop: 14, marginBottom: 0, fontWeight: 300,
+                borderLeft: "1px solid var(--line)", paddingLeft: 16,
               }}>
                 {getPoetContext(poem.author)}
               </p>
             )}
           </div>
 
-          {/* Navigation + pin */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {/* Navigation + actions */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button
               type="button"
               onClick={prev}
               style={{
-                fontFamily: "var(--mono)", fontSize: 16, background: "none",
+                fontFamily: "var(--mono)", fontSize: 14, background: "none",
                 border: "1px solid var(--line-strong)", color: "var(--ink-dim)",
-                width: 36, height: 36, borderRadius: 2, cursor: "pointer",
+                width: 34, height: 34, borderRadius: 3, cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}
             >←</button>
 
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", letterSpacing: "0.1em" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", letterSpacing: "0.12em" }}>
               {idx + 1} / {total}
             </span>
 
@@ -653,9 +740,9 @@ function PoetryPanel({
               type="button"
               onClick={next}
               style={{
-                fontFamily: "var(--mono)", fontSize: 16, background: "none",
+                fontFamily: "var(--mono)", fontSize: 14, background: "none",
                 border: "1px solid var(--line-strong)", color: "var(--ink-dim)",
-                width: 36, height: 36, borderRadius: 2, cursor: "pointer",
+                width: 34, height: 34, borderRadius: 3, cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}
             >→</button>
@@ -682,7 +769,7 @@ function PoetryPanel({
         </div>
       )}
 
-      <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 24, textAlign: "center", letterSpacing: "0.1em" }}>
+      <p style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--ink-faint)", marginTop: 28, textAlign: "center", letterSpacing: "0.12em" }}>
         SOURCED FROM POETRYDB · PUBLIC DOMAIN POETRY
       </p>
     </div>
@@ -864,23 +951,20 @@ export function GalleryModule() {
   // Art query cycling
   const aicRef = useRef(0);
   const metRef = useRef(0);
-  const [artSource, setArtSource] = useState<"aic" | "met">("aic");
-  const [artQuery, setArtQuery]   = useState(AIC_CYCLE_QUERIES[0]);
+  const [artSource, setArtSource]         = useState<ArtSource>("aic");
+  const [artQuery, setArtQuery]           = useState(AIC_CYCLE_QUERIES[0]);
+  const [artArtistSearch, setArtArtist]   = useState(false);
+  const [artAllowNonPD, setArtNonPD]      = useState(false);
+  const [artistInput, setArtistInput]     = useState("");
 
   // Detail overlay
   const [detail, setDetail] = useState<ArtWork | null>(null);
 
   // ── Pin state ────────────────────────────────────────────────────────────
 
-  const [pinnedArt, setPinnedArt] = useState<Set<string>>(
-    () => loadLocalPins("axis-gallery-art-pins"),
-  );
-  const [pinnedPoems, setPinnedPoems] = useState<Set<string>>(
-    () => loadLocalPins("axis-gallery-poem-pins"),
-  );
-  const [pinnedReadings, setPinnedReadings] = useState<Set<string>>(
-    () => loadLocalPins("axis-gallery-reading-pins"),
-  );
+  const [pinnedArt, setPinnedArt] = useState<Set<string>>(() => new Set());
+  const [pinnedPoems, setPinnedPoems] = useState<Set<string>>(() => new Set());
+  const [pinnedReadings, setPinnedReadings] = useState<Set<string>>(() => new Set());
 
   // Load Supabase pins on mount and merge
   useEffect(() => {
@@ -890,10 +974,15 @@ export function GalleryModule() {
         loadSupabasePins("poem"),
         loadSupabasePins("reading"),
       ]);
+      // Merge Supabase pins with any already-loaded local pins
       if (artPins.length)     setPinnedArt((p)     => new Set([...p, ...artPins]));
       if (poemPins.length)    setPinnedPoems((p)    => new Set([...p, ...poemPins]));
       if (readingPins.length) setPinnedReadings((p) => new Set([...p, ...readingPins]));
     })();
+    // Load local pins after hydration (avoids SSR mismatch)
+    setPinnedArt((p) => new Set([...p, ...loadLocalPins("axis-gallery-art-pins")]));
+    setPinnedPoems((p) => new Set([...p, ...loadLocalPins("axis-gallery-poem-pins")]));
+    setPinnedReadings((p) => new Set([...p, ...loadLocalPins("axis-gallery-reading-pins")]));
   }, []);
 
   // ── Toggle helpers ───────────────────────────────────────────────────────
@@ -934,12 +1023,15 @@ export function GalleryModule() {
   // ── Art cycling ──────────────────────────────────────────────────────────
 
   const cycleArt = () => {
-    // Alternate between AIC and MET (favour AIC 3:1)
-    const useHarlem = (aicRef.current % 4 === 3);
-    if (useHarlem) {
+    // Rotate AIC (3) → CMA (1) → MET (1) pattern for variety
+    const mod = aicRef.current % 5;
+    if (mod === 3) {
       setArtSource("met");
       metRef.current = (metRef.current + 1) % MET_CYCLE_QUERIES.length;
       setArtQuery(MET_CYCLE_QUERIES[metRef.current]);
+    } else if (mod === 4) {
+      setArtSource("cma");
+      setArtQuery(["monet", "van gogh", "rembrandt", "japanese woodblock", "alfred stieglitz"][Math.floor(Math.random() * 5)]);
     } else {
       setArtSource("aic");
       aicRef.current = (aicRef.current + 1) % AIC_CYCLE_QUERIES.length;
@@ -950,30 +1042,21 @@ export function GalleryModule() {
 
   // ── Art data ─────────────────────────────────────────────────────────────
 
-  const { works, loading: artLoading } = useArtGallery(artQuery, artSource);
+  const { works, loading: artLoading } = useArtGallery(artQuery, artSource, artArtistSearch, artAllowNonPD);
 
+  // Each genre filter drives its own genre-specific API fetch, so the returned
+  // works already belong to the selected genre — no need to re-filter by genre
+  // here (doing so causes mismatches when deriveGenre maps query → different name).
   const filtered = useMemo(() => {
-    let list = works;
-    if (genre !== "All") {
-      list = list.filter((w) =>
-        w.genre?.toLowerCase().includes(genre.toLowerCase()) ||
-        genre.toLowerCase().includes((w.genre ?? "").toLowerCase()),
-      );
-    }
-    if (showPinsOnly) list = list.filter((w) => pinnedArt.has(w.id));
-    return list;
-  }, [works, genre, showPinsOnly, pinnedArt]);
+    if (showPinsOnly) return works.filter((w) => pinnedArt.has(w.id));
+    return works;
+  }, [works, showPinsOnly, pinnedArt]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <>
       {/* Header */}
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
-      </div>
-      <h1 className="hero">Gallery</h1>
       <div className="divider" />
 
       {/* Tab bar */}
@@ -993,6 +1076,34 @@ export function GalleryModule() {
       {/* ── ART TAB ────────────────────────────────────────────────────────── */}
       {tab === "art" && (
         <>
+          {/* Artist search */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const q = artistInput.trim();
+              if (!q) return;
+              setGenre("All");
+              setArtSource("aic");
+              setArtArtist(false);
+              setArtNonPD(true);
+              setArtQuery(q);
+            }}
+            style={{ display: "flex", gap: 8, marginBottom: 14 }}
+          >
+            <input
+              type="text"
+              value={artistInput}
+              onChange={(e) => setArtistInput(e.target.value)}
+              placeholder="Search by artist or title…"
+              style={{
+                flex: 1, background: "var(--surface-2)", border: "1px solid var(--line)",
+                borderRadius: 4, padding: "7px 12px", fontSize: 12, color: "var(--ink)",
+                fontFamily: "var(--mono)", outline: "none",
+              }}
+            />
+            <button type="submit" className="savebtn">Search</button>
+          </form>
+
           {/* Toolbar */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
             <div className="chips" style={{ marginBottom: 0, flex: 1, minWidth: 0 }}>
@@ -1000,7 +1111,23 @@ export function GalleryModule() {
                 <span
                   key={g}
                   className={genre === g ? "chip on" : "chip"}
-                  onClick={() => setGenre(g)}
+                  onClick={() => {
+                    setGenre(g);
+                    if (g === "All") {
+                      setArtSource("aic");
+                      setArtArtist(false);
+                      setArtNonPD(false);
+                      setArtQuery(AIC_CYCLE_QUERIES[aicRef.current % AIC_CYCLE_QUERIES.length]);
+                    } else {
+                      const target = GENRE_TO_QUERY[g];
+                      if (target) {
+                        setArtSource(target.source);
+                        setArtArtist(target.artist ?? false);
+                        setArtNonPD(target.allowNonPD ?? false);
+                        setArtQuery(target.q);
+                      }
+                    }
+                  }}
                   style={{ cursor: "pointer" }}
                 >
                   {g}
@@ -1028,7 +1155,7 @@ export function GalleryModule() {
           </div>
 
           {/* Grid */}
-          {artLoading && works.length === 0 ? (
+          {artLoading ? (
             <div className="empty-state" style={{ padding: "60px 0" }}>
               Fetching artworks…
             </div>
@@ -1043,11 +1170,11 @@ export function GalleryModule() {
               className="g-grid"
               style={{
                 columns: "3 220px",
-                columnGap: 10,
+                columnGap: 16,
               }}
             >
               {filtered.map((work) => (
-                <div key={work.id} style={{ breakInside: "avoid", marginBottom: 10 }}>
+                <div key={work.id} style={{ breakInside: "avoid", marginBottom: 16 }}>
                   <ArtCard
                     work={work}
                     pinned={pinnedArt.has(work.id)}

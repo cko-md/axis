@@ -154,18 +154,15 @@ export function PeopleModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <div className="selectbox">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <circle cx="12" cy="8" r="4" />
             <path d="M4 20a8 8 0 0 1 16 0" />
           </svg>
-          Connect Contacts &amp; Mail
+          Connect Contacts & Mail
         </div>
       </div>
-      <h1 className="hero">People</h1>
       <div className="divider" />
       <div className="crm-toolbar">
         <button type="button" className="sig-go" onClick={openAdd}>+ Add Person</button>

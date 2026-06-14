@@ -254,9 +254,7 @@ export function ScheduleModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Daily</div>
-        <div className="rule" />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
         <button type="button" className="selectbox" style={{ background: "none" }} onClick={() => {}}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" />
@@ -269,8 +267,6 @@ export function ScheduleModule() {
           <button type="button" className={view === "day" ? "on" : ""} onClick={() => setView("day")}>DAY</button>
         </div>
       </div>
-      <h1 className="hero-title">Schedule</h1>
-      <div className="divider" />
 
       {view === "month" ? (
         <div className="cal">
@@ -364,7 +360,7 @@ export function ScheduleModule() {
       <Card style={{ maxWidth: "min(560px, 92vw)" }}>
         <div className="seclabel">Add to Schedule</div>
         <div className="capture" style={{ margin: "0 0 12px", padding: "11px 14px" }}>
-          <input placeholder="'Spanish lesson, 25 min, every weekday morning'" style={{ padding: "3px 0" }} />
+          <input placeholder="Spanish lesson, 25 min, every weekday morning" style={{ padding: "3px 0", color: "var(--ink)" }} />
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <span className="capt-pill">⤳ Repeat: Daily</span>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getBrokerageCreds } from "../status/route";
+import { createClient } from "@/lib/supabase/server";
+import { getBrokerageCreds } from "../_lib";
 
 const orderSchema = z.object({
   symbol: z.string().min(1).max(12),
@@ -23,6 +24,10 @@ const orderSchema = z.object({
  * Trades are never auto-executed without an explicit confirmed request body.
  */
 export async function POST(request: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();

@@ -1,9 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 import { type Article, TOPICS, useLiterature } from "@/lib/hooks/useLiterature";
 import styles from "./LiteratureModule.module.css";
+
+// ── Saved articles (offline) ──────────────────────────────────────────────────
+const SAVED_LIT_KEY = "axis-lit-saved";
+
+type SavedArticle = {
+  id: string; title: string; summary: string;
+  authors: string; source: string; publishedAt: string; url: string; savedAt: string;
+};
+
+function loadSavedLit(): SavedArticle[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(SAVED_LIT_KEY) ?? "[]"); }
+  catch { return []; }
+}
+
+function persistSavedLit(items: SavedArticle[]) {
+  try { localStorage.setItem(SAVED_LIT_KEY, JSON.stringify(items)); }
+  catch { /* ignore */ }
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 function fmtDate(iso: string): string {
@@ -27,6 +47,7 @@ function relTime(iso: string | null): string {
 
 export function LiteratureModule() {
   const { toast } = useToast();
+  const { open: openInApp } = useWebViewer();
   const {
     topics,
     customTopics,
@@ -42,6 +63,23 @@ export function LiteratureModule() {
     runSearch,
     clearSearch,
   } = useLiterature();
+
+  const [savedLit, setSavedLit] = useState<SavedArticle[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
+
+  useEffect(() => { setSavedLit(loadSavedLit()); }, []);
+
+  const toggleSaveLit = (a: Article) => {
+    setSavedLit((prev) => {
+      const exists = prev.some((s) => s.id === a.id);
+      const next = exists
+        ? prev.filter((s) => s.id !== a.id)
+        : [...prev, { id: a.id, title: a.title, summary: a.summary, authors: a.authors, source: a.source, publishedAt: a.publishedAt, url: a.url, savedAt: new Date().toISOString() }];
+      persistSavedLit(next);
+      toast(exists ? "Removed from saved" : "Saved for offline reading", exists ? "info" : "success", "Literature");
+      return next;
+    });
+  };
 
   const [addingTopic, setAddingTopic] = useState(false);
   const [topicDraft, setTopicDraft] = useState("");
@@ -115,12 +153,34 @@ export function LiteratureModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Research</div>
-        <div className="rule" />
-      </div>
-      <h1 className="hero">Literature</h1>
+        <button
+          type="button"
+          onClick={() => setShowSaved((v) => !v)}
+          style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", color: showSaved ? "var(--accent)" : "var(--ink-faint)", display: "flex", alignItems: "center", gap: 5 }}
+        >
+          {showSaved ? "★" : "☆"} SAVED{savedLit.length > 0 ? ` (${savedLit.length})` : ""}
+        </button>
       <div className="divider" />
+
+      {/* Saved panel */}
+      {showSaved && (
+        <div style={{ marginBottom: 24, borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", padding: 16 }}>
+          {savedLit.length === 0 ? (
+            <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: 0 }}>No saved articles yet. Click ☆ on any article to save it for offline reading.</p>
+          ) : (
+            savedLit.map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)", marginBottom: 2, lineClamp: 2 }}>{s.title}</div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", letterSpacing: ".06em" }}>{s.source} · {fmtDate(s.publishedAt)}</div>
+                </div>
+                <button type="button" onClick={() => openInApp(s.url, s.title)} style={{ background: "none", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "3px 10px", fontSize: 11, color: "var(--ink-faint)", cursor: "pointer", whiteSpace: "nowrap" }}>Open →</button>
+                <button type="button" onClick={() => toggleSaveLit(s as unknown as Article)} style={{ background: "none", border: "none", fontSize: 14, cursor: "pointer", color: "var(--accent)", padding: 0 }} title="Remove">★</button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* search */}
       <div className="routebar">
@@ -214,7 +274,7 @@ export function LiteratureModule() {
         )}
         {query && (
           <span className="chip on" onClick={() => { setDraft(""); clearSearch(); }}>
-            ✕ "{query}"
+            ✕ &quot;{query}&quot;
           </span>
         )}
       </div>
@@ -272,9 +332,14 @@ export function LiteratureModule() {
             </div>
             <p>{reader.summary}</p>
             <div className={styles.readerActions}>
-              <a className={styles.openLink} href={reader.url} target="_blank" rel="noreferrer">
-                Open source ↗
-              </a>
+              <button
+                type="button"
+                className={styles.openLink}
+                onClick={() => openInApp(reader.url, reader.title)}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, font: "inherit", color: "inherit" }}
+              >
+                Read in-app →
+              </button>
               <button
                 type="button"
                 className={styles.whyBtn}
@@ -333,18 +398,26 @@ export function LiteratureModule() {
                   )}
                 </div>
               </div>
-              <a
-                className="savebtn"
-                href={a.url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <path d="M14 3v4a1 1 0 0 0 1 1h4M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
-                </svg>
-                Open
-              </a>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleSaveLit(a); }}
+                  title={savedLit.some((s) => s.id === a.id) ? "Remove from saved" : "Save for offline"}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: savedLit.some((s) => s.id === a.id) ? "var(--accent)" : "var(--ink-faint)", padding: "0 2px", lineHeight: 1 }}
+                >
+                  {savedLit.some((s) => s.id === a.id) ? "★" : "☆"}
+                </button>
+                <button
+                  type="button"
+                  className="savebtn"
+                  onClick={(e) => { e.stopPropagation(); openInApp(a.url, a.title); }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M14 3v4a1 1 0 0 0 1 1h4M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+                  </svg>
+                  Open
+                </button>
+              </div>
             </div>
           ))}
         </div>

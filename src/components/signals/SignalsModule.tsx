@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   classifySignal,
   classifySignals,
@@ -67,7 +67,7 @@ function applyChip(signals: Signal[], chip: Chip) {
 export function SignalsModule() {
   const { signals, loading, capture, markRead, routeTo, updateSignal, applyClassification } = useSignals();
   const { routes, addRoute, updateRoute, deleteRoute } = useSignalRoutes();
-  const { addTask } = useTasks();
+  const { tasks, addTask } = useTasks();
   const { toast } = useToast();
 
   const [activeChip, setActiveChip] = useState<Chip>("All");
@@ -75,6 +75,7 @@ export function SignalsModule() {
   const [suggestion, setSuggestion] = useState<SignalClassification | null>(null);
   const [thinking, setThinking] = useState(false);
   const [batching, setBatching] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [draft, setDraft] = useState("");
   const [routesOpen, setRoutesOpen] = useState(false);
 
@@ -203,6 +204,48 @@ export function SignalsModule() {
     await routeTo(s.id, destination, via);
   };
 
+  // Scan platform modules for new signals via AI — reads tasks + existing signals for context.
+  const scanPlatform = useCallback(async () => {
+    setScanning(true);
+    toast("Scanning platform…", "info", "Dispatch");
+    try {
+      const existingTitles = signals.map((s) => s.title).slice(0, 20).join("; ");
+      const taskCtx = tasks.slice(0, 15).map((t) =>
+        `[${t.priority.toUpperCase()}] ${t.title} (${t.category}, ${t.status}${t.deadline ? `, due ${t.deadline}` : ""})`
+      ).join("\n");
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "companion",
+          text: `You are the Axis dispatch intelligence. Scan the following platform context and identify up to 4 signals that genuinely need attention, routing, or action. Do NOT duplicate signals already in the inbox. Return ONLY a JSON array of objects with keys: title (string, <60 chars), body (string, <120 chars), signal_type ("action"|"awaiting"|"fyi"), source (string). No markdown, just raw JSON.\n\nCurrent tasks:\n${taskCtx || "No tasks."}\n\nAlready in inbox: ${existingTitles || "Empty"}`,
+          body: JSON.stringify({ context: "dispatch scan", history: [], persona: "dispatch" }),
+        }),
+      });
+      const data = await res.json() as { response?: string };
+      const raw = (data.response ?? "").trim();
+      const start = raw.indexOf("[");
+      const end   = raw.lastIndexOf("]");
+      if (start === -1 || end === -1) throw new Error("No JSON array");
+      const items = JSON.parse(raw.slice(start, end + 1)) as Array<{ title: string; body?: string; signal_type?: string; source?: string }>;
+      let captured = 0;
+      for (const item of items.slice(0, 4)) {
+        if (!item.title) continue;
+        const type: SignalType = ["action","awaiting","fyi"].includes(item.signal_type ?? "") ? (item.signal_type as SignalType) : "fyi";
+        const created = await capture(item.title, type, item.source ?? "Platform Scan");
+        if (created && item.body) {
+          await updateSignal(created.id, { body: item.body } as Partial<Signal>);
+        }
+        if (created) captured++;
+      }
+      toast(captured > 0 ? `${captured} new signal${captured === 1 ? "" : "s"} surfaced` : "Platform looks clear", "success", "Dispatch");
+    } catch {
+      toast("Scan failed — check connection", "error", "Dispatch");
+    } finally {
+      setScanning(false);
+    }
+  }, [signals, tasks, capture, updateSignal, toast]);
+
   const handleCapture = async () => {
     const text = draft.trim();
     if (!text) return;
@@ -239,10 +282,10 @@ export function SignalsModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Daily</div>
-        <div className="rule" />
         <div className={styles.headActions}>
+          <span className="aibtn" role="button" tabIndex={0} onClick={scanning ? undefined : scanPlatform} title="Scan platform modules for new signals">
+            {scanning ? "Scanning…" : "✦ Scan modules"}
+          </span>
           <span className="aibtn" role="button" tabIndex={0} onClick={batching ? undefined : triageAll}>
             {batching ? "Triaging…" : "AI triage all"}
           </span>
@@ -250,8 +293,6 @@ export function SignalsModule() {
             Routes
           </div>
         </div>
-      </div>
-      <h1 className="hero">Signals</h1>
       <div className="divider" />
 
       <div className="capture" style={{ margin: "0 0 16px", padding: "9px 13px" }}>

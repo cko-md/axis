@@ -22,8 +22,8 @@ import { useSpotify } from "@/components/spotify/SpotifyProvider";
 import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_NAV } from "@/lib/store/nav";
 import type { NavGroup } from "@/lib/store/nav";
-import { ExternalWindow } from "@/components/layout/ExternalWindow";
 import { Modal } from "@/components/ui/Modal";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 
@@ -439,7 +439,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [external, setExternal] = useState<UrlModule | null>(null);
+  const { open: openWebViewer } = useWebViewer();
   const [urlModules, setUrlModules] = useState<UrlModule[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [formName, setFormName] = useState("");
@@ -453,8 +453,22 @@ export function Sidebar({ collapsed, onToggle }: Props) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", role: "", bio: "", photo: "" });
   const [profileSaving, setProfileSaving] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const spotify = useSpotify();
   const supabase = useMemo(() => createClient(), []);
+
+  const [sunHour, setSunHour] = useState(() => {
+    const d = new Date();
+    return d.getHours() + d.getMinutes() / 60;
+  });
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      setSunHour(d.getHours() + d.getMinutes() / 60);
+    };
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   // Load all persisted state on mount
   useEffect(() => {
@@ -509,6 +523,26 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       toast("Could not save profile", "error", "Profile");
     } finally {
       setProfileSaving(false);
+    }
+  };
+
+  const handlePhotoFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
+    // Optimistic preview via object URL while uploading
+    const preview = URL.createObjectURL(file);
+    setProfileForm((p) => ({ ...p, photo: preview }));
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
+      const json = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
+      setProfileForm((p) => ({ ...p, photo: json.url! }));
+    } catch {
+      toast("Photo upload failed", "error", "Profile");
+      setProfileForm((p) => ({ ...p, photo: "" }));
+    } finally {
+      URL.revokeObjectURL(preview);
     }
   };
 
@@ -592,18 +626,52 @@ export function Sidebar({ collapsed, onToggle }: Props) {
     <aside className="sidebar">
       <div className="sb-top">
         <div className="mark">
-          <svg viewBox="0 0 30 30" fill="none" style={{ width: 30, height: 30 }}>
-            <defs>
-              <linearGradient id="mtnGrad" x1="15" y1="24" x2="15" y2="9" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="white" stopOpacity="0.85" />
-                <stop offset="100%" stopColor="#16B8F3" />
-              </linearGradient>
-            </defs>
-            <circle cx="23.5" cy="7.5" r="6" fill="rgba(255,155,60,.45)" />
-            <circle cx="23.5" cy="7.5" r="2.1" fill="#FF8C3A" />
-            <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="url(#mtnGrad)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M3 24 H27" stroke="#9aa7b8" strokeWidth="1.1" strokeLinecap="round" opacity=".7" />
-          </svg>
+          {(() => {
+            const isDay = sunHour >= 6 && sunHour < 18;
+            const sunT = Math.max(0, Math.min(1, (sunHour - 6) / 12));
+            const moonHour = sunHour >= 18 ? sunHour - 18 : sunHour + 6;
+            const moonT = Math.max(0, Math.min(1, moonHour / 12));
+            const arcX = (t: number) => 3 + t * 24;
+            const arcY = (t: number) => Math.round((24 - Math.sin(Math.PI * t) * 17) * 1e6) / 1e6;
+            const sx = arcX(sunT); const sy = arcY(sunT);
+            const mx = arcX(moonT); const my = arcY(moonT);
+            return (
+              <svg viewBox="0 0 30 30" fill="none" style={{ width: 30, height: 30 }}>
+                <defs>
+                  <linearGradient id="mtnGrad" x1="15" y1="24" x2="15" y2="9" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="white" stopOpacity="0.85" />
+                    <stop offset="100%" stopColor="#16B8F3" />
+                  </linearGradient>
+                </defs>
+                {isDay && <>
+                  <circle cx={sx} cy={sy} r="6" fill="rgba(255,140,50,.38)" className="sun-aura" />
+                  <circle cx={sx} cy={sy} r="2.2" fill="#FF8C3A" className="sun-core" />
+                </>}
+                {!isDay && <>
+                  <circle cx={mx} cy={my} r="6" fill="rgba(180,210,255,.16)" className="moon-aura" />
+                  <circle cx={mx} cy={my} r="2.2" fill="#d4e8ff" />
+                </>}
+                {/* logo stars — fade in at dusk, fade out at dawn */}
+                {(() => {
+                  const op = sunHour >= 20 || sunHour < 4 ? 1 :
+                    sunHour >= 18 ? (sunHour - 18) / 2 :
+                    sunHour < 6 ? (6 - sunHour) / 2 : 0;
+                  return op > 0 ? (
+                    <g opacity={op}>
+                      <circle cx="4.5" cy="5" r="0.6" fill="white" className="logo-star ls1" />
+                      <circle cx="16" cy="3" r="0.5" fill="white" className="logo-star ls2" />
+                      <circle cx="26" cy="5" r="0.65" fill="white" className="logo-star ls3" />
+                      <circle cx="9" cy="14" r="0.5" fill="white" className="logo-star ls4" />
+                      <circle cx="23" cy="15" r="0.55" fill="white" className="logo-star ls5" />
+                      <circle cx="28.5" cy="12" r="0.5" fill="white" className="logo-star ls6" />
+                    </g>
+                  ) : null;
+                })()}
+                <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="url(#mtnGrad)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 24 H27" stroke="#9aa7b8" strokeWidth="1.1" strokeLinecap="round" opacity=".7" />
+              </svg>
+            );
+          })()}
         </div>
         {!collapsed && (
           <div className="wordmark">
@@ -648,16 +716,22 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         </DndContext>
 
         {/* Apps section — static, not sortable */}
-        {!collapsed && <div className="navlabel">Apps</div>}
+        {!collapsed && (
+          <div className="navlabel" style={{ display: "flex", alignItems: "center" }}>
+            <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />
+            Apps
+          </div>
+        )}
         {collapsed && <div style={{ height: 1, background: "var(--line)", margin: "12px 8px" }} />}
 
         <button
           type="button"
           className="navitem"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
-          onClick={() => setExternal(STEP2CK)}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
+          onClick={() => openWebViewer(STEP2CK.url, STEP2CK.name)}
           title="Step 2 CK Bank"
         >
+          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
           <NavIcon name="app" />
           {!collapsed && <span className="lbl">Step 2 CK Bank</span>}
           {!collapsed && <span className="ix">↗</span>}
@@ -668,10 +742,11 @@ export function Sidebar({ collapsed, onToggle }: Props) {
             key={m.id}
             type="button"
             className="navitem url-module"
-            style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
-            onClick={() => setExternal(m)}
+            style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
+            onClick={() => openWebViewer(m.url, m.name)}
             title={m.url}
           >
+            {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
             <NavIcon name="app" />
             {!collapsed && <span className="lbl">{m.name}</span>}
             {!collapsed && (
@@ -692,10 +767,11 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <button
           type="button"
           className="navitem"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
           onClick={() => setAddOpen(true)}
           title="Add a module by URL"
         >
+          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
           <NavIcon name="add" />
           {!collapsed && <span className="lbl">Add Module</span>}
         </button>
@@ -703,10 +779,11 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <button
           type="button"
           className="navitem"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", paddingLeft: collapsed ? 10 : 22 }}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
           onClick={() => toast("New boards are coming — drag-and-drop board builder is next.", "info", "Boards")}
           title="New Board"
         >
+          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
           <NavIcon name="board" />
           {!collapsed && <span className="lbl">New Board</span>}
           {!collapsed && <span className="ix">✦</span>}
@@ -777,10 +854,6 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         </div>
       )}
 
-      {external && (
-        <ExternalWindow title={external.name} url={external.url} onClose={() => setExternal(null)} />
-      )}
-
       <Modal
         open={addOpen}
         onClose={() => setAddOpen(false)}
@@ -826,30 +899,70 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           </>
         }
       >
-        {profileForm.photo && (
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
-            <img
-              src={profileForm.photo}
-              alt="Profile"
-              style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--line)" }}
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-            />
+        {/* Avatar upload */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
+          <div
+            style={{
+              width: 72, height: 72, borderRadius: "50%", border: "2px solid var(--line)",
+              background: "var(--surface-2)", overflow: "hidden", flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 26, color: "var(--ink-faint)", cursor: "pointer",
+            }}
+            onClick={() => photoInputRef.current?.click()}
+            title="Click to change photo"
+          >
+            {profileForm.photo ? (
+              <img
+                src={profileForm.photo}
+                alt="Avatar"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+            ) : (
+              profileForm.name?.[0]?.toUpperCase() ?? "?"
+            )}
           </div>
-        )}
-        {(["name", "role", "photo"] as const).map((field) => (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "5px 12px", fontSize: 12, color: "var(--ink)", cursor: "pointer", fontFamily: "var(--narrow)", letterSpacing: ".05em" }}
+            >
+              Upload Photo
+            </button>
+            {profileForm.photo && (
+              <button
+                type="button"
+                onClick={() => setProfileForm((p) => ({ ...p, photo: "" }))}
+                style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--ink-faint)", cursor: "pointer", textAlign: "left" }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); e.target.value = ""; }}
+          />
+        </div>
+
+        {(["name", "role"] as const).map((field) => (
           <div key={field} style={{ marginBottom: 14 }}>
             <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
-              {field === "photo" ? "Photo URL" : field === "name" ? "Display Name" : "Role / Title"}
+              {field === "name" ? "Display Name" : "Role / Title"}
             </label>
             <input
               value={profileForm[field]}
               onChange={(e) => setProfileForm((p) => ({ ...p, [field]: e.target.value }))}
-              placeholder={field === "name" ? "Your name" : field === "role" ? "Resident Physician, Neurosurgery" : "https://…"}
+              placeholder={field === "name" ? "Your name" : "Resident Physician, Neurosurgery"}
               className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
             />
           </div>
         ))}
-        <div>
+        <div style={{ marginBottom: 14 }}>
           <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
             Bio
           </label>
@@ -859,6 +972,17 @@ export function Sidebar({ collapsed, onToggle }: Props) {
             placeholder="A short bio or description…"
             rows={3}
             style={{ width: "100%", padding: "8px 12px", borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 13, resize: "vertical", outline: "none" }}
+          />
+        </div>
+        <div>
+          <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
+            Photo URL (optional override)
+          </label>
+          <input
+            value={profileForm.photo.startsWith("data:") ? "" : profileForm.photo}
+            onChange={(e) => setProfileForm((p) => ({ ...p, photo: e.target.value }))}
+            placeholder="https://…"
+            className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
           />
         </div>
       </Modal>

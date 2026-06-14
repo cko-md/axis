@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { aiJSON } from "@/lib/ai/router";
+import { createClient } from "@/lib/supabase/server";
 
 // Destinations a signal can be routed into. Kept in sync with the client ROUTES list.
 const DESTINATIONS = ["agenda", "schedule", "notes", "pipeline", "fund", "literature", "library", "people"] as const;
@@ -44,24 +46,20 @@ function heuristicClassify(input: ClassifyInput): ClassifyResult {
   return { id: input.id, signal_type, priority, destination, reason: "Heuristic match", confidence: 0.4 };
 }
 
-async function aiClassify(client: Anthropic, input: ClassifyInput): Promise<ClassifyResult> {
-  const msg = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 220,
+// Signal classification is a pure JSON task — routes through Gemini Flash first (free tier),
+// falling back to Haiku if Gemini is unavailable.
+async function aiClassify(client: Anthropic | null, input: ClassifyInput): Promise<ClassifyResult> {
+  const parsed = await aiJSON<Partial<ClassifyResult>>({
+    mode: "triage", // Gemini-eligible classification task
+    anthropic: client,
     system:
       "You are the routing brain of a personal-OS signal inbox. Classify the signal and choose the best destination module. " +
       'Return ONLY a JSON object with keys: signal_type ("action"|"awaiting"|"fyi"), priority ("hi"|"med"|"lo"), ' +
       'destination ("agenda"|"schedule"|"notes"|"pipeline"|"fund"|"literature"|"library"|"people"), ' +
       "reason (max 12 words, why this destination), confidence (0-1 number). No markdown, no explanation.",
-    messages: [
-      {
-        role: "user",
-        content: `title: ${input.title}\nbody: ${input.body ?? ""}\nsource: ${input.source ?? ""}`,
-      },
-    ],
+    userMessage: `title: ${input.title}\nbody: ${input.body ?? ""}\nsource: ${input.source ?? ""}`,
+    maxTokens: 220,
   });
-  const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-  const parsed = JSON.parse(raw) as Partial<ClassifyResult>;
   return {
     id: input.id,
     signal_type: (parsed.signal_type as SignalType) ?? "action",
@@ -73,6 +71,10 @@ async function aiClassify(client: Anthropic, input: ClassifyInput): Promise<Clas
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const payload = (await req.json()) as {
     mode?: string;
     // single
@@ -85,10 +87,11 @@ export async function POST(req: NextRequest) {
   };
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  const hasGemini = !!process.env.GEMINI_API_KEY;
   const client = apiKey ? new Anthropic({ apiKey }) : null;
 
   const classifyOne = async (input: ClassifyInput): Promise<ClassifyResult> => {
-    if (!client) return heuristicClassify(input);
+    if (!client && !hasGemini) return heuristicClassify(input);
     try {
       return await aiClassify(client, input);
     } catch {
@@ -96,8 +99,11 @@ export async function POST(req: NextRequest) {
     }
   };
 
-  // Batch mode: classify many signals at once.
+  // Batch mode: classify many signals at once. Cap at 50 to bound AI spend.
   if (payload.mode === "batch" && Array.isArray(payload.signals)) {
+    if (payload.signals.length > 50) {
+      return NextResponse.json({ error: "Batch size exceeds limit of 50" }, { status: 400 });
+    }
     const results = await Promise.all(payload.signals.map((s) => classifyOne(s)));
     return NextResponse.json({ results });
   }

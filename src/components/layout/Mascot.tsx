@@ -1,92 +1,107 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
 
-/**
- * The companion — an austere, sculptural presence rather than a cartoon mascot.
- * Two forms, switchable in Interface Studio:
- *   · monolith — a faceted obelisk (abstract-afrofuturist standing stone)
- *   · deck     — a refined console instrument with a gold oscilloscope line
- * Both stay in the cold-chrome register; the only warmth is a single gold core.
- */
+// ── Module context ─────────────────────────────────────────────────────────────
+const MODULE_CONTEXTS: Record<string, string> = {
+  "/command":         "Command Center — daily orchestration, tasks, dispatch",
+  "/dispatch":        "Dispatch — signal triage and routing",
+  "/schedule":        "Schedule — calendar and time blocks",
+  "/agenda":          "Agenda — ranked tasks and outreach",
+  "/notes":           "Notes — personal knowledge base and writing",
+  "/literature":      "Literature — academic papers and research discovery",
+  "/vitality":        "Vitality — training, fitness, health metrics",
+  "/briefing":        "Briefing — news and media intelligence",
+  "/listening-vault": "Listening Vault — music and sound",
+  "/fund":            "Fund — portfolio and capital management",
+  "/gallery":         "Gallery — art, culture, and aesthetics",
+  "/people":          "People — network, contacts, relationships",
+  "/pipeline":        "Pipeline — research and project pipeline",
+  "/objectives":      "Objectives — OKRs and goal tracking",
+  "/atelier":         "Atelier — creative studio",
+  "/control-room":    "Control Room — system settings",
+};
 
-const LINES = [
-  "Three deep-work blocks today. The manuscript edit window opens in 1h 48m.",
-  "Two signals routed to Agenda. Nothing overdue.",
-  "Markets quiet. Your next training block is mobility — 40 minutes.",
-  "Reading queue refreshed. One preprint matches your synaptic-plasticity thread.",
-];
+function buildContext(pathname: string): string {
+  const h = new Date().getHours();
+  const t = h < 6 ? "early morning" : h < 12 ? "morning" : h < 17 ? "afternoon" : h < 21 ? "evening" : "night";
+  const mod = Object.entries(MODULE_CONTEXTS).find(([p]) => pathname.startsWith(p))?.[1] ?? "the home screen";
+  return `It's ${t}. Current module: ${mod}.`;
+}
 
-function Monolith() {
+// ── Types ──────────────────────────────────────────────────────────────────────
+type Msg  = { role: "user" | "assistant"; content: string };
+type Card = { id: string; title: string; body: string; actionLabel?: string; actionPath?: string };
+
+// ── SVG characters ─────────────────────────────────────────────────────────────
+
+function MonolithSVG({ size = 52 }: { size?: number }) {
+  const uid = useId().replace(/:/g, '');
   return (
-    <svg viewBox="0 0 84 100" aria-hidden>
+    <svg viewBox="0 0 84 100" width={size} height={size * 1.2} aria-hidden>
       <defs>
-        <linearGradient id="monoBody" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={`mBody${uid}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="rgba(40,44,52,.92)" />
           <stop offset="100%" stopColor="rgba(14,16,20,.96)" />
         </linearGradient>
-        <radialGradient id="monoCore" cx="50%" cy="50%" r="50%">
+        <radialGradient id={`mCore${uid}`} cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="var(--gold-2)" />
           <stop offset="55%" stopColor="var(--gold)" />
           <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
         </radialGradient>
+        <radialGradient id={`mHalo${uid}`} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
+        </radialGradient>
       </defs>
       <ellipse className="m-shadow" cx="42" cy="95" rx="17" ry="3.2" fill="rgba(0,0,0,.34)" />
+      <g className="mono-ring mr1">
+        <ellipse cx="42" cy="50" rx="23" ry="5.5" fill="none" stroke="var(--gold)" strokeWidth="0.6" opacity="0.28" />
+        <circle cx="65" cy="50" r="1.5" fill="var(--gold-2)" className="mono-re me1" />
+      </g>
+      <g className="mono-ring mr2" transform="rotate(72, 42, 50)">
+        <ellipse cx="42" cy="50" rx="20" ry="5" fill="none" stroke="var(--gold)" strokeWidth="0.5" opacity="0.18" />
+        <circle cx="62" cy="50" r="1.1" fill="var(--gold)" className="mono-re me2" />
+      </g>
       <g className="m-body">
-        {/* faceted obelisk */}
-        <path
-          d="M42 8 L57 22 L55 90 L29 90 L27 22 Z"
-          fill="url(#monoBody)"
-          stroke="var(--line-strong)"
-          strokeWidth="1"
-        />
-        {/* gold apex facet — the afrofuturist crown */}
+        <path d="M42 8 L57 22 L55 90 L29 90 L27 22 Z" fill={`url(#mBody${uid})`} stroke="var(--line-strong)" strokeWidth="1" />
+        <path d="M27 22 L42 8 L42 90 L29 90 Z" fill="rgba(255,255,255,.042)" />
         <path d="M42 8 L57 22 L42 27 L27 22 Z" fill="none" stroke="var(--gold)" strokeWidth="1.2" strokeLinejoin="round" />
         <path d="M42 8 L42 27" stroke="var(--gold)" strokeWidth=".8" opacity=".55" />
-        {/* vertical seam of light */}
         <line x1="42" y1="30" x2="42" y2="86" stroke="var(--gold)" strokeWidth="1" opacity=".22" />
-        {/* the single warm aperture / eye */}
-        <circle className="mono-core" cx="42" cy="50" r="7" fill="url(#monoCore)" />
+        <line x1="30" y1="42" x2="54" y2="42" stroke="var(--gold)" strokeWidth="0.5" opacity="0.1" />
+        <line x1="30" y1="62" x2="54" y2="62" stroke="var(--gold)" strokeWidth="0.5" opacity="0.07" />
+        <circle className="mono-core" cx="42" cy="50" r="7" fill={`url(#mCore${uid})`} />
         <circle cx="42" cy="50" r="2.4" fill="var(--gold-2)" />
-        {/* quiet status ticks */}
         <line x1="34" y1="68" x2="50" y2="68" stroke="var(--ink-faint)" strokeWidth="1" opacity=".6" />
         <line x1="34" y1="74" x2="46" y2="74" stroke="var(--ink-faint)" strokeWidth="1" opacity=".4" />
       </g>
+      <ellipse cx="42" cy="89" rx="18" ry="5" fill={`url(#mHalo${uid})`} />
     </svg>
   );
 }
 
-function Deck() {
+// Data terminal — original Codex character form
+function CodexSVG({ size = 52 }: { size?: number }) {
+  const uid = useId().replace(/:/g, '');
   return (
-    <svg viewBox="0 0 84 100" aria-hidden>
+    <svg viewBox="0 0 84 100" width={size} height={size * 1.2} aria-hidden>
       <defs>
-        <linearGradient id="deckBody2" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={`dkBody${uid}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="rgba(40,44,52,.92)" />
           <stop offset="100%" stopColor="rgba(16,18,23,.96)" />
         </linearGradient>
       </defs>
       <ellipse className="m-shadow" cx="42" cy="92" rx="20" ry="3.4" fill="rgba(0,0,0,.32)" />
       <g className="m-body">
-        {/* console slab */}
-        <rect x="10" y="34" width="64" height="50" rx="7" fill="url(#deckBody2)" stroke="var(--line-strong)" strokeWidth="1" />
-        <rect x="10" y="34" width="64" height="50" rx="7" fill="none" stroke="var(--metal-edge)" strokeWidth="1" opacity=".6" />
-        {/* top bevel + power dot */}
+        <rect x="10" y="34" width="64" height="50" rx="7" fill={`url(#dkBody${uid})`} stroke="var(--line-strong)" strokeWidth="1" />
         <line x1="18" y1="34" x2="66" y2="34" stroke="var(--edge)" strokeWidth="1" opacity=".5" />
         <circle cx="64" cy="42" r="2" fill="var(--gold)" />
         <circle cx="64" cy="42" r="3.4" fill="none" stroke="var(--gold)" strokeWidth=".8" opacity=".4" />
-        {/* oscilloscope window */}
         <rect x="18" y="46" width="48" height="22" rx="3" fill="rgba(8,10,14,.7)" stroke="var(--line)" strokeWidth="1" />
-        <polyline
-          className="deck-scope"
-          points="20,57 26,57 30,50 34,64 38,52 42,60 46,55 52,57 64,57"
-          fill="none"
-          stroke="var(--gold)"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {/* equalizer trio */}
+        <polyline className="deck-scope" points="20,57 26,57 30,50 34,64 38,52 42,60 46,55 52,57 64,57" fill="none" stroke="var(--gold)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         <g className="deck-eq" transform="translate(34,73)">
           <rect className="eqb e1" x="0" y="0" width="3" height="7" rx="1" fill="var(--gold)" />
           <rect className="eqb e2" x="5" y="0" width="3" height="7" rx="1" fill="var(--gold)" />
@@ -97,63 +112,491 @@ function Deck() {
   );
 }
 
+function NovaSVG({ size = 52 }: { size?: number }) {
+  const uid = useId().replace(/:/g, '');
+  return (
+    <svg viewBox="0 0 84 100" width={size} height={size * 1.2} aria-hidden>
+      <defs>
+        <radialGradient id={`nvCore${uid}`} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="white" />
+          <stop offset="22%" stopColor="#a8ecff" />
+          <stop offset="55%" stopColor="#16B8F3" />
+          <stop offset="100%" stopColor="#004a7f" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id={`nvAura${uid}`} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#16B8F3" stopOpacity="0.38" />
+          <stop offset="100%" stopColor="#16B8F3" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      {/* Ambient shadow */}
+      <ellipse className="nova-shad" cx="42" cy="95" rx="16" ry="3" fill="rgba(22,184,243,.18)" />
+
+      {/* Soft round star-dots scattered in field */}
+      <circle className="nova-star ns1" cx="8"  cy="14" r="1.3" fill="#a8ecff" />
+      <circle className="nova-star ns2" cx="70" cy="8"  r="1.0" fill="white" />
+      <circle className="nova-star ns3" cx="78" cy="38" r="1.1" fill="#a8ecff" />
+      <circle className="nova-star ns4" cx="70" cy="74" r="0.9" fill="var(--gold)" />
+      <circle className="nova-star ns5" cx="18" cy="83" r="1.2" fill="#a8ecff" />
+      <circle className="nova-star ns6" cx="4"  cy="55" r="1.0" fill="white" />
+      <circle className="nova-star ns7" cx="48" cy="3"  r="0.9" fill="#a8ecff" />
+      <circle className="nova-star ns8" cx="62" cy="84" r="0.8" fill="white" />
+
+      {/* Atmospheric aura */}
+      <circle className="nova-aura" cx="42" cy="48" r="34" fill={`url(#nvAura${uid})`} />
+
+      {/* Atomic orbital rings — each pre-tilted at a different inclination */}
+      {/* nr1: equatorial plane */}
+      <g className="nova-ring nr1">
+        <ellipse cx="42" cy="48" rx="27" ry="6" fill="none" stroke="#16B8F3" strokeWidth="0.9" opacity="0.62" />
+        <circle cx="69" cy="48" r="2.4" fill="white" className="nova-e ne1" />
+      </g>
+      {/* nr2: tilted 58° */}
+      <g className="nova-ring nr2" transform="rotate(58, 42, 48)">
+        <ellipse cx="42" cy="48" rx="24" ry="5.5" fill="none" stroke="#60caff" strokeWidth="0.8" opacity="0.48" />
+        <circle cx="66" cy="48" r="2.0" fill="#a8ecff" className="nova-e ne2" />
+      </g>
+      {/* nr3: tilted 112° */}
+      <g className="nova-ring nr3" transform="rotate(112, 42, 48)">
+        <ellipse cx="42" cy="48" rx="21" ry="5" fill="none" stroke="rgba(201,164,99,.6)" strokeWidth="0.8" opacity="0.48" />
+        <circle cx="63" cy="48" r="1.8" fill="var(--gold)" className="nova-e ne3" />
+      </g>
+      {/* nr4: tilted −38° */}
+      <g className="nova-ring nr4" transform="rotate(-38, 42, 48)">
+        <ellipse cx="42" cy="48" rx="25" ry="5" fill="none" stroke="#a8ecff" strokeWidth="0.7" opacity="0.32" />
+        <circle cx="67" cy="48" r="1.5" fill="#60caff" className="nova-e ne4" />
+      </g>
+      {/* nr5: tilted 82° (near-vertical — completes the field) */}
+      <g className="nova-ring nr5" transform="rotate(82, 42, 48)">
+        <ellipse cx="42" cy="48" rx="20" ry="5" fill="none" stroke="#16B8F3" strokeWidth="0.6" opacity="0.26" />
+        <circle cx="62" cy="48" r="1.3" fill="white" className="nova-e ne5" />
+      </g>
+
+      {/* Core glow layers */}
+      <circle cx="42" cy="48" r="12" fill="#16B8F3" opacity="0.14" className="nova-gl g2" />
+      <circle cx="42" cy="48" r="7.5" fill="#16B8F3" opacity="0.6" className="nova-gl g1" />
+      <circle cx="42" cy="48" r="5.5" fill={`url(#nvCore${uid})`} className="nova-core" />
+      <circle cx="42" cy="48" r="2.2" fill="white" opacity="0.96" />
+    </svg>
+  );
+}
+
+// ── Popout speech-bubble shell ─────────────────────────────────────────────────
+function PopoutShell({ children, className, onClose, title, sub, icon, controls }: {
+  children: React.ReactNode;
+  className?: string;
+  onClose:   () => void;
+  title:     string;
+  sub:       string;
+  icon:      React.ReactNode;
+  controls?: React.ReactNode;
+}) {
+  return (
+    <div className={`cp-popout${className ? " " + className : ""}`}>
+      <div className="cp-head">
+        <div className="cp-ident">
+          {icon}
+          <span>{title}</span>
+          <span className="cp-sub">{sub}</span>
+        </div>
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          {controls}
+          <button type="button" className="cp-x" onClick={onClose}>✕</button>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Axiom — strategic advisor with persistent focus tracking ──────────────────
+function AxiomChar({ onHide }: { onHide: () => void }) {
+  const pathname = usePathname();
+  const context  = useMemo(() => buildContext(pathname), [pathname]);
+  const [open, setOpen]               = useState(false);
+  const [messages, setMessages]       = useState<Msg[]>([]);
+  const [input, setInput]             = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [focus, setFocus]             = useState("");
+  const [editingFocus, setEditingFocus] = useState(false);
+  const briefedRef    = useRef(false);
+  const bottomRef     = useRef<HTMLDivElement>(null);
+  const inputRef      = useRef<HTMLInputElement>(null);
+  const focusInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setFocus(localStorage.getItem("axiom-focus") ?? "");
+  }, []);
+
+  const saveFocus = (v: string) => {
+    setFocus(v);
+    localStorage.setItem("axiom-focus", v);
+  };
+
+  const generateBrief = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "companion",
+          text: `Deliver a 2-sentence strategic situation brief. ${context}. ${focus ? `User's active focus: "${focus}".` : "No active focus set — prompt them to set one."} Be direct. Field advisor tone, not chatbot. Surface one actionable priority.`,
+          body: JSON.stringify({ context, history: [], persona: "axiom" }),
+        }),
+      });
+      const data = await res.json() as { response?: string };
+      setMessages([{ role: "assistant", content: data.response ?? "Situation nominal. Set a focus for a targeted brief." }]);
+    } catch {
+      setMessages([{ role: "assistant", content: "Offline. Reconnect to receive briefing." }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [context, focus]);
+
+  useEffect(() => {
+    if (open && !briefedRef.current) {
+      briefedRef.current = true;
+      void generateBrief();
+    }
+    if (!open) briefedRef.current = false;
+  }, [open, generateBrief]);
+
+  useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, open]);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 120);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [open]);
+
+  const send = useCallback(async () => {
+    const q = input.trim();
+    if (!q || loading) return;
+    setInput("");
+    setMessages((p) => [...p, { role: "user", content: q }]);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: messages.slice(-8), persona: "axiom" }) }),
+      });
+      const data = await res.json() as { response?: string };
+      setMessages((p) => [...p, { role: "assistant", content: data.response ?? "…" }]);
+    } catch {
+      setMessages((p) => [...p, { role: "assistant", content: "Connection lost." }]);
+    } finally {
+      setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [input, loading, context, messages]);
+
+  return (
+    <div className="cp-char">
+      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Axiom">✕</button>
+      <div
+        className={`cp-fig cp-fig-mono${open ? " is-open" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen((o) => !o); }}
+        aria-label="Toggle Axiom"
+        aria-expanded={open}
+      >
+        <MonolithSVG size={52} />
+      </div>
+
+      {open && (
+        <PopoutShell
+          className="cp-popout-axiom"
+          title="AXIOM"
+          sub="Field Ops"
+          icon={<MonolithSVG size={18} />}
+          onClose={() => setOpen(false)}
+        >
+          {/* Persistent focus track — survives sessions */}
+          <div className="ax-focus">
+            <div className="ax-focus-label">ACTIVE FOCUS</div>
+            {editingFocus ? (
+              <input
+                ref={focusInputRef}
+                className="ax-focus-input"
+                value={focus}
+                onChange={(e) => saveFocus(e.target.value)}
+                onBlur={() => setEditingFocus(false)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingFocus(false); }}
+                placeholder="Set current objective…"
+                autoFocus
+              />
+            ) : (
+              <button type="button" className="ax-focus-val" onClick={() => setEditingFocus(true)}>
+                <span>{focus || "— Set objective —"}</span>
+                <span className="ax-focus-edit">✎</span>
+              </button>
+            )}
+          </div>
+
+          <div className="cp-msgs">
+            {loading && messages.length === 0 ? (
+              <div className="ax-brief-loading">
+                <span className="cp-dots"><span /><span /><span /></span>
+                <span className="ax-brief-label">Generating brief…</span>
+              </div>
+            ) : messages.map((m, i) => (
+              <div key={i} className={`cp-msg ${m.role === "user" ? "cp-you" : "cp-ai"}`}>
+                <span>{m.content}</span>
+              </div>
+            ))}
+            {loading && messages.length > 0 && (
+              <div className="cp-msg cp-ai cp-typing">
+                <span className="cp-dots"><span /><span /><span /></span>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+          <div className="cp-input-bar">
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+              placeholder="Brief Axiom…"
+              className="cp-input"
+              disabled={loading}
+            />
+            <button type="button" onClick={() => void send()} className="cp-send" disabled={loading || !input.trim()}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" /></svg>
+            </button>
+          </div>
+        </PopoutShell>
+      )}
+    </div>
+  );
+}
+
+// ── Codex — contextual intelligence cards ──────────────────────────────────────
+function CodexChar({ onHide }: { onHide: () => void }) {
+  const pathname = usePathname();
+  const router   = useRouter();
+  const context  = useMemo(() => buildContext(pathname), [pathname]);
+  const [open, setOpen]           = useState(false);
+  const [cards, setCards]         = useState<Card[]>([]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [loading, setLoading]     = useState(false);
+
+  const loadCards = useCallback(async () => {
+    setLoading(true);
+    setDismissed(new Set());
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "deck-insights", text: context, body: JSON.stringify({ context }) }),
+      });
+      const data = await res.json() as { cards?: Card[] };
+      setCards((data.cards ?? []).map((c, i) => ({ ...c, id: c.id ?? String(i) })));
+    } catch {
+      setCards([{ id: "e", title: "Offline", body: "Couldn't reach the AI. Check your connection." }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [context]);
+
+  useEffect(() => {
+    if (open && cards.length === 0) void loadCards();
+  }, [open, loadCards, cards.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [open]);
+
+  const visible = cards.filter((c) => !dismissed.has(c.id));
+
+  return (
+    <div className="cp-char">
+      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Codex">✕</button>
+      <div
+        className={`cp-fig cp-fig-cdx${open ? " is-open" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen((o) => !o); }}
+        aria-label="Toggle Codex"
+        aria-expanded={open}
+      >
+        <CodexSVG size={52} />
+      </div>
+
+      {open && (
+        <PopoutShell
+          className="cp-popout-codex"
+          title="CODEX"
+          sub="Contextual Intel"
+          icon={<CodexSVG size={18} />}
+          onClose={() => setOpen(false)}
+          controls={
+            <button type="button" onClick={() => void loadCards()} className="cp-refresh" disabled={loading} title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 12, height: 12 }}>
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 4v4h4" />
+              </svg>
+            </button>
+          }
+        >
+          <div className="cp-context-tag">{context.split(". ").pop()}</div>
+          <div className="cp-cards">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => <div key={i} className="cp-card cp-skel" />)
+            ) : visible.length === 0 ? (
+              <div className="cp-empty">All clear — no signals right now.</div>
+            ) : (
+              visible.map((card) => (
+                <div key={card.id} className="cp-card">
+                  <button type="button" className="cp-card-x" onClick={() => setDismissed((p) => new Set([...p, card.id]))}>✕</button>
+                  <div className="cp-card-title">{card.title}</div>
+                  <div className="cp-card-body">{card.body}</div>
+                  {card.actionLabel && card.actionPath && (
+                    <button type="button" className="cp-card-act" onClick={() => router.push(card.actionPath!)}>
+                      {card.actionLabel} →
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </PopoutShell>
+      )}
+    </div>
+  );
+}
+
+// ── Nova — quick oracle ────────────────────────────────────────────────────────
+function NovaChar({ onHide }: { onHide: () => void }) {
+  const pathname = usePathname();
+  const context  = useMemo(() => buildContext(pathname), [pathname]);
+  const [open, setOpen]         = useState(false);
+  const [query, setQuery]       = useState("");
+  const [response, setResponse] = useState<string | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 80);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); setResponse(null); } };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [open]);
+
+  const ask = useCallback(async () => {
+    const q = query.trim();
+    if (!q || loading) return;
+    setLoading(true);
+    setResponse(null);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: [], persona: "nova" }) }),
+      });
+      const data = await res.json() as { response?: string };
+      setResponse(data.response ?? "…");
+      setQuery("");
+    } catch {
+      setResponse("Connection lost — try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [query, loading, context]);
+
+  return (
+    <div className="cp-char">
+      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Nova">✕</button>
+      <div
+        className={`cp-fig cp-fig-nova${open ? " is-open" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen((o) => !o); }}
+        aria-label="Toggle Nova"
+        aria-expanded={open}
+      >
+        <NovaSVG size={52} />
+      </div>
+
+      {open && (
+        <PopoutShell
+          className="cp-popout-nova"
+          title="NOVA"
+          sub="Quick Oracle"
+          icon={<NovaSVG size={18} />}
+          onClose={() => { setOpen(false); setResponse(null); }}
+        >
+          {response && <div className="cp-nova-resp">{response}</div>}
+          <div className="cp-input-bar" style={response ? { borderTop: "1px solid var(--line)" } : undefined}>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void ask(); } }}
+              placeholder={loading ? "Thinking…" : "Ask anything…"}
+              className="cp-input"
+              disabled={loading}
+            />
+            <button type="button" onClick={() => void ask()} className="cp-send" disabled={loading || !query.trim()}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" /></svg>
+            </button>
+          </div>
+        </PopoutShell>
+      )}
+    </div>
+  );
+}
+
+// ── Restore button ─────────────────────────────────────────────────────────────
+function RestoreButton({ name, onRestore }: { name: string; onRestore: () => void }) {
+  return (
+    <button type="button" className="mascot-restore on" title={`Summon ${name}`} onClick={onRestore}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M12 3 L19 9 L17 21 L7 21 L5 9 Z" /><circle cx="12" cy="13" r="2.4" />
+      </svg>
+    </button>
+  );
+}
+
+// ── Main export ────────────────────────────────────────────────────────────────
 export function Mascot() {
   const { interfaceSettings, setInterfaceSettings } = useTheme();
   const [hidden, setHidden] = useState(false);
-  const [bubble, setBubble] = useState(false);
-  const line = useMemo(() => LINES[Math.floor((Date.now() / 60000) % LINES.length)], []);
 
-  // close the bubble on Escape
-  useEffect(() => {
-    if (!bubble) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setBubble(false);
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [bubble]);
+  const hide = useCallback(() => {
+    setHidden(true);
+    setInterfaceSettings((s) => ({ ...s, presence: "hide" }));
+  }, [setInterfaceSettings]);
+
+  const restore = useCallback(() => {
+    setHidden(false);
+    setInterfaceSettings((s) => ({ ...s, presence: "show" }));
+  }, [setInterfaceSettings]);
+
+  const companion     = interfaceSettings.companion;
+  const restoreName   = companion === "nova" ? "Nova" : companion === "deck" ? "Codex" : "Axiom";
 
   if (interfaceSettings.presence === "hide" || hidden) {
-    return (
-      <button
-        type="button"
-        className="mascot-restore on"
-        title="Show companion"
-        onClick={() => {
-          setHidden(false);
-          setInterfaceSettings((s) => ({ ...s, presence: "show" }));
-        }}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M12 3 L19 9 L17 21 L7 21 L5 9 Z" />
-          <circle cx="12" cy="13" r="2.4" />
-        </svg>
-      </button>
-    );
+    return <RestoreButton name={restoreName} onRestore={restore} />;
   }
 
-  const isMonolith = interfaceSettings.companion !== "deck";
-
-  return (
-    <div
-      className={`mascot ${isMonolith ? "char-monolith" : "char-deck"}`}
-      title="Tap for a briefing"
-      onClick={() => setBubble((b) => !b)}
-    >
-      <button
-        type="button"
-        className="m-hide"
-        title="Hide companion"
-        onClick={(e) => {
-          e.stopPropagation();
-          setHidden(true);
-        }}
-      >
-        ✕
-      </button>
-      {isMonolith ? <Monolith /> : <Deck />}
-      <div className={`m-bubble${bubble ? " on" : ""}`}>
-        <div className="m-bubble-eyebrow">Companion</div>
-        {line}
-      </div>
-    </div>
-  );
+  if (companion === "monolith") return <AxiomChar onHide={hide} />;
+  if (companion === "deck")     return <CodexChar onHide={hide} />;
+  return <NovaChar onHide={hide} />;
 }

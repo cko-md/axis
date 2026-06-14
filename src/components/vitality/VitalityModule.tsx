@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import {
   useTrainingWeek,
@@ -19,10 +19,33 @@ import { createPortal } from "react-dom";
 const TABS = [
   { id: "fit-health", label: "Health" },
   { id: "fit-nutrition", label: "Nutrition" },
+  { id: "fit-meditation", label: "Meditation" },
   { id: "fit-run", label: "Running" },
   { id: "fit-strength", label: "Strength & Conditioning" },
   { id: "fit-yoga", label: "Yoga & Pilates" },
 ];
+
+const MED_TYPES = [
+  { id: "breath", label: "Focused Breath", desc: "Anchor attention to the breath cycle" },
+  { id: "body-scan", label: "Body Scan", desc: "Progressive awareness from feet to crown" },
+  { id: "loving", label: "Loving-Kindness", desc: "Cultivate compassion outward from self" },
+  { id: "open", label: "Open Monitoring", desc: "Witness thoughts without engagement" },
+  { id: "nidra", label: "Yoga Nidra", desc: "Conscious sleep / deep restoration" },
+  { id: "box", label: "Box Breathing", desc: "4-4-4-4 tactical breath regulation" },
+] as const;
+type MedType = (typeof MED_TYPES)[number]["id"];
+
+type MedSession = {
+  id: string;
+  date: string;
+  type: MedType;
+  durationMin: number;
+  moodBefore: number;
+  moodAfter: number;
+  notes: string;
+};
+
+const MED_KEY = "axis-meditation-log";
 
 const KIND_ORDER: TrainingKind[] = ["run", "lift", "mobility", "rest", "other"];
 const INTENSITY_ORDER: TrainingIntensity[] = ["easy", "moderate", "hard", "key"];
@@ -384,22 +407,569 @@ function StravaActivityRow({ a }: { a: StravaActivity }) {
   );
 }
 
+// ── Strava run list with expand/collapse ─────────────────────────────────────
+
+function StravaRunList({ activities }: { activities: StravaActivity[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? activities : activities.slice(0, 3);
+  return (
+    <div className="card" style={{ padding: "4px 14px 4px" }}>
+      {visible.map((a) => <StravaActivityRow key={a.id} a={a} />)}
+      {activities.length > 3 && (
+        <button type="button" onClick={() => setExpanded((e) => !e)} style={TOGGLE_BTN_STYLE}>
+          {expanded ? "▲ Collapse" : `▼ Show all ${activities.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Meditation session list with expand/collapse ──────────────────────────────
+
+const TOGGLE_BTN_STYLE: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--ink-faint)",
+  fontSize: 11,
+  fontFamily: "var(--mono)",
+  letterSpacing: ".08em",
+  cursor: "pointer",
+  padding: "6px 0",
+  display: "block",
+  width: "100%",
+  textAlign: "center",
+};
+
+function MedSessionList({ sessions }: { sessions: MedSession[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? sessions : sessions.slice(0, 3);
+  return (
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+      {visible.map((s) => (
+        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: "var(--glass)", borderRadius: "var(--r)", border: "1px solid var(--line)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", minWidth: 64 }}>
+            {new Date(s.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--ink)", flex: 1 }}>{MED_TYPES.find((t) => t.id === s.type)?.label}</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)" }}>{s.durationMin}m</div>
+          <div style={{ fontSize: 12 }}>{["😞", "😕", "😐", "🙂", "😊"][s.moodBefore - 1]} → {["😞", "😕", "😐", "🙂", "😊"][s.moodAfter - 1]}</div>
+        </div>
+      ))}
+      {sessions.length > 3 && (
+        <button type="button" onClick={() => setExpanded((e) => !e)} style={TOGGLE_BTN_STYLE}>
+          {expanded ? "▲ Collapse" : `▼ Show all ${sessions.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Meditation Tab ────────────────────────────────────────────────────────────
+
+function MeditationTab() {
+  const { toast } = useToast();
+
+  const [sessions, setSessions] = useState<MedSession[]>(() => {
+    try { return JSON.parse(localStorage.getItem(MED_KEY) ?? "[]"); } catch { return []; }
+  });
+  const [medType, setMedType] = useState<MedType>("breath");
+  const [duration, setDuration] = useState(10);
+  const [moodBefore, setMoodBefore] = useState(3);
+  const [moodAfter, setMoodAfter] = useState(3);
+  const [notes, setNotes] = useState("");
+  const [timerSec, setTimerSec] = useState(10 * 60);
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showAppleHealth, setShowAppleHealth] = useState(false);
+
+  useEffect(() => { setTimerSec(duration * 60); setDone(false); }, [duration]);
+
+  useEffect(() => {
+    if (!running) return;
+    timerRef.current = setInterval(() => {
+      setTimerSec((s) => {
+        if (s <= 1) {
+          clearInterval(timerRef.current!);
+          setRunning(false);
+          setDone(true);
+          toast("Session complete — log your mood below.", "success", "Meditation");
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("Axis · Meditation", { body: "Session complete. Take a moment to return." });
+          }
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current!);
+  }, [running, toast]);
+
+  const fetchSuggestion = async () => {
+    setAiLoading(true);
+    const hour = new Date().getHours();
+    const timeCtx = hour < 9 ? "morning" : hour < 13 ? "late morning" : hour < 17 ? "afternoon" : "evening";
+    const prompt = `I'm planning a meditation session ${timeCtx}. Suggest the single best meditation type and duration for right now (2 sentences max). Types available: focused breath, body scan, loving-kindness, open monitoring, yoga nidra, box breathing.`;
+    try {
+      const res = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "capture", text: prompt }) });
+      const d = await res.json();
+      setAiSuggestion(d.action || d.label || "Try a 10-minute focused breath session to anchor your morning.");
+    } catch { setAiSuggestion("Try a 10-minute focused breath session — ideal for any time of day."); }
+    finally { setAiLoading(false); }
+  };
+
+  const saveSession = () => {
+    const session: MedSession = {
+      id: Date.now().toString(36),
+      date: new Date().toISOString(),
+      type: medType,
+      durationMin: duration,
+      moodBefore,
+      moodAfter,
+      notes,
+    };
+    const next = [session, ...sessions].slice(0, 60);
+    setSessions(next);
+    try { localStorage.setItem(MED_KEY, JSON.stringify(next)); } catch {}
+    setDone(false); setNotes(""); setMoodAfter(3);
+    toast("Session logged.", "success", "Meditation");
+  };
+
+  const todaySessions = sessions.filter((s) => new Date(s.date).toDateString() === new Date().toDateString());
+  const totalMindfulMin = sessions.reduce((a, s) => a + s.durationMin, 0);
+  const streak = (() => {
+    let s = 0; const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today); d.setDate(d.getDate() - i);
+      const ds = d.toDateString();
+      if (sessions.some((ss) => new Date(ss.date).toDateString() === ds)) s++;
+      else break;
+    }
+    return s;
+  })();
+
+  const timerMin = Math.floor(timerSec / 60).toString().padStart(2, "0");
+  const timerS = (timerSec % 60).toString().padStart(2, "0");
+  const progress = 1 - timerSec / (duration * 60);
+  const r = 46; const circ = 2 * Math.PI * r;
+
+  return (
+    <div className={`subpanel on`}>
+      {/* stats row */}
+      <div className="ftop" style={{ gridTemplateColumns: "repeat(3,1fr)", marginBottom: 18 }}>
+        <div className="card tick">
+          <div className="seclabel">Streak</div>
+          <div className="bigmetric">{streak}<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> day{streak !== 1 ? "s" : ""}</span></div>
+        </div>
+        <div className="card">
+          <div className="seclabel">Today</div>
+          <div className="bigmetric">{todaySessions.length}<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> session{todaySessions.length !== 1 ? "s" : ""}</span></div>
+        </div>
+        <div className="card">
+          <div className="seclabel">Total Mindful Time</div>
+          <div className="bigmetric">{totalMindfulMin}<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> min</span></div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr", gap: 16, alignItems: "start" }}>
+        {/* timer */}
+        <div className="card tick" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: 20 }}>
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r={r} fill="none" stroke="var(--line)" strokeWidth="6" />
+            <circle
+              cx="60" cy="60" r={r} fill="none"
+              stroke="var(--accent-2)" strokeWidth="6"
+              strokeLinecap="round"
+              strokeDasharray={circ}
+              strokeDashoffset={circ * (1 - progress)}
+              transform="rotate(-90 60 60)"
+              style={{ transition: "stroke-dashoffset 1s linear" }}
+            />
+            <text x="60" y="55" textAnchor="middle" style={{ fill: "var(--ink)", fontFamily: "var(--narrow)", fontSize: 22, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+              {timerMin}:{timerS}
+            </text>
+            <text x="60" y="72" textAnchor="middle" style={{ fill: "var(--ink-faint)", fontFamily: "var(--mono)", fontSize: 9 }}>
+              {done ? "COMPLETE" : running ? "FOCUS" : "READY"}
+            </text>
+          </svg>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[5, 10, 15, 20].map((d) => (
+              <button key={d} type="button" className="btn-secondary" style={{ fontSize: 10, padding: "4px 8px", background: duration === d ? "var(--glass-2)" : undefined, borderColor: duration === d ? "var(--accent)" : undefined }} onClick={() => { if (!running) setDuration(d); }}>
+                {d}m
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn-secondary" style={{ minWidth: 72 }} onClick={() => setRunning((r) => !r)}>
+              {running ? "Pause" : done ? "Again" : timerSec < duration * 60 ? "Resume" : "Begin"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => { setRunning(false); setDone(false); setTimerSec(duration * 60); }}>
+              Reset
+            </button>
+          </div>
+        </div>
+
+        {/* session config + AI */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="card">
+            <h2 className="sec">Session Type<span className="rule" /></h2>
+            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {MED_TYPES.map((mt) => (
+                <button key={mt.id} type="button" onClick={() => setMedType(mt.id)}
+                  style={{ padding: "8px 10px", background: medType === mt.id ? "rgba(63,111,176,.12)" : "var(--glass)", border: `1px solid ${medType === mt.id ? "var(--accent-2)" : "var(--line)"}`, borderRadius: "var(--r)", cursor: "pointer", textAlign: "left", transition: ".14s" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: medType === mt.id ? "var(--accent-2)" : "var(--ink)", marginBottom: 2 }}>{mt.label}</div>
+                  <div style={{ fontSize: 9.5, color: "var(--ink-faint)", fontFamily: "var(--mono)", lineHeight: 1.4 }}>{mt.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="card">
+            <h2 className="sec">
+              AI Coach<span className="rule" />
+              <button type="button" className="feed-manage" onClick={fetchSuggestion} disabled={aiLoading}>{aiLoading ? "Thinking…" : "✦ Suggest"}</button>
+            </h2>
+            {aiSuggestion ? (
+              <p style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, marginTop: 10 }}>{aiSuggestion}</p>
+            ) : (
+              <p style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 10 }}>Click Suggest for a personalised recommendation based on your time of day and recent training.</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* mood logging */}
+      {(done || todaySessions.length > 0) && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h2 className="sec">Log This Session<span className="rule" /></h2>
+          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 6, textTransform: "uppercase", letterSpacing: ".08em" }}>Mood Before</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} type="button" onClick={() => setMoodBefore(n)}
+                    style={{ width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${moodBefore === n ? "var(--accent)" : "var(--line)"}`, background: moodBefore === n ? "var(--glass-2)" : "transparent", cursor: "pointer", fontSize: 13 }}>
+                    {["😞", "😕", "😐", "🙂", "😊"][n - 1]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 6, textTransform: "uppercase", letterSpacing: ".08em" }}>Mood After</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} type="button" onClick={() => setMoodAfter(n)}
+                    style={{ width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${moodAfter === n ? "var(--up)" : "var(--line)"}`, background: moodAfter === n ? "var(--glass-2)" : "transparent", cursor: "pointer", fontSize: 13 }}>
+                    {["😞", "😕", "😐", "🙂", "😊"][n - 1]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes — insights, distractions, intentions…"
+            style={{ marginTop: 10, width: "100%", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "7px 10px", color: "var(--ink)", fontSize: 12, fontFamily: "var(--sans)", boxSizing: "border-box" }}
+          />
+          <button type="button" className="sig-go" style={{ marginTop: 10 }} onClick={saveSession}>Save Session</button>
+        </div>
+      )}
+
+      {/* recent log */}
+      {sessions.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h2 className="sec">Recent Sessions<span className="rule" /><span className="count">{sessions.length}</span></h2>
+          <MedSessionList sessions={sessions} />
+        </div>
+      )}
+
+      {/* Supper Club wellness link */}
+      <div className="card" style={{ marginTop: 16, opacity: 0.8 }}>
+        <h2 className="sec">Holistic Integration<span className="rule" /></h2>
+        <p style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, marginTop: 10 }}>
+          Meditation data feeds into your Vitality readiness score alongside HRV, sleep, and training load. Your Supper Club recipes adapt macros on rest/recovery days when mindful minutes exceed 20.
+        </p>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, padding: "4px 9px", border: "1px solid var(--line)", borderRadius: "var(--r)", color: "var(--ink-faint)" }}>→ Supper Club sync</span>
+          <button type="button" onClick={() => setShowAppleHealth(true)} style={{ fontFamily: "var(--mono)", fontSize: 9.5, padding: "4px 9px", border: "1px solid var(--line)", borderRadius: "var(--r)", color: "var(--ink-faint)", background: "none", cursor: "pointer" }}>→ Apple Health (iOS)</button>
+        </div>
+      </div>
+      {showAppleHealth && <AppleHealthModal onClose={() => setShowAppleHealth(false)} />}
+    </div>
+  );
+}
+
+// ── Health Metrics Panel ──────────────────────────────────────────────────────
+
+const HEALTH_DEVICES = [
+  {
+    id: "oura",
+    name: "Oura Ring",
+    icon: "◎",
+    description: "HRV · sleep stages · readiness · body temp",
+    metrics: ["HRV", "Sleep", "Readiness", "Resting HR"],
+    color: "#c9a463",
+    comingSoon: false,
+  },
+  {
+    id: "garmin",
+    name: "Garmin Connect",
+    icon: "⬡",
+    description: "VO₂ max · training load · GPS activities · recovery",
+    metrics: ["VO₂ Max", "Training Load", "Steps", "Resting HR"],
+    color: "#3f6fb0",
+    comingSoon: false,
+  },
+  {
+    id: "whoop",
+    name: "Whoop",
+    icon: "◑",
+    description: "Recovery score · strain · sleep performance · SpO₂",
+    metrics: ["Recovery", "Strain", "Sleep", "HRV"],
+    color: "#7c6fad",
+    comingSoon: false,
+  },
+  {
+    id: "fitbit",
+    name: "Fitbit",
+    icon: "◌",
+    description: "Steps · active zone minutes · sleep · resting HR",
+    metrics: ["Steps", "Active Minutes", "Sleep", "Resting HR"],
+    color: "#4fa89c",
+    comingSoon: false,
+  },
+  {
+    id: "apple_health",
+    name: "Apple Health",
+    icon: "⬟",
+    description: "HealthKit native sync — requires AXIS iOS app",
+    metrics: ["All metrics via HealthKit"],
+    color: "var(--ink-faint)",
+    comingSoon: true,
+  },
+];
+
+const HEALTH_METRICS = [
+  { id: "hr",        label: "Resting HR",  unit: "bpm",        icon: "♥",  sources: ["oura", "garmin", "whoop", "fitbit"] },
+  { id: "hrv",       label: "HRV",         unit: "ms",         icon: "〰", sources: ["oura", "whoop"] },
+  { id: "sleep",     label: "Sleep",       unit: "hrs",        icon: "☾",  sources: ["oura", "whoop", "garmin", "fitbit"] },
+  { id: "vo2max",    label: "VO₂ Max",     unit: "mL/kg·min",  icon: "↑",  sources: ["garmin"] },
+  { id: "readiness", label: "Readiness",   unit: "/ 100",      icon: "◈",  sources: ["oura", "whoop"] },
+  { id: "steps",     label: "Steps",       unit: "today",      icon: "⬆",  sources: ["garmin", "fitbit"] },
+];
+
+function HealthMetricsPanel() {
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connected, setConnected]   = useState<Set<string>>(new Set());
+  const { toast } = useToast();
+
+  const handleConnect = async (deviceId: string) => {
+    setConnecting(deviceId);
+    try {
+      const res = await fetch(`/api/health/${deviceId}/connect`, { method: "GET" });
+      if (res.redirected || res.ok) {
+        // OAuth redirect: open in same tab
+        const data = (await res.json().catch(() => ({}))) as { url?: string; message?: string };
+        if (data.url) { window.location.href = data.url; return; }
+      }
+      toast("OAuth setup required — coming soon.", "info", `${deviceId} connection`);
+    } catch {
+      toast("Could not reach the health API.", "error", "Connection error");
+    } finally {
+      setConnecting(null);
+    }
+  };
+
+  const anyConnected = connected.size > 0;
+
+  return (
+    <>
+      {/* Metric grid — shown empty until connected */}
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <h2 className="sec">
+          Live Metrics
+          <span className="rule" />
+          <span className="count" style={{ color: anyConnected ? "var(--up)" : "var(--ink-faint)" }}>
+            {anyConnected ? `${connected.size} device${connected.size > 1 ? "s" : ""} syncing` : "no device connected"}
+          </span>
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10, marginTop: 14 }}>
+          {HEALTH_METRICS.map((m) => {
+            const hasSource = m.sources.some((s) => connected.has(s));
+            return (
+              <div key={m.id} style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--r)",
+                padding: "14px 14px 12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                opacity: hasSource ? 1 : 0.5,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: ".1em" }}>{m.label}</span>
+                  <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>{m.icon}</span>
+                </div>
+                <div style={{ fontFamily: "var(--display)", fontSize: 26, color: hasSource ? "var(--ink)" : "var(--ink-faint)", lineHeight: 1 }}>
+                  —
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)" }}>{m.unit}</div>
+              </div>
+            );
+          })}
+        </div>
+        {!anyConnected && (
+          <p style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-faint)", margin: "12px 0 0", lineHeight: 1.6 }}>
+            Connect a wearable below to stream live data into your health dashboard.
+          </p>
+        )}
+      </div>
+
+      {/* Device connection cards */}
+      <div className="card" style={{ padding: "18px 20px", marginTop: 12 }}>
+        <h2 className="sec">Devices<span className="rule" /></h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+          {HEALTH_DEVICES.map((d) => {
+            const isConnected = connected.has(d.id);
+            const isConnecting = connecting === d.id;
+            return (
+              <div key={d.id} style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "13px 15px",
+                background: "var(--surface-2)",
+                border: `1px solid ${isConnected ? d.color : "var(--line)"}`,
+                borderRadius: "var(--r)",
+                opacity: d.comingSoon ? 0.45 : 1,
+              }}>
+                <div style={{
+                  width: 36, height: 36,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 16,
+                  color: d.comingSoon ? "var(--ink-faint)" : d.color,
+                  border: `1.5px solid ${d.comingSoon ? "var(--line)" : d.color}`,
+                  borderRadius: "50%",
+                  flexShrink: 0,
+                }}>
+                  {d.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>{d.name}</span>
+                    {d.comingSoon && (
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>iOS only</span>
+                    )}
+                    {isConnected && (
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--up)", border: "1px solid var(--up)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>syncing</span>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-faint)", marginTop: 2, lineHeight: 1.4 }}>{d.description}</div>
+                  <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
+                    {d.metrics.map((label) => (
+                      <span key={label} style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px" }}>{label}</span>
+                    ))}
+                  </div>
+                </div>
+                {!d.comingSoon && (
+                  <button
+                    type="button"
+                    disabled={isConnecting}
+                    onClick={() => isConnected
+                      ? setConnected((p) => { const n = new Set(p); n.delete(d.id); return n; })
+                      : handleConnect(d.id)
+                    }
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 9.5,
+                      padding: "5px 12px",
+                      border: `1px solid ${isConnected ? "var(--line)" : d.color}`,
+                      borderRadius: "var(--r)",
+                      color: isConnected ? "var(--ink-faint)" : d.color,
+                      background: "none",
+                      cursor: isConnecting ? "default" : "pointer",
+                      flexShrink: 0,
+                      letterSpacing: ".06em",
+                      opacity: isConnecting ? 0.6 : 1,
+                    }}
+                  >
+                    {isConnecting ? "Connecting…" : isConnected ? "Disconnect" : "Connect →"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 14, lineHeight: 1.6, letterSpacing: ".06em" }}>
+          OAUTH 2.0 · END-TO-END ENCRYPTED · NO DATA SOLD
+        </p>
+      </div>
+    </>
+  );
+}
+
 // ── Main VitalityModule ───────────────────────────────────────────────────────
 
 export function VitalityModule() {
+  const { toast } = useToast();
   const [tab, setTab] = useState("fit-health");
   const [runChip, setRunChip] = useState("All");
   const [yogaChip, setYogaChip] = useState("All");
   const [meals, setMeals] = useState(INITIAL_MEALS);
+  const [mealInput, setMealInput] = useState("");
+  const [mealParsing, setMealParsing] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
   const [regimenModal, setRegimenModal] = useState<"run" | "lift" | null>(null);
-  const [appleHealthModal, setAppleHealthModal] = useState(false);
 
   const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, loading: stravaLoading, disconnect: stravaDisconnect } = useStrava();
 
   const stravaConnected = stravaStatus?.connected ?? false;
 
-  const toggleRecipe = (id: string) => setSavedRecipes((s) => ({ ...s, [id]: !s[id] }));
+  const toggleRecipe = (id: string) => {
+    setSavedRecipes((s) => ({ ...s, [id]: !s[id] }));
+    const r = RECIPES.find((r) => r.id === id);
+    if (r && !savedRecipes[id]) toast(`"${r.t}" saved to Supper Club`, "success", "Nutrition");
+  };
+
+  const logMealWithAI = async () => {
+    const text = mealInput.trim();
+    if (!text) return;
+    setMealParsing(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "capture", text: `Parse this meal log entry and return a JSON object with keys: emoji (food emoji), title (meal name), timing (meal type + time like "Lunch · 13:00"), macros (compact string like "P 35 · 480"). Entry: "${text}"` }),
+      });
+      const d = await res.json();
+      const parsed = d.action || text;
+      // Try to extract JSON from the AI response
+      const match = parsed.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          const obj = JSON.parse(match[0]);
+          setMeals((m) => [{ ic: obj.emoji || "🍽️", t: obj.title || text, m: obj.timing || "Logged", k: obj.macros || "—" }, ...m]);
+          toast("Meal logged via AI", "success", "Nutrition");
+        } catch {
+          setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+          toast("Logged (AI parse failed — added raw)", "info", "Nutrition");
+        }
+      } else {
+        setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+        toast("Meal logged", "success", "Nutrition");
+      }
+    } catch {
+      setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+      toast("Meal logged", "success", "Nutrition");
+    } finally {
+      setMealInput("");
+      setMealParsing(false);
+    }
+  };
 
   // Derived running stats — real Strava data when connected, otherwise stub
   const weeklyKm = stravaConnected && stravaSummary ? stravaSummary.weeklyKm : 38;
@@ -409,9 +979,7 @@ export function VitalityModule() {
 
   return (
     <>
-      <div className="modhead">
-        <div className="eyebrow">Life</div>
-        <div className="rule" />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         {/* Strava badge — live when connected, faded when not */}
         {stravaConnected ? (
           <div className="selectbox" style={{ cursor: "pointer" }} title={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"} · click to disconnect`} onClick={() => stravaDisconnect()}>
@@ -425,7 +993,6 @@ export function VitalityModule() {
           </a>
         )}
       </div>
-      <h1 className="hero">Vitality</h1>
 
       <div className="subtabbar" style={{ marginTop: 20 }}>
         {TABS.map((t) => (
@@ -433,6 +1000,11 @@ export function VitalityModule() {
             {t.label}
           </button>
         ))}
+      </div>
+
+      {/* ── MEDITATION TAB ───────────────────────────────────────────────────── */}
+      <div className={`subpanel${tab === "fit-meditation" ? " on" : ""}`} id="fit-meditation">
+        {tab === "fit-meditation" && <MeditationTab />}
       </div>
 
       {/* ── RUNNING TAB ──────────────────────────────────────────────────────── */}
@@ -515,12 +1087,7 @@ export function VitalityModule() {
               Recent Runs<span className="rule" />
               <span className="count">Strava · live</span>
             </h2>
-            <div className="card" style={{ padding: "4px 14px 4px" }}>
-              {runActivities.slice(0, 6).map((a) => <StravaActivityRow key={a.id} a={a} />)}
-              {runActivities.length > 6 && (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", padding: "7px 0" }}>+ {runActivities.length - 6} more on Strava</div>
-              )}
-            </div>
+            <StravaRunList activities={runActivities} />
           </>
         )}
 
@@ -605,8 +1172,7 @@ export function VitalityModule() {
 
       {/* ── NUTRITION TAB ─────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-nutrition" ? " on" : ""}`} id="fit-nutrition">
-        <div className="modhead" style={{ margin: "0 0 18px" }}>
-          <div className="rule" />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 18px" }}>
           <div className="selectbox">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" /></svg>
             <span>Diet: High-Protein</span>
@@ -655,9 +1221,19 @@ export function VitalityModule() {
                 </div>
               ))}
             </div>
-            <div className="addtask" style={{ marginTop: 12 }}>
-              <input placeholder="+ Log a meal… (try 'oatmeal & eggs, 520, P30')" />
+            <div className="addtask" style={{ marginTop: 12, display: "flex", gap: 6 }}>
+              <input
+                placeholder="+ Log a meal… (try 'oatmeal &amp; eggs, 520 kcal, P30')"
+                value={mealInput}
+                onChange={(e) => setMealInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && logMealWithAI()}
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="sig-go" style={{ fontSize: 10, padding: "6px 12px", flexShrink: 0 }} onClick={logMealWithAI} disabled={mealParsing}>
+                {mealParsing ? "…" : "✦ Log"}
+              </button>
             </div>
+            <div style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)", marginTop: 6 }}>AI parses food, estimates macros. Star recipes above to save to Supper Club.</div>
           </div>
           <div className="card">
             <h2 className="sec">Targets &amp; Notes<span className="rule" /></h2>
@@ -699,98 +1275,8 @@ export function VitalityModule() {
       {/* ── HEALTH TAB ────────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-health" ? " on" : ""}`} id="fit-health">
         <TrainingWeekPlanner />
-        <div className="modhead" style={{ margin: "0 0 18px" }}>
-          <div className="rule" />
-          {/* Apple Health badge — grayed out / pending until iOS app exists */}
-          <div
-            className="selectbox"
-            style={{ opacity: 0.45, cursor: "pointer" }}
-            title="Apple Health data requires the AXIS iOS app — click to learn more"
-            onClick={() => setAppleHealthModal(true)}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 21s-7-4.5-9-9a5 5 0 0 1 9-2 5 5 0 0 1 9 2c-2 4.5-9 9-9 9z" /></svg>
-            Apple Health
-            <span style={{ marginLeft: 5, fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 3, padding: "1px 4px", verticalAlign: "middle" }}>?</span>
-          </div>
-        </div>
-
-        {/* Sample data notice */}
-        <div style={{ marginBottom: 14, padding: "8px 12px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)" }}>
-            Metrics below are sample data. Connect Apple Health via the AXIS iOS app for live readings.
-          </span>
-          <button
-            type="button"
-            onClick={() => setAppleHealthModal(true)}
-            style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".07em", padding: "3px 9px", border: "1px solid var(--line)", borderRadius: "var(--r)", background: "transparent", color: "var(--ink-dim)", cursor: "pointer", whiteSpace: "nowrap" }}
-          >
-            How to sync →
-          </button>
-        </div>
-
-        <div className="ftop" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
-          <div className="card tick" style={{ opacity: 0.65 }}>
-            <div className="seclabel">Resting HR</div>
-            <div className="bigmetric">48<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> bpm</span></div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 4 }}>sample data</div>
-          </div>
-          <div className="card" style={{ opacity: 0.65 }}>
-            <div className="seclabel">HRV</div>
-            <div className="bigmetric">86<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> ms</span></div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 4 }}>sample data</div>
-          </div>
-          <div className="card" style={{ opacity: 0.65 }}>
-            <div className="seclabel">Sleep</div>
-            <div className="bigmetric">7:24<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> h</span></div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 4 }}>sample data</div>
-          </div>
-          <div className="card" style={{ opacity: 0.65 }}>
-            <div className="seclabel">VO₂ Max</div>
-            <div className="bigmetric">54<span style={{ fontSize: 15, color: "var(--ink-faint)" }}> ml/kg</span></div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 4 }}>sample data</div>
-          </div>
-        </div>
         <div className="divider" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-          <div className="card tick" style={{ opacity: 0.65 }}>
-            <h2 className="sec">Readiness<span className="rule" /><span className="count">88 · Green · sample</span></h2>
-            <p style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, margin: "12px 0" }}>
-              HRV above baseline and resting HR down — recovery is strong. AXIS kept today&apos;s intervals as planned and nudged
-              bedtime to protect tomorrow&apos;s long run.
-            </p>
-            <div className="metricrow"><span className="metric-k">Recommendation</span><span className="metric-v">Train as planned</span></div>
-            <div className="metricrow"><span className="metric-k">Sleep target tonight</span><span className="metric-v">22:30 · 8h</span></div>
-            <div className="metricrow"><span className="metric-k">Hydration goal</span><span className="metric-v">3.0 L (long-run eve)</span></div>
-          </div>
-          <div className="card" style={{ opacity: 0.65 }}>
-            <h2 className="sec">7-Day Trend<span className="rule" /></h2>
-            <svg viewBox="0 0 300 120" style={{ width: "100%", height: 120, marginTop: 10 }}>
-              <polyline fill="none" stroke="var(--accent)" strokeWidth="2" points="0,70 50,64 100,72 150,50 200,58 250,40 300,46" />
-              <polyline fill="none" stroke="var(--up)" strokeWidth="1.6" strokeDasharray="3 3" points="0,86 50,80 100,84 150,72 200,76 250,66 300,70" />
-            </svg>
-            <div style={{ display: "flex", gap: 16, fontFamily: "var(--mono)", fontSize: 9.5, marginTop: 6 }}>
-              <span className="accent">▬ HRV</span>
-              <span className="up">▬ Sleep h</span>
-            </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>sample data</div>
-          </div>
-        </div>
-        <div className="divider" />
-        <div className="card" style={{ opacity: 0.65 }}>
-          <h2 className="sec">Vitals &amp; Activity<span className="rule" /><span className="count">sample — Apple Health pending</span></h2>
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 28px" }}>
-            <div>
-              <div className="metricrow"><span className="metric-k">Steps today</span><span className="metric-v">9,140</span></div>
-              <div className="metricrow"><span className="metric-k">Active energy</span><span className="metric-v">720 kcal</span></div>
-              <div className="metricrow"><span className="metric-k">Exercise minutes</span><span className="metric-v">52</span></div>
-            </div>
-            <div>
-              <div className="metricrow"><span className="metric-k">Blood oxygen</span><span className="metric-v">98%</span></div>
-              <div className="metricrow"><span className="metric-k">Respiratory rate</span><span className="metric-v">14 /min</span></div>
-              <div className="metricrow"><span className="metric-k">Mindful minutes</span><span className="metric-v">10</span></div>
-            </div>
-          </div>
-        </div>
+        <HealthMetricsPanel />
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────────────────────── */}
@@ -803,7 +1289,6 @@ export function VitalityModule() {
         />
       )}
 
-      {appleHealthModal && <AppleHealthModal onClose={() => setAppleHealthModal(false)} />}
     </>
   );
 }

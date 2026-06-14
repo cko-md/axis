@@ -12,6 +12,7 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { createLowlight, common } from "lowlight";
+import { type NoteFont } from "@/lib/hooks/useNotes";
 import styles from "./NotesEditor.module.css";
 
 const lowlight = createLowlight(common);
@@ -32,6 +33,8 @@ const I = {
   table: <svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM3 10h18M3 16h18M9 4v16M15 4v16" /></svg>,
   undo: <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3" /></svg>,
   redo: <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h3" /></svg>,
+  attach: <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>,
+  popout: <svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14L21 3M9 3H3v18h18v-6" /></svg>,
 };
 
 type SlashCmd = {
@@ -55,33 +58,60 @@ const SLASH_COMMANDS: SlashCmd[] = [
   { key: "rule", name: "Divider", desc: "Horizontal rule", icon: I.rule, run: (e) => e.chain().focus().setHorizontalRule().run() },
 ];
 
-type Props = {
-  /** HTML content (or legacy plain text) of the note body. */
-  content: string;
-  /** Called (debounced upstream) on every change with serialized HTML. */
-  onChange: (html: string) => void;
-  /** Reflects autosave status for the meta strip. */
-  saving?: boolean;
-  /** Triggers AI routing classification. */
-  onRoute?: () => void;
-  routing?: boolean;
-  /** When false, the note is locked: read-only, toolbar hidden. */
-  editable?: boolean;
+const FONT_FAMILY: Record<NoteFont, string> = {
+  sans: "var(--sans)",
+  serif: "var(--serif)",
+  mono: "var(--mono)",
 };
 
-export function NotesEditor({ content, onChange, saving, onRoute, routing, editable = true }: Props) {
+type Props = {
+  content: string;
+  onChange: (html: string) => void;
+  saving?: boolean;
+  onRoute?: () => void;
+  routing?: boolean;
+  editable?: boolean;
+  font?: NoteFont;
+  onFontChange?: (f: NoteFont) => void;
+  onPopout?: () => void;
+  onMinimize?: () => void;
+  isPopout?: boolean;
+  onAiSummarize?: () => void;
+  onAiRewrite?: () => void;
+  onAiTitle?: () => void;
+  aiLoading?: string | null;
+};
+
+export function NotesEditor({
+  content,
+  onChange,
+  saving,
+  onRoute,
+  routing,
+  editable = true,
+  font = "sans",
+  onFontChange,
+  onPopout,
+  onMinimize,
+  isPopout = false,
+  onAiSummarize,
+  onAiRewrite,
+  onAiTitle,
+  aiLoading,
+}: Props) {
   const [, force] = useState(0);
   const rerender = useCallback(() => force((n) => n + 1), []);
 
   const [slash, setSlash] = useState<{ x: number; y: number; query: string } | null>(null);
   const [slashIdx, setSlashIdx] = useState(0);
   const slashRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
-        codeBlock: false, // replaced by lowlight variant below
+        codeBlock: false,
         heading: { levels: [1, 2, 3] },
       }),
       Placeholder.configure({
@@ -108,7 +138,6 @@ export function NotesEditor({ content, onChange, saving, onRoute, routing, edita
     onTransaction: rerender,
   });
 
-  // Sync external content changes (e.g. switching notes) without retriggering onChange.
   useEffect(() => {
     if (!editor) return;
     const current = editor.getHTML();
@@ -117,12 +146,10 @@ export function NotesEditor({ content, onChange, saving, onRoute, routing, edita
     }
   }, [content, editor]);
 
-  // Keep Tiptap's editable flag in sync with the lock state.
   useEffect(() => {
     if (editor && editor.isEditable !== editable) editor.setEditable(editable);
   }, [editable, editor]);
 
-  // ── Slash menu detection ──────────────────────────────────
   useEffect(() => {
     if (!editor || !editable) return;
     const handle = () => {
@@ -168,7 +195,6 @@ export function NotesEditor({ content, onChange, saving, onRoute, routing, edita
     [editor],
   );
 
-  // Keyboard nav for slash menu
   useEffect(() => {
     if (!slash) return;
     const onKey = (e: KeyboardEvent) => {
@@ -189,6 +215,25 @@ export function NotesEditor({ content, onChange, saving, onRoute, routing, edita
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [slash, filteredCmds, slashIdx, runSlash]);
+
+  const handleFileAttach = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !editor) return;
+      e.target.value = "";
+      if (file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const src = ev.target?.result as string;
+          editor.chain().focus().insertContent(`<p><img src="${src}" alt="${file.name}" style="max-width:100%;border-radius:6px" /></p>`).run();
+        };
+        reader.readAsDataURL(file);
+      } else {
+        editor.chain().focus().insertContent(`<p>[📎 ${file.name}]</p>`).run();
+      }
+    },
+    [editor],
+  );
 
   if (!editor) return <div className={styles.shell} />;
 
@@ -223,69 +268,175 @@ export function NotesEditor({ content, onChange, saving, onRoute, routing, edita
   return (
     <div className={styles.shell}>
       {editable && (
-      <div className={styles.bar}>
-        <div className={styles.group}>
-          <Btn title="Undo" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}>{I.undo}</Btn>
-          <Btn title="Redo" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()}>{I.redo}</Btn>
-        </div>
-        <span className={styles.sep} />
-        <div className={styles.group}>
-          {([1, 2, 3] as const).map((lvl) => (
-            <Btn key={lvl} title={`Heading ${lvl}`} active={editor.isActive("heading", { level: lvl })} onClick={() => editor.chain().focus().toggleHeading({ level: lvl }).run()}>
-              <span className={styles.btnLabel}>H{lvl}</span>
-            </Btn>
-          ))}
-        </div>
-        <span className={styles.sep} />
-        <div className={styles.group}>
-          <Btn title="Bold (⌘B)" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>{I.bold}</Btn>
-          <Btn title="Italic (⌘I)" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}>{I.italic}</Btn>
-          <Btn title="Underline (⌘U)" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}>{I.underline}</Btn>
-          <Btn title="Strikethrough" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>{I.strike}</Btn>
-          <Btn title="Inline code" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{I.code}</Btn>
-        </div>
-        <span className={styles.sep} />
-        <div className={styles.group}>
-          <Btn title="Bullet list" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>{I.bullet}</Btn>
-          <Btn title="Numbered list" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>{I.ordered}</Btn>
-          <Btn title="Task list" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>{I.task}</Btn>
-          <Btn title="Blockquote" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>{I.quote}</Btn>
-          <Btn title="Code block" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>{I.codeblock}</Btn>
-          <Btn title="Divider" onClick={() => editor.chain().focus().setHorizontalRule().run()}>{I.rule}</Btn>
-        </div>
-        <span className={styles.sep} />
-        <div className={styles.group}>
-          <Btn title="Insert table" active={inTable} onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>{I.table}</Btn>
-          {inTable && (
+        <div className={styles.bar}>
+          <div className={styles.group}>
+            <Btn title="Undo" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}>{I.undo}</Btn>
+            <Btn title="Redo" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()}>{I.redo}</Btn>
+          </div>
+          <span className={styles.sep} />
+          <div className={styles.group}>
+            {([1, 2, 3] as const).map((lvl) => (
+              <Btn key={lvl} title={`Heading ${lvl}`} active={editor.isActive("heading", { level: lvl })} onClick={() => editor.chain().focus().toggleHeading({ level: lvl }).run()}>
+                <span className={styles.btnLabel}>H{lvl}</span>
+              </Btn>
+            ))}
+          </div>
+          <span className={styles.sep} />
+          <div className={styles.group}>
+            <Btn title="Bold (⌘B)" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>{I.bold}</Btn>
+            <Btn title="Italic (⌘I)" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}>{I.italic}</Btn>
+            <Btn title="Underline (⌘U)" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}>{I.underline}</Btn>
+            <Btn title="Strikethrough" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>{I.strike}</Btn>
+            <Btn title="Inline code" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{I.code}</Btn>
+          </div>
+          <span className={styles.sep} />
+          <div className={styles.group}>
+            <Btn title="Bullet list" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>{I.bullet}</Btn>
+            <Btn title="Numbered list" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>{I.ordered}</Btn>
+            <Btn title="Task list" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>{I.task}</Btn>
+            <Btn title="Blockquote" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>{I.quote}</Btn>
+            <Btn title="Code block" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>{I.codeblock}</Btn>
+            <Btn title="Divider" onClick={() => editor.chain().focus().setHorizontalRule().run()}>{I.rule}</Btn>
+          </div>
+          <span className={styles.sep} />
+          <div className={styles.group}>
+            <Btn title="Insert table" active={inTable} onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>{I.table}</Btn>
+            {inTable && (
+              <>
+                <Btn title="Add column" onClick={() => editor.chain().focus().addColumnAfter().run()}><span className={styles.btnLabel}>+Col</span></Btn>
+                <Btn title="Add row" onClick={() => editor.chain().focus().addRowAfter().run()}><span className={styles.btnLabel}>+Row</span></Btn>
+                <Btn title="Delete column" onClick={() => editor.chain().focus().deleteColumn().run()}><span className={styles.btnLabel}>−Col</span></Btn>
+                <Btn title="Delete row" onClick={() => editor.chain().focus().deleteRow().run()}><span className={styles.btnLabel}>−Row</span></Btn>
+                <Btn title="Delete table" onClick={() => editor.chain().focus().deleteTable().run()}><span className={styles.btnLabel}>×Tbl</span></Btn>
+              </>
+            )}
+          </div>
+          <span className={styles.sep} />
+          <div className={styles.group}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              style={{ display: "none" }}
+              onChange={handleFileAttach}
+            />
+            <Btn title="Attach image or PDF" onClick={() => fileInputRef.current?.click()}>{I.attach}</Btn>
+          </div>
+          {(onAiSummarize || onAiRewrite || onAiTitle) && (
             <>
-              <Btn title="Add column" onClick={() => editor.chain().focus().addColumnAfter().run()}><span className={styles.btnLabel}>+Col</span></Btn>
-              <Btn title="Add row" onClick={() => editor.chain().focus().addRowAfter().run()}><span className={styles.btnLabel}>+Row</span></Btn>
-              <Btn title="Delete column" onClick={() => editor.chain().focus().deleteColumn().run()}><span className={styles.btnLabel}>−Col</span></Btn>
-              <Btn title="Delete row" onClick={() => editor.chain().focus().deleteRow().run()}><span className={styles.btnLabel}>−Row</span></Btn>
-              <Btn title="Delete table" onClick={() => editor.chain().focus().deleteTable().run()}><span className={styles.btnLabel}>×Tbl</span></Btn>
+              <span className={styles.sep} />
+              <div className={styles.group}>
+                {onAiSummarize && (
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={onAiSummarize}
+                    disabled={!!aiLoading}
+                    title="Summarize this note with AI"
+                  >
+                    <span className={styles.btnLabel} style={{ color: aiLoading === "summarize" ? "var(--ink-dim)" : "var(--gold)", fontSize: 10.5 }}>
+                      {aiLoading === "summarize" ? "…" : "✦ Sum"}
+                    </span>
+                  </button>
+                )}
+                {onAiRewrite && (
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={onAiRewrite}
+                    disabled={!!aiLoading}
+                    title="Rewrite / polish this note"
+                  >
+                    <span className={styles.btnLabel} style={{ color: aiLoading === "rewrite" ? "var(--ink-dim)" : "var(--gold)", fontSize: 10.5 }}>
+                      {aiLoading === "rewrite" ? "…" : "✦ Rw"}
+                    </span>
+                  </button>
+                )}
+                {onAiTitle && (
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={onAiTitle}
+                    disabled={!!aiLoading}
+                    title="Generate a title from note content"
+                  >
+                    <span className={styles.btnLabel} style={{ color: aiLoading === "title" ? "var(--ink-dim)" : "var(--gold)", fontSize: 10.5 }}>
+                      {aiLoading === "title" ? "…" : "✦ T↑"}
+                    </span>
+                  </button>
+                )}
+              </div>
             </>
           )}
+          {onFontChange && (
+            <>
+              <span className={styles.sep} />
+              <div className={styles.group}>
+                {(["sans", "serif", "mono"] as NoteFont[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={`${styles.fontChip} ${font === f ? styles.fontChipOn : ""}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onFontChange(f)}
+                    title={`Editor font: ${f}`}
+                  >
+                    {f === "sans" ? "Aa" : f === "serif" ? "Ff" : "</>"}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <div className={styles.metaSpacer} />
+          {onRoute && (
+            <button
+              type="button"
+              className={styles.btn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onRoute}
+              disabled={routing}
+              title="Classify this note and suggest a destination"
+              style={{ minWidth: "auto", paddingInline: 10, borderColor: "var(--line)" }}
+            >
+              <span className={styles.btnLabel} style={{ color: "var(--gold)" }}>
+                {routing ? "Routing…" : "Route note →"}
+              </span>
+            </button>
+          )}
+          {onMinimize && isPopout && (
+            <button
+              type="button"
+              className={styles.btn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onMinimize}
+              title="Minimize"
+              style={{ minWidth: "auto", paddingInline: 8 }}
+            >
+              <span className={styles.btnLabel}>–</span>
+            </button>
+          )}
+          {onPopout && (
+            <button
+              type="button"
+              className={styles.btn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onPopout}
+              title={isPopout ? "Close pop-out" : "Pop out note"}
+              style={{ minWidth: "auto", paddingInline: 8, color: isPopout ? "var(--gold)" : undefined }}
+            >
+              {isPopout ? <span className={styles.btnLabel}>✕</span> : I.popout}
+            </button>
+          )}
         </div>
-        <div className={styles.metaSpacer} />
-        {onRoute && (
-          <button
-            type="button"
-            className={styles.btn}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onRoute}
-            disabled={routing}
-            title="Classify this note and suggest a destination"
-            style={{ minWidth: "auto", paddingInline: 10, borderColor: "var(--line)" }}
-          >
-            <span className={styles.btnLabel} style={{ color: "var(--gold)" }}>
-              {routing ? "Routing…" : "Route note →"}
-            </span>
-          </button>
-        )}
-      </div>
       )}
 
-      <div className={`${styles.editorWrap} ${styles.editor}`}>
+      <div
+        className={`${styles.editorWrap} ${styles.editor}`}
+        style={{ fontFamily: FONT_FAMILY[font] }}
+      >
         <EditorContent editor={editor} />
       </div>
 
@@ -324,7 +475,7 @@ export function NotesEditor({ content, onChange, saving, onRoute, routing, edita
         )}
         <span>{editor.storage.characterCount?.characters?.() ?? editor.getText().length} chars</span>
         <span className={styles.metaSpacer} />
-        <span>{editable ? "Markdown shortcuts · “/” for blocks" : "Unlock to edit"}</span>
+        <span>{editable ? 'Markdown shortcuts · “/” for blocks' : 'Unlock to edit'}</span>
       </div>
     </div>
   );
