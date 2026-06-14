@@ -151,12 +151,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === "regimenPlan") {
-      const ctx = body ? JSON.parse(body) as { discipline?: string; weeksPerPlan?: number; daysPerWeek?: number; currentLevel?: string; goal?: string } : {};
+      const ctx = body ? JSON.parse(body) as { discipline?: string; weeksPerPlan?: number; daysPerWeek?: number; currentLevel?: string; goal?: string; stravaContext?: string } : {};
+      const stravaSection = ctx.stravaContext
+        ? `\n\nIMPORTANT — adapt the plan to this athlete's real data:\n${ctx.stravaContext}`
+        : "";
       const msg = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 1200,
+        max_tokens: 1400,
         system: `You are an elite ${ctx.discipline === "run" ? "running" : "strength & conditioning"} coach. Design a structured weekly training plan. Return ONLY a JSON object with keys: days (array), summary (string, 1-2 sentences). Each day object has: dow (0=Mon to 6=Sun), title (string), kind (run|lift|mobility|rest|other), duration_min (number), intensity (easy|moderate|hard|key), notes (string), items (array of exercises, same format as a single session). Include rest days. No markdown.`,
-        messages: [{ role: "user", content: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}` }],
+        messages: [{ role: "user", content: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}` }],
       });
       const raw = (msg.content[0] as { type: string; text: string }).text.trim();
       return NextResponse.json(JSON.parse(raw) as RegimenPlanResult);

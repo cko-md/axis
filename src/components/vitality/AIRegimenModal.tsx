@@ -53,9 +53,11 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onApply?: (days: PlanDay[]) => void;
+  /** Optional Strava activity context injected into the AI prompt for personalisation. */
+  stravaContext?: string;
 };
 
-export function AIRegimenModal({ discipline, open, onClose, onApply }: Props) {
+export function AIRegimenModal({ discipline, open, onClose, onApply, stravaContext }: Props) {
   const [daysPerWeek, setDaysPerWeek] = useState(discipline === "run" ? 4 : 3);
   const [level, setLevel] = useState("intermediate");
   const [goal, setGoal] = useState(
@@ -83,7 +85,13 @@ export function AIRegimenModal({ discipline, open, onClose, onApply }: Props) {
         body: JSON.stringify({
           mode: "regimenPlan",
           text: goal,
-          body: JSON.stringify({ discipline, daysPerWeek, currentLevel: level, goal }),
+          body: JSON.stringify({
+            discipline,
+            daysPerWeek,
+            currentLevel: level,
+            goal,
+            ...(stravaContext ? { stravaContext } : {}),
+          }),
         }),
       });
       const data = (await res.json()) as PlanResult;
