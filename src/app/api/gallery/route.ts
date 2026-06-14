@@ -1,12 +1,79 @@
 import { NextResponse } from "next/server";
 
-const MET_BASE    = "https://collectionapi.metmuseum.org/public/collection/v1";
 const AIC_BASE    = "https://api.artic.edu/api/v1";
+const MET_BASE    = "https://collectionapi.metmuseum.org/public/collection/v1";
 const POETRY_BASE = "https://poetrydb.org";
 const GUTENDEX    = "https://gutendex.com/books";
 const OL_BASE     = "https://openlibrary.org";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── Curated queries by movement ───────────────────────────────────────────────
+
+const AIC_QUERIES: Record<string, string[]> = {
+  Expressionism:        ["expressionism painting", "kirchner expressionism", "ernst ludwig kirchner"],
+  Impressionism:        ["impressionism monet", "impressionist landscape", "renoir impressionism"],
+  Abstract:             ["abstract expressionism", "color field painting", "abstract composition"],
+  Modern:               ["modern art", "modernist painting", "bauhaus design"],
+  Sculpture:            ["rodin sculpture", "bronze sculpture", "marble sculpture"],
+  Minimalism:           ["minimalism art", "geometric abstraction", "frank stella"],
+  Surrealism:           ["surrealism painting", "dali surrealism", "magritte surrealism"],
+  Hyperrealism:         ["hyperrealism painting", "photorealist painting"],
+  "Text Art":           ["text art conceptual", "word painting letters"],
+  Cubism:               ["cubism picasso", "cubist composition", "braque cubism"],
+  "Pop Art":            ["pop art warhol", "pop art lichtenstein", "pop art collage"],
+  Classicism:           ["classical painting allegory", "neoclassical figure"],
+  Rococo:               ["rococo fragonard", "rococo watteau", "rococo boucher"],
+  Romanticism:          ["romanticism delacroix", "romantic landscape turner", "caspar david friedrich"],
+  "Post-Impressionism": ["post impressionism cezanne", "van gogh post impressionism", "gauguin"],
+  Futurism:             ["futurism boccioni", "italian futurism", "futurist composition"],
+  Figurative:           ["figurative painting portrait", "figurative modern figure"],
+  "Fine Art":           ["fine art masterwork", "old masters painting"],
+  Neoclassicism:        ["neoclassicism david", "neoclassical allegory", "ingres neoclassicism"],
+  "Neo-Impressionism":  ["seurat pointillism", "neo impressionism signac", "divisionism"],
+};
+
+const MET_QUERIES: Record<string, string[]> = {
+  "Harlem Renaissance": ["Harlem Renaissance", "Jacob Lawrence", "Aaron Douglas", "Romare Bearden"],
+  "African American":   ["African American art", "faith ringgold", "kara walker"],
+};
+
+const ALL_AIC_QUERIES = Object.values(AIC_QUERIES).flat();
+const ALL_MET_QUERIES = Object.values(MET_QUERIES).flat();
+
+// ── Curated poets ─────────────────────────────────────────────────────────────
+
+const CURATED_POETS = [
+  "William Blake",
+  "Walt Whitman",
+  "Emily Dickinson",
+  "Langston Hughes",
+  "Gwendolyn Brooks",
+  "T.S. Eliot",
+  "Wallace Stevens",
+];
+
+// PoetryDB search names (some need simplified author strings)
+const POET_DB_NAMES: Record<string, string> = {
+  "Rainer Maria Rilke": "Rilke",
+  "Pablo Neruda":       "Neruda",
+  "Amiri Baraka":       "Baraka",
+};
+
+// ── Open Library subjects ──────────────────────────────────────────────────────
+
+const OL_SUBJECTS = [
+  "art_criticism",
+  "aesthetics",
+  "architectural_theory",
+  "cultural_theory",
+  "philosophy_of_art",
+  "art_history",
+  "modernism",
+  "surrealism_art",
+  "expressionism",
+  "impressionism_art",
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function safeFetch(url: string, opts?: RequestInit) {
   const r = await fetch(url, { next: { revalidate: 3600 }, ...opts });
@@ -14,14 +81,125 @@ async function safeFetch(url: string, opts?: RequestInit) {
   return r.json();
 }
 
-// ── route ────────────────────────────────────────────────────────────────────
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const source = searchParams.get("source") ?? "met";
-  const q      = searchParams.get("q") ?? "abstract";
+  const source = searchParams.get("source") ?? "aic";
+  const q      = searchParams.get("q") ?? "";
+
+  // ── AIC (Art Institute of Chicago) ────────────────────────────────────────
+  if (source === "aic") {
+    const query = q || pick(ALL_AIC_QUERIES);
+    try {
+      const data = await safeFetch(
+        `${AIC_BASE}/artworks/search?q=${encodeURIComponent(query)}&limit=24` +
+        `&fields=id,title,artist_display,date_display,classification_title,image_id,` +
+        `medium_display,artist_title,thumbnail,department_title,place_of_origin` +
+        `&query[term][is_public_domain]=true`,
+      ) as { data: AICWork[] };
+
+      const works = (data.data ?? [])
+        .filter((w) => w.image_id)
+        .map((w) => ({
+          id: `aic-${w.id}`,
+          source: "aic",
+          title: w.title ?? "Untitled",
+          artist: w.artist_display ?? w.artist_title ?? "Unknown",
+          artistTitle: w.artist_title ?? "",
+          year: w.date_display ?? "",
+          genre: w.classification_title ?? deriveGenre(query),
+          medium: w.medium_display ?? "",
+          department: w.department_title ?? "",
+          origin: w.place_of_origin ?? "",
+          imageUrl: `https://www.artic.edu/iiif/2/${w.image_id}/full/843,/0/default.jpg`,
+          thumbUrl: `https://www.artic.edu/iiif/2/${w.image_id}/full/400,/0/default.jpg`,
+          aicUrl: `https://www.artic.edu/artworks/${w.id}`,
+          isPublicDomain: true,
+        }));
+      return NextResponse.json({ works, query });
+    } catch {
+      return NextResponse.json({ works: [], query });
+    }
+  }
+
+  // ── MET (Metropolitan Museum) ────────────────────────────────────────────
+  if (source === "met") {
+    const query = q || pick(ALL_MET_QUERIES);
+    try {
+      const searchData = await safeFetch(
+        `${MET_BASE}/search?q=${encodeURIComponent(query)}&hasImages=true&isHighlight=true`,
+      ) as { objectIDs?: number[] };
+
+      const ids = (searchData.objectIDs ?? []).slice(0, 16);
+      const settled = await Promise.allSettled(
+        ids.map((id) => fetch(`${MET_BASE}/objects/${id}`, { next: { revalidate: 86400 } }).then((r) => r.json())),
+      );
+
+      const works = settled
+        .filter((r): r is PromiseFulfilledResult<MetWork> => r.status === "fulfilled")
+        .map((r) => r.value)
+        .filter((w) => w.primaryImageSmall)
+        .map((w) => ({
+          id: `met-${w.objectID}`,
+          source: "met",
+          title: w.title ?? "Untitled",
+          artist: w.artistDisplayName ?? "Unknown",
+          artistTitle: w.artistDisplayName ?? "",
+          year: w.objectDate ?? "",
+          genre: w.classification ?? w.medium ?? deriveGenre(query),
+          medium: w.medium ?? "",
+          department: w.department ?? "",
+          origin: w.country ?? "",
+          imageUrl: w.primaryImage || w.primaryImageSmall,
+          thumbUrl: w.primaryImageSmall,
+          metUrl: w.objectURL ?? "",
+          wikiUrl: w.objectWikidata_URL ?? "",
+          isPublicDomain: w.isPublicDomain,
+        }));
+
+      return NextResponse.json({ works, query });
+    } catch {
+      return NextResponse.json({ works: [], query });
+    }
+  }
 
   // ── Poetry (PoetryDB) ─────────────────────────────────────────────────────
+  if (source === "poems") {
+    try {
+      // Pick 2-3 random poets and fetch 3 poems each
+      const shuffled = [...CURATED_POETS].sort(() => Math.random() - 0.5).slice(0, 3);
+      const results = await Promise.allSettled(
+        shuffled.map(async (poet) => {
+          const dbName = POET_DB_NAMES[poet] ?? poet;
+          const url = `${POETRY_BASE}/author/${encodeURIComponent(dbName)}/title,author,lines,linecount`;
+          const data = await safeFetch(url) as PoetryDBPoem[] | { status: number };
+          if (!Array.isArray(data)) return [];
+          // Pick 3 poems per author
+          return data.slice(0, 3).map((p) => ({
+            title: p.title,
+            author: p.author,
+            lines: p.lines,
+            linecount: p.linecount,
+          }));
+        }),
+      );
+
+      const poems = results
+        .filter((r): r is PromiseFulfilledResult<PoetryDBPoem[]> => r.status === "fulfilled")
+        .flatMap((r) => r.value);
+
+      return NextResponse.json({ poems });
+    } catch {
+      return NextResponse.json({ poems: [] });
+    }
+  }
+
+  // ── Legacy poetry endpoint (random) ──────────────────────────────────────
   if (source === "poetry") {
     const count = Math.min(Number(searchParams.get("count") ?? "5"), 10);
     try {
@@ -29,6 +207,33 @@ export async function GET(req: Request) {
       return NextResponse.json({ poems: Array.isArray(poems) ? poems : [poems] });
     } catch {
       return NextResponse.json({ poems: [] });
+    }
+  }
+
+  // ── Articles — Open Library art/culture subjects ──────────────────────────
+  if (source === "articles") {
+    const subjectParam = searchParams.get("subject");
+    const subject = subjectParam ?? pick(OL_SUBJECTS);
+    try {
+      const data = await safeFetch(
+        `${OL_BASE}/subjects/${encodeURIComponent(subject)}.json?limit=20&ebooks=true`,
+      ) as OLSubjectResponse;
+
+      const books = (data.works ?? []).map((w) => ({
+        id: `ol-${w.key}`,
+        source: "openlibrary",
+        title: w.title,
+        author: w.authors?.map((a) => a.name).join(", ") ?? "Unknown",
+        year: w.first_publish_year ?? null,
+        coverUrl: w.cover_id
+          ? `https://covers.openlibrary.org/b/id/${w.cover_id}-M.jpg`
+          : "",
+        olUrl: `https://openlibrary.org${w.key}`,
+        subjects: [],
+      }));
+      return NextResponse.json({ books, subject });
+    } catch {
+      return NextResponse.json({ books: [], subject });
     }
   }
 
@@ -49,6 +254,7 @@ export async function GET(req: Request) {
         readUrl: b.formats["text/html"] ?? b.formats["text/plain"] ?? "",
         coverUrl: b.formats["image/jpeg"] ?? "",
         downloadCount: b.download_count,
+        year: null,
       }));
       return NextResponse.json({ books });
     } catch {
@@ -56,7 +262,7 @@ export async function GET(req: Request) {
     }
   }
 
-  // ── Books — Open Library subject search ───────────────────────────────────
+  // ── Open Library (legacy) ─────────────────────────────────────────────────
   if (source === "openlibrary") {
     const subject = searchParams.get("subject") ?? "art_history";
     try {
@@ -70,11 +276,11 @@ export async function GET(req: Request) {
         title: w.title,
         author: w.authors?.map((a) => a.name).join(", ") ?? "Unknown",
         year: w.first_publish_year ?? null,
-        coverId: w.cover_id,
         coverUrl: w.cover_id
           ? `https://covers.openlibrary.org/b/id/${w.cover_id}-M.jpg`
           : "",
         olUrl: `https://openlibrary.org${w.key}`,
+        subjects: [],
       }));
       return NextResponse.json({ books });
     } catch {
@@ -82,75 +288,41 @@ export async function GET(req: Request) {
     }
   }
 
-  // ── Art Institute of Chicago ──────────────────────────────────────────────
-  if (source === "aic") {
-    try {
-      const data = await safeFetch(
-        `${AIC_BASE}/artworks/search?q=${encodeURIComponent(q)}&limit=24` +
-        `&fields=id,title,artist_display,date_display,classification_title,image_id,medium_display`,
-      ) as { data: AICWork[] };
+  return NextResponse.json({ error: "Unknown source" }, { status: 400 });
+}
 
-      const works = (data.data ?? [])
-        .filter((w) => w.image_id)
-        .map((w) => ({
-          id: `aic-${w.id}`,
-          source: "aic",
-          title: w.title ?? "Untitled",
-          artist: w.artist_display ?? "Unknown",
-          year: w.date_display ?? "",
-          genre: w.classification_title ?? q,
-          medium: w.medium_display ?? "",
-          imageUrl: `https://www.artic.edu/iiif/2/${w.image_id}/full/843,/0/default.jpg`,
-          thumbUrl: `https://www.artic.edu/iiif/2/${w.image_id}/full/400,/0/default.jpg`,
-          aicUrl: `https://www.artic.edu/artworks/${w.id}`,
-        }));
-      return NextResponse.json({ works });
-    } catch {
-      return NextResponse.json({ works: [] });
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function deriveGenre(query: string): string {
+  const q = query.toLowerCase();
+  for (const [genre, queries] of Object.entries(AIC_QUERIES)) {
+    if (queries.some((aq) => q.includes(aq.toLowerCase()) || aq.toLowerCase().includes(q))) {
+      return genre;
     }
   }
-
-  // ── Metropolitan Museum (default) ─────────────────────────────────────────
-  try {
-    const searchData = await safeFetch(
-      `${MET_BASE}/search?q=${encodeURIComponent(q)}&hasImages=true&isHighlight=true`,
-    ) as { objectIDs?: number[]; total?: number };
-
-    const ids = (searchData.objectIDs ?? []).slice(0, 32);
-
-    const settled = await Promise.allSettled(
-      ids.slice(0, 16).map((id) =>
-        fetch(`${MET_BASE}/objects/${id}`, { next: { revalidate: 86400 } }).then((r) => r.json()),
-      ),
-    );
-
-    const works = settled
-      .filter((r): r is PromiseFulfilledResult<MetWork> => r.status === "fulfilled")
-      .map((r) => r.value)
-      .filter((w) => w.primaryImageSmall)
-      .map((w) => ({
-        id: `met-${w.objectID}`,
-        source: "met",
-        title: w.title ?? "Untitled",
-        artist: w.artistDisplayName ?? "Unknown",
-        year: w.objectDate ?? "",
-        genre: w.classification ?? w.medium ?? "",
-        medium: w.medium ?? "",
-        department: w.department ?? "",
-        imageUrl: w.primaryImage || w.primaryImageSmall,
-        thumbUrl: w.primaryImageSmall,
-        metUrl: w.objectURL ?? "",
-        wikiUrl: w.objectWikidata_URL ?? "",
-        isPublicDomain: w.isPublicDomain,
-      }));
-
-    return NextResponse.json({ works });
-  } catch {
-    return NextResponse.json({ works: [] });
+  for (const [genre, queries] of Object.entries(MET_QUERIES)) {
+    if (queries.some((mq) => q.includes(mq.toLowerCase()) || mq.toLowerCase().includes(q))) {
+      return genre;
+    }
   }
+  return "Fine Art";
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+type AICWork = {
+  id: number;
+  title: string;
+  artist_display: string;
+  artist_title: string;
+  date_display: string;
+  classification_title: string;
+  image_id: string;
+  medium_display: string;
+  department_title: string;
+  place_of_origin: string;
+  thumbnail: { alt_text?: string } | null;
+};
 
 type MetWork = {
   objectID: number;
@@ -160,6 +332,7 @@ type MetWork = {
   classification: string;
   medium: string;
   department: string;
+  country: string;
   primaryImage: string;
   primaryImageSmall: string;
   objectURL: string;
@@ -167,14 +340,11 @@ type MetWork = {
   isPublicDomain: boolean;
 };
 
-type AICWork = {
-  id: number;
+type PoetryDBPoem = {
   title: string;
-  artist_display: string;
-  date_display: string;
-  classification_title: string;
-  image_id: string;
-  medium_display: string;
+  author: string;
+  lines: string[];
+  linecount: string;
 };
 
 type GutendexResponse = {

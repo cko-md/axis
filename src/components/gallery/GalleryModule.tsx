@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -9,10 +10,12 @@ type ArtWork = {
   source: string;
   title: string;
   artist: string;
+  artistTitle?: string;
   year: string;
   genre: string;
   medium?: string;
   department?: string;
+  origin?: string;
   imageUrl: string;
   thumbUrl: string;
   metUrl?: string;
@@ -26,6 +29,7 @@ type Poem = {
   author: string;
   lines: string[];
   linecount?: string;
+  pinned?: boolean;
 };
 
 type ReadingItem = {
@@ -41,129 +45,192 @@ type ReadingItem = {
   olUrl?: string;
 };
 
-// ── Canon seed images (from /public/art/) ────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-const CANON: ArtWork[] = [
-  {
-    id: "canon-01", source: "canon",
-    title: "Blue Face on Orange", artist: "Basquiat / Nkoth", year: "2020s",
-    genre: "Neo-Expressionism",
-    medium: "Mixed media",
-    imageUrl: "/art/01_basquiat-nkoth_blue-face-on-orange.png",
-    thumbUrl: "/art/01_basquiat-nkoth_blue-face-on-orange.png",
-  },
-  {
-    id: "canon-02", source: "canon",
-    title: "Molten Gold", artist: "Afrofuturism", year: "2020s",
-    genre: "Afrofuturism",
-    medium: "Digital",
-    imageUrl: "/art/02_afrofuturism_molten-gold-cover.png",
-    thumbUrl: "/art/02_afrofuturism_molten-gold-cover.png",
-  },
-  {
-    id: "canon-03", source: "canon",
-    title: "Graphite Profile", artist: "Toyin Ojih Odutola", year: "2010s",
-    genre: "Figurative",
-    medium: "Charcoal and graphite",
-    imageUrl: "/art/03_ojih-odutola_graphite-profile.png",
-    thumbUrl: "/art/03_ojih-odutola_graphite-profile.png",
-  },
-  {
-    id: "canon-04", source: "canon",
-    title: "Gold-Red Swirled Face", artist: "Ludovic Nkoth", year: "2020s",
-    genre: "Neo-Expressionism",
-    medium: "Oil on canvas",
-    imageUrl: "/art/04_nkoth_gold-red-swirled-face.png",
-    thumbUrl: "/art/04_nkoth_gold-red-swirled-face.png",
-  },
-  {
-    id: "canon-05", source: "canon",
-    title: "Blue Water Boat", artist: "Ludovic Nkoth", year: "2020s",
-    genre: "Expressionism",
-    medium: "Oil on canvas",
-    imageUrl: "/art/05_nkoth_blue-water-boat.png",
-    thumbUrl: "/art/05_nkoth_blue-water-boat.png",
-  },
-  {
-    id: "canon-06", source: "canon",
-    title: "Figure at Sunset", artist: "Ludovic Nkoth", year: "2020s",
-    genre: "Figurative",
-    medium: "Oil on canvas",
-    imageUrl: "/art/06_nkoth_figure-sunset-sky.png",
-    thumbUrl: "/art/06_nkoth_figure-sunset-sky.png",
-  },
-  {
-    id: "canon-07", source: "canon",
-    title: "Flat Ultramarine Market", artist: "Jacob Lawrence", year: "1940s",
-    genre: "Harlem Renaissance",
-    medium: "Gouache on board",
-    imageUrl: "/art/07_lawrence_flat-ultramarine-market.png",
-    thumbUrl: "/art/07_lawrence_flat-ultramarine-market.png",
-  },
-  {
-    id: "canon-08", source: "canon",
-    title: "Interior Collage I", artist: "Njideka Akunyili Crosby", year: "2010s",
-    genre: "Contemporary",
-    medium: "Collage, acrylic, and transfers",
-    imageUrl: "/art/08_akunyili-crosby_interior-collage.png",
-    thumbUrl: "/art/08_akunyili-crosby_interior-collage.png",
-  },
-  {
-    id: "canon-09", source: "canon",
-    title: "Collage Figures", artist: "Njideka Akunyili Crosby", year: "2010s",
-    genre: "Contemporary",
-    medium: "Collage and transfer",
-    imageUrl: "/art/09_akunyili-crosby_collage-figures.png",
-    thumbUrl: "/art/09_akunyili-crosby_collage-figures.png",
-  },
+const GENRE_FILTERS = [
+  "All", "Expressionism", "Impressionism", "Abstract", "Surrealism",
+  "Cubism", "Post-Impressionism", "Romanticism", "Modern", "Sculpture",
+  "Pop Art", "Harlem Renaissance", "Minimalism", "Figurative",
 ];
 
-const GENRES = [
-  "All", "Neo-Expressionism", "Harlem Renaissance", "Afrofuturism", "Figurative",
-  "Contemporary", "Expressionism", "Impressionism", "Abstract", "Surrealism",
-  "Minimalism", "Cubism", "Pop Art", "Romanticism", "Modern",
+const AIC_CYCLE_QUERIES = [
+  "expressionism painting",
+  "impressionism monet",
+  "abstract expressionism",
+  "surrealism painting",
+  "cubism picasso",
+  "post impressionism cezanne",
+  "romanticism delacroix",
+  "minimalism art",
+  "pop art warhol",
+  "rodin sculpture",
+  "figurative painting portrait",
+  "seurat pointillism",
+  "van gogh post impressionism",
+  "color field painting",
+  "caspar david friedrich",
+  "rococo fragonard",
 ];
 
-const ART_QUERIES = [
-  "African American art", "abstract expressionism", "Harlem Renaissance",
-  "color field painting", "modern portrait", "geometric abstraction",
+const MET_CYCLE_QUERIES = [
+  "Harlem Renaissance",
+  "Jacob Lawrence",
+  "Aaron Douglas",
+  "African American art",
 ];
 
-const READING_SUBJECTS = [
-  { label: "Art History", key: "art_history" },
-  { label: "Aesthetics", key: "aesthetics" },
-  { label: "Modern Art", key: "modern_art" },
-  { label: "African Art", key: "african_art" },
-  { label: "Photography", key: "photography" },
-];
+// Reading categories
+const READING_CATEGORIES = [
+  { id: "art-criticism",    label: "Art Criticism",    source: "reading",    topic: "art criticism",        mode: "gutenberg"  },
+  { id: "art-history",      label: "Art History",      source: "reading",    topic: "art history",          mode: "gutenberg"  },
+  { id: "architecture",     label: "Architecture",     source: "reading",    topic: "architecture",         mode: "gutenberg"  },
+  { id: "cultural-theory",  label: "Cultural Theory",  source: "articles",   topic: "cultural_theory",      mode: "openlibrary"},
+  { id: "art-philosophy",   label: "Art Philosophy",   source: "articles",   topic: "aesthetics",           mode: "openlibrary"},
+] as const;
 
-const READING_TOPICS = [
-  { label: "Art Criticism", key: "art criticism" },
-  { label: "Color Theory", key: "color theory" },
-  { label: "Expressionism", key: "expressionism" },
-  { label: "Bauhaus", key: "bauhaus" },
-  { label: "Aesthetics", key: "aesthetics" },
-];
+type ReadingCategoryId = typeof READING_CATEGORIES[number]["id"];
+
+// Poet context notes keyed by author fragment
+const POET_CONTEXT: Record<string, string> = {
+  "Blake":      "William Blake (1757–1827) was a Romantic poet and visionary artist whose mystical symbolism challenged Enlightenment rationalism. His illuminated books fused poetry and visual art into prophetic works that would influence generations.",
+  "Whitman":    "Walt Whitman (1819–1892) broke every convention of 19th-century verse with expansive free lines and democratic vision. 'Leaves of Grass' catalogued American life with an intimacy unprecedented in English poetry.",
+  "Dickinson":  "Emily Dickinson (1830–1886) wrote in near-total seclusion, producing nearly 1,800 poems of compressed intensity. Her slant rhymes and unconventional dashes created a private poetic language of startling modernity.",
+  "Hughes":     "Langston Hughes (1902–1967) was the central voice of the Harlem Renaissance — blending jazz rhythms, blues cadences, and vernacular speech into poetry that celebrated Black American life with uncompromising beauty.",
+  "Brooks":     "Gwendolyn Brooks (1917–2000) became the first African American to win the Pulitzer Prize (1950). Her poetry navigated race, gender, and urban life in Chicago with formal precision and devastating clarity.",
+  "Eliot":      "T.S. Eliot (1888–1965) reshaped Modernist poetry with the fragmented mythological panoramas of 'The Waste Land'. His emphasis on tradition, allusion, and difficulty defined high Modernism's aesthetic.",
+  "Stevens":    "Wallace Stevens (1879–1955) was a philosopher of imagination — his lush, difficult poetry explored how the mind creates meaning in a world stripped of religious certainty. 'The Supreme Fiction' is his central project.",
+  "Neruda":     "Pablo Neruda (1904–1973) wrote with volcanic sensuality and political fire. His 'Twenty Love Poems' are among the most-read poems in any language; his later work turned to elemental matter and democratic solidarity.",
+  "Rilke":      "Rainer Maria Rilke (1875–1926) sought the transcendent in physical beauty and mortality. His 'Duino Elegies' and 'Sonnets to Orpheus' stand as the supreme achievement of German lyric modernism.",
+  "Baraka":     "Amiri Baraka (1934–2014) was the incendiary voice of the Black Arts Movement — merging jazz aesthetics, Marxist politics, and African American vernacular into poetry that demanded social transformation.",
+};
+
+function getPoetContext(author: string): string {
+  for (const [key, note] of Object.entries(POET_CONTEXT)) {
+    if (author.toLowerCase().includes(key.toLowerCase())) return note;
+  }
+  return "A poet whose work spans tradition and transformation, bringing formal mastery to urgent human experience.";
+}
+
+// ── Artist context companion paragraph ───────────────────────────────────────
+
+function buildArtistContext(work: ArtWork): string {
+  const artist = work.artistTitle || work.artist.split("\n")[0];
+  const year   = work.year || "an unknown date";
+  const medium = work.medium || "mixed media";
+  const dept   = work.department || "the permanent collection";
+  const genre  = work.genre || "Fine Art";
+
+  const genreNote: Record<string, string> = {
+    "Expressionism":       "Created during a period when artists prioritized emotional truth over literal representation,",
+    "Impressionism":       "Painted with loose brushwork that captured fleeting light and atmospheric sensation,",
+    "Abstract":            "Working outside figuration, the artist reduced form to its essential elements —",
+    "Surrealism":          "Drawing from the unconscious mind and dreamlike imagery,",
+    "Cubism":              "Fracturing conventional perspective to show multiple viewpoints simultaneously,",
+    "Post-Impressionism":  "Moving beyond Impressionism toward more structured or symbolic approaches,",
+    "Romanticism":         "Suffused with emotional intensity and a reverence for nature and the sublime,",
+    "Minimalism":          "Stripped to geometric essence, the work foregrounds material and space over narrative —",
+    "Harlem Renaissance":  "Emerging from the cultural flowering of Black American art in the early 20th century,",
+    "Figurative":          "Rooted in the human form, the work explores identity, presence, and lived experience —",
+    "Sculpture":           "Working in three dimensions, the artist transformed material into form —",
+    "Pop Art":             "Drawing from commercial culture and everyday imagery,",
+  };
+
+  const note = genreNote[genre] ?? "A work of singular vision,";
+
+  return `${note} this ${medium.toLowerCase()} piece by ${artist} dates to ${year}. It belongs to ${dept}. The work invites sustained attention — not simply as historical document, but as a living aesthetic object whose meaning shifts with each encounter.`;
+}
+
+// ── Supabase sync helpers ─────────────────────────────────────────────────────
+
+const supabase = typeof window !== "undefined" ? createClient() : null;
+
+async function loadSupabasePins(
+  type: "art" | "poem" | "reading",
+): Promise<string[]> {
+  if (!supabase) return [];
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data, error } = await supabase
+      .from("gallery_favorites")
+      .select("item_id")
+      .eq("user_id", user.id)
+      .eq("item_type", type);
+    if (error) return [];
+    return (data ?? []).map((r: { item_id: string }) => r.item_id);
+  } catch {
+    return [];
+  }
+}
+
+async function upsertSupabasePin(
+  type: "art" | "poem" | "reading",
+  itemId: string,
+  metadata: Record<string, unknown>,
+  remove: boolean,
+): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    if (remove) {
+      await supabase
+        .from("gallery_favorites")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("item_type", type)
+        .eq("item_id", itemId);
+    } else {
+      await supabase.from("gallery_favorites").upsert(
+        { user_id: user.id, item_type: type, item_id: itemId, metadata },
+        { onConflict: "user_id,item_type,item_id" },
+      );
+    }
+  } catch {
+    // Table may not exist yet — silent no-op
+  }
+}
+
+// ── Pin state factory ─────────────────────────────────────────────────────────
+
+function loadLocalPins(key: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    return new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveLocalPins(key: string, pins: Set<string>) {
+  try { localStorage.setItem(key, JSON.stringify([...pins])); } catch {}
+}
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
-function useGalleryArt(query: string) {
-  const [works, setWorks] = useState<ArtWork[]>(CANON);
+function useArtGallery(query: string, source: "aic" | "met") {
+  const [works, setWorks] = useState<ArtWork[]>([]);
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (abortRef.current) abortRef.current.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
     setLoading(true);
-    const src = query.toLowerCase().includes("harlem") || query.toLowerCase().includes("african")
-      ? "met" : "aic";
-    fetch(`/api/gallery?source=${src}&q=${encodeURIComponent(query)}`)
+    fetch(`/api/gallery?source=${source}&q=${encodeURIComponent(query)}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((d: { works?: ArtWork[] }) => {
-        const fetched = (d.works ?? []).filter((w) => w.thumbUrl || w.imageUrl);
-        setWorks([...CANON, ...fetched]);
+        if (!ctrl.signal.aborted) {
+          setWorks((d.works ?? []).filter((w) => w.thumbUrl || w.imageUrl));
+        }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [query]);
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
+
+    return () => ctrl.abort();
+  }, [query, source]);
 
   return { works, loading };
 }
@@ -171,67 +238,75 @@ function useGalleryArt(query: string) {
 function usePoetry() {
   const [poems, setPoems] = useState<Poem[]>([]);
   const [idx, setIdx] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/gallery?source=poetry&count=8")
+  const load = useCallback(() => {
+    setLoading(true);
+    fetch("/api/gallery?source=poems")
       .then((r) => r.json())
-      .then((d: { poems?: Poem[] }) => { if (d.poems?.length) setPoems(d.poems); })
-      .catch(() => {});
+      .then((d: { poems?: Poem[] }) => {
+        if (d.poems?.length) { setPoems(d.poems); setIdx(0); }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const next = useCallback(() => setIdx((i) => (i + 1) % Math.max(poems.length, 1)), [poems.length]);
   const prev = useCallback(() => setIdx((i) => (i - 1 + Math.max(poems.length, 1)) % Math.max(poems.length, 1)), [poems.length]);
 
-  return { poem: poems[idx] ?? null, next, prev, count: poems.length };
+  return { poem: poems[idx] ?? null, idx, total: poems.length, next, prev, load, loading };
 }
 
-function useReading(topic: string, mode: "gutenberg" | "openlibrary", subject?: string) {
+function useReading(categoryId: ReadingCategoryId) {
   const [books, setBooks] = useState<ReadingItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    const cat = READING_CATEGORIES.find((c) => c.id === categoryId);
+    if (!cat) return;
+
     setLoading(true);
-    const url = mode === "openlibrary"
-      ? `/api/gallery?source=openlibrary&subject=${encodeURIComponent(subject ?? "art_history")}`
-      : `/api/gallery?source=reading&topic=${encodeURIComponent(topic)}`;
+    const url = cat.mode === "openlibrary"
+      ? `/api/gallery?source=articles&subject=${encodeURIComponent(cat.topic)}`
+      : `/api/gallery?source=reading&topic=${encodeURIComponent(cat.topic)}`;
+
     fetch(url)
       .then((r) => r.json())
       .then((d: { books?: ReadingItem[] }) => setBooks(d.books ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [topic, mode, subject]);
+  }, [categoryId]);
 
   return { books, loading };
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Art card ──────────────────────────────────────────────────────────────────
 
 function ArtCard({
-  work,
-  pinned,
-  onPin,
-  onOpen,
+  work, pinned, onPin, onOpen,
 }: {
-  work: ArtWork;
-  pinned: boolean;
-  onPin: () => void;
-  onOpen: () => void;
+  work: ArtWork; pinned: boolean; onPin: () => void; onOpen: () => void;
 }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgErr, setImgErr] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // Images already in browser cache fire onLoad before React renders
   useEffect(() => {
-    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
-      setImgLoaded(true);
-    }
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) setImgLoaded(true);
   }, []);
 
   return (
-    <div className="g-card" onClick={onOpen} role="button" tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onOpen()}>
-      <div className="g-img-wrap">
+    <div
+      className="g-card"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onOpen()}
+      style={{ borderRadius: 2, border: "1px solid var(--line-strong)", overflow: "hidden", cursor: "pointer" }}
+    >
+      <div className="g-img-wrap" style={{ position: "relative", display: "block" }}>
         {!imgLoaded && !imgErr && <div className="g-img-placeholder" />}
         {!imgErr && (
           <img
@@ -239,7 +314,7 @@ function ArtCard({
             src={work.thumbUrl || work.imageUrl}
             alt={work.title}
             className="g-img"
-            style={{ opacity: imgLoaded ? 1 : 0 }}
+            style={{ opacity: imgLoaded ? 1 : 0, display: "block", width: "100%", objectFit: "cover" }}
             onLoad={() => setImgLoaded(true)}
             onError={() => setImgErr(true)}
             loading="lazy"
@@ -247,8 +322,8 @@ function ArtCard({
         )}
         {imgErr && (
           <div className="g-img-err">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ width: 28, height: 28, opacity: 0.3 }}>
-              <rect x="3" y="4" width="18" height="16" rx="1" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" style={{ width: 28, height: 28, opacity: 0.25 }}>
+              <rect x="3" y="4" width="18" height="16" rx="0" />
               <path d="M3 15l5-5 4 4 3-3 6 6" />
             </svg>
           </div>
@@ -258,108 +333,202 @@ function ArtCard({
           className={`g-pin${pinned ? " on" : ""}`}
           onClick={(e) => { e.stopPropagation(); onPin(); }}
           title={pinned ? "Unpin" : "Pin"}
+          style={{
+            position: "absolute", top: 8, right: 8,
+            background: "rgba(10,11,14,0.72)", border: "1px solid var(--line-strong)",
+            color: pinned ? "var(--accent)" : "var(--ink-faint)",
+            width: 28, height: 28, borderRadius: 2,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 13, cursor: "pointer", backdropFilter: "blur(4px)",
+          }}
         >
           {pinned ? "★" : "☆"}
         </button>
         {work.source !== "canon" && (
-          <div className="g-source-badge">{work.source.toUpperCase()}</div>
+          <div
+            className="g-source-badge"
+            style={{
+              position: "absolute", bottom: 8, left: 8,
+              fontFamily: "var(--mono)", fontSize: 8, letterSpacing: "0.12em",
+              background: "rgba(10,11,14,0.8)", color: "var(--ink-faint)",
+              padding: "2px 6px", border: "1px solid var(--line)",
+            }}
+          >
+            {work.source.toUpperCase()}
+          </div>
         )}
       </div>
-      <div className="g-meta">
-        <div className="g-title">{work.title}</div>
-        <div className="g-artist">{work.artist}{work.year ? ` · ${work.year}` : ""}</div>
-        <div className="g-genre">{work.genre}</div>
+      <div
+        className="g-meta"
+        style={{ padding: "8px 10px 10px", borderTop: "1px solid var(--line-strong)", background: "var(--surface)" }}
+      >
+        <div
+          className="g-title"
+          style={{ fontFamily: "var(--narrow)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ink)", lineHeight: 1.3, marginBottom: 3 }}
+        >
+          {work.title}
+        </div>
+        <div
+          className="g-artist"
+          style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", lineHeight: 1.2 }}
+        >
+          {(work.artistTitle || work.artist.split("\n")[0]).slice(0, 40)}
+        </div>
+        <div
+          className="g-genre"
+          style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", marginTop: 3, opacity: 0.7 }}
+        >
+          {work.year && <span>{work.year}</span>}
+          {work.year && work.genre && <span style={{ margin: "0 4px" }}>·</span>}
+          {work.genre && <span>{work.genre}</span>}
+        </div>
       </div>
     </div>
   );
 }
 
+// ── Art detail overlay ────────────────────────────────────────────────────────
+
 function ArtDetail({
-  work,
-  pinned,
-  onPin,
-  onClose,
+  work, pinned, onPin, onClose,
 }: {
-  work: ArtWork;
-  pinned: boolean;
-  onPin: () => void;
-  onClose: () => void;
+  work: ArtWork; pinned: boolean; onPin: () => void; onClose: () => void;
 }) {
   const [imgErr, setImgErr] = useState(false);
+  const context = buildArtistContext(work);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   return (
-    <div className="g-detail-overlay" onClick={onClose}>
-      <div className="g-detail" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="g-detail-close" onClick={onClose}>✕</button>
-        <div className="g-detail-inner">
-          <div className="g-detail-img-wrap">
+    <div
+      className="g-detail-overlay"
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9000,
+        background: "rgba(10,11,14,0.92)", backdropFilter: "blur(8px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        className="g-detail"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--surface)", border: "1px solid var(--line-strong)",
+          borderRadius: 2, maxWidth: 900, width: "100%", maxHeight: "90vh",
+          overflowY: "auto", position: "relative",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            position: "absolute", top: 12, right: 12,
+            background: "var(--surface-2)", border: "1px solid var(--line-strong)",
+            color: "var(--ink-dim)", width: 32, height: 32, borderRadius: 2,
+            fontFamily: "var(--mono)", fontSize: 12, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1,
+          }}
+        >✕</button>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 0 }}>
+          {/* Image */}
+          <div style={{ background: "#0a0b0e", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
             {!imgErr ? (
               <img
                 src={work.imageUrl || work.thumbUrl}
                 alt={work.title}
-                className="g-detail-img"
                 onError={() => setImgErr(true)}
+                style={{ display: "block", maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }}
               />
             ) : (
-              <div className="g-img-err" style={{ minHeight: 240 }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ width: 40, height: 40, opacity: 0.3 }}>
-                  <rect x="3" y="4" width="18" height="16" rx="1" />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", minHeight: 280 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" style={{ width: 48, height: 48, opacity: 0.15 }}>
+                  <rect x="3" y="4" width="18" height="16" rx="0" />
                   <path d="M3 15l5-5 4 4 3-3 6 6" />
                 </svg>
               </div>
             )}
           </div>
-          <div className="g-detail-body">
-            <div className="g-detail-genre">{work.genre}</div>
-            <h2 className="g-detail-title">{work.title}</h2>
-            <div className="g-detail-artist">{work.artist}</div>
-            {work.year && <div className="g-detail-year">{work.year}</div>}
-            {work.medium && (
-              <div className="g-detail-row">
-                <span className="g-detail-k">Medium</span>
-                <span className="g-detail-v">{work.medium}</span>
+
+          {/* Metadata panel */}
+          <div style={{ padding: "32px 28px 28px", borderLeft: "1px solid var(--line-strong)", display: "flex", flexDirection: "column", gap: 0 }}>
+            {work.genre && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.14em", color: "var(--accent)", textTransform: "uppercase", marginBottom: 10 }}>
+                {work.genre}
               </div>
             )}
-            {work.department && (
-              <div className="g-detail-row">
-                <span className="g-detail-k">Collection</span>
-                <span className="g-detail-v">{work.department}</span>
+            <h2 style={{ fontFamily: "var(--narrow)", fontSize: 20, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: "var(--ink)", lineHeight: 1.2, marginBottom: 10 }}>
+              {work.title}
+            </h2>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>
+              {(work.artistTitle || work.artist.split("\n")[0])}
+            </div>
+            {work.year && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginBottom: 16 }}>
+                {work.year}
               </div>
             )}
-            <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
+
+            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              {work.medium && (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.1em", paddingTop: 1 }}>Medium</span>
+                  <span style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-dim)", textAlign: "right", flex: 1 }}>{work.medium}</span>
+                </div>
+              )}
+              {work.department && (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.1em", paddingTop: 1 }}>Collection</span>
+                  <span style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-dim)", textAlign: "right", flex: 1 }}>{work.department}</span>
+                </div>
+              )}
+              {work.origin && (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.1em", paddingTop: 1 }}>Origin</span>
+                  <span style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-dim)", textAlign: "right", flex: 1 }}>{work.origin}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Artist Context */}
+            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 16, marginTop: 8 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 8 }}>
+                Artist Context
+              </div>
+              <p style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.65, margin: 0 }}>
+                {context}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, marginTop: "auto", paddingTop: 20, flexWrap: "wrap" }}>
               <button
                 type="button"
                 className={`savebtn${pinned ? " active" : ""}`}
                 onClick={onPin}
-                style={pinned ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}}
+                style={pinned ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
               >
                 {pinned ? "★ Pinned" : "☆ Pin"}
               </button>
-              {(work.metUrl || work.aicUrl) && (
+              {(work.aicUrl || work.metUrl) && (
                 <a
-                  href={work.metUrl || work.aicUrl}
+                  href={work.aicUrl || work.metUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="savebtn"
-                  onClick={(e) => e.stopPropagation()}
                 >
                   View source ↗
                 </a>
               )}
-              {work.wikiUrl && (
-                <a
-                  href={work.wikiUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="savebtn"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Wikidata ↗
-                </a>
-              )}
             </div>
+
             {work.isPublicDomain && (
-              <p style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 16 }}>
+              <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 12 }}>
                 PUBLIC DOMAIN · FREE TO USE
               </p>
             )}
@@ -370,117 +539,436 @@ function ArtDetail({
   );
 }
 
-function PoemPanel() {
-  const { poem, next, prev, count } = usePoetry();
+// ── Poetry panel ──────────────────────────────────────────────────────────────
 
-  if (!poem) return (
-    <div className="g-poem-panel">
-      <div className="g-poem-empty">Loading poetry…</div>
-    </div>
-  );
+function PoetryPanel({
+  pinnedPoems,
+  onTogglePoemPin,
+}: {
+  pinnedPoems: Set<string>;
+  onTogglePoemPin: (key: string, poem: Poem) => void;
+}) {
+  const { poem, idx, total, next, prev, load, loading } = usePoetry();
+  const [contextOpen, setContextOpen] = useState(false);
+
+  const poemKey = poem ? `${poem.author}::${poem.title}` : "";
+  const isPinned = pinnedPoems.has(poemKey);
 
   return (
-    <div className="g-poem-panel">
-      <div className="g-poem-eyebrow">Poetry</div>
-      <div className="g-poem-title">{poem.title}</div>
-      <div className="g-poem-author">— {poem.author}</div>
-      <div className="g-poem-lines">
-        {poem.lines.slice(0, 14).map((l, i) => (
-          <div key={i} className="g-poem-line">{l || <>&nbsp;</>}</div>
-        ))}
-        {poem.lines.length > 14 && (
-          <div className="g-poem-line" style={{ color: "var(--ink-faint)", fontStyle: "italic" }}>
-            … {poem.lines.length - 14} more lines
-          </div>
-        )}
-      </div>
-      {count > 1 && (
-        <div className="g-poem-nav">
-          <button type="button" onClick={prev}>←</button>
-          <button type="button" onClick={next}>→</button>
+    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      {loading && (
+        <div className="empty-state" style={{ padding: "60px 0" }}>
+          Loading curated poems…
         </div>
       )}
+
+      {!loading && !poem && (
+        <div className="empty-state" style={{ padding: "60px 0" }}>
+          No poems loaded.
+          <button type="button" className="savebtn" onClick={load} style={{ marginLeft: 12 }}>
+            Load poems
+          </button>
+        </div>
+      )}
+
+      {!loading && poem && (
+        <div className="g-poem-panel" style={{ padding: "40px 0" }}>
+          {/* Poet byline */}
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.16em",
+            color: "var(--accent)", textTransform: "uppercase", marginBottom: 12,
+          }}>
+            {poem.author}
+          </div>
+
+          {/* Poem title */}
+          <h2 style={{
+            fontFamily: "var(--serif)", fontStyle: "italic", fontWeight: 400,
+            fontSize: 26, color: "var(--ink)", lineHeight: 1.2, marginBottom: 28,
+          }}>
+            {poem.title}
+          </h2>
+
+          {/* Lines */}
+          <div style={{ borderLeft: "2px solid var(--line-strong)", paddingLeft: 24, marginBottom: 32 }}>
+            {poem.lines.map((line, i) => (
+              <div
+                key={i}
+                style={{
+                  fontFamily: "var(--serif)", fontSize: 15, lineHeight: 1.85,
+                  color: line.trim() === "" ? "transparent" : "var(--ink-dim)",
+                  minHeight: line.trim() === "" ? "1em" : undefined,
+                  userSelect: "text",
+                }}
+              >
+                {line || " "}
+              </div>
+            ))}
+          </div>
+
+          {/* Context accordion */}
+          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 16, marginBottom: 24 }}>
+            <button
+              type="button"
+              onClick={() => setContextOpen((v) => !v)}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.12em",
+                color: "var(--ink-faint)", textTransform: "uppercase",
+                background: "none", border: "none", cursor: "pointer", padding: 0,
+              }}
+            >
+              <span style={{ fontSize: 10 }}>{contextOpen ? "▾" : "▸"}</span>
+              Poet Context
+            </button>
+            {contextOpen && (
+              <p style={{
+                fontFamily: "var(--serif)", fontStyle: "italic",
+                fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.7,
+                marginTop: 12, marginBottom: 0,
+              }}>
+                {getPoetContext(poem.author)}
+              </p>
+            )}
+          </div>
+
+          {/* Navigation + pin */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <button
+              type="button"
+              onClick={prev}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 16, background: "none",
+                border: "1px solid var(--line-strong)", color: "var(--ink-dim)",
+                width: 36, height: 36, borderRadius: 2, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >←</button>
+
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", letterSpacing: "0.1em" }}>
+              {idx + 1} / {total}
+            </span>
+
+            <button
+              type="button"
+              onClick={next}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 16, background: "none",
+                border: "1px solid var(--line-strong)", color: "var(--ink-dim)",
+                width: 36, height: 36, borderRadius: 2, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >→</button>
+
+            <button
+              type="button"
+              className={`savebtn${isPinned ? " active" : ""}`}
+              onClick={() => onTogglePoemPin(poemKey, poem)}
+              style={isPinned ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
+            >
+              {isPinned ? "★ Favorite" : "☆ Favorite"}
+            </button>
+
+            <button
+              type="button"
+              className="savebtn"
+              onClick={load}
+              style={{ marginLeft: "auto" }}
+              disabled={loading}
+            >
+              ↻ More
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 24, textAlign: "center", letterSpacing: "0.1em" }}>
+        SOURCED FROM POETRYDB · PUBLIC DOMAIN POETRY
+      </p>
     </div>
   );
 }
 
-function ReadingCard({ book }: { book: ReadingItem }) {
+// ── Reading card ──────────────────────────────────────────────────────────────
+
+function ReadingCard({
+  book, pinned, onPin,
+}: {
+  book: ReadingItem; pinned: boolean; onPin: () => void;
+}) {
+  const [imgErr, setImgErr] = useState(false);
+
   return (
-    <a
-      href={book.readUrl || book.olUrl || "#"}
-      target="_blank"
-      rel="noopener noreferrer"
+    <div
       className="g-book-card"
+      style={{
+        display: "flex", gap: 12, padding: 12,
+        border: "1px solid var(--line-strong)", borderRadius: 2,
+        background: "var(--surface)", position: "relative",
+        transition: "border-color 0.15s",
+      }}
     >
-      {book.coverUrl && (
-        <img src={book.coverUrl} alt={book.title} className="g-book-cover" loading="lazy" />
+      {/* Cover */}
+      {book.coverUrl && !imgErr ? (
+        <img
+          src={book.coverUrl}
+          alt={book.title}
+          onError={() => setImgErr(true)}
+          style={{ width: 56, height: 80, objectFit: "cover", flexShrink: 0, border: "1px solid var(--line)" }}
+          loading="lazy"
+        />
+      ) : (
+        <div style={{
+          width: 56, height: 80, flexShrink: 0, background: "var(--surface-2)",
+          border: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" style={{ width: 20, height: 20, opacity: 0.2 }}>
+            <rect x="4" y="2" width="16" height="20" rx="0" />
+            <path d="M9 7h6M9 11h6M9 15h4" />
+          </svg>
+        </div>
       )}
-      <div className="g-book-body">
-        <div className="g-book-title">{book.title}</div>
-        <div className="g-book-author">{book.author}</div>
+
+      {/* Body */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        <a
+          href={book.readUrl || book.olUrl || "#"}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontFamily: "var(--narrow)", fontSize: 13, fontWeight: 700,
+            textTransform: "uppercase", letterSpacing: "0.03em",
+            color: "var(--ink)", textDecoration: "none", lineHeight: 1.25,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+          }}
+        >
+          {book.title}
+        </a>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)" }}>
+          {book.author}
+        </div>
+        {book.year && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)" }}>
+            {book.year}
+          </div>
+        )}
         {book.subjects && book.subjects.length > 0 && (
-          <div className="g-book-subjects">
-            {book.subjects.slice(0, 2).map((s) => (
-              <span key={s} className="chip" style={{ fontSize: 8.5, padding: "1px 6px" }}>{s}</span>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+            {book.subjects.slice(0, 3).map((s) => (
+              <span
+                key={s}
+                className="chip"
+                style={{ fontSize: 8, padding: "1px 5px" }}
+              >
+                {s.replace(/_/g, " ").toUpperCase()}
+              </span>
             ))}
           </div>
         )}
-        {book.downloadCount && book.downloadCount > 0 && (
-          <div className="g-book-dl">
-            {book.downloadCount.toLocaleString()} downloads
-          </div>
-        )}
       </div>
-    </a>
+
+      {/* Pin button */}
+      <button
+        type="button"
+        onClick={onPin}
+        title={pinned ? "Unfavorite" : "Favorite"}
+        style={{
+          alignSelf: "flex-start", flexShrink: 0,
+          background: "none", border: "none", cursor: "pointer",
+          color: pinned ? "var(--accent)" : "var(--ink-faint)",
+          fontSize: 15, lineHeight: 1, padding: 2,
+        }}
+      >
+        {pinned ? "★" : "☆"}
+      </button>
+    </div>
+  );
+}
+
+// ── Reading tab ───────────────────────────────────────────────────────────────
+
+function ReadingTab({
+  pinnedReadings,
+  onToggleReadingPin,
+}: {
+  pinnedReadings: Set<string>;
+  onToggleReadingPin: (id: string, book: ReadingItem) => void;
+}) {
+  const [categoryId, setCategoryId] = useState<ReadingCategoryId>("art-criticism");
+  const [showFavs, setShowFavs] = useState(false);
+  const { books, loading } = useReading(categoryId);
+
+  const displayed = showFavs
+    ? books.filter((b) => pinnedReadings.has(b.id))
+    : books;
+
+  return (
+    <>
+      {/* Category bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div className="chips" style={{ marginBottom: 0, flex: 1 }}>
+          {READING_CATEGORIES.map((cat) => (
+            <span
+              key={cat.id}
+              className={categoryId === cat.id ? "chip on" : "chip"}
+              onClick={() => { setCategoryId(cat.id); setShowFavs(false); }}
+              style={{ cursor: "pointer" }}
+            >
+              {cat.label}
+            </span>
+          ))}
+        </div>
+        <button
+          type="button"
+          className={`savebtn${showFavs ? " active" : ""}`}
+          onClick={() => setShowFavs((v) => !v)}
+          style={showFavs ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
+        >
+          ★ {pinnedReadings.size > 0 ? `${pinnedReadings.size} saved` : "Saved"}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="empty-state">Searching library…</div>
+      ) : displayed.length === 0 ? (
+        <div className="empty-state">
+          {showFavs ? "No saved readings yet — star a book to save it." : "No books found."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+          {displayed.map((b) => (
+            <ReadingCard
+              key={b.id}
+              book={b}
+              pinned={pinnedReadings.has(b.id)}
+              onPin={() => onToggleReadingPin(b.id, b)}
+            />
+          ))}
+        </div>
+      )}
+
+      <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 24, letterSpacing: "0.1em" }}>
+        PROJECT GUTENBERG · OPEN LIBRARY · ALL WORKS OPEN-ACCESS
+      </p>
+    </>
   );
 }
 
 // ── Main module ───────────────────────────────────────────────────────────────
 
 export function GalleryModule() {
-  const [tab, setTab] = useState<"art" | "poetry" | "reading">("art");
-  const [genre, setGenre] = useState("All");
-  const [artQuery, setArtQuery] = useState(ART_QUERIES[0]);
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try { return new Set(JSON.parse(localStorage.getItem("axis-gallery-pins") ?? "[]") as string[]); }
-    catch { return new Set(); }
-  });
-  const [detail, setDetail] = useState<ArtWork | null>(null);
-  const [readMode, setReadMode] = useState<"gutenberg" | "openlibrary">("gutenberg");
-  const [readTopic, setReadTopic] = useState(READING_TOPICS[0].key);
-  const [readSubject, setReadSubject] = useState(READING_SUBJECTS[0].key);
+  const [tab, setTab]             = useState<"art" | "poetry" | "reading">("art");
+  const [genre, setGenre]         = useState("All");
   const [showPinsOnly, setShowPinsOnly] = useState(false);
 
-  const { works, loading: artLoading } = useGalleryArt(artQuery);
-  const { books: readingBooks, loading: readingLoading } = useReading(readTopic, readMode, readSubject);
+  // Art query cycling
+  const aicRef = useRef(0);
+  const metRef = useRef(0);
+  const [artSource, setArtSource] = useState<"aic" | "met">("aic");
+  const [artQuery, setArtQuery]   = useState(AIC_CYCLE_QUERIES[0]);
 
-  const filtered = useMemo(() => {
-    let list = works;
-    if (genre !== "All") list = list.filter((w) => w.genre === genre);
-    if (showPinsOnly) list = list.filter((w) => pinnedIds.has(w.id));
-    return list;
-  }, [works, genre, showPinsOnly, pinnedIds]);
+  // Detail overlay
+  const [detail, setDetail] = useState<ArtWork | null>(null);
 
-  const togglePin = useCallback((id: string) => {
-    setPinnedIds((prev) => {
+  // ── Pin state ────────────────────────────────────────────────────────────
+
+  const [pinnedArt, setPinnedArt] = useState<Set<string>>(
+    () => loadLocalPins("axis-gallery-art-pins"),
+  );
+  const [pinnedPoems, setPinnedPoems] = useState<Set<string>>(
+    () => loadLocalPins("axis-gallery-poem-pins"),
+  );
+  const [pinnedReadings, setPinnedReadings] = useState<Set<string>>(
+    () => loadLocalPins("axis-gallery-reading-pins"),
+  );
+
+  // Load Supabase pins on mount and merge
+  useEffect(() => {
+    (async () => {
+      const [artPins, poemPins, readingPins] = await Promise.all([
+        loadSupabasePins("art"),
+        loadSupabasePins("poem"),
+        loadSupabasePins("reading"),
+      ]);
+      if (artPins.length)     setPinnedArt((p)     => new Set([...p, ...artPins]));
+      if (poemPins.length)    setPinnedPoems((p)    => new Set([...p, ...poemPins]));
+      if (readingPins.length) setPinnedReadings((p) => new Set([...p, ...readingPins]));
+    })();
+  }, []);
+
+  // ── Toggle helpers ───────────────────────────────────────────────────────
+
+  const toggleArtPin = useCallback((id: string, work?: ArtWork) => {
+    setPinnedArt((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try { localStorage.setItem("axis-gallery-pins", JSON.stringify([...next])); } catch {}
+      const remove = next.has(id);
+      if (remove) next.delete(id); else next.add(id);
+      saveLocalPins("axis-gallery-art-pins", next);
+      upsertSupabasePin("art", id, work ? { title: work.title, artist: work.artist } : {}, remove);
       return next;
     });
   }, []);
 
-  // Cycle through art queries periodically
-  const queryRef = useRef(0);
-  const cycleQuery = () => {
-    queryRef.current = (queryRef.current + 1) % ART_QUERIES.length;
-    setArtQuery(ART_QUERIES[queryRef.current]);
+  const togglePoemPin = useCallback((key: string, poem: Poem) => {
+    setPinnedPoems((prev) => {
+      const next = new Set(prev);
+      const remove = next.has(key);
+      if (remove) next.delete(key); else next.add(key);
+      saveLocalPins("axis-gallery-poem-pins", next);
+      upsertSupabasePin("poem", key, { title: poem.title, author: poem.author }, remove);
+      return next;
+    });
+  }, []);
+
+  const toggleReadingPin = useCallback((id: string, book: ReadingItem) => {
+    setPinnedReadings((prev) => {
+      const next = new Set(prev);
+      const remove = next.has(id);
+      if (remove) next.delete(id); else next.add(id);
+      saveLocalPins("axis-gallery-reading-pins", next);
+      upsertSupabasePin("reading", id, { title: book.title, author: book.author }, remove);
+      return next;
+    });
+  }, []);
+
+  // ── Art cycling ──────────────────────────────────────────────────────────
+
+  const cycleArt = () => {
+    // Alternate between AIC and MET (favour AIC 3:1)
+    const useHarlem = (aicRef.current % 4 === 3);
+    if (useHarlem) {
+      setArtSource("met");
+      metRef.current = (metRef.current + 1) % MET_CYCLE_QUERIES.length;
+      setArtQuery(MET_CYCLE_QUERIES[metRef.current]);
+    } else {
+      setArtSource("aic");
+      aicRef.current = (aicRef.current + 1) % AIC_CYCLE_QUERIES.length;
+      setArtQuery(AIC_CYCLE_QUERIES[aicRef.current]);
+    }
+    aicRef.current++;
   };
+
+  // ── Art data ─────────────────────────────────────────────────────────────
+
+  const { works, loading: artLoading } = useArtGallery(artQuery, artSource);
+
+  const filtered = useMemo(() => {
+    let list = works;
+    if (genre !== "All") {
+      list = list.filter((w) =>
+        w.genre?.toLowerCase().includes(genre.toLowerCase()) ||
+        genre.toLowerCase().includes((w.genre ?? "").toLowerCase()),
+      );
+    }
+    if (showPinsOnly) list = list.filter((w) => pinnedArt.has(w.id));
+    return list;
+  }, [works, genre, showPinsOnly, pinnedArt]);
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <>
+      {/* Header */}
       <div className="modhead">
         <div className="eyebrow">Life</div>
         <div className="rule" />
@@ -489,7 +977,7 @@ export function GalleryModule() {
       <div className="divider" />
 
       {/* Tab bar */}
-      <div className="subtabbar" style={{ marginBottom: 20 }}>
+      <div className="subtabbar" style={{ marginBottom: 24 }}>
         {(["art", "poetry", "reading"] as const).map((t) => (
           <button
             key={t}
@@ -497,22 +985,23 @@ export function GalleryModule() {
             className={`subtab${tab === t ? " on" : ""}`}
             onClick={() => setTab(t)}
           >
-            {t.toUpperCase()}
+            {t === "art" ? "ART" : t === "poetry" ? "POETRY" : "READING"}
           </button>
         ))}
       </div>
 
-      {/* ── ART ─────────────────────────────────────────────────────────────── */}
+      {/* ── ART TAB ────────────────────────────────────────────────────────── */}
       {tab === "art" && (
         <>
           {/* Toolbar */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
             <div className="chips" style={{ marginBottom: 0, flex: 1, minWidth: 0 }}>
-              {GENRES.map((g) => (
+              {GENRE_FILTERS.map((g) => (
                 <span
                   key={g}
                   className={genre === g ? "chip on" : "chip"}
                   onClick={() => setGenre(g)}
+                  style={{ cursor: "pointer" }}
                 >
                   {g}
                 </span>
@@ -522,15 +1011,15 @@ export function GalleryModule() {
               <button
                 type="button"
                 className={`savebtn${showPinsOnly ? " active" : ""}`}
-                style={showPinsOnly ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}}
                 onClick={() => setShowPinsOnly((v) => !v)}
+                style={showPinsOnly ? { borderColor: "var(--accent)", color: "var(--accent)" } : {}}
               >
-                ★ {pinnedIds.size > 0 ? `${pinnedIds.size} pinned` : "Pins"}
+                ★ {pinnedArt.size > 0 ? `${pinnedArt.size}` : "Favorites"}
               </button>
               <button
                 type="button"
                 className="savebtn"
-                onClick={cycleQuery}
+                onClick={cycleArt}
                 disabled={artLoading}
               >
                 {artLoading ? "Loading…" : "↻ Discover"}
@@ -539,119 +1028,61 @@ export function GalleryModule() {
           </div>
 
           {/* Grid */}
-          {filtered.length === 0 ? (
-            <div className="empty-state">
-              {showPinsOnly ? "No pinned works yet — pin pieces from the grid." : "No works in this genre."}
+          {artLoading && works.length === 0 ? (
+            <div className="empty-state" style={{ padding: "60px 0" }}>
+              Fetching artworks…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="empty-state" style={{ padding: "48px 0" }}>
+              {showPinsOnly
+                ? "No pinned works yet — click ☆ on any artwork to pin it."
+                : "No works match this filter."}
             </div>
           ) : (
-            <div className="g-grid">
+            <div
+              className="g-grid"
+              style={{
+                columns: "3 220px",
+                columnGap: 10,
+              }}
+            >
               {filtered.map((work) => (
-                <ArtCard
-                  key={work.id}
-                  work={work}
-                  pinned={pinnedIds.has(work.id)}
-                  onPin={() => togglePin(work.id)}
-                  onOpen={() => setDetail(work)}
-                />
+                <div key={work.id} style={{ breakInside: "avoid", marginBottom: 10 }}>
+                  <ArtCard
+                    work={work}
+                    pinned={pinnedArt.has(work.id)}
+                    onPin={() => toggleArtPin(work.id, work)}
+                    onOpen={() => setDetail(work)}
+                  />
+                </div>
               ))}
             </div>
           )}
         </>
       )}
 
-      {/* ── POETRY ──────────────────────────────────────────────────────────── */}
+      {/* ── POETRY TAB ──────────────────────────────────────────────────────── */}
       {tab === "poetry" && (
-        <div style={{ maxWidth: 680, margin: "0 auto" }}>
-          <PoemPanel />
-          <p style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 24, textAlign: "center" }}>
-            SOURCED FROM POETRYDB · PUBLIC DOMAIN POETRY
-          </p>
-        </div>
+        <PoetryPanel
+          pinnedPoems={pinnedPoems}
+          onTogglePoemPin={togglePoemPin}
+        />
       )}
 
-      {/* ── READING ─────────────────────────────────────────────────────────── */}
+      {/* ── READING TAB ─────────────────────────────────────────────────────── */}
       {tab === "reading" && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-            <div className="vtoggle">
-              <button
-                type="button"
-                className={readMode === "gutenberg" ? "on" : ""}
-                onClick={() => setReadMode("gutenberg")}
-              >
-                CLASSICS
-              </button>
-              <button
-                type="button"
-                className={readMode === "openlibrary" ? "on" : ""}
-                onClick={() => setReadMode("openlibrary")}
-              >
-                OPEN LIBRARY
-              </button>
-            </div>
-          </div>
-
-          {readMode === "gutenberg" ? (
-            <>
-              <div className="chips" style={{ marginBottom: 16 }}>
-                {READING_TOPICS.map((t) => (
-                  <span
-                    key={t.key}
-                    className={readTopic === t.key ? "chip on" : "chip"}
-                    onClick={() => setReadTopic(t.key)}
-                  >
-                    {t.label}
-                  </span>
-                ))}
-              </div>
-              {readingLoading ? (
-                <div className="empty-state">Searching Project Gutenberg…</div>
-              ) : (
-                <div className="g-books-grid">
-                  {readingBooks.map((b) => <ReadingCard key={b.id} book={b} />)}
-                  {readingBooks.length === 0 && (
-                    <div className="empty-state">No classic texts found for this topic.</div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="chips" style={{ marginBottom: 16 }}>
-                {READING_SUBJECTS.map((s) => (
-                  <span
-                    key={s.key}
-                    className={readSubject === s.key ? "chip on" : "chip"}
-                    onClick={() => setReadSubject(s.key)}
-                  >
-                    {s.label}
-                  </span>
-                ))}
-              </div>
-              {readingLoading ? (
-                <div className="empty-state">Searching Open Library…</div>
-              ) : (
-                <div className="g-books-grid">
-                  {readingBooks.map((b) => <ReadingCard key={b.id} book={b} />)}
-                  {readingBooks.length === 0 && (
-                    <div className="empty-state">No books found for this subject.</div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-          <p style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 24 }}>
-            SOURCED FROM PROJECT GUTENBERG · OPEN LIBRARY · ALL WORKS ARE OPEN-ACCESS OR PUBLIC DOMAIN
-          </p>
-        </>
+        <ReadingTab
+          pinnedReadings={pinnedReadings}
+          onToggleReadingPin={toggleReadingPin}
+        />
       )}
 
-      {/* Detail modal */}
+      {/* Art detail overlay */}
       {detail && (
         <ArtDetail
           work={detail}
-          pinned={pinnedIds.has(detail.id)}
-          onPin={() => togglePin(detail.id)}
+          pinned={pinnedArt.has(detail.id)}
+          onPin={() => toggleArtPin(detail.id, detail)}
           onClose={() => setDetail(null)}
         />
       )}
