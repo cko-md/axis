@@ -97,8 +97,8 @@
   flex: none;
 }
 .ctrlBtn {
-  width: 30px;
-  height: 30px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 50%;
   border: 1px solid rgba(225, 212, 190, 0.14);
   background: #26201a;
@@ -117,8 +117,8 @@
   height: 14px;
 }
 .ctrlBtn.play {
-  width: 38px;
-  height: 38px;
+  min-width: 44px;
+  min-height: 44px;
   background: var(--gold, #c9a463);
   color: #1b1712;
   border-color: transparent;

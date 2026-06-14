@@ -265,7 +265,7 @@ function TasteMap({ artists, tasteIteration, onIterate }: { artists: ArtistLite[
         <button type="button" className="feed-manage" onClick={onIterate}>↻ Iterate</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 16, alignItems: "start" }}>
         {/* radar-style SVG */}
         <svg viewBox="0 0 220 220" style={{ width: "100%", maxWidth: 220, margin: "0 auto" }}>
           {[80, 60, 40, 20].map((r) => (
@@ -320,7 +320,7 @@ function TasteMap({ artists, tasteIteration, onIterate }: { artists: ArtistLite[
 
       {/* mood board tiles */}
       <h2 className="sec" style={{ marginTop: 24, marginBottom: 14 }}>Mood Board<span className="rule" /></h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 8 }}>
         {[
           { label: "Late Night", sub: "deep, introspective", g: "linear-gradient(135deg,#1a1a2e,#0a0a18)" },
           { label: "Lagos Heat", sub: "afro, uptempo", g: "linear-gradient(135deg,#2e1808,#180e04)" },
@@ -423,7 +423,7 @@ function RecommendationsSection({ connected, spotify, toast }: { connected: bool
         </div>
         <button type="button" className="feed-manage" onClick={refreshRecs} disabled={loading}>{loading ? "…" : "✦ Refresh"}</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
         {recs.map((r) => (
           <div key={r.id} style={{ background: r.g, borderRadius: "var(--rl)", border: "1px solid var(--line)", padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ fontFamily: "var(--narrow)", fontSize: 9.5, color: "var(--gold)", textTransform: "uppercase", letterSpacing: ".08em" }}>{r.genre}</div>

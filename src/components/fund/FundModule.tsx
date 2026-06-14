@@ -450,7 +450,7 @@ export function FundModule() {
             </Card>
           </div>
           <div className="divider" />
-          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, alignItems: "start" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
             <Card tick>
               <h2 className="sec">
                 Top Movers
@@ -496,7 +496,7 @@ export function FundModule() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)",
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
               gap: 16,
               alignItems: "start",
             }}
@@ -513,6 +513,7 @@ export function FundModule() {
                 <p>Add your first position to start tracking net worth.</p>
               </div>
             ) : (
+              <div style={{ overflowX: "auto" }}>
               <table className="holdings" style={{ marginTop: 10 }}>
                 <thead>
                   <tr>
@@ -552,6 +553,7 @@ export function FundModule() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </Card>
           <FundOrderTicket

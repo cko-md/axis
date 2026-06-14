@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 
@@ -74,6 +76,19 @@ export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Rate limit: 30 requests per minute per user
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const ratelimit = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(30, "1 m"),
+      prefix: "axis:signals-ai",
+    });
+    const { success } = await ratelimit.limit(user.id);
+    if (!success) {
+      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+    }
+  }
 
   const payload = (await req.json()) as {
     mode?: string;

@@ -518,7 +518,7 @@ function ArtDetail({
             borderRadius: 2, maxWidth: 900, width: "100%",
           }}
         >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 0 }}>
           {/* Image */}
           <div style={{ background: "#0a0b0e", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
             {!imgErr ? (
@@ -1169,8 +1169,9 @@ export function GalleryModule() {
             <div
               className="g-grid"
               style={{
-                columns: "3 220px",
-                columnGap: 16,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                gap: 16,
               }}
             >
               {filtered.map((work) => (

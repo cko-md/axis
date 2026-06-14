@@ -283,15 +283,15 @@ export function SignalsModule() {
   return (
     <>
         <div className={styles.headActions}>
-          <span className="aibtn" role="button" tabIndex={0} onClick={scanning ? undefined : scanPlatform} title="Scan platform modules for new signals">
+          <button type="button" className="aibtn" onClick={scanning ? undefined : scanPlatform} title="Scan platform modules for new signals">
             {scanning ? "Scanning…" : "✦ Scan modules"}
-          </span>
-          <span className="aibtn" role="button" tabIndex={0} onClick={batching ? undefined : triageAll}>
+          </button>
+          <button type="button" className="aibtn" onClick={batching ? undefined : triageAll}>
             {batching ? "Triaging…" : "AI triage all"}
-          </span>
-          <div className="savebtn" role="button" tabIndex={0} onClick={() => setRoutesOpen(true)}>
+          </button>
+          <button type="button" className="savebtn" onClick={() => setRoutesOpen(true)}>
             Routes
-          </div>
+          </button>
         </div>
       <div className="divider" />
 

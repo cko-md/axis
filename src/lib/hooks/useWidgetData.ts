@@ -52,7 +52,7 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
   );
 
   const refreshAll = useCallback((signal?: AbortSignal) => {
-    widgetIds.forEach((id) => refreshOne(id, signal));
+    return Promise.all(widgetIds.map((id) => refreshOne(id, signal)));
   }, [widgetIds, refreshOne]);
 
   useEffect(() => {

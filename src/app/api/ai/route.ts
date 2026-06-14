@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { aiGenerate, aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 
@@ -160,6 +162,19 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Rate limit: 30 requests per minute per user
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const ratelimit = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(30, "1 m"),
+      prefix: "axis:ai",
+    });
+    const { success } = await ratelimit.limit(user.id);
+    if (!success) {
+      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+    }
+  }
+
   const { mode, text, body, title } = (await req.json()) as { mode: string; text: string; body?: string; title?: string };
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -203,7 +218,8 @@ export async function POST(req: NextRequest) {
       if (!anthropic) return NextResponse.json({ response: "Companion requires an Anthropic API key." });
 
       const ctx = body ? JSON.parse(body) as { context?: string; history?: Array<{ role: string; content: string }>; persona?: string } : {};
-      const context = ctx.context ?? "";
+      const rawContext = String(ctx.context ?? "").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 1500);
+      const context = rawContext ? `<context>${rawContext}</context>` : "";
       const history = (ctx.history ?? []).slice(-10);
       const persona = ctx.persona ?? "axiom";
 
@@ -227,7 +243,7 @@ export async function POST(req: NextRequest) {
     // ── deck-insights ──────────────────────────────────────────────────────────
     if (mode === "deck-insights") {
       const ctx = body ? JSON.parse(body) as { context?: string } : {};
-      const context = ctx.context ?? "General module";
+      const context = String(ctx.context ?? "General module").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 500);
       const raw = await aiGenerate({
         mode,
         anthropic,
@@ -256,7 +272,9 @@ export async function POST(req: NextRequest) {
     // ── regimenPlan ────────────────────────────────────────────────────────────
     if (mode === "regimenPlan") {
       const ctx = body ? JSON.parse(body) as { discipline?: string; weeksPerPlan?: number; daysPerWeek?: number; currentLevel?: string; goal?: string; stravaContext?: string } : {};
-      const stravaSection = ctx.stravaContext ? `\n\nIMPORTANT — adapt the plan to this athlete's real data:\n${ctx.stravaContext}` : "";
+      const stravaSection = ctx.stravaContext
+        ? `\n\nIMPORTANT — adapt the plan based on the athlete data below.\n<strava_data>${String(ctx.stravaContext ?? "").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 2000)}</strava_data>`
+        : "";
       const result = await aiJSON<RegimenPlanResult>({
         mode,
         anthropic,

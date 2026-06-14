@@ -31,6 +31,7 @@ import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
+import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
 
@@ -309,7 +310,8 @@ export function ConsoleModule() {
   const { toast } = useToast();
   const { interfaceSettings } = useTheme();
   const { signals, capture, applyClassification } = useSignals();
-  const { tasks, toggleDone } = useTasks();
+  const { tasks, toggleDone, addTask } = useTasks();
+  const { createNote } = useNotes();
   const [widgetIds, setWidgetIds] = useState<string[]>(DEFAULT_WIDGET_IDS);
   const [widgetTexts, setWidgetTexts] = useState<Record<string, { v: string; k: string }>>({});
   const [editing, setEditing] = useState(false);
@@ -426,30 +428,14 @@ export function ConsoleModule() {
 
         // Save to tasks table if captMode is "task"
         if (captMode === "task") {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await supabase.from("tasks").insert({
-              user_id: user.id,
-              title: text,
-              priority,
-              status: "open",
-            });
-          }
+          await addTask({ title: text, category: "personal", priority });
           toast(d?.label ? `Task · ${d.label} · ${d.action}` : "Task saved", "success", "Capture");
           return;
         }
 
         // Save to notes table if captMode is "note"
         if (captMode === "note") {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await supabase.from("notes").insert({
-              user_id: user.id,
-              title: text,
-              body: "",
-              folder: "Inbox",
-            });
-          }
+          await createNote(text, "Inbox");
           toast(d?.label ? `Note · ${d.label}` : "Note saved", "success", "Capture");
           return;
         }

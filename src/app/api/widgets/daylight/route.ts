@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     url.searchParams.set("timezone", "auto");
     url.searchParams.set("forecast_days", "1");
 
-    const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+    const res = await fetch(url.toString());
     if (!res.ok) throw new Error("Daylight API failed");
     const data = await res.json();
     const sunrise = data.daily?.sunrise?.[0] as string | undefined;
@@ -48,10 +48,9 @@ export async function GET(req: Request) {
       { headers: { "Cache-Control": "s-maxage=3600, stale-while-revalidate=7200" } },
     );
   } catch {
-    return NextResponse.json({
-      value: "Daylight unavailable",
-      hint: `${geo.name} · could not reach sun-times API`,
-      fallback: true,
-    });
+    return NextResponse.json(
+      { value: "Daylight unavailable", hint: `${geo.name} · could not reach sun-times API`, fallback: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

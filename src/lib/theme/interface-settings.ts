@@ -151,13 +151,13 @@ export function applyInterfaceSettings(settings: InterfaceSettings) {
   // scope. Setting them on <html> is shadowed by the body{} rule in globals.css. ──
   const displayMap: Record<DisplayFace, string> = {
     instrument: 'var(--font-serif), "Fraunces", Georgia, serif',
-    playfair: '"Playfair Display", Georgia, serif',
-    grotesk: '"Space Grotesk", var(--font-narrow), sans-serif',
+    playfair: 'var(--font-playfair), "Playfair Display", Georgia, serif',
+    grotesk: 'var(--font-grotesk), "Space Grotesk", var(--font-narrow), sans-serif',
   };
   const bodyMap: Record<BodyFace, string> = {
     archivo: 'var(--font-sans), "Archivo", -apple-system, sans-serif',
-    inter: '"Inter", -apple-system, sans-serif',
-    plex: '"IBM Plex Sans", -apple-system, sans-serif',
+    inter: 'var(--font-inter), "Inter", -apple-system, sans-serif',
+    plex: 'var(--font-plex), "IBM Plex Sans", -apple-system, sans-serif',
   };
   body.style.setProperty("--serif", displayMap[settings.displayFace] ?? displayMap.instrument);
   body.style.setProperty("--sans", bodyMap[settings.bodyFace] ?? bodyMap.archivo);

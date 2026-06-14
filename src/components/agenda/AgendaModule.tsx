@@ -304,7 +304,7 @@ export function AgendaModule() {
           <span key={p} className={filterPri === p ? "chip on" : "chip"} onClick={() => setFilterPri(p)}>{p === "all" ? "All priorities" : p.toUpperCase()}</span>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
         <TaskBlock title="Research" category="research" tasks={filtered} onAdd={addResearch} onToggle={toggleDone} onDelete={deleteTask} />
         <TaskBlock title="Clinical & Life" category="clinical" tasks={filtered} onAdd={addClinical} onToggle={toggleDone} onDelete={deleteTask} />
       </div>

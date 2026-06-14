@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     url.searchParams.set("temperature_unit", "fahrenheit");
     url.searchParams.set("timezone", "auto");
 
-    const res = await fetch(url.toString(), { next: { revalidate: 900 } });
+    const res = await fetch(url.toString());
     if (!res.ok) throw new Error("Weather API failed");
     const data = await res.json();
     const cur = data.current;
@@ -32,11 +32,10 @@ export async function GET(req: Request) {
       { headers: { "Cache-Control": "s-maxage=900, stale-while-revalidate=1800" } },
     );
   } catch {
-    return NextResponse.json({
-      value: "61°F · Clear",
-      hint: `${geo.name} · offline fallback`,
-      fallback: true,
-    });
+    return NextResponse.json(
+      { value: "61°F · Clear", hint: `${geo.name} · offline fallback`, fallback: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }
 

@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     url.searchParams.set("longitude", String(geo.lon));
     url.searchParams.set("current", "us_aqi,uv_index");
 
-    const res = await fetch(url.toString(), { next: { revalidate: 1800 } });
+    const res = await fetch(url.toString());
     if (!res.ok) throw new Error("AQ API failed");
     const data = await res.json();
     const aqi = Math.round(data.current.us_aqi ?? 0);
@@ -27,10 +27,9 @@ export async function GET(req: Request) {
       { headers: { "Cache-Control": "s-maxage=1800, stale-while-revalidate=3600" } },
     );
   } catch {
-    return NextResponse.json({
-      value: "AQI 22 · Good",
-      hint: "UV 6 · sunscreen for long run",
-      fallback: true,
-    });
+    return NextResponse.json(
+      { value: "AQI 22 · Good", hint: "UV 6 · sunscreen for long run", fallback: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

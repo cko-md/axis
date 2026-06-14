@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Archivo_Narrow, Fraunces, JetBrains_Mono } from "next/font/google";
+import { Archivo, Archivo_Narrow, Fraunces, JetBrains_Mono, Playfair_Display, Space_Grotesk, Inter, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
@@ -31,6 +31,35 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ["400", "500"],
 });
 
+const playfairDisplay = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
+  display: "swap",
+  weight: "variable",
+  style: ["normal", "italic"],
+});
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-grotesk",
+  display: "swap",
+  weight: "variable",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+  weight: ["300", "400", "500"],
+});
+
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  variable: "--font-plex",
+  display: "swap",
+  weight: ["300", "400", "500"],
+});
+
 export const metadata: Metadata = {
   title: "AXIS[CKO] — Personal Operating System",
   description: "Signal console, fund, and schedule — your personal operating system.",
@@ -46,11 +75,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Playfair+Display:ital,wght@0,400..700;1,400&family=Space+Grotesk:wght@400;500;600&family=Inter:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}>
+      <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${playfairDisplay.variable} ${spaceGrotesk.variable} ${inter.variable} ${ibmPlexSans.variable}`}>
         <WebViewerProvider>
           <ThemeProvider>
             <ToastProvider>{children}</ToastProvider>

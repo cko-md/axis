@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -822,7 +823,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           {profile ? (
             <div className="profile" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => setProfileOpen(true)} title="Edit profile">
               {profileForm.photo ? (
-                <img src={profileForm.photo} alt={profile.name} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} />
+                <Image src={profileForm.photo} alt={profile.name} width={32} height={32} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} unoptimized={profileForm.photo.startsWith("blob:")} />
               ) : (
                 <div className="avatar">{profile.name[0]?.toUpperCase() ?? "A"}</div>
               )}

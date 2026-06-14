@@ -1,12 +1,23 @@
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
-import { CommandPalette } from "@/components/nav/CommandPalette";
-import { Mascot } from "@/components/layout/Mascot";
-import { InterfaceStudioDrawer } from "@/components/theme/InterfaceStudioDrawer";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
+
+const CommandPalette = dynamic(
+  () => import("@/components/nav/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+  { ssr: false },
+);
+const Mascot = dynamic(
+  () => import("@/components/layout/Mascot").then((m) => ({ default: m.Mascot })),
+  { ssr: false },
+);
+const InterfaceStudioDrawer = dynamic(
+  () => import("@/components/theme/InterfaceStudioDrawer").then((m) => ({ default: m.InterfaceStudioDrawer })),
+  { ssr: false },
+);
 
 type Props = {
   section: string;

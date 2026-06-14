@@ -844,7 +844,7 @@ export function NotesModule() {
     <>
       <div className="divider" />
 
-      <div style={{ display: "grid", gridTemplateColumns: "170px 250px 1fr", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, alignItems: "start" }}>
         {/* ── Folders (drag to reorder) ── */}
         <div>
           <div className="seclabel">Folders</div>

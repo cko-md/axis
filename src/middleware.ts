@@ -4,6 +4,14 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/auth/callback"];
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Skip auth entirely for purely public/keyless routes — avoids a DB round-trip
+  const PUBLIC_API_PREFIXES = ["/api/widgets/", "/api/literature", "/api/gallery"];
+  if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,8 +41,6 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
 
   // API routes never redirect to the login page.
   // Financial, AI, and data-mutation routes require a session — returning 401
