@@ -118,7 +118,6 @@ export function BriefingModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Briefing</h1>
-      <p className="sub">Read and watch in-app. Ranked and finite.</p>
       <div className="divider" />
       <div className="feedbar">
         <div className="feedbar-in">

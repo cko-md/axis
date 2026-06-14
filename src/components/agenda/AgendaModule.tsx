@@ -214,7 +214,6 @@ export function AgendaModule() {
     <>
       <div className="modhead"><div className="eyebrow">Daily</div><div className="rule" /></div>
       <h1 className="hero">Agenda</h1>
-      <p className="sub">Ranked by deadline, effort, and priority.</p>
       <div className="divider" />
       <div className="stat-strip">
         <div className="card stat tick"><div className="sv">{open.length}</div><div className="sk">Open</div></div>

@@ -593,16 +593,24 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       <div className="sb-top">
         <div className="mark">
           <svg viewBox="0 0 30 30" fill="none" style={{ width: 30, height: 30 }}>
+            <defs>
+              <linearGradient id="mtnGrad" x1="15" y1="24" x2="15" y2="9" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="white" stopOpacity="0.85" />
+                <stop offset="100%" stopColor="#16B8F3" />
+              </linearGradient>
+            </defs>
             <circle cx="23.5" cy="7.5" r="6" fill="rgba(255,155,60,.45)" />
             <circle cx="23.5" cy="7.5" r="2.1" fill="#FF8C3A" />
-            <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="#16B8F3" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="url(#mtnGrad)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M3 24 H27" stroke="#9aa7b8" strokeWidth="1.1" strokeLinecap="round" opacity=".7" />
           </svg>
         </div>
         {!collapsed && (
           <div className="wordmark">
-            A<span>XIS</span>
-            <sup className="tm">[CKO]</sup>
+            AXIS
+            <sup className="tm">[{profile?.name
+              ? profile.name.trim().split(/\s+/).filter(Boolean).map((p) => p[0].toUpperCase()).join("").slice(0, 3) || "CKO"
+              : "CKO"}]</sup>
           </div>
         )}
         <button type="button" className="toggle" onClick={onToggle} title="Collapse sidebar">
@@ -713,7 +721,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           </svg>
         </div>
         <div className="sp-meta">
-          <div className="sp-t">{spotify.connected ? spotify.track : "Not connected"}</div>
+          <div className="sp-t">{spotify.connected ? spotify.track : "Not Connected"}</div>
           <div className="sp-a">{spotify.connected ? spotify.artist : "Connect · Spotify"}</div>
         </div>
         <div className="sp-ctrl" onClick={(e) => e.preventDefault()}>

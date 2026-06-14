@@ -166,7 +166,6 @@ export function PeopleModule() {
         </div>
       </div>
       <h1 className="hero">People</h1>
-      <p className="sub">Mentors, collaborators, friends — and who to follow up with.</p>
       <div className="divider" />
       <div className="crm-toolbar">
         <button type="button" className="sig-go" onClick={openAdd}>+ Add Person</button>

@@ -443,22 +443,20 @@ html.dim .topbar {
 .wordmark {
   font-family: var(--disp);
   font-weight: 400;
-  font-size: 17px;
-  letter-spacing: 0.07em;
+  font-size: 14px;
+  letter-spacing: 0.22em;
   color: var(--ink);
-}
-
-.wordmark span {
-  color: var(--ink);
+  line-height: 1;
 }
 
 .wordmark .tm {
   font-family: var(--mono);
-  font-size: 7px;
-  letter-spacing: 0.1em;
+  font-size: 6.5px;
+  letter-spacing: 0.08em;
   color: var(--gold);
   vertical-align: super;
-  margin-left: 2px;
+  margin-left: 3px;
+  opacity: 0.85;
 }
 
 .toggle {

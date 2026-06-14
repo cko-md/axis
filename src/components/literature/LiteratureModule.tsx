@@ -120,7 +120,6 @@ export function LiteratureModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Literature</h1>
-      <p className="sub">Live from PubMed &amp; preprints, refreshed every few minutes.</p>
       <div className="divider" />
 
       {/* search */}

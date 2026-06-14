@@ -385,7 +385,6 @@ export function PipelineModule() {
         </button>
       </div>
       <h1 className="hero">Study Pipeline</h1>
-      <p className="sub">Your stages. Click a study to advance it.</p>
       <div className="divider" />
 
       {loading ? (
@@ -492,7 +491,6 @@ export function PipelineModule() {
       <h2 className="sec" style={{ marginBottom: 6 }}>
         Conferences, Abstracts &amp; Travel<span className="rule" /><span className="count">Feeds Pipeline</span>
       </h2>
-      <p className="sub" style={{ margin: "0 0 16px" }}>Deadlines and trips, linked to the studies they belong to.</p>
 
       {loading ? null : !signedIn ? (
         <div className="conf-grid">

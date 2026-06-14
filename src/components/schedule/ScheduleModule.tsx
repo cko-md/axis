@@ -270,7 +270,6 @@ export function ScheduleModule() {
         </div>
       </div>
       <h1 className="hero-title">Schedule</h1>
-      <p className="sub">Week, month, day — synced with your calendar.</p>
       <div className="divider" />
 
       {view === "month" ? (

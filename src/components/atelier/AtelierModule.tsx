@@ -97,7 +97,6 @@ export function AtelierModule() {
         </div>
       </div>
       <h1 className="hero">Atelier</h1>
-      <p className="sub">Passion projects and cultivation.</p>
 
       <div className="subtabbar" style={{ marginTop: 20 }}>
         <button type="button" className={`subtab${tab === "atl-lang" ? " on" : ""}`} onClick={() => setTab("atl-lang")}>

@@ -252,7 +252,6 @@ export function SignalsModule() {
         </div>
       </div>
       <h1 className="hero">Signals</h1>
-      <p className="sub">Every signal — mail, mentions, tasks, alerts — classified and routed.</p>
       <div className="divider" />
 
       <div className="capture" style={{ margin: "0 0 16px", padding: "9px 13px" }}>

@@ -8,7 +8,6 @@ export function DebriefModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Debrief</h1>
-      <p className="sub">Assembled automatically. Reflect and reset.</p>
       <div className="divider" />
       <div className="crm-toolbar">
         <button type="button" className="sig-go">+ Add Entry</button>

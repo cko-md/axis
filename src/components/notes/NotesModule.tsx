@@ -248,7 +248,6 @@ export function NotesModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Notes</h1>
-      <p className="sub">Rich text, synced to Supabase. Press “/” for blocks.</p>
       <div className="divider" />
 
       <div style={{ display: "grid", gridTemplateColumns: "170px 250px 1fr", gap: 16, alignItems: "start" }}>

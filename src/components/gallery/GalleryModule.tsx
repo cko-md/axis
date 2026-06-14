@@ -486,7 +486,6 @@ export function GalleryModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Gallery</h1>
-      <p className="sub">Museum-curated — art, poetry, and reading.</p>
       <div className="divider" />
 
       {/* Tab bar */}

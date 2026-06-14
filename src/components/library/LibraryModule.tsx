@@ -104,7 +104,6 @@ export function LibraryModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Library</h1>
-      <p className="sub">Documents, images, and video. Encrypted at rest.</p>
       <div className="divider" />
       <div className="lib-layout">
         <div>

@@ -396,7 +396,6 @@ export function VitalityModule() {
         </div>
       </div>
       <h1 className="hero">Vitality</h1>
-      <p className="sub">Train, recover, and track — across disciplines.</p>
 
       <div className="subtabbar" style={{ marginTop: 20 }}>
         {TABS.map((t) => (
@@ -608,7 +607,6 @@ export function VitalityModule() {
           Recommended Recipes<span className="rule" /><span className="count">High-Protein</span>
           <span className="rings-edit" title="Refresh recipes">↻</span>
         </h2>
-        <p className="sub" style={{ margin: "0 0 16px" }}>Sourced &amp; curated to your protocol. Tap to open; save to your Supper Club.</p>
         <div className="recipe-grid" id="nutritionRecipes">
           {RECIPES.map((r) => (
             <div className="recipe" key={r.id}>

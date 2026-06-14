@@ -8,7 +8,6 @@ export function MailModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Mail</h1>
-      <p className="sub">Read-only triage with AI summaries. Compose opens your client.</p>
       <div className="divider" />
       <div className="setup-state" data-svc="mail">
         <div className="setup-ic">

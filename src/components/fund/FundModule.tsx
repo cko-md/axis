@@ -329,12 +329,6 @@ export function FundModule() {
         </button>
       </div>
       <h1 className="hero-title">Fund</h1>
-      <p className="sub">
-        Net worth, portfolio, and cash flow — one private ledger.{" "}
-        <span className={`data-badge ${live ? "live" : "simulated"}`}>
-          {live ? "Live data" : "Simulated data"}
-        </span>
-      </p>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
         <button type="button" className="feed-manage" onClick={() => setAddOpen(true)}>

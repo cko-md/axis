@@ -154,7 +154,6 @@ export function SupperClubModule() {
         </div>
       </div>
       <h1 className="hero">Supper Club</h1>
-      <p className="sub">Saved &amp; sourced recipes, curated to your protocol.</p>
       <div className="chips" style={{ marginTop: 18 }}>
         {DIETS.map((d) => (
           <span

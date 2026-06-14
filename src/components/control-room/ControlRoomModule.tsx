@@ -345,7 +345,6 @@ export function ControlRoomModule() {
         <div className="rule" />
       </div>
       <h1 className="hero">Control Room</h1>
-      <p className="sub">The console&apos;s machinery — account, connections, data, and appearance.</p>
 
       <div className="subtabbar" style={{ marginTop: 20 }}>
         {TABS.map((t) => (
