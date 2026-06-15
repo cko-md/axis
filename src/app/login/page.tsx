@@ -286,9 +286,6 @@ function LoginForm() {
           </button>
         )}
 
-        <p className="mt-6 text-center font-mono text-[9px] text-[var(--ink-faint)]">
-          Configure Supabase env vars before signing in.
-        </p>
       </div>
     </div>
   );

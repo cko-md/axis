@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
-import { listGmailInbox } from "@/lib/mail/gmail";
+import { listGmailInbox, type MailMessage } from "@/lib/mail/gmail";
 import { listOutlookInbox } from "@/lib/mail/outlook";
 
 // GET /api/mail/inbox
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
         )
       : allAccounts;
 
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     accountsToFetch.map(async (acct) => {
       if (acct.provider === "gmail") {
         const r = await listGmailInbox(user.id, acct.mailEmail, pageToken);
@@ -40,6 +40,9 @@ export async function GET(req: NextRequest) {
       }
     }),
   );
+  const results = settled
+    .filter((r): r is PromiseFulfilledResult<MailMessage[]> => r.status === "fulfilled")
+    .map((r) => r.value);
 
   const all = results.flat().sort((a, b) => {
     const da = new Date(a.date).getTime();

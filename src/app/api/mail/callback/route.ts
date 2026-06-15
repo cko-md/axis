@@ -19,8 +19,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/mail?error=oauth", req.url));
   }
 
-  cookieStore.delete("mail_oauth_state");
-
   const supabase = await createClient();
   const {
     data: { user },
@@ -97,6 +95,9 @@ export async function GET(req: NextRequest) {
     tokenData.expires_in ?? 3600,
     mailEmail,
   );
+
+  // Delete state cookie only after successful token exchange and save
+  cookieStore.delete("mail_oauth_state");
 
   return NextResponse.redirect(new URL(`/mail?connected=${provider}`, req.url));
 }

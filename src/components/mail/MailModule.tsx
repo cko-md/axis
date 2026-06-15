@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
+import { useToast } from "@/components/ui/Toast";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -443,6 +444,7 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
 // ─── main component ───────────────────────────────────────────────────────────
 
 export function MailModule() {
+  const { toast } = useToast();
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [messages, setMessages] = useState<MailMessage[]>([]);
@@ -539,10 +541,14 @@ export function MailModule() {
   };
 
   const disconnect = async (acct: MailAccount) => {
-    await fetch(
+    const res = await fetch(
       `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
       { method: "DELETE" },
     );
+    if (!res.ok) {
+      toast("Failed to disconnect account. Try again.", "error", "Mail");
+      return;
+    }
     setAccounts((prev) =>
       prev.filter((a) => !(a.provider === acct.provider && a.mailEmail === acct.mailEmail)),
     );
