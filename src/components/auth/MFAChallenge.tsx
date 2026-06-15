@@ -81,7 +81,7 @@ export default function MFAChallenge({ factorId, challengeId, onSuccess, onCance
           value={code}
           onChange={handleChange}
           disabled={loading}
-          className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-center text-sm tracking-[0.4em] text-[var(--ink)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
+          className="min-h-[44px] rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-3 text-center text-base tracking-[0.4em] text-[var(--ink)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
         />
 
         {error && <p className="text-xs text-[var(--down)]">{error}</p>}

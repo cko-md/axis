@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
+
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(5, "15 m"),
+  prefix: "axis:forgot-password",
+});
 
 const SUCCESS_RESPONSE = {
   ok: true,
@@ -15,6 +23,12 @@ const SUCCESS_RESPONSE = {
 // call the same endpoint — if Supabase doesn't find it, nothing is sent, which
 // is the correct privacy-preserving behaviour.
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
+  const { success } = await ratelimit.limit(ip);
+  if (!success) {
+    return NextResponse.json(SUCCESS_RESPONSE); // opaque — don't reveal rate limiting
+  }
+
   let body: { email?: unknown; useRecovery?: unknown };
   try {
     body = await req.json();

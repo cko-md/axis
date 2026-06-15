@@ -10,14 +10,16 @@ export default function BiometricGate() {
   const { isSupported, register } = usePasskey();
 
   useEffect(() => {
+    let alive = true;
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return;
+      if (!alive || !user) return;
       fetch('/api/auth/settings')
         .then((r) => r.json())
-        .then((s) => { if (s && !s.biometric_prompted) setShow(true); })
+        .then((s) => { if (alive && s && !s.biometric_prompted) setShow(true); })
         .catch(() => {});
     });
+    return () => { alive = false; };
   }, []);
 
   if (!show) return null;

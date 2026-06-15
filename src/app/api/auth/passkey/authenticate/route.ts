@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { decrypt } from "@/lib/crypto";
+
+const verifyRatelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, "10 m"),
+  prefix: "axis:passkey-verify",
+});
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
@@ -47,6 +55,12 @@ export async function POST(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action");
   if (action !== "verify") {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  }
+
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
+  const { success } = await verifyRatelimit.limit(ip);
+  if (!success) {
+    return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
   }
 
   let body: { response: AuthenticationResponseJSON; email?: string };
