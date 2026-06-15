@@ -126,14 +126,14 @@ function MessageRow({
         width: "100%",
         padding: "12px 16px",
         textAlign: "left",
-        background: selected ? "var(--surface-hover, rgba(255,255,255,0.06))" : "transparent",
+        background: selected ? "var(--glass)" : "transparent",
         border: "none",
-        borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))",
+        borderBottom: "1px solid var(--line)",
         cursor: "pointer",
         transition: "background 0.15s",
       }}
       onMouseEnter={(e) => {
-        if (!selected) (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-hover, rgba(255,255,255,0.04))";
+        if (!selected) (e.currentTarget as HTMLButtonElement).style.background = "var(--glass)";
       }}
       onMouseLeave={(e) => {
         if (!selected) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
@@ -147,7 +147,7 @@ function MessageRow({
           width: 7,
           height: 7,
           borderRadius: "50%",
-          background: msg.isUnread ? "var(--accent, #60a5fa)" : "transparent",
+          background: msg.isUnread ? "var(--accent)" : "transparent",
           marginTop: 5,
           flexShrink: 0,
           alignSelf: "start",
@@ -159,7 +159,7 @@ function MessageRow({
           style={{
             fontSize: "13px",
             fontWeight: msg.isUnread ? 600 : 400,
-            color: "var(--text-primary, #fff)",
+            color: "var(--ink)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -171,7 +171,7 @@ function MessageRow({
           style={{
             fontSize: "12px",
             fontWeight: msg.isUnread ? 500 : 400,
-            color: msg.isUnread ? "var(--text-primary, #fff)" : "var(--text-secondary, rgba(255,255,255,0.5))",
+            color: msg.isUnread ? "var(--ink)" : "var(--ink-dim)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -182,7 +182,7 @@ function MessageRow({
         <span
           style={{
             fontSize: "12px",
-            color: "var(--text-secondary, rgba(255,255,255,0.4))",
+            color: "var(--ink-dim)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -203,7 +203,7 @@ function MessageRow({
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: "11px", color: "var(--text-secondary, rgba(255,255,255,0.4))", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "11px", color: "var(--ink-dim)", whiteSpace: "nowrap" }}>
           {formatDate(msg.date)}
         </span>
         <ProviderBadge provider={msg.provider} />
@@ -262,7 +262,7 @@ function MessagePanel({
           alignItems: "center",
           gap: 10,
           padding: "12px 16px",
-          borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))",
+          borderBottom: "1px solid var(--line)",
           flexShrink: 0,
         }}
       >
@@ -272,7 +272,7 @@ function MessagePanel({
           style={{
             background: "none",
             border: "none",
-            color: "var(--text-secondary, rgba(255,255,255,0.5))",
+            color: "var(--ink-dim)",
             cursor: "pointer",
             padding: "4px 0",
             fontSize: "13px",
@@ -290,10 +290,10 @@ function MessagePanel({
           onClick={summarize}
           disabled={summarizing}
           style={{
-            background: "var(--surface-hover, rgba(255,255,255,0.06))",
-            border: "1px solid var(--border, rgba(255,255,255,0.1))",
+            background: "var(--glass)",
+            border: "1px solid var(--line)",
             borderRadius: 6,
-            color: "var(--text-primary, #fff)",
+            color: "var(--ink)",
             fontSize: "12px",
             padding: "5px 10px",
             cursor: summarizing ? "default" : "pointer",
@@ -310,9 +310,9 @@ function MessagePanel({
           style={{
             padding: "8px 16px",
             background: "var(--accent-subtle, rgba(96,165,250,0.08))",
-            borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))",
+            borderBottom: "1px solid var(--line)",
             fontSize: "12px",
-            color: "var(--text-primary, #fff)",
+            color: "var(--ink)",
           }}
         >
           {summary}
@@ -320,14 +320,14 @@ function MessagePanel({
       )}
 
       {/* Message meta */}
-      <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))", flexShrink: 0 }}>
-        <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary, #fff)", marginBottom: 8 }}>
+      <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+        <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>
           {message.subject}
         </div>
-        <div style={{ fontSize: "12px", color: "var(--text-secondary, rgba(255,255,255,0.5))" }}>
-          <span style={{ color: "var(--text-primary, #fff)" }}>From:</span> {message.from}
+        <div style={{ fontSize: "12px", color: "var(--ink-dim)" }}>
+          <span style={{ color: "var(--ink)" }}>From:</span> {message.from}
         </div>
-        <div style={{ fontSize: "12px", color: "var(--text-secondary, rgba(255,255,255,0.5))", marginTop: 2 }}>
+        <div style={{ fontSize: "12px", color: "var(--ink-dim)", marginTop: 2 }}>
           {new Date(message.date).toLocaleString()}
         </div>
       </div>
@@ -336,7 +336,7 @@ function MessagePanel({
       <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
         {message.bodyIsHtml ? (
           <div
-            style={{ fontSize: "13px", color: "var(--text-primary, #fff)", lineHeight: 1.6 }}
+            style={{ fontSize: "13px", color: "var(--ink)", lineHeight: 1.6 }}
             dangerouslySetInnerHTML={{ __html: message.body }}
           />
         ) : (
@@ -344,7 +344,7 @@ function MessagePanel({
             style={{
               fontFamily: "inherit",
               fontSize: "13px",
-              color: "var(--text-primary, #fff)",
+              color: "var(--ink)",
               lineHeight: 1.7,
               whiteSpace: "pre-wrap",
               margin: 0,
@@ -369,7 +369,7 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
         right: 0,
         zIndex: 20,
         background: "var(--surface, #181818)",
-        border: "1px solid var(--border, rgba(255,255,255,0.1))",
+        border: "1px solid var(--line)",
         borderRadius: 8,
         padding: "6px",
         display: "flex",
@@ -390,7 +390,7 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
           borderRadius: 5,
           background: "none",
           border: "none",
-          color: "var(--text-primary, #fff)",
+          color: "var(--ink)",
           fontSize: "13px",
           cursor: "pointer",
           textAlign: "left",
@@ -411,7 +411,7 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
           borderRadius: 5,
           background: "none",
           border: "none",
-          color: "var(--text-primary, #fff)",
+          color: "var(--ink)",
           fontSize: "13px",
           cursor: "pointer",
           textAlign: "left",
@@ -429,7 +429,7 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
           borderRadius: 5,
           background: "none",
           border: "none",
-          color: "var(--text-secondary, rgba(255,255,255,0.4))",
+          color: "var(--ink-dim)",
           fontSize: "12px",
           cursor: "pointer",
           textAlign: "center",
@@ -613,7 +613,7 @@ export function MailModule() {
     return (
       <>
         <div className="divider" />
-        <div style={{ padding: 32, textAlign: "center", color: "var(--text-secondary, rgba(255,255,255,0.4))", fontSize: "13px" }}>
+        <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
           Loading…
         </div>
       </>
@@ -632,7 +632,7 @@ export function MailModule() {
             alignItems: "center",
             gap: 6,
             padding: "8px 16px",
-            borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))",
+            borderBottom: "1px solid var(--line)",
             flexShrink: 0,
             flexWrap: "wrap",
             rowGap: 6,
@@ -641,7 +641,7 @@ export function MailModule() {
           {/* Account filter tabs */}
           <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, flexWrap: "wrap" }}>
             {/* "Inbox" label + unread badge */}
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary, #fff)", marginRight: 4 }}>
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)", marginRight: 4 }}>
               Inbox
               {unreadCount > 0 && (
                 <span
@@ -649,7 +649,7 @@ export function MailModule() {
                     marginLeft: 6,
                     fontSize: "11px",
                     fontWeight: 700,
-                    background: "var(--accent, #60a5fa)",
+                    background: "var(--accent)",
                     color: "#000",
                     borderRadius: 10,
                     padding: "1px 6px",
@@ -670,13 +670,13 @@ export function MailModule() {
                 padding: "3px 8px",
                 borderRadius: 4,
                 background: accountFilter === "all"
-                  ? "var(--surface-hover, rgba(255,255,255,0.1))"
+                  ? "var(--glass)"
                   : "transparent",
                 border: "1px solid",
                 borderColor: accountFilter === "all"
-                  ? "var(--border-active, rgba(255,255,255,0.2))"
-                  : "var(--border, rgba(255,255,255,0.08))",
-                color: "var(--text-primary, #fff)",
+                  ? "var(--line-strong)"
+                  : "var(--line)",
+                color: "var(--ink)",
                 cursor: "pointer",
               }}
             >
@@ -713,10 +713,10 @@ export function MailModule() {
                         ? acct.provider === "gmail"
                           ? "rgba(234,67,53,0.3)"
                           : "rgba(0,120,212,0.3)"
-                        : "var(--border, rgba(255,255,255,0.08))",
+                        : "var(--line)",
                       color: isActive
                         ? acct.provider === "gmail" ? "#ea4335" : "#0078d4"
-                        : "var(--text-secondary, rgba(255,255,255,0.6))",
+                        : "var(--ink-dim)",
                       cursor: "pointer",
                     }}
                   >
@@ -731,7 +731,7 @@ export function MailModule() {
                     style={{
                       background: "none",
                       border: "none",
-                      color: "var(--text-secondary, rgba(255,255,255,0.3))",
+                      color: "var(--ink-faint)",
                       cursor: "pointer",
                       fontSize: "12px",
                       padding: "0 2px",
@@ -750,7 +750,7 @@ export function MailModule() {
             style={{
               display: "flex",
               borderRadius: 4,
-              border: "1px solid var(--border, rgba(255,255,255,0.1))",
+              border: "1px solid var(--line)",
               overflow: "hidden",
               flexShrink: 0,
             }}
@@ -765,10 +765,10 @@ export function MailModule() {
                   fontWeight: sortMode === mode ? 600 : 400,
                   padding: "3px 8px",
                   background: sortMode === mode
-                    ? "var(--surface-hover, rgba(255,255,255,0.08))"
+                    ? "var(--glass)"
                     : "transparent",
                   border: "none",
-                  color: sortMode === mode ? "var(--text-primary, #fff)" : "var(--text-secondary, rgba(255,255,255,0.4))",
+                  color: sortMode === mode ? "var(--ink)" : "var(--ink-dim)",
                   cursor: "pointer",
                   textTransform: "capitalize",
                 }}
@@ -788,8 +788,8 @@ export function MailModule() {
                 padding: "3px 8px",
                 borderRadius: 4,
                 background: "transparent",
-                border: "1px solid var(--border, rgba(255,255,255,0.1))",
-                color: "var(--text-secondary, rgba(255,255,255,0.5))",
+                border: "1px solid var(--line)",
+                color: "var(--ink-dim)",
                 cursor: "pointer",
               }}
             >
@@ -806,7 +806,7 @@ export function MailModule() {
             style={{
               background: "none",
               border: "none",
-              color: "var(--text-secondary, rgba(255,255,255,0.4))",
+              color: "var(--ink-dim)",
               cursor: loading ? "default" : "pointer",
               fontSize: "14px",
               padding: "2px 4px",
@@ -822,11 +822,11 @@ export function MailModule() {
         {/* Message list */}
         <div style={{ flex: 1, overflow: "auto" }}>
           {loading && visibleMessages.length === 0 ? (
-            <div style={{ padding: 32, textAlign: "center", color: "var(--text-secondary, rgba(255,255,255,0.4))", fontSize: "13px" }}>
+            <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
               Loading…
             </div>
           ) : visibleMessages.length === 0 ? (
-            <div style={{ padding: 32, textAlign: "center", color: "var(--text-secondary, rgba(255,255,255,0.4))", fontSize: "13px" }}>
+            <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
               Inbox is empty.
             </div>
           ) : (
@@ -853,7 +853,7 @@ export function MailModule() {
               justifyContent: "center",
               zIndex: 10,
               fontSize: "13px",
-              color: "var(--text-secondary, rgba(255,255,255,0.4))",
+              color: "var(--ink-dim)",
             }}
           >
             Loading message…
