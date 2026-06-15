@@ -547,7 +547,7 @@ export function ConsoleModule() {
     <DraggableBlock key="widgets" id="widgets">
       <div style={{ paddingTop: 4 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginBottom: "var(--space-2)" }}>
-          <button type="button" className="feed-manage" onClick={refreshAll}>Refresh</button>
+          <button type="button" className="feed-manage" onClick={() => { refreshAll(); }}>Refresh</button>
           <button
             type="button"
             className="feed-manage"

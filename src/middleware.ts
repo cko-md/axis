@@ -7,7 +7,14 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Skip auth entirely for purely public/keyless routes — avoids a DB round-trip
-  const PUBLIC_API_PREFIXES = ["/api/widgets/", "/api/literature", "/api/gallery"];
+  const PUBLIC_API_PREFIXES = [
+    "/api/widgets/",
+    "/api/literature",
+    "/api/gallery",
+    // Auth routes that don't require a session (pre-login flows)
+    "/api/auth/forgot-password",
+    "/api/auth/passkey/authenticate", // login-time: no session yet
+  ];
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next({ request });
   }
@@ -55,6 +62,13 @@ export async function middleware(request: NextRequest) {
       "/api/signals-ai",
       "/api/strava",
       "/api/profile",
+      "/api/auth/passkey/register",
+      "/api/auth/passkey/token",
+      "/api/auth/passkey/list",
+      "/api/auth/passkey/delete",
+      "/api/auth/settings",
+      "/api/auth/mfa",
+      "/api/auth/account",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
     if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {

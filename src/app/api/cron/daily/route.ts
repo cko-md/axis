@@ -28,5 +28,11 @@ export async function GET(req: NextRequest) {
     ? { error: signalsError.message }
     : { deleted: deletedCount ?? 0 };
 
+  // 3. Clean up expired WebAuthn challenges
+  const { data: challengesDeleted, error: challengesError } = await supabase.rpc("cleanup_expired_challenges");
+  results.expired_challenges_deleted = challengesError
+    ? { error: challengesError.message }
+    : { deleted: challengesDeleted ?? 0 };
+
   return NextResponse.json({ ok: true, message: "Maintenance complete", results });
 }

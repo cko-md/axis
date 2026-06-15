@@ -8,12 +8,14 @@ import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
+import { MFASetup } from "@/components/auth/MFASetup";
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "connections", label: "Connections" },
   { id: "data", label: "Data & Privacy" },
   { id: "appearance", label: "Appearance" },
+  { id: "security", label: "Security" },
   { id: "activity", label: "Activity" },
 ] as const;
 
@@ -97,6 +99,30 @@ export function ControlRoomModule() {
   // Modals -----------------------------------------------------------------
   const [clearOpen, setClearOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
+
+  // Auth settings (security tab) ------------------------------------------
+  const [authSettings, setAuthSettings] = useState<{
+    passkey_enabled: boolean;
+    biometric_prompted: boolean;
+    twofa_enabled: boolean;
+    twofa_method: string | null;
+    recovery_email: string | null;
+    mfa_factors: { id: string; type: string; status: string }[];
+  } | null>(null);
+  const [passkeys, setPasskeys] = useState<{ id: string; name: string; device_type: string; created_at: string; last_used_at: string | null }[]>([]);
+  const [securityLoading, setSecurityLoading] = useState(false);
+
+  // Account change modals
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
+  const [mfaSetupOpen, setMfaSetupOpen] = useState(false);
+  const [recoveryEmailOpen, setRecoveryEmailOpen] = useState(false);
+
+  // Form values for account changes
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
 
   // Count of axis-* keys cached in this browser (recomputed when the tab changes).
   const [localItemCount, setLocalItemCount] = useState(0);
@@ -215,6 +241,25 @@ export function ControlRoomModule() {
     loadActivity();
   }, [loadActivity]);
 
+  // --- Load security settings when security tab is active ----------------
+  useEffect(() => {
+    if (tab !== "security") return;
+    let alive = true;
+    setSecurityLoading(true);
+    Promise.all([
+      fetch("/api/auth/settings").then((r) => r.json()),
+      fetch("/api/auth/passkey/list").then((r) => r.json()).catch(() => []),
+    ]).then(([settings, pkList]) => {
+      if (!alive) return;
+      setAuthSettings(settings);
+      setPasskeys(Array.isArray(pkList) ? pkList : (pkList.passkeys ?? []));
+      setSecurityLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [tab]);
+
   // --- Actions ------------------------------------------------------------
   const connectSpotify = () => {
     // OAuth redirect lives at /api/spotify/auth; it 503s cleanly if unconfigured.
@@ -266,6 +311,84 @@ export function ControlRoomModule() {
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
+  };
+
+  const deletePasskey = async (passkeyId: string) => {
+    const res = await fetch("/api/auth/passkey/delete", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passkeyId }),
+    });
+    if (res.ok) {
+      setPasskeys((prev) => prev.filter((p) => p.id !== passkeyId));
+      toast("Passkey removed", "success", "Security");
+      if (passkeys.length <= 1) setAuthSettings((prev) => (prev ? { ...prev, passkey_enabled: false } : prev));
+    } else {
+      toast("Failed to remove passkey", "error", "Security");
+    }
+  };
+
+  const unenrollMFA = async () => {
+    const factor = authSettings?.mfa_factors?.find((f) => f.type === "totp");
+    if (!factor) return;
+    const res = await fetch("/api/auth/mfa/unenroll", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ factorId: factor.id }),
+    });
+    if (res.ok) {
+      setAuthSettings((prev) => (prev ? { ...prev, twofa_enabled: false, mfa_factors: [] } : prev));
+      toast("2FA disabled", "success", "Security");
+    }
+  };
+
+  const changePassword = async () => {
+    if (newPassword !== newPasswordConfirm) { toast("Passwords don't match", "error", "Security"); return; }
+    if (newPassword.length < 8) { toast("Password must be at least 8 characters", "error", "Security"); return; }
+    const res = await fetch("/api/auth/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "change_password", password: newPassword }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setChangePasswordOpen(false);
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      toast("Password updated", "success", "Security");
+    } else {
+      toast(data.error ?? "Update failed", "error", "Security");
+    }
+  };
+
+  const changeEmail = async () => {
+    if (!newEmail) return;
+    const res = await fetch("/api/auth/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "change_email", email: newEmail }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setChangeEmailOpen(false);
+      setNewEmail("");
+      toast("Confirmation sent to " + newEmail, "success", "Security");
+    } else {
+      toast(data.error ?? "Update failed", "error", "Security");
+    }
+  };
+
+  const saveRecoveryEmail = async () => {
+    const res = await fetch("/api/auth/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recovery_email: recoveryEmail || null }),
+    });
+    if (res.ok) {
+      setRecoveryEmailOpen(false);
+      setAuthSettings((prev) => (prev ? { ...prev, recovery_email: recoveryEmail || null } : prev));
+      toast("Recovery email saved", "success", "Security");
+    }
   };
 
   // --- Derived ------------------------------------------------------------
@@ -628,6 +751,132 @@ export function ControlRoomModule() {
         </div>
       </div>
 
+      {/* --------------------------------------------------------------- SECURITY */}
+      <div className={tab === "security" ? "subpanel on" : "subpanel"}>
+        {securityLoading ? (
+          <p className={styles.note}>Loading security settings…</p>
+        ) : (
+          <div className={styles.grid2}>
+            {/* Passkeys */}
+            <div className="card tick">
+              <h2 className="sec">
+                Passkeys<span className="rule" />
+              </h2>
+              <p className={styles.note}>
+                Sign in with Face ID, Touch ID, or Windows Hello — no password needed.
+              </p>
+              {passkeys.length === 0 ? (
+                <p className={styles.note} style={{ color: "var(--ink-dim)" }}>No passkeys registered.</p>
+              ) : (
+                passkeys.map((pk) => (
+                  <div key={pk.id} className={styles.svcRow}>
+                    <div className={styles.svcBody}>
+                      <div className={styles.svcName}>{pk.name}</div>
+                      <div className={styles.svcDesc}>
+                        {pk.device_type === "platform" ? "This device" : "External key"}
+                        {pk.last_used_at ? ` · last used ${relTime(pk.last_used_at)}` : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.dangerBtn}
+                      style={{ fontSize: 11 }}
+                      onClick={() => deletePasskey(pk.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+              <button
+                type="button"
+                className="savebtn"
+                style={{ marginTop: 12 }}
+                onClick={() => {
+                  window.location.href = "/api/auth/passkey/register?action=options";
+                }}
+              >
+                Add passkey
+              </button>
+            </div>
+
+            {/* 2FA */}
+            <div className="card">
+              <h2 className="sec">
+                Two-Factor Auth<span className="rule" />
+              </h2>
+              <p className={styles.note}>
+                Require a code from your authenticator app on each sign-in.
+              </p>
+              <div className={styles.kv}>
+                <span className={styles.kvKey}>Status</span>
+                <span className={styles.kvVal} style={{ color: authSettings?.twofa_enabled ? "var(--up)" : "var(--ink-dim)" }}>
+                  {authSettings?.twofa_enabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              {authSettings?.twofa_enabled ? (
+                <button type="button" className={styles.dangerBtn} style={{ marginTop: 12 }} onClick={unenrollMFA}>
+                  Disable 2FA
+                </button>
+              ) : (
+                <button type="button" className="savebtn" style={{ marginTop: 12 }} onClick={() => setMfaSetupOpen(true)}>
+                  Set up 2FA
+                </button>
+              )}
+              {authSettings?.passkey_enabled && (
+                <p className={styles.note} style={{ marginTop: 8 }}>
+                  2FA is skipped when signing in with a passkey.
+                </p>
+              )}
+            </div>
+
+            {/* Account */}
+            <div className="card tick">
+              <h2 className="sec">
+                Account<span className="rule" />
+              </h2>
+              <div className={styles.kv}>
+                <span className={styles.kvKey}>Email</span>
+                <span className={styles.kvVal}>{user?.email}</span>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                <button type="button" className="savebtn" onClick={() => setChangeEmailOpen(true)}>
+                  Change email
+                </button>
+                <button type="button" className="savebtn" onClick={() => setChangePasswordOpen(true)}>
+                  Change password
+                </button>
+              </div>
+            </div>
+
+            {/* Recovery */}
+            <div className="card">
+              <h2 className="sec">
+                Recovery<span className="rule" />
+              </h2>
+              <p className={styles.note}>
+                A secondary email used to reset your password if you lose access to your primary.
+              </p>
+              <div className={styles.kv}>
+                <span className={styles.kvKey}>Recovery email</span>
+                <span className={styles.kvVal}>{authSettings?.recovery_email ?? "—"}</span>
+              </div>
+              <button
+                type="button"
+                className="savebtn"
+                style={{ marginTop: 12 }}
+                onClick={() => {
+                  setRecoveryEmail(authSettings?.recovery_email ?? "");
+                  setRecoveryEmailOpen(true);
+                }}
+              >
+                {authSettings?.recovery_email ? "Change recovery email" : "Add recovery email"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ---------------------------------------------------------------- ACTIVITY */}
       <div className={tab === "activity" ? "subpanel on" : "subpanel"}>
         <div className="card">
@@ -687,6 +936,103 @@ export function ControlRoomModule() {
         <p style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.6 }}>
           End your session on this device. You can sign back in at any time.
         </p>
+      </Modal>
+
+      {/* Change password */}
+      <Modal
+        open={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+        title="Change password"
+        footer={
+          <button type="button" className="savebtn" onClick={changePassword}>
+            Update password
+          </button>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input
+            type="password"
+            placeholder="New password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+          />
+          <input
+            type="password"
+            placeholder="Confirm new password"
+            value={newPasswordConfirm}
+            onChange={(e) => setNewPasswordConfirm(e.target.value)}
+            className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+      </Modal>
+
+      {/* Change email */}
+      <Modal
+        open={changeEmailOpen}
+        onClose={() => setChangeEmailOpen(false)}
+        title="Change email"
+        footer={
+          <button type="button" className="savebtn" onClick={changeEmail}>
+            Send confirmation
+          </button>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <p style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.6 }}>
+            A confirmation link will be sent to your new email address. Your email won&apos;t change until you click
+            the link.
+          </p>
+          <input
+            type="email"
+            placeholder="New email address"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+      </Modal>
+
+      {/* Recovery email */}
+      <Modal
+        open={recoveryEmailOpen}
+        onClose={() => setRecoveryEmailOpen(false)}
+        title="Recovery email"
+        footer={
+          <button type="button" className="savebtn" onClick={saveRecoveryEmail}>
+            Save
+          </button>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <p style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.6 }}>
+            Used to reset your password if you lose access to your primary email. This does not change your sign-in
+            email.
+          </p>
+          <input
+            type="email"
+            placeholder="Recovery email address"
+            value={recoveryEmail}
+            onChange={(e) => setRecoveryEmail(e.target.value)}
+            className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+      </Modal>
+
+      {/* MFA setup */}
+      <Modal
+        open={mfaSetupOpen}
+        onClose={() => setMfaSetupOpen(false)}
+        title="Set up two-factor authentication"
+      >
+        <MFASetup
+          onSuccess={() => {
+            setMfaSetupOpen(false);
+            setAuthSettings((prev) => (prev ? { ...prev, twofa_enabled: true } : prev));
+            toast("2FA enabled", "success", "Security");
+          }}
+          onClose={() => setMfaSetupOpen(false)}
+        />
       </Modal>
     </>
   );
