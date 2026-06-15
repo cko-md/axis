@@ -47,7 +47,7 @@ export function usePasskey() {
       const verifyRes = await fetch('/api/auth/passkey/register?action=verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(attResp),
+        body: JSON.stringify({ response: attResp, ...(deviceName ? { deviceName } : {}) }),
       });
       if (!verifyRes.ok) {
         const body = await verifyRes.json().catch(() => ({}));
@@ -89,7 +89,7 @@ export function usePasskey() {
       const verifyRes = await fetch('/api/auth/passkey/authenticate?action=verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(authResp),
+        body: JSON.stringify({ response: authResp }),
       });
       if (!verifyRes.ok) {
         const body = await verifyRes.json().catch(() => ({}));

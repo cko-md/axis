@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
 import { WebViewer } from "@/components/ui/WebViewer";
+import BiometricGate from "@/components/auth/BiometricGate";
 import "./globals.css";
 
 const archivo = Archivo({
@@ -82,7 +83,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${playfairDisplay.variable} ${spaceGrotesk.variable} ${inter.variable} ${ibmPlexSans.variable}`}>
         <WebViewerProvider>
           <ThemeProvider>
-            <ToastProvider>{children}</ToastProvider>
+            <ToastProvider>
+              {children}
+              <BiometricGate />
+            </ToastProvider>
           </ThemeProvider>
           <WebViewer />
         </WebViewerProvider>
