@@ -92,6 +92,7 @@ export function ControlRoomModule() {
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [brokerStatus, setBrokerStatus] = useState<ServiceStatus | null>(null);
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
+  const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -200,6 +201,12 @@ export function ControlRoomModule() {
         if (alive) setSpotifyConnected(!!spJson.connected);
       } catch {
         if (alive) setSpotifyConnected(false);
+      }
+      try {
+        const cal = await fetch("/api/calendar/status", { cache: "no-store" });
+        if (alive) setCalendarStatus(await cal.json());
+      } catch {
+        if (alive) setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
       }
     })();
     return () => {
@@ -459,6 +466,34 @@ export function ControlRoomModule() {
       desc: "Account balances & links",
       state: plaidStatus ? (plaidStatus.configured ? "on" : "off") : "pending",
       detail: plaidStatus ? (plaidStatus.configured ? "Configured" : "Not configured") : "Checking…",
+    },
+    {
+      name: "Google Calendar",
+      desc: "Sync schedule events to Google Calendar",
+      state: calendarStatus === null ? "pending" : calendarStatus.google ? "on" : "off",
+      detail: calendarStatus === null ? "Checking…" : calendarStatus.google ? (calendarStatus.googleEmail ?? "Connected") : "Not connected",
+      action: calendarStatus && !calendarStatus.google
+        ? { label: "Connect", onClick: () => { window.location.href = "/api/calendar/connect?provider=google"; } }
+        : calendarStatus?.google
+        ? { label: "Disconnect", onClick: async () => {
+            await fetch("/api/calendar/disconnect?provider=google", { method: "DELETE" });
+            setCalendarStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
+          }}
+        : undefined,
+    },
+    {
+      name: "Outlook Calendar",
+      desc: "Sync schedule events to Outlook / Microsoft 365",
+      state: calendarStatus === null ? "pending" : calendarStatus.outlook ? "on" : "off",
+      detail: calendarStatus === null ? "Checking…" : calendarStatus.outlook ? (calendarStatus.outlookEmail ?? "Connected") : "Not connected",
+      action: calendarStatus && !calendarStatus.outlook
+        ? { label: "Connect", onClick: () => { window.location.href = "/api/calendar/connect?provider=outlook"; } }
+        : calendarStatus?.outlook
+        ? { label: "Disconnect", onClick: async () => {
+            await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
+            setCalendarStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
+          }}
+        : undefined,
     },
   ];
 

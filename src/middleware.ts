@@ -14,6 +14,7 @@ export async function middleware(request: NextRequest) {
     // Auth routes that don't require a session (pre-login flows)
     "/api/auth/forgot-password",
     "/api/auth/passkey/authenticate", // login-time: no session yet
+    "/api/calendar/callback",         // OAuth redirect from Google/Microsoft
   ];
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next({ request });
@@ -69,6 +70,7 @@ export async function middleware(request: NextRequest) {
       "/api/auth/settings",
       "/api/auth/mfa",
       "/api/auth/account",
+      "/api/calendar",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
     if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {

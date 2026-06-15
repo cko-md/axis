@@ -89,6 +89,7 @@ export function ScheduleModule() {
   const [view, setView] = useState<"week" | "month" | "day">("week");
   const [signedIn, setSignedIn] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ScheduleEvent | null>(null);
+  const [calStatus, setCalStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
   const todayIdx = useMemo(() => {
@@ -132,6 +133,10 @@ export function ScheduleModule() {
 
   useEffect(() => {
     load();
+    fetch("/api/calendar/status")
+      .then((r) => r.json())
+      .then((s) => setCalStatus(s))
+      .catch(() => {});
   }, [load]);
 
   const monthCells = useMemo(() => {
@@ -215,26 +220,32 @@ export function ScheduleModule() {
       return;
     }
 
-    const { error } = await supabase.from("schedule_events").insert({
-      user_id: user.id,
-      title: form.title,
-      start_at: start.toISOString(),
-      end_at: end.toISOString(),
-      color_class: form.color,
-    });
+    const { data: inserted, error } = await supabase
+      .from("schedule_events")
+      .insert({
+        user_id: user.id,
+        title: form.title,
+        start_at: start.toISOString(),
+        end_at: end.toISOString(),
+        color_class: form.color,
+      })
+      .select("id")
+      .single();
 
-    if (error) toast(error.message, "error", "Schedule");
-    else {
-      toast("Event added.", "success", "Schedule");
-      setModalOpen(false);
-      setForm({
-        title: "",
-        date: new Date().toISOString().slice(0, 10),
-        startHour: "9",
-        endHour: "10",
-        color: "a",
-      });
-      load();
+    if (error) { toast(error.message, "error", "Schedule"); return; }
+
+    toast("Event added.", "success", "Schedule");
+    setModalOpen(false);
+    setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a" });
+    load();
+
+    // Fire-and-forget calendar sync if any provider is connected
+    if (inserted && (calStatus?.google || calStatus?.outlook)) {
+      fetch("/api/calendar/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: inserted.id, title: form.title, start_at: start.toISOString(), end_at: end.toISOString() }),
+      }).catch(() => {});
     }
   };
 
@@ -243,6 +254,10 @@ export function ScheduleModule() {
     if (id.startsWith("seed-")) {
       setEvents((e) => e.filter((x) => x.id !== id));
       return;
+    }
+    // Remove from external calendars before deleting locally
+    if (calStatus?.google || calStatus?.outlook) {
+      fetch(`/api/calendar/event/${id}`, { method: "DELETE" }).catch(() => {});
     }
     const { error } = await supabase.from("schedule_events").delete().eq("id", id);
     if (error) toast(error.message, "error", "Schedule");
@@ -254,13 +269,59 @@ export function ScheduleModule() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-        <button type="button" className="selectbox" style={{ background: "none" }} onClick={() => {}}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" />
-          </svg>
-          Synced: Google Calendar
-        </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+        {/* Google Calendar */}
+        {calStatus?.google ? (
+          <button
+            type="button"
+            className="selectbox"
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              await fetch("/api/calendar/disconnect?provider=google", { method: "DELETE" });
+              setCalStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
+              toast("Google Calendar disconnected", "info", "Schedule");
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            {calStatus.googleEmail ?? "Google Calendar"} ✓
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="selectbox"
+            style={{ background: "none" }}
+            onClick={() => { window.location.href = "/api/calendar/connect?provider=google"; }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            Connect Google Calendar
+          </button>
+        )}
+        {/* Outlook Calendar */}
+        {calStatus?.outlook ? (
+          <button
+            type="button"
+            className="selectbox"
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
+              setCalStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
+              toast("Outlook Calendar disconnected", "info", "Schedule");
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            {calStatus.outlookEmail ?? "Outlook"} ✓
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="selectbox"
+            style={{ background: "none" }}
+            onClick={() => { window.location.href = "/api/calendar/connect?provider=outlook"; }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            Connect Outlook
+          </button>
+        )}
         <div className="vtoggle">
           <button type="button" className={view === "week" ? "on" : ""} onClick={() => setView("week")}>WEEK</button>
           <button type="button" className={view === "month" ? "on" : ""} onClick={() => setView("month")}>MONTH</button>
