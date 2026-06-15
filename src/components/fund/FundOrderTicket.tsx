@@ -188,7 +188,7 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
         <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 9, lineHeight: 1.5 }}>
           {brokerageConfigured
             ? "Routes through Public.com; every fill is captured to your ledger."
-            : "No brokerage connected — captures to your ledger only. Add PUBLIC_API_KEY to route live."}
+            : "No brokerage connected — captures to your ledger only. Add APP_PUBLIC_API_KEY to route live."}
         </div>
       </Card>
     </div>

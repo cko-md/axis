@@ -20,6 +20,6 @@ export async function GET() {
     provider: "public",
     message: creds
       ? "Brokerage (Public.com) is configured server-side."
-      : "Add PUBLIC_API_KEY to enable order routing through Public.com. Orders are logged locally until then.",
+      : "Add APP_PUBLIC_API_KEY to enable order routing through Public.com. Orders are logged locally until then.",
   });
 }
