@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
+import { usePasskey } from "@/hooks/usePasskey";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -111,6 +112,8 @@ export function ControlRoomModule() {
   } | null>(null);
   const [passkeys, setPasskeys] = useState<{ id: string; name: string; device_type: string; created_at: string; last_used_at: string | null }[]>([]);
   const [securityLoading, setSecurityLoading] = useState(false);
+  const [passkeyRegistering, setPasskeyRegistering] = useState(false);
+  const { register: registerPasskey } = usePasskey();
 
   // Account change modals
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
@@ -792,11 +795,22 @@ export function ControlRoomModule() {
                 type="button"
                 className="savebtn"
                 style={{ marginTop: 12 }}
-                onClick={() => {
-                  window.location.href = "/api/auth/passkey/register?action=options";
+                disabled={passkeyRegistering}
+                onClick={async () => {
+                  setPasskeyRegistering(true);
+                  const result = await registerPasskey();
+                  setPasskeyRegistering(false);
+                  if (!result.ok) {
+                    toast(result.error ?? "Registration failed", "error", "Security");
+                    return;
+                  }
+                  toast("Passkey registered", "success", "Security");
+                  fetch("/api/auth/passkey/list")
+                    .then((r) => r.json())
+                    .then((list) => setPasskeys(Array.isArray(list) ? list : (list.passkeys ?? [])));
                 }}
               >
-                Add passkey
+                {passkeyRegistering ? "Waiting for device…" : "Add passkey"}
               </button>
             </div>
 
