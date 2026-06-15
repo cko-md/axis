@@ -93,6 +93,7 @@ export function ControlRoomModule() {
   const [brokerStatus, setBrokerStatus] = useState<ServiceStatus | null>(null);
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
   const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [mailStatus, setMailStatus] = useState<{ gmail: boolean; gmailEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -207,6 +208,12 @@ export function ControlRoomModule() {
         if (alive) setCalendarStatus(await cal.json());
       } catch {
         if (alive) setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
+      }
+      try {
+        const mail = await fetch("/api/mail/status", { cache: "no-store" });
+        if (alive) setMailStatus(await mail.json());
+      } catch {
+        if (alive) setMailStatus({ gmail: false, gmailEmail: null, outlook: false, outlookEmail: null });
       }
     })();
     return () => {
@@ -492,6 +499,34 @@ export function ControlRoomModule() {
         ? { label: "Disconnect", onClick: async () => {
             await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
             setCalendarStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
+          }}
+        : undefined,
+    },
+    {
+      name: "Gmail",
+      desc: "Read-only inbox access for triage and summarization",
+      state: mailStatus === null ? "pending" : mailStatus.gmail ? "on" : "off",
+      detail: mailStatus === null ? "Checking…" : mailStatus.gmail ? (mailStatus.gmailEmail ?? "Connected") : "Not connected",
+      action: mailStatus && !mailStatus.gmail
+        ? { label: "Connect", onClick: () => { window.location.href = "/api/mail/connect?provider=gmail"; } }
+        : mailStatus?.gmail
+        ? { label: "Disconnect", onClick: async () => {
+            await fetch("/api/mail/disconnect?provider=gmail", { method: "DELETE" });
+            setMailStatus((s) => s ? { ...s, gmail: false, gmailEmail: null } : s);
+          }}
+        : undefined,
+    },
+    {
+      name: "Outlook Mail",
+      desc: "Read-only inbox access for triage and summarization",
+      state: mailStatus === null ? "pending" : mailStatus.outlook ? "on" : "off",
+      detail: mailStatus === null ? "Checking…" : mailStatus.outlook ? (mailStatus.outlookEmail ?? "Connected") : "Not connected",
+      action: mailStatus && !mailStatus.outlook
+        ? { label: "Connect", onClick: () => { window.location.href = "/api/mail/connect?provider=outlook"; } }
+        : mailStatus?.outlook
+        ? { label: "Disconnect", onClick: async () => {
+            await fetch("/api/mail/disconnect?provider=outlook", { method: "DELETE" });
+            setMailStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
           }}
         : undefined,
     },
