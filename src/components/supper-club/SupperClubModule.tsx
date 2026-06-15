@@ -31,6 +31,7 @@ type Recipe = {
   src: string;
   g: string;
   mine?: boolean;
+  note?: string;
 };
 
 const RECIPES: Recipe[] = [
@@ -120,6 +121,7 @@ export function SupperClubModule() {
         src: "Your recipe",
         g: "linear-gradient(135deg,#3a3f48,#23262b)",
         mine: true,
+        note: noteRef.current?.value || undefined,
       },
       ...prev,
     ]);

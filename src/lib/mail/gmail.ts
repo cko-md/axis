@@ -9,6 +9,7 @@ export interface MailMessage {
   snippet: string;
   isUnread: boolean;
   provider: "gmail" | "outlook";
+  accountEmail: string;
 }
 
 export interface MailMessageFull extends MailMessage {
@@ -58,9 +59,10 @@ function extractBody(payload: GmailPayload): { content: string; isHtml: boolean 
 
 export async function listGmailInbox(
   userId: string,
+  mailEmail: string,
   pageToken?: string,
 ): Promise<{ messages: MailMessage[]; nextPageToken?: string }> {
-  const token = await getFreshMailAccessToken(userId, "gmail");
+  const token = await getFreshMailAccessToken(userId, "gmail", mailEmail);
   if (!token) return { messages: [] };
 
   const params = new URLSearchParams({ labelIds: "INBOX", maxResults: "20" });
@@ -91,6 +93,7 @@ export async function listGmailInbox(
         snippet: (d.snippet as string) ?? "",
         isUnread: ((d.labelIds as string[]) ?? []).includes("UNREAD"),
         provider: "gmail" as const,
+        accountEmail: mailEmail,
       };
     }),
   );
@@ -103,9 +106,10 @@ export async function listGmailInbox(
 
 export async function getGmailMessage(
   userId: string,
+  mailEmail: string,
   messageId: string,
 ): Promise<MailMessageFull | null> {
-  const token = await getFreshMailAccessToken(userId, "gmail");
+  const token = await getFreshMailAccessToken(userId, "gmail", mailEmail);
   if (!token) return null;
 
   const res = await fetch(
@@ -126,6 +130,7 @@ export async function getGmailMessage(
     snippet: (d.snippet as string) ?? "",
     isUnread: ((d.labelIds as string[]) ?? []).includes("UNREAD"),
     provider: "gmail",
+    accountEmail: mailEmail,
     body: content,
     bodyIsHtml: isHtml,
   };

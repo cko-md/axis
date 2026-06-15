@@ -25,9 +25,10 @@ function formatSender(msg: OutlookMessage): string {
 
 export async function listOutlookInbox(
   userId: string,
+  mailEmail: string,
   skip = 0,
 ): Promise<{ messages: MailMessage[]; hasMore: boolean }> {
-  const token = await getFreshMailAccessToken(userId, "outlook");
+  const token = await getFreshMailAccessToken(userId, "outlook", mailEmail);
   if (!token) return { messages: [], hasMore: false };
 
   const params = new URLSearchParams({
@@ -53,6 +54,7 @@ export async function listOutlookInbox(
     snippet: msg.bodyPreview ?? "",
     isUnread: !msg.isRead,
     provider: "outlook" as const,
+    accountEmail: mailEmail,
   }));
 
   return { messages, hasMore: !!data["@odata.nextLink"] };
@@ -60,9 +62,10 @@ export async function listOutlookInbox(
 
 export async function getOutlookMessage(
   userId: string,
+  mailEmail: string,
   messageId: string,
 ): Promise<MailMessageFull | null> {
-  const token = await getFreshMailAccessToken(userId, "outlook");
+  const token = await getFreshMailAccessToken(userId, "outlook", mailEmail);
   if (!token) return null;
 
   const res = await fetch(
@@ -84,6 +87,7 @@ export async function getOutlookMessage(
     snippet: msg.bodyPreview ?? "",
     isUnread: !msg.isRead,
     provider: "outlook" as const,
+    accountEmail: mailEmail,
     body: bodyContent,
     bodyIsHtml: isHtml,
   };

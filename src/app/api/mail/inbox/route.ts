@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { listMailAccounts } from "@/lib/mail/tokens";
 import { listGmailInbox } from "@/lib/mail/gmail";
 import { listOutlookInbox } from "@/lib/mail/outlook";
 
-// GET /api/mail/inbox?pageToken=...&skip=0
-// Returns merged inbox from all connected providers, sorted by date desc.
+// GET /api/mail/inbox
+// Optional per-account pagination: ?account=email@x.com&provider=gmail&pageToken=...&skip=0
+// Without those params: fetches page 1 for all connected accounts.
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const {
@@ -12,22 +14,34 @@ export async function GET(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
+  const accountParam = req.nextUrl.searchParams.get("account") ?? undefined;
+  const providerParam = req.nextUrl.searchParams.get("provider") ?? undefined;
   const pageToken = req.nextUrl.searchParams.get("pageToken") ?? undefined;
   const skip = parseInt(req.nextUrl.searchParams.get("skip") ?? "0", 10);
 
-  const { data: connections } = await supabase
-    .from("mail_connections")
-    .select("provider")
-    .eq("user_id", user.id);
+  const allAccounts = await listMailAccounts(user.id);
 
-  const providers = (connections ?? []).map((c) => c.provider as string);
+  // If a specific account is requested, only fetch that one
+  const accountsToFetch =
+    accountParam && providerParam
+      ? allAccounts.filter(
+          (a) => a.mailEmail === accountParam && a.provider === providerParam,
+        )
+      : allAccounts;
 
-  const [gmailResult, outlookResult] = await Promise.all([
-    providers.includes("gmail") ? listGmailInbox(user.id, pageToken) : Promise.resolve({ messages: [] }),
-    providers.includes("outlook") ? listOutlookInbox(user.id, skip) : Promise.resolve({ messages: [], hasMore: false }),
-  ]);
+  const results = await Promise.all(
+    accountsToFetch.map(async (acct) => {
+      if (acct.provider === "gmail") {
+        const r = await listGmailInbox(user.id, acct.mailEmail, pageToken);
+        return r.messages;
+      } else {
+        const r = await listOutlookInbox(user.id, acct.mailEmail, skip);
+        return r.messages;
+      }
+    }),
+  );
 
-  const all = [...gmailResult.messages, ...outlookResult.messages].sort((a, b) => {
+  const all = results.flat().sort((a, b) => {
     const da = new Date(a.date).getTime();
     const db = new Date(b.date).getTime();
     return db - da;
@@ -35,7 +49,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     messages: all,
-    nextPageToken: "nextPageToken" in gmailResult ? gmailResult.nextPageToken : undefined,
-    outlookHasMore: "hasMore" in outlookResult ? outlookResult.hasMore : false,
+    accounts: allAccounts,
   });
 }

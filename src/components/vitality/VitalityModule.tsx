@@ -15,6 +15,7 @@ import { useStrava, type StravaActivity } from "@/lib/hooks/useStrava";
 import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
+import { createClient } from "@/lib/supabase/client";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -305,7 +306,34 @@ function TrainingWeekPlanner() {
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-        <button type="button" className="sig-go" onClick={() => toast("Sessions surfaced to Schedule & Agenda", "success", "Vitality")}>
+        <button type="button" className="sig-go" onClick={async () => {
+          const supabase = createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) { toast("Sign in to sync to Schedule.", "warn", "Vitality"); return; }
+          const today = new Date();
+          const monday = new Date(today);
+          monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+          monday.setHours(7, 0, 0, 0);
+          const DOW_MAP: Record<string, number> = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+          const rows = sessions.filter(s => !s.completed).map(s => {
+            const start = new Date(monday);
+            start.setDate(monday.getDate() + (DOW_MAP[s.dow] ?? 0));
+            const end = new Date(start);
+            end.setMinutes(end.getMinutes() + (s.duration_min ?? 60));
+            return {
+              user_id: user.id,
+              title: `${s.title} (${s.duration_min ?? 60}min)`,
+              start_at: start.toISOString(),
+              end_at: end.toISOString(),
+              description: [s.kind, s.intensity, s.notes].filter(Boolean).join(" · "),
+              updated_at: new Date().toISOString(),
+            };
+          });
+          if (!rows.length) { toast("No incomplete sessions to push.", "info", "Vitality"); return; }
+          const { error } = await supabase.from("schedule_events").insert(rows);
+          if (error) toast(error.message, "error", "Vitality");
+          else toast(`${rows.length} session${rows.length > 1 ? "s" : ""} added to Schedule.`, "success", "Vitality");
+        }}>
           ⤳ Push to Schedule &amp; Agenda
         </button>
         <button type="button" className="feed-manage" onClick={() => { setEditing((v) => !v); setOpenDay(null); }}>

@@ -314,6 +314,7 @@ export function ConsoleModule() {
   const { createNote } = useNotes();
   const [widgetIds, setWidgetIds] = useState<string[]>(DEFAULT_WIDGET_IDS);
   const [widgetTexts, setWidgetTexts] = useState<Record<string, { v: string; k: string }>>({});
+  const [arcEvents, setArcEvents] = useState<Array<{ id: string; title: string; start_at: string; end_at: string | null }>>([]);
   const [editing, setEditing] = useState(false);
   const [expandedWidget, setExpandedWidget] = useState<string | null>(null);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
@@ -384,6 +385,18 @@ export function ConsoleModule() {
       setWidgetIds(data.widget_ids?.length ? data.widget_ids : DEFAULT_WIDGET_IDS);
       setWidgetTexts((data.widget_texts as Record<string, { v: string; k: string }>) || {});
     }
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const { data: events } = await supabase
+      .from("schedule_events")
+      .select("id, title, start_at, end_at")
+      .eq("user_id", user.id)
+      .gte("start_at", todayStart.toISOString())
+      .lte("start_at", todayEnd.toISOString())
+      .order("start_at", { ascending: true });
+    if (events) setArcEvents(events);
+
     setLoading(false);
   }, [supabase, toast]);
 
@@ -634,11 +647,25 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
   const todaysArcSection = (
     <DraggableBlock key="todays-arc" id="todays-arc">
       <Card tick>
-        <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">Schedule</span></h2>
-        <p style={{ marginTop: 12, color: "var(--ink-dim)", fontSize: 12 }}>Synced from Schedule module — add events on the Schedule page.</p>
+        <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">{arcEvents.length || "Schedule"}</span></h2>
+        {arcEvents.length === 0 ? (
+          <p style={{ marginTop: 12, color: "var(--ink-faint)", fontSize: 12 }}>No events scheduled for today. Add events on the Schedule page.</p>
+        ) : (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            {arcEvents.map((ev) => (
+              <div key={ev.id} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--ink-dim)", flexShrink: 0 }}>{fmtTime(ev.start_at)}</span>
+                <span style={{ fontSize: 13, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</span>
+                {ev.end_at && <span style={{ fontSize: 11, color: "var(--ink-faint)", flexShrink: 0 }}>→ {fmtTime(ev.end_at)}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </DraggableBlock>
   );

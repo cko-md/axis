@@ -3,11 +3,19 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 
-interface MailStatus {
-  gmail: boolean;
-  gmailEmail: string | null;
-  outlook: boolean;
-  outlookEmail: string | null;
+interface MailAccount {
+  provider: "gmail" | "outlook";
+  mailEmail: string;
+}
+
+type SortMode = "date" | "priority";
+type AccountFilter = "all" | string; // "all" or a specific mailEmail
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function priorityScore(msg: MailMessage): number {
+  const ageHours = (Date.now() - new Date(msg.date).getTime()) / 3600000;
+  return (msg.isUnread ? 50 : 0) + Math.max(0, 100 - ageHours);
 }
 
 function formatDate(dateStr: string): string {
@@ -46,6 +54,35 @@ function stripHtml(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function abbreviateEmail(email: string, maxLen = 12): string {
+  const atIdx = email.indexOf("@");
+  if (atIdx === -1) return email.slice(0, maxLen);
+  const local = email.slice(0, atIdx);
+  const domain = email.slice(atIdx); // includes @
+  const combined = local + domain;
+  if (combined.length <= maxLen) return combined;
+  // truncate local part
+  const truncated = local.slice(0, Math.max(1, maxLen - domain.length));
+  return truncated + domain;
+}
+
+// ─── sub-components ─────────────────────────────────────────────────────────
+
+function ProviderDot({ provider }: { provider: "gmail" | "outlook" }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: provider === "gmail" ? "#ea4335" : "#0078d4",
+        flexShrink: 0,
+      }}
+    />
+  );
 }
 
 function ProviderBadge({ provider }: { provider: "gmail" | "outlook" }) {
@@ -320,98 +357,215 @@ function MessagePanel({
   );
 }
 
+// ─── AddAccountPicker ────────────────────────────────────────────────────────
+
+function AddAccountPicker({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "100%",
+        right: 0,
+        zIndex: 20,
+        background: "var(--surface, #181818)",
+        border: "1px solid var(--border, rgba(255,255,255,0.1))",
+        borderRadius: 8,
+        padding: "6px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        minWidth: 160,
+        boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => { window.location.href = "/api/mail/connect?provider=gmail"; }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 10px",
+          borderRadius: 5,
+          background: "none",
+          border: "none",
+          color: "var(--text-primary, #fff)",
+          fontSize: "13px",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+      >
+        <ProviderDot provider="gmail" /> Gmail
+      </button>
+      <button
+        type="button"
+        onClick={() => { window.location.href = "/api/mail/connect?provider=outlook"; }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 10px",
+          borderRadius: 5,
+          background: "none",
+          border: "none",
+          color: "var(--text-primary, #fff)",
+          fontSize: "13px",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+      >
+        <ProviderDot provider="outlook" /> Outlook
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 5,
+          background: "none",
+          border: "none",
+          color: "var(--text-secondary, rgba(255,255,255,0.4))",
+          fontSize: "12px",
+          cursor: "pointer",
+          textAlign: "center",
+        }}
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+// ─── main component ───────────────────────────────────────────────────────────
+
 export function MailModule() {
-  const [status, setStatus] = useState<MailStatus | null>(null);
+  const [accounts, setAccounts] = useState<MailAccount[]>([]);
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [nextPageToken, setNextPageToken] = useState<string | undefined>();
-  const [outlookSkip, setOutlookSkip] = useState(0);
   const [selected, setSelected] = useState<MailMessageFull | null>(null);
   const [loadingMsg, setLoadingMsg] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("date");
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
+  const [showAddPicker, setShowAddPicker] = useState(false);
   const mountedRef = useRef(true);
+  const addBtnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
+  // Close picker on outside click
+  useEffect(() => {
+    if (!showAddPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (addBtnRef.current && !addBtnRef.current.contains(e.target as Node)) {
+        setShowAddPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showAddPicker]);
+
   useEffect(() => {
     fetch("/api/mail/status")
       .then((r) => r.json())
-      .then((s: MailStatus) => { if (mountedRef.current) setStatus(s); })
-      .catch(() => { if (mountedRef.current) setStatus({ gmail: false, gmailEmail: null, outlook: false, outlookEmail: null }); });
+      .then((s: { accounts: MailAccount[] }) => {
+        if (mountedRef.current) {
+          setAccounts(s.accounts ?? []);
+          setStatusLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) {
+          setAccounts([]);
+          setStatusLoaded(true);
+        }
+      });
   }, []);
 
-  const isConnected = status && (status.gmail || status.outlook);
-
-  const fetchInbox = useCallback(async (pageToken?: string, skip = 0, append = false) => {
+  const fetchInbox = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (pageToken) params.set("pageToken", pageToken);
-      if (skip) params.set("skip", String(skip));
-      const res = await fetch(`/api/mail/inbox?${params}`);
+      const res = await fetch("/api/mail/inbox");
       if (!res.ok) return;
       const data = await res.json();
       if (!mountedRef.current) return;
-      setMessages((prev) => append ? [...prev, ...data.messages] : data.messages);
-      setNextPageToken(data.nextPageToken);
+      setMessages(data.messages ?? []);
+      // Refresh accounts list from response
+      if (data.accounts) setAccounts(data.accounts);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
   }, []);
 
+  const isConnected = statusLoaded && accounts.length > 0;
+
   useEffect(() => {
     if (isConnected) fetchInbox();
   }, [isConnected, fetchInbox]);
 
-  // Handle ?connected=gmail|outlook toast on return from OAuth
+  // Handle ?connected=gmail|outlook on return from OAuth
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     if (connected) {
       window.history.replaceState({}, "", "/mail");
-      setStatus((s) =>
-        s
-          ? connected === "gmail"
-            ? { ...s, gmail: true }
-            : { ...s, outlook: true }
-          : s,
-      );
+      // Re-fetch status to pick up the new account
+      fetch("/api/mail/status")
+        .then((r) => r.json())
+        .then((s: { accounts: MailAccount[] }) => {
+          if (mountedRef.current) setAccounts(s.accounts ?? []);
+        })
+        .catch(() => {});
     }
   }, []);
 
   const openMessage = async (msg: MailMessage) => {
     setLoadingMsg(true);
     try {
-      const res = await fetch(`/api/mail/message/${msg.id}?provider=${msg.provider}`);
+      const res = await fetch(
+        `/api/mail/message/${msg.id}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+      );
       if (res.ok && mountedRef.current) setSelected(await res.json());
     } finally {
       if (mountedRef.current) setLoadingMsg(false);
     }
   };
 
-  const loadMore = () => {
-    fetchInbox(nextPageToken, outlookSkip + 20, true);
-    setOutlookSkip((s) => s + 20);
-  };
-
-  const disconnect = async (provider: "gmail" | "outlook") => {
-    await fetch(`/api/mail/disconnect?provider=${provider}`, { method: "DELETE" });
-    setStatus((s) =>
-      s
-        ? provider === "gmail"
-          ? { ...s, gmail: false, gmailEmail: null }
-          : { ...s, outlook: false, outlookEmail: null }
-        : s,
+  const disconnect = async (acct: MailAccount) => {
+    await fetch(
+      `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
+      { method: "DELETE" },
     );
-    setMessages([]);
+    setAccounts((prev) =>
+      prev.filter((a) => !(a.provider === acct.provider && a.mailEmail === acct.mailEmail)),
+    );
+    setMessages((prev) => prev.filter((m) => m.accountEmail !== acct.mailEmail));
+    if (accountFilter === acct.mailEmail) setAccountFilter("all");
   };
 
-  const unreadCount = messages.filter((m) => m.isUnread).length;
+  // Filter + sort
+  const visibleMessages = (() => {
+    let list = accountFilter === "all"
+      ? messages
+      : messages.filter((m) => m.accountEmail === accountFilter);
 
-  // Setup state
-  if (!status || !isConnected) {
+    if (sortMode === "priority") {
+      list = [...list].sort((a, b) => priorityScore(b) - priorityScore(a));
+    }
+    return list;
+  })();
+
+  const unreadCount = visibleMessages.filter((m) => m.isUnread).length;
+
+  // Setup state — no accounts yet
+  if (statusLoaded && !isConnected) {
     return (
       <>
         <div className="divider" />
@@ -449,6 +603,17 @@ export function MailModule() {
     );
   }
 
+  if (!statusLoaded) {
+    return (
+      <>
+        <div className="divider" />
+        <div style={{ padding: 32, textAlign: "center", color: "var(--text-secondary, rgba(255,255,255,0.4))", fontSize: "13px" }}>
+          Loading…
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="divider" />
@@ -459,74 +624,159 @@ export function MailModule() {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            padding: "10px 16px",
+            gap: 6,
+            padding: "8px 16px",
             borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))",
             flexShrink: 0,
+            flexWrap: "wrap",
+            rowGap: 6,
           }}
         >
-          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary, #fff)", flex: 1 }}>
-            Inbox
-            {unreadCount > 0 && (
-              <span
+          {/* Account filter tabs */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, flexWrap: "wrap" }}>
+            {/* "Inbox" label + unread badge */}
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary, #fff)", marginRight: 4 }}>
+              Inbox
+              {unreadCount > 0 && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    background: "var(--accent, #60a5fa)",
+                    color: "#000",
+                    borderRadius: 10,
+                    padding: "1px 6px",
+                  }}
+                >
+                  {unreadCount}
+                </span>
+              )}
+            </span>
+
+            {/* All tab */}
+            <button
+              type="button"
+              onClick={() => setAccountFilter("all")}
+              style={{
+                fontSize: "11px",
+                fontWeight: accountFilter === "all" ? 600 : 400,
+                padding: "3px 8px",
+                borderRadius: 4,
+                background: accountFilter === "all"
+                  ? "var(--surface-hover, rgba(255,255,255,0.1))"
+                  : "transparent",
+                border: "1px solid",
+                borderColor: accountFilter === "all"
+                  ? "var(--border-active, rgba(255,255,255,0.2))"
+                  : "var(--border, rgba(255,255,255,0.08))",
+                color: "var(--text-primary, #fff)",
+                cursor: "pointer",
+              }}
+            >
+              All
+            </button>
+
+            {/* Per-account tabs */}
+            {accounts.map((acct) => {
+              const isActive = accountFilter === acct.mailEmail;
+              return (
+                <span
+                  key={`${acct.provider}:${acct.mailEmail}`}
+                  style={{ display: "flex", alignItems: "center", gap: 3 }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setAccountFilter(isActive ? "all" : acct.mailEmail)}
+                    title={acct.mailEmail}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      fontSize: "11px",
+                      fontWeight: isActive ? 600 : 400,
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                      background: isActive
+                        ? acct.provider === "gmail"
+                          ? "rgba(234,67,53,0.15)"
+                          : "rgba(0,120,212,0.15)"
+                        : "transparent",
+                      border: "1px solid",
+                      borderColor: isActive
+                        ? acct.provider === "gmail"
+                          ? "rgba(234,67,53,0.3)"
+                          : "rgba(0,120,212,0.3)"
+                        : "var(--border, rgba(255,255,255,0.08))",
+                      color: isActive
+                        ? acct.provider === "gmail" ? "#ea4335" : "#0078d4"
+                        : "var(--text-secondary, rgba(255,255,255,0.6))",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <ProviderDot provider={acct.provider} />
+                    {abbreviateEmail(acct.mailEmail)}
+                  </button>
+                  {/* Disconnect × */}
+                  <button
+                    type="button"
+                    onClick={() => disconnect(acct)}
+                    title={`Disconnect ${acct.mailEmail}`}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-secondary, rgba(255,255,255,0.3))",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                      padding: "0 2px",
+                      lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Sort toggle */}
+          <div
+            style={{
+              display: "flex",
+              borderRadius: 4,
+              border: "1px solid var(--border, rgba(255,255,255,0.1))",
+              overflow: "hidden",
+              flexShrink: 0,
+            }}
+          >
+            {(["date", "priority"] as SortMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSortMode(mode)}
                 style={{
-                  marginLeft: 8,
                   fontSize: "11px",
-                  fontWeight: 700,
-                  background: "var(--accent, #60a5fa)",
-                  color: "#000",
-                  borderRadius: 10,
-                  padding: "1px 6px",
+                  fontWeight: sortMode === mode ? 600 : 400,
+                  padding: "3px 8px",
+                  background: sortMode === mode
+                    ? "var(--surface-hover, rgba(255,255,255,0.08))"
+                    : "transparent",
+                  border: "none",
+                  color: sortMode === mode ? "var(--text-primary, #fff)" : "var(--text-secondary, rgba(255,255,255,0.4))",
+                  cursor: "pointer",
+                  textTransform: "capitalize",
                 }}
               >
-                {unreadCount}
-              </span>
-            )}
-          </span>
+                {mode}
+              </button>
+            ))}
+          </div>
 
-          {/* Connected account chips */}
-          {status.gmail && (
+          {/* Add account button */}
+          <div ref={addBtnRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
               type="button"
-              onClick={() => disconnect("gmail")}
-              title="Disconnect Gmail"
-              style={{
-                fontSize: "11px",
-                fontWeight: 500,
-                padding: "3px 8px",
-                borderRadius: 4,
-                background: "rgba(234,67,53,0.1)",
-                border: "1px solid rgba(234,67,53,0.2)",
-                color: "#ea4335",
-                cursor: "pointer",
-              }}
-            >
-              {status.gmailEmail ?? "Gmail"} ×
-            </button>
-          )}
-          {status.outlook && (
-            <button
-              type="button"
-              onClick={() => disconnect("outlook")}
-              title="Disconnect Outlook"
-              style={{
-                fontSize: "11px",
-                fontWeight: 500,
-                padding: "3px 8px",
-                borderRadius: 4,
-                background: "rgba(0,120,212,0.1)",
-                border: "1px solid rgba(0,120,212,0.2)",
-                color: "#0078d4",
-                cursor: "pointer",
-              }}
-            >
-              {status.outlookEmail ?? "Outlook"} ×
-            </button>
-          )}
-          {!status.gmail && (
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/api/mail/connect?provider=gmail"; }}
+              onClick={() => setShowAddPicker((v) => !v)}
               style={{
                 fontSize: "11px",
                 padding: "3px 8px",
@@ -537,27 +787,12 @@ export function MailModule() {
                 cursor: "pointer",
               }}
             >
-              + Gmail
+              + Add
             </button>
-          )}
-          {!status.outlook && (
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/api/mail/connect?provider=outlook"; }}
-              style={{
-                fontSize: "11px",
-                padding: "3px 8px",
-                borderRadius: 4,
-                background: "transparent",
-                border: "1px solid var(--border, rgba(255,255,255,0.1))",
-                color: "var(--text-secondary, rgba(255,255,255,0.5))",
-                cursor: "pointer",
-              }}
-            >
-              + Outlook
-            </button>
-          )}
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} />}
+          </div>
 
+          {/* Refresh */}
           <button
             type="button"
             onClick={() => fetchInbox()}
@@ -570,6 +805,7 @@ export function MailModule() {
               fontSize: "14px",
               padding: "2px 4px",
               opacity: loading ? 0.4 : 1,
+              flexShrink: 0,
             }}
             title="Refresh"
           >
@@ -579,45 +815,23 @@ export function MailModule() {
 
         {/* Message list */}
         <div style={{ flex: 1, overflow: "auto" }}>
-          {loading && messages.length === 0 ? (
+          {loading && visibleMessages.length === 0 ? (
             <div style={{ padding: 32, textAlign: "center", color: "var(--text-secondary, rgba(255,255,255,0.4))", fontSize: "13px" }}>
               Loading…
             </div>
-          ) : messages.length === 0 ? (
+          ) : visibleMessages.length === 0 ? (
             <div style={{ padding: 32, textAlign: "center", color: "var(--text-secondary, rgba(255,255,255,0.4))", fontSize: "13px" }}>
               Inbox is empty.
             </div>
           ) : (
-            <>
-              {messages.map((msg) => (
-                <MessageRow
-                  key={`${msg.provider}:${msg.id}`}
-                  msg={msg}
-                  selected={selected?.id === msg.id}
-                  onClick={() => openMessage(msg)}
-                />
-              ))}
-              {(nextPageToken || outlookSkip > 0) && (
-                <button
-                  type="button"
-                  onClick={loadMore}
-                  disabled={loading}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    padding: "12px",
-                    background: "none",
-                    border: "none",
-                    borderTop: "1px solid var(--border, rgba(255,255,255,0.06))",
-                    color: "var(--text-secondary, rgba(255,255,255,0.4))",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {loading ? "Loading…" : "Load more"}
-                </button>
-              )}
-            </>
+            visibleMessages.map((msg) => (
+              <MessageRow
+                key={`${msg.provider}:${msg.accountEmail}:${msg.id}`}
+                msg={msg}
+                selected={selected?.id === msg.id}
+                onClick={() => openMessage(msg)}
+              />
+            ))
           )}
         </div>
 

@@ -20,12 +20,6 @@ const DEMO_HABITS = [
   { ic: "📖", n: "Read 1 paper", streak: "5-day streak", pct: "68%", seed: 2 },
 ];
 
-const SCAN_RESULTS = [
-  { target: "Submit DBS manuscript — Neurosurgery", module: "Pipeline", confidence: "94%" },
-  { target: "French B2 oral exam — December", module: "Objectives", confidence: "88%" },
-  { target: "Renew BLS certification", module: "Agenda", confidence: "91%" },
-  { target: "AANS abstract follow-up", module: "Signals", confidence: "76%" },
-];
 
 function demoHeatLevels(seed: number): string[] {
   return Array.from({ length: 30 }, (_, i) => {
@@ -55,7 +49,7 @@ export function ObjectivesModule() {
 
   const [scanOpen, setScanOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [results, setResults] = useState<typeof SCAN_RESULTS>([]);
+  const [results, setResults] = useState<Array<{ target: string; module: string; confidence: string }>>([]);
 
   const [objModalOpen, setObjModalOpen] = useState(false);
   const [objForm, setObjForm] = useState({ title: "", descriptor: "" });
@@ -65,14 +59,18 @@ export function ObjectivesModule() {
   const [habitForm, setHabitForm] = useState({ icon: "✦", name: "" });
   const [pendingDeleteObjective, setPendingDeleteObjective] = useState<string | null>(null);
 
-  const runScan = () => {
+  const runScan = async () => {
     setScanOpen(true);
     setScanning(true);
     setResults([]);
-    setTimeout(() => {
-      setResults(SCAN_RESULTS);
-      setScanning(false);
-    }, 1200);
+    try {
+      const res = await fetch("/api/objectives/scan", { method: "POST" });
+      const data = await res.json();
+      setResults(data.results ?? []);
+    } catch {
+      setResults([]);
+    }
+    setScanning(false);
   };
 
   const saveObjective = async () => {

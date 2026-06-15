@@ -7,16 +7,21 @@ interface StoredTokens {
   accessToken: string;
   refreshToken: string | null;
   expiresAt: Date | null;
-  mailEmail: string | null;
+  mailEmail: string;
 }
 
-export async function getMailTokens(userId: string, provider: MailProvider): Promise<StoredTokens | null> {
+export async function getMailTokens(
+  userId: string,
+  provider: MailProvider,
+  mailEmail: string,
+): Promise<StoredTokens | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("mail_connections")
     .select("access_token_enc, refresh_token_enc, expires_at, mail_email")
     .eq("user_id", userId)
     .eq("provider", provider)
+    .eq("mail_email", mailEmail)
     .single();
 
   if (!data) return null;
@@ -27,7 +32,7 @@ export async function getMailTokens(userId: string, provider: MailProvider): Pro
     accessToken,
     refreshToken: data.refresh_token_enc ? decrypt(data.refresh_token_enc) : null,
     expiresAt: data.expires_at ? new Date(data.expires_at) : null,
-    mailEmail: data.mail_email,
+    mailEmail: data.mail_email as string,
   };
 }
 
@@ -37,7 +42,7 @@ export async function saveMailTokens(
   accessToken: string,
   refreshToken: string | null,
   expiresInSeconds: number,
-  mailEmail?: string,
+  mailEmail: string,
 ) {
   const supabase = await createClient();
   const accessEnc = encrypt(accessToken);
@@ -51,27 +56,48 @@ export async function saveMailTokens(
       access_token_enc: accessEnc,
       refresh_token_enc: refreshEnc,
       expires_at: expiresAt,
-      mail_email: mailEmail ?? null,
+      mail_email: mailEmail,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "user_id,provider" },
+    { onConflict: "user_id,provider,mail_email" },
   );
 }
 
-export async function deleteMailTokens(userId: string, provider: MailProvider) {
+export async function deleteMailTokens(
+  userId: string,
+  provider: MailProvider,
+  mailEmail: string,
+) {
   const supabase = await createClient();
   await supabase
     .from("mail_connections")
     .delete()
     .eq("user_id", userId)
-    .eq("provider", provider);
+    .eq("provider", provider)
+    .eq("mail_email", mailEmail);
+}
+
+export async function listMailAccounts(
+  userId: string,
+): Promise<Array<{ provider: MailProvider; mailEmail: string }>> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("mail_connections")
+    .select("provider, mail_email")
+    .eq("user_id", userId);
+
+  return (data ?? []).map((row) => ({
+    provider: row.provider as MailProvider,
+    mailEmail: row.mail_email as string,
+  }));
 }
 
 export async function getFreshMailAccessToken(
   userId: string,
   provider: MailProvider,
+  mailEmail: string,
 ): Promise<string | null> {
-  const tokens = await getMailTokens(userId, provider);
+  const tokens = await getMailTokens(userId, provider, mailEmail);
   if (!tokens) return null;
 
   const needsRefresh =
@@ -87,7 +113,7 @@ export async function getFreshMailAccessToken(
 
   if (!refreshed) return null;
 
-  await saveMailTokens(userId, provider, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, tokens.mailEmail ?? undefined);
+  await saveMailTokens(userId, provider, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, mailEmail);
   return refreshed.accessToken;
 }
 

@@ -73,6 +73,7 @@ export async function middleware(request: NextRequest) {
       "/api/auth/account",
       "/api/calendar",
       "/api/mail",
+      "/api/briefing",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
     if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {

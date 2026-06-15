@@ -84,6 +84,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/mail?error=token", req.url));
   }
 
+  // mailEmail is required — if we couldn't determine it, refuse to save
+  if (!mailEmail) {
+    return NextResponse.redirect(new URL("/mail?error=email", req.url));
+  }
+
   await saveMailTokens(
     user.id,
     provider,

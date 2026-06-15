@@ -118,6 +118,15 @@ export function BriefingModule() {
   const [saved, setSaved] = useState<SavedItem[]>(() => loadSaved());
   const [showSaved, setShowSaved] = useState(false);
 
+  const [feedSearchOpen, setFeedSearchOpen] = useState(false);
+  const [feedQuery, setFeedQuery] = useState("");
+  const [feedSearching, setFeedSearching] = useState(false);
+  const [feedResults, setFeedResults] = useState<Array<{name: string; url: string; description: string}>>([]);
+  const [savedFeeds, setSavedFeeds] = useState<Array<{name: string; url: string}>>(() => {
+    try { return JSON.parse(localStorage.getItem("axis-briefing-feeds") ?? "[]"); } catch { return []; }
+  });
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
   const toggleChip = (f: string) => {
     setActive((prev) => {
       const next = new Set(prev);
@@ -135,6 +144,37 @@ export function BriefingModule() {
     setSaved(next);
     persistSaved(next);
     toast(already ? "Removed from saved" : `Saved for ${type === "watch" ? "later" : "reading"}`, "success", "Briefing");
+  };
+
+  const searchFeeds = async () => {
+    if (!feedQuery.trim()) return;
+    setFeedSearching(true);
+    try {
+      const res = await fetch("/api/briefing/feeds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: feedQuery }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFeedResults(data.feeds ?? []);
+      }
+    } finally {
+      setFeedSearching(false);
+    }
+  };
+
+  const saveFeed = (feed: {name: string; url: string}) => {
+    const next = [...savedFeeds.filter(f => f.url !== feed.url), feed];
+    setSavedFeeds(next);
+    localStorage.setItem("axis-briefing-feeds", JSON.stringify(next));
+    toast(`${feed.name} added to sources.`, "success", "Briefing");
+  };
+
+  const removeFeed = (url: string) => {
+    const next = savedFeeds.filter(f => f.url !== url);
+    setSavedFeeds(next);
+    localStorage.setItem("axis-briefing-feeds", JSON.stringify(next));
   };
 
   const visible = active.has("all")
@@ -162,9 +202,9 @@ export function BriefingModule() {
             <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
           </svg>
           <input placeholder="Describe a topic, source, or feed to follow — e.g. 'neurosurgery RCTs', 'Nigerian football', a site URL…" />
-          <button type="button" className="feed-go">✦ Find Feeds</button>
+          <button type="button" className="feed-go" onClick={() => setFeedSearchOpen(true)}>✦ Find Feeds</button>
         </div>
-        <button type="button" className="feed-manage">Manage Sources</button>
+        <button type="button" className="feed-manage" onClick={() => setSourcesOpen(true)}>Manage Sources</button>
       </div>
       <div className="feed-suggest" />
       <div className="chips">
@@ -243,6 +283,77 @@ export function BriefingModule() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Feed Search Modal */}
+      {feedSearchOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setFeedSearchOpen(false)}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--rl)", padding: 24, width: "min(540px,92vw)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <span style={{ fontFamily: "var(--narrow)", fontWeight: 600, fontSize: 12, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-2)" }}>Find Feeds</span>
+              <button type="button" onClick={() => setFeedSearchOpen(false)} style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <input
+                value={feedQuery}
+                onChange={e => setFeedQuery(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && void searchFeeds()}
+                placeholder="Topic or feed URL…"
+                autoFocus
+                style={{ flex: 1, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "7px 12px", color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 13, outline: "none" }}
+              />
+              <button type="button" className="feed-go" onClick={() => void searchFeeds()} disabled={feedSearching} style={{ padding: "7px 14px" }}>
+                {feedSearching ? "…" : "Search"}
+              </button>
+            </div>
+            {feedResults.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {feedResults.map((f, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 12px", background: "var(--glass)", border: "1px solid var(--line)", borderRadius: "var(--r)" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500, marginBottom: 2 }}>{f.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 3 }}>{f.description}</div>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.url}</div>
+                    </div>
+                    <button type="button" className="feed-go" style={{ flexShrink: 0, padding: "5px 10px", fontSize: 10 }} onClick={() => saveFeed({ name: f.name, url: f.url })}>
+                      Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!feedSearching && feedResults.length === 0 && feedQuery.trim() && (
+              <p style={{ fontSize: 12, color: "var(--ink-faint)", textAlign: "center", padding: "16px 0" }}>No results yet — try a different topic.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Manage Sources Modal */}
+      {sourcesOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSourcesOpen(false)}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--rl)", padding: 24, width: "min(480px,92vw)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <span style={{ fontFamily: "var(--narrow)", fontWeight: 600, fontSize: 12, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-2)" }}>Your Sources ({savedFeeds.length})</span>
+              <button type="button" onClick={() => setSourcesOpen(false)} style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+            </div>
+            {savedFeeds.length === 0 ? (
+              <p style={{ fontSize: 12, color: "var(--ink-faint)", padding: "16px 0" }}>No feeds saved yet — use Find Feeds to add sources.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {savedFeeds.map((f) => (
+                  <div key={f.url} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "var(--glass)", border: "1px solid var(--line)", borderRadius: "var(--r)" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500, marginBottom: 2 }}>{f.name}</div>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.url}</div>
+                    </div>
+                    <button type="button" className="feed-manage" style={{ fontSize: 10.5, flexShrink: 0 }} onClick={() => removeFeed(f.url)}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
