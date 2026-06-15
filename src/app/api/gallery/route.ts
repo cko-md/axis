@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 const AIC_BASE    = "https://api.artic.edu/api/v1";
 const MET_BASE    = "https://collectionapi.metmuseum.org/public/collection/v1";
 const CMA_BASE    = "https://openaccess-api.clevelandart.org/api";    // free, no key
-const RIKS_BASE   = "https://www.rijksmuseum.nl/api/en/collection";    // needs RIJKS_API_KEY
 const POETRY_BASE = "https://poetrydb.org";
 const GUTENDEX    = "https://gutendex.com/books";
 const OL_BASE     = "https://openlibrary.org";
@@ -64,14 +63,6 @@ const CMA_QUERIES: Record<string, string[]> = {
   Sculpture:             ["rodin", "brancusi", "degas sculpture"],
 };
 
-// Rijksmuseum — requires RIJKS_API_KEY env var (free, sign up at data.rijksmuseum.nl)
-const RIKS_QUERIES: Record<string, string[]> = {
-  Baroque:          ["Rembrandt", "Vermeer", "Frans Hals"],
-  Renaissance:      ["Raphael", "Leonardo", "Durer"],
-  Impressionism:    ["Monet", "impressionist"],
-  "Golden Age":     ["Dutch Golden Age", "still life flowers"],
-  Romanticism:      ["landscape romantic"],
-};
 
 const ALL_AIC_QUERIES = Object.values(AIC_QUERIES).flat();
 const ALL_MET_QUERIES = Object.values(MET_QUERIES).flat();
@@ -239,41 +230,6 @@ export async function GET(req: Request) {
           imageUrl: w.images?.web?.url ?? "",
           thumbUrl: w.images?.web?.url ?? "",
           cmaUrl: w.url ?? "",
-          isPublicDomain: true,
-        }));
-      return NextResponse.json({ works, query }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
-    } catch {
-      return NextResponse.json({ works: [], query });
-    }
-  }
-
-  // ── Rijksmuseum (requires RIJKS_API_KEY env var) ─────────────────────────
-  if (source === "riks") {
-    const apiKey = process.env.RIJKS_API_KEY;
-    if (!apiKey) return NextResponse.json({ works: [], query: q, error: "RIJKS_API_KEY not configured" });
-    const query = q || pick(Object.values(RIKS_QUERIES).flat());
-    try {
-      const data = await safeFetch(
-        `${RIKS_BASE}?key=${apiKey}&q=${encodeURIComponent(query)}&imgonly=true&ps=20&s=relevance`,
-      ) as { artObjects: RiksWork[] };
-
-      const derivedGenre = deriveGenre(query);
-      const works = (data.artObjects ?? [])
-        .filter((w) => w.webImage?.url)
-        .map((w) => ({
-          id: `riks-${w.objectNumber}`,
-          source: "riks",
-          title: w.title ?? "Untitled",
-          artist: w.principalOrFirstMaker ?? "Unknown",
-          artistTitle: w.principalOrFirstMaker ?? "",
-          year: w.dating?.presentingDate ?? "",
-          genre: derivedGenre,
-          medium: "",
-          department: "",
-          origin: "Netherlands",
-          imageUrl: w.webImage.url.replace("=s0", "=s800"),
-          thumbUrl: w.webImage.url.replace("=s0", "=s400"),
-          riksUrl: w.links?.web ?? "",
           isPublicDomain: true,
         }));
       return NextResponse.json({ works, query }, { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } });
@@ -495,13 +451,4 @@ type CMAWork = {
   culture?: string;
   url?: string;
   images?: { web?: { url: string } };
-};
-
-type RiksWork = {
-  objectNumber: string;
-  title: string;
-  principalOrFirstMaker: string;
-  dating?: { presentingDate?: string };
-  webImage: { url: string };
-  links?: { web?: string };
 };
