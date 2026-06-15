@@ -309,7 +309,7 @@ function MessagePanel({
         <div
           style={{
             padding: "8px 16px",
-            background: "var(--accent-subtle, rgba(96,165,250,0.08))",
+            background: "var(--accent-subtle)",
             borderBottom: "1px solid var(--line)",
             fontSize: "12px",
             color: "var(--ink)",
