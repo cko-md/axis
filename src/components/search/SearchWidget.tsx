@@ -17,7 +17,7 @@ export function SearchWidget() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();
         setOpen((o) => {
           if (o) { setQuery(""); setAnswer(""); }
@@ -106,7 +106,7 @@ export function SearchWidget() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
-            placeholder="Ask Axis — tasks, portfolio, schedule, anything…"
+            placeholder="Ask Axis anything — tasks, portfolio, schedule…"
             style={{
               flex: 1,
               background: "none",
@@ -171,6 +171,7 @@ export function SearchWidget() {
           }}>
             <span>↵ search</span>
             <span>esc close</span>
+            <span style={{ marginLeft: "auto" }}>⌘/ to open</span>
           </div>
         )}
       </div>

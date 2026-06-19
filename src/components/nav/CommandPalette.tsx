@@ -352,8 +352,9 @@ export function CommandPalette({ open, onClose }: Props) {
               <span style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>{label}</span>
             </div>
           ))}
-          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)", letterSpacing: "0.08em" }}>
-            ⌘K to toggle
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)", letterSpacing: "0.08em", display: "flex", gap: 10 }}>
+            <span>⌘K nav</span>
+            <span>⌘/ AI search</span>
           </span>
         </div>
       </div>
