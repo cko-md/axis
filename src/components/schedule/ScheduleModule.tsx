@@ -239,13 +239,13 @@ export function ScheduleModule() {
     setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a" });
     load();
 
-    // Fire-and-forget calendar sync if any provider is connected
+    // Sync to connected external calendars
     if (inserted && (calStatus?.google || calStatus?.outlook)) {
       fetch("/api/calendar/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId: inserted.id, title: form.title, start_at: start.toISOString(), end_at: end.toISOString() }),
-      }).catch(() => {});
+      }).catch(() => { toast("Event saved, but calendar sync failed.", "warn", "Schedule"); });
     }
   };
 

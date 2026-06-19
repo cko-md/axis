@@ -28,7 +28,7 @@
   --ink: #ece8e0;
   --ink-2: #d4cec2;
   --ink-dim: #a09891;
-  --ink-faint: #726c62;
+  --ink-faint: #857e74;   /* 5.1:1 on #0a0b0e — passes WCAG AA */
 
   /* ── afrofuturist accents — gold primary, marine data, clay warm ── */
   --gold: #c9a463;
@@ -41,27 +41,15 @@
   --up: #7fa86a;
   --down: #c2603f;
 
-  /* ── legacy accent aliases (Interface Studio overrides these) ── */
+  /* ── accent aliases — set dynamically by Interface Studio ── */
   --accent: #c9a463;
   --accent-bright: #e0c388;
   --accent-deep: #9a7c46;
-  --accent-2: #c9a463;
-  --accent-violet: #6f9bc7;
-  --accent-teal: #6f9bc7;
-  --accent-coral: #d98a5f;
-  --accent-magenta: #cdc7bb;
+  --accent-2: #c9a463;       /* secondary accent; overridden per theme preset */
   --spark: #7fa86a;
   --spark-bright: #9cc488;
   --dew: #7fa86a;
   --dew-warm: #e0c388;
-  --slate-deep: #161a23;
-  --slate-mid: #8b8579;
-  --iris-light: #e0c388;
-  --iris-deep: #9a7c46;
-  --v-yellow: #d4b977;
-  --v-orange: #d98a5f;
-  --v-green: #7fa86a;
-  --v-purple: #6f9bc7;
 
   /* ── effects — refractive, never drop-shadow-heavy ── */
   --blur: saturate(135%) blur(52px);
@@ -148,7 +136,7 @@ html.light {
   --ink: #1a1612;
   --ink-2: #302b24;
   --ink-dim: #5c5146;
-  --ink-faint: #8c8074;
+  --ink-faint: #6e6358;   /* 4.6:1 on #f4f0e8 — passes WCAG AA */
   --gold: #b8922e;
   --gold-2: #d4aa52;
   --gold-deep: #7a5e1e;
@@ -2156,6 +2144,8 @@ html.light .card::after {
 
 /* ── motion / stagger ── */
 @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes modal-bg-in{from{opacity:0}to{opacity:1}}
+@keyframes modal-card-in{from{opacity:0;transform:translateY(-10px) scale(0.97)}to{opacity:1;transform:none}}
 .stagger>*{opacity:0;animation:fade .45s cubic-bezier(.2,.7,.2,1) forwards}
 .stagger>*:nth-child(1){animation-delay:.03s}.stagger>*:nth-child(2){animation-delay:.09s}.stagger>*:nth-child(3){animation-delay:.15s}.stagger>*:nth-child(4){animation-delay:.21s}.stagger>*:nth-child(5){animation-delay:.27s}
 @keyframes draw{to{stroke-dashoffset:0}}

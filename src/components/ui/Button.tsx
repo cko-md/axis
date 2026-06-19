@@ -5,10 +5,10 @@ import { type ButtonHTMLAttributes } from "react";
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 const variants: Record<Variant, string> = {
-  primary: "btn-primary",
-  secondary: "btn-secondary feed-manage",
-  ghost: "bg-transparent border-none text-[var(--ink-dim)] hover:text-[var(--accent-2)] px-3 py-2",
-  danger: "btn-secondary text-[var(--down)] hover:text-[var(--down)]",
+  primary:   "btn-primary",
+  secondary: "btn-secondary",
+  ghost:     "bg-transparent border-none text-[var(--ink-dim)] hover:text-[var(--accent)] px-3 py-2",
+  danger:    "btn-secondary text-[var(--down)] hover:text-[var(--down)]",
 };
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {

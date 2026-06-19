@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTasks } from "@/lib/hooks/useTasks";
 import {
   DndContext,
   closestCenter,
@@ -183,6 +184,7 @@ function preview(html: string): string {
 
 export function NotesModule() {
   const { notes, loading, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock } = useNotes();
+  const { addTask } = useTasks();
   const { toast } = useToast();
 
   const [customFolders, setCustomFolders] = useState<string[]>([]);
@@ -549,7 +551,7 @@ export function NotesModule() {
     }
   };
 
-  const acceptRoute = () => {
+  const acceptRoute = async () => {
     if (!selected || !suggestion) return;
     const folderMap: Record<RouteSuggestion["destination"], string> = {
       research: "Research",
@@ -560,7 +562,16 @@ export function NotesModule() {
       updateNote(selected.id, { folder: folderMap[suggestion.destination] });
       toast(`Filed into ${folderMap[suggestion.destination]}`, "success", "Routed");
     } else {
-      toast("Flagged as a task — add it in Agenda", "info", "Routed");
+      const result = await addTask({
+        title: selected.title || "Untitled note task",
+        category: "personal",
+        priority: "med",
+      });
+      if (result) {
+        toast(`Task created in Agenda: "${selected.title}"`, "success", "Routed");
+      } else {
+        toast("Could not create task — sign in and try again.", "error", "Routed");
+      }
     }
     setSuggestion(null);
   };
