@@ -11,12 +11,12 @@ export async function GET(req: NextRequest) {
   const saved = cookieStore.get("mail_oauth_state")?.value;
 
   if (!code || !state || state !== saved) {
-    return NextResponse.redirect(new URL("/mail?error=oauth", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=mail&status=error", req.url));
   }
 
   const provider = state.split(":")[0] as MailProvider;
   if (provider !== "gmail" && provider !== "outlook") {
-    return NextResponse.redirect(new URL("/mail?error=oauth", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=mail&status=error", req.url));
   }
 
   const supabase = await createClient();
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
         grant_type: "authorization_code",
       }),
     });
-    if (!res.ok) return NextResponse.redirect(new URL("/mail?error=token", req.url));
+    if (!res.ok) return NextResponse.redirect(new URL(`/oauth-done?provider=mail_${provider}&status=error`, req.url));
     tokenData = await res.json();
 
     const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
         scope: "Mail.Read offline_access User.Read",
       }),
     });
-    if (!res.ok) return NextResponse.redirect(new URL("/mail?error=token", req.url));
+    if (!res.ok) return NextResponse.redirect(new URL(`/oauth-done?provider=mail_${provider}&status=error`, req.url));
     tokenData = await res.json();
 
     const profileRes = await fetch("https://graph.microsoft.com/v1.0/me", {
@@ -79,12 +79,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (!tokenData?.access_token) {
-    return NextResponse.redirect(new URL("/mail?error=token", req.url));
+    return NextResponse.redirect(new URL(`/oauth-done?provider=mail_${provider}&status=error`, req.url));
   }
 
   // mailEmail is required — if we couldn't determine it, refuse to save
   if (!mailEmail) {
-    return NextResponse.redirect(new URL("/mail?error=email", req.url));
+    return NextResponse.redirect(new URL(`/oauth-done?provider=mail_${provider}&status=error`, req.url));
   }
 
   await saveMailTokens(
@@ -99,5 +99,5 @@ export async function GET(req: NextRequest) {
   // Delete state cookie only after successful token exchange and save
   cookieStore.delete("mail_oauth_state");
 
-  return NextResponse.redirect(new URL(`/mail?connected=${provider}`, req.url));
+  return NextResponse.redirect(new URL(`/oauth-done?provider=mail_${provider}&status=ok`, req.url));
 }

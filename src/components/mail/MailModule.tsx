@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 import { useToast } from "@/components/ui/Toast";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -360,7 +361,7 @@ function MessagePanel({
 
 // ─── AddAccountPicker ────────────────────────────────────────────────────────
 
-function AddAccountPicker({ onClose }: { onClose: () => void }) {
+function AddAccountPicker({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
   return (
     <div
       style={{
@@ -381,7 +382,12 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
     >
       <button
         type="button"
-        onClick={() => { window.location.href = "/api/mail/connect?provider=gmail"; }}
+        onClick={() => {
+          onClose();
+          openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
+            if (status === "ok") onConnected();
+          });
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -402,7 +408,12 @@ function AddAccountPicker({ onClose }: { onClose: () => void }) {
       </button>
       <button
         type="button"
-        onClick={() => { window.location.href = "/api/mail/connect?provider=outlook"; }}
+        onClick={() => {
+          onClose();
+          openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
+            if (status === "ok") onConnected();
+          });
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -506,6 +517,15 @@ export function MailModule() {
     }
   }, []);
 
+  const refreshMailStatus = useCallback(() => {
+    fetch("/api/mail/status")
+      .then((r) => r.json())
+      .then((s: { accounts: MailAccount[] }) => {
+        if (mountedRef.current) setAccounts(s.accounts ?? []);
+      })
+      .catch(() => {});
+  }, []);
+
   const isConnected = statusLoaded && accounts.length > 0;
 
   useEffect(() => {
@@ -591,14 +611,22 @@ export function MailModule() {
             <button
               type="button"
               className="setup-btn"
-              onClick={() => { window.location.href = "/api/mail/connect?provider=gmail"; }}
+              onClick={() => {
+                openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
+                  if (status === "ok") refreshMailStatus();
+                });
+              }}
             >
               Connect Gmail →
             </button>
             <button
               type="button"
               className="setup-btn"
-              onClick={() => { window.location.href = "/api/mail/connect?provider=outlook"; }}
+              onClick={() => {
+                openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
+                  if (status === "ok") refreshMailStatus();
+                });
+              }}
               style={{ background: "rgba(0,120,212,0.12)", borderColor: "rgba(0,120,212,0.3)", color: "#60b0ff" }}
             >
               Connect Outlook →
@@ -795,7 +823,7 @@ export function MailModule() {
             >
               + Add
             </button>
-            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} />}
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailStatus} />}
           </div>
 
           {/* Refresh */}

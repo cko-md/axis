@@ -16,6 +16,7 @@ import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -1015,10 +1016,20 @@ export function VitalityModule() {
             Synced: Strava
           </div>
         ) : (
-          <a href="/api/strava?action=auth" className="selectbox" style={{ opacity: 0.45, textDecoration: "none", cursor: "pointer" }} title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}>
+          <button
+            type="button"
+            className="selectbox"
+            style={{ opacity: 0.45, cursor: "pointer", background: "none", border: "none" }}
+            title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}
+            onClick={() => {
+              openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+                if (status === "ok") window.location.reload();
+              });
+            }}
+          >
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L3 14h4l2-4 2 4h4z" opacity=".7" /></svg>
             {stravaLoading ? "Strava…" : "Connect Strava"}
-          </a>
+          </button>
         )}
       </div>
 
@@ -1070,9 +1081,17 @@ export function VitalityModule() {
               <div style={{ fontFamily: "var(--sans)", fontSize: 12, fontWeight: 500, color: "var(--ink)", marginBottom: 2 }}>Connect Strava for live data</div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)" }}>Weekly mileage, pace trends, and recent activities pulled from your real runs.</div>
             </div>
-            <a href="/api/strava?action=auth" style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", textDecoration: "none", whiteSpace: "nowrap" }}>
+            <button
+              type="button"
+              style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", whiteSpace: "nowrap", cursor: "pointer" }}
+              onClick={() => {
+                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+                  if (status === "ok") window.location.reload();
+                });
+              }}
+            >
               Connect Strava →
-            </a>
+            </button>
           </div>
         )}
 

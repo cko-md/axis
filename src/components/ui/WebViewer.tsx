@@ -60,7 +60,7 @@ export function WebViewer() {
     setTabs((prev) => [...prev, { id, url, title: url ? "Loading…" : "New Tab", back: [], forward: [] }]);
     setActiveTabId(id);
     setInputUrl(url);
-    if (iframeRef.current) iframeRef.current.src = url;
+    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
   };
   const addTab = useCallback((url = "") => addTabRef.current(url), []);
 
@@ -73,7 +73,7 @@ export function WebViewer() {
         const nextTab = next[Math.min(idx, next.length - 1)];
         setActiveTabId(nextTab.id);
         setInputUrl(nextTab.url);
-        if (iframeRef.current) iframeRef.current.src = nextTab.url;
+        if (iframeRef.current) iframeRef.current.src = nextTab.url ? `/api/proxy?url=${encodeURIComponent(nextTab.url)}` : "";
       }
       return next;
     });
@@ -85,7 +85,7 @@ export function WebViewer() {
       if (!tab) return prev;
       setActiveTabId(id);
       setInputUrl(tab.url);
-      if (iframeRef.current) iframeRef.current.src = tab.url;
+      if (iframeRef.current) iframeRef.current.src = tab.url ? `/api/proxy?url=${encodeURIComponent(tab.url)}` : "";
       return prev;
     });
   }, []);
@@ -99,8 +99,19 @@ export function WebViewer() {
           : t
       )
     );
-    if (iframeRef.current) iframeRef.current.src = url;
+    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
   }, [activeTabId]);
+
+  // Handle navigation messages posted by the proxy's injected script
+  useEffect(() => {
+    function onProxyMsg(e: MessageEvent) {
+      if (e.data?.type !== 'proxy-navigate') return;
+      const url = e.data.url as string;
+      if (url) navigate(url);
+    }
+    window.addEventListener('message', onProxyMsg);
+    return () => window.removeEventListener('message', onProxyMsg);
+  }, [navigate]);
 
   const goBack = useCallback(() => {
     setTabs((prev) => {
@@ -108,7 +119,7 @@ export function WebViewer() {
       if (!tab || !tab.back.length) return prev;
       const url = tab.back[tab.back.length - 1];
       setInputUrl(url);
-      if (iframeRef.current) iframeRef.current.src = url;
+      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
       return prev.map((t) =>
         t.id === activeTabId
           ? { ...t, url, back: t.back.slice(0, -1), forward: [t.url, ...t.forward] }
@@ -123,7 +134,7 @@ export function WebViewer() {
       if (!tab || !tab.forward.length) return prev;
       const url = tab.forward[0];
       setInputUrl(url);
-      if (iframeRef.current) iframeRef.current.src = url;
+      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
       return prev.map((t) =>
         t.id === activeTabId
           ? { ...t, url, back: [...t.back, t.url], forward: t.forward.slice(1) }
@@ -257,7 +268,7 @@ export function WebViewer() {
                 <polyline points="6,3 11,8 6,13" />
               </svg>
             </button>
-            <button type="button" className="wv-navbtn" title="Reload" onClick={() => { if (iframeRef.current) iframeRef.current.src = activeUrl; }}>
+            <button type="button" className="wv-navbtn" title="Reload" onClick={() => { if (iframeRef.current && activeUrl) iframeRef.current.src = `/api/proxy?url=${encodeURIComponent(activeUrl)}`; }}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M13.5 2.5 A6.5 6.5 0 1 1 6.5 1.5"/><polyline points="13.5,2.5 13.5,6 10,6"/>
               </svg>
@@ -332,7 +343,7 @@ export function WebViewer() {
         <div className="wv-frame-wrap">
           <iframe
             ref={iframeRef}
-            src={activeUrl}
+            src={activeUrl ? `/api/proxy?url=${encodeURIComponent(activeUrl)}` : ""}
             title={activeTab?.title ?? "Browser"}
             className="wv-frame"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"

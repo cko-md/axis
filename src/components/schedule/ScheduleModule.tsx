@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -307,7 +308,16 @@ export function ScheduleModule() {
             type="button"
             className="selectbox"
             style={{ background: "none" }}
-            onClick={() => { window.location.href = "/api/calendar/connect?provider=google"; }}
+            onClick={() => {
+              openOAuthPopup("/api/calendar/connect?provider=google", (_provider, status) => {
+                if (status === "ok") {
+                  fetch("/api/calendar/status")
+                    .then((r) => r.json())
+                    .then((s) => setCalStatus(s))
+                    .catch(() => {});
+                }
+              });
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             Connect Google Calendar
@@ -333,7 +343,16 @@ export function ScheduleModule() {
             type="button"
             className="selectbox"
             style={{ background: "none" }}
-            onClick={() => { window.location.href = "/api/calendar/connect?provider=outlook"; }}
+            onClick={() => {
+              openOAuthPopup("/api/calendar/connect?provider=outlook", (_provider, status) => {
+                if (status === "ok") {
+                  fetch("/api/calendar/status")
+                    .then((r) => r.json())
+                    .then((s) => setCalStatus(s))
+                    .catch(() => {});
+                }
+              });
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             Connect Outlook

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePlaidLink, type PlaidLinkOnSuccess } from "react-plaid-link";
 import { createClient } from "@/lib/supabase/client";
 import {
   DEFAULT_HOLDINGS,
@@ -51,6 +52,8 @@ export function FundModule() {
     Array<{ sym: string; name: string; ex: string }>
   >([]);
   const [tab, setTab] = useState<"overview" | "portfolio" | "cash" | "research">("overview");
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [plaidLinking, setPlaidLinking] = useState(false);
 
   const invested = holdings.reduce((s, h) => s + holdingValue(h), 0);
   const netWorth = invested + cash;
@@ -187,25 +190,65 @@ export function FundModule() {
     }
   }
 
-  async function connectBank() {
+  const fetchLinkToken = useCallback(async () => {
     try {
       const res = await fetch("/api/plaid/link", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({})) as { link_token?: string };
       if (res.ok && data?.link_token) {
-        // A full Plaid Link handoff (Plaid Link.js) would open here with the token.
-        toast("Plaid link token issued — open Plaid Link to finish.", "success", "Fund");
-        return;
+        setLinkToken(data.link_token);
       }
-      toast(
-        data?.message ??
-          "Add PLAID_CLIENT_ID and PLAID_SECRET server-side to link a bank via Plaid.",
-        "info",
-        "Fund",
-      );
+    } catch { /* ignore */ }
+  }, []);
+
+  const handlePlaidSuccess = useCallback<PlaidLinkOnSuccess>(async (publicToken, metadata) => {
+    setPlaidLinking(true);
+    try {
+      const res = await fetch("/api/plaid/exchange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          public_token: publicToken,
+          institution: metadata.institution?.name ?? null,
+        }),
+      });
+      if (res.ok) {
+        toast("Bank linked! Loading balances…", "success", "Plaid");
+        setPlaidConfigured(true);
+        void loadBalances();
+        setLinkToken(null);
+      } else {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        toast(err.error ?? "Failed to link bank.", "error", "Plaid");
+      }
     } catch {
-      toast("Could not reach the Plaid proxy.", "error", "Fund");
+      toast("Network error linking bank.", "error", "Plaid");
+    } finally {
+      setPlaidLinking(false);
     }
-  }
+  }, [toast, loadBalances]);
+
+  const { open: openPlaidLink, ready: plaidLinkReady } = usePlaidLink({
+    token: linkToken,
+    onSuccess: handlePlaidSuccess,
+    onExit: (err) => {
+      if (err) toast("Plaid Link closed.", "warn", "Plaid");
+      setLinkToken(null);
+    },
+  });
+
+  const connectBank = useCallback(async () => {
+    if (linkToken && plaidLinkReady) {
+      openPlaidLink();
+      return;
+    }
+    await fetchLinkToken();
+  }, [linkToken, plaidLinkReady, openPlaidLink, fetchLinkToken]);
+
+  useEffect(() => {
+    if (linkToken && plaidLinkReady) {
+      openPlaidLink();
+    }
+  }, [linkToken, plaidLinkReady, openPlaidLink]);
 
   async function addHolding() {
     if (!addSym.trim()) return;

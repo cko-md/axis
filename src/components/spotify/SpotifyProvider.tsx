@@ -1,5 +1,24 @@
 "use client";
 
+declare global {
+  interface Window {
+    Spotify: {
+      Player: new (opts: {
+        name: string;
+        getOAuthToken: (cb: (token: string) => void) => void;
+        volume: number;
+      }) => SpotifyPlayer;
+    };
+    onSpotifyWebPlaybackSDKReady: () => void;
+  }
+}
+type SpotifyPlayer = {
+  connect: () => Promise<boolean>;
+  disconnect: () => void;
+  addListener: (event: string, cb: (state: Record<string, unknown>) => void) => boolean;
+  removeListener: (event: string, cb?: (state: Record<string, unknown>) => void) => boolean;
+};
+
 import {
   createContext,
   useCallback,
@@ -9,6 +28,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 export type NowPlaying = {
   track: string | null;
@@ -51,6 +71,7 @@ type SpotifyState = {
   playUris: (uris: string[]) => Promise<void>;
   playContext: (contextUri: string) => Promise<void>;
   queue: (uri: string) => Promise<{ ok: boolean; message?: string }>;
+  sdkDeviceId: string | null;
 };
 
 const EMPTY_NOW: NowPlaying = {
@@ -77,6 +98,8 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState<NowPlaying>(EMPTY_NOW);
   const [liveProgressMs, setLiveProgressMs] = useState(0);
   const lastSync = useRef<number>(Date.now());
+  const [sdkDeviceId, setSdkDeviceId] = useState<string | null>(null);
+  const sdkPlayerRef = useRef<SpotifyPlayer | null>(null);
 
   const poll = useCallback(async () => {
     try {
@@ -132,22 +155,62 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(tick);
   }, [playing, now.progressMs, now.durationMs]);
 
+  // Load the Spotify Web Playback SDK when the user is connected.
+  useEffect(() => {
+    if (!connected) return;
+    if (!document.getElementById('spotify-sdk')) {
+      const s = document.createElement('script');
+      s.id = 'spotify-sdk';
+      s.src = 'https://sdk.scdn.co/spotify-player.js';
+      document.body.appendChild(s);
+    }
+    window.onSpotifyWebPlaybackSDKReady = () => {
+      const player: SpotifyPlayer = new window.Spotify.Player({
+        name: 'Axis Web Player',
+        getOAuthToken: (cb) => {
+          fetch('/api/spotify/token')
+            .then((r) => r.json())
+            .then((d: { access_token?: string }) => { if (d.access_token) cb(d.access_token); })
+            .catch(() => {/* no token */});
+        },
+        volume: 0.7,
+      });
+      sdkPlayerRef.current = player;
+      player.addListener('ready', (state) => {
+        const deviceId = state.device_id as string | undefined;
+        if (deviceId) setSdkDeviceId(deviceId);
+      });
+      player.addListener('not_ready', () => setSdkDeviceId(null));
+      void player.connect();
+    };
+    return () => {
+      sdkPlayerRef.current?.disconnect();
+      sdkPlayerRef.current = null;
+      setSdkDeviceId(null);
+    };
+  }, [connected]);
+
   const connect = useCallback(() => {
-    window.location.href = "/api/spotify/auth";
-  }, []);
+    openOAuthPopup('/api/spotify/auth', (_provider, status) => {
+      if (status === 'ok') void poll();
+    });
+  }, [poll]);
 
   const post = useCallback(
     async (body: Record<string, unknown>) => {
+      const payload = (body.action === 'play' && sdkDeviceId)
+        ? { ...body, device_id: sdkDeviceId }
+        : body;
       const res = await fetch("/api/spotify/playback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       // Re-sync shortly after a control action so UI catches the new state.
       setTimeout(poll, 350);
       return res;
     },
-    [poll],
+    [poll, sdkDeviceId],
   );
 
   const disconnect = useCallback(async () => {
@@ -254,6 +317,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         playUris,
         playContext,
         queue,
+        sdkDeviceId,
       }}
     >
       {children}

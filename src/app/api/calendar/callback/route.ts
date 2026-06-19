@@ -11,12 +11,12 @@ export async function GET(req: NextRequest) {
   const saved = cookieStore.get("calendar_oauth_state")?.value;
 
   if (!code || !state || state !== saved) {
-    return NextResponse.redirect(new URL("/schedule?error=oauth", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=error", req.url));
   }
 
   const provider = state.split(":")[0] as CalendarProvider;
   if (provider !== "google" && provider !== "outlook") {
-    return NextResponse.redirect(new URL("/schedule?error=oauth", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=error", req.url));
   }
 
   cookieStore.delete("calendar_oauth_state");
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
         grant_type: "authorization_code",
       }),
     });
-    if (!res.ok) return NextResponse.redirect(new URL("/schedule?error=token", req.url));
+    if (!res.ok) return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=error", req.url));
     tokenData = await res.json();
 
     // Fetch the user's Google email
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
         scope: "Calendars.ReadWrite offline_access User.Read",
       }),
     });
-    if (!res.ok) return NextResponse.redirect(new URL("/schedule?error=token", req.url));
+    if (!res.ok) return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=error", req.url));
     tokenData = await res.json();
 
     const profileRes = await fetch("https://graph.microsoft.com/v1.0/me", {
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!tokenData?.access_token) {
-    return NextResponse.redirect(new URL("/schedule?error=token", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=error", req.url));
   }
 
   await saveTokens(
@@ -92,5 +92,5 @@ export async function GET(req: NextRequest) {
     calendarEmail,
   );
 
-  return NextResponse.redirect(new URL(`/schedule?connected=${provider}`, req.url));
+  return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=ok", req.url));
 }

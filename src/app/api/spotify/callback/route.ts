@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const saved = cookieStore.get("spotify_oauth_state")?.value;
 
   if (!code || !state || state !== saved) {
-    return NextResponse.redirect(new URL("/listening-vault?error=oauth", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/spotify/callback`;
 
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(new URL("/listening-vault?error=config", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
   const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   });
 
   if (!tokenRes.ok) {
-    return NextResponse.redirect(new URL("/listening-vault?error=token", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
   const tokens = await tokenRes.json();
@@ -40,5 +40,5 @@ export async function GET(req: Request) {
   }
   cookieStore.delete("spotify_oauth_state");
 
-  return NextResponse.redirect(new URL("/listening-vault?connected=1", req.url));
+  return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=ok", req.url));
 }

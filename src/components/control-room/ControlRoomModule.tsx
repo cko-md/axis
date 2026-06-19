@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -279,8 +280,9 @@ export function ControlRoomModule() {
 
   // --- Actions ------------------------------------------------------------
   const connectSpotify = () => {
-    // OAuth redirect lives at /api/spotify/auth; it 503s cleanly if unconfigured.
-    window.location.href = "/api/spotify/auth";
+    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
+      if (status === "ok") setSpotifyConnected(true);
+    });
   };
 
   const exportLocalData = () => {
@@ -480,7 +482,13 @@ export function ControlRoomModule() {
       state: calendarStatus === null ? "pending" : calendarStatus.google ? "on" : "off",
       detail: calendarStatus === null ? "Checking…" : calendarStatus.google ? (calendarStatus.googleEmail ?? "Connected") : "Not connected",
       action: calendarStatus && !calendarStatus.google
-        ? { label: "Connect", onClick: () => { window.location.href = "/api/calendar/connect?provider=google"; } }
+        ? { label: "Connect", onClick: () => {
+            openOAuthPopup("/api/calendar/connect?provider=google", (_provider, status) => {
+              if (status === "ok") {
+                fetch("/api/calendar/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setCalendarStatus(s)).catch(() => {});
+              }
+            });
+          } }
         : calendarStatus?.google
         ? { label: "Disconnect", onClick: async () => {
             await fetch("/api/calendar/disconnect?provider=google", { method: "DELETE" });
@@ -494,7 +502,13 @@ export function ControlRoomModule() {
       state: calendarStatus === null ? "pending" : calendarStatus.outlook ? "on" : "off",
       detail: calendarStatus === null ? "Checking…" : calendarStatus.outlook ? (calendarStatus.outlookEmail ?? "Connected") : "Not connected",
       action: calendarStatus && !calendarStatus.outlook
-        ? { label: "Connect", onClick: () => { window.location.href = "/api/calendar/connect?provider=outlook"; } }
+        ? { label: "Connect", onClick: () => {
+            openOAuthPopup("/api/calendar/connect?provider=outlook", (_provider, status) => {
+              if (status === "ok") {
+                fetch("/api/calendar/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setCalendarStatus(s)).catch(() => {});
+              }
+            });
+          } }
         : calendarStatus?.outlook
         ? { label: "Disconnect", onClick: async () => {
             await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
@@ -508,7 +522,13 @@ export function ControlRoomModule() {
       state: mailStatus === null ? "pending" : mailStatus.gmail ? "on" : "off",
       detail: mailStatus === null ? "Checking…" : mailStatus.gmail ? (mailStatus.gmailEmail ?? "Connected") : "Not connected",
       action: mailStatus && !mailStatus.gmail
-        ? { label: "Connect", onClick: () => { window.location.href = "/api/mail/connect?provider=gmail"; } }
+        ? { label: "Connect", onClick: () => {
+            openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
+              if (status === "ok") {
+                fetch("/api/mail/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setMailStatus(s)).catch(() => {});
+              }
+            });
+          } }
         : mailStatus?.gmail
         ? { label: "Disconnect", onClick: async () => {
             await fetch("/api/mail/disconnect?provider=gmail", { method: "DELETE" });
@@ -522,7 +542,13 @@ export function ControlRoomModule() {
       state: mailStatus === null ? "pending" : mailStatus.outlook ? "on" : "off",
       detail: mailStatus === null ? "Checking…" : mailStatus.outlook ? (mailStatus.outlookEmail ?? "Connected") : "Not connected",
       action: mailStatus && !mailStatus.outlook
-        ? { label: "Connect", onClick: () => { window.location.href = "/api/mail/connect?provider=outlook"; } }
+        ? { label: "Connect", onClick: () => {
+            openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
+              if (status === "ok") {
+                fetch("/api/mail/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setMailStatus(s)).catch(() => {});
+              }
+            });
+          } }
         : mailStatus?.outlook
         ? { label: "Disconnect", onClick: async () => {
             await fetch("/api/mail/disconnect?provider=outlook", { method: "DELETE" });

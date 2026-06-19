@@ -56,13 +56,13 @@ export async function GET(req: NextRequest) {
     const savedState = cookieStore.get("strava_oauth_state")?.value;
 
     if (!code || !state || state !== savedState) {
-      return NextResponse.redirect(new URL("/?module=vitality&error=strava_oauth", req.url));
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
     const clientId = process.env.STRAVA_CLIENT_ID;
     const clientSecret = process.env.STRAVA_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-      return NextResponse.redirect(new URL("/?module=vitality&error=strava_config", req.url));
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
     const tokenRes = await fetch("https://www.strava.com/oauth/token", {
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL("/?module=vitality&error=strava_token", req.url));
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
     const tokens = await tokenRes.json();
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
     }
     cookieStore.delete("strava_oauth_state");
 
-    return NextResponse.redirect(new URL("/?module=vitality&strava=connected", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=ok", req.url));
   }
 
   // ── DISCONNECT ─────────────────────────────────────────────────────────────
