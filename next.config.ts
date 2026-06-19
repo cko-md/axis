@@ -92,6 +92,8 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Exclude browser-only packages from the server bundle (SSR/prerendering)
+  serverExternalPackages: ["@simplewebauthn/browser"],
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
