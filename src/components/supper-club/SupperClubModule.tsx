@@ -1,6 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const SAVED_KEY   = "axis-supper-saved";
+const RECIPES_KEY = "axis-supper-recipes";
 
 type Diet =
   | "high-protein"
@@ -90,14 +93,30 @@ function RecipeCard({
 
 export function SupperClubModule() {
   const [diet, setDiet] = useState<Diet>("high-protein");
-  const [savedIds, setSavedIds] = useState<string[]>(["r1", "r3", "r4"]);
-  const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
+  const [savedIds, setSavedIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return ["r1", "r3", "r4"];
+    try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "null") ?? ["r1", "r3", "r4"]; }
+    catch { return ["r1", "r3", "r4"]; }
+  });
+  const [myRecipes, setMyRecipes] = useState<Recipe[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem(RECIPES_KEY) ?? "null") ?? []; }
+    catch { return []; }
+  });
   const [formOpen, setFormOpen] = useState(false);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const titleRef = useRef<HTMLInputElement>(null);
   const timeRef = useRef<HTMLInputElement>(null);
   const kcalRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(savedIds));
+  }, [savedIds]);
+
+  useEffect(() => {
+    localStorage.setItem(RECIPES_KEY, JSON.stringify(myRecipes));
+  }, [myRecipes]);
 
   const toggleSave = (id: string) => {
     setSavedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));

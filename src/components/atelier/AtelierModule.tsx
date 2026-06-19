@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { useToast } from "@/components/ui/Toast";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -79,10 +81,51 @@ function initialPins() {
   return pins;
 }
 
+const PINS_KEY = "axis-atelier-pins";
+
+function dayToIso(abbrev: string, hour = 8): { start: string; end: string } {
+  const map: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
+  const target = map[abbrev.toUpperCase()] ?? 1;
+  const now = new Date();
+  let diff = (target - now.getDay() + 7) % 7;
+  if (diff === 0) diff = 7;
+  const d = new Date(now);
+  d.setDate(d.getDate() + diff);
+  d.setHours(hour, 0, 0, 0);
+  const start = new Date(d);
+  const end = new Date(d.getTime() + 30 * 60 * 1000);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 export function AtelierModule() {
+  const { toast } = useToast();
   const [tab, setTab] = useState<"atl-lang" | "atl-style">("atl-lang");
   const [lang, setLang] = useState<LangKey>("fr");
-  const [pins, setPins] = useState<Record<string, boolean>>(initialPins);
+  const [addingAgenda, setAddingAgenda] = useState(false);
+  const [pins, setPins] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return initialPins();
+    try { return JSON.parse(localStorage.getItem(PINS_KEY) ?? "null") ?? initialPins(); }
+    catch { return initialPins(); }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(PINS_KEY, JSON.stringify(pins));
+  }, [pins]);
+
+  const addWeekToAgenda = async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast("Sign in to add lessons to your agenda.", "warn", "Atelier"); return; }
+    setAddingAgenda(true);
+    const events = data.lessons.map(([day, title]) => {
+      const { start, end } = dayToIso(day);
+      return { user_id: user.id, title: `${data.name} · ${title}`, start_at: start, end_at: end, color_class: "accent", recurrence_rule: null };
+    });
+    const { error } = await supabase.from("schedule_events").insert(events);
+    setAddingAgenda(false);
+    if (error) toast("Failed to add events.", "error", "Atelier");
+    else toast(`${events.length} lessons added to this week's agenda.`, "success", "Atelier");
+  };
 
   const data = LANG_DATA[lang];
 
@@ -123,9 +166,16 @@ export function AtelierModule() {
               ))}
             </div>
             <div style={{ marginTop: 14 }}>
-              <span className="aibtn">
+              <span
+                className="aibtn"
+                role="button"
+                tabIndex={0}
+                style={{ opacity: addingAgenda ? 0.5 : 1, cursor: addingAgenda ? "default" : "pointer" }}
+                onClick={!addingAgenda ? addWeekToAgenda : undefined}
+                onKeyDown={(e) => !addingAgenda && e.key === "Enter" && addWeekToAgenda()}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>
-                Add Week to Agenda
+                {addingAgenda ? "Adding…" : "Add Week to Agenda"}
               </span>
             </div>
           </div>

@@ -157,11 +157,21 @@ function LoginForm() {
     router.refresh();
   }
 
+  const Bg = () => (
+    <>
+      <div className="depthfield" aria-hidden>
+        <div className="wash" /><div className="aurora" /><div className="aurora2" />
+        <div className="haze" /><div className="fall" /><div className="vig" />
+      </div>
+      <div className="grain" aria-hidden />
+    </>
+  );
+
   // MFA challenge overlay
   if (mfaState) {
     return (
       <div className="relative flex min-h-screen items-center justify-center p-6">
-        <div className="grain" aria-hidden />
+        <Bg />
         <MFAChallenge
           factorId={mfaState.factorId}
           challengeId={mfaState.challengeId}
@@ -174,7 +184,7 @@ function LoginForm() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center p-6">
-      <div className="grain" aria-hidden />
+      <Bg />
       <div className="card relative z-10 w-full max-w-md tick">
         {/* Header */}
         <div className="mb-6 text-center">
