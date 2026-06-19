@@ -8,6 +8,7 @@ interface RssItem {
   source: string;
   date: string;
   body: string;
+  image: string | null;
 }
 
 export async function POST(req: NextRequest) {
@@ -72,6 +73,7 @@ function parseRss(xml: string, feedUrl: string): RssItem[] {
       source: strip(channelTitle ?? "").slice(0, 40),
       date: date ? new Date(date).toISOString() : new Date().toISOString(),
       body: strip(desc ?? "").slice(0, 240),
+      image: extractImage(block),
     });
   }
   return items;
@@ -94,6 +96,34 @@ function tag(block: string, t: string): string | null {
 function attr(block: string, t: string, a: string): string {
   const m = block.match(new RegExp(`<${t}[^>]+${a}="([^"]+)"`, "i"));
   return m?.[1]?.trim() ?? "";
+}
+
+/**
+ * Pull a preview image from a feed item, in priority order:
+ *   media:content / media:thumbnail → enclosure[type=image] → first inline <img>.
+ * Returns an absolute http(s) URL or null.
+ */
+function extractImage(block: string): string | null {
+  const httpOk = (u?: string | null): u is string => !!u && /^https?:\/\//i.test(u);
+
+  let m = block.match(/<media:(?:content|thumbnail)[^>]*\burl="([^"]+)"/i);
+  if (httpOk(m?.[1])) return m![1];
+
+  m =
+    block.match(/<enclosure[^>]*\burl="([^"]+)"[^>]*\btype="image\/[^"]*"/i) ??
+    block.match(/<enclosure[^>]*\btype="image\/[^"]*"[^>]*\burl="([^"]+)"/i);
+  if (httpOk(m?.[1])) return m![1];
+
+  // Content/description may carry HTML, sometimes entity-escaped.
+  const decoded = block
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#34;/g, '"');
+  m = decoded.match(/<img[^>]*\bsrc="([^"]+)"/i);
+  if (httpOk(m?.[1])) return m![1];
+
+  return null;
 }
 
 function cdata(s: string | null): string | null {

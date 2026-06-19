@@ -26,6 +26,7 @@ type Story = {
   url: string;
   size?: "big" | "wide";
   video?: boolean;
+  image?: string | null;
 };
 
 const STORIES: Story[] = [
@@ -157,7 +158,7 @@ export function BriefingModule() {
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data) => {
         const items: Story[] = (data.items ?? []).map(
-          (item: { id: string; title: string; url: string; source: string; date: string; body: string }, i: number) => ({
+          (item: { id: string; title: string; url: string; source: string; date: string; body: string; image?: string | null }, i: number) => ({
             id: `feed-${item.id ?? i}`,
             cat: item.source ?? "Feed",
             title: item.title,
@@ -167,6 +168,7 @@ export function BriefingModule() {
             body: item.body || "Click to read the full article.",
             gradient: FEED_GRADIENTS[i % FEED_GRADIENTS.length],
             url: item.url,
+            image: item.image ?? null,
           }),
         );
         setFeedItems(items);
@@ -278,7 +280,10 @@ export function BriefingModule() {
         ))}
       </div>
       <div className="reader">
-        <div className="r-media">
+        <div
+          className="r-media"
+          style={reader.image ? { backgroundImage: `url(${reader.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+        >
           <div className="play" onClick={() => openInApp(reader.url, reader.shortTitle)} style={{ cursor: "pointer" }} title="Open in app" />
           <div className="scrub">
             <span>02:14</span>
@@ -425,7 +430,10 @@ export function BriefingModule() {
             onDoubleClick={() => openInApp(s.url, s.shortTitle)}
             title={`Click to preview · Double-click to read in-app`}
           >
-            <div className="thumb" style={{ background: s.gradient }}>
+            <div
+              className="thumb"
+              style={s.image ? { backgroundImage: `url(${s.image})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.gradient }}
+            >
               <div className="nc-cat">{s.cat}</div>
               {s.video && (
                 <div className="play">
@@ -443,6 +451,22 @@ export function BriefingModule() {
             </div>
             <div className="nc-b">
               <h4>{s.shortTitle}</h4>
+              {s.id.startsWith("feed-") && s.body && (
+                <p
+                  style={{
+                    fontSize: 10.5,
+                    lineHeight: 1.5,
+                    color: "var(--ink-faint)",
+                    margin: 0,
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {s.body}
+                </p>
+              )}
               <div className="nc-src">
                 <span>{s.src.split(" · ")[0]}</span>
                 <span>{s.src.split(" · ")[1]}</span>

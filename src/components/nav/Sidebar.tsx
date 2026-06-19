@@ -598,10 +598,18 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       {/* Spotify strip */}
       <Link href="/listening-vault" className="spotify" title="Open Listening Vault">
         <div className="sp-art">
-          <svg viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="11" fill="#1db954" />
-            <path d="M7 10c3-1 7-.5 9 1M7.5 13c2.5-.8 5.5-.4 7 .8M8 15.5c2-.6 4-.3 5 .5" stroke="#0a0a0a" strokeWidth="1.1" fill="none" strokeLinecap="round" />
-          </svg>
+          {spotify.connected && spotify.now.art ? (
+            <img
+              src={spotify.now.art}
+              alt=""
+              style={{ width: 34, height: 34, borderRadius: 3, objectFit: "cover", display: "block" }}
+            />
+          ) : (
+            <svg viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="11" fill="#1db954" />
+              <path d="M7 10c3-1 7-.5 9 1M7.5 13c2.5-.8 5.5-.4 7 .8M8 15.5c2-.6 4-.3 5 .5" stroke="#0a0a0a" strokeWidth="1.1" fill="none" strokeLinecap="round" />
+            </svg>
+          )}
         </div>
         <div className="sp-meta">
           <div className="sp-t">{spotify.connected ? spotify.track : "Not Connected"}</div>
