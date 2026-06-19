@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const SCOPES = [
   "user-read-playback-state",
@@ -14,12 +15,12 @@ const SCOPES = [
   "playlist-modify-public",
 ].join(" ");
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   if (!clientId) {
     return NextResponse.json({ error: "SPOTIFY_CLIENT_ID not configured" }, { status: 503 });
   }
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/spotify/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const state = crypto.randomUUID();
   const cookieStore = await cookies();
   cookieStore.set("spotify_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });

@@ -181,6 +181,13 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         if (deviceId) setSdkDeviceId(deviceId);
       });
       player.addListener('not_ready', () => setSdkDeviceId(null));
+      player.addListener('initialization_error', (state) => {
+        const msg = state.message as string | undefined;
+        if (msg?.toLowerCase().includes('premium')) {
+          console.warn('[Axis Spotify] Premium required for in-browser playback.');
+        }
+        setSdkDeviceId(null);
+      });
       void player.connect();
     };
     return () => {

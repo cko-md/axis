@@ -27,6 +27,8 @@ export function WebViewer() {
   const [favs, setFavs] = useState<Fav[]>([]);
   const [showFavs, setShowFavs] = useState(false);
   const [captured, setCaptured] = useState(false);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "ok" | "blocked">("idle");
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setFavs(loadFavs()); }, []);
 
@@ -100,6 +102,13 @@ export function WebViewer() {
       )
     );
     if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    if (url) {
+      setLoadState("loading");
+      loadTimerRef.current = setTimeout(() => setLoadState("blocked"), 6000);
+    } else {
+      setLoadState("idle");
+    }
   }, [activeTabId]);
 
   // Handle navigation messages posted by the proxy's injected script
@@ -347,11 +356,17 @@ export function WebViewer() {
             title={activeTab?.title ?? "Browser"}
             className="wv-frame"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+            onLoad={() => {
+              if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+              setLoadState("ok");
+            }}
           />
-          <div className="wv-blocked-hint">
-            <span>This site can&apos;t be embedded.</span>
-            <button type="button" onClick={() => window.open(activeUrl, "_blank", "noopener")}>Open in browser →</button>
-          </div>
+          {loadState === "blocked" && (
+            <div className="wv-blocked-hint">
+              <span>This site can&apos;t be embedded in-app.</span>
+              <button type="button" onClick={() => window.open(activeUrl, "_blank", "noopener")}>Open in browser →</button>
+            </div>
+          )}
         </div>
       </div>
     </div>

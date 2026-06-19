@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
 const OUTLOOK_SCOPES = "Calendars.ReadWrite offline_access User.Read";
@@ -19,8 +20,7 @@ export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
   cookieStore.set("calendar_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3200";
-  const redirectUri = `${appUrl}/api/calendar/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/calendar/callback`;
 
   let authUrl: string;
   if (provider === "google") {

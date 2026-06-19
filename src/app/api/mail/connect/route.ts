@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const GMAIL_SCOPES =
   "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email";
@@ -22,8 +23,7 @@ export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
   cookieStore.set("mail_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3200";
-  const redirectUri = `${appUrl}/api/mail/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/mail/callback`;
 
   let authUrl: string;
   if (provider === "gmail") {

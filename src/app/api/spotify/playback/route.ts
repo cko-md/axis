@@ -37,24 +37,26 @@ export async function POST(req: Request) {
   const token = await getAccessToken();
   if (!token) return NextResponse.json({ error: "Not connected" }, { status: 401 });
 
-  const { action, value, uri, uris, contextUri } = (await req.json()) as {
+  const { action, value, uri, uris, contextUri, device_id } = (await req.json()) as {
     action: string;
     value?: number;
     uri?: string;
     uris?: string[];
     contextUri?: string;
+    device_id?: string;
   };
 
   let res: Response;
   switch (action) {
     case "play": {
+      const deviceQs = device_id ? `?device_id=${encodeURIComponent(device_id)}` : "";
       let body: string | undefined;
       if (contextUri) {
         body = JSON.stringify({ context_uri: contextUri });
       } else if (uris?.length || uri) {
         body = JSON.stringify({ uris: uris ?? (uri ? [uri] : undefined) });
       }
-      res = await spotifyFetch(token, "/me/player/play", {
+      res = await spotifyFetch(token, `/me/player/play${deviceQs}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body,

@@ -9,6 +9,7 @@ import {
   type StravaStats,
   type StravaAthlete,
 } from "./_lib";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "STRAVA_CLIENT_ID not configured" }, { status: 503 });
     }
 
-    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/strava?action=callback`;
+    const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
     const state = crypto.randomUUID();
     const cookieStore = await cookies();
     cookieStore.set("strava_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
