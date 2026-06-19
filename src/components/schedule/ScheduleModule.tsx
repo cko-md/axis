@@ -85,6 +85,7 @@ export function ScheduleModule() {
     startHour: "9",
     endHour: "10",
     color: "a" as "a" | "b" | "c",
+    recurrence: "none" as "none" | "daily" | "weekly",
   });
   const [view, setView] = useState<"week" | "month" | "day">("week");
   const [signedIn, setSignedIn] = useState(false);
@@ -220,23 +221,39 @@ export function ScheduleModule() {
       return;
     }
 
-    const { data: inserted, error } = await supabase
-      .from("schedule_events")
-      .insert({
+    const recurrenceRule = form.recurrence !== "none" ? form.recurrence : null;
+
+    // Build base insert; for recurring events also insert the next N instances
+    const instances: Array<{ user_id: string; title: string; start_at: string; end_at: string; color_class: string; recurrence_rule: string | null }> = [];
+    const duration = end.getTime() - start.getTime();
+    const repeatCount = form.recurrence === "daily" ? 6 : form.recurrence === "weekly" ? 3 : 0;
+    for (let i = 0; i <= repeatCount; i++) {
+      const offset = form.recurrence === "daily" ? i : i * 7;
+      const s = new Date(start.getTime() + offset * 24 * 60 * 60 * 1000);
+      const e = new Date(s.getTime() + duration);
+      instances.push({
         user_id: user.id,
         title: form.title,
-        start_at: start.toISOString(),
-        end_at: end.toISOString(),
+        start_at: s.toISOString(),
+        end_at: e.toISOString(),
         color_class: form.color,
-      })
+        recurrence_rule: recurrenceRule,
+      });
+    }
+
+    const { data: inserted, error } = await supabase
+      .from("schedule_events")
+      .insert(instances)
       .select("id")
+      .limit(1)
       .single();
 
     if (error) { toast(error.message, "error", "Schedule"); return; }
 
-    toast("Event added.", "success", "Schedule");
+    const label = form.recurrence === "none" ? "Event added." : `Event added (${repeatCount + 1} instances — ${form.recurrence}).`;
+    toast(label, "success", "Schedule");
     setModalOpen(false);
-    setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a" });
+    setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a", recurrence: "none" });
     load();
 
     // Sync to connected external calendars
@@ -520,6 +537,17 @@ export function ScheduleModule() {
             <option value="a">Teal — Deep work</option>
             <option value="b">Green — Wellness</option>
             <option value="c">Clay — Meetings</option>
+          </select>
+          <select
+            className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-2 py-2 text-sm"
+            value={form.recurrence}
+            onChange={(e) =>
+              setForm({ ...form, recurrence: e.target.value as "none" | "daily" | "weekly" })
+            }
+          >
+            <option value="none">No repeat</option>
+            <option value="daily">Daily — next 7 days</option>
+            <option value="weekly">Weekly — next 4 weeks</option>
           </select>
         </div>
       </Modal>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 
@@ -108,6 +108,22 @@ const CAT_TO_FILTER: Record<string, string> = {
   "Black & Nigerian": "black-nigerian",
 };
 
+const FEED_GRADIENTS = [
+  "linear-gradient(135deg,#1a2030,#10141b)",
+  "linear-gradient(135deg,#16252a,#10141b)",
+  "linear-gradient(135deg,#1d2330,#10141b)",
+  "linear-gradient(135deg,#22262f,#10141b)",
+  "linear-gradient(135deg,#1a2433,#10141b)",
+];
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return "< 1h";
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 export function BriefingModule() {
   const { open: openInApp } = useWebViewer();
   const { toast } = useToast();
@@ -126,6 +142,38 @@ export function BriefingModule() {
     try { return JSON.parse(localStorage.getItem("axis-briefing-feeds") ?? "[]"); } catch { return []; }
   });
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [feedItems, setFeedItems] = useState<Story[]>([]);
+  const [feedsLoading, setFeedsLoading] = useState(false);
+
+  // Load real RSS items whenever saved feeds change
+  useEffect(() => {
+    if (savedFeeds.length === 0) { setFeedItems([]); return; }
+    setFeedsLoading(true);
+    fetch("/api/briefing/fetch-feeds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedUrls: savedFeeds.map((f) => f.url) }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data) => {
+        const items: Story[] = (data.items ?? []).map(
+          (item: { id: string; title: string; url: string; source: string; date: string; body: string }, i: number) => ({
+            id: `feed-${item.id ?? i}`,
+            cat: item.source ?? "Feed",
+            title: item.title,
+            shortTitle: item.title.slice(0, 70),
+            src: `${item.source ?? "Feed"} · ${relativeTime(item.date)}`,
+            srcLong: `${item.source ?? "Feed"} · ${relativeTime(item.date)} · 5 MIN READ`,
+            body: item.body || "Click to read the full article.",
+            gradient: FEED_GRADIENTS[i % FEED_GRADIENTS.length],
+            url: item.url,
+          }),
+        );
+        setFeedItems(items);
+      })
+      .catch(() => {})
+      .finally(() => setFeedsLoading(false));
+  }, [savedFeeds]);
 
   const toggleChip = (f: string) => {
     setActive((prev) => {
@@ -177,11 +225,12 @@ export function BriefingModule() {
     localStorage.setItem("axis-briefing-feeds", JSON.stringify(next));
   };
 
+  const allStories = [...STORIES, ...feedItems];
   const visible = active.has("all")
-    ? STORIES
-    : STORIES.filter((s) => active.has(CAT_TO_FILTER[s.cat]));
+    ? allStories
+    : allStories.filter((s) => active.has(CAT_TO_FILTER[s.cat] ?? "feed") || feedItems.some((fi) => fi.id === s.id));
 
-  const reader = STORIES.find((s) => s.id === readerId) ?? STORIES[0];
+  const reader = allStories.find((s) => s.id === readerId) ?? STORIES[0];
 
   return (
     <>
@@ -206,6 +255,16 @@ export function BriefingModule() {
         </div>
         <button type="button" className="feed-manage" onClick={() => setSourcesOpen(true)}>Manage Sources</button>
       </div>
+      {feedsLoading && (
+        <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)", padding: "4px 0" }}>
+          Fetching feeds…
+        </p>
+      )}
+      {feedItems.length > 0 && !feedsLoading && (
+        <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)", padding: "4px 0" }}>
+          {feedItems.length} article{feedItems.length !== 1 ? "s" : ""} from your feeds
+        </p>
+      )}
       <div className="feed-suggest" />
       <div className="chips">
         {CHIPS.map((c) => (

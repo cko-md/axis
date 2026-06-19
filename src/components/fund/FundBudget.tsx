@@ -1,82 +1,110 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 
-const INSIGHTS = [
-  {
-    ic: "↗",
-    icColor: "var(--up)",
-    title: "Dining is 22% above your 3-mo average",
-    meta: "$640 vs $525 — trim 2 outings to free ~$180/mo",
-    value: "+$180",
-    up: true,
-  },
-  {
-    ic: "↺",
-    icColor: undefined,
-    title: "3 overlapping subscriptions detected",
-    meta: "UpToDate + 2 streaming — consolidate to save $31/mo",
-    value: "+$31",
-    up: true,
-  },
-  {
-    ic: "🍃",
-    icColor: undefined,
-    title: "Idle cash above 9-mo runway",
-    meta: "Move $6k to HYSA/T-bills — ~$260/yr at 4.3%",
-    value: "+$260/yr",
-    up: true,
-  },
-  {
-    ic: "💳",
-    icColor: undefined,
-    title: "Venmo splits unreconciled",
-    meta: "$214 owed to you across 4 friends — nudge to collect",
-    value: "$214",
-    up: false,
-  },
-];
+type Insight = {
+  ic: string;
+  icColor?: string;
+  title: string;
+  meta: string;
+  value: string;
+  up: boolean;
+};
 
-const BUDGETS = [
-  { label: "Dining", spent: "$640 / $525", pct: 100, cls: "over" },
-  { label: "Subscriptions", spent: "$96 / $120", pct: 80, cls: "" },
-  { label: "Groceries", spent: "$310 / $450", pct: 69, cls: "good" },
-];
+type Budget = {
+  label: string;
+  spent: string;
+  pct: number;
+  cls: string;
+};
 
-/** Phase-3 static stub — Budget Intelligence (prototype finance view). */
 export function FundBudget() {
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [status, setStatus] = useState<"loading" | "ok" | "no-plaid" | "no-account" | "error">(
+    "loading",
+  );
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/plaid/budget", { method: "POST" });
+      const data = await res.json();
+      if (!data.configured) { setStatus("no-plaid"); return; }
+      if (data.error === "NO_LINKED_ACCOUNT") { setStatus("no-account"); return; }
+      if (data.error) { setStatus("error"); return; }
+      setInsights(data.insights ?? []);
+      setBudgets(data.budgets ?? []);
+      setStatus("ok");
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
   return (
     <Card>
       <h2 className="sec">
         Budget Intelligence
         <span className="rule" />
-        <span className="count">AI · Massive + Plaid</span>
+        <span className="count">Plaid · This month</span>
       </h2>
-      <div style={{ marginTop: 10 }}>
-        {INSIGHTS.map((t) => (
-          <div key={t.title} className="txn">
-            <div className="txn-ic" style={t.icColor ? { color: t.icColor } : undefined}>
-              {t.ic}
-            </div>
-            <div className="txn-b">
-              <div className="txn-t">{t.title}</div>
-              <div className="txn-m">{t.meta}</div>
-            </div>
-            <div className={`txn-v${t.up ? " up" : ""}`}>{t.value}</div>
+
+      {status === "loading" && (
+        <p style={{ marginTop: 10, fontSize: 12, color: "var(--ink-faint)" }}>
+          Analyzing spending…
+        </p>
+      )}
+      {status === "no-plaid" && (
+        <p style={{ marginTop: 10, fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
+          Add PLAID_CLIENT_ID and PLAID_SECRET in Vercel to see live budget intelligence.
+        </p>
+      )}
+      {status === "no-account" && (
+        <p style={{ marginTop: 10, fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
+          Link a bank account to see budget insights.
+        </p>
+      )}
+      {status === "error" && (
+        <p style={{ marginTop: 10, fontSize: 12, color: "var(--clay)" }}>
+          Could not load budget data. Try again later.
+        </p>
+      )}
+
+      {status === "ok" && (
+        <>
+          <div style={{ marginTop: 10 }}>
+            {insights.map((t) => (
+              <div key={t.title} className="txn">
+                <div className="txn-ic" style={t.icColor ? { color: t.icColor } : undefined}>
+                  {t.ic}
+                </div>
+                <div className="txn-b">
+                  <div className="txn-t">{t.title}</div>
+                  <div className="txn-m">{t.meta}</div>
+                </div>
+                <div className={`txn-v${t.up ? " up" : ""}`}>{t.value}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div style={{ marginTop: 14 }}>
-        {BUDGETS.map((b) => (
-          <div key={b.label} className="budgetbar">
-            <div className="bl">
-              <span>{b.label}</span>
-              <span className="bv">{b.spent}</span>
+          {budgets.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              {budgets.map((b) => (
+                <div key={b.label} className="budgetbar">
+                  <div className="bl">
+                    <span>{b.label}</span>
+                    <span className="bv">{b.spent}</span>
+                  </div>
+                  <div className="track">
+                    <div className={b.cls} style={{ width: `${Math.min(b.pct, 100)}%` }} />
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="track">
-              <div className={b.cls} style={{ width: `${b.pct}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
+          )}
+        </>
+      )}
     </Card>
   );
 }

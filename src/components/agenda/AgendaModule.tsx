@@ -159,6 +159,8 @@ export function AgendaModule() {
   const [nightTuneOpen, setNightTuneOpen] = useState(false);
   const [newNightStep, setNewNightStep] = useState("");
   const [filterPri, setFilterPri] = useState<string>("all");
+  const [rebuildingMorning, setRebuildingMorning] = useState(false);
+  const [rebuildingNight, setRebuildingNight] = useState(false);
 
   const loadRoutine = useCallback(async () => {
     const key = todayKey();
@@ -280,6 +282,41 @@ export function AgendaModule() {
   const overdue = tasks.filter((t) => t.status === "overdue");
   const filtered = filterPri === "all" ? open : open.filter((t) => t.priority === filterPri);
 
+  const rebuildRoutine = useCallback(
+    async (type: "morning" | "night") => {
+      const isNight = type === "night";
+      if (isNight) setRebuildingNight(true);
+      else setRebuildingMorning(true);
+      try {
+        const res = await fetch("/api/agenda/rebuild", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type,
+            currentSteps: isNight ? nightRoutine : routine,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.steps) {
+          toast(data.error === "Unauthorized" ? "Sign in to use AI rebuild." : "AI rebuild failed — try again.", "error", "Routine");
+          return;
+        }
+        if (isNight) {
+          await saveNightRoutine(data.steps);
+        } else {
+          await saveRoutine(data.steps);
+        }
+        toast(`${isNight ? "Night" : "Morning"} routine rebuilt by AI.`, "success", "Routine");
+      } catch {
+        toast("Network error — try again.", "error", "Routine");
+      } finally {
+        if (isNight) setRebuildingNight(false);
+        else setRebuildingMorning(false);
+      }
+    },
+    [routine, nightRoutine, toast, saveRoutine, saveNightRoutine],
+  );
+
   const parseAndAdd = useCallback((title: string, category: TaskCategory) => {
     const lower = title.toLowerCase();
     let priority: "hi" | "med" | "lo" = "med";
@@ -338,7 +375,14 @@ export function AgendaModule() {
           <p style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.55, marginBottom: 12 }}>
             Drag steps to reorder. Resets each morning. Saved to your preferences.
           </p>
-          <span className="aibtn" onClick={() => toast("AI rebuild — Phase 4 stub", "info", "Routine")}>Rebuild with AI</span>
+          <button
+            type="button"
+            className="aibtn"
+            disabled={rebuildingMorning}
+            onClick={() => void rebuildRoutine("morning")}
+          >
+            {rebuildingMorning ? "✦ Rebuilding…" : "✦ Rebuild with AI"}
+          </button>
           <div className="addtask" style={{ marginTop: 8 }}>
             <input
               placeholder="+ Add a step…"
@@ -389,7 +433,14 @@ export function AgendaModule() {
           <p style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.55, marginBottom: 12 }}>
             Drag steps to reorder. Resets each night. Saved to your preferences.
           </p>
-          <span className="aibtn" onClick={() => toast("AI rebuild — Phase 4 stub", "info", "Night Routine")}>Rebuild with AI</span>
+          <button
+            type="button"
+            className="aibtn"
+            disabled={rebuildingNight}
+            onClick={() => void rebuildRoutine("night")}
+          >
+            {rebuildingNight ? "✦ Rebuilding…" : "✦ Rebuild with AI"}
+          </button>
           <div className="addtask" style={{ marginTop: 8 }}>
             <input
               placeholder="+ Add a step…"
