@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 const SAVED_KEY   = "axis-supper-saved";
 const RECIPES_KEY = "axis-supper-recipes";
+const DIET_KEY    = "axis-supper-diet";
 
 type Diet =
   | "high-protein"
@@ -92,7 +93,11 @@ function RecipeCard({
 }
 
 export function SupperClubModule() {
-  const [diet, setDiet] = useState<Diet>("high-protein");
+  const [diet, setDiet] = useState<Diet>(() => {
+    if (typeof window === "undefined") return "high-protein";
+    const stored = localStorage.getItem(DIET_KEY) as Diet | null;
+    return stored && DIETS.includes(stored) ? stored : "high-protein";
+  });
   const [savedIds, setSavedIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return ["r1", "r3", "r4"];
     try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "null") ?? ["r1", "r3", "r4"]; }
@@ -109,6 +114,10 @@ export function SupperClubModule() {
   const timeRef = useRef<HTMLInputElement>(null);
   const kcalRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(DIET_KEY, diet);
+  }, [diet]);
 
   useEffect(() => {
     localStorage.setItem(SAVED_KEY, JSON.stringify(savedIds));

@@ -23,17 +23,41 @@ function nextOccurrence(dayOfWeek: number, hour = 19): Date {
   return next;
 }
 
+const DEMO_WINS = ["AANS abstract submitted", "Cohort 2 chart review (80%)", "4 zone-2 runs · 38 km"];
+const DEMO_FRICTION = [
+  { title: "Data-use agreement signature", badge: "2 weeks idle", cls: "hi" },
+  { title: "IRB amendment — UIA cohort",   badge: "blocked on PI",  cls: "med" },
+];
+
 export function DebriefModule() {
   const { createNote, updateNote } = useNotes();
-  const { addTask }                = useTasks();
+  const { tasks, loading, addTask } = useTasks();
   const { toast }                  = useToast();
 
+  const [signedIn,     setSignedIn]     = useState(false);
   const [reflection,   setReflection]   = useState("");
   const [saving,       setSaving]       = useState(false);
   const [reminderDay,  setReminderDay]  = useState(DEFAULT_DAY);
   const [reminderHour, setReminderHour] = useState(DEFAULT_HOUR);
   const [reminderSet,  setReminderSet]  = useState(false);
   const [showConfig,   setShowConfig]   = useState(false);
+
+  useEffect(() => {
+    import("@/lib/supabase/client").then(({ createClient }) => {
+      createClient().auth.getUser().then(({ data }) => setSignedIn(!!data.user));
+    });
+  }, []);
+
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const fortAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  const wins = tasks.filter((t) => t.status === "done" && new Date(t.updated_at).getTime() >= weekAgo)
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 5);
+  const friction = tasks.filter(
+    (t) => t.status === "overdue" || (t.status === "open" && new Date(t.updated_at).getTime() < fortAgo)
+  ).slice(0, 4);
+  const completedCount = tasks.filter((t) => t.status === "done" && new Date(t.updated_at).getTime() >= weekAgo).length;
+  const openCount = tasks.filter((t) => t.status === "open" || t.status === "overdue").length;
 
   useEffect(() => {
     try {
@@ -91,53 +115,59 @@ export function DebriefModule() {
       <div className="divider" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
         <div className="card tick">
-          <h2 className="sec">Wins<span className="rule" /></h2>
+          <h2 className="sec">Wins<span className="rule" /><span className="count">this week</span></h2>
           <div style={{ marginTop: 12 }}>
-            {[
-              "AANS abstract submitted",
-              "Cohort 2 chart review (80%)",
-              "4 zone-2 runs · 38 km",
-            ].map((t) => (
-              <div key={t} className="task">
+            {(!signedIn || loading ? DEMO_WINS.map((t) => ({ id: t, title: t })) : wins).map((t) => (
+              <div key={typeof t === "string" ? t : t.id} className="task">
                 <div className="check done" />
                 <div className="task-main">
-                  <div className="task-title" style={{ textDecoration: "line-through", color: "var(--ink-faint)" }}>{t}</div>
+                  <div className="task-title" style={{ textDecoration: "line-through", color: "var(--ink-faint)" }}>
+                    {typeof t === "string" ? t : t.title}
+                  </div>
                 </div>
               </div>
             ))}
+            {signedIn && !loading && wins.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>No tasks completed this week yet.</div>
+            )}
           </div>
         </div>
 
         <div className="card">
-          <h2 className="sec">Friction<span className="rule" /></h2>
+          <h2 className="sec">Friction<span className="rule" /><span className="count">overdue · idle</span></h2>
           <div style={{ marginTop: 12 }}>
-            <div className="task">
-              <div className="check" />
-              <div className="task-main">
-                <div className="task-title">Data-use agreement signature</div>
-                <div className="task-meta"><span className="pill hi">2 weeks idle</span></div>
+            {(!signedIn || loading ? DEMO_FRICTION : friction.map((t) => ({
+              title: t.title,
+              badge: t.status === "overdue" ? "overdue" : "14d idle",
+              cls: t.status === "overdue" ? "hi" : "med",
+            }))).map((f) => (
+              <div key={f.title} className="task">
+                <div className="check" />
+                <div className="task-main">
+                  <div className="task-title">{f.title}</div>
+                  <div className="task-meta"><span className={`pill ${f.cls}`}>{f.badge}</span></div>
+                </div>
               </div>
-            </div>
-            <div className="task">
-              <div className="check" />
-              <div className="task-main">
-                <div className="task-title">IRB amendment — UIA cohort</div>
-                <div className="task-meta"><span className="pill med">blocked on PI</span></div>
-              </div>
-            </div>
+            ))}
+            {signedIn && !loading && friction.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>No friction items — clean slate.</div>
+            )}
           </div>
         </div>
 
         <div className="card">
           <h2 className="sec">Metrics<span className="rule" /></h2>
           <div style={{ marginTop: 12 }}>
-            {[
+            {(signedIn && !loading ? [
+              ["Tasks completed", String(completedCount), completedCount > 0 ? "up" : ""],
+              ["Open tasks",      String(openCount),      ""],
+            ] : [
               ["Deep-work hours", "22.5h", ""],
-              ["Tasks completed", "19", "up"],
-              ["Run volume", "38 km", ""],
-              ["Savings rate", "28%", "up"],
-              ["French lessons", "4 / 5", ""],
-            ].map(([k, v, cls]) => (
+              ["Tasks completed", "19",    "up"],
+              ["Run volume",      "38 km", ""],
+              ["Savings rate",    "28%",   "up"],
+              ["French lessons",  "4 / 5", ""],
+            ]).map(([k, v, cls]) => (
               <div key={k} className="metricrow">
                 <span className="metric-k">{k}</span>
                 <span className={`metric-v${cls ? " " + cls : ""}`}>{v}</span>
