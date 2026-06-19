@@ -627,20 +627,28 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
+  const tasksDone  = tasks.filter((t) => t.status === "done").length;
+  const tasksTotal = Math.max(tasks.length, 8);
+  const tasksPct   = Math.min(tasksDone / tasksTotal, 1);
+  // r3 circumference = 2π × 28 ≈ 175.9
+  const r3Offset   = Math.round(175.9 * (1 - tasksPct));
+  // r1 ≈ 75% (3/4h), r2 = 100% (8/8km) — hardcoded until data sources exist
+  const overallPct = Math.round(((0.75 + 1.0 + tasksPct) / 3) * 100);
+
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
       <Card tick>
-        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">74%</span></h2>
+        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">{overallPct}%</span></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
             <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" />
             <circle className="rbg" cx="60" cy="60" r="40" /><circle className="rfg r2" cx="60" cy="60" r="40" />
-            <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" />
+            <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" style={{ strokeDashoffset: r3Offset }} />
           </svg>
           <div className="rings-legend">
             <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">3.0 / 4h</span></div>
             <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">8 / 8 km</span></div>
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent-2)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasks.filter((t) => t.status === "done").length} / {Math.max(tasks.length, 8)}</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--marine)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasksDone} / {tasksTotal}</span></div>
           </div>
         </div>
       </Card>

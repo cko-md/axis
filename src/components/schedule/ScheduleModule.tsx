@@ -414,7 +414,7 @@ export function ScheduleModule() {
         <Card>
           <div className="empty-state">
             <strong>No events this week</strong>
-            <p>Add a block or connect Google Calendar in a future phase.</p>
+            <p>Connect Google Calendar or Outlook to sync your schedule, or add an event above.</p>
           </div>
         </Card>
       ) : (
