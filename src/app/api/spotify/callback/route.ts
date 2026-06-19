@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
+export async function GET(req: NextRequest) {
+  const url = req.nextUrl;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieStore = await cookies();
@@ -14,7 +15,7 @@ export async function GET(req: Request) {
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/spotify/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
 
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function MFAChallenge({ factorId, challengeId, onSuccess, onCancel }: Props) {
+  const supabase = useMemo(() => createClient(), []);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,25 +26,15 @@ export default function MFAChallenge({ factorId, challengeId, onSuccess, onCance
     if (codeToVerify.length !== 6) return;
     setLoading(true);
     setError(null);
-    try {
-      const res = await fetch('/api/auth/mfa/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ factorId, challengeId, code: codeToVerify }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? 'Verification failed. Try again.');
-        setLoading(false);
-        setCode('');
-        inputRef.current?.focus();
-        return;
-      }
-      onSuccess();
-    } catch {
-      setError('Network error. Please try again.');
+    const { error: verifyError } = await supabase.auth.mfa.verify({ factorId, challengeId, code: codeToVerify });
+    if (verifyError) {
+      setError(verifyError.message ?? 'Verification failed. Try again.');
       setLoading(false);
+      setCode('');
+      inputRef.current?.focus();
+      return;
     }
+    onSuccess();
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {

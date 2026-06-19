@@ -139,15 +139,13 @@ function LoginForm() {
       const totp = factorsData?.totp;
       if (totp && totp.length > 0) {
         const factorId = totp[0].id;
-        // Create challenge via API route
-        const challengeRes = await fetch('/api/auth/mfa/challenge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ factorId }),
-        });
-        const challengeData = await challengeRes.json().catch(() => ({}));
+        const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
         setLoading(false);
-        setMfaState({ factorId, challengeId: challengeData.challengeId ?? '' });
+        if (challengeError || !challengeData) {
+          setError(challengeError?.message ?? 'Failed to start MFA challenge');
+          return;
+        }
+        setMfaState({ factorId, challengeId: challengeData.id });
         return;
       }
     }

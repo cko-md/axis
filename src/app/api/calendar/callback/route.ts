@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { saveTokens, type CalendarProvider } from "@/lib/calendar/tokens";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl;
@@ -25,8 +26,7 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.redirect(new URL("/login", req.url));
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3200";
-  const redirectUri = `${appUrl}/api/calendar/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/calendar/callback`;
 
   let tokenData: { access_token: string; refresh_token?: string; expires_in?: number } | null = null;
   let calendarEmail: string | undefined;
