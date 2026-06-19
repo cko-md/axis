@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 
@@ -146,10 +146,10 @@ export function BriefingModule() {
   const [feedItems, setFeedItems] = useState<Story[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(false);
 
-  // Load real RSS items whenever saved feeds change
-  useEffect(() => {
+  // Load real RSS items (with preview images) from the saved feeds.
+  const loadFeeds = useCallback((opts?: { silent?: boolean }) => {
     if (savedFeeds.length === 0) { setFeedItems([]); return; }
-    setFeedsLoading(true);
+    if (!opts?.silent) setFeedsLoading(true);
     fetch("/api/briefing/fetch-feeds", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -174,8 +174,16 @@ export function BriefingModule() {
         setFeedItems(items);
       })
       .catch(() => {})
-      .finally(() => setFeedsLoading(false));
+      .finally(() => { if (!opts?.silent) setFeedsLoading(false); });
   }, [savedFeeds]);
+
+  // Load on mount + whenever feeds change; refresh silently every 5 minutes
+  // so headlines and preview images stay current while the board is open.
+  useEffect(() => {
+    loadFeeds();
+    const id = setInterval(() => loadFeeds({ silent: true }), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [loadFeeds]);
 
   const toggleChip = (f: string) => {
     setActive((prev) => {

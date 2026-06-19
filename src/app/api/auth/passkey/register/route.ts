@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRegistrationOptions, verifyRegistration } from "@/lib/webauthn/server";
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
@@ -27,15 +28,19 @@ export async function GET(req: NextRequest) {
 
   const options = await buildRegistrationOptions(user.id, user.email ?? "", existingIds);
 
+  // webauthn_challenges is service-role-only (RLS on, no policies). Use the
+  // admin client when configured; fall back to the anon client otherwise.
+  const admin = createAdminClient() ?? supabase;
+
   // Store challenge — delete any stale registration challenges for this user first
-  await supabase
+  await admin
     .from("webauthn_challenges")
     .delete()
     .eq("user_id", user.id)
     .eq("type", "registration");
 
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-  const { error: challengeError } = await supabase.from("webauthn_challenges").insert({
+  const { error: challengeError } = await admin.from("webauthn_challenges").insert({
     challenge: options.challenge,
     type: "registration",
     user_id: user.id,
@@ -76,9 +81,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing response" }, { status: 400 });
   }
 
+  // webauthn_challenges is service-role-only (RLS on, no policies). Use the
+  // admin client when configured; fall back to the anon client otherwise.
+  const admin = createAdminClient() ?? supabase;
+
   // Fetch and immediately delete challenge (one-time use)
   const now = new Date().toISOString();
-  const { data: challenges } = await supabase
+  const { data: challenges } = await admin
     .from("webauthn_challenges")
     .select("id, challenge")
     .eq("user_id", user.id)
@@ -93,7 +102,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Delete before verifying so it can't be replayed even on error
-  await supabase.from("webauthn_challenges").delete().eq("id", challengeRow.id);
+  await admin.from("webauthn_challenges").delete().eq("id", challengeRow.id);
 
   let verified: Awaited<ReturnType<typeof verifyRegistration>>;
   try {

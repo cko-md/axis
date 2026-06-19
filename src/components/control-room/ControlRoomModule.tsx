@@ -91,6 +91,7 @@ export function ControlRoomModule() {
   const [marketStatus, setMarketStatus] = useState<ServiceStatus | null>(null);
   const [aiStatus, setAiStatus] = useState<ServiceStatus | null>(null);
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
+  const [stravaConnected, setStravaConnected] = useState<boolean | null>(null);
   const [brokerStatus, setBrokerStatus] = useState<ServiceStatus | null>(null);
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
   const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
@@ -203,6 +204,13 @@ export function ControlRoomModule() {
         if (alive) setSpotifyConnected(!!spJson.connected);
       } catch {
         if (alive) setSpotifyConnected(false);
+      }
+      try {
+        const st = await fetch("/api/strava?action=status", { cache: "no-store" });
+        const stJson = await st.json();
+        if (alive) setStravaConnected(!!stJson.connected);
+      } catch {
+        if (alive) setStravaConnected(false);
       }
       try {
         const cal = await fetch("/api/calendar/status", { cache: "no-store" });
@@ -456,7 +464,50 @@ export function ControlRoomModule() {
       action:
         spotifyConnected === false
           ? { label: "Connect", onClick: connectSpotify }
-          : undefined,
+          : spotifyConnected
+            ? {
+                label: "Disconnect",
+                onClick: async () => {
+                  await fetch("/api/spotify/disconnect", { method: "POST" });
+                  setSpotifyConnected(false);
+                },
+              }
+            : undefined,
+    },
+    {
+      name: "Strava",
+      desc: "Vitality — runs, rides & training load",
+      state: stravaConnected === null ? "pending" : stravaConnected ? "on" : "off",
+      detail:
+        stravaConnected === null
+          ? "Checking…"
+          : stravaConnected
+            ? "Connected via OAuth"
+            : "Connect your Strava account",
+      action:
+        stravaConnected === false
+          ? {
+              label: "Connect",
+              onClick: () => {
+                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+                  if (status === "ok") {
+                    fetch("/api/strava?action=status", { cache: "no-store" })
+                      .then((r) => r.json())
+                      .then((s) => setStravaConnected(!!s.connected))
+                      .catch(() => {});
+                  }
+                });
+              },
+            }
+          : stravaConnected
+            ? {
+                label: "Disconnect",
+                onClick: async () => {
+                  await fetch("/api/strava?action=disconnect");
+                  setStravaConnected(false);
+                },
+              }
+            : undefined,
     },
     {
       name: "AI (Anthropic)",

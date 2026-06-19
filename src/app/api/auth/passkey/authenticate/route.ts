@@ -3,6 +3,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { decrypt } from "@/lib/crypto";
 
@@ -22,7 +23,10 @@ export async function GET(req: NextRequest) {
 
   const email = req.nextUrl.searchParams.get("email") ?? undefined;
 
-  const supabase = await createClient();
+  // Pre-auth flow: no session exists, so RLS on user_passkeys/webauthn_challenges
+  // would block these reads/writes. Use the service-role client when configured;
+  // fall back to the anon client until SUPABASE_SERVICE_ROLE_KEY is set.
+  const supabase = createAdminClient() ?? (await createClient());
 
   // Clean up stale authentication challenges before creating a new one
   await supabase
@@ -75,7 +79,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing response" }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  // Pre-auth flow: no session exists, so RLS on user_passkeys/webauthn_challenges
+  // would block these reads/writes. Use the service-role client when configured;
+  // fall back to the anon client until SUPABASE_SERVICE_ROLE_KEY is set.
+  const supabase = createAdminClient() ?? (await createClient());
 
   // Decode userHandle from the assertion response to get userId
   const userHandleB64 = response.response.userHandle;
