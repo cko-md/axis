@@ -17,6 +17,7 @@ export type StravaActivity = {
   average_heartrate?: number;
   max_heartrate?: number;
   suffer_score?: number;
+  map?: { summary_polyline?: string };
 };
 
 export type StravaStatus = {

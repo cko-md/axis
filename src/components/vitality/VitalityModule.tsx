@@ -12,6 +12,7 @@ import {
   type TrainingIntensity,
 } from "@/lib/hooks/useTrainingWeek";
 import { useStrava, type StravaActivity } from "@/lib/hooks/useStrava";
+import { RouteMap } from "@/components/vitality/RouteMap";
 import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
@@ -429,6 +430,9 @@ function StravaActivityRow({ a }: { a: StravaActivity }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
       <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", minWidth: 68 }}>{fmtDate(a.start_date)}</div>
       <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)", flex: 1 }}>{a.name}</div>
+      <div style={{ minWidth: 56, display: "flex", justifyContent: "center", alignItems: "center" }}>
+        {a.map?.summary_polyline ? <RouteMap polyline={a.map.summary_polyline} width={52} height={30} /> : null}
+      </div>
       <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: isRun ? "var(--accent)" : "#3f6fb0", minWidth: 30 }}>{sportLabel(a)}</div>
       <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToKm(a.distance)} km</div>
       {isRun && <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", minWidth: 44, textAlign: "right" }}>{speedToPace(a.average_speed)}/km</div>}

@@ -164,15 +164,43 @@ export function ObjectivesModule() {
         </div>
       ) : (
         <div>
-          {objectives.map((o) => (
+          {objectives.map((o) => {
+            const krCount = o.key_results.length;
+            const rollup = krCount
+              ? Math.round(
+                  (o.key_results.reduce(
+                    (s, kr) => s + Math.min(1, kr.target_value > 0 ? kr.current_value / kr.target_value : 0),
+                    0,
+                  ) /
+                    krCount) *
+                    100,
+                )
+              : 0;
+            return (
             <div className="goal" key={o.id}>
               <div className="go" style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                 <span style={{ flex: 1 }}>{o.title}</span>
+                {krCount > 0 && (
+                  <span
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      color: rollup >= 100 ? "var(--up)" : "var(--accent)",
+                    }}
+                  >
+                    {rollup}%
+                  </span>
+                )}
                 <Button variant="ghost" onClick={() => setPendingDeleteObjective(o.id)} aria-label="Remove objective">
                   ✕
                 </Button>
               </div>
               {o.descriptor && <div className="gq">{o.descriptor}</div>}
+              {krCount > 0 && (
+                <div className="track" style={{ marginTop: 8, marginBottom: 2 }}>
+                  <div style={{ width: `${rollup}%` }} />
+                </div>
+              )}
               {o.key_results.map((kr) => (
                 <div className="kr" key={kr.id}>
                   <div className="krt">{kr.title}</div>
@@ -206,7 +234,8 @@ export function ObjectivesModule() {
                 + Key result
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

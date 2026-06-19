@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { FundBudget } from "@/components/fund/FundBudget";
+import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { FundOrderTicket } from "@/components/fund/FundOrderTicket";
 import { FundResearchExtras } from "@/components/fund/FundResearchExtras";
 import { FundTransactions } from "@/components/fund/FundTransactions";
@@ -420,16 +421,7 @@ export function FundModule() {
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--up)", marginTop: 4 }}>
                 Cash {fmtUsd(cash)} included
               </div>
-              <svg viewBox="0 0 300 70" style={{ width: "100%", height: 54, marginTop: 12 }}>
-                <defs>
-                  <linearGradient id="nwG" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--accent)" stopOpacity=".35" />
-                    <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <polyline fill="none" stroke="var(--accent)" strokeWidth="2" points="0,52 40,48 80,50 120,38 160,40 200,28 240,30 300,16" />
-                <polygon fill="url(#nwG)" points="0,52 40,48 80,50 120,38 160,40 200,28 240,30 300,16 300,70 0,70" />
-              </svg>
+              <NetWorthChart cash={cash} invested={invested} netWorth={netWorth} signedIn={signedIn} />
             </Card>
             <Card>
               <div className="seclabel">Invested</div>
