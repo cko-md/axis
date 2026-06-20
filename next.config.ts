@@ -123,6 +123,10 @@ const nextConfig: NextConfig = {
     return [
       { source: "/(.*)", headers: SECURITY_HEADERS },
       { source: "/api/(.*)", headers: apiHeaders },
+      // /api/proxy is the backing route for the in-app WebViewer iframe — it must
+      // be framable by our own origin. The blanket X-Frame-Options: DENY above
+      // would otherwise block the very iframe this route exists to serve.
+      { source: "/api/proxy", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] },
     ];
   },
   async redirects() {
