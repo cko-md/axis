@@ -19,7 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
-import { useTasks, type Task, type TaskCategory } from "@/lib/hooks/useTasks";
+import { useTasks, doneTodayTasks, type Task, type TaskCategory } from "@/lib/hooks/useTasks";
 import { useToast } from "@/components/ui/Toast";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
@@ -159,6 +159,8 @@ export function AgendaModule() {
   const [nightTuneOpen, setNightTuneOpen] = useState(false);
   const [newNightStep, setNewNightStep] = useState("");
   const [filterPri, setFilterPri] = useState<string>("all");
+  const [statFilter, setStatFilter] = useState<"open" | "overdue" | "done" | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [rebuildingMorning, setRebuildingMorning] = useState(false);
   const [rebuildingNight, setRebuildingNight] = useState(false);
 
@@ -280,7 +282,11 @@ export function AgendaModule() {
   const nightDoneCount = nightRoutine.filter((s) => nightChecks[s.id]).length;
   const open = tasks.filter((t) => t.status !== "done");
   const overdue = tasks.filter((t) => t.status === "overdue");
-  const filtered = filterPri === "all" ? open : open.filter((t) => t.priority === filterPri);
+  const doneToday = doneTodayTasks(tasks);
+  const allDone = tasks.filter((t) => t.status === "done");
+
+  const activePool = statFilter === "overdue" ? overdue : statFilter === "done" ? doneToday : open;
+  const filtered = filterPri === "all" ? activePool : activePool.filter((t) => t.priority === filterPri);
 
   const rebuildRoutine = useCallback(
     async (type: "morning" | "night") => {
@@ -332,9 +338,33 @@ export function AgendaModule() {
     <>
       <div className="divider" />
       <div className="stat-strip">
-        <div className="card stat tick"><div className="sv">{open.length}</div><div className="sk">Open</div></div>
-        <div className="card stat"><div className="sv">{overdue.length}</div><div className="sk">Overdue</div></div>
-        <div className="card stat"><div className="sv">{tasks.filter((t) => t.status === "done").length}</div><div className="sk">Done</div></div>
+        <div
+          className={`card stat tick${statFilter === null ? " on" : ""}`}
+          style={{ cursor: "pointer" }}
+          onClick={() => setStatFilter(statFilter === null ? null : null)}
+          title="Show open tasks"
+        >
+          <div className="sv">{open.length}</div>
+          <div className="sk">Open</div>
+        </div>
+        <div
+          className={`card stat${statFilter === "overdue" ? " tick on" : ""}`}
+          style={{ cursor: "pointer" }}
+          onClick={() => setStatFilter((f) => f === "overdue" ? null : "overdue")}
+          title="Show overdue tasks"
+        >
+          <div className="sv">{overdue.length}</div>
+          <div className="sk">Overdue</div>
+        </div>
+        <div
+          className={`card stat${statFilter === "done" ? " tick on" : ""}`}
+          style={{ cursor: "pointer" }}
+          onClick={() => setStatFilter((f) => f === "done" ? null : "done")}
+          title="Show tasks completed today"
+        >
+          <div className="sv">{doneToday.length}</div>
+          <div className="sk">Done today</div>
+        </div>
       </div>
       <div className="chips" style={{ marginBottom: 12 }}>
         {["all", "hi", "med", "lo"].map((p) => (
@@ -345,6 +375,48 @@ export function AgendaModule() {
         <TaskBlock title="Research" category="research" tasks={filtered} onAdd={addResearch} onToggle={toggleDone} onDelete={deleteTask} />
         <TaskBlock title="Clinical & Life" category="clinical" tasks={filtered} onAdd={addClinical} onToggle={toggleDone} onDelete={deleteTask} />
       </div>
+
+      {allDone.length > 0 && (
+        <>
+          <div className="divider" style={{ marginTop: 8 }} />
+          <div
+            className="seclabel"
+            style={{ cursor: "pointer", userSelect: "none" }}
+            onClick={() => setHistoryOpen((o) => !o)}
+          >
+            History
+            <span className="rule" style={{ background: "var(--line)" }} />
+            <span style={{ fontFamily: "var(--mono)", fontSize: "9.5px" }}>
+              {allDone.length} completed · {historyOpen ? "▲ hide" : "▼ show"}
+            </span>
+          </div>
+          {historyOpen && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {allDone.map((t) => (
+                <div key={t.id} className="task done" style={{ opacity: 0.6 }}>
+                  <div className="check done" onClick={() => toggleDone(t.id)} title="Reopen" />
+                  <div className="task-main">
+                    <div className="task-title" style={{ textDecoration: "line-through" }}>{t.title}</div>
+                    <div className="task-meta">
+                      {t.completed_at
+                        ? new Date(t.completed_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                        : "completed"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => deleteTask(t.id)}
+                    title="Delete"
+                    style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px" }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
       <div className="divider" />
       <h2 className="sec" style={{ marginBottom: 14 }}>Reach Out<span className="rule" /><span className="count">From People</span></h2>
       <div className="card">
@@ -400,17 +472,32 @@ export function AgendaModule() {
             {tuneOpen ? "Hide editor" : "Edit times & titles"}
           </button>
           {tuneOpen && routine.map((s, i) => (
-            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: 8, marginTop: 8 }}>
+            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr auto", gap: 8, marginTop: 8, alignItems: "center" }}>
               <input value={s.time} onChange={(e) => {
                 const next = [...routine];
                 next[i] = { ...s, time: e.target.value };
                 saveRoutine(next);
               }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
-              <input value={s.title} onChange={(e) => {
-                const next = [...routine];
-                next[i] = { ...s, title: e.target.value };
-                saveRoutine(next);
-              }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <input value={s.title} onChange={(e) => {
+                  const next = [...routine];
+                  next[i] = { ...s, title: e.target.value };
+                  saveRoutine(next);
+                }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
+                <input value={s.sub} placeholder="Sub-note (optional)" onChange={(e) => {
+                  const next = [...routine];
+                  next[i] = { ...s, sub: e.target.value };
+                  saveRoutine(next);
+                }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink-dim)", fontSize: 11 }} />
+              </div>
+              <button
+                type="button"
+                onClick={() => saveRoutine(routine.filter((_, j) => j !== i))}
+                title="Delete step"
+                style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1 }}
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>
@@ -458,17 +545,32 @@ export function AgendaModule() {
             {nightTuneOpen ? "Hide editor" : "Edit times & titles"}
           </button>
           {nightTuneOpen && nightRoutine.map((s, i) => (
-            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: 8, marginTop: 8 }}>
+            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr auto", gap: 8, marginTop: 8, alignItems: "center" }}>
               <input value={s.time} onChange={(e) => {
                 const next = [...nightRoutine];
                 next[i] = { ...s, time: e.target.value };
                 saveNightRoutine(next);
               }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
-              <input value={s.title} onChange={(e) => {
-                const next = [...nightRoutine];
-                next[i] = { ...s, title: e.target.value };
-                saveNightRoutine(next);
-              }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <input value={s.title} onChange={(e) => {
+                  const next = [...nightRoutine];
+                  next[i] = { ...s, title: e.target.value };
+                  saveNightRoutine(next);
+                }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
+                <input value={s.sub} placeholder="Sub-note (optional)" onChange={(e) => {
+                  const next = [...nightRoutine];
+                  next[i] = { ...s, sub: e.target.value };
+                  saveNightRoutine(next);
+                }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink-dim)", fontSize: 11 }} />
+              </div>
+              <button
+                type="button"
+                onClick={() => saveNightRoutine(nightRoutine.filter((_, j) => j !== i))}
+                title="Delete step"
+                style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1 }}
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>

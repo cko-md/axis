@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { generatePkce } from "@/lib/auth/pkce";
 
 const GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
 const OUTLOOK_SCOPES = "Calendars.ReadWrite offline_access User.Read";
@@ -24,6 +25,8 @@ export async function GET(req: NextRequest) {
 
   let authUrl: string;
   if (provider === "google") {
+    const { verifier, challenge } = generatePkce();
+    cookieStore.set("calendar_pkce_verifier", verifier, { httpOnly: true, maxAge: 600, path: "/" });
     const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID ?? "",
       redirect_uri: redirectUri,
@@ -32,6 +35,8 @@ export async function GET(req: NextRequest) {
       access_type: "offline",
       prompt: "consent",
       state,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
     });
     authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   } else {

@@ -1,10 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+
+interface GoogleContact {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
 
 const FILTERS = ["All", "Mentors", "Collaborators", "Friends", "Needs Follow-Up"] as const;
 
@@ -90,6 +98,22 @@ export function PeopleModule() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Person | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [contacts, setContacts] = useState<GoogleContact[]>([]);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
+
+  const fetchContacts = () => {
+    fetch("/api/contacts/list")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: GoogleContact[] | null) => {
+        if (data) setContacts(data);
+        setContactsLoaded(true);
+      })
+      .catch(() => setContactsLoaded(true));
+  };
+
+  useEffect(() => {
+    fetchContacts();
+  }, []);
 
   const openAdd = () => {
     setEditing(null);
@@ -155,12 +179,43 @@ export function PeopleModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <div className="selectbox">
+        <div
+          className="selectbox"
+          style={{ cursor: "pointer" }}
+          onClick={() =>
+            openOAuthPopup("/api/mail/connect?provider=gmail", (provider, status) => {
+              if (status === "ok") toast(`${provider} mail connected`, "success", "People");
+              else toast("Mail connection failed", "error", "People");
+            })
+          }
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <circle cx="12" cy="8" r="4" />
             <path d="M4 20a8 8 0 0 1 16 0" />
           </svg>
-          Connect Contacts & Mail
+          Connect Mail
+        </div>
+        <div
+          className="selectbox"
+          style={{ cursor: "pointer" }}
+          onClick={() =>
+            openOAuthPopup("/api/contacts/connect", (_provider, status) => {
+              if (status === "ok") {
+                toast("Google Contacts connected", "success", "People");
+                fetchContacts();
+              } else {
+                toast("Contacts connection failed", "error", "People");
+              }
+            })
+          }
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <circle cx="9" cy="10" r="2" />
+            <path d="M5 18a4 4 0 0 1 8 0" />
+            <path d="M15 8h4M15 12h4" />
+          </svg>
+          Connect Contacts
         </div>
       </div>
       <div className="divider" />
@@ -233,6 +288,31 @@ export function PeopleModule() {
             </div>
           ))}
         </div>
+      )}
+
+      {contactsLoaded && contacts.length > 0 && (
+        <>
+          <div className="divider" style={{ marginTop: 20 }} />
+          <div
+            className="seclabel"
+            style={{ marginTop: 12, marginBottom: 8 }}
+          >
+            Google Contacts
+          </div>
+          <div className="people-grid">
+            {contacts.map((c) => (
+              <div className="person" key={c.id}>
+                <div className="ph">
+                  <div className="pav">{(c.name[0] ?? "?").toUpperCase()}</div>
+                  <div>
+                    <div className="pnm">{c.name}</div>
+                    <div className="prl">{c.email}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <Modal

@@ -1,18 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+
+interface SemanticResult {
+  note_id: string;
+  similarity: number;
+  title?: string;
+}
 
 export function SearchWidget() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
+  const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
+  const [semanticLoading, setSemanticLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const semanticDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const router = useRouter();
 
   const close = useCallback(() => {
     setOpen(false);
     setQuery("");
     setAnswer("");
+    setSemanticResults([]);
   }, []);
 
   useEffect(() => {
@@ -20,7 +32,7 @@ export function SearchWidget() {
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();
         setOpen((o) => {
-          if (o) { setQuery(""); setAnswer(""); }
+          if (o) { setQuery(""); setAnswer(""); setSemanticResults([]); }
           return !o;
         });
       }
@@ -36,6 +48,42 @@ export function SearchWidget() {
       return () => clearTimeout(t);
     }
   }, [open]);
+
+  // Debounced semantic search triggered while typing
+  useEffect(() => {
+    if (semanticDebounceRef.current) clearTimeout(semanticDebounceRef.current);
+
+    if (query.length < 3) {
+      setSemanticResults([]);
+      return;
+    }
+
+    semanticDebounceRef.current = setTimeout(async () => {
+      setSemanticLoading(true);
+      try {
+        const res = await fetch(
+          `/api/search/semantic?q=${encodeURIComponent(query)}`,
+        );
+        if (res.ok) {
+          const data = (await res.json()) as {
+            results?: SemanticResult[];
+            error?: string;
+          };
+          setSemanticResults(data.results ?? []);
+        } else {
+          setSemanticResults([]);
+        }
+      } catch {
+        setSemanticResults([]);
+      } finally {
+        setSemanticLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      if (semanticDebounceRef.current) clearTimeout(semanticDebounceRef.current);
+    };
+  }, [query]);
 
   const search = useCallback(async () => {
     if (!query.trim() || loading) return;
@@ -158,8 +206,79 @@ export function SearchWidget() {
           </div>
         )}
 
+        {/* Semantic matches */}
+        {(semanticResults.length > 0 || semanticLoading) && (
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            <div style={{
+              padding: "8px 14px 4px",
+              fontSize: 10,
+              color: "var(--ink-faint)",
+              fontFamily: "var(--font-mono, monospace)",
+              letterSpacing: ".1em",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}>
+              ◈ SEMANTIC MATCHES
+              {semanticLoading && (
+                <svg viewBox="0 0 12 12" style={{ width: 10, height: 10, opacity: 0.5 }} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 1a5 5 0 1 0 0 10A5 5 0 0 0 6 1z" strokeOpacity="0.3"/>
+                  <path d="M6 1a5 5 0 0 1 5 5" style={{ animation: "spin 1s linear infinite" }}/>
+                </svg>
+              )}
+            </div>
+            {semanticResults.map((r) => (
+              <button
+                key={r.note_id}
+                onClick={() => {
+                  router.push(`/notes?note=${r.note_id}`);
+                  close();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "7px 14px",
+                  background: "none",
+                  border: "none",
+                  borderTop: "1px solid var(--line)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  gap: 8,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = "var(--surface)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = "none";
+                }}
+              >
+                <span style={{
+                  fontSize: 13,
+                  color: "var(--ink)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                }}>
+                  {r.title ?? r.note_id}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  color: "var(--ink-faint)",
+                  fontFamily: "var(--font-mono, monospace)",
+                  flexShrink: 0,
+                }}>
+                  {(r.similarity * 100).toFixed(0)}%
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Footer hint */}
-        {!answer && (
+        {!answer && semanticResults.length === 0 && !semanticLoading && (
           <div style={{
             borderTop: "1px solid var(--line)",
             padding: "8px 14px",

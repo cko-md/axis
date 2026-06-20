@@ -16,6 +16,25 @@ function saveFavs(favs: Fav[]) {
 }
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
+// OAuth/login hosts must open in a real browser tab — never the embedded proxy
+// webview (Google forbids OAuth via embedded webviews). Mirrors OAUTH_HOSTS in
+// src/app/api/proxy/route.ts.
+const OAUTH_HOSTS = [
+  "accounts.google.com",
+  "login.microsoftonline.com",
+  "login.live.com",
+  "accounts.spotify.com",
+  "appleid.apple.com",
+  "www.strava.com",
+  "github.com",
+];
+function isOAuthUrl(raw: string): boolean {
+  try {
+    const h = new URL(raw).hostname.toLowerCase();
+    return OAUTH_HOSTS.some((d) => h === d || h.endsWith(`.${d}`));
+  } catch { return false; }
+}
+
 export function WebViewer() {
   const { current, close, open } = useWebViewer();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -93,6 +112,11 @@ export function WebViewer() {
   }, []);
 
   const navigate = useCallback((url: string) => {
+    // OAuth/login pages must never load in the embedded proxy — open a real tab
+    if (url && isOAuthUrl(url)) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
     setInputUrl(url);
     setTabs((prev) =>
       prev.map((t) =>
@@ -194,6 +218,11 @@ export function WebViewer() {
         if (!href.startsWith("http://") && !href.startsWith("https://")) return;
         e.preventDefault();
         e.stopPropagation();
+        // OAuth/login links bypass the in-app viewer and open a real browser tab
+        if (isOAuthUrl(href)) {
+          window.open(href, "_blank", "noopener");
+          return;
+        }
         const title = anchor.textContent?.trim() || undefined;
         window.dispatchEvent(new CustomEvent("axis:open-url", { detail: { url: href, title } }));
       }

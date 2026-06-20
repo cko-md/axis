@@ -32,19 +32,23 @@ export async function GET(req: NextRequest) {
   let mailEmail: string | undefined;
 
   if (provider === "gmail") {
+    const pkceVerifier = cookieStore.get("mail_pkce_verifier")?.value;
+    const tokenParams: Record<string, string> = {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
+      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    };
+    if (pkceVerifier) tokenParams.code_verifier = pkceVerifier;
     const res = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-        client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-        redirect_uri: redirectUri,
-        grant_type: "authorization_code",
-      }),
+      body: new URLSearchParams(tokenParams),
     });
     if (!res.ok) return NextResponse.redirect(new URL(`/oauth-done?provider=mail_${provider}&status=error`, req.url));
     tokenData = await res.json();
+    cookieStore.delete("mail_pkce_verifier");
 
     const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: { Authorization: `Bearer ${tokenData!.access_token}` },

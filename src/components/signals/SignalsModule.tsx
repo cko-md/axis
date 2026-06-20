@@ -65,7 +65,7 @@ function applyChip(signals: Signal[], chip: Chip) {
 }
 
 export function SignalsModule() {
-  const { signals, loading, capture, markRead, routeTo, updateSignal, applyClassification } = useSignals();
+  const { signals, loading, capture, markRead, routeTo, updateSignal, deleteSignal, applyClassification } = useSignals();
   const { routes, addRoute, updateRoute, deleteRoute } = useSignalRoutes();
   const { tasks, addTask } = useTasks();
   const { toast } = useToast();
@@ -78,6 +78,8 @@ export function SignalsModule() {
   const [scanning, setScanning] = useState(false);
   const [draft, setDraft] = useState("");
   const [routesOpen, setRoutesOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
 
   const filtered = useMemo(() => applyChip(signals, activeChip), [signals, activeChip]);
 
@@ -257,7 +259,7 @@ export function SignalsModule() {
   if (loading) return <div className="empty-state">Loading signals…</div>;
 
   const renderRow = (s: Signal) => (
-    <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => openDetail(s)} style={{ cursor: "pointer" }}>
+    <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>
       <div
         className={s.read_at ? "check done" : "check"}
         onClick={(e) => {
@@ -266,7 +268,30 @@ export function SignalsModule() {
         }}
       />
       <div className="task-main">
-        <div className="task-title">{s.title}</div>
+        {editingId === s.id ? (
+          <input
+            autoFocus
+            value={editTitle}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onBlur={() => {
+              if (editTitle.trim() && editTitle !== s.title) updateSignal(s.id, { title: editTitle.trim() });
+              setEditingId(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.currentTarget.blur(); }
+              if (e.key === "Escape") { setEditingId(null); }
+            }}
+            style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid var(--line)", color: "var(--ink)", fontSize: 13, fontFamily: "inherit", padding: "0 0 2px", outline: "none" }}
+          />
+        ) : (
+          <div
+            className="task-title"
+            onDoubleClick={(e) => { e.stopPropagation(); setEditingId(s.id); setEditTitle(s.title); }}
+          >
+            {s.title}
+          </div>
+        )}
         <div className="task-meta" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           <span className={`pill ${pillClass(s.signal_type)}`}>{s.signal_type.toUpperCase()}</span>
           <span>
@@ -277,6 +302,14 @@ export function SignalsModule() {
           )}
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); deleteSignal(s.id); }}
+        title="Delete signal"
+        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0 }}
+      >
+        ×
+      </button>
     </div>
   );
 

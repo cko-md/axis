@@ -40,6 +40,7 @@ export function FundModule() {
   >([]);
   const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
   const [plaidConfigured, setPlaidConfigured] = useState(false);
+  const [plaidLinked, setPlaidLinked] = useState(false);
   const [brokerageConfigured, setBrokerageConfigured] = useState(false);
   const [live, setLive] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -133,11 +134,12 @@ export function FundModule() {
         .catch(() => null),
       fetch("/api/plaid/status")
         .then((r) => r.json())
-        .then((s: { configured?: boolean } | null) => {
+        .then((s: { configured?: boolean; linked?: boolean } | null) => {
           const configured = !!s?.configured;
+          const linked = !!s?.linked;
           setPlaidConfigured(configured);
-          // Fetch balances immediately — no need to wait for a re-render cycle.
-          if (configured) loadBalances();
+          setPlaidLinked(linked);
+          if (linked) loadBalances();
         })
         .catch(() => null),
       fetch("/api/brokerage/status")
@@ -445,7 +447,7 @@ export function FundModule() {
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
                 {bankAccounts.length
                   ? `${bankAccounts.length} account${bankAccounts.length === 1 ? "" : "s"} · Plaid`
-                  : plaidConfigured
+                  : plaidLinked
                     ? "Plaid connected"
                     : signedIn
                       ? "No bank linked"
@@ -648,7 +650,7 @@ export function FundModule() {
                 style={{ marginTop: 12 }}
                 onClick={connectBank}
               >
-                {plaidConfigured ? "Link a bank" : "Connect bank · Plaid"}
+                {plaidLinked ? "Link another bank" : plaidConfigured ? "Link a bank" : "Connect bank · Plaid"}
               </button>
             </div>
           </Card>

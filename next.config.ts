@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 // @ts-ignore — next-pwa ships CJS without bundled types
 import withPWAInit from "next-pwa";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const withPWA = withPWAInit({
   dest: "public",
@@ -58,6 +59,8 @@ const CSP = [
   "font-src 'self' https://fonts.gstatic.com data:",
   // blob: needed for gallery image previews; data: for inline SVGs
   "img-src 'self' data: blob: https:",
+  // external audio/video previews (briefing/literature) need media from any https host
+  "media-src 'self' https: blob: data:",
   [
     "connect-src 'self'",
     "https://*.supabase.co wss://*.supabase.co",
@@ -73,8 +76,11 @@ const CSP = [
     "https://collectionapi.metmuseum.org",
     "https://openaccess-api.clevelandart.org",
     "https://poetrydb.org https://gutendex.com https://openlibrary.org",
+    // Sentry error/perf ingest
+    "https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io",
   ].join(" "),
-  "frame-src https://cdn.plaid.com",
+  // 'self' allows the in-app WebViewer's same-origin /api/proxy iframe; cdn.plaid.com for Plaid Link
+  "frame-src 'self' https://cdn.plaid.com blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -97,6 +103,8 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
+      // external thumbnails/preview images (briefing, literature, gallery, recipes)
+      { protocol: "https", hostname: "**" },
     ],
   },
   async headers() {
@@ -110,4 +118,25 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withPWA(nextConfig);
+export default withSentryConfig(withPWA(nextConfig), {
+  org: "kevin-ogonuwe",
+  project: "javascript-nextjs",
+
+  // Only print Sentry output in CI
+  silent: !process.env.CI,
+
+  // Upload source maps and delete them from the public bundle after upload
+  widenClientFileUpload: true,
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
+
+  // Proxy Sentry requests through /monitoring to avoid adblockers
+  tunnelRoute: "/monitoring",
+
+  // Tree-shake Sentry logger in production
+  disableLogger: true,
+
+  // Auto-instrument Vercel Cron routes as Sentry Cron Monitors
+  automaticVercelMonitors: true,
+});

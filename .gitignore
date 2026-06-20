@@ -1,3 +1,6 @@
+# Sentry auth token (contains secrets)
+.env.sentry-build-plugin
+
 # dependencies
 /node_modules
 /.pnp

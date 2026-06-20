@@ -273,6 +273,19 @@ function LoginForm() {
             {mode === 'signup' && 'Create account'}
             {mode === 'forgot-password' && 'Send reset link'}
           </Button>
+
+          {mode === 'signup' && (
+            <p className="mt-3 text-center text-[11px] text-[var(--ink-dim)] leading-snug">
+              By creating an account you agree to our{' '}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                Terms of Service
+              </a>{' '}
+              and{' '}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                Privacy Policy
+              </a>.
+            </p>
+          )}
         </form>
 
         {/* Footer links */}

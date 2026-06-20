@@ -161,7 +161,12 @@ export function useSignals() {
     });
   };
 
-  return { signals, loading, refresh, capture, updateSignal, markRead, routeTo, applyClassification };
+  const deleteSignal = async (id: string) => {
+    const { error } = await supabase.from("signals").delete().eq("id", id);
+    if (!error) setSignals((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  return { signals, loading, refresh, capture, updateSignal, deleteSignal, markRead, routeTo, applyClassification };
 }
 
 export function filterSignals(signals: Signal[], chip: string) {

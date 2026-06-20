@@ -20,7 +20,10 @@ export type Task = {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
 };
+
+const DONE_HIDE_MS = 18 * 60 * 60 * 1000; // 18 hours
 
 export function useTasks() {
   const supabase = useMemo(() => createClient(), []);
@@ -92,21 +95,46 @@ export function useTasks() {
   const toggleDone = async (id: string) => {
     const t = tasks.find((x) => x.id === id);
     if (!t) return;
-    await updateTask(id, { status: t.status === "done" ? "open" : "done" });
+    const isDone = t.status === "done";
+    await updateTask(id, {
+      status: isDone ? "open" : "done",
+      completed_at: isDone ? null : new Date().toISOString(),
+    });
   };
 
   return { tasks, loading, refresh, addTask, updateTask, deleteTask, toggleDone };
 }
 
 export function rankTasks(tasks: Task[]) {
-  // Far-future sentinel keeps no-deadline tasks finite so priority still breaks ties
   const NO_DEADLINE = Date.UTC(2100, 0, 1);
   const score = (t: Task) => {
     const pri = t.priority === "hi" ? 3 : t.priority === "med" ? 2 : 1;
     const dl = t.deadline ? new Date(t.deadline).getTime() : NO_DEADLINE;
     return pri * NO_DEADLINE - dl;
   };
-  return [...tasks].filter((t) => t.status !== "done").sort((a, b) => score(b) - score(a));
+  const cutoff = Date.now() - DONE_HIDE_MS;
+  return [...tasks]
+    .filter((t) => {
+      if (t.status !== "done") return true;
+      // Keep recently-done tasks visible for 18h so user sees the strikethrough
+      const doneAt = t.completed_at ? new Date(t.completed_at).getTime() : 0;
+      return doneAt > cutoff;
+    })
+    .sort((a, b) => {
+      // Sort done tasks below active ones
+      if (a.status === "done" && b.status !== "done") return 1;
+      if (a.status !== "done" && b.status === "done") return -1;
+      return score(b) - score(a);
+    });
+}
+
+/** Done tasks completed today (for Agenda History / stat segment). */
+export function doneTodayTasks(tasks: Task[]) {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  return tasks.filter(
+    (t) => t.status === "done" && t.completed_at && new Date(t.completed_at) >= startOfDay
+  );
 }
 
 /** AI-backed triage: calls /api/ai for real classification, heuristic fallback is server-side */

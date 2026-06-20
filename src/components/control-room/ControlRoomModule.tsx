@@ -822,6 +822,31 @@ export function ControlRoomModule() {
               </button>
             </div>
           </div>
+
+          <div className="card">
+            <h2 className="sec">
+              Legal<span className="rule" />
+            </h2>
+            <p className={styles.note}>
+              Review the legal documents governing your use of Axis.
+            </p>
+            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="savebtn"
+                onClick={() => window.open("/terms", "_blank", "width=720,height=900,noopener")}
+              >
+                Terms of Service ↗
+              </button>
+              <button
+                type="button"
+                className="savebtn"
+                onClick={() => window.open("/privacy", "_blank", "width=720,height=900,noopener")}
+              >
+                Privacy Policy ↗
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

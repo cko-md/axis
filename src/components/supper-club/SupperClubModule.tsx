@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
 
 const SAVED_KEY   = "axis-supper-saved";
 const RECIPES_KEY = "axis-supper-recipes";
@@ -36,7 +37,16 @@ type Recipe = {
   g: string;
   mine?: boolean;
   note?: string;
+  url?: string;
 };
+
+// Open the recipe in the in-app browser. Curated recipes carry a source name but no
+// URL, so fall back to a search scoped to the title + source (always resolves).
+function recipeUrl(r: Recipe): string {
+  if (r.url) return r.url;
+  const src = r.src && r.src !== "Your recipe" ? ` ${r.src}` : "";
+  return `https://www.google.com/search?q=${encodeURIComponent(`${r.t}${src} recipe`)}`;
+}
 
 const RECIPES: Recipe[] = [
   { id: "r1", t: "Sheet-Pan Salmon, Sweet Potato & Broccoli", diets: ["high-protein", "endurance", "low-carb"], kcal: 530, p: 42, time: "30 min", src: "Serious Eats", g: "linear-gradient(135deg,#c2603f,#5a2a1f)" },
@@ -57,13 +67,15 @@ function RecipeCard({
   recipe,
   saved,
   onToggleSave,
+  onOpen,
 }: {
   recipe: Recipe;
   saved: boolean;
   onToggleSave: (id: string) => void;
+  onOpen?: () => void;
 }) {
   return (
-    <div className="recipe">
+    <div className="recipe" style={{ cursor: "pointer" }} onClick={onOpen}>
       <div className="rc-img" style={{ background: recipe.g }}>
         <span className="rc-diet">{recipe.mine ? "Mine" : DIET_LABEL[recipe.diets[0]]}</span>
         {!recipe.mine && (
@@ -93,6 +105,7 @@ function RecipeCard({
 }
 
 export function SupperClubModule() {
+  const { open: openInApp } = useWebViewer();
   const [diet, setDiet] = useState<Diet>(() => {
     if (typeof window === "undefined") return "high-protein";
     const stored = localStorage.getItem(DIET_KEY) as Diet | null;
@@ -242,7 +255,7 @@ export function SupperClubModule() {
       <div className="recipe-grid" style={{ marginBottom: 26 }}>
         {savedList.length ? (
           savedList.map((r) => (
-            <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} />
+            <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} onOpen={() => openInApp(recipeUrl(r), r.t)} />
           ))
         ) : (
           <div className="empty" style={{ gridColumn: "1/-1" }}>
@@ -256,7 +269,7 @@ export function SupperClubModule() {
       </div>
       <div className="recipe-grid">
         {suggested.map((r) => (
-          <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} />
+          <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} onOpen={() => openInApp(recipeUrl(r), r.t)} />
         ))}
       </div>
     </>

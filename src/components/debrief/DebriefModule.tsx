@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useNotes } from "@/lib/hooks/useNotes";
+import type { Note } from "@/lib/hooks/useNotes";
 import { useTasks } from "@/lib/hooks/useTasks";
 import { useToast } from "@/components/ui/Toast";
 
@@ -29,18 +30,169 @@ const DEMO_FRICTION = [
   { title: "IRB amendment — UIA cohort",   badge: "blocked on PI",  cls: "med" },
 ];
 
+/* ---------- small sub-components ---------- */
+
+function PromptField({
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          fontFamily: "var(--mono)",
+          fontSize: 9,
+          textTransform: "uppercase",
+          letterSpacing: ".1em",
+          color: "var(--ink-faint)",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <textarea
+        placeholder={placeholder}
+        rows={3}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          width: "100%",
+          padding: "10px 13px",
+          background: "var(--glass)",
+          border: `1px solid ${focused ? "var(--line-strong)" : "var(--line)"}`,
+          borderRadius: "var(--r)",
+          color: "var(--ink)",
+          fontFamily: "var(--serif)",
+          fontSize: 14,
+          lineHeight: 1.65,
+          resize: "vertical",
+          outline: "none",
+          transition: "border-color .15s",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
+  );
+}
+
+function PastReflectionRow({ note }: { note: Note }) {
+  const [expanded, setExpanded] = useState(false);
+  const date = new Date(note.created_at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--line)",
+        paddingTop: 10,
+        paddingBottom: 10,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 12,
+          background: "none",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--serif)",
+            fontSize: 13.5,
+            color: "var(--ink)",
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {note.title}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10,
+            color: "var(--ink-faint)",
+            flexShrink: 0,
+            letterSpacing: ".03em",
+          }}
+        >
+          {date}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10,
+            color: "var(--ink-faint)",
+            flexShrink: 0,
+            lineHeight: 1,
+          }}
+        >
+          {expanded ? "▲" : "▼"}
+        </span>
+      </button>
+
+      {expanded && note.body && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: "10px 13px",
+            background: "var(--surface-2)",
+            borderRadius: "var(--r)",
+            fontFamily: "var(--serif)",
+            fontSize: 13.5,
+            lineHeight: 1.7,
+            color: "var(--ink-dim)",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {note.body}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- main component ---------- */
+
 export function DebriefModule() {
-  const { createNote, updateNote } = useNotes();
+  const { notes, createNote, updateNote } = useNotes();
   const { tasks, loading, addTask } = useTasks();
   const { toast }                  = useToast();
 
-  const [signedIn,     setSignedIn]     = useState(false);
-  const [reflection,   setReflection]   = useState("");
-  const [saving,       setSaving]       = useState(false);
-  const [reminderDay,  setReminderDay]  = useState(DEFAULT_DAY);
-  const [reminderHour, setReminderHour] = useState(DEFAULT_HOUR);
-  const [reminderSet,  setReminderSet]  = useState(false);
-  const [showConfig,   setShowConfig]   = useState(false);
+  const [signedIn,      setSignedIn]      = useState(false);
+  const [wins,          setWins]          = useState("");
+  const [challenges,    setChallenges]    = useState("");
+  const [focus,         setFocus]         = useState("");
+  const [saving,        setSaving]        = useState(false);
+  const [reminderDay,   setReminderDay]   = useState(DEFAULT_DAY);
+  const [reminderHour,  setReminderHour]  = useState(DEFAULT_HOUR);
+  const [reminderSet,   setReminderSet]   = useState(false);
+  const [showConfig,    setShowConfig]    = useState(false);
+  const [pastOpen,      setPastOpen]      = useState(false);
 
   useEffect(() => {
     import("@/lib/supabase/client").then(({ createClient }) => {
@@ -50,7 +202,7 @@ export function DebriefModule() {
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const fortAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
-  const wins = tasks.filter((t) => t.status === "done" && new Date(t.updated_at).getTime() >= weekAgo)
+  const taskWins = tasks.filter((t) => t.status === "done" && new Date(t.updated_at).getTime() >= weekAgo)
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 5);
   const friction = tasks.filter(
@@ -71,16 +223,30 @@ export function DebriefModule() {
     } catch { /* ignore */ }
   }, []);
 
+  // Past reflections: all notes in the Debrief folder, newest first
+  const pastReflections = notes
+    .filter((n) => n.folder === DEBRIEF_FOLDER)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const hasContent = wins.trim() || challenges.trim() || focus.trim();
+
   const saveReflection = async () => {
-    if (!reflection.trim()) { toast("Write something first", "warn", "Debrief"); return; }
+    if (!hasContent) { toast("Write something first", "warn", "Debrief"); return; }
     setSaving(true);
     try {
       const now   = new Date();
       const label = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      const body  = [
+        wins.trim()       ? `**Wins:**\n${wins.trim()}`             : "",
+        challenges.trim() ? `**Challenges:**\n${challenges.trim()}` : "",
+        focus.trim()      ? `**Focus:**\n${focus.trim()}`           : "",
+      ].filter(Boolean).join("\n\n");
       const note  = await createNote(`Week of ${label}`, DEBRIEF_FOLDER);
-      if (note) await updateNote(note.id, { body: reflection });
+      if (note) await updateNote(note.id, { body });
       toast("Reflection saved to Notes › Debrief", "success", "Debrief");
-      setReflection("");
+      setWins("");
+      setChallenges("");
+      setFocus("");
     } catch {
       toast("Could not save — check your connection", "error", "Debrief");
     } finally {
@@ -117,7 +283,7 @@ export function DebriefModule() {
         <div className="card tick">
           <h2 className="sec">Wins<span className="rule" /><span className="count">this week</span></h2>
           <div style={{ marginTop: 12 }}>
-            {(!signedIn || loading ? DEMO_WINS.map((t) => ({ id: t, title: t })) : wins).map((t) => (
+            {(!signedIn || loading ? DEMO_WINS.map((t) => ({ id: t, title: t })) : taskWins).map((t) => (
               <div key={typeof t === "string" ? t : t.id} className="task">
                 <div className="check done" />
                 <div className="task-main">
@@ -127,7 +293,7 @@ export function DebriefModule() {
                 </div>
               </div>
             ))}
-            {signedIn && !loading && wins.length === 0 && (
+            {signedIn && !loading && taskWins.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>No tasks completed this week yet.</div>
             )}
           </div>
@@ -179,8 +345,10 @@ export function DebriefModule() {
 
       <div className="divider" />
 
+      {/* ── Weekly Reflection card ── */}
       <div className="card" style={{ maxWidth: "min(720px,92vw)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        {/* header row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <div className="seclabel">Weekly Reflection</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {nextDate && !showConfig && (
@@ -199,8 +367,9 @@ export function DebriefModule() {
           </div>
         </div>
 
+        {/* reminder config panel */}
         {showConfig && (
-          <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "12px 14px", marginBottom: 14, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "12px 14px", marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink-faint)", marginBottom: 5 }}>Day</div>
               <select
@@ -234,29 +403,129 @@ export function DebriefModule() {
           </div>
         )}
 
-        <p style={{ color: "var(--ink-dim)", fontFamily: "var(--serif)", fontSize: 17, lineHeight: 1.5 }}>
+        {/* editorial intro line */}
+        <p
+          style={{
+            color: "var(--ink-dim)",
+            fontFamily: "var(--serif)",
+            fontSize: 16,
+            lineHeight: 1.5,
+            marginBottom: 20,
+            marginTop: 0,
+            borderLeft: "3px solid var(--accent)",
+            paddingLeft: 12,
+          }}
+        >
           What moved the needle this week, and what will you say no to next week to protect the manuscript?
         </p>
-        <textarea
-          placeholder="Write your reflection…"
-          rows={5}
-          value={reflection}
-          onChange={(e) => setReflection(e.target.value)}
-          style={{ width: "100%", marginTop: 14, padding: "11px 14px", background: "var(--glass)", border: "1px solid var(--line)", borderRadius: "var(--r)", color: "var(--ink)", fontFamily: "var(--serif)", fontSize: 15, lineHeight: 1.7, resize: "vertical", outline: "none", transition: "border-color .15s" }}
-          onFocus={(e) => (e.target.style.borderColor = "var(--line-strong)")}
-          onBlur={(e) => (e.target.style.borderColor = "var(--line)")}
+
+        {/* structured prompts */}
+        <PromptField
+          label="What went well?"
+          placeholder="Wins, progress, moments of flow…"
+          value={wins}
+          onChange={setWins}
         />
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+        <PromptField
+          label="What was hard?"
+          placeholder="Blockers, friction, energy drains…"
+          value={challenges}
+          onChange={setChallenges}
+        />
+        <PromptField
+          label="Priority for next week?"
+          placeholder="One clear focus, one thing you'll protect…"
+          value={focus}
+          onChange={setFocus}
+        />
+
+        {/* save button */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
           <button
             type="button"
             className="sig-go"
             onClick={saveReflection}
-            disabled={saving || !reflection.trim()}
-            style={{ opacity: !reflection.trim() ? 0.45 : 1 }}
+            disabled={saving || !hasContent}
+            style={{ opacity: !hasContent ? 0.45 : 1 }}
           >
             {saving ? "Saving…" : "Save to Notes"}
           </button>
         </div>
+
+        {/* past reflections collapsible */}
+        {signedIn && (
+          <div style={{ marginTop: 24 }}>
+            <button
+              type="button"
+              onClick={() => setPastOpen((v) => !v)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 9,
+                  textTransform: "uppercase",
+                  letterSpacing: ".1em",
+                  color: "var(--ink-faint)",
+                }}
+              >
+                Past reflections
+              </span>
+              {pastReflections.length > 0 && (
+                <span
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9,
+                    color: "var(--ink-faint)",
+                    opacity: 0.6,
+                  }}
+                >
+                  ({pastReflections.length})
+                </span>
+              )}
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 9,
+                  color: "var(--ink-faint)",
+                  lineHeight: 1,
+                }}
+              >
+                {pastOpen ? "▲" : "▼"}
+              </span>
+            </button>
+
+            {pastOpen && (
+              <div style={{ marginTop: 8 }}>
+                {pastReflections.length === 0 ? (
+                  <div
+                    style={{
+                      borderTop: "1px solid var(--line)",
+                      paddingTop: 12,
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      color: "var(--ink-faint)",
+                    }}
+                  >
+                    No past reflections yet.
+                  </div>
+                ) : (
+                  pastReflections.map((note) => (
+                    <PastReflectionRow key={note.id} note={note} />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   );
