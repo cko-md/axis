@@ -29,7 +29,13 @@ function LoginForm() {
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [showPasskeyBtn, setShowPasskeyBtn] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [agreed, setAgreed] = useState(false);
   const [mfaState, setMfaState] = useState<MFAState | null>(null);
+
+  // Consent applies to account creation only — clear it whenever we leave signup.
+  useEffect(() => {
+    if (mode !== 'signup') setAgreed(false);
+  }, [mode]);
 
   // Load persisted remember-me preference and passkey availability
   useEffect(() => {
@@ -104,7 +110,23 @@ function LoginForm() {
 
     // Sign-up
     if (mode === 'signup') {
-      const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+      // Defense-in-depth: the button is also disabled until this is checked.
+      if (!agreed) {
+        setLoading(false);
+        setError('Please accept the Terms of Service and Privacy Policy to continue.');
+        return;
+      }
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            terms_accepted_at: new Date().toISOString(),
+            terms_version: '2026-06-19',
+            privacy_version: '2026-06-19',
+          },
+        },
+      });
       setLoading(false);
       if (signUpError) { setError(signUpError.message); return; }
       if (!data.session) {
@@ -265,27 +287,46 @@ function LoginForm() {
             </div>
           )}
 
+          {/* Required consent — gates account creation */}
+          {mode === 'signup' && (
+            <label
+              htmlFor="tos-consent"
+              className="flex items-start gap-2 text-[11px] text-[var(--ink-dim)] leading-snug cursor-pointer"
+            >
+              <input
+                id="tos-consent"
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 shrink-0 accent-[var(--accent)]"
+              />
+              <span>
+                I agree to the{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                  Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                  Privacy Policy
+                </a>.
+              </span>
+            </label>
+          )}
+
           {error && <p className="text-xs text-[var(--down)]">{error}</p>}
           {notice && <p className="text-xs text-[var(--up)]">{notice}</p>}
 
-          <Button type="submit" variant="primary" loading={loading} className="w-full py-2.5">
+          <Button
+            type="submit"
+            variant="primary"
+            loading={loading}
+            disabled={mode === 'signup' && !agreed}
+            className="w-full py-2.5"
+          >
             {mode === 'signin' && 'Sign in'}
             {mode === 'signup' && 'Create account'}
             {mode === 'forgot-password' && 'Send reset link'}
           </Button>
-
-          {mode === 'signup' && (
-            <p className="mt-3 text-center text-[11px] text-[var(--ink-dim)] leading-snug">
-              By creating an account you agree to our{' '}
-              <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
-                Terms of Service
-              </a>{' '}
-              and{' '}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
-                Privacy Policy
-              </a>.
-            </p>
-          )}
         </form>
 
         {/* Footer links */}
@@ -305,6 +346,19 @@ function LoginForm() {
           >
             {mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
           </button>
+        )}
+
+        {/* Subtle legal links — always reachable; signup also has the consent checkbox above */}
+        {mode !== 'signup' && (
+          <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[var(--ink-faint)]">
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--ink-dim)]">
+              Terms
+            </a>
+            <span aria-hidden>·</span>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--ink-dim)]">
+              Privacy
+            </a>
+          </div>
         )}
 
       </div>
