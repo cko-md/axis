@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto";
+import { refreshGoogleOAuth, refreshMicrosoftOAuth } from "@/lib/oauth/refresh";
+
+const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
+const OUTLOOK_MAIL_SCOPE = "Mail.Read offline_access User.Read";
 
 export type MailProvider = "gmail" | "outlook";
 
@@ -43,7 +47,7 @@ export async function saveMailTokens(
   refreshToken: string | null,
   expiresInSeconds: number,
   mailEmail: string,
-) {
+): Promise<void> {
   const supabase = await createClient();
   const accessEnc = encrypt(accessToken);
   const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
@@ -67,7 +71,7 @@ export async function deleteMailTokens(
   userId: string,
   provider: MailProvider,
   mailEmail: string,
-) {
+): Promise<void> {
   const supabase = await createClient();
   await supabase
     .from("mail_connections")
@@ -101,51 +105,18 @@ export async function getFreshMailAccessToken(
   if (!tokens) return null;
 
   const needsRefresh =
-    tokens.expiresAt && tokens.expiresAt.getTime() - Date.now() < 5 * 60 * 1000;
+    tokens.expiresAt && tokens.expiresAt.getTime() - Date.now() < TOKEN_REFRESH_THRESHOLD_MS;
 
   if (!needsRefresh) return tokens.accessToken;
   if (!tokens.refreshToken) return null;
 
   const refreshed =
     provider === "gmail"
-      ? await refreshGmail(tokens.refreshToken)
-      : await refreshOutlookMail(tokens.refreshToken);
+      ? await refreshGoogleOAuth(tokens.refreshToken)
+      : await refreshMicrosoftOAuth(tokens.refreshToken, OUTLOOK_MAIL_SCOPE);
 
   if (!refreshed) return null;
 
   await saveMailTokens(userId, provider, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, mailEmail);
   return refreshed.accessToken;
-}
-
-async function refreshGmail(refreshToken: string) {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return { accessToken: json.access_token as string, expiresIn: (json.expires_in as number) ?? 3600 };
-}
-
-async function refreshOutlookMail(refreshToken: string) {
-  const res = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
-      client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-      scope: "Mail.Read offline_access User.Read",
-    }),
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return { accessToken: json.access_token as string, expiresIn: (json.expires_in as number) ?? 3600 };
 }

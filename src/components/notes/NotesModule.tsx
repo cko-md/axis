@@ -670,21 +670,25 @@ export function NotesModule() {
         routing={routing}
         font={noteFont}
         onFontChange={locked ? undefined : handleFontChange}
-        onPopout={() => {
-          if (popout) {
-            setPopout(false);
-            setMinimized(false);
-          } else {
-            setPopout(true);
-            setMinimized(false);
-          }
+        window={{
+          onPopout: () => {
+            if (popout) {
+              setPopout(false);
+              setMinimized(false);
+            } else {
+              setPopout(true);
+              setMinimized(false);
+            }
+          },
+          onMinimize: () => setMinimized(true),
+          isPopout: popout,
         }}
-        onMinimize={() => setMinimized(true)}
-        isPopout={popout}
-        onAiSummarize={!locked ? handleAiSummarize : undefined}
-        onAiRewrite={!locked ? handleAiRewrite : undefined}
-        onAiTitle={!locked ? handleAiTitle : undefined}
-        aiLoading={aiLoading}
+        ai={{
+          onSummarize: !locked ? handleAiSummarize : undefined,
+          onRewrite: !locked ? handleAiRewrite : undefined,
+          onTitle: !locked ? handleAiTitle : undefined,
+          loading: aiLoading,
+        }}
       />
 
       {/* Recording result panel */}

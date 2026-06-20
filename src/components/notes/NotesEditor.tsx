@@ -64,6 +64,19 @@ const FONT_FAMILY: Record<NoteFont, string> = {
   mono: "var(--mono)",
 };
 
+type NotesEditorAiProps = {
+  onSummarize?: () => void;
+  onRewrite?: () => void;
+  onTitle?: () => void;
+  loading?: string | null;
+};
+
+type NotesEditorWindowProps = {
+  onPopout?: () => void;
+  onMinimize?: () => void;
+  isPopout?: boolean;
+};
+
 type Props = {
   content: string;
   onChange: (html: string) => void;
@@ -73,13 +86,8 @@ type Props = {
   editable?: boolean;
   font?: NoteFont;
   onFontChange?: (f: NoteFont) => void;
-  onPopout?: () => void;
-  onMinimize?: () => void;
-  isPopout?: boolean;
-  onAiSummarize?: () => void;
-  onAiRewrite?: () => void;
-  onAiTitle?: () => void;
-  aiLoading?: string | null;
+  ai?: NotesEditorAiProps;
+  window?: NotesEditorWindowProps;
 };
 
 export function NotesEditor({
@@ -91,14 +99,11 @@ export function NotesEditor({
   editable = true,
   font = "sans",
   onFontChange,
-  onPopout,
-  onMinimize,
-  isPopout = false,
-  onAiSummarize,
-  onAiRewrite,
-  onAiTitle,
-  aiLoading,
+  ai,
+  window: windowProps,
 }: Props) {
+  const { onSummarize: onAiSummarize, onRewrite: onAiRewrite, onTitle: onAiTitle, loading: aiLoading } = ai ?? {};
+  const { onPopout, onMinimize, isPopout = false } = windowProps ?? {};
   const [, force] = useState(0);
   const rerender = useCallback(() => force((n) => n + 1), []);
 
