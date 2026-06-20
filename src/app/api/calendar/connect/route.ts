@@ -19,14 +19,26 @@ export async function GET(req: NextRequest) {
 
   const state = `${provider}:${crypto.randomUUID()}`;
   const cookieStore = await cookies();
-  cookieStore.set("calendar_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+  cookieStore.set("calendar_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
+    path: "/",
+  });
 
   const redirectUri = `${getAppOrigin(req)}/api/calendar/callback`;
 
   let authUrl: string;
   if (provider === "google") {
     const { verifier, challenge } = generatePkce();
-    cookieStore.set("calendar_pkce_verifier", verifier, { httpOnly: true, maxAge: 600, path: "/" });
+    cookieStore.set("calendar_pkce_verifier", verifier, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
     const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID ?? "",
       redirect_uri: redirectUri,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const SCOPES = [
@@ -16,6 +17,10 @@ const SCOPES = [
 ].join(" ");
 
 export async function GET(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   if (!clientId) {
     return NextResponse.json({ error: "SPOTIFY_CLIENT_ID not configured" }, { status: 503 });
@@ -23,7 +28,13 @@ export async function GET(req: NextRequest) {
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const state = crypto.randomUUID();
   const cookieStore = await cookies();
-  cookieStore.set("spotify_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+  cookieStore.set("spotify_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
+    path: "/",
+  });
 
   const params = new URLSearchParams({
     client_id: clientId,

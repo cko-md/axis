@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isBlockedUrl } from "@/lib/security/ssrf";
 
 interface RssItem {
   id: string;
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function fetchAndParse(url: string): Promise<RssItem[]> {
+  if (isBlockedUrl(url)) throw new Error("blocked");
   const res = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; Axis/1.0; +feed-reader)" },
     signal: AbortSignal.timeout(6000),

@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, pickArt, spotifyFetch, spotifyGet } from "../_lib";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET — rich now-playing snapshot (track, progress, device, volume, shuffle/repeat)
 export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const token = await getAccessToken();
   if (!token) return notConnected();
 
@@ -34,6 +39,10 @@ export async function GET() {
 
 // POST — player controls. Body: { action, value? }
 export async function POST(req: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const token = await getAccessToken();
   if (!token) return NextResponse.json({ error: "Not connected" }, { status: 401 });
 

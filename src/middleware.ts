@@ -16,6 +16,7 @@ export async function middleware(request: NextRequest) {
     "/api/auth/passkey/authenticate", // login-time: no session yet
     "/api/calendar/callback",         // OAuth redirect from Google/Microsoft
     "/api/mail/callback",             // OAuth redirect from Google/Microsoft (mail)
+    "/api/spotify/callback",          // OAuth redirect from Spotify
   ];
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next({ request });
@@ -54,7 +55,8 @@ export async function middleware(request: NextRequest) {
   // API routes never redirect to the login page.
   // Financial, AI, and data-mutation routes require a session — returning 401
   // provides defense-in-depth on top of per-route auth guards.
-  // Widget and Spotify read-only routes are intentionally left open.
+  // Widget routes are intentionally left open. /api/spotify/auth issues its
+  // own redirect-to-provider and is guarded below the same as other actions.
   if (pathname.startsWith("/api")) {
     const GUARDED_PREFIXES = [
       "/api/massive",
@@ -63,6 +65,7 @@ export async function middleware(request: NextRequest) {
       "/api/ai",
       "/api/signals-ai",
       "/api/strava",
+      "/api/spotify",
       "/api/profile",
       "/api/auth/passkey/register",
       "/api/auth/passkey/token",

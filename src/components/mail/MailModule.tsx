@@ -1,10 +1,23 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import DOMPurify from "isomorphic-dompurify";
 import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 import type { MailProvider } from "@/lib/mail/tokens";
 import { useToast } from "@/components/ui/Toast";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+
+// Email bodies come straight from Gmail/Outlook senders and are fully
+// attacker-controlled — sanitize before ever touching innerHTML. Scripts,
+// event handlers, iframes, objects, and forms are stripped; safe formatting
+// tags (links, tables, images) pass through.
+function sanitizeMailHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "link", "meta", "base"],
+    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur", "srcdoc", "formaction"],
+    ALLOW_DATA_ATTR: false,
+  });
+}
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -402,6 +415,11 @@ function MessagePanel({
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
 
+  const sanitizedBody = useMemo(
+    () => (message.bodyIsHtml ? sanitizeMailHtml(message.body) : message.body),
+    [message.body, message.bodyIsHtml],
+  );
+
   const summarize = async () => {
     setSummarizing(true);
     try {
@@ -547,7 +565,7 @@ function MessagePanel({
         {message.bodyIsHtml ? (
           <div
             style={{ fontSize: "13px", color: "var(--ink)", lineHeight: 1.6 }}
-            dangerouslySetInnerHTML={{ __html: message.body }}
+            dangerouslySetInnerHTML={{ __html: sanitizedBody }}
           />
         ) : (
           <pre

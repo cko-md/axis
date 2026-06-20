@@ -35,9 +35,22 @@ export async function GET(req: NextRequest) {
   }
 
   const tokens = await tokenRes.json();
-  cookieStore.set("spotify_access_token", tokens.access_token, { httpOnly: true, maxAge: tokens.expires_in ?? 3600, path: "/" });
+  const secure = process.env.NODE_ENV === "production";
+  cookieStore.set("spotify_access_token", tokens.access_token, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    maxAge: tokens.expires_in ?? 3600,
+    path: "/",
+  });
   if (tokens.refresh_token) {
-    cookieStore.set("spotify_refresh_token", tokens.refresh_token, { httpOnly: true, maxAge: 60 * 60 * 24 * 30, path: "/" });
+    cookieStore.set("spotify_refresh_token", tokens.refresh_token, {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 30,
+      path: "/",
+    });
   }
   cookieStore.delete("spotify_oauth_state");
 

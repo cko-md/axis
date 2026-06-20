@@ -44,6 +44,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (!fresh) return null;
   cookieStore.set("strava_access_token", fresh, {
     httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
     maxAge: data.expires_in ?? 21600,
     path: "/",
     sameSite: "lax",
@@ -51,6 +52,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (data.refresh_token) {
     cookieStore.set("strava_refresh_token", data.refresh_token, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
       maxAge: 60 * 60 * 24 * 90,
       path: "/",
       sameSite: "lax",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import {
   isConfigured,
   getAccessToken,
@@ -21,9 +22,18 @@ export const runtime = "nodejs";
  * GET /api/strava?action=activities  — recent activities (up to 20)
  * GET /api/strava?action=stats       — athlete lifetime stats
  * GET /api/strava?action=disconnect  — clear cookies / disconnect
+ *
+ * All actions except the OAuth callback (which arrives via redirect from
+ * Strava's domain but still carries the Axis session cookie in the browser)
+ * require an authenticated Supabase session — defense-in-depth on top of the
+ * middleware-level guard on /api/strava.
  */
 export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action") ?? "status";
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // ── AUTH REDIRECT ──────────────────────────────────────────────────────────
   if (action === "auth") {
@@ -35,7 +45,13 @@ export async function GET(req: NextRequest) {
     const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
     const state = crypto.randomUUID();
     const cookieStore = await cookies();
-    cookieStore.set("strava_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+    cookieStore.set("strava_oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
 
     const params = new URLSearchParams({
       client_id: clientId,

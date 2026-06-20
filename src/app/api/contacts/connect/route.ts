@@ -15,7 +15,13 @@ export async function GET(req: NextRequest) {
 
   const state = crypto.randomUUID();
   const cookieStore = await cookies();
-  cookieStore.set("contacts_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+  cookieStore.set("contacts_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
+    path: "/",
+  });
 
   const redirectUri = `${getAppOrigin(req)}/api/contacts/callback`;
 

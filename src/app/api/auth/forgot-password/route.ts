@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const ratelimit = new Ratelimit({
   redis: Redis.fromEnv(),
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
   }
 
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?type=recovery`;
+  const redirectTo = `${getAppOrigin(req)}/auth/callback?type=recovery`;
 
   // We always call resetPasswordForEmail regardless of useRecovery. Supabase
   // only delivers the email when the address matches a real account, so there

@@ -108,16 +108,21 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
+    // Fail closed: API routes are same-origin only (the app never calls its
+    // own API cross-origin). Only emit CORS headers when NEXT_PUBLIC_APP_URL
+    // is explicitly configured — omitting the header entirely (rather than
+    // falling back to "*") means cross-origin requests are denied by default
+    // instead of silently allowed in a misconfigured preview/staging deploy.
+    const apiHeaders = [
+      { key: "Access-Control-Allow-Methods", value: "GET,POST,PUT,DELETE,OPTIONS" },
+      { key: "Access-Control-Allow-Headers", value: "Content-Type,Authorization" },
+      ...(process.env.NEXT_PUBLIC_APP_URL
+        ? [{ key: "Access-Control-Allow-Origin", value: process.env.NEXT_PUBLIC_APP_URL }]
+        : []),
+    ];
     return [
       { source: "/(.*)", headers: SECURITY_HEADERS },
-      {
-        source: "/api/(.*)",
-        headers: [
-          { key: "Access-Control-Allow-Origin", value: process.env.NEXT_PUBLIC_APP_URL ?? "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET,POST,PUT,DELETE,OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "Content-Type,Authorization" },
-        ],
-      },
+      { source: "/api/(.*)", headers: apiHeaders },
     ];
   },
   async redirects() {
