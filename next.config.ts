@@ -79,8 +79,9 @@ const CSP = [
     // Sentry error/perf ingest
     "https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io",
   ].join(" "),
-  // 'self' allows the in-app WebViewer's same-origin /api/proxy iframe; cdn.plaid.com for Plaid Link
-  "frame-src 'self' https://cdn.plaid.com blob:",
+  // 'self' allows the in-app WebViewer's same-origin /api/proxy iframe; cdn.plaid.com
+  // for Plaid Link; open.spotify.com for the Listening Vault's official embed player
+  "frame-src 'self' https://cdn.plaid.com https://open.spotify.com blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -123,10 +124,24 @@ const nextConfig: NextConfig = {
     return [
       { source: "/(.*)", headers: SECURITY_HEADERS },
       { source: "/api/(.*)", headers: apiHeaders },
-      // /api/proxy is the backing route for the in-app WebViewer iframe — it must
-      // be framable by our own origin. The blanket X-Frame-Options: DENY above
-      // would otherwise block the very iframe this route exists to serve.
-      { source: "/api/proxy", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] },
+      // /api/proxy relays arbitrary third-party HTML chosen by the user into the
+      // WebViewer iframe — it must be framable by our own origin (X-Frame-Options),
+      // and the relayed page's OWN scripts/styles/connects must not be blocked by
+      // our app's strict CSP (they aren't 'self', so the blanket CSP above would
+      // silently break any proxied site with real client-side JS). The iframe's
+      // sandbox attribute (allow-scripts allow-same-origin allow-forms allow-popups)
+      // is the actual security boundary for this content, not CSP — so the CSP here
+      // is intentionally permissive. object-src stays locked down regardless.
+      {
+        source: "/api/proxy",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          {
+            key: "Content-Security-Policy",
+            value: "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src *; frame-src *; media-src *; object-src 'none'",
+          },
+        ],
+      },
     ];
   },
   async redirects() {

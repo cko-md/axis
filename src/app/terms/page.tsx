@@ -7,12 +7,12 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "var(--sans, system-ui)", color: "#e8e4dc", lineHeight: 1.7 }}>
-      <nav style={{ marginBottom: 32, fontSize: 13, color: "#888" }}>
-        <Link href="/login" style={{ color: "#c9a463", textDecoration: "none" }}>← Back</Link>
+    <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "var(--sans, system-ui)", color: "var(--ink)", background: "var(--bg)", lineHeight: 1.7 }}>
+      <nav style={{ marginBottom: 32, fontSize: 13, color: "var(--ink-faint)" }}>
+        <Link href="/login" style={{ color: "var(--gold)", textDecoration: "none" }}>← Back</Link>
       </nav>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8, letterSpacing: "-0.02em" }}>Terms of Service</h1>
-      <p style={{ fontSize: 13, color: "#666", marginBottom: 40 }}>Effective date: 19 June 2026</p>
+      <p style={{ fontSize: 13, color: "var(--ink-faint)", marginBottom: 40 }}>Effective date: 19 June 2026</p>
 
       <Section title="1. Acceptance">
         By creating an Axis account, you agree to these Terms of Service (&quot;Terms&quot;). If you do not agree, do not use Axis.
@@ -36,7 +36,7 @@ export default function TermsPage() {
 
       <Section title="6. Data & Privacy">
         Your use of data collected by Axis is governed by our{" "}
-        <Link href="/privacy" style={{ color: "#c9a463" }}>Privacy Policy</Link>. You retain ownership of your personal data. You may request deletion of your account and associated data at any time by contacting us.
+        <Link href="/privacy" style={{ color: "var(--gold)" }}>Privacy Policy</Link>. You retain ownership of your personal data. You may request deletion of your account and associated data at any time by contacting us.
       </Section>
 
       <Section title="7. Disclaimers">
@@ -61,7 +61,7 @@ export default function TermsPage() {
 
       <Section title="12. Contact">
         Questions about these Terms? Contact us at{" "}
-        <a href="mailto:c.k.ogonuwe@gmail.com" style={{ color: "#c9a463" }}>c.k.ogonuwe@gmail.com</a>.
+        <a href="mailto:c.k.ogonuwe@gmail.com" style={{ color: "var(--gold)" }}>c.k.ogonuwe@gmail.com</a>.
       </Section>
     </main>
   );
@@ -70,8 +70,8 @@ export default function TermsPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#c9a463" }}>{title}</h2>
-      <p style={{ fontSize: 14, color: "#bbb", margin: 0 }}>{children}</p>
+      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "var(--gold)" }}>{title}</h2>
+      <p style={{ fontSize: 14, color: "var(--ink-dim)", margin: 0 }}>{children}</p>
     </section>
   );
 }

@@ -7,12 +7,12 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "var(--sans, system-ui)", color: "#e8e4dc", lineHeight: 1.7 }}>
-      <nav style={{ marginBottom: 32, fontSize: 13, color: "#888" }}>
-        <Link href="/login" style={{ color: "#c9a463", textDecoration: "none" }}>← Back</Link>
+    <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "var(--sans, system-ui)", color: "var(--ink)", background: "var(--bg)", lineHeight: 1.7 }}>
+      <nav style={{ marginBottom: 32, fontSize: 13, color: "var(--ink-faint)" }}>
+        <Link href="/login" style={{ color: "var(--gold)", textDecoration: "none" }}>← Back</Link>
       </nav>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8, letterSpacing: "-0.02em" }}>Privacy Policy</h1>
-      <p style={{ fontSize: 13, color: "#666", marginBottom: 40 }}>Effective date: 19 June 2026</p>
+      <p style={{ fontSize: 13, color: "var(--ink-faint)", marginBottom: 40 }}>Effective date: 19 June 2026</p>
 
       <Section title="1. Overview">
         Axis is a personal operating system for individual use. This Privacy Policy explains what data we collect, how we use it, and your rights. We follow Google&apos;s Limited Use requirements for all data obtained via Google APIs.
@@ -49,7 +49,7 @@ export default function PrivacyPage() {
 
       <Section title="6. Google API Limited Use Disclosure">
         Axis&apos;s use and transfer of information received from Google APIs adheres to the{" "}
-        <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#c9a463" }}>
+        <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold)" }}>
           Google API Services User Data Policy
         </a>
         , including the Limited Use requirements. Google user data is used solely to provide Axis features and is not shared with or transferred to any third party for purposes unrelated to the core functionality.
@@ -73,7 +73,7 @@ export default function PrivacyPage() {
 
       <Section title="11. Contact">
         Privacy questions or data deletion requests:{" "}
-        <a href="mailto:c.k.ogonuwe@gmail.com" style={{ color: "#c9a463" }}>c.k.ogonuwe@gmail.com</a>.
+        <a href="mailto:c.k.ogonuwe@gmail.com" style={{ color: "var(--gold)" }}>c.k.ogonuwe@gmail.com</a>.
       </Section>
     </main>
   );
@@ -82,8 +82,8 @@ export default function PrivacyPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#c9a463" }}>{title}</h2>
-      <div style={{ fontSize: 14, color: "#bbb", margin: 0 }}>{children}</div>
+      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "var(--gold)" }}>{title}</h2>
+      <div style={{ fontSize: 14, color: "var(--ink-dim)", margin: 0 }}>{children}</div>
     </section>
   );
 }
