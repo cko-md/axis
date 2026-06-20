@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       <p style={{ fontSize: 13, color: "#666", marginBottom: 40 }}>Effective date: 19 June 2026</p>
 
       <Section title="1. Overview">
-        Axis is a personal operating system for individual use. This Privacy Policy explains what data we collect, how we use it, and your rights. We follow Google's Limited Use requirements for all data obtained via Google APIs.
+        Axis is a personal operating system for individual use. This Privacy Policy explains what data we collect, how we use it, and your rights. We follow Google&apos;s Limited Use requirements for all data obtained via Google APIs.
       </Section>
 
       <Section title="2. Data We Collect">
@@ -48,7 +48,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="6. Google API Limited Use Disclosure">
-        Axis's use and transfer of information received from Google APIs adheres to the{" "}
+        Axis&apos;s use and transfer of information received from Google APIs adheres to the{" "}
         <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#c9a463" }}>
           Google API Services User Data Policy
         </a>

@@ -15,7 +15,7 @@ export default function TermsPage() {
       <p style={{ fontSize: 13, color: "#666", marginBottom: 40 }}>Effective date: 19 June 2026</p>
 
       <Section title="1. Acceptance">
-        By creating an Axis account, you agree to these Terms of Service ("Terms"). If you do not agree, do not use Axis.
+        By creating an Axis account, you agree to these Terms of Service (&quot;Terms&quot;). If you do not agree, do not use Axis.
       </Section>
 
       <Section title="2. Description of Service">
@@ -40,7 +40,7 @@ export default function TermsPage() {
       </Section>
 
       <Section title="7. Disclaimers">
-        Axis is provided "as is" without warranty of any kind. Financial data, health metrics, and other information displayed are for informational purposes only and do not constitute financial, medical, or professional advice.
+        Axis is provided &quot;as is&quot; without warranty of any kind. Financial data, health metrics, and other information displayed are for informational purposes only and do not constitute financial, medical, or professional advice.
       </Section>
 
       <Section title="8. Limitation of Liability">
