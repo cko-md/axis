@@ -105,7 +105,7 @@ export function useSignalRoutes() {
     refresh();
   }, [refresh]);
 
-  const addRoute = async (input: RouteInput) => {
+  const addRoute = useCallback(async (input: RouteInput) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -131,9 +131,9 @@ export function useSignalRoutes() {
       return data as SignalRoute;
     }
     return null;
-  };
+  }, [supabase, routes.length]);
 
-  const updateRoute = async (id: string, patch: Partial<RouteInput>) => {
+  const updateRoute = useCallback(async (id: string, patch: Partial<RouteInput>) => {
     const { data, error } = await supabase
       .from("signal_routes")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -141,12 +141,12 @@ export function useSignalRoutes() {
       .select()
       .single();
     if (!error && data) setRoutes((prev) => prev.map((r) => (r.id === id ? (data as SignalRoute) : r)));
-  };
+  }, [supabase]);
 
-  const deleteRoute = async (id: string) => {
+  const deleteRoute = useCallback(async (id: string) => {
     await supabase.from("signal_routes").delete().eq("id", id);
     setRoutes((prev) => prev.filter((r) => r.id !== id));
-  };
+  }, [supabase]);
 
   return { routes, loading, refresh, addRoute, updateRoute, deleteRoute };
 }

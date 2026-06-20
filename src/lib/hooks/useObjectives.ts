@@ -124,7 +124,7 @@ export function useObjectives() {
     refresh();
   }, [refresh]);
 
-  const addObjective = async (title: string, descriptor: string) => {
+  const addObjective = useCallback(async (title: string, descriptor: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save objectives." };
     const { data, error } = await supabase
@@ -136,16 +136,16 @@ export function useObjectives() {
     const obj = { ...data, key_results: [] } as Objective;
     setObjectives((prev) => [...prev, obj]);
     return { data: obj };
-  };
+  }, [supabase, objectives.length]);
 
-  const deleteObjective = async (id: string) => {
+  const deleteObjective = useCallback(async (id: string) => {
     const { error } = await supabase.from("objectives").delete().eq("id", id);
     if (error) return { error: error.message };
     setObjectives((prev) => prev.filter((o) => o.id !== id));
     return {};
-  };
+  }, [supabase]);
 
-  const addKeyResult = async (objectiveId: string, title: string, target: number) => {
+  const addKeyResult = useCallback(async (objectiveId: string, title: string, target: number) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save key results." };
     const obj = objectives.find((o) => o.id === objectiveId);
@@ -165,9 +165,9 @@ export function useObjectives() {
       prev.map((o) => (o.id === objectiveId ? { ...o, key_results: [...o.key_results, data as KeyResult] } : o)),
     );
     return { data: data as KeyResult };
-  };
+  }, [supabase, objectives]);
 
-  const updateKeyResult = async (id: string, patch: Partial<KeyResult>) => {
+  const updateKeyResult = useCallback(async (id: string, patch: Partial<KeyResult>) => {
     const { data, error } = await supabase
       .from("key_results")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -182,16 +182,16 @@ export function useObjectives() {
       })),
     );
     return { data: data as KeyResult };
-  };
+  }, [supabase]);
 
-  const deleteKeyResult = async (id: string) => {
+  const deleteKeyResult = useCallback(async (id: string) => {
     const { error } = await supabase.from("key_results").delete().eq("id", id);
     if (error) return { error: error.message };
     setObjectives((prev) => prev.map((o) => ({ ...o, key_results: o.key_results.filter((kr) => kr.id !== id) })));
     return {};
-  };
+  }, [supabase]);
 
-  const addHabit = async (icon: string, name: string) => {
+  const addHabit = useCallback(async (icon: string, name: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save habits." };
     const { data, error } = await supabase
@@ -203,16 +203,16 @@ export function useObjectives() {
     const habit = { ...data, checks: [] } as Habit;
     setHabits((prev) => [...prev, habit]);
     return { data: habit };
-  };
+  }, [supabase, habits.length]);
 
-  const deleteHabit = async (id: string) => {
+  const deleteHabit = useCallback(async (id: string) => {
     const { error } = await supabase.from("habits").delete().eq("id", id);
     if (error) return { error: error.message };
     setHabits((prev) => prev.filter((h) => h.id !== id));
     return {};
-  };
+  }, [supabase]);
 
-  const toggleHabitToday = async (id: string) => {
+  const toggleHabitToday = useCallback(async (id: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to track habits." };
     const habit = habits.find((h) => h.id === id);
@@ -230,7 +230,7 @@ export function useObjectives() {
       setHabits((prev) => prev.map((h) => (h.id === id ? { ...h, checks: [today, ...h.checks] } : h)));
     }
     return {};
-  };
+  }, [supabase, habits]);
 
   return {
     objectives,

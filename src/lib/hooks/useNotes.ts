@@ -59,7 +59,7 @@ export function useNotes() {
     refresh();
   }, [refresh]);
 
-  const createNote = async (title: string, folder = "All Notes") => {
+  const createNote = useCallback(async (title: string, folder = "All Notes") => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
@@ -75,9 +75,9 @@ export function useNotes() {
       console.error("[useNotes] createNote", err);
       return null;
     }
-  };
+  }, [supabase]);
 
-  const updateNote = async (id: string, patch: Partial<Note>) => {
+  const updateNote = useCallback(async (id: string, patch: Partial<Note>) => {
     try {
       const { data, error } = await supabase.from("notes").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
       if (error || !data) return;
@@ -85,7 +85,7 @@ export function useNotes() {
     } catch (err) {
       console.error("[useNotes] updateNote", err);
     }
-  };
+  }, [supabase]);
 
   // Debounced variant for keystroke-driven edits: local state updates immediately,
   // the Supabase write coalesces to one request per pause in typing.
@@ -113,17 +113,17 @@ export function useNotes() {
     };
   }, [supabase]);
 
-  const deleteNote = async (id: string) => {
+  const deleteNote = useCallback(async (id: string) => {
     try {
       const { error } = await supabase.from("notes").delete().eq("id", id);
       if (!error) setNotes((prev) => prev.filter((n) => n.id !== id));
     } catch (err) {
       console.error("[useNotes] deleteNote", err);
     }
-  };
+  }, [supabase]);
 
   // Lock state is stored as a sentinel tag so no schema migration is needed.
-  const toggleLock = async (id: string) => {
+  const toggleLock = useCallback(async (id: string) => {
     const note = notes.find((n) => n.id === id);
     if (!note) return false;
     const locked = note.tags.includes(LOCK_TAG);
@@ -137,7 +137,7 @@ export function useNotes() {
       console.error("[useNotes] toggleLock", err);
       return locked;
     }
-  };
+  }, [notes, supabase]);
 
   return { notes, loading, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock };
 }

@@ -191,18 +191,32 @@ export function ScheduleModule() {
     return signedIn ? [] : DAY_SAMPLE_ROWS;
   }, [events, signedIn]);
 
-  const eventsForSlot = (dayIdx: number, hour: number) => {
-    const day = addDays(weekStart, dayIdx);
-    return events.filter((ev) => {
-      const start = new Date(ev.start_at);
-      const end = new Date(ev.end_at);
-      const slotStart = new Date(day);
-      slotStart.setHours(hour, 0, 0, 0);
-      const slotEnd = new Date(day);
-      slotEnd.setHours(hour + 1, 0, 0, 0);
-      return start < slotEnd && end > slotStart;
-    });
-  };
+  // Precomputed day+hour -> events lookup, built once per events/weekStart
+  // change instead of re-filtering the full events array per grid cell render.
+  const slotMap = useMemo(() => {
+    const map = new Map<string, ScheduleEvent[]>();
+    for (let dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
+      const day = addDays(weekStart, dayIdx);
+      for (const hour of HOURS) {
+        const slotStart = new Date(day);
+        slotStart.setHours(hour, 0, 0, 0);
+        const slotEnd = new Date(day);
+        slotEnd.setHours(hour + 1, 0, 0, 0);
+        const slotEvents = events.filter((ev) => {
+          const start = new Date(ev.start_at);
+          const end = new Date(ev.end_at);
+          return start < slotEnd && end > slotStart;
+        });
+        map.set(`${dayIdx}-${hour}`, slotEvents);
+      }
+    }
+    return map;
+  }, [events, weekStart]);
+
+  const eventsForSlot = useCallback(
+    (dayIdx: number, hour: number) => slotMap.get(`${dayIdx}-${hour}`) ?? [],
+    [slotMap],
+  );
 
   const saveEvent = async () => {
     if (!form.title.trim()) {

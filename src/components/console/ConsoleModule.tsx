@@ -339,9 +339,22 @@ export function ConsoleModule() {
   const [blockSizes, setBlockSizes] = useState<Record<SectionId, "sm" | "full">>({ ...DEFAULT_BLOCK_SIZES });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
-  const topTasks = rankTasks(tasks).slice(0, 3);
+  const topTasks = useMemo(() => rankTasks(tasks).slice(0, 3), [tasks]);
   const { people } = usePeople();
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+
+  const unread = useMemo(() => signals.filter((s) => !s.read_at).length, [signals]);
+  const actionable = useMemo(
+    () => signals.filter((s) => s.signal_type === "action" && !s.routed_at),
+    [signals],
+  );
+  const duePeople = useMemo(() => {
+    const nowMs = Date.now();
+    return people
+      .filter((p) => p.follow_up_on && new Date(`${p.follow_up_on}T23:59:59`) <= new Date(nowMs + 3 * 86400000))
+      .sort((a, b) => (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""))
+      .slice(0, 4);
+  }, [people]);
 
   // Load section order + block sizes from localStorage on mount
   useEffect(() => {
@@ -748,8 +761,6 @@ export function ConsoleModule() {
   );
 
   // ── Dispatch block ──────────────────────────────────────────────
-  const unread = signals.filter((s) => !s.read_at).length;
-  const actionable = signals.filter((s) => s.signal_type === "action" && !s.routed_at);
   const dispatchBlockSection = (
     <DraggableBlock key="dispatch-block" id="dispatch-block">
       <Card>
@@ -883,10 +894,6 @@ export function ConsoleModule() {
 
   // ── People CRM spotlight ────────────────────────────────────────
   const now = new Date();
-  const duePeople = people
-    .filter((p) => p.follow_up_on && new Date(`${p.follow_up_on}T23:59:59`) <= new Date(now.getTime() + 3 * 86400000))
-    .sort((a, b) => (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""))
-    .slice(0, 4);
   const tagColor: Record<string, string> = { mentor: "var(--marine-2)", collaborator: "var(--up)", friend: "var(--gold-2)" };
 
   const peopleSpotlightSection = (

@@ -82,13 +82,15 @@ export function SearchWidget() {
       return;
     }
 
+    const controller = new AbortController();
+
     semanticDebounceRef.current = setTimeout(async () => {
       setSemanticLoading(true);
       try {
         const [quickRes, semanticRes] = await Promise.allSettled([
-          fetch(`/api/search/quick?q=${encodeURIComponent(query)}`),
+          fetch(`/api/search/quick?q=${encodeURIComponent(query)}`, { signal: controller.signal }),
           query.length >= 3
-            ? fetch(`/api/search/semantic?q=${encodeURIComponent(query)}`)
+            ? fetch(`/api/search/semantic?q=${encodeURIComponent(query)}`, { signal: controller.signal })
             : Promise.resolve(null),
         ]);
 
@@ -109,16 +111,18 @@ export function SearchWidget() {
         } else {
           setSemanticResults([]);
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
         setQuickResults([]);
         setSemanticResults([]);
       } finally {
-        setSemanticLoading(false);
+        if (!controller.signal.aborted) setSemanticLoading(false);
       }
     }, 300);
 
     return () => {
       if (semanticDebounceRef.current) clearTimeout(semanticDebounceRef.current);
+      controller.abort();
     };
   }, [query]);
 

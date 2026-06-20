@@ -126,28 +126,30 @@ export function useStrava() {
   const [loading, setLoading] = useState(true);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/strava?action=status");
+      const res = await fetch("/api/strava?action=status", { signal });
       const data = (await res.json()) as StravaStatus;
       setStatus(data);
       return data.connected;
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
       setStatus({ connected: false, configured: false, athlete: null });
       return false;
     }
   }, []);
 
-  const fetchActivities = useCallback(async () => {
+  const fetchActivities = useCallback(async (signal?: AbortSignal) => {
     setActivitiesLoading(true);
     try {
-      const res = await fetch("/api/strava?action=activities");
+      const res = await fetch("/api/strava?action=activities", { signal });
       const data = await res.json() as { connected: boolean; activities?: StravaActivity[] };
       if (data.connected && data.activities) {
         setActivities(data.activities);
         setSummary(computeSummary(data.activities));
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       // fail silently
     } finally {
       setActivitiesLoading(false);
@@ -163,13 +165,22 @@ export function useStrava() {
 
   useEffect(() => {
     let mounted = true;
+    const controller = new AbortController();
     (async () => {
       setLoading(true);
-      const connected = await fetchStatus();
-      if (mounted && connected) await fetchActivities();
-      if (mounted) setLoading(false);
+      try {
+        const connected = await fetchStatus(controller.signal);
+        if (mounted && connected) await fetchActivities(controller.signal);
+      } catch (err) {
+        if (!(err instanceof Error && err.name === "AbortError")) throw err;
+      } finally {
+        if (mounted) setLoading(false);
+      }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
   }, [fetchStatus, fetchActivities]);
 
   return {

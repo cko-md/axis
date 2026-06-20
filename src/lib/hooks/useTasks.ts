@@ -58,7 +58,7 @@ export function useTasks() {
     refresh();
   }, [refresh]);
 
-  const addTask = async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
+  const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const { data, error } = await supabase
@@ -80,19 +80,19 @@ export function useTasks() {
       return data as Task;
     }
     return null;
-  };
+  }, [supabase, tasks.length]);
 
-  const updateTask = async (id: string, patch: Partial<Task>) => {
+  const updateTask = useCallback(async (id: string, patch: Partial<Task>) => {
     const { data, error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
     if (!error && data) setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
-  };
+  }, [supabase]);
 
-  const deleteTask = async (id: string) => {
+  const deleteTask = useCallback(async (id: string) => {
     const { error } = await supabase.from("tasks").delete().eq("id", id);
     if (!error) setTasks((prev) => prev.filter((t) => t.id !== id));
-  };
+  }, [supabase]);
 
-  const toggleDone = async (id: string) => {
+  const toggleDone = useCallback(async (id: string) => {
     const t = tasks.find((x) => x.id === id);
     if (!t) return;
     const isDone = t.status === "done";
@@ -100,7 +100,7 @@ export function useTasks() {
       status: isDone ? "open" : "done",
       completed_at: isDone ? null : new Date().toISOString(),
     });
-  };
+  }, [tasks, updateTask]);
 
   return { tasks, loading, refresh, addTask, updateTask, deleteTask, toggleDone };
 }

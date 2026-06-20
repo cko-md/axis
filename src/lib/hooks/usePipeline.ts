@@ -107,7 +107,7 @@ export function usePipeline() {
     refresh();
   }, [refresh]);
 
-  const addStage = async (name: string, swatch: string) => {
+  const addStage = useCallback(async (name: string, swatch: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to customize stages." };
     const { data, error } = await supabase
@@ -118,17 +118,17 @@ export function usePipeline() {
     if (error) return { error: error.message };
     setStages((prev) => [...prev, data as PipelineStage]);
     return { data: data as PipelineStage };
-  };
+  }, [supabase, stages.length]);
 
-  const deleteStage = async (id: string) => {
+  const deleteStage = useCallback(async (id: string) => {
     const { error } = await supabase.from("pipeline_stages").delete().eq("id", id);
     if (error) return { error: error.message };
     setStages((prev) => prev.filter((s) => s.id !== id));
     setStudies((prev) => prev.filter((s) => s.stage_id !== id));
     return {};
-  };
+  }, [supabase]);
 
-  const addStudy = async (partial: Partial<Study> & { stage_id: string; title: string }) => {
+  const addStudy = useCallback(async (partial: Partial<Study> & { stage_id: string; title: string }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save studies." };
     const { data, error } = await supabase
@@ -147,9 +147,9 @@ export function usePipeline() {
     if (error) return { error: error.message };
     setStudies((prev) => [...prev, data as Study]);
     return { data: data as Study };
-  };
+  }, [supabase, studies]);
 
-  const updateStudy = async (id: string, patch: Partial<Study>) => {
+  const updateStudy = useCallback(async (id: string, patch: Partial<Study>) => {
     const { data, error } = await supabase
       .from("studies")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -159,16 +159,16 @@ export function usePipeline() {
     if (error) return { error: error.message };
     setStudies((prev) => prev.map((s) => (s.id === id ? (data as Study) : s)));
     return { data: data as Study };
-  };
+  }, [supabase]);
 
-  const deleteStudy = async (id: string) => {
+  const deleteStudy = useCallback(async (id: string) => {
     const { error } = await supabase.from("studies").delete().eq("id", id);
     if (error) return { error: error.message };
     setStudies((prev) => prev.filter((s) => s.id !== id));
     return {};
-  };
+  }, [supabase]);
 
-  const addConference = async (partial: Partial<Conference> & { name: string }) => {
+  const addConference = useCallback(async (partial: Partial<Conference> & { name: string }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save conferences." };
     const { data, error } = await supabase
@@ -189,9 +189,9 @@ export function usePipeline() {
     if (error) return { error: error.message };
     setConferences((prev) => [...prev, data as Conference]);
     return { data: data as Conference };
-  };
+  }, [supabase]);
 
-  const updateConference = async (id: string, patch: Partial<Conference>) => {
+  const updateConference = useCallback(async (id: string, patch: Partial<Conference>) => {
     const { data, error } = await supabase
       .from("conferences")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -201,14 +201,14 @@ export function usePipeline() {
     if (error) return { error: error.message };
     setConferences((prev) => prev.map((c) => (c.id === id ? (data as Conference) : c)));
     return { data: data as Conference };
-  };
+  }, [supabase]);
 
-  const deleteConference = async (id: string) => {
+  const deleteConference = useCallback(async (id: string) => {
     const { error } = await supabase.from("conferences").delete().eq("id", id);
     if (error) return { error: error.message };
     setConferences((prev) => prev.filter((c) => c.id !== id));
     return {};
-  };
+  }, [supabase]);
 
   return {
     stages,

@@ -74,7 +74,7 @@ export function usePeople() {
     refresh();
   }, [refresh]);
 
-  const addPerson = async (partial: Partial<Person> & { name: string }) => {
+  const addPerson = useCallback(async (partial: Partial<Person> & { name: string }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save people." };
     const { data, error } = await supabase
@@ -93,9 +93,9 @@ export function usePeople() {
     if (error) return { error: error.message };
     setPeople((prev) => [...prev, data as Person].sort((a, b) => a.name.localeCompare(b.name)));
     return { data: data as Person };
-  };
+  }, [supabase]);
 
-  const updatePerson = async (id: string, patch: Partial<Person>) => {
+  const updatePerson = useCallback(async (id: string, patch: Partial<Person>) => {
     const { data, error } = await supabase
       .from("people")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -105,14 +105,14 @@ export function usePeople() {
     if (error) return { error: error.message };
     setPeople((prev) => prev.map((p) => (p.id === id ? (data as Person) : p)));
     return { data: data as Person };
-  };
+  }, [supabase]);
 
-  const deletePerson = async (id: string) => {
+  const deletePerson = useCallback(async (id: string) => {
     const { error } = await supabase.from("people").delete().eq("id", id);
     if (error) return { error: error.message };
     setPeople((prev) => prev.filter((p) => p.id !== id));
     return {};
-  };
+  }, [supabase]);
 
   return { people, loading, signedIn, refresh, addPerson, updatePerson, deletePerson };
 }
