@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
@@ -231,7 +232,9 @@ export function PeopleModule() {
       </div>
 
       {loading ? (
-        <div className="empty-state">Loading people…</div>
+        <div className="people-grid" style={{ pointerEvents: "none" }}>
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} rows={3} />)}
+        </div>
       ) : !signedIn ? (
         <div className="people-grid">
           {visibleDemo.map((p) => (

@@ -5,7 +5,7 @@ import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 import { generatePkce } from "@/lib/auth/pkce";
 
 const GMAIL_SCOPES =
-  "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email";
+  "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email";
 const OUTLOOK_MAIL_SCOPES = "Mail.Read offline_access User.Read";
 
 export async function GET(req: NextRequest) {

@@ -212,6 +212,7 @@ export async function POST(req: NextRequest) {
     }
     if (mode === "companion") return NextResponse.json({ response: "I'm offline right now — check your connection and try again." });
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
+    if (mode === "debrief_summary") return NextResponse.json({ summary: "Summary unavailable — API key required." });
     return NextResponse.json(heuristicCapture(text));
   }
 
@@ -369,6 +370,18 @@ export async function POST(req: NextRequest) {
       });
       const { _model: _, ...triageData } = result;
       return NextResponse.json(triageData as TriageResult);
+    }
+
+    // ── debrief_summary ────────────────────────────────────────────────────────
+    if (mode === "debrief_summary") {
+      const { text: summary } = await aiGenerate({
+        mode,
+        anthropic,
+        system: `You are a reflective intelligence layer. Given a series of weekly reflection notes, synthesize the key patterns, recurring themes, wins, and friction points into a concise weekly summary. Write in second person ("You've been..."). Keep it under 200 words. No markdown headers. Focus on insight, not repetition.`,
+        userMessage: text,
+        maxTokens: 350,
+      });
+      return NextResponse.json({ summary });
     }
 
     // ── capture (default) ──────────────────────────────────────────────────────

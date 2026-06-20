@@ -305,17 +305,58 @@ export function ObjectivesModule() {
         </div>
       )}
 
-      <Modal open={scanOpen} onClose={() => setScanOpen(false)} title="Platform scan">
+      <Modal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        title="Platform scan"
+        footer={
+          !scanning && results.length > 0 ? (
+            <Button
+              variant="primary"
+              onClick={async () => {
+                for (const r of results) {
+                  await addObjective(r.target, r.module);
+                }
+                setScanOpen(false);
+                toast(`Imported ${results.length} objective${results.length === 1 ? "" : "s"}.`, "success", "Objectives");
+              }}
+            >
+              Import all ({results.length})
+            </Button>
+          ) : undefined
+        }
+      >
         {scanning ? (
           <p style={{ color: "var(--ink-dim)" }}>Scanning Agenda, Pipeline, Signals, Objectives…</p>
         ) : (
           <div className="tasklist">
             {results.map((r) => (
-              <div key={r.target} className="task">
-                <div className="task-main">
+              <div key={r.target} className="task" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="task-main" style={{ flex: 1 }}>
                   <div className="task-title">{r.target}</div>
                   <div className="task-meta">{r.module} · confidence {r.confidence}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await addObjective(r.target, r.module);
+                    setResults((prev) => prev.filter((x) => x.target !== r.target));
+                    toast(`"${r.target}" added.`, "success", "Objectives");
+                  }}
+                  style={{
+                    fontSize: "11px",
+                    padding: "3px 8px",
+                    borderRadius: 4,
+                    background: "var(--glass)",
+                    border: "1px solid var(--line)",
+                    color: "var(--ink-dim)",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  + Import
+                </button>
               </div>
             ))}
           </div>

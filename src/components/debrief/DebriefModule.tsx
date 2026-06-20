@@ -193,6 +193,8 @@ export function DebriefModule() {
   const [reminderSet,   setReminderSet]   = useState(false);
   const [showConfig,    setShowConfig]    = useState(false);
   const [pastOpen,      setPastOpen]      = useState(false);
+  const [aiSummary,     setAiSummary]     = useState<string | null>(null);
+  const [summarizing,   setSummarizing]   = useState(false);
 
   useEffect(() => {
     import("@/lib/supabase/client").then(({ createClient }) => {
@@ -227,6 +229,27 @@ export function DebriefModule() {
   const pastReflections = notes
     .filter((n) => n.folder === DEBRIEF_FOLDER)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const generateWeeklySummary = async () => {
+    const last7 = pastReflections.slice(0, 7);
+    if (last7.length === 0) { toast("No past reflections to summarize.", "warn", "Debrief"); return; }
+    setSummarizing(true);
+    setAiSummary(null);
+    try {
+      const combined = last7.map((n) => `## ${n.title}\n${n.body ?? ""}`).join("\n\n---\n\n");
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "debrief_summary", text: combined.slice(0, 6000) }),
+      });
+      const data = (await res.json()) as { summary?: string };
+      setAiSummary(data.summary ?? "No summary generated.");
+    } catch {
+      setAiSummary("Unable to generate summary — check your connection.");
+    } finally {
+      setSummarizing(false);
+    }
+  };
 
   const hasContent = wins.trim() || challenges.trim() || focus.trim();
 
@@ -455,6 +478,7 @@ export function DebriefModule() {
         {/* past reflections collapsible */}
         {signedIn && (
           <div style={{ marginTop: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button
               type="button"
               onClick={() => setPastOpen((v) => !v)}
@@ -466,6 +490,7 @@ export function DebriefModule() {
                 border: "none",
                 padding: 0,
                 cursor: "pointer",
+                flex: 1,
               }}
             >
               <span
@@ -502,6 +527,57 @@ export function DebriefModule() {
                 {pastOpen ? "▲" : "▼"}
               </span>
             </button>
+
+            {pastReflections.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void generateWeeklySummary()}
+                disabled={summarizing}
+                style={{
+                  marginLeft: "auto",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontFamily: "var(--mono)",
+                  fontSize: 9,
+                  color: summarizing ? "var(--ink-faint)" : "var(--gold)",
+                  background: "none",
+                  border: "none",
+                  cursor: summarizing ? "default" : "pointer",
+                  padding: 0,
+                  opacity: summarizing ? 0.6 : 1,
+                }}
+              >
+                {summarizing ? "Synthesizing…" : "✦ Weekly summary"}
+              </button>
+            )}
+            </div>
+
+            {aiSummary && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: "10px 14px",
+                  background: "var(--glass)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "var(--r, 8px)",
+                  fontSize: 12,
+                  color: "var(--ink)",
+                  lineHeight: 1.7,
+                  position: "relative",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setAiSummary(null)}
+                  style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14 }}
+                >
+                  ×
+                </button>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", letterSpacing: ".1em", marginBottom: 6, textTransform: "uppercase" }}>✦ AI SYNTHESIS</div>
+                {aiSummary}
+              </div>
+            )}
 
             {pastOpen && (
               <div style={{ marginTop: 8 }}>

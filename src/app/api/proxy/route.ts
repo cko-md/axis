@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 // OAuth/login hosts must never be proxied: routing a credential page through an
 // embedded webview is the "man-in-the-middle" pattern Google explicitly forbids.
 // These open in a real browser tab instead (handled client-side in WebViewer).
-export const OAUTH_HOSTS = [
+const OAUTH_HOSTS = [
   'accounts.google.com',
   'login.microsoftonline.com',
   'login.live.com',

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import {
   classifySignal,
   classifySignals,
@@ -256,7 +257,11 @@ export function SignalsModule() {
     if (created) toast("Signal captured", "success", "Signals");
   };
 
-  if (loading) return <div className="empty-state">Loading signals…</div>;
+  if (loading) return (
+    <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 8 }}>
+      {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} rows={2} />)}
+    </div>
+  );
 
   const renderRow = (s: Signal) => (
     <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>

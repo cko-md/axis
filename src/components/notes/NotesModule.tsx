@@ -28,6 +28,7 @@ import {
 } from "@/lib/hooks/useNotes";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditor";
 import styles from "./NotesEditor.module.css";
 
@@ -576,7 +577,11 @@ export function NotesModule() {
     setSuggestion(null);
   };
 
-  if (loading) return <div className="empty-state">Loading notes…</div>;
+  if (loading) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 16 }}>
+      {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={40} borderRadius={6} style={{ opacity: 0.6 + i * 0.1 }} />)}
+    </div>
+  );
 
   const editorEl = selected ? (
     <>
