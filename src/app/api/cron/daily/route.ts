@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 // Requires CRON_SECRET env var — Vercel sets the Authorization header automatically
 // when invoking crons; set the same secret in your project env vars.
 export async function GET(req: NextRequest) {
+  if (!process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
+  }
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -35,7 +38,13 @@ export async function GET(req: NextRequest) {
     ? { error: challengesError.message }
     : { deleted: challengesDeleted ?? 0 };
 
-  // 4. Dependency freshness check (sample 3 key packages)
+  // 4. Purge old done tasks (> 6 months, per migration 022)
+  const { data: purgedCount, error: purgeError } = await supabase.rpc("purge_old_done_tasks");
+  results.old_done_tasks_purged = purgeError
+    ? { error: purgeError.message }
+    : { deleted: purgedCount ?? 0 };
+
+  // 5. Dependency freshness check (sample 3 key packages)
   const WATCH_PKGS = ["next", "@supabase/ssr", "anthropic"];
   const depResults: Record<string, { current: string; latest: string; behind: boolean }> = {};
   try {
@@ -68,7 +77,7 @@ export async function GET(req: NextRequest) {
   }
   results.dependency_check = depResults;
 
-  // 5. Supabase health check
+  // 6. Supabase health check
   try {
     const { error } = await supabase.from("notes").select("id").limit(1);
     results.supabase_health = error ? { ok: false, error: error.message } : { ok: true };
@@ -76,7 +85,7 @@ export async function GET(req: NextRequest) {
     results.supabase_health = { ok: false, error: String(e) };
   }
 
-  // 6. Store run in health_check_runs (migration 016)
+  // 7. Store run in health_check_runs (migration 016)
   const runSummary = {
     ran_at: new Date().toISOString(),
     overdue_tasks: results.overdue_tasks,
@@ -85,7 +94,10 @@ export async function GET(req: NextRequest) {
     supabase_health: results.supabase_health,
     all_ok: !!(results.supabase_health as { ok: boolean }).ok,
   };
-  await supabase.from("health_check_runs").insert(runSummary);
+  const { error: healthInsertError } = await supabase.from("health_check_runs").insert(runSummary);
+  if (healthInsertError) {
+    console.error("[cron] health_check_runs insert failed:", healthInsertError.message);
+  }
 
   return NextResponse.json({ ok: true, message: "Maintenance complete", results });
 }

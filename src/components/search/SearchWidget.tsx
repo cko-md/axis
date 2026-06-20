@@ -9,6 +9,27 @@ interface SemanticResult {
   title?: string;
 }
 
+interface QuickResult {
+  type: "note" | "task" | "person" | "signal";
+  id: string;
+  title: string;
+  subtitle?: string;
+}
+
+const TYPE_ICON: Record<QuickResult["type"], string> = {
+  note: "◻",
+  task: "✓",
+  person: "◯",
+  signal: "◈",
+};
+
+const TYPE_PATH: Record<QuickResult["type"], string> = {
+  note: "/notes",
+  task: "/agenda",
+  person: "/people",
+  signal: "/dispatch",
+};
+
 export function SearchWidget() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -16,6 +37,7 @@ export function SearchWidget() {
   const [loading, setLoading] = useState(false);
   const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
   const [semanticLoading, setSemanticLoading] = useState(false);
+  const [quickResults, setQuickResults] = useState<QuickResult[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const semanticDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
@@ -25,6 +47,7 @@ export function SearchWidget() {
     setQuery("");
     setAnswer("");
     setSemanticResults([]);
+    setQuickResults([]);
   }, []);
 
   useEffect(() => {
@@ -32,7 +55,7 @@ export function SearchWidget() {
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();
         setOpen((o) => {
-          if (o) { setQuery(""); setAnswer(""); setSemanticResults([]); }
+          if (o) { setQuery(""); setAnswer(""); setSemanticResults([]); setQuickResults([]); }
           return !o;
         });
       }
@@ -49,36 +72,50 @@ export function SearchWidget() {
     }
   }, [open]);
 
-  // Debounced semantic search triggered while typing
+  // Debounced quick + semantic search triggered while typing
   useEffect(() => {
     if (semanticDebounceRef.current) clearTimeout(semanticDebounceRef.current);
 
-    if (query.length < 3) {
+    if (query.length < 2) {
       setSemanticResults([]);
+      setQuickResults([]);
       return;
     }
 
     semanticDebounceRef.current = setTimeout(async () => {
       setSemanticLoading(true);
       try {
-        const res = await fetch(
-          `/api/search/semantic?q=${encodeURIComponent(query)}`,
-        );
-        if (res.ok) {
-          const data = (await res.json()) as {
-            results?: SemanticResult[];
-            error?: string;
-          };
+        const [quickRes, semanticRes] = await Promise.allSettled([
+          fetch(`/api/search/quick?q=${encodeURIComponent(query)}`),
+          query.length >= 3
+            ? fetch(`/api/search/semantic?q=${encodeURIComponent(query)}`)
+            : Promise.resolve(null),
+        ]);
+
+        if (quickRes.status === "fulfilled" && quickRes.value.ok) {
+          const data = (await quickRes.value.json()) as { results?: QuickResult[] };
+          setQuickResults(data.results ?? []);
+        } else {
+          setQuickResults([]);
+        }
+
+        if (
+          semanticRes.status === "fulfilled" &&
+          semanticRes.value &&
+          semanticRes.value.ok
+        ) {
+          const data = (await semanticRes.value.json()) as { results?: SemanticResult[] };
           setSemanticResults(data.results ?? []);
         } else {
           setSemanticResults([]);
         }
       } catch {
+        setQuickResults([]);
         setSemanticResults([]);
       } finally {
         setSemanticLoading(false);
       }
-    }, 400);
+    }, 300);
 
     return () => {
       if (semanticDebounceRef.current) clearTimeout(semanticDebounceRef.current);
@@ -206,6 +243,33 @@ export function SearchWidget() {
           </div>
         )}
 
+        {/* Quick keyword matches */}
+        {quickResults.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            <div style={{ padding: "7px 14px 3px", fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--font-mono, monospace)", letterSpacing: ".1em" }}>
+              ◻ MATCHES
+            </div>
+            {quickResults.map((r) => (
+              <button
+                key={`${r.type}-${r.id}`}
+                onClick={() => {
+                  router.push(`${TYPE_PATH[r.type]}?id=${r.id}`);
+                  close();
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "6px 14px", background: "none", border: "none", borderTop: "1px solid var(--line)", cursor: "pointer", textAlign: "left" }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--surface)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+              >
+                <span style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--font-mono, monospace)", minWidth: 12 }}>{TYPE_ICON[r.type]}</span>
+                <span style={{ fontSize: 13, color: "var(--ink)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</span>
+                {r.subtitle && (
+                  <span style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--font-mono, monospace)", flexShrink: 0 }}>{r.subtitle}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Semantic matches */}
         {(semanticResults.length > 0 || semanticLoading) && (
           <div style={{ borderTop: "1px solid var(--line)" }}>
@@ -278,7 +342,7 @@ export function SearchWidget() {
         )}
 
         {/* Footer hint */}
-        {!answer && semanticResults.length === 0 && !semanticLoading && (
+        {!answer && semanticResults.length === 0 && quickResults.length === 0 && !semanticLoading && (
           <div style={{
             borderTop: "1px solid var(--line)",
             padding: "8px 14px",

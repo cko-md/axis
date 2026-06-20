@@ -4,6 +4,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
+import { memoryRateLimit } from "@/lib/ratelimit";
 
 // Destinations a signal can be routed into. Kept in sync with the client ROUTES list.
 const DESTINATIONS = ["agenda", "schedule", "notes", "pipeline", "fund", "literature", "library", "people"] as const;
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Rate limit: 30 requests per minute per user
+  // Rate limit: 30 requests per minute per user (Redis when available, memory fallback)
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     const ratelimit = new Ratelimit({
       redis: Redis.fromEnv(),
@@ -85,6 +86,11 @@ export async function POST(req: NextRequest) {
       prefix: "axis:signals-ai",
     });
     const { success } = await ratelimit.limit(user.id);
+    if (!success) {
+      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+    }
+  } else {
+    const { success } = memoryRateLimit(`signals-ai:${user.id}`, 30, 60_000);
     if (!success) {
       return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
     }

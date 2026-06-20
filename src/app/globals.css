@@ -121,22 +121,22 @@ html.slate {
 
 /* light — museum gallery: architectural paper, north-facing skylight */
 html.light {
-  --accent-subtle: rgba(120, 80, 20, 0.08);
+  --accent-subtle: rgba(120, 80, 20, 0.10);
   --bg: #f4f0e8;
   --surface: #ede8de;
-  --surface-2: #e6e0d4;
-  --surface-3: #ddd8cc;
-  --line: rgba(30, 24, 16, 0.18);
-  --line-strong: rgba(30, 24, 16, 0.3);
+  --surface-2: #dcd6c6;   /* widened delta vs --surface for visible card depth */
+  --surface-3: #ccc6b6;
+  --line: rgba(30, 24, 16, 0.28);   /* was 0.18 — borders now visible on parchment */
+  --line-strong: rgba(30, 24, 16, 0.44);
   --edge: rgba(255, 255, 255, 0.72);
   --metal-edge: rgba(255, 255, 255, 0.72);
-  --glass: rgba(20, 16, 10, 0.06);
-  --glass-2: rgba(20, 16, 10, 0.1);
-  --grid: rgba(30, 24, 16, 0.05);
+  --glass: rgba(20, 16, 10, 0.12);   /* was 0.06 — glass panels now visible */
+  --glass-2: rgba(20, 16, 10, 0.18);
+  --grid: rgba(30, 24, 16, 0.06);
   --ink: #1a1612;
   --ink-2: #302b24;
-  --ink-dim: #5c5146;
-  --ink-faint: #6e6358;   /* 4.6:1 on #f4f0e8 — passes WCAG AA */
+  --ink-dim: #4e4439;   /* darkened 15% from #5c5146 for contrast on parchment */
+  --ink-faint: #5c5248;   /* darkened 15% from #6e6358 — still WCAG AA compliant */
   --gold: #b8922e;
   --gold-2: #d4aa52;
   --gold-deep: #7a5e1e;

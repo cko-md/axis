@@ -11,10 +11,10 @@ const COLLECTIONS = [
 ];
 
 const PHOTOS = [
-  { cap: "Lab Retreat · Apr", g: "linear-gradient(135deg,#27323f,#10161f)" },
-  { cap: "Lagos · Dec", g: "linear-gradient(135deg,#2c2738,#10161f)" },
-  { cap: "Marathon PR", g: "linear-gradient(135deg,#243430,#10161f)" },
-  { cap: "OR Day One", g: "linear-gradient(135deg,#312a2a,#10161f)" },
+  { cap: "Lab Retreat · Apr", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
+  { cap: "Lagos · Dec", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
+  { cap: "Marathon PR", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
+  { cap: "OR Day One", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
 ];
 
 // coll[] = which collection indices this file belongs to (0 = All Files always implied)
@@ -33,11 +33,11 @@ const FILES: FileItem[] = [
   { name: "DBS_manuscript_v7.pdf",    size: "2.4 MB", age: "2h",  type: "pdf", label: "PDF",  colls: [1] },
   { name: "Grant_aims_draft.docx",    size: "88 KB",  age: "1d",  type: "doc", label: "DOCX", colls: [1] },
   { name: "IRB_amendment_UIA.pdf",    size: "640 KB", age: "3d",  type: "pdf", label: "PDF",  colls: [2] },
-  { name: "KM_curve_recurrence.png",  size: "310 KB", age: "3d",  type: "img", label: "PNG",  colls: [3], thumbBg: "linear-gradient(135deg,#24323f,#0d121b)" },
-  { name: "JournalClub_DBS.mp4",      size: "184 MB", age: "1w",  video: true,                colls: [4], thumbBg: "linear-gradient(135deg,#2a2438,#0d121b)" },
+  { name: "KM_curve_recurrence.png",  size: "310 KB", age: "3d",  type: "img", label: "PNG",  colls: [3], thumbBg: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
+  { name: "JournalClub_DBS.mp4",      size: "184 MB", age: "1w",  video: true,                colls: [4], thumbBg: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
   { name: "cohort2_dataset.xlsx",     size: "1.1 MB", age: "1w",  type: "doc", label: "XLSX", colls: [2] },
   { name: "cover_letter_JNS.pdf",     size: "72 KB",  age: "2w",  type: "pdf", label: "PDF",  colls: [1] },
-  { name: "conference_poster.jpg",    size: "2.0 MB", age: "2w",  type: "img", label: "JPG",  colls: [3], thumbBg: "linear-gradient(135deg,#243430,#0d121b)" },
+  { name: "conference_poster.jpg",    size: "2.0 MB", age: "2w",  type: "img", label: "JPG",  colls: [3], thumbBg: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
 ];
 
 export function LibraryModule() {

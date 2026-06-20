@@ -6,12 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { decrypt } from "@/lib/crypto";
-
-const verifyRatelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, "10 m"),
-  prefix: "axis:passkey-verify",
-});
+import { memoryRateLimit } from "@/lib/ratelimit";
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
@@ -62,9 +57,25 @@ export async function POST(req: NextRequest) {
   }
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
-  const { success } = await verifyRatelimit.limit(ip);
-  if (!success) {
-    return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const verifyRatelimit = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(10, "10 m"),
+      prefix: "axis:passkey-verify",
+    });
+    const { success } = await verifyRatelimit.limit(ip);
+    if (!success) {
+      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+    }
+  } else {
+    const { success } = memoryRateLimit(`passkey-verify:${ip}`, 10, 10 * 60_000);
+    if (!success) {
+      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+    }
+  }
+
+  if (!process.env.PASSKEY_ENCRYPTION_KEY) {
+    console.warn("[passkey] PASSKEY_ENCRYPTION_KEY not set — refresh token decryption unavailable");
   }
 
   let body: { response: AuthenticationResponseJSON; email?: string };

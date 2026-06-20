@@ -520,7 +520,7 @@ function ArtDetail({
         >
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 0 }}>
           {/* Image */}
-          <div style={{ background: "#0a0b0e", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+          <div style={{ background: "var(--surface-3)", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
             {!imgErr ? (
               <img
                 src={work.imageUrl || work.thumbUrl}

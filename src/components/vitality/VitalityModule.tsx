@@ -76,21 +76,21 @@ function sessionMeta(s: TrainingSession) {
 type Video = { t: string; c: string; d: string; tag: string; g: string };
 
 const RUN_VIDEOS: Video[] = [
-  { t: "Perfect Running Form — 5 Drills to Fix It", c: "The Run Experience", d: "11:38", tag: "Form & Drills", g: "linear-gradient(135deg,#1c3142,#0e1620)" },
-  { t: "How to Run Your First Sub-1:30 Half", c: "Sage Running", d: "16:21", tag: "Race Strategy", g: "linear-gradient(135deg,#23304a,#10141f)" },
-  { t: "Zone 2 Explained — Why Easy Runs Matter", c: "Göran Winblad", d: "13:05", tag: "Training", g: "linear-gradient(135deg,#1f3a3a,#0e1818)" },
-  { t: "Marathon Pace Workouts That Work", c: "Stephen Scullion", d: "18:44", tag: "Training", g: "linear-gradient(135deg,#2a2c44,#11121d)" },
-  { t: "2026 Carbon Super-Trainer Shootout", c: "Believe in the Run", d: "21:12", tag: "Gear Reviews", g: "linear-gradient(135deg,#2c2734,#141018)" },
-  { t: "Cadence & Stride: Run Faster, Injure Less", c: "James Dunne", d: "09:57", tag: "Form & Drills", g: "linear-gradient(135deg,#1d3540,#0e171d)" },
+  { t: "Perfect Running Form — 5 Drills to Fix It", c: "The Run Experience", d: "11:38", tag: "Form & Drills", g: "" },
+  { t: "How to Run Your First Sub-1:30 Half", c: "Sage Running", d: "16:21", tag: "Race Strategy", g: "" },
+  { t: "Zone 2 Explained — Why Easy Runs Matter", c: "Göran Winblad", d: "13:05", tag: "Training", g: "" },
+  { t: "Marathon Pace Workouts That Work", c: "Stephen Scullion", d: "18:44", tag: "Training", g: "" },
+  { t: "2026 Carbon Super-Trainer Shootout", c: "Believe in the Run", d: "21:12", tag: "Gear Reviews", g: "" },
+  { t: "Cadence & Stride: Run Faster, Injure Less", c: "James Dunne", d: "09:57", tag: "Form & Drills", g: "" },
 ];
 
 const YOGA_VIDEOS: Video[] = [
-  { t: "20-Min Yoga for Runners — Deep Hip Opener", c: "Yoga With Adriene", d: "20:14", tag: "Yoga for Runners", g: "linear-gradient(135deg,#2a2440,#12101c)" },
-  { t: "Pilates Core Burn — No Equipment, 15 Min", c: "Move With Nicole", d: "15:02", tag: "Pilates Core", g: "linear-gradient(135deg,#15303a,#0e171c)" },
-  { t: "Post-Run Stretch & Mobility Flow", c: "The Run Experience", d: "12:46", tag: "Mobility", g: "linear-gradient(135deg,#26303f,#101620)" },
-  { t: "Restorative Yoga for Recovery Days", c: "Yoga With Kassandra", d: "25:31", tag: "Recovery / Restorative", g: "linear-gradient(135deg,#2c2632,#141017)" },
-  { t: "Pilates for Posture & Spine Health", c: "Lottie Murphy", d: "18:09", tag: "Pilates Core", g: "linear-gradient(135deg,#1f3340,#0f181f)" },
-  { t: "Hip & Hamstring Yoga for Tight Runners", c: "Breathe and Flow", d: "22:55", tag: "Yoga for Runners", g: "linear-gradient(135deg,#28323f,#10161f)" },
+  { t: "20-Min Yoga for Runners — Deep Hip Opener", c: "Yoga With Adriene", d: "20:14", tag: "Yoga for Runners", g: "" },
+  { t: "Pilates Core Burn — No Equipment, 15 Min", c: "Move With Nicole", d: "15:02", tag: "Pilates Core", g: "" },
+  { t: "Post-Run Stretch & Mobility Flow", c: "The Run Experience", d: "12:46", tag: "Mobility", g: "" },
+  { t: "Restorative Yoga for Recovery Days", c: "Yoga With Kassandra", d: "25:31", tag: "Recovery / Restorative", g: "" },
+  { t: "Pilates for Posture & Spine Health", c: "Lottie Murphy", d: "18:09", tag: "Pilates Core", g: "" },
+  { t: "Hip & Hamstring Yoga for Tight Runners", c: "Breathe and Flow", d: "22:55", tag: "Yoga for Runners", g: "" },
 ];
 
 const RUN_CHIPS = ["All", "Form & Drills", "Training", "Race Strategy", "Gear Reviews"];
@@ -149,7 +149,7 @@ function AiIcon() {
 function VidCard({ v }: { v: Video }) {
   return (
     <div className="vid">
-      <div className="vthumb" style={{ background: v.g }}>
+      <div className="vthumb" style={{ background: v.g || "linear-gradient(135deg, var(--surface-2), var(--surface-3))" }}>
         <span className="tag">{v.tag}</span>
         <div className="pl"><span /></div>
         <span className="dur">{v.d}</span>
@@ -392,7 +392,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
 
           {/* Option 2 */}
           <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "14px 16px", marginBottom: 12, background: "var(--surface-2)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#3f6fb0", textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 6 }}>Option 2 · Available now</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--marine)", textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 6 }}>Option 2 · Available now</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)", marginBottom: 6 }}>Connect Strava → Running data</div>
             <p style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.55, margin: 0 }}>
               If your wearable (Garmin, Whoop, Polar, Wahoo) syncs to Strava, connect Strava in the Running tab. AXIS will pull your runs, rides, paces, and weekly mileage. Works today — go to the Running tab to connect.
@@ -433,7 +433,7 @@ function StravaActivityRow({ a }: { a: StravaActivity }) {
       <div style={{ minWidth: 56, display: "flex", justifyContent: "center", alignItems: "center" }}>
         {a.map?.summary_polyline ? <RouteMap polyline={a.map.summary_polyline} width={52} height={30} /> : null}
       </div>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: isRun ? "var(--accent)" : "#3f6fb0", minWidth: 30 }}>{sportLabel(a)}</div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: isRun ? "var(--accent)" : "var(--marine)", minWidth: 30 }}>{sportLabel(a)}</div>
       <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToKm(a.distance)} km</div>
       {isRun && <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", minWidth: 44, textAlign: "right" }}>{speedToPace(a.average_speed)}/km</div>}
     </div>
@@ -744,7 +744,7 @@ const HEALTH_DEVICES = [
     icon: "◎",
     description: "HRV · sleep stages · readiness · body temp",
     metrics: ["HRV", "Sleep", "Readiness", "Resting HR"],
-    color: "#c9a463",
+    color: "var(--gold)",
     comingSoon: false,
   },
   {
@@ -753,7 +753,7 @@ const HEALTH_DEVICES = [
     icon: "⬡",
     description: "VO₂ max · training load · GPS activities · recovery",
     metrics: ["VO₂ Max", "Training Load", "Steps", "Resting HR"],
-    color: "#3f6fb0",
+    color: "var(--marine)",
     comingSoon: false,
   },
   {

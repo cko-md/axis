@@ -4,6 +4,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { aiGenerate, aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
+import { memoryRateLimit } from "@/lib/ratelimit";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  // Rate limit: 30 requests per minute per user
+  // Rate limit: 30 requests per minute per user (Redis when available, memory fallback)
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     const ratelimit = new Ratelimit({
       redis: Redis.fromEnv(),
@@ -170,6 +171,11 @@ export async function POST(req: NextRequest) {
       prefix: "axis:ai",
     });
     const { success } = await ratelimit.limit(user.id);
+    if (!success) {
+      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+    }
+  } else {
+    const { success } = memoryRateLimit(`ai:${user.id}`, 30, 60_000);
     if (!success) {
       return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
     }

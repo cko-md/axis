@@ -20,6 +20,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useTasks, doneTodayTasks, type Task, type TaskCategory } from "@/lib/hooks/useTasks";
+import { usePeople, personIsDue, personFootLabel } from "@/lib/hooks/usePeople";
 import { useToast } from "@/components/ui/Toast";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
@@ -44,11 +45,6 @@ const DEFAULT_ROUTINE: RoutineStep[] = [
   { id: "7", time: "07:40", title: "Set top 3 + first deep-work block", sub: "No email until first block is done" },
 ];
 
-const OUTREACH = [
-  { init: "A", name: "Dr. Adeyemi", why: "IRB amendment sign-off", due: "today" },
-  { init: "C", name: "Chidi O.", why: "Reply re: visit dates", due: "today" },
-  { init: "R", name: "Riku Tanaka", why: "Nudge Fine–Gray code review", due: "Wed" },
-];
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -148,6 +144,12 @@ const TaskBlock = memo(function TaskBlock({
 
 export function AgendaModule() {
   const { tasks, addTask, toggleDone, deleteTask } = useTasks();
+  const { people } = usePeople();
+  const dueContacts = people.filter((p) => personIsDue(p)).sort((a, b) => {
+    const da = a.follow_up_on ?? "9999";
+    const db = b.follow_up_on ?? "9999";
+    return da.localeCompare(db);
+  });
   const { toast } = useToast();
   const supabase = useMemo(() => createClient(), []);
   const [routine, setRoutine] = useState<RoutineStep[]>(DEFAULT_ROUTINE);
@@ -418,13 +420,15 @@ export function AgendaModule() {
         </>
       )}
       <div className="divider" />
-      <h2 className="sec" style={{ marginBottom: 14 }}>Reach Out<span className="rule" /><span className="count">From People</span></h2>
+      <h2 className="sec" style={{ marginBottom: 14 }}>Reach Out<span className="rule" /><span className="count">{dueContacts.length} due</span></h2>
       <div className="card">
-        {OUTREACH.map((o) => (
-          <div key={o.name} className="outreach-row">
-            <div className="or-av">{o.init}</div>
-            <div className="or-b"><div className="or-n">{o.name}</div><div className="or-w">{o.why}</div></div>
-            <span className="or-due">due {o.due}</span>
+        {dueContacts.length === 0 ? (
+          <div className="empty-state" style={{ padding: "12px 0" }}>No follow-ups due — add contacts with follow-up dates in People.</div>
+        ) : dueContacts.map((p) => (
+          <div key={p.id} className="outreach-row">
+            <div className="or-av">{(p.name[0] ?? "?").toUpperCase()}</div>
+            <div className="or-b"><div className="or-n">{p.name}</div><div className="or-w">{p.note || p.role}</div></div>
+            <span className="or-due">{personFootLabel(p)}</span>
             <button type="button" className="or-go">Message</button>
           </div>
         ))}
