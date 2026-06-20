@@ -357,7 +357,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 1002, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.7)", backdropFilter: "blur(6px)" }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.7)", backdropFilter: "blur(6px)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div style={{ width: "min(560px, 94vw)", maxHeight: "92vh", background: "var(--surface)", border: "1px solid var(--line-strong)", borderRadius: "var(--r)", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 28px 72px rgba(0,0,0,.6)" }}>

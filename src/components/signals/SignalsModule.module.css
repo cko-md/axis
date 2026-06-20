@@ -172,3 +172,10 @@
   color: var(--ink-faint);
   font-size: 12.5px;
 }
+
+/* ── responsive ── */
+@media (max-width: 680px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -29,7 +29,7 @@
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.06em;
-  color: #1b1712;
+  color: var(--on-accent);
   background: var(--gold, #c9a463);
   border: none;
   border-radius: 3px;
@@ -120,12 +120,12 @@
   min-width: 44px;
   min-height: 44px;
   background: var(--gold, #c9a463);
-  color: #1b1712;
+  color: var(--on-accent);
   border-color: transparent;
 }
 .ctrlBtn.play:hover {
   filter: brightness(1.08);
-  color: #1b1712;
+  color: var(--on-accent);
 }
 .ctrlBtn.on {
   color: var(--gold, #c9a463);
@@ -238,7 +238,7 @@
   cursor: pointer;
 }
 .termBtn.on {
-  color: #1b1712;
+  color: var(--on-accent);
   background: color-mix(in srgb, var(--gold) 85%, transparent);
 }
 
@@ -259,7 +259,7 @@
   height: 30px;
   border-radius: 50%;
   background: var(--gold, #c9a463);
-  color: #1b1712;
+  color: var(--on-accent);
   display: grid;
   place-items: center;
   opacity: 0;
@@ -377,4 +377,15 @@
   color: var(--ink-faint);
   padding: 16px;
   text-align: center;
+}
+
+/* ── responsive ── */
+@media (max-width: 680px) {
+  .transport {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .vol {
+    display: none;
+  }
 }

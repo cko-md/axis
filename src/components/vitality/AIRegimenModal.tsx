@@ -110,7 +110,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 1001,
+        zIndex: 200,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -393,7 +393,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                                 style={{
                                   fontFamily: "var(--mono)",
                                   fontSize: 10,
-                                  color: "#3f6fb0",
+                                  color: "var(--marine)",
                                   whiteSpace: "nowrap",
                                 }}
                               >

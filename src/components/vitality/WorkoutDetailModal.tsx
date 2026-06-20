@@ -225,7 +225,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 1000,
+        zIndex: 200,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -693,7 +693,7 @@ function RegimenRow({
           background: "none",
           border: "none",
           borderBottom: "1px solid var(--line)",
-          color: "#3f6fb0",
+          color: "var(--marine)",
           fontFamily: "var(--mono)",
           fontSize: 10.5,
           outline: "none",

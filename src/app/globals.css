@@ -2675,7 +2675,14 @@ body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 32px) 38px 72
 .url-module-x:hover{color:var(--clay-2);opacity:1}
 @media (prefers-reduced-motion:reduce){.mono-core,.deck-scope,.deck-eq .eqb,.m-body,.m-shadow,.deck-ring,.m-orb-arm{animation:none}.deck-scope{stroke-dashoffset:0}}
 
-/* ── listening vault — brushed chromatic silver ── */
+/* ── listening vault — brushed chromatic silver ──
+   Design-intent exception: this block is an intentionally theme-invariant
+   "record room" visual register (brushed steel/silver hardware, always dark)
+   and does NOT use Atelier surface/ink tokens on purpose. It will render
+   identically in html.light / html.dim / html.slate. If this module should
+   instead re-theme with the rest of the app, swap the steel-blue palette for
+   var(--surface-2)/var(--surface-3)/var(--line) and var(--ink-dim)/var(--ink)/
+   var(--ink-faint) — see audit note in fix(design) commit for the mapping. */
 .vault-view{padding-top:18px}
 .vault-panel{padding:24px 4px 0}
 .vault-room{margin-top:18px;background:repeating-linear-gradient(90deg,rgba(193,196,199,.018) 0 1px,transparent 1px 5px),repeating-linear-gradient(0deg,rgba(193,196,199,.01) 0 1px,transparent 1px 9px),linear-gradient(160deg,#2a2c30,#1c1e22 45%,#222428 100%);border:1px solid rgba(193,196,199,.2);border-radius:12px;padding:6px;box-shadow:0 1px 0 rgba(193,196,199,.1) inset,0 30px 60px -34px rgba(0,0,0,.9),0 0 40px rgba(193,196,199,.04)}
@@ -2917,8 +2924,8 @@ a:focus-visible,
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(0,0,0,.55);
-  color: #fff;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--on-accent);
   border: none;
   border-radius: 50%;
   width: 28px;

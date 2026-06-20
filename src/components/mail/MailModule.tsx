@@ -393,7 +393,7 @@ function ComposeModal({
             type="button"
             onClick={() => void send()}
             disabled={sending}
-            style={{ padding: "6px 16px", borderRadius: 5, background: "var(--accent)", border: "none", color: "#000", fontSize: "12px", fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.7 : 1 }}
+            style={{ padding: "6px 16px", borderRadius: "var(--r)", background: "var(--accent)", border: "none", color: "var(--on-accent)", fontSize: "12px", fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.7 : 1 }}
           >
             {sending ? "Sending…" : "Send"}
           </button>
@@ -906,7 +906,7 @@ export function MailModule() {
                     fontSize: "11px",
                     fontWeight: 700,
                     background: "var(--accent)",
-                    color: "#000",
+                    color: "var(--on-accent)",
                     borderRadius: 10,
                     padding: "1px 6px",
                   }}
@@ -1065,7 +1065,7 @@ export function MailModule() {
                 borderRadius: 4,
                 background: "var(--accent)",
                 border: "none",
-                color: "#000",
+                color: "var(--on-accent)",
                 fontWeight: 600,
                 cursor: "pointer",
                 flexShrink: 0,
