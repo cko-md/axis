@@ -224,9 +224,9 @@ export function PeopleModule() {
         <button type="button" className="sig-go" onClick={openAdd}>+ Add Person</button>
         <div className="chips" style={{ margin: 0 }}>
           {FILTERS.map((f) => (
-            <span key={f} className={`chip${filter === f ? " on" : ""}`} onClick={() => setFilter(f)}>
+            <button key={f} type="button" className={`chip${filter === f ? " on" : ""}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>
               {f}
-            </span>
+            </button>
           ))}
         </div>
       </div>

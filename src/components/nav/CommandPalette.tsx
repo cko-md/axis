@@ -43,6 +43,7 @@ export function CommandPalette({ open, onClose }: Props) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [exampleIdx, setExampleIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Cycle placeholder examples
   useEffect(() => {
@@ -171,6 +172,23 @@ export function CommandPalette({ open, onClose }: Props) {
         e.preventDefault();
         runCommand(filtered[activeIdx]);
       }
+      if (e.key === "Tab") {
+        // Trap focus within the dialog — currently the only focusable
+        // element is the search input, so Tab/Shift+Tab just re-focuses it.
+        const el = dialogRef.current;
+        const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+        const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+        if (nodes.length === 0) return;
+        const first = nodes[0];
+        const last = nodes[nodes.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first?.focus();
+        } else if (!nodes.includes(document.activeElement as HTMLElement)) {
+          e.preventDefault(); first?.focus();
+        }
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -196,6 +214,7 @@ export function CommandPalette({ open, onClose }: Props) {
       aria-label="Command palette"
     >
       <div
+        ref={dialogRef}
         style={{
           width: "100%",
           maxWidth: 560,

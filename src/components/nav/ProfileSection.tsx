@@ -193,10 +193,11 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
 
         {(["name", "role"] as const).map((field) => (
           <div key={field} style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
+            <label htmlFor={`profile-${field}`} style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
               {field === "name" ? "Display Name" : "Role / Title"}
             </label>
             <input
+              id={`profile-${field}`}
               value={profileForm[field]}
               onChange={(e) => setProfileForm((p) => ({ ...p, [field]: e.target.value }))}
               placeholder={field === "name" ? "Your name" : "Resident Physician, Neurosurgery"}
@@ -205,10 +206,11 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           </div>
         ))}
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
+          <label htmlFor="profile-bio" style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
             Bio
           </label>
           <textarea
+            id="profile-bio"
             value={profileForm.bio}
             onChange={(e) => setProfileForm((p) => ({ ...p, bio: e.target.value }))}
             placeholder="A short bio or description…"
@@ -217,10 +219,11 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           />
         </div>
         <div>
-          <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
+          <label htmlFor="profile-photo" style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
             Photo URL (optional override)
           </label>
           <input
+            id="profile-photo"
             value={profileForm.photo.startsWith("data:") ? "" : profileForm.photo}
             onChange={(e) => setProfileForm((p) => ({ ...p, photo: e.target.value }))}
             placeholder="https://…"

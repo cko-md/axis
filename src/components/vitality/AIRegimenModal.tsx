@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type RegimenItem = {
@@ -66,6 +66,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
   const [loading, setLoading] = useState(false);
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [error, setError] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -74,6 +75,27 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
     if (open) document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Focus trap
+  useEffect(() => {
+    if (!open) return;
+    const el = dialogRef.current;
+    const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+    const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+    nodes[0]?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first?.focus();
+      }
+    };
+    el?.addEventListener("keydown", trap);
+    return () => el?.removeEventListener("keydown", trap);
+  }, [open]);
 
   const generate = async () => {
     setLoading(true);
@@ -118,8 +140,12 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
         backdropFilter: "blur(6px)",
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Generate ${discipline} plan`}
     >
       <div
+        ref={dialogRef}
         style={{
           width: "min(720px, 96vw)",
           maxHeight: "92vh",
@@ -170,6 +196,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             style={{
               background: "none",
               border: "none",
@@ -206,6 +233,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                     {discipline === "run" ? "Training days / week" : "Lifting days / week"}
                   </FormLabel>
                   <select
+                    aria-label="Days per week"
                     value={daysPerWeek}
                     onChange={(e) => setDaysPerWeek(Number(e.target.value))}
                     style={{ ...selStyle, marginTop: 5 }}
@@ -220,6 +248,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                 <div>
                   <FormLabel>Current level</FormLabel>
                   <select
+                    aria-label="Experience level"
                     value={level}
                     onChange={(e) => setLevel(e.target.value)}
                     style={{ ...selStyle, marginTop: 5 }}

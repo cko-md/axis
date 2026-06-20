@@ -345,9 +345,9 @@ export function SignalsModule() {
 
       <div className="chips">
         {CHIPS.map((chip) => (
-          <span key={chip} className={chip === activeChip ? "chip on" : "chip"} onClick={() => setActiveChip(chip)}>
+          <button key={chip} type="button" className={chip === activeChip ? "chip on" : "chip"} aria-pressed={chip === activeChip} onClick={() => setActiveChip(chip)}>
             {chip}
-          </span>
+          </button>
         ))}
       </div>
 

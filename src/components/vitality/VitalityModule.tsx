@@ -169,9 +169,9 @@ function ChipRow({ chips, active, onPick }: { chips: string[]; active: string; o
   return (
     <div className="chips" style={{ marginBottom: 16 }}>
       {chips.map((c) => (
-        <span key={c} className={`chip${active === c ? " on" : ""}`} onClick={() => onPick(c)}>
+        <button key={c} type="button" className={`chip${active === c ? " on" : ""}`} aria-pressed={active === c} onClick={() => onPick(c)}>
           {c}
-        </span>
+        </button>
       ))}
     </div>
   );
@@ -191,10 +191,10 @@ function SessionEditor({
     <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 10, background: "var(--surface-2)", display: "flex", flexDirection: "column", gap: 8 }}>
       <input style={editFieldStyle} value={session.title} placeholder="Session title…" onChange={(e) => onChange({ title: e.target.value })} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <select style={editFieldStyle} value={session.kind} onChange={(e) => onChange({ kind: e.target.value as TrainingKind })}>
+        <select aria-label="Session type" style={editFieldStyle} value={session.kind} onChange={(e) => onChange({ kind: e.target.value as TrainingKind })}>
           {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
         </select>
-        <select style={editFieldStyle} value={session.intensity} onChange={(e) => onChange({ intensity: e.target.value as TrainingIntensity })}>
+        <select aria-label="Intensity" style={editFieldStyle} value={session.intensity} onChange={(e) => onChange({ intensity: e.target.value as TrainingIntensity })}>
           {INTENSITY_ORDER.map((i) => <option key={i} value={i}>{INTENSITY_LABELS[i]}</option>)}
         </select>
       </div>
@@ -208,7 +208,7 @@ function SessionEditor({
           <input type="checkbox" checked={session.completed} onChange={() => onChange({ completed: !session.completed })} />
           Completed
         </label>
-        <button type="button" className="del" title="Remove session" onClick={onRemove} style={{ fontSize: 16 }}>×</button>
+        <button type="button" className="del" title="Remove session" aria-label="Remove session" onClick={onRemove} style={{ fontSize: 16 }}>×</button>
       </div>
     </div>
   );
@@ -240,9 +240,9 @@ function TrainingWeekPlanner() {
       <h2 className="sec">
         Training Week<span className="rule" />
         <span className="count">{persistence === "supabase" ? "Synced" : signedIn ? "Local draft" : "Demo"}</span>
-        <span className="rings-edit" title={editing ? "Done editing" : "Edit plan"} onClick={() => { setEditing((v) => !v); setOpenDay(null); }}>
+        <button type="button" className="rings-edit" aria-label={editing ? "Done editing" : "Edit plan"} onClick={() => { setEditing((v) => !v); setOpenDay(null); }} style={{ background: "none", border: "none", padding: 0 }}>
           {editing ? "✓" : "✎"}
-        </span>
+        </button>
       </h2>
 
       <div className="ftop" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 14 }}>
@@ -286,9 +286,9 @@ function TrainingWeekPlanner() {
                     </div>
                     <div className="tw-meta">{sessionMeta(s)}</div>
                     {s.intensity === "key" && <span className="tw-tag">KEY</span>}
-                    <span onClick={(e) => { e.stopPropagation(); toggleComplete(s.id); }} title="Toggle complete" style={{ position: "absolute", top: 0, right: 0, fontFamily: "var(--mono)", fontSize: 10, color: s.completed ? "var(--up)" : "var(--line)", cursor: "pointer", lineHeight: 1, padding: "2px 4px", transition: "color .15s" }}>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); toggleComplete(s.id); }} title="Toggle complete" aria-pressed={s.completed} aria-label="Toggle complete" style={{ position: "absolute", top: 0, right: 0, fontFamily: "var(--mono)", fontSize: 10, color: s.completed ? "var(--up)" : "var(--line)", cursor: "pointer", lineHeight: 1, padding: "2px 4px", transition: "color .15s", background: "none", border: "none" }}>
                       {s.completed ? "✓" : "○"}
-                    </span>
+                    </button>
                   </div>
                 ))}
                 {editing && (
@@ -367,7 +367,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
             <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--accent)", textTransform: "uppercase", letterSpacing: ".12em", marginBottom: 3 }}>Apple Health</div>
             <h2 style={{ fontFamily: "var(--display)", fontSize: 20, color: "var(--ink)", margin: 0, letterSpacing: ".02em" }}>How to Sync Health Data</h2>
           </div>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--ink-faint)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: "var(--ink-faint)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
         </div>
 
         {/* Body */}
@@ -1015,7 +1015,21 @@ export function VitalityModule() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         {/* Strava badge — live when connected, faded when not */}
         {stravaConnected ? (
-          <div className="selectbox" style={{ cursor: "pointer" }} title={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"} · click to disconnect`} onClick={() => stravaDisconnect()}>
+          <div
+            className="selectbox"
+            style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            title={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"} · click to disconnect`}
+            aria-label={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"}, click to disconnect`}
+            onClick={() => stravaDisconnect()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                stravaDisconnect();
+              }
+            }}
+          >
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L3 14h4l2-4 2 4h4z" opacity=".7" /></svg>
             Synced: Strava
           </div>
@@ -1114,9 +1128,9 @@ export function VitalityModule() {
             <div className="ex"><span>Wed — Intervals 6×800m</span><span className="es">Z4</span></div>
             <div className="ex"><span>Sat — Long run 16 km</span><span className="es">Z2</span></div>
             <div style={{ marginTop: 14 }}>
-              <span className="aibtn" onClick={() => setRegimenModal("run")} style={{ cursor: "pointer" }}>
+              <button type="button" className="aibtn" onClick={() => setRegimenModal("run")} style={{ cursor: "pointer" }}>
                 <AiIcon />{stravaConnected ? "Re-plan with AI + Strava data →" : "Re-plan with AI → Schedule"}
-              </span>
+              </button>
             </div>
           </div>
           <div className="card">
@@ -1174,9 +1188,9 @@ export function VitalityModule() {
           </div>
         </div>
         <div style={{ marginTop: 16 }}>
-          <span className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
+          <button type="button" className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
             <AiIcon />Build a Session with AI
-          </span>
+          </button>
         </div>
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 14 }}>Strength &amp; Conditioning Reads<span className="rule" /></h2>
@@ -1209,9 +1223,9 @@ export function VitalityModule() {
             <p style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.55, marginBottom: 12 }}>
               Generate a mobility or Pilates flow targeting your tight areas, then drop it into wind-down.
             </p>
-            <span className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
+            <button type="button" className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
               <AiIcon />Build a Flow with AI
-            </span>
+            </button>
           </div>
         </div>
         <h2 className="sec" style={{ marginBottom: 14 }}>Yoga &amp; Pilates Videos<span className="rule" /><span className="count">YouTube API</span></h2>
@@ -1268,7 +1282,7 @@ export function VitalityModule() {
                     <div className="meal-m">{meal.m}</div>
                   </div>
                   <div className="meal-k">{meal.k}</div>
-                  <button type="button" className="meal-x" title="Remove" onClick={() => setMeals((ms) => ms.filter((m) => m !== meal))}>✕</button>
+                  <button type="button" className="meal-x" title="Remove" aria-label={`Remove ${meal.t}`} onClick={() => setMeals((ms) => ms.filter((m) => m !== meal))}>✕</button>
                 </div>
               ))}
             </div>
@@ -1302,16 +1316,16 @@ export function VitalityModule() {
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 6 }}>
           Recommended Recipes<span className="rule" /><span className="count">High-Protein</span>
-          <span className="rings-edit" title="Refresh recipes">↻</span>
+          <button type="button" className="rings-edit" aria-label="Refresh recipes" title="Refresh recipes" style={{ background: "none", border: "none", padding: 0 }}>↻</button>
         </h2>
         <div className="recipe-grid" id="nutritionRecipes">
           {RECIPES.map((r) => (
             <div className="recipe" key={r.id}>
               <div className="rc-img" style={{ background: r.g }}>
                 <span className="rc-diet">{r.diet}</span>
-                <span className={`rc-save${savedRecipes[r.id] ? " on" : ""}`} title="Save to Supper Club" onClick={() => toggleRecipe(r.id)}>
+                <button type="button" className={`rc-save${savedRecipes[r.id] ? " on" : ""}`} title="Save to Supper Club" aria-pressed={!!savedRecipes[r.id]} aria-label="Save to Supper Club" onClick={() => toggleRecipe(r.id)}>
                   {savedRecipes[r.id] ? "★" : "☆"}
-                </span>
+                </button>
               </div>
               <div className="rc-b">
                 <div className="rc-t">{r.t}</div>

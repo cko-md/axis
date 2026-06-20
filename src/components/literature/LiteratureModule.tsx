@@ -228,14 +228,17 @@ export function LiteratureModule() {
             }}
           >
             {t.label}
-            <span
+            <button
+              type="button"
+              aria-label={`Remove topic ${t.label}`}
               style={{
                 position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
                 fontSize: 9, cursor: "pointer", color: "var(--ink-faint)", lineHeight: 1,
+                background: "none", border: "none", padding: 0,
               }}
               onClick={(e) => { e.stopPropagation(); removeCustomTopic(t.key); }}
               title="Remove topic"
-            >✕</span>
+            >✕</button>
           </span>
         ))}
         {addingTopic ? (
@@ -259,23 +262,26 @@ export function LiteratureModule() {
                 letterSpacing: ".08em", textTransform: "uppercase", width: 110,
               }}
             />
-            <span
-              style={{ cursor: "pointer", color: "var(--ink-faint)", fontSize: 11 }}
+            <button
+              type="button"
+              aria-label="Cancel adding topic"
+              style={{ cursor: "pointer", color: "var(--ink-faint)", fontSize: 11, background: "none", border: "none", padding: 0 }}
               onClick={() => { setTopicDraft(""); setAddingTopic(false); }}
-            >✕</span>
+            >✕</button>
           </span>
         ) : (
-          <span
+          <button
+            type="button"
             className="chip"
             onClick={() => setAddingTopic(true)}
             style={{ color: "var(--ink-faint)", borderStyle: "dashed" }}
             title="Add custom topic"
-          >+ Topic</span>
+          >+ Topic</button>
         )}
         {query && (
-          <span className="chip on" onClick={() => { setDraft(""); clearSearch(); }}>
+          <button type="button" className="chip on" aria-label={`Clear search for "${query}"`} onClick={() => { setDraft(""); clearSearch(); }}>
             ✕ &quot;{query}&quot;
-          </span>
+          </button>
         )}
       </div>
 

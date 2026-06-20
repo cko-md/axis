@@ -444,6 +444,7 @@ function ArtDetail({
 }) {
   const [imgErr, setImgErr] = useState(false);
   const context = buildArtistContext(work);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -451,9 +452,33 @@ function ArtDetail({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  // Focus trap
+  useEffect(() => {
+    const el = overlayRef.current;
+    const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+    const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+    nodes[0]?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first?.focus();
+      }
+    };
+    el?.addEventListener("keydown", trap);
+    return () => el?.removeEventListener("keydown", trap);
+  }, []);
+
   return (
     <div
+      ref={overlayRef}
       className="g-detail-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={work.title}
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 9000,
@@ -492,6 +517,7 @@ function ArtDetail({
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close"
           style={{
             background: "var(--surface-2)", border: "1px solid var(--line-strong)",
             color: "var(--ink-dim)", width: 32, height: 32, borderRadius: 2,
@@ -724,6 +750,7 @@ function PoetryPanel({
             <button
               type="button"
               onClick={prev}
+              aria-label="Previous poem"
               style={{
                 fontFamily: "var(--mono)", fontSize: 14, background: "none",
                 border: "1px solid var(--line-strong)", color: "var(--ink-dim)",
@@ -739,6 +766,7 @@ function PoetryPanel({
             <button
               type="button"
               onClick={next}
+              aria-label="Next poem"
               style={{
                 fontFamily: "var(--mono)", fontSize: 14, background: "none",
                 border: "1px solid var(--line-strong)", color: "var(--ink-dim)",

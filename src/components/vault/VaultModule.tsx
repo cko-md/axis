@@ -460,7 +460,7 @@ function VideoLounge({ openInApp }: { openInApp: (url: string, title?: string) =
       </div>
       <div className="chips" style={{ marginBottom: 16 }}>
         {VIDEO_CATS.map((c) => (
-          <span key={c} className={`chip${cat === c ? " on" : ""}`} onClick={() => setCat(c)}>{c}</span>
+          <button key={c} type="button" className={`chip${cat === c ? " on" : ""}`} aria-pressed={cat === c} onClick={() => setCat(c)}>{c}</button>
         ))}
       </div>
       <div className="vidgrid">

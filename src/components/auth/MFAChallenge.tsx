@@ -70,6 +70,7 @@ export default function MFAChallenge({ factorId, challengeId, onSuccess, onCance
           maxLength={6}
           autoComplete="one-time-code"
           placeholder="000000"
+          aria-label="6-digit verification code"
           value={code}
           onChange={handleChange}
           disabled={loading}

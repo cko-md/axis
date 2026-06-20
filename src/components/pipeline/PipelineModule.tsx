@@ -582,11 +582,13 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Study title"
+            aria-label="Study title"
             value={studyForm.title}
             onChange={(e) => setStudyForm({ ...studyForm, title: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Role"
             value={studyForm.role}
             onChange={(e) => setStudyForm({ ...studyForm, role: e.target.value as Study["role"] })}
           >
@@ -595,6 +597,7 @@ export function PipelineModule() {
           </select>
           <select
             className={inputCls}
+            aria-label="Stage"
             value={studyForm.stage_id}
             onChange={(e) => setStudyForm({ ...studyForm, stage_id: e.target.value })}
           >
@@ -605,12 +608,14 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Meta — e.g. Type: Retrospective · n: 247"
+            aria-label="Study meta"
             value={studyForm.meta}
             onChange={(e) => setStudyForm({ ...studyForm, meta: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Next action"
+            aria-label="Next action"
             value={studyForm.next_action}
             onChange={(e) => setStudyForm({ ...studyForm, next_action: e.target.value })}
           />
@@ -632,11 +637,13 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Stage name — e.g. Revision"
+            aria-label="Stage name"
             value={stageForm.name}
             onChange={(e) => setStageForm({ ...stageForm, name: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Stage color"
             value={stageForm.swatch}
             onChange={(e) => setStageForm({ ...stageForm, swatch: e.target.value })}
           >
@@ -682,23 +689,27 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Conference name"
+            aria-label="Conference name"
             value={confForm.name}
             onChange={(e) => setConfForm({ ...confForm, name: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Location — e.g. Chicago"
+            aria-label="Location"
             value={confForm.location}
             onChange={(e) => setConfForm({ ...confForm, location: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Dates — e.g. Oct 12–16"
+            aria-label="Dates"
             value={confForm.date_label}
             onChange={(e) => setConfForm({ ...confForm, date_label: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Status"
             value={confForm.status}
             onChange={(e) => setConfForm({ ...confForm, status: e.target.value as ConferenceStatus })}
           >
@@ -709,11 +720,13 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Abstract title"
+            aria-label="Abstract title"
             value={confForm.abstract}
             onChange={(e) => setConfForm({ ...confForm, abstract: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Linked study"
             value={confForm.linked_study_id}
             onChange={(e) => setConfForm({ ...confForm, linked_study_id: e.target.value })}
           >
@@ -725,12 +738,14 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Travel — e.g. Flights booked · hotel pending"
+            aria-label="Travel"
             value={confForm.travel}
             onChange={(e) => setConfForm({ ...confForm, travel: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Next step — e.g. Poster print by Apr 10"
+            aria-label="Next step"
             value={confForm.next_step}
             onChange={(e) => setConfForm({ ...confForm, next_step: e.target.value })}
           />

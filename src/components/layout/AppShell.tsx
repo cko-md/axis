@@ -75,6 +75,24 @@ export function AppShell({ section, page, children }: Props) {
 
   return (
     <SpotifyProvider>
+      <a
+        href="#main-content"
+        className="skip-link"
+        style={{
+          position: "absolute",
+          left: "-9999px",
+          top: 0,
+          zIndex: 10000,
+          padding: "0.75rem 1.25rem",
+          background: "var(--accent, #2563eb)",
+          color: "#fff",
+          borderRadius: "0 0 8px 0",
+        }}
+        onFocus={(e) => { e.currentTarget.style.left = "0"; }}
+        onBlur={(e) => { e.currentTarget.style.left = "-9999px"; }}
+      >
+        Skip to main content
+      </a>
       <div className="depthfield" aria-hidden>
         <div className="wash" /><div className="aurora" /><div className="aurora2" />
         <div className="haze" /><div className="fall" /><div className="vig" />
@@ -85,7 +103,7 @@ export function AppShell({ section, page, children }: Props) {
         <Sidebar collapsed={sidebarMode === "icons"} onToggle={cycleMode} />
         <div className="main-scroll">
           <Topbar section={section} page={page} onOpenPalette={() => setPaletteOpen(true)} />
-          <div className="view-pad">{children}</div>
+          <main id="main-content" className="view-pad">{children}</main>
         </div>
       </div>
       {sidebarMode === "hidden" && (

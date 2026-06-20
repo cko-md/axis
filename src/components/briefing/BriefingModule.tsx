@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 
@@ -145,6 +145,54 @@ export function BriefingModule() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [feedItems, setFeedItems] = useState<Story[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(false);
+  const feedSearchDialogRef = useRef<HTMLDivElement>(null);
+  const sourcesDialogRef = useRef<HTMLDivElement>(null);
+
+  // Escape-to-close + focus trap for Feed Search modal
+  useEffect(() => {
+    if (!feedSearchOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFeedSearchOpen(false); };
+    document.addEventListener("keydown", onKey);
+    const el = feedSearchDialogRef.current;
+    const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+    const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+    nodes[0]?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first?.focus();
+      }
+    };
+    el?.addEventListener("keydown", trap);
+    return () => { document.removeEventListener("keydown", onKey); el?.removeEventListener("keydown", trap); };
+  }, [feedSearchOpen]);
+
+  // Escape-to-close + focus trap for Manage Sources modal
+  useEffect(() => {
+    if (!sourcesOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSourcesOpen(false); };
+    document.addEventListener("keydown", onKey);
+    const el = sourcesDialogRef.current;
+    const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+    const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+    nodes[0]?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first?.focus();
+      }
+    };
+    el?.addEventListener("keydown", trap);
+    return () => { document.removeEventListener("keydown", onKey); el?.removeEventListener("keydown", trap); };
+  }, [sourcesOpen]);
 
   // Load real RSS items (with preview images) from the saved feeds.
   const loadFeeds = useCallback((opts?: { silent?: boolean }) => {
@@ -360,11 +408,11 @@ export function BriefingModule() {
 
       {/* Feed Search Modal */}
       {feedSearchOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setFeedSearchOpen(false)}>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--rl)", padding: 24, width: "min(540px,92vw)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div role="dialog" aria-modal="true" aria-label="Find Feeds" style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setFeedSearchOpen(false)}>
+          <div ref={feedSearchDialogRef} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--rl)", padding: 24, width: "min(540px,92vw)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <span style={{ fontFamily: "var(--narrow)", fontWeight: 600, fontSize: 12, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-2)" }}>Find Feeds</span>
-              <button type="button" onClick={() => setFeedSearchOpen(false)} style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+              <button type="button" onClick={() => setFeedSearchOpen(false)} aria-label="Close" style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <input
@@ -404,11 +452,11 @@ export function BriefingModule() {
 
       {/* Manage Sources Modal */}
       {sourcesOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSourcesOpen(false)}>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--rl)", padding: 24, width: "min(480px,92vw)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div role="dialog" aria-modal="true" aria-label="Your Sources" style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSourcesOpen(false)}>
+          <div ref={sourcesDialogRef} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--rl)", padding: 24, width: "min(480px,92vw)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <span style={{ fontFamily: "var(--narrow)", fontWeight: 600, fontSize: 12, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-2)" }}>Your Sources ({savedFeeds.length})</span>
-              <button type="button" onClick={() => setSourcesOpen(false)} style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+              <button type="button" onClick={() => setSourcesOpen(false)} aria-label="Close" style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
             </div>
             {savedFeeds.length === 0 ? (
               <p style={{ fontSize: 12, color: "var(--ink-faint)", padding: "16px 0" }}>No feeds saved yet — use Find Feeds to add sources.</p>

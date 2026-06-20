@@ -55,7 +55,15 @@ const SortableRow = memo(function SortableRow({ step, checked, onToggle }: { ste
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
     <div ref={setNodeRef} style={style} className="mr-row">
-      <div className={checked ? "mr-check done" : "mr-check"} onClick={onToggle} />
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={checked}
+        aria-label={`Mark "${step.title}" ${checked ? "incomplete" : "complete"}`}
+        className={checked ? "mr-check done" : "mr-check"}
+        onClick={onToggle}
+        style={{ background: "none", padding: 0 }}
+      />
       <div className="mr-time" {...attributes} {...listeners} style={{ cursor: "grab" }}>{step.time}</div>
       <div className="mr-main">
         <div className="mr-t">{step.title}</div>
@@ -98,14 +106,23 @@ const TaskBlock = memo(function TaskBlock({
   const [expanded, setExpanded] = useState(false);
   const catTasks = tasks.filter((t) => t.category === category || (category === "clinical" && t.category === "life"));
   const visibleTasks = expanded ? catTasks : catTasks.slice(0, 3);
+  const tasklistId = `tasklist-${category}`;
 
   return (
     <div className="card">
       <h2 className="sec">{title}<span className="rule" /></h2>
-      <div className="tasklist" style={{ marginTop: 14 }}>
+      <div id={tasklistId} className="tasklist" style={{ marginTop: 14 }}>
         {visibleTasks.map((t) => (
           <div key={t.id} className={t.status === "done" ? "task done" : "task"}>
-            <div className={t.status === "done" ? "check done" : "check"} onClick={() => onToggle(t.id)} />
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={t.status === "done"}
+              aria-label={`Mark "${t.title}" complete`}
+              className={t.status === "done" ? "check done" : "check"}
+              onClick={() => onToggle(t.id)}
+              style={{ background: "none", padding: 0 }}
+            />
             <div className="task-main">
               <div className="task-title">{t.title}</div>
               <div className="task-meta">
@@ -115,13 +132,19 @@ const TaskBlock = memo(function TaskBlock({
               </div>
             </div>
             <div className="rowact">
-              <button type="button" className="del" title="Delete" onClick={() => onDelete(t.id)}>×</button>
+              <button type="button" className="del" title="Delete" aria-label={`Delete "${t.title}"`} onClick={() => onDelete(t.id)}>×</button>
             </div>
           </div>
         ))}
       </div>
       {catTasks.length > 3 && (
-        <button type="button" onClick={() => setExpanded((e) => !e)} style={TASK_TOGGLE_STYLE}>
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          style={TASK_TOGGLE_STYLE}
+          aria-expanded={expanded}
+          aria-controls={tasklistId}
+        >
           {expanded ? "▲ Collapse" : `▼ Show all ${catTasks.length}`}
         </button>
       )}
@@ -370,7 +393,15 @@ export function AgendaModule() {
       </div>
       <div className="chips" style={{ marginBottom: 12 }}>
         {["all", "hi", "med", "lo"].map((p) => (
-          <span key={p} className={filterPri === p ? "chip on" : "chip"} onClick={() => setFilterPri(p)}>{p === "all" ? "All priorities" : p.toUpperCase()}</span>
+          <button
+            key={p}
+            type="button"
+            className={filterPri === p ? "chip on" : "chip"}
+            aria-pressed={filterPri === p}
+            onClick={() => setFilterPri(p)}
+          >
+            {p === "all" ? "All priorities" : p.toUpperCase()}
+          </button>
         ))}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
@@ -384,7 +415,17 @@ export function AgendaModule() {
           <div
             className="seclabel"
             style={{ cursor: "pointer", userSelect: "none" }}
+            role="button"
+            tabIndex={0}
+            aria-expanded={historyOpen}
+            aria-controls="agenda-history-list"
             onClick={() => setHistoryOpen((o) => !o)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setHistoryOpen((o) => !o);
+              }
+            }}
           >
             History
             <span className="rule" style={{ background: "var(--line)" }} />
@@ -393,10 +434,19 @@ export function AgendaModule() {
             </span>
           </div>
           {historyOpen && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div id="agenda-history-list" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
               {allDone.map((t) => (
                 <div key={t.id} className="task done" style={{ opacity: 0.6 }}>
-                  <div className="check done" onClick={() => toggleDone(t.id)} title="Reopen" />
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={true}
+                    aria-label={`Reopen "${t.title}"`}
+                    className="check done"
+                    onClick={() => toggleDone(t.id)}
+                    title="Reopen"
+                    style={{ background: "var(--accent)", padding: 0 }}
+                  />
                   <div className="task-main">
                     <div className="task-title" style={{ textDecoration: "line-through" }}>{t.title}</div>
                     <div className="task-meta">
@@ -472,23 +522,32 @@ export function AgendaModule() {
               }}
             />
           </div>
-          <button type="button" className="savebtn" style={{ marginTop: 8 }} onClick={() => setTuneOpen(!tuneOpen)}>
+          <button
+            type="button"
+            className="savebtn"
+            style={{ marginTop: 8 }}
+            onClick={() => setTuneOpen(!tuneOpen)}
+            aria-expanded={tuneOpen}
+            aria-controls="morning-routine-editor"
+          >
             {tuneOpen ? "Hide editor" : "Edit times & titles"}
           </button>
-          {tuneOpen && routine.map((s, i) => (
+          {tuneOpen && (
+          <div id="morning-routine-editor">
+          {routine.map((s, i) => (
             <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr auto", gap: 8, marginTop: 8, alignItems: "center" }}>
-              <input value={s.time} onChange={(e) => {
+              <input aria-label="Step time" value={s.time} onChange={(e) => {
                 const next = [...routine];
                 next[i] = { ...s, time: e.target.value };
                 saveRoutine(next);
               }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <input value={s.title} onChange={(e) => {
+                <input aria-label="Step title" value={s.title} onChange={(e) => {
                   const next = [...routine];
                   next[i] = { ...s, title: e.target.value };
                   saveRoutine(next);
                 }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
-                <input value={s.sub} placeholder="Sub-note (optional)" onChange={(e) => {
+                <input aria-label="Step sub-note" value={s.sub} placeholder="Sub-note (optional)" onChange={(e) => {
                   const next = [...routine];
                   next[i] = { ...s, sub: e.target.value };
                   saveRoutine(next);
@@ -498,12 +557,15 @@ export function AgendaModule() {
                 type="button"
                 onClick={() => saveRoutine(routine.filter((_, j) => j !== i))}
                 title="Delete step"
+                aria-label="Delete step"
                 style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1 }}
               >
                 ×
               </button>
             </div>
           ))}
+          </div>
+          )}
         </div>
       </div>
 
@@ -545,23 +607,32 @@ export function AgendaModule() {
               }}
             />
           </div>
-          <button type="button" className="savebtn" style={{ marginTop: 8 }} onClick={() => setNightTuneOpen(!nightTuneOpen)}>
+          <button
+            type="button"
+            className="savebtn"
+            style={{ marginTop: 8 }}
+            onClick={() => setNightTuneOpen(!nightTuneOpen)}
+            aria-expanded={nightTuneOpen}
+            aria-controls="night-routine-editor"
+          >
             {nightTuneOpen ? "Hide editor" : "Edit times & titles"}
           </button>
-          {nightTuneOpen && nightRoutine.map((s, i) => (
+          {nightTuneOpen && (
+          <div id="night-routine-editor">
+          {nightRoutine.map((s, i) => (
             <div key={s.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr auto", gap: 8, marginTop: 8, alignItems: "center" }}>
-              <input value={s.time} onChange={(e) => {
+              <input aria-label="Step time" value={s.time} onChange={(e) => {
                 const next = [...nightRoutine];
                 next[i] = { ...s, time: e.target.value };
                 saveNightRoutine(next);
               }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <input value={s.title} onChange={(e) => {
+                <input aria-label="Step title" value={s.title} onChange={(e) => {
                   const next = [...nightRoutine];
                   next[i] = { ...s, title: e.target.value };
                   saveNightRoutine(next);
                 }} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: 4, color: "var(--ink)" }} />
-                <input value={s.sub} placeholder="Sub-note (optional)" onChange={(e) => {
+                <input aria-label="Step sub-note" value={s.sub} placeholder="Sub-note (optional)" onChange={(e) => {
                   const next = [...nightRoutine];
                   next[i] = { ...s, sub: e.target.value };
                   saveNightRoutine(next);
@@ -571,12 +642,15 @@ export function AgendaModule() {
                 type="button"
                 onClick={() => saveNightRoutine(nightRoutine.filter((_, j) => j !== i))}
                 title="Delete step"
+                aria-label="Delete step"
                 style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1 }}
               >
                 ×
               </button>
             </div>
           ))}
+          </div>
+          )}
         </div>
       </div>
     </>

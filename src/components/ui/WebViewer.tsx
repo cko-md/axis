@@ -285,12 +285,20 @@ export function WebViewer() {
               <span
                 className="wv-tab-x"
                 role="button"
+                tabIndex={0}
+                aria-label={`Close tab: ${tab.title}`}
                 onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }
+                }}
                 title="Close tab"
               >×</span>
             </button>
           ))}
-          <button type="button" className="wv-tab-new" onClick={() => addTab()} title="New tab">+</button>
+          <button type="button" className="wv-tab-new" onClick={() => addTab()} title="New tab" aria-label="New tab">+</button>
         </div>
 
         {/* Toolbar */}
