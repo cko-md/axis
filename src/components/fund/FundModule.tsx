@@ -217,6 +217,7 @@ export function FundModule() {
       if (res.ok) {
         toast("Bank linked! Loading balances…", "success", "Plaid");
         setPlaidConfigured(true);
+        setPlaidLinked(true);
         void loadBalances();
         setLinkToken(null);
       } else {

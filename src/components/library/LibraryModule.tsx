@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
 import { useToast } from "@/components/ui/Toast";
 
@@ -10,13 +10,6 @@ const COLLECTIONS = [
   { name: "IRB & Regulatory",icon: <><path d="M4 4h16v16H4z" /><path d="M4 9h16" /></> },
   { name: "Figures & Images",icon: <><circle cx="8.5" cy="9" r="1.5" /><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M21 16l-5-5L5 20" /></> },
   { name: "Lectures & Video",icon: <><path d="M5 4h14v16H5z" /><path d="M10 9l5 3-5 3z" /></> },
-];
-
-const PHOTOS = [
-  { cap: "Lab Retreat · Apr", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
-  { cap: "Lagos · Dec", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
-  { cap: "Marathon PR", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
-  { cap: "OR Day One", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
 ];
 
 const THUMB_BG = "linear-gradient(135deg,var(--surface-2),var(--surface-3))";
@@ -64,6 +57,18 @@ export function LibraryModule() {
   const { toast } = useToast();
 
   const visibleFiles = activeColl === 0 ? files : files.filter((f) => f.collection === activeColl);
+  const featuredPhotos = files.filter((f) => f.mime_type?.startsWith("image/")).slice(0, 4);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    featuredPhotos.forEach((p) => {
+      if (photoUrls[p.id]) return;
+      getDownloadUrl(p.storage_path).then((url) => {
+        if (url) setPhotoUrls((prev) => ({ ...prev, [p.id]: url }));
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [featuredPhotos.map((p) => p.id).join(",")]);
 
   const handleFiles = useCallback(async (list: FileList | null) => {
     if (!list || list.length === 0) return;
@@ -154,11 +159,23 @@ export function LibraryModule() {
             <span style={{ fontFamily: "var(--mono)", fontSize: "9.5px" }}>Drop images to add</span>
           </div>
           <div className="photostrip">
-            {PHOTOS.map((p) => (
-              <div key={p.cap} className="photo" style={{ background: p.g }}>
-                <div className="ph-cap">{p.cap}</div>
-              </div>
-            ))}
+            {featuredPhotos.length === 0 ? (
+              <div className="lib-empty">Drop image files into the dropzone above to feature them here.</div>
+            ) : (
+              featuredPhotos.map((p) => (
+                <div
+                  key={p.id}
+                  className="photo"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onFileOpen(p)}
+                  onKeyDown={(e) => e.key === "Enter" && onFileOpen(p)}
+                  style={{ background: photoUrls[p.id] ? `url(${photoUrls[p.id]}) center/cover` : THUMB_BG, cursor: "pointer" }}
+                >
+                  <div className="ph-cap">{p.display_name}</div>
+                </div>
+              ))
+            )}
           </div>
           <div className="seclabel" style={{ marginTop: 22 }}>
             {activeColl === 0 ? "All Files" : COLLECTIONS[activeColl].name}
