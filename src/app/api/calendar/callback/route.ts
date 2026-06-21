@@ -59,18 +59,22 @@ export async function GET(req: NextRequest) {
       calendarEmail = profile.email as string | undefined;
     }
   } else {
+    const pkceVerifier = cookieStore.get("calendar_pkce_verifier")?.value;
+    const tokenParams: Record<string, string> = {
+      code,
+      client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
+      client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+      scope: "Calendars.ReadWrite offline_access User.Read",
+    };
+    if (pkceVerifier) tokenParams.code_verifier = pkceVerifier;
     const res = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
-        client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
-        redirect_uri: redirectUri,
-        grant_type: "authorization_code",
-        scope: "Calendars.ReadWrite offline_access User.Read",
-      }),
+      body: new URLSearchParams(tokenParams),
     });
+    cookieStore.delete("calendar_pkce_verifier");
     if (!res.ok) return NextResponse.redirect(new URL("/oauth-done?provider=google_calendar&status=error", req.url));
     tokenData = await res.json();
 

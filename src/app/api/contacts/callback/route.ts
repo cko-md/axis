@@ -23,17 +23,22 @@ export async function GET(req: NextRequest) {
 
   const redirectUri = `${getAppOrigin(req)}/api/contacts/callback`;
 
+  const pkceVerifier = cookieStore.get("contacts_pkce_verifier")?.value;
+  const tokenParams: Record<string, string> = {
+    code,
+    client_id: process.env.GOOGLE_CLIENT_ID ?? "",
+    client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+    redirect_uri: redirectUri,
+    grant_type: "authorization_code",
+  };
+  if (pkceVerifier) tokenParams.code_verifier = pkceVerifier;
+
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      redirect_uri: redirectUri,
-      grant_type: "authorization_code",
-    }),
+    body: new URLSearchParams(tokenParams),
   });
+  cookieStore.delete("contacts_pkce_verifier");
 
   if (!tokenRes.ok) {
     return NextResponse.redirect(new URL("/oauth-done?provider=contacts&status=error", req.url));

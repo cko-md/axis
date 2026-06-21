@@ -52,12 +52,22 @@ export async function GET(req: NextRequest) {
     });
     authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   } else {
+    const { verifier, challenge } = generatePkce();
+    cookieStore.set("calendar_pkce_verifier", verifier, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
     const params = new URLSearchParams({
       client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
       redirect_uri: redirectUri,
       response_type: "code",
       scope: OUTLOOK_SCOPES,
       state,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
     });
     authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params}`;
   }
