@@ -2241,7 +2241,7 @@ html.light .pst-cap{background:linear-gradient(transparent,rgba(20,16,8,.6));col
 .cell{border-right:1px solid var(--line);border-top:1px solid var(--line);padding:6px 7px;position:relative;overflow:hidden}.cell:nth-child(7n){border-right:none}
 .cell .dn{font-family:var(--mono);font-size:10px;color:var(--ink-dim)}.cell.out .dn{opacity:.35}.cell.today{background:color-mix(in srgb,var(--gold) 7%,transparent)}.cell.today .dn{color:var(--gold);font-weight:500}
 .ev{font-size:10px;border-radius:2px;padding:2px 6px;margin-top:3px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ev.a{background:color-mix(in srgb,var(--marine) 16%,transparent);color:var(--marine-2);border-left:2px solid var(--marine)}.ev.b{background:color-mix(in srgb,var(--up) 13%,transparent);color:var(--up);border-left:2px solid var(--up)}.ev.c{background:color-mix(in srgb,var(--clay) 14%,transparent);color:var(--clay-2);border-left:2px solid var(--clay)}
+.ev.a{background:color-mix(in srgb,var(--marine) 16%,transparent);color:var(--marine-2);border-left:2px solid var(--marine)}.ev.b{background:color-mix(in srgb,var(--up) 13%,transparent);color:var(--up);border-left:2px solid var(--up)}.ev.c{background:color-mix(in srgb,var(--clay) 14%,transparent);color:var(--clay-2);border-left:2px solid var(--clay)}.ev.or{background:color-mix(in srgb,var(--gold) 14%,transparent);color:var(--gold-2);border-left:2px solid var(--gold)}
 
 /* ── stats ── */
 .stat-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}

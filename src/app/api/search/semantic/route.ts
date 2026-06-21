@@ -23,7 +23,6 @@ export async function GET(req: NextRequest) {
   const embedding = await embedText(q);
 
   const { data, error } = await supabase.rpc("search_note_embeddings", {
-    p_user_id: user.id,
     p_embedding: embedding as unknown as string,
     p_limit: 8,
   });

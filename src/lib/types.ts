@@ -26,7 +26,7 @@ export type ScheduleEvent = {
   description?: string | null;
   start_at: string;
   end_at: string;
-  color_class: "a" | "b" | "c";
+  color_class: "a" | "b" | "c" | "or";
   all_day?: boolean;
   source?: string;
 };

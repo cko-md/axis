@@ -13,7 +13,7 @@ import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-type ChipColor = "a" | "b" | "c";
+type ChipColor = "a" | "b" | "c" | "or";
 
 // Static sample chips sprinkled on fixed days of the current month (Phase-3 stub).
 const MONTH_SAMPLE_EVENTS: Record<number, Array<{ cls: ChipColor; title: string }>> = {
@@ -92,6 +92,7 @@ export function ScheduleModule() {
   const [signedIn, setSignedIn] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ScheduleEvent | null>(null);
   const [calStatus, setCalStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [externalEvents, setExternalEvents] = useState<ScheduleEvent[]>([]);
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
   const todayIdx = useMemo(() => {
@@ -141,6 +142,35 @@ export function ScheduleModule() {
       .catch(() => {});
   }, [load]);
 
+  // Pull real events from connected Google/Outlook calendars (read-only — never
+  // written to schedule_events) so connecting a provider surfaces actual content,
+  // not just a connected badge. Re-fetches whenever a provider connects/disconnects.
+  useEffect(() => {
+    if (!calStatus?.google && !calStatus?.outlook) {
+      setExternalEvents([]);
+      return;
+    }
+    const weekEnd = addDays(weekStart, 7);
+    fetch(`/api/calendar/external?start=${weekStart.toISOString()}&end=${weekEnd.toISOString()}`)
+      .then((r) => r.json())
+      .then((data: { events?: Array<{ externalId: string; title: string; start_at: string; end_at: string; all_day: boolean; source: "google" | "outlook" }> }) => {
+        setExternalEvents(
+          (data.events ?? []).map((e) => ({
+            id: `ext-${e.source}-${e.externalId}`,
+            title: e.title,
+            start_at: e.start_at,
+            end_at: e.end_at,
+            color_class: "or" as const,
+            all_day: e.all_day,
+            source: e.source,
+          })),
+        );
+      })
+      .catch(() => setExternalEvents([]));
+  }, [calStatus?.google, calStatus?.outlook, weekStart]);
+
+  const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
+
   const monthCells = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -157,7 +187,7 @@ export function ScheduleModule() {
       const out = date.getMonth() !== month;
       const chips: Array<{ cls: ChipColor; title: string }> = [];
       if (!out && !signedIn) chips.push(...(MONTH_SAMPLE_EVENTS[date.getDate()] ?? []));
-      for (const ev of events) {
+      for (const ev of displayEvents) {
         if (new Date(ev.start_at).toDateString() === date.toDateString()) {
           chips.push({ cls: ev.color_class, title: ev.title });
         }
@@ -170,12 +200,12 @@ export function ScheduleModule() {
         chips: chips.slice(0, 3),
       };
     });
-  }, [events, signedIn]);
+  }, [displayEvents, signedIn]);
 
   const dayRows = useMemo(() => {
     const now = new Date();
     const todayKey = now.toDateString();
-    const rows = events
+    const rows = displayEvents
       .filter((ev) => new Date(ev.start_at).toDateString() === todayKey)
       .sort((a, b) => a.start_at.localeCompare(b.start_at))
       .map((ev) => {
@@ -189,9 +219,9 @@ export function ScheduleModule() {
       });
     if (rows.length) return rows;
     return signedIn ? [] : DAY_SAMPLE_ROWS;
-  }, [events, signedIn]);
+  }, [displayEvents, signedIn]);
 
-  // Precomputed day+hour -> events lookup, built once per events/weekStart
+  // Precomputed day+hour -> events lookup, built once per displayEvents/weekStart
   // change instead of re-filtering the full events array per grid cell render.
   const slotMap = useMemo(() => {
     const map = new Map<string, ScheduleEvent[]>();
@@ -202,7 +232,7 @@ export function ScheduleModule() {
         slotStart.setHours(hour, 0, 0, 0);
         const slotEnd = new Date(day);
         slotEnd.setHours(hour + 1, 0, 0, 0);
-        const slotEvents = events.filter((ev) => {
+        const slotEvents = displayEvents.filter((ev) => {
           const start = new Date(ev.start_at);
           const end = new Date(ev.end_at);
           return start < slotEnd && end > slotStart;
@@ -211,7 +241,7 @@ export function ScheduleModule() {
       }
     }
     return map;
-  }, [events, weekStart]);
+  }, [displayEvents, weekStart]);
 
   const eventsForSlot = useCallback(
     (dayIdx: number, hour: number) => slotMap.get(`${dayIdx}-${hour}`) ?? [],
@@ -450,11 +480,11 @@ export function ScheduleModule() {
                       <div
                         key={ev.id}
                         className={`wkev ${ev.color_class}`}
-                        title={`${ev.title} — click to manage`}
-                        onClick={() => setPendingDelete(ev)}
+                        title={ev.source ? `${ev.title} — synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"}` : `${ev.title} — click to manage`}
+                        onClick={() => ev.source ? toast(`Synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"} — manage it there.`, "info", "Schedule") : setPendingDelete(ev)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === "Enter" && setPendingDelete(ev)}
+                        onKeyDown={(e) => e.key === "Enter" && (ev.source ? toast(`Synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"} — manage it there.`, "info", "Schedule") : setPendingDelete(ev))}
                       >
                         {ev.title}
                       </div>

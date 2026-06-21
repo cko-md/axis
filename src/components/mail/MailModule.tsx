@@ -340,7 +340,8 @@ export function MailModule() {
 
   useEffect(() => {
     if (isConnected) fetchInbox();
-  }, [isConnected, fetchInbox]);
+    // accounts.length (not just isConnected) so connecting a 2nd+ account re-fetches the inbox
+  }, [isConnected, accounts.length, fetchInbox]);
 
   // Handle ?connected=gmail|outlook on return from OAuth
   useEffect(() => {

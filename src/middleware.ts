@@ -85,7 +85,7 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isPublic = pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
