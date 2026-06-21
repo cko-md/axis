@@ -322,14 +322,15 @@ export function LiteratureModule() {
       {/* reader (split editorial) */}
       {reader && (
         <div className="reader">
-          <div className="r-media">
-            <div className="play" />
-            <div className="scrub">
-              <span>{reader.source}</span>
-              <div className="bar" />
-              <span>{fmtDate(reader.publishedAt)}</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            className={styles.litHeader}
+            onClick={() => openInApp(reader.url, reader.title)}
+            title="Open in app"
+          >
+            <span className={styles.litHeaderSource}>{fmtDate(reader.publishedAt)}</span>
+            <span className={styles.litHeaderOpen}>Open in app →</span>
+          </button>
           <div className="r-body">
             <div className="r-cat">{reader.source}</div>
             <h2>{reader.title}</h2>

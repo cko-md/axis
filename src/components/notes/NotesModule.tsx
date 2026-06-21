@@ -864,7 +864,7 @@ export function NotesModule() {
     <>
       <div className="divider" />
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(150px,190px) minmax(210px,300px) minmax(0,1fr)", gap: 16, alignItems: "start" }}>
+      <div className={`${styles.layout} ${styles.breakout}`}>
         {/* ── Folders (drag to reorder) ── */}
         <div>
           <div className="seclabel">Folders</div>
@@ -967,7 +967,7 @@ export function NotesModule() {
         </div>
 
         {/* ── Editor (embedded, shown when not popped out) ── */}
-        <div className="card">
+        <div className={`card ${styles.editorCard}`}>
           {!popout ? (
             editorEl
           ) : (

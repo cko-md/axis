@@ -18,6 +18,9 @@ import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
+import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -95,13 +98,6 @@ const YOGA_VIDEOS: Video[] = [
 
 const RUN_CHIPS = ["All", "Form & Drills", "Training", "Race Strategy", "Gear Reviews"];
 const YOGA_CHIPS = ["All", "Yoga for Runners", "Pilates Core", "Mobility", "Recovery / Restorative"];
-
-const RECIPES = [
-  { id: "r1", t: "Sheet-Pan Salmon, Sweet Potato & Broccoli", diet: "High-Protein", kcal: 530, p: 42, time: "30 min", src: "Serious Eats", g: "linear-gradient(135deg,#c2603f,#5a2a1f)" },
-  { id: "r2", t: "Greek Yogurt Bowl, Berries & Toasted Oats", diet: "High-Protein", kcal: 410, p: 32, time: "5 min", src: "Bon Appétit", g: "linear-gradient(135deg,#7a5cc2,#2c2150)" },
-  { id: "r3", t: "Chicken, Quinoa & Charred Greens Bowl", diet: "High-Protein", kcal: 620, p: 48, time: "25 min", src: "NYT Cooking", g: "linear-gradient(135deg,#4f9e6a,#1d3a28)" },
-  { id: "r4", t: "Jollof-Spiced Brown Rice & Grilled Chicken", diet: "High-Protein", kcal: 640, p: 44, time: "40 min", src: "My Active Kitchen", g: "linear-gradient(135deg,#d06a2c,#5a2510)" },
-];
 
 const INITIAL_MEALS = [
   { ic: "☕", t: "Greek yogurt, berries, granola", m: "Breakfast · 07:40", k: "P 32 · 410" },
@@ -947,6 +943,8 @@ function HealthMetricsPanel() {
 
 // ── Main VitalityModule ───────────────────────────────────────────────────────
 
+const CRONOMETER_OPENED_KEY = "axis-cronometer-opened";
+
 export function VitalityModule() {
   const { toast } = useToast();
   const [tab, setTab] = useState("fit-health");
@@ -957,8 +955,15 @@ export function VitalityModule() {
   const [mealParsing, setMealParsing] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
   const [regimenModal, setRegimenModal] = useState<"run" | "lift" | null>(null);
+  const [cronometerOpened, setCronometerOpened] = useState(false);
+
+  useEffect(() => {
+    try { setCronometerOpened(localStorage.getItem(CRONOMETER_OPENED_KEY) === "1"); } catch {}
+  }, []);
 
   const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, loading: stravaLoading, disconnect: stravaDisconnect } = useStrava();
+  const { open: openInApp } = useWebViewer();
+  const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet } = useNutritionProtocol();
 
   const stravaConnected = stravaStatus?.connected ?? false;
 
@@ -966,6 +971,12 @@ export function VitalityModule() {
     setSavedRecipes((s) => ({ ...s, [id]: !s[id] }));
     const r = RECIPES.find((r) => r.id === id);
     if (r && !savedRecipes[id]) toast(`"${r.t}" saved to Supper Club`, "success", "Nutrition");
+  };
+
+  const openCronometer = () => {
+    setCronometerOpened(true);
+    try { localStorage.setItem(CRONOMETER_OPENED_KEY, "1"); } catch {}
+    openInApp("https://cronometer.com/login/", "Cronometer");
   };
 
   const logMealWithAI = async () => {
@@ -1238,13 +1249,20 @@ export function VitalityModule() {
       {/* ── NUTRITION TAB ─────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-nutrition" ? " on" : ""}`} id="fit-nutrition">
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 18px" }}>
-          <div className="selectbox">
+          <div className="selectbox" onClick={cycleNutritionDiet} title="Click to cycle diet protocol" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cycleNutritionDiet(); } }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" /></svg>
-            <span>Diet: High-Protein</span>
+            <span>Diet: {DIET_LABEL[nutritionProtocol?.diet_protocol ?? "high-protein"]}</span>
           </div>
-          <div className="selectbox">
+          <div
+            className="selectbox"
+            onClick={openCronometer}
+            title={cronometerOpened ? "Open Cronometer again" : "Not connected — tap to open Cronometer"}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCronometer(); } }}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 12h4l2-7 4 14 2-7h4" /></svg>
-            Synced: Cronometer
+            {cronometerOpened ? "Cronometer · opened" : "Open Cronometer"}
           </div>
         </div>
         <div className="ftop" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
@@ -1303,33 +1321,102 @@ export function VitalityModule() {
           <div className="card">
             <h2 className="sec">Targets &amp; Notes<span className="rule" /></h2>
             <div style={{ marginTop: 12 }}>
-              <div className="metricrow"><span className="metric-k">Diet protocol</span><span className="metric-v">High-Protein</span></div>
-              <div className="metricrow"><span className="metric-k">Protein target</span><span className="metric-v">1.0 g/lb</span></div>
-              <div className="metricrow"><span className="metric-k">Hydration</span><span className="metric-v">2.1 / 3.0 L</span></div>
-              <div className="metricrow"><span className="metric-k">Training-day carbs</span><span className="metric-v up">+40g</span></div>
-              <p style={{ fontSize: 11, color: "var(--ink-faint)", lineHeight: 1.55, marginTop: 12 }}>
-                On long-run days AXIS nudges carbs up and front-loads them. Macros adapt to your selected protocol.
-              </p>
+              <div className="metricrow">
+                <span className="metric-k">Diet protocol</span>
+                <select
+                  className="metric-v"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  value={nutritionProtocol?.diet_protocol ?? "high-protein"}
+                  onChange={(e) => updateProtocol({ diet_protocol: e.target.value as Diet })}
+                >
+                  {DIETS.map((d) => <option key={d} value={d}>{DIET_LABEL[d]}</option>)}
+                </select>
+              </div>
+              <div className="metricrow">
+                <span className="metric-k">Protein target</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={nutritionProtocol?.protein_target_g_per_lb ?? 1.0}
+                    onChange={(e) => updateProtocol({ protein_target_g_per_lb: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 52, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v" style={{ fontSize: 11 }}>g/lb</span>
+                </span>
+              </div>
+              <div className="metricrow">
+                <span className="metric-k">Hydration</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={nutritionProtocol?.hydration_current_l ?? 0}
+                    onChange={(e) => updateProtocol({ hydration_current_l: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 44, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v" style={{ fontSize: 11 }}>/</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={nutritionProtocol?.hydration_target_l ?? 3.0}
+                    onChange={(e) => updateProtocol({ hydration_target_l: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 44, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v" style={{ fontSize: 11 }}>L</span>
+                </span>
+              </div>
+              <div className="metricrow">
+                <span className="metric-k">Training-day carbs</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="metric-v up" style={{ fontSize: 11 }}>+</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={nutritionProtocol?.training_day_carb_bump_g ?? 40}
+                    onChange={(e) => updateProtocol({ training_day_carb_bump_g: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 48, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v up" style={{ fontSize: 11 }}>g</span>
+                </span>
+              </div>
+              <textarea
+                value={nutritionProtocol?.notes ?? ""}
+                onChange={(e) => updateProtocol({ notes: e.target.value })}
+                placeholder="On long-run days AXIS nudges carbs up and front-loads them. Macros adapt to your selected protocol."
+                rows={3}
+                style={{ width: "100%", marginTop: 12, resize: "vertical", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "8px 10px", fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.55, boxSizing: "border-box" }}
+              />
             </div>
           </div>
         </div>
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 6 }}>
-          Recommended Recipes<span className="rule" /><span className="count">High-Protein</span>
+          Recommended Recipes<span className="rule" /><span className="count">{DIET_LABEL[nutritionProtocol?.diet_protocol ?? "high-protein"]}</span>
           <button type="button" className="rings-edit" aria-label="Refresh recipes" title="Refresh recipes" style={{ background: "none", border: "none", padding: 0 }}>↻</button>
         </h2>
         <div className="recipe-grid" id="nutritionRecipes">
-          {RECIPES.map((r) => (
-            <div className="recipe" key={r.id}>
+          {RECIPES.filter((r) => r.diets.includes(nutritionProtocol?.diet_protocol ?? "high-protein")).map((r) => (
+            <div className="recipe" key={r.id} onClick={() => openInApp(recipeUrl(r), r.t)}>
               <div className="rc-img" style={{ background: r.g }}>
-                <span className="rc-diet">{r.diet}</span>
-                <button type="button" className={`rc-save${savedRecipes[r.id] ? " on" : ""}`} title="Save to Supper Club" aria-pressed={!!savedRecipes[r.id]} aria-label="Save to Supper Club" onClick={() => toggleRecipe(r.id)}>
+                <span className="rc-diet">{DIET_LABEL[r.diets[0]]}</span>
+                <button
+                  type="button"
+                  className={`rc-save${savedRecipes[r.id] ? " on" : ""}`}
+                  title="Save to Supper Club"
+                  aria-pressed={!!savedRecipes[r.id]}
+                  aria-label="Save to Supper Club"
+                  onClick={(e) => { e.stopPropagation(); toggleRecipe(r.id); }}
+                >
                   {savedRecipes[r.id] ? "★" : "☆"}
                 </button>
               </div>
               <div className="rc-b">
                 <div className="rc-t">{r.t}</div>
-                <div className="rc-meta"><span>{r.kcal} kcal</span><span>P {r.p}g</span><span>{r.time}</span></div>
+                <div className="rc-meta"><span>{r.kcal} kcal</span>{r.p != null && <span>P {r.p}g</span>}<span>{r.time}</span></div>
                 <div className="rc-src">{r.src} ↗</div>
               </div>
             </div>

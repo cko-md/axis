@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 export type StravaActivity = {
   id: number;
@@ -17,6 +17,9 @@ export type StravaActivity = {
   average_heartrate?: number;
   max_heartrate?: number;
   suffer_score?: number;
+  kudos_count?: number;
+  achievement_count?: number;
+  pr_count?: number;
   map?: { summary_polyline?: string };
 };
 
@@ -28,24 +31,46 @@ export type StravaStatus = {
 
 export type StravaRunSummary = {
   weeklyKm: number;
+  weeklyDist: number;     // weekly distance in `distUnit` (km or mi, per requested unit)
+  distUnit: PaceUnit;
   weeklyKmDelta: number;  // % vs prior week (positive = up)
-  avgPace: string;        // "5:12" format
+  avgPace: string;        // "5:12" format, per `distUnit`
   recentActivities: StravaActivity[];
   stravaContext: string;  // formatted string for AI
 };
 
+export type StravaHighlights = {
+  totalKudos: number;          // sum of kudos_count across recent activities
+  prActivityCount: number;     // count of activities with pr_count > 0 or achievement_count > 0
+  prActivities: StravaActivity[]; // most recent PR/achievement activities, newest first
+};
+
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+export type PaceUnit = "km" | "mi";
+const METRES_PER_MILE = 1609.34;
 
 function metresToKm(m: number): number {
   return Math.round((m / 1000) * 10) / 10;
 }
 
-function speedToPace(mps: number): string {
+export function metresToMiles(m: number): number {
+  return Math.round((m / METRES_PER_MILE) * 10) / 10;
+}
+
+/** Convert m/s to a pace string like "5:12", per-km or per-mile depending on `unit`. */
+export function speedToPace(mps: number, unit: PaceUnit = "km"): string {
   if (!mps || mps <= 0) return "—";
-  const secPerKm = 1000 / mps;
-  const mins = Math.floor(secPerKm / 60);
-  const secs = Math.round(secPerKm % 60);
+  const distPerUnit = unit === "mi" ? METRES_PER_MILE : 1000;
+  const secPerUnit = distPerUnit / mps;
+  const mins = Math.floor(secPerUnit / 60);
+  const secs = Math.round(secPerUnit % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** Convert metres to the given unit (km or mi), rounded to 1dp. */
+export function metresToUnit(m: number, unit: PaceUnit = "km"): number {
+  return unit === "mi" ? metresToMiles(m) : metresToKm(m);
 }
 
 function isRun(a: StravaActivity) {
@@ -85,7 +110,7 @@ function buildStravaContext(activities: StravaActivity[]): string {
   return lines.join("\n");
 }
 
-function computeSummary(activities: StravaActivity[]): StravaRunSummary {
+function computeSummary(activities: StravaActivity[], unit: PaceUnit = "km"): StravaRunSummary {
   const now = Date.now();
   const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -97,7 +122,9 @@ function computeSummary(activities: StravaActivity[]): StravaRunSummary {
     return isRun(a) && age >= oneWeekMs && age < 2 * oneWeekMs;
   });
 
-  const weeklyKm = metresToKm(thisWeekRuns.reduce((s, a) => s + a.distance, 0));
+  const thisWeekDistM = thisWeekRuns.reduce((s, a) => s + a.distance, 0);
+  const weeklyKm = metresToKm(thisWeekDistM);
+  const weeklyDist = unit === "mi" ? metresToMiles(thisWeekDistM) : weeklyKm;
   const lastWeekKm = metresToKm(lastWeekRuns.reduce((s, a) => s + a.distance, 0));
   const weeklyKmDelta =
     lastWeekKm > 0 ? Math.round(((weeklyKm - lastWeekKm) / lastWeekKm) * 100) : 0;
@@ -105,11 +132,13 @@ function computeSummary(activities: StravaActivity[]): StravaRunSummary {
   const runActivities = activities.filter(isRun);
   const avgPace =
     runActivities.length
-      ? speedToPace(runActivities.reduce((s, a) => s + a.average_speed, 0) / runActivities.length)
+      ? speedToPace(runActivities.reduce((s, a) => s + a.average_speed, 0) / runActivities.length, unit)
       : "—";
 
   return {
     weeklyKm,
+    weeklyDist,
+    distUnit: unit,
     weeklyKmDelta,
     avgPace,
     recentActivities: activities.slice(0, 8),
@@ -117,14 +146,36 @@ function computeSummary(activities: StravaActivity[]): StravaRunSummary {
   };
 }
 
+function computeHighlights(activities: StravaActivity[]): StravaHighlights {
+  const totalKudos = activities.reduce((s, a) => s + (a.kudos_count ?? 0), 0);
+  const prActivities = activities
+    .filter((a) => (a.pr_count ?? 0) > 0 || (a.achievement_count ?? 0) > 0)
+    .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())
+    .slice(0, 5);
+  return {
+    totalKudos,
+    prActivityCount: prActivities.length,
+    prActivities,
+  };
+}
+
 // ── hook ─────────────────────────────────────────────────────────────────────
 
-export function useStrava() {
+export function useStrava(initialUnit: PaceUnit = "km") {
   const [status, setStatus] = useState<StravaStatus | null>(null);
   const [activities, setActivities] = useState<StravaActivity[]>([]);
   const [summary, setSummary] = useState<StravaRunSummary | null>(null);
+  const [highlights, setHighlights] = useState<StravaHighlights | null>(null);
   const [loading, setLoading] = useState(true);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [unit, setUnit] = useState<PaceUnit>(initialUnit);
+  // Kept in sync with `unit` via effect below; lets fetchActivities read the
+  // latest unit without depending on it (so toggling the unit never triggers
+  // a redundant network re-fetch — only a local recompute).
+  const unitRef = useRef(unit);
+  useEffect(() => {
+    unitRef.current = unit;
+  }, [unit]);
 
   const fetchStatus = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -146,7 +197,8 @@ export function useStrava() {
       const data = await res.json() as { connected: boolean; activities?: StravaActivity[] };
       if (data.connected && data.activities) {
         setActivities(data.activities);
-        setSummary(computeSummary(data.activities));
+        setSummary(computeSummary(data.activities, unitRef.current));
+        setHighlights(computeHighlights(data.activities));
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
@@ -156,11 +208,19 @@ export function useStrava() {
     }
   }, []);
 
+  // Recompute the summary (pace/distance strings) when the unit changes,
+  // without re-fetching from the network.
+  useEffect(() => {
+    setSummary((prev) => (prev ? computeSummary(activities, unit) : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit]);
+
   const disconnect = useCallback(async () => {
     await fetch("/api/strava?action=disconnect");
     setStatus({ connected: false, configured: status?.configured ?? false, athlete: null });
     setActivities([]);
     setSummary(null);
+    setHighlights(null);
   }, [status?.configured]);
 
   useEffect(() => {
@@ -187,8 +247,11 @@ export function useStrava() {
     status,
     activities,
     summary,
+    highlights,
     loading,
     activitiesLoading,
+    unit,
+    setUnit,
     disconnect,
     refetch: fetchActivities,
   };

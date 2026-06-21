@@ -7,6 +7,48 @@
   min-height: 460px;
 }
 
+/* ── Folders / list / editor layout ───────────────────────────
+   Left columns are fixed (not minmax ranges that keep scaling up at
+   wide viewports) so the editor column claims every spare pixel of
+   the shared .view-pad budget — that's what actually makes the
+   writing surface wider on large monitors.
+
+   .breakout additionally escapes the shared `.view-pad` 1280px page
+   cap (src/app/globals.css) for THIS layout only, so the editor keeps
+   growing on monitors wider than that — without touching `.view-pad`
+   itself, which every other page also relies on. It re-centers a wider
+   box (up to 1600px) inside `.main-scroll` using the same `--sb-w`
+   custom property the app shell already exposes for sidebar width, so
+   the breakout still respects the sidebar instead of overlapping it. */
+.layout {
+  display: grid;
+  grid-template-columns: 168px 248px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.editorCard {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 820px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 821px) {
+  .breakout {
+    --bo-avail: calc(100vw - var(--sb-w, 240px));
+    --bo-natural: calc(min(1280px, var(--bo-avail)) - 68px);
+    --bo-width: min(1600px, var(--bo-avail) - 68px);
+    width: var(--bo-width);
+    max-width: var(--bo-width);
+    margin-inline: calc((var(--bo-natural) - var(--bo-width)) / 2);
+  }
+}
+
 /* ── Formatting bar ─────────────────────────────────────────── */
 .bar {
   position: sticky;

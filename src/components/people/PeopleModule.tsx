@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { AddAccountPicker } from "@/components/mail/AddAccountPicker";
 
 interface GoogleContact {
   id: string;
@@ -101,6 +102,20 @@ export function PeopleModule() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [contacts, setContacts] = useState<GoogleContact[]>([]);
   const [contactsLoaded, setContactsLoaded] = useState(false);
+  const [showMailPicker, setShowMailPicker] = useState(false);
+  const mailBtnRef = useRef<HTMLDivElement>(null);
+
+  // Close mail picker on outside click
+  useEffect(() => {
+    if (!showMailPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (mailBtnRef.current && !mailBtnRef.current.contains(e.target as Node)) {
+        setShowMailPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMailPicker]);
 
   const fetchContacts = () => {
     fetch("/api/contacts/list")
@@ -180,21 +195,27 @@ export function PeopleModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <div
-          className="selectbox"
-          style={{ cursor: "pointer" }}
-          onClick={() =>
-            openOAuthPopup("/api/mail/connect?provider=gmail", (provider, status) => {
-              if (status === "ok") toast(`${provider} mail connected`, "success", "People");
-              else toast("Mail connection failed", "error", "People");
-            })
-          }
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20a8 8 0 0 1 16 0" />
-          </svg>
-          Connect Mail
+        <div ref={mailBtnRef} style={{ position: "relative" }}>
+          <div
+            className="selectbox"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowMailPicker((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 20a8 8 0 0 1 16 0" />
+            </svg>
+            Connect Mail
+          </div>
+          {showMailPicker && (
+            <AddAccountPicker
+              onClose={() => setShowMailPicker(false)}
+              onConnected={(provider) => {
+                toast(`${provider} mail connected`, "success", "People");
+                setShowMailPicker(false);
+              }}
+            />
+          )}
         </div>
         <div
           className="selectbox"

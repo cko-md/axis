@@ -113,7 +113,21 @@ export type StravaActivity = {
   average_heartrate?: number;
   max_heartrate?: number;
   suffer_score?: number;
+  kudos_count?: number;
+  achievement_count?: number;
+  pr_count?: number;
   map?: { summary_polyline?: string };
+};
+
+/** A best-effort split (mile/5K/10K/etc PR) within a single activity — only present on the activity-detail endpoint. */
+export type StravaBestEffort = {
+  id: number;
+  name: string;             // e.g. "5k", "10k", "1 mile"
+  distance: number;         // metres
+  moving_time: number;      // seconds
+  elapsed_time: number;     // seconds
+  start_date: string;
+  pr_rank: number | null;   // 1 = all-time PR, 2/3 = 2nd/3rd best, null = not a PR
 };
 
 export type StravaStats = {

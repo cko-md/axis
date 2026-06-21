@@ -45,29 +45,29 @@ function PromptField({
 }) {
   const [focused, setFocused] = useState(false);
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 22 }}>
       <div
         style={{
           fontFamily: "var(--mono)",
-          fontSize: 9,
+          fontSize: 10,
           textTransform: "uppercase",
           letterSpacing: ".1em",
           color: "var(--ink-faint)",
-          marginBottom: 6,
+          marginBottom: 8,
         }}
       >
         {label}
       </div>
       <textarea
         placeholder={placeholder}
-        rows={3}
+        rows={4}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{
           width: "100%",
-          padding: "10px 13px",
+          padding: "12px 15px",
           background: "var(--glass)",
           border: `1px solid ${focused ? "var(--line-strong)" : "var(--line)"}`,
           borderRadius: "var(--r)",
@@ -369,7 +369,7 @@ export function DebriefModule() {
       <div className="divider" />
 
       {/* ── Weekly Reflection card ── */}
-      <div className="card" style={{ maxWidth: "min(720px,92vw)" }}>
+      <div className="card tick">
         {/* header row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <div className="seclabel">Weekly Reflection</div>
@@ -435,6 +435,7 @@ export function DebriefModule() {
             lineHeight: 1.5,
             marginBottom: 20,
             marginTop: 0,
+            maxWidth: "68ch",
             borderLeft: "3px solid var(--accent)",
             paddingLeft: 12,
           }}
@@ -442,28 +443,32 @@ export function DebriefModule() {
           What moved the needle this week, and what will you say no to next week to protect the manuscript?
         </p>
 
+        <div className="divider" style={{ margin: "18px 0" }} />
+
         {/* structured prompts */}
-        <PromptField
-          label="What went well?"
-          placeholder="Wins, progress, moments of flow…"
-          value={wins}
-          onChange={setWins}
-        />
-        <PromptField
-          label="What was hard?"
-          placeholder="Blockers, friction, energy drains…"
-          value={challenges}
-          onChange={setChallenges}
-        />
-        <PromptField
-          label="Priority for next week?"
-          placeholder="One clear focus, one thing you'll protect…"
-          value={focus}
-          onChange={setFocus}
-        />
+        <div style={{ maxWidth: 720 }}>
+          <PromptField
+            label="What went well?"
+            placeholder="Wins, progress, moments of flow…"
+            value={wins}
+            onChange={setWins}
+          />
+          <PromptField
+            label="What was hard?"
+            placeholder="Blockers, friction, energy drains…"
+            value={challenges}
+            onChange={setChallenges}
+          />
+          <PromptField
+            label="Priority for next week?"
+            placeholder="One clear focus, one thing you'll protect…"
+            value={focus}
+            onChange={setFocus}
+          />
+        </div>
 
         {/* save button */}
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, maxWidth: 720 }}>
           <button
             type="button"
             className="sig-go"
@@ -477,7 +482,9 @@ export function DebriefModule() {
 
         {/* past reflections collapsible */}
         {signedIn && (
-          <div style={{ marginTop: 24 }}>
+          <>
+          <div className="divider" style={{ margin: "22px 0 0" }} />
+          <div style={{ marginTop: 22 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button
               type="button"
@@ -601,6 +608,7 @@ export function DebriefModule() {
               </div>
             )}
           </div>
+          </>
         )}
       </div>
     </>
