@@ -1597,12 +1597,15 @@ export function VitalityModule() {
           </div>
           <div className="card">
             <h2 className="sec">Running Briefing<span className="rule" /></h2>
-            <div style={{ marginTop: 12 }}>
-              <div className="hl"><div className="cat">Athletes</div><div><div className="ht">Kiptum&apos;s training blocks: what the splits reveal</div><div className="hs">LETSRUN · 1d</div></div></div>
-              <div className="hl"><div className="cat">Shoes</div><div><div className="ht">Super-trainer roundup: the daily-mileage carbon plates</div><div className="hs">DOCTORS OF RUNNING · 2d</div></div></div>
-              <div className="hl"><div className="cat">Tech</div><div><div className="ht">New running-power metrics on wrist optical sensors</div><div className="hs">DC RAINMAKER · 3d</div></div></div>
-              <div className="hl"><div className="cat">Gear</div><div><div className="ht">Hot-weather kit for summer base-building</div><div className="hs">OUTSIDE · 4d</div></div></div>
-            </div>
+            <BriefingList
+              emptyLabel="No reads available right now."
+              feedUrls={[
+                "https://www.letsrun.com/feed/",
+                "https://www.runnersworld.com/rss/all.xml/",
+                "https://www.dcrainmaker.com/feed",
+                "https://www.outsideonline.com/feed",
+              ]}
+            />
           </div>
         </div>
 
