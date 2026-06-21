@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
+import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
 
 /**
  * Fetches account balances for the authenticated user's linked Plaid item.
@@ -28,13 +29,9 @@ export async function POST() {
 
   // Retrieve the stored access_token from the server-side record for this user.
   // The client must never supply the token directly.
-  const { data: plaidItem, error: itemError } = await supabase
-    .from("plaid_items")
-    .select("access_token")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const accessToken = await getPlaidAccessToken(user.id);
 
-  if (itemError || !plaidItem?.access_token) {
+  if (!accessToken) {
     return NextResponse.json(
       { configured: true, error: "NO_LINKED_ACCOUNT" },
       { status: 400 },
@@ -48,7 +45,7 @@ export async function POST() {
       body: JSON.stringify({
         client_id: creds.clientId,
         secret: creds.secret,
-        access_token: plaidItem.access_token,
+        access_token: accessToken,
       }),
       cache: "no-store",
     });

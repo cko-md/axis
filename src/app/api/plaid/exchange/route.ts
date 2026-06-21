@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
+import { savePlaidConnection } from "@/lib/fund/plaidTokens";
 
 /**
  * Exchanges a Plaid public_token for a server-side access_token and stores it
- * in plaid_items keyed by user_id.  The access_token is NEVER returned to the
- * client.
+ * (AES-256-GCM encrypted) in fund_connections keyed by user_id+provider+item_id.
+ * The access_token is NEVER returned to the client.
  */
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -54,15 +55,19 @@ export async function POST(req: NextRequest) {
   };
   const { access_token, item_id } = plaidData;
 
-  await supabase.from("plaid_items").upsert(
-    {
-      user_id: user.id,
-      access_token,
-      item_id,
-      institution_name: body.institution ?? null,
-    },
-    { onConflict: "user_id" },
+  const saved = await savePlaidConnection(
+    user.id,
+    access_token,
+    item_id,
+    body.institution ?? null,
   );
+
+  if (!saved) {
+    return NextResponse.json(
+      { error: "Bank link succeeded with Plaid but failed to save. Try again." },
+      { status: 502 },
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }

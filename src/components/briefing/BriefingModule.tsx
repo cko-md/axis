@@ -39,54 +39,54 @@ const STORIES: Story[] = [
     srcLong: "THE NATIVE · 5h AGO · 11 MIN WATCH",
     body: "The conversation traces a deliberate creative path: building a studio ecosystem at home, resisting the pull to relocate, and treating the diaspora as a network to collaborate across rather than an audience to chase.",
     gradient: "linear-gradient(135deg,#242030,#10141b)",
-    url: "https://www.nativemag.com",
+    url: "https://thenativemag.com/cover-story/tems/",
     size: "big",
     video: true,
   },
   {
     id: "fus",
     cat: "Health",
-    title: "Focused Ultrasound Expands Beyond Tremor Into Psychiatry Trials",
-    shortTitle: "Focused Ultrasound Expands Into Psychiatry Trials",
+    title: "Focused Ultrasound's Uphill Battle to Treat Uterine Fibroids",
+    shortTitle: "Focused Ultrasound's Uphill Battle With Fibroids",
     src: "STAT · 2h",
     srcLong: "STAT · 2h AGO · 6 MIN READ",
-    body: "Trial sponsors are pushing incisionless lesioning past movement disorders into OCD and depression — with stereotactic teams watching the targeting data closely.",
+    body: "The incisionless, FDA-cleared procedure works — the holdup is getting insurers to cover it, even as it clears tremor, prostate cancer, and bone-metastasis pain.",
     gradient: "linear-gradient(135deg,#16252a,#10141b)",
-    url: "https://www.statnews.com",
+    url: "https://www.statnews.com/2024/05/29/focused-ultrasound-uterine-fibroids/",
   },
   {
     id: "tsy",
     cat: "Finance",
-    title: "Why Long-Duration Treasuries Are Back in Favor",
-    shortTitle: "Why Long-Duration Treasuries Are Back in Favor",
+    title: "Vanguard Favors Treasuries as 10-Year Yields Near Range Top",
+    shortTitle: "Vanguard Favors Treasuries as Yields Near Range Top",
     src: "BLOOMBERG · 4h",
     srcLong: "BLOOMBERG · 4h AGO · 5 MIN READ",
-    body: "Duration is being treated as portfolio insurance again as growth data softens — a shift with implications for the long end of the curve.",
+    body: "Duration is being treated as portfolio insurance again — Vanguard's fixed-income team is holding a long-duration bias with 10-year yields near the top of its expected range.",
     gradient: "linear-gradient(135deg,#1d2330,#10141b)",
-    url: "https://www.bloomberg.com",
+    url: "https://www.bloomberg.com/news/articles/2026-05-18/vanguard-favors-treasuries-as-10-year-yields-near-range-top",
   },
   {
     id: "ondevice",
     cat: "Tech",
-    title: "On-Device Models Quietly Reshape Clinical Decision Tools",
-    shortTitle: "On-Device Models Reshape Clinical Decision Tools",
-    src: "THE VERGE · 7h",
-    srcLong: "THE VERGE · 7h AGO · 8 MIN READ",
-    body: "Smaller local models are clearing privacy review faster than cloud inference, and bedside decision-support pilots are the early beneficiaries.",
+    title: "Big Tech's AI Hardware Bet: Worthless in Three Years?",
+    shortTitle: "Big Tech's AI Hardware Bet: Worthless in 3 Years?",
+    src: "FORTUNE · 7h",
+    srcLong: "FORTUNE · 7h AGO · 8 MIN READ",
+    body: "Hyperscalers are pouring hundreds of billions into data-center hardware that depreciates fast as model architectures shift — the dirty secret behind the AI arms race.",
     gradient: "linear-gradient(135deg,#1a2433,#10141b)",
-    url: "https://www.theverge.com",
+    url: "https://fortune.com/2026/04/15/data-centers-hyperscalers-spending-billions-on-hardware-thats-worthless-in-3-years/",
     size: "wide",
   },
   {
     id: "semis",
     cat: "Finance",
-    title: "Semis: AI Capex Durability vs. Valuation",
-    shortTitle: "Semis: AI Capex Durability vs. Valuation",
-    src: "FT · 1d",
-    srcLong: "FT · 1d AGO · 7 MIN READ",
-    body: "The bull case rests on data-center capex staying durable through 2027; the bear case is simply the multiple.",
+    title: "AI Boom: Big Tech Capex Now Seen Topping $1 Trillion in 2027",
+    shortTitle: "Big Tech Capex Seen Topping $1T in 2027",
+    src: "CNBC · 1d",
+    srcLong: "CNBC · 1d AGO · 7 MIN READ",
+    body: "The bull case rests on data-center capex staying durable for years to come; the bear case is that AI services generate a fraction of what's being spent on infrastructure.",
     gradient: "linear-gradient(135deg,#22262f,#10141b)",
-    url: "https://www.ft.com",
+    url: "https://www.cnbc.com/2026/04/30/ai-boom-big-tech-capital-expenditures-now-seen-topping-1-trillion-in-2027-.html",
   },
 ];
 
@@ -264,7 +264,14 @@ export function BriefingModule() {
       if (res.ok) {
         const data = await res.json();
         setFeedResults(data.feeds ?? []);
+        if (data.error) toast("Feed search is temporarily unavailable — try again shortly.", "warn", "Briefing");
+      } else {
+        setFeedResults([]);
+        toast("Feed search failed — try again.", "error", "Briefing");
       }
+    } catch {
+      setFeedResults([]);
+      toast("Couldn't reach feed search — check your connection.", "error", "Briefing");
     } finally {
       setFeedSearching(false);
     }

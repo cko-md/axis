@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -12,22 +13,24 @@ const LANGS: { key: LangKey; flag: string; label: string; lv: string }[] = [
   { key: "yo", flag: "🟢", label: "Yoruba", lv: "Foundation" },
 ];
 
+type Resource = { pinned: boolean; label: string; type: string; url: string };
+
 const LANG_DATA: Record<
   LangKey,
-  { name: string; lessons: [string, string, string][]; resources: [boolean, string, string][] }
+  { name: string; lessons: [string, string, string][]; resources: Resource[] }
 > = {
   fr: {
     name: "French",
     lessons: [
-      ["TUE", "Le Monde — skim one article", "8 min · input"],
+      ["TUE", "RFI — skim one article", "8 min · input"],
       ["THU", "C1 connector drill", "5 min · Anki"],
       ["SAT", "InnerFrench — shadow 1 clip", "10 min · speaking"],
     ],
     resources: [
-      [true, "InnerFrench — intermediate podcast", "AUDIO"],
-      [true, "Le Monde — daily reading", "READ"],
-      [false, "Kwiziq — adaptive C1 grammar", "DRILL"],
-      [false, "Italki — conversation tutors", "SPEAK"],
+      { pinned: true, label: "InnerFrench — intermediate podcast", type: "AUDIO", url: "https://innerfrench.com/episodes/" },
+      { pinned: true, label: "RFI — free daily news (no paywall)", type: "READ", url: "https://www.rfi.fr/fr/" },
+      { pinned: false, label: "Kwiziq — adaptive C1 grammar", type: "DRILL", url: "https://kwiziq.com/" },
+      { pinned: false, label: "Italki — conversation tutors", type: "SPEAK", url: "https://www.italki.com/" },
     ],
   },
   es: {
@@ -38,10 +41,10 @@ const LANG_DATA: Record<
       ["SAT", "Symptom vocabulary set", "7 min · Anki"],
     ],
     resources: [
-      [true, "Canopy — Medical Spanish course", "CLINICAL"],
-      [true, "Dr. Spanish podcast", "AUDIO"],
-      [false, "SpanishDict — conjugation", "DRILL"],
-      [false, "Italki — medical tutors", "SPEAK"],
+      { pinned: true, label: "MedlinePlus en español — clinical reading", type: "CLINICAL", url: "https://medlineplus.gov/spanish/" },
+      { pinned: true, label: "Notes in Spanish — free podcast", type: "AUDIO", url: "https://www.notesinspanish.com/" },
+      { pinned: false, label: "SpanishDict — conjugation", type: "DRILL", url: "https://www.spanishdict.com/conjugate" },
+      { pinned: false, label: "Italki — medical tutors", type: "SPEAK", url: "https://www.italki.com/" },
     ],
   },
   yo: {
@@ -52,13 +55,40 @@ const LANG_DATA: Record<
       ["SUN", "Shadow one Yoruba song", "10 min · listening"],
     ],
     resources: [
-      [true, "YorubaName — pronunciation", "AUDIO"],
-      [true, "Yoruba101 — structured lessons", "COURSE"],
-      [false, "BBC Yoruba — news", "READ"],
-      [false, "Tandem — language partners", "SPEAK"],
+      { pinned: true, label: "YorubaName — pronunciation", type: "AUDIO", url: "https://www.yorubaname.com/" },
+      { pinned: true, label: "Yoruba101 — structured lessons", type: "COURSE", url: "https://www.yoruba101.com/" },
+      { pinned: false, label: "BBC Yoruba — news", type: "READ", url: "https://www.bbc.com/yoruba" },
+      { pinned: false, label: "Tandem — language partners", type: "SPEAK", url: "https://www.tandem.net/" },
     ],
   },
 };
+
+// Free, no-auth RSS feeds backing each language's "Pinned Resources" READ items —
+// fetched via the same generic feed proxy BriefingModule/LiteratureModule use,
+// so the "Auto-refreshes weekly" caption is literally true.
+const LANG_FEEDS: Record<LangKey, string[]> = {
+  fr: ["https://www.rfi.fr/fr/rss"],
+  es: ["https://www.notesinspanish.com/feed/"],
+  yo: ["https://feeds.bbci.co.uk/yoruba/rss.xml"],
+};
+
+const MENS_STYLE_FEEDS: string[] = [
+  "https://www.esquire.com/rss/all.xml/",
+  "https://www.permanentstyle.com/feed",
+  "https://www.gq.com/feed/rss",
+  "https://hespokestyle.com/feed/",
+];
+
+type RssItem = { id: string; title: string; url: string; source: string; date: string };
+
+function relAge(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return mins <= 1 ? "now" : `${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.round(hrs / 24)}d`;
+}
 
 const MOOD_TILES = [
   { height: 150, background: "linear-gradient(135deg,#2a2620,#14110d)" },
@@ -71,11 +101,13 @@ const MOOD_TILES = [
   { height: 115, background: "linear-gradient(135deg,#2b2620,#15110c)" },
 ];
 
+type MoodImage = { id: string; image_url: string; sort_order: number };
+
 function initialPins() {
   const pins: Record<string, boolean> = {};
   (Object.keys(LANG_DATA) as LangKey[]).forEach((k) => {
-    LANG_DATA[k].resources.forEach(([on], i) => {
-      pins[`${k}:${i}`] = on;
+    LANG_DATA[k].resources.forEach((r, i) => {
+      pins[`${k}:${i}`] = r.pinned;
     });
   });
   return pins;
@@ -99,6 +131,7 @@ function dayToIso(abbrev: string, hour = 8): { start: string; end: string } {
 
 export function AtelierModule() {
   const { toast } = useToast();
+  const { open: openInApp } = useWebViewer();
   const [tab, setTab] = useState<"atl-lang" | "atl-style">("atl-lang");
   const [lang, setLang] = useState<LangKey>("fr");
   const [addingAgenda, setAddingAgenda] = useState(false);
@@ -108,9 +141,104 @@ export function AtelierModule() {
     catch { return initialPins(); }
   });
 
+  const [moodImages, setMoodImages] = useState<MoodImage[]>([]);
+  const moodInputRef = useRef<HTMLInputElement>(null);
+
+  const [langFeedItems, setLangFeedItems] = useState<Record<LangKey, RssItem[]>>({ fr: [], es: [], yo: [] });
+  const [trendItems, setTrendItems] = useState<RssItem[]>([]);
+  const [trendsLoading, setTrendsLoading] = useState(true);
+
   useEffect(() => {
     localStorage.setItem(PINS_KEY, JSON.stringify(pins));
   }, [pins]);
+
+  const loadMoodImages = useCallback(async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: rows } = await supabase
+      .from("moodboard_images")
+      .select("id,image_url,sort_order")
+      .eq("user_id", user.id)
+      .order("sort_order");
+    setMoodImages((rows ?? []) as MoodImage[]);
+  }, []);
+
+  useEffect(() => {
+    loadMoodImages();
+  }, [loadMoodImages]);
+
+  const addMoodImage = async (file: File) => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast("Sign in to save moodboard images.", "warn", "Atelier"); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const image_url = reader.result as string;
+      const { data: row, error } = await supabase
+        .from("moodboard_images")
+        .insert({ user_id: user.id, image_url, sort_order: moodImages.length })
+        .select("id,image_url,sort_order")
+        .single();
+      if (error) toast("Failed to add image.", "error", "Atelier");
+      else if (row) setMoodImages((p) => [...p, row as MoodImage]);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeMoodImage = async (id: string) => {
+    const supabase = createClient();
+    const { error } = await supabase.from("moodboard_images").delete().eq("id", id);
+    if (error) { toast("Failed to remove image.", "error", "Atelier"); return; }
+    setMoodImages((p) => p.filter((img) => img.id !== id));
+  };
+
+  // ── Pinned-resources "auto-refresh" feeds, keyed per language, and the
+  // Men's-Style trends card — both backed by the same generic, auth-checked,
+  // SSRF-guarded RSS proxy BriefingModule/LiteratureModule already use.
+  const loadFeed = useCallback(async (feedUrls: string[]): Promise<RssItem[]> => {
+    try {
+      const res = await fetch("/api/briefing/fetch-feeds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedUrls }),
+      });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return Array.isArray(json.items) ? (json.items as RssItem[]) : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAllLangFeeds = async () => {
+      const keys = Object.keys(LANG_FEEDS) as LangKey[];
+      const results = await Promise.all(keys.map((k) => loadFeed(LANG_FEEDS[k])));
+      if (cancelled) return;
+      const next = {} as Record<LangKey, RssItem[]>;
+      keys.forEach((k, i) => { next[k] = results[i]; });
+      setLangFeedItems(next);
+    };
+    loadAllLangFeeds();
+    const id = setInterval(loadAllLangFeeds, 4 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [loadFeed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTrends = async () => {
+      const items = await loadFeed(MENS_STYLE_FEEDS);
+      if (!cancelled) {
+        setTrendItems(items.slice(0, 4));
+        setTrendsLoading(false);
+      }
+    };
+    loadTrends();
+    const id = setInterval(loadTrends, 4 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [loadFeed]);
 
   const addWeekToAgenda = async () => {
     const supabase = createClient();
@@ -128,6 +256,7 @@ export function AtelierModule() {
   };
 
   const data = LANG_DATA[lang];
+  const langFeedForCurrent = langFeedItems[lang] ?? [];
 
   return (
     <>
@@ -182,8 +311,8 @@ export function AtelierModule() {
           <div className="card">
             <h2 className="sec">Pinned Resources<span className="rule" /></h2>
             <div style={{ marginTop: 12 }}>
-              {data.resources.map(([, label, type], i) => (
-                <div className="resource" key={`${lang}-${label}`}>
+              {data.resources.map((r, i) => (
+                <div className="resource" key={`${lang}-${r.label}`}>
                   <span
                     className={`pin${pins[`${lang}:${i}`] ? " on" : ""}`}
                     onClick={() => setPins((p) => ({ ...p, [`${lang}:${i}`]: !p[`${lang}:${i}`] }))}
@@ -192,8 +321,37 @@ export function AtelierModule() {
                       <path d="M12 2l2.6 6.3 6.8.5-5.2 4.4 1.7 6.6L12 17l-5.9 3.3 1.7-6.6L2.6 8.8l6.8-.5z" />
                     </svg>
                   </span>
-                  <span className="rl">{label}</span>
-                  <span className="rt">{type}</span>
+                  <span
+                    className="rl"
+                    role="button"
+                    tabIndex={0}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => openInApp(r.url, r.label)}
+                    onKeyDown={(e) => e.key === "Enter" && openInApp(r.url, r.label)}
+                  >
+                    {r.label}
+                  </span>
+                  <span className="rt">{r.type}</span>
+                </div>
+              ))}
+              {langFeedForCurrent.slice(0, 3).map((item) => (
+                <div className="resource" key={item.id}>
+                  <span className="pin" style={{ visibility: "hidden" }}>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2l2.6 6.3 6.8.5-5.2 4.4 1.7 6.6L12 17l-5.9 3.3 1.7-6.6L2.6 8.8l6.8-.5z" />
+                    </svg>
+                  </span>
+                  <span
+                    className="rl"
+                    role="button"
+                    tabIndex={0}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => openInApp(item.url, item.title)}
+                    onKeyDown={(e) => e.key === "Enter" && openInApp(item.url, item.title)}
+                  >
+                    {item.title}
+                  </span>
+                  <span className="rt">{relAge(item.date)}</span>
                 </div>
               ))}
               <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 12 }}>
@@ -209,13 +367,59 @@ export function AtelierModule() {
           <div className="card">
             <h2 className="sec">Moodboard<span className="rule" /><span className="count">Drop images to add</span></h2>
             <div className="mood" style={{ marginTop: 14 }}>
-              {MOOD_TILES.map((t, i) => (
-                <div key={i} style={{ height: t.height, background: t.background }} />
-              ))}
+              {moodImages.length === 0
+                ? MOOD_TILES.map((t, i) => (
+                    <div key={i} style={{ height: t.height, background: t.background }} />
+                  ))
+                : moodImages.map((img, i) => (
+                    <div
+                      key={img.id}
+                      style={{
+                        height: MOOD_TILES[i % MOOD_TILES.length].height,
+                        background: `url(${img.image_url}) center/cover`,
+                        position: "relative",
+                      }}
+                    >
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title="Remove image"
+                        onClick={() => removeMoodImage(img.id)}
+                        onKeyDown={(e) => e.key === "Enter" && removeMoodImage(img.id)}
+                        style={{
+                          position: "absolute",
+                          top: 6,
+                          right: 6,
+                          width: 20,
+                          height: 20,
+                          borderRadius: "50%",
+                          background: "rgba(0,0,0,0.55)",
+                          color: "#fff",
+                          display: "grid",
+                          placeItems: "center",
+                          fontSize: 12,
+                          lineHeight: 1,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ×
+                      </span>
+                    </div>
+                  ))}
             </div>
-            <input type="file" accept="image/*" multiple style={{ display: "none" }} />
+            <input
+              ref={moodInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                Array.from(e.target.files ?? []).forEach(addMoodImage);
+                e.target.value = "";
+              }}
+            />
             <div style={{ marginTop: 12 }}>
-              <span className="savebtn">
+              <span className="savebtn" role="button" tabIndex={0} onClick={() => moodInputRef.current?.click()}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 5v14M5 12h14" /></svg>
                 Add Images
               </span>
@@ -224,10 +428,32 @@ export function AtelierModule() {
           <div className="card">
             <h2 className="sec">Men&apos;s Style — Trends<span className="rule" /></h2>
             <div style={{ marginTop: 12 }}>
-              <div className="hl artlink"><div className="cat">SS26</div><div><div className="ht">The unstructured blazer returns, softer than ever</div><div className="hs">ESQUIRE · 1d</div></div></div>
-              <div className="hl artlink"><div className="cat">Fabric</div><div><div className="ht">Why linen-silk blends are the summer flex</div><div className="hs">PERMANENT STYLE · 3d</div></div></div>
-              <div className="hl artlink"><div className="cat">Grooming</div><div><div className="ht">Building a minimal warm-weather skin routine</div><div className="hs">GQ · 4d</div></div></div>
-              <div className="hl artlink"><div className="cat">Fit</div><div><div className="ht">Tailoring rules for a lean, athletic frame</div><div className="hs">HE SPOKE STYLE · 5d</div></div></div>
+              {trendsLoading && trendItems.length === 0 ? (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "9px 0" }}>
+                  Loading trends…
+                </div>
+              ) : trendItems.length === 0 ? (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "9px 0" }}>
+                  No trends available right now.
+                </div>
+              ) : (
+                trendItems.map((item) => (
+                  <div
+                    className="hl artlink"
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openInApp(item.url, item.title)}
+                    onKeyDown={(e) => e.key === "Enter" && openInApp(item.url, item.title)}
+                  >
+                    <div className="cat">{item.source.split(" ")[0].slice(0, 8).toUpperCase()}</div>
+                    <div>
+                      <div className="ht">{item.title}</div>
+                      <div className="hs">{item.source.toUpperCase()} · {relAge(item.date)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

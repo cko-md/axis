@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
       const result = await aiJSON<RegimenPlanResult>({
         mode,
         anthropic,
-        system: `You are an elite ${ctx.discipline === "run" ? "running" : "strength & conditioning"} coach. Design a structured weekly training plan. Return ONLY a JSON object with keys: days (array), summary (string, 1-2 sentences). Each day object has: dow (0=Mon to 6=Sun), title (string), kind (run|lift|mobility|rest|other), duration_min (number), intensity (easy|moderate|hard|key), notes (string), items (array of exercises, same format as a single session). Include rest days. No markdown.`,
+        system: `You are an elite ${ctx.discipline === "run" ? "running" : ctx.discipline === "mobility" ? "mobility & Pilates" : "strength & conditioning"} coach. Design a structured weekly ${ctx.discipline === "mobility" ? "mobility/yoga/Pilates flow" : "training"} plan. Return ONLY a JSON object with keys: days (array), summary (string, 1-2 sentences). Each day object has: dow (0=Mon to 6=Sun), title (string), kind (run|lift|mobility|rest|other), duration_min (number), intensity (easy|moderate|hard|key), notes (string), items (array of exercises, same format as a single session). Include rest days. No markdown.`,
         userMessage: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}`,
         maxTokens: 1400,
       });

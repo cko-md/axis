@@ -80,8 +80,10 @@ const CSP = [
     "https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io",
   ].join(" "),
   // 'self' allows the in-app WebViewer's same-origin /api/proxy iframe; cdn.plaid.com
-  // for Plaid Link; open.spotify.com for the Listening Vault's official embed player
-  "frame-src 'self' https://cdn.plaid.com https://open.spotify.com blob:",
+  // for Plaid Link; open.spotify.com for the Listening Vault's official embed player;
+  // youtube.com/-nocookie for the Vault's Video Lounge embed player (mirrors the
+  // Spotify pattern — direct official embed iframe instead of page-scraping proxy)
+  "frame-src 'self' https://cdn.plaid.com https://open.spotify.com https://www.youtube.com https://www.youtube-nocookie.com blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

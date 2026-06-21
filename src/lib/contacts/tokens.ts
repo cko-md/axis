@@ -1,5 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto";
+import { refreshGoogleOAuth } from "@/lib/oauth/refresh";
+
+const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 
 interface ContactsTokens {
   accessToken: string;
@@ -53,4 +56,22 @@ export async function getContactsTokens(userId: string): Promise<ContactsTokens 
     expiresAt: data.expires_at ? new Date(data.expires_at) : null,
     email: data.email as string,
   };
+}
+
+/** Returns a valid access token, refreshing if within 5 minutes of expiry. */
+export async function getFreshContactsAccessToken(userId: string): Promise<string | null> {
+  const tokens = await getContactsTokens(userId);
+  if (!tokens) return null;
+
+  const needsRefresh =
+    tokens.expiresAt && tokens.expiresAt.getTime() - Date.now() < TOKEN_REFRESH_THRESHOLD_MS;
+
+  if (!needsRefresh) return tokens.accessToken;
+  if (!tokens.refreshToken) return null;
+
+  const refreshed = await refreshGoogleOAuth(tokens.refreshToken);
+  if (!refreshed) return null;
+
+  await saveContactsTokens(userId, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, tokens.email);
+  return refreshed.accessToken;
 }

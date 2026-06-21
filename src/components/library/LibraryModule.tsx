@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
+import { useToast } from "@/components/ui/Toast";
 
 const COLLECTIONS = [
   { name: "All Files",       icon: <path d="M3 7l2-3h6l2 3h6v13H3z" /> },
@@ -17,32 +19,82 @@ const PHOTOS = [
   { cap: "OR Day One", g: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
 ];
 
-// coll[] = which collection indices this file belongs to (0 = All Files always implied)
-type FileItem = {
-  name: string;
-  size: string;
-  age: string;
-  type?: "pdf" | "doc" | "img";
-  label?: string;
-  thumbBg?: string;
-  video?: boolean;
-  colls: number[];
-};
+const THUMB_BG = "linear-gradient(135deg,var(--surface-2),var(--surface-3))";
 
-const FILES: FileItem[] = [
-  { name: "DBS_manuscript_v7.pdf",    size: "2.4 MB", age: "2h",  type: "pdf", label: "PDF",  colls: [1] },
-  { name: "Grant_aims_draft.docx",    size: "88 KB",  age: "1d",  type: "doc", label: "DOCX", colls: [1] },
-  { name: "IRB_amendment_UIA.pdf",    size: "640 KB", age: "3d",  type: "pdf", label: "PDF",  colls: [2] },
-  { name: "KM_curve_recurrence.png",  size: "310 KB", age: "3d",  type: "img", label: "PNG",  colls: [3], thumbBg: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
-  { name: "JournalClub_DBS.mp4",      size: "184 MB", age: "1w",  video: true,                colls: [4], thumbBg: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
-  { name: "cohort2_dataset.xlsx",     size: "1.1 MB", age: "1w",  type: "doc", label: "XLSX", colls: [2] },
-  { name: "cover_letter_JNS.pdf",     size: "72 KB",  age: "2w",  type: "pdf", label: "PDF",  colls: [1] },
-  { name: "conference_poster.jpg",    size: "2.0 MB", age: "2w",  type: "img", label: "JPG",  colls: [3], thumbBg: "linear-gradient(135deg,var(--surface-2),var(--surface-3))" },
-];
+// Derive thumbnail kind/label/video-ness from mime type + file extension —
+// real uploads only carry mime_type + display_name, unlike the old mock data.
+function fileDisplay(f: LibraryFile): { type?: "pdf" | "doc" | "img"; label?: string; video: boolean; thumbBg?: string } {
+  const ext = (f.display_name.split(".").pop() || "").toUpperCase();
+  const mime = f.mime_type || "";
+  if (mime.startsWith("video/")) return { video: true, thumbBg: THUMB_BG };
+  if (mime.startsWith("image/")) return { type: "img", label: ext, video: false, thumbBg: THUMB_BG };
+  if (mime === "application/pdf" || ext === "PDF") return { type: "pdf", label: "PDF", video: false };
+  if (["DOC", "DOCX", "XLS", "XLSX", "PPT", "PPTX", "TXT", "CSV"].includes(ext)) return { type: "doc", label: ext, video: false };
+  return { type: "doc", label: ext || "FILE", video: false };
+}
+
+function formatSize(bytes: number | null): string {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
+}
 
 export function LibraryModule() {
   const [activeColl, setActiveColl] = useState(0);
-  const visibleFiles = activeColl === 0 ? FILES : FILES.filter((f) => f.colls.includes(activeColl));
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { files, uploadFile, deleteFile, getDownloadUrl } = useLibraryFiles();
+  const { toast } = useToast();
+
+  const visibleFiles = activeColl === 0 ? files : files.filter((f) => f.collection === activeColl);
+
+  const handleFiles = useCallback(async (list: FileList | null) => {
+    if (!list || list.length === 0) return;
+    const collection = activeColl;
+    const items = Array.from(list);
+    for (const file of items) {
+      const result = await uploadFile(file, collection);
+      if (result.error) toast(result.error, "error", "Library");
+    }
+    if (items.length > 0) toast(`${items.length} file${items.length !== 1 ? "s" : ""} added`, "success", "Library");
+  }, [activeColl, uploadFile, toast]);
+
+  const onDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
+
+  const onFileOpen = useCallback(async (f: LibraryFile) => {
+    const url = await getDownloadUrl(f.storage_path);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else toast("Couldn't open file", "error", "Library");
+  }, [getDownloadUrl, toast]);
+
+  const onFileDelete = useCallback(async (e: MouseEvent, f: LibraryFile) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete "${f.display_name}"? This can't be undone.`)) return;
+    const result = await deleteFile(f.id, f.storage_path);
+    if (result.error) toast(result.error, "error", "Library");
+    else toast("File deleted", "success", "Library");
+  }, [deleteFile, toast]);
 
   return (
     <>
@@ -51,7 +103,7 @@ export function LibraryModule() {
         <div>
           <div className="seclabel">Collections</div>
           {COLLECTIONS.map((c, i) => {
-            const count = i === 0 ? FILES.length : FILES.filter((f) => f.colls.includes(i)).length;
+            const count = i === 0 ? files.length : files.filter((f) => f.collection === i).length;
             return (
               <div
                 key={c.name}
@@ -68,7 +120,15 @@ export function LibraryModule() {
           })}
         </div>
         <div>
-          <div className="dropzone">
+          <div
+            className={`dropzone${dragOver ? " hot" : ""}`}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            role="button"
+            tabIndex={0}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M12 16V4M8 8l4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
             </svg>
@@ -76,7 +136,17 @@ export function LibraryModule() {
               Drag Files Here, or <span className="accent">Browse</span>
             </div>
             <div className="dz-sub">PDF · DOCX · PNG · JPG · MP4 — up to 5 GB</div>
-            <input type="file" multiple />
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              hidden
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                handleFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
           </div>
           <div className="seclabel">
             Featured Photos
@@ -96,20 +166,34 @@ export function LibraryModule() {
             <span style={{ fontFamily: "var(--mono)", fontSize: "9.5px" }}>{visibleFiles.length} file{visibleFiles.length !== 1 ? "s" : ""}</span>
           </div>
           <div className="filegrid">
-            {visibleFiles.map((f) => (
-              <div key={f.name} className="file">
-                <div className="fthumb" style={f.thumbBg ? { background: f.thumbBg } : undefined}>
-                  {f.video ? <div className="vbadge" /> : <span className={`ftype ${f.type}`}>{f.label}</span>}
-                </div>
-                <div className="fmeta">
-                  <div className="fn">{f.name}</div>
-                  <div className="fs">
-                    <span>{f.size}</span>
-                    <span>{f.age}</span>
+            {visibleFiles.map((f) => {
+              const disp = fileDisplay(f);
+              return (
+                <div key={f.id} className="file" onClick={() => onFileOpen(f)}>
+                  <div className="fthumb" style={disp.thumbBg ? { background: disp.thumbBg } : undefined}>
+                    {disp.video ? <div className="vbadge" /> : <span className={`ftype ${disp.type}`}>{disp.label}</span>}
+                    <button
+                      type="button"
+                      className="fdel"
+                      title={`Delete ${f.display_name}`}
+                      onClick={(e) => onFileDelete(e, f)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="fmeta">
+                    <div className="fn">{f.display_name}</div>
+                    <div className="fs">
+                      <span>{formatSize(f.size_bytes)}</span>
+                      <span>{formatAge(f.created_at)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+            {visibleFiles.length === 0 && (
+              <div className="lib-empty">No files yet — drag files into the dropzone above, or click Browse.</div>
+            )}
           </div>
         </div>
       </div>

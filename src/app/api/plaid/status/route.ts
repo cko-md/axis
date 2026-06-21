@@ -16,9 +16,11 @@ export async function GET() {
   const creds = getPlaidCreds();
 
   const { count } = await supabase
-    .from("plaid_items")
+    .from("fund_connections")
     .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .eq("provider", "plaid")
+    .eq("status", "linked");
 
   return NextResponse.json({
     configured: !!creds,

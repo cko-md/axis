@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getContactsTokens } from "@/lib/contacts/tokens";
+import { getFreshContactsAccessToken } from "@/lib/contacts/tokens";
 
 interface GooglePerson {
   resourceName?: string;
@@ -27,12 +27,12 @@ export async function GET(_req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const tokens = await getContactsTokens(user.id);
-  if (!tokens) return NextResponse.json({ error: "Not connected" }, { status: 401 });
+  const accessToken = await getFreshContactsAccessToken(user.id);
+  if (!accessToken) return NextResponse.json({ error: "Not connected" }, { status: 401 });
 
   const res = await fetch(
     "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers&pageSize=100",
-    { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
+    { headers: { Authorization: `Bearer ${accessToken}` } },
   );
 
   if (!res.ok) {

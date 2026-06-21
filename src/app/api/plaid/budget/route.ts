@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
+import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
 
 const CATEGORY_LABELS: Record<string, string> = {
   FOOD_AND_DRINK: "Dining",
@@ -36,13 +37,9 @@ export async function POST() {
     return NextResponse.json({ configured: false, budgets: [], insights: [] });
   }
 
-  const { data: plaidItem } = await supabase
-    .from("plaid_items")
-    .select("access_token")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const accessToken = await getPlaidAccessToken(user.id);
 
-  if (!plaidItem?.access_token) {
+  if (!accessToken) {
     return NextResponse.json({ configured: true, error: "NO_LINKED_ACCOUNT" }, { status: 400 });
   }
 
@@ -56,7 +53,7 @@ export async function POST() {
       body: JSON.stringify({
         client_id: creds.clientId,
         secret: creds.secret,
-        access_token: plaidItem.access_token,
+        access_token: accessToken,
         start_date: monthStart.toISOString().slice(0, 10),
         end_date: now.toISOString().slice(0, 10),
         options: { count: 200, offset: 0 },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import {
   useTrainingWeek,
@@ -11,7 +11,7 @@ import {
   type TrainingKind,
   type TrainingIntensity,
 } from "@/lib/hooks/useTrainingWeek";
-import { useStrava, type StravaActivity } from "@/lib/hooks/useStrava";
+import { useStrava, type StravaActivity, type PaceUnit } from "@/lib/hooks/useStrava";
 import { RouteMap } from "@/components/vitality/RouteMap";
 import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
@@ -21,6 +21,7 @@ import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
+import { useFitnessRoutines, type FitnessRoutine, type FitnessDiscipline } from "@/lib/hooks/useFitnessRoutines";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -52,6 +53,83 @@ type MedSession = {
 };
 
 const MED_KEY = "axis-meditation-log";
+const PACE_UNIT_KEY = "axis-pace-unit";
+const PR_GOALS_KEY = "axis-pr-goals";
+
+// ── race goals ────────────────────────────────────────────────────────────────
+
+type RaceType = "5k" | "10k" | "half" | "marathon" | "custom";
+
+const RACE_TYPES: Array<{ id: RaceType; label: string }> = [
+  { id: "5k", label: "5K" },
+  { id: "10k", label: "10K" },
+  { id: "half", label: "Half Marathon" },
+  { id: "marathon", label: "Marathon" },
+  { id: "custom", label: "Custom" },
+];
+
+type RaceGoal = {
+  id: string;
+  raceType: RaceType;
+  customLabel?: string;
+  currentTime: string;
+  targetTime: string;
+};
+
+const DEFAULT_GOALS: RaceGoal[] = [
+  { id: "g1", raceType: "half", currentTime: "1:34:00", targetTime: "1:29:00" },
+];
+
+function raceGoalLabel(g: RaceGoal): string {
+  if (g.raceType === "custom") return g.customLabel?.trim() || "Custom";
+  return RACE_TYPES.find((r) => r.id === g.raceType)?.label ?? g.raceType;
+}
+
+/** Parse "h:mm:ss" or "mm:ss" into total seconds; returns 0 on parse failure. */
+function timeToSeconds(t: string): number {
+  const parts = t.split(":").map((p) => parseInt(p, 10));
+  if (parts.some((p) => Number.isNaN(p))) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] ?? 0;
+}
+
+/** Progress toward target from an implicit baseline (current time at 0%, target time at 100%).
+ * Since we don't track a fixed start point, approximate using how close current is to target
+ * relative to a generous 20%-of-current buffer below target — clamped to [0,100]. */
+function goalProgressPct(g: RaceGoal): number {
+  const cur = timeToSeconds(g.currentTime);
+  const tgt = timeToSeconds(g.targetTime);
+  if (!cur || !tgt || tgt >= cur) return tgt && cur && tgt <= cur ? 100 : 0;
+  const buffer = cur * 0.08; // assume training started ~8% slower than "current"
+  const start = cur + buffer;
+  const pct = ((start - cur) / (start - tgt)) * 100;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
+
+// ── briefing feeds (bug 7: real RSS content instead of static fake links) ────
+
+const RUN_FEEDS = [
+  "https://www.letsrun.com/news/feed/",
+  "https://www.runnersworld.com/rss/all.xml/",
+];
+
+const STRENGTH_FEEDS = [
+  "https://www.t-nation.com/feed/",
+  "https://www.muscleandstrength.com/articles/feed",
+];
+
+type FeedItem = { id: string; title: string; url: string; source: string; date: string };
+
+function relTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1d";
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
+}
 
 const KIND_ORDER: TrainingKind[] = ["run", "lift", "mobility", "rest", "other"];
 const INTENSITY_ORDER: TrainingIntensity[] = ["easy", "moderate", "hard", "key"];
@@ -108,15 +186,22 @@ const INITIAL_MEALS = [
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function metresToKm(m: number): number {
-  return Math.round((m / 1000) * 10) / 10;
+const UNIT_LABELS: Record<PaceUnit, string> = { km: "km", mi: "mi" };
+const METRES_PER_MILE = 1609.34;
+
+/** Convert metres to the given unit (km or mi), rounded to 1dp. */
+function metresToUnit(m: number, unit: PaceUnit = "km"): number {
+  const divisor = unit === "mi" ? METRES_PER_MILE : 1000;
+  return Math.round((m / divisor) * 10) / 10;
 }
 
-function speedToPace(mps: number): string {
+/** Convert m/s to a pace string like "5:12", per-km or per-mile depending on `unit`. */
+function speedToPace(mps: number, unit: PaceUnit = "km"): string {
   if (!mps || mps <= 0) return "—";
-  const secPerKm = 1000 / mps;
-  const mins = Math.floor(secPerKm / 60);
-  const secs = Math.round(secPerKm % 60);
+  const distPerUnit = unit === "mi" ? METRES_PER_MILE : 1000;
+  const secPerUnit = distPerUnit / mps;
+  const mins = Math.floor(secPerUnit / 60);
+  const secs = Math.round(secPerUnit % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
@@ -420,7 +505,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
 
 // ── Strava activity feed ──────────────────────────────────────────────────────
 
-function StravaActivityRow({ a }: { a: StravaActivity }) {
+function StravaActivityRow({ a, unit = "km" }: { a: StravaActivity; unit?: PaceUnit }) {
   const isRun = a.sport_type === "Run" || a.type === "Run";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
@@ -430,25 +515,104 @@ function StravaActivityRow({ a }: { a: StravaActivity }) {
         {a.map?.summary_polyline ? <RouteMap polyline={a.map.summary_polyline} width={52} height={30} /> : null}
       </div>
       <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: isRun ? "var(--accent)" : "var(--marine)", minWidth: 30 }}>{sportLabel(a)}</div>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToKm(a.distance)} km</div>
-      {isRun && <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", minWidth: 44, textAlign: "right" }}>{speedToPace(a.average_speed)}/km</div>}
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToUnit(a.distance, unit)} {UNIT_LABELS[unit]}</div>
+      {isRun && <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", minWidth: 44, textAlign: "right" }}>{speedToPace(a.average_speed, unit)}/{UNIT_LABELS[unit]}</div>}
     </div>
   );
 }
 
 // ── Strava run list with expand/collapse ─────────────────────────────────────
 
-function StravaRunList({ activities }: { activities: StravaActivity[] }) {
+function StravaRunList({ activities, unit = "km" }: { activities: StravaActivity[]; unit?: PaceUnit }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? activities : activities.slice(0, 3);
   return (
     <div className="card" style={{ padding: "4px 14px 4px" }}>
-      {visible.map((a) => <StravaActivityRow key={a.id} a={a} />)}
+      {visible.map((a) => <StravaActivityRow key={a.id} a={a} unit={unit} />)}
       {activities.length > 3 && (
         <button type="button" onClick={() => setExpanded((e) => !e)} style={TOGGLE_BTN_STYLE}>
           {expanded ? "▲ Collapse" : `▼ Show all ${activities.length}`}
         </button>
       )}
+    </div>
+  );
+}
+
+// ── Real RSS briefing list (bug 7: replaces static fake headlines) ───────────
+
+function BriefingList({ feedUrls, emptyLabel, artlink, columns }: { feedUrls: string[]; emptyLabel: string; artlink?: boolean; columns?: boolean }) {
+  const { open: openInApp } = useWebViewer();
+  const [items, setItems] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const res = await fetch("/api/briefing/fetch-feeds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedUrls }),
+      });
+      const data = (await res.json()) as { items?: FeedItem[] };
+      setItems(data.items ?? []);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedUrls.join("|")]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const id = setInterval(() => void load(), 4 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      {loading && !items.length && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>Loading…</div>
+      )}
+      {!loading && error && !items.length && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>{emptyLabel}</div>
+      )}
+      {!loading && !error && !items.length && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>{emptyLabel}</div>
+      )}
+      <div style={columns ? { columnCount: 2, columnGap: 28 } : undefined}>
+        {items.map((it) => (
+          <div
+            key={it.id}
+            className={`hl${artlink ? " artlink" : ""}`}
+            role="button"
+            tabIndex={0}
+            style={{ cursor: "pointer", breakInside: "avoid" }}
+            onClick={() => openInApp(it.url, it.title)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInApp(it.url, it.title); } }}
+          >
+            <div className="cat">{it.source.split(" ")[0] || "News"}</div>
+            <div>
+              <div className="ht">{it.title}</div>
+              <div className="hs">{it.source.toUpperCase()} · {relTime(it.date)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="rings-edit"
+        aria-label="Refresh"
+        title="Refresh"
+        onClick={load}
+        disabled={loading}
+        style={{ background: "none", border: "none", padding: "4px 0", fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", cursor: loading ? "default" : "pointer" }}
+      >
+        {loading ? "…" : "↻ Refresh"}
+      </button>
     </div>
   );
 }
@@ -941,6 +1105,149 @@ function HealthMetricsPanel() {
   );
 }
 
+// ── Editable fitness routine card (Strength & Conditioning / Yoga & Pilates) ─
+
+function ExerciseEditor({
+  exercise,
+  onChange,
+  onRemove,
+}: {
+  exercise: FitnessRoutine["exercises"][number];
+  onChange: (patch: Partial<FitnessRoutine["exercises"][number]>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 0.8fr auto", gap: 6, alignItems: "center" }}>
+      <input style={editFieldStyle} value={exercise.name} placeholder="Exercise" onChange={(e) => onChange({ name: e.target.value })} />
+      <input
+        style={editFieldStyle}
+        type="number"
+        min={0}
+        value={exercise.sets ?? ""}
+        placeholder="Sets"
+        onChange={(e) => onChange({ sets: e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0) })}
+      />
+      <input style={editFieldStyle} value={exercise.reps ?? ""} placeholder="Reps" onChange={(e) => onChange({ reps: e.target.value || null })} />
+      <button type="button" className="del" title="Remove exercise" aria-label={`Remove ${exercise.name}`} onClick={onRemove} style={{ fontSize: 14 }}>×</button>
+    </div>
+  );
+}
+
+function RoutineCard({
+  routine,
+  editing,
+  onUpdate,
+  onRemove,
+  onAddExercise,
+  onUpdateExercise,
+  onRemoveExercise,
+}: {
+  routine: FitnessRoutine;
+  editing: boolean;
+  onUpdate: (patch: Partial<Pick<FitnessRoutine, "name" | "category">>) => void;
+  onRemove: () => void;
+  onAddExercise: () => void;
+  onUpdateExercise: (exerciseId: string, patch: Partial<FitnessRoutine["exercises"][number]>) => void;
+  onRemoveExercise: (exerciseId: string) => void;
+}) {
+  return (
+    <div className="routine">
+      {editing ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            style={{ ...editFieldStyle, fontWeight: 500 }}
+            value={routine.name}
+            placeholder="Routine name"
+            onChange={(e) => onUpdate({ name: e.target.value, category: e.target.value })}
+          />
+          <button type="button" className="del" title="Remove routine" aria-label={`Remove ${routine.name}`} onClick={onRemove} style={{ fontSize: 15, flexShrink: 0 }}>×</button>
+        </div>
+      ) : (
+        <div className="rn">{routine.name}</div>
+      )}
+      {editing ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+          {routine.exercises.map((ex) => (
+            <ExerciseEditor
+              key={ex.id}
+              exercise={ex}
+              onChange={(patch) => onUpdateExercise(ex.id, patch)}
+              onRemove={() => onRemoveExercise(ex.id)}
+            />
+          ))}
+          <button type="button" className="feed-manage" onClick={onAddExercise} style={{ alignSelf: "flex-start" }}>+ Add exercise</button>
+        </div>
+      ) : (
+        routine.exercises.map((ex) => (
+          <div className="ex" key={ex.id}>
+            <span>{ex.name}</span>
+            <span className="es">{ex.sets ? `${ex.sets} × ${ex.reps ?? ""}` : ex.reps ?? "—"}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function RoutineGrid({
+  discipline,
+  columns,
+}: {
+  discipline: FitnessDiscipline;
+  columns: number;
+}) {
+  const { routines, loading, persistence, addRoutine, updateRoutine, removeRoutine, addExercise, updateExercise, removeExercise } =
+    useFitnessRoutines(discipline);
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: ".08em" }}>
+          {persistence === "supabase" ? "Synced" : "Local draft"}
+        </span>
+        <button
+          type="button"
+          className="rings-edit"
+          aria-label={editing ? "Done editing" : "Edit routines"}
+          onClick={() => setEditing((v) => !v)}
+          style={{ background: "none", border: "none", padding: 0 }}
+        >
+          {editing ? "✓ Done" : "✎ Edit"}
+        </button>
+      </div>
+      {loading ? (
+        <div className="empty-state">Loading routines…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: 16, alignItems: "start" }}>
+          {routines.map((r) => (
+            <RoutineCard
+              key={r.id}
+              routine={r}
+              editing={editing}
+              onUpdate={(patch) => updateRoutine(r.id, patch)}
+              onRemove={() => removeRoutine(r.id)}
+              onAddExercise={() => addExercise(r.id, { name: "New exercise", sets: 3, reps: "10" })}
+              onUpdateExercise={(exId, patch) => updateExercise(r.id, exId, patch)}
+              onRemoveExercise={(exId) => removeExercise(r.id, exId)}
+            />
+          ))}
+          {editing && (
+            <button
+              type="button"
+              className="savebtn"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => addRoutine(discipline === "strength" ? "New Routine" : "New Flow")}
+            >
+              + Add {discipline === "strength" ? "routine" : "flow"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main VitalityModule ───────────────────────────────────────────────────────
 
 const CRONOMETER_OPENED_KEY = "axis-cronometer-opened";
@@ -954,18 +1261,63 @@ export function VitalityModule() {
   const [mealInput, setMealInput] = useState("");
   const [mealParsing, setMealParsing] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
-  const [regimenModal, setRegimenModal] = useState<"run" | "lift" | null>(null);
+  const [regimenModal, setRegimenModal] = useState<"run" | "lift" | "mobility" | null>(null);
   const [cronometerOpened, setCronometerOpened] = useState(false);
+  const [paceUnit, setPaceUnit] = useState<PaceUnit>("km");
+  const [raceGoals, setRaceGoals] = useState<RaceGoal[]>(() => {
+    try {
+      const raw = localStorage.getItem(PR_GOALS_KEY);
+      return raw ? (JSON.parse(raw) as RaceGoal[]) : DEFAULT_GOALS;
+    } catch { return DEFAULT_GOALS; }
+  });
+  const [activeGoalId, setActiveGoalId] = useState<string>(() => raceGoals[0]?.id ?? "g1");
 
   useEffect(() => {
     try { setCronometerOpened(localStorage.getItem(CRONOMETER_OPENED_KEY) === "1"); } catch {}
+    try {
+      const storedUnit = localStorage.getItem(PACE_UNIT_KEY);
+      if (storedUnit === "km" || storedUnit === "mi") setPaceUnit(storedUnit);
+    } catch {}
   }, []);
 
-  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, loading: stravaLoading, disconnect: stravaDisconnect } = useStrava();
+  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit } = useStrava(paceUnit);
   const { open: openInApp } = useWebViewer();
   const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet } = useNutritionProtocol();
+  const strengthRoutines = useFitnessRoutines("strength");
+  const mobilityRoutines = useFitnessRoutines("mobility");
 
   const stravaConnected = stravaStatus?.connected ?? false;
+
+  const changePaceUnit = (u: PaceUnit) => {
+    setPaceUnit(u);
+    setStravaUnit(u);
+    try { localStorage.setItem(PACE_UNIT_KEY, u); } catch {}
+  };
+
+  const activeGoal = raceGoals.find((g) => g.id === activeGoalId) ?? raceGoals[0] ?? DEFAULT_GOALS[0];
+
+  const persistGoals = (next: RaceGoal[]) => {
+    setRaceGoals(next);
+    try { localStorage.setItem(PR_GOALS_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const updateActiveGoal = (patch: Partial<RaceGoal>) => {
+    persistGoals(raceGoals.map((g) => (g.id === activeGoalId ? { ...g, ...patch } : g)));
+  };
+
+  const addGoal = () => {
+    const id = `g_${Date.now().toString(36)}`;
+    const next: RaceGoal = { id, raceType: "10k", currentTime: "0:50:00", targetTime: "0:45:00" };
+    persistGoals([...raceGoals, next]);
+    setActiveGoalId(id);
+  };
+
+  const removeGoal = (id: string) => {
+    if (raceGoals.length <= 1) return;
+    const next = raceGoals.filter((g) => g.id !== id);
+    persistGoals(next);
+    if (activeGoalId === id) setActiveGoalId(next[0]?.id ?? "");
+  };
 
   const toggleRecipe = (id: string) => {
     setSavedRecipes((s) => ({ ...s, [id]: !s[id] }));
@@ -1016,9 +1368,11 @@ export function VitalityModule() {
   };
 
   // Derived running stats — real Strava data when connected, otherwise stub
-  const weeklyKm = stravaConnected && stravaSummary ? stravaSummary.weeklyKm : 38;
+  const sampleWeeklyDist = paceUnit === "mi" ? metresToUnit(38000, "mi") : 38;
+  const sampleAvgPace = paceUnit === "mi" ? "8:22" : "5:12";
+  const weeklyDist = stravaConnected && stravaSummary ? stravaSummary.weeklyDist : sampleWeeklyDist;
   const weeklyDelta = stravaConnected && stravaSummary ? stravaSummary.weeklyKmDelta : 12;
-  const avgPace = stravaConnected && stravaSummary ? stravaSummary.avgPace : "5:12";
+  const avgPace = stravaConnected && stravaSummary ? stravaSummary.avgPace : sampleAvgPace;
   const runActivities = stravaConnected ? stravaActivities.filter((a) => a.sport_type === "Run" || a.type === "Run") : [];
 
   return (
@@ -1077,10 +1431,30 @@ export function VitalityModule() {
 
       {/* ── RUNNING TAB ──────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-run" ? " on" : ""}`} id="fit-run">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <div style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: "var(--r)", overflow: "hidden" }}>
+            {(["km", "mi"] as PaceUnit[]).map((u) => (
+              <button
+                key={u}
+                type="button"
+                aria-pressed={paceUnit === u}
+                onClick={() => changePaceUnit(u)}
+                style={{
+                  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".06em", textTransform: "uppercase",
+                  padding: "4px 10px", border: "none", cursor: "pointer",
+                  background: paceUnit === u ? "var(--accent)" : "transparent",
+                  color: paceUnit === u ? "var(--on-accent, #fff)" : "var(--ink-dim)",
+                }}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="ftop">
           <div className="card tick">
             <div className="seclabel">This Week</div>
-            <div className="bigmetric">{weeklyKm}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> km</span></div>
+            <div className="bigmetric">{weeklyDist}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> {UNIT_LABELS[paceUnit]}</span></div>
             {stravaConnected ? (
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: weeklyDelta >= 0 ? "var(--up)" : "var(--hi)", marginTop: 4 }}>
                 {weeklyDelta >= 0 ? "▴" : "▾"} {Math.abs(weeklyDelta)}% vs last week
@@ -1091,17 +1465,94 @@ export function VitalityModule() {
           </div>
           <div className="card">
             <div className="seclabel">Avg Pace</div>
-            <div className="bigmetric">{avgPace}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> /km</span></div>
+            <div className="bigmetric">{avgPace}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> /{UNIT_LABELS[paceUnit]}</span></div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
               {stravaConnected ? "from Strava" : "Zone 2 · HR 142 · sample"}
             </div>
           </div>
           <div className="card">
-            <div className="seclabel">Goal · Half PR</div>
-            <div className="bigmetric">1:34<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> → 1:29</span></div>
-            <div className="track" style={{ marginTop: 8 }}><div style={{ width: "70%" }} /></div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="seclabel">Goal · {raceGoalLabel(activeGoal)}</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <select
+                  aria-label="Select race goal"
+                  value={activeGoalId}
+                  onChange={(e) => setActiveGoalId(e.target.value)}
+                  style={{ ...editFieldStyle, width: "auto", fontSize: 9.5, padding: "2px 4px" }}
+                >
+                  {raceGoals.map((g) => <option key={g.id} value={g.id}>{raceGoalLabel(g)}</option>)}
+                </select>
+                <button type="button" className="rings-edit" title="Add goal" aria-label="Add goal" onClick={addGoal} style={{ background: "none", border: "none", padding: 0, fontSize: 13 }}>+</button>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <input
+                aria-label="Current time"
+                value={activeGoal.currentTime}
+                onChange={(e) => updateActiveGoal({ currentTime: e.target.value })}
+                placeholder="1:34:00"
+                style={{ ...editFieldStyle, width: 64, fontSize: 13, padding: "3px 5px" }}
+              />
+              <span style={{ color: "var(--ink-faint)" }}>→</span>
+              <input
+                aria-label="Target time"
+                value={activeGoal.targetTime}
+                onChange={(e) => updateActiveGoal({ targetTime: e.target.value })}
+                placeholder="1:29:00"
+                style={{ ...editFieldStyle, width: 64, fontSize: 13, padding: "3px 5px" }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <select
+                aria-label="Race type"
+                value={activeGoal.raceType}
+                onChange={(e) => updateActiveGoal({ raceType: e.target.value as RaceType })}
+                style={{ ...editFieldStyle, fontSize: 10 }}
+              >
+                {RACE_TYPES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+              {activeGoal.raceType === "custom" && (
+                <input
+                  aria-label="Custom race label"
+                  value={activeGoal.customLabel ?? ""}
+                  placeholder="Race name"
+                  onChange={(e) => updateActiveGoal({ customLabel: e.target.value })}
+                  style={{ ...editFieldStyle, fontSize: 10 }}
+                />
+              )}
+              {raceGoals.length > 1 && (
+                <button type="button" className="del" title="Remove goal" aria-label="Remove goal" onClick={() => removeGoal(activeGoalId)} style={{ fontSize: 13, flexShrink: 0 }}>×</button>
+              )}
+            </div>
+            <div className="track" style={{ marginTop: 8 }}><div style={{ width: `${goalProgressPct(activeGoal)}%` }} /></div>
           </div>
         </div>
+
+        {/* Strava highlights — kudos, PRs, achievements */}
+        {stravaConnected && stravaHighlights && (stravaHighlights.totalKudos > 0 || stravaHighlights.prActivityCount > 0) && (
+          <div className="card" style={{ marginTop: 14 }}>
+            <h2 className="sec">
+              Highlights<span className="rule" />
+              <span className="count">👏 {stravaHighlights.totalKudos} kudos</span>
+            </h2>
+            {stravaHighlights.prActivities.length > 0 ? (
+              <div style={{ marginTop: 10 }}>
+                {stravaHighlights.prActivities.map((a) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", minWidth: 68 }}>{fmtDate(a.start_date)}</div>
+                    <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)", flex: 1 }}>{a.name}</div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToUnit(a.distance, paceUnit)} {UNIT_LABELS[paceUnit]}</div>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, padding: "2px 6px", borderRadius: 2, border: "1px solid var(--gold)", color: "var(--gold)", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                      {(a.pr_count ?? 0) > 0 ? "PR" : "Achievement"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 10 }}>No PRs or achievements yet this period — keep training.</p>
+            )}
+          </div>
+        )}
 
         {/* Strava connect prompt if not connected */}
         {!stravaConnected && !stravaLoading && (
@@ -1205,18 +1656,16 @@ export function VitalityModule() {
         </div>
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 14 }}>Strength &amp; Conditioning Reads<span className="rule" /></h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 28px" }}>
-          <div>
-            <div className="hl artlink"><div className="cat">Lifting</div><div><div className="ht">How many hard sets actually build muscle</div><div className="hs">MEN&apos;S HEALTH · 1d</div></div></div>
-            <div className="hl artlink"><div className="cat">Hybrid</div><div><div className="ht">Lifting and running without killing either</div><div className="hs">MEN&apos;S JOURNAL · 2d</div></div></div>
-            <div className="hl artlink"><div className="cat">Program</div><div><div className="ht">Push/pull/legs for the time-crunched</div><div className="hs">MUSCLE &amp; STRENGTH · 3d</div></div></div>
-          </div>
-          <div>
-            <div className="hl artlink"><div className="cat">HIIT</div><div><div className="ht">EMOM circuits that complement mileage</div><div className="hs">MEN&apos;S FITNESS · 3d</div></div></div>
-            <div className="hl artlink"><div className="cat">Recovery</div><div><div className="ht">The recovery levers that actually move the needle</div><div className="hs">MUSCLE &amp; FITNESS · 4d</div></div></div>
-            <div className="hl artlink"><div className="cat">GQ</div><div><div className="ht">Why lifting is the best thing for your wardrobe</div><div className="hs">GQ · 5d</div></div></div>
-          </div>
-        </div>
+        <BriefingList
+          artlink
+          columns
+          emptyLabel="No reads available right now."
+          feedUrls={[
+            "https://www.menshealth.com/rss/fitness.xml/",
+            "https://www.muscleandfitness.com/feed/",
+            "https://www.gq.com/feed/rss",
+          ]}
+        />
       </div>
 
       {/* ── YOGA TAB ──────────────────────────────────────────────────────────── */}
