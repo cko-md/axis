@@ -2526,12 +2526,21 @@ html.light .drawer{box-shadow:-24px 0 60px rgba(60,48,28,.25)}
 .dr-sec{font-family:var(--narrow);font-weight:600;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);margin:20px 0 10px}.dr-sec:first-child{margin-top:0}
 .dr-note{font-family:var(--mono);font-size:9px;color:var(--ink-faint);line-height:1.6;margin-top:22px}
 
-/* ── density (data-density on body) ── */
-body[data-density="compact"]{font-size:12.5px}
-body[data-density="compact"] .card{padding:13px}
-body[data-density="compact"] .view-pad{padding:calc(var(--topbar-h) + 12px) 22px 56px}
-body[data-density="cozy"] .card{padding:20px}
-body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 32px) 38px 72px}
+/* ── density (data-density on body) ──
+   Defaults: font-size 13px · --card-pad 16px · --space-3 (grid gap) 14px ·
+   .view-pad calc(topbar + 44px) 34px 70px. The three steps below are tuned to
+   be clearly, visibly distinct — compact reads dense, cozy reads airy. */
+body[data-density="compact"]{font-size:12px}
+body[data-density="compact"] .card{padding:10px}
+body[data-density="compact"] .view-pad{padding:calc(var(--topbar-h) + 16px) 20px 48px}
+body[data-density="compact"] .grid{gap:9px}
+body[data-density="compact"]{--space-3:9px;--card-pad:10px}
+
+body[data-density="cozy"]{font-size:14px}
+body[data-density="cozy"] .card{padding:24px}
+body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 40px) 40px 80px}
+body[data-density="cozy"] .grid{gap:22px}
+body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
 
 /* ── app window overlay (external apps) ── */
 .overlay{position:fixed;inset:0;z-index:50;background:rgba(5,6,8,.78);backdrop-filter:blur(8px) saturate(120%);display:none;align-items:center;justify-content:center;padding:2.4vh 2vw}.overlay.on{display:flex;animation:fade .25s ease}

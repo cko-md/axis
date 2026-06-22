@@ -2,10 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 
 type Props = {
@@ -14,15 +13,27 @@ type Props = {
   onProfileName?: (name: string) => void;
 };
 
+type ProfileForm = { name: string; role: string; bio: string; photo: string };
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+const AUTOSAVE_DEBOUNCE_MS = 600;
+
 export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const { toast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
   const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState({ name: "", role: "", bio: "", photo: "" });
-  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileForm, setProfileForm] = useState<ProfileForm>({ name: "", role: "", bio: "", photo: "" });
+  const [saveState, setSaveState] = useState<SaveState>("idle");
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-save plumbing. We persist the actual upsert behind a debounce so rapid
+  // keystrokes collapse into one write. `loadedRef` guards against the initial
+  // hydration of the form (from the DB) triggering a needless save.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedRef = useRef(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -43,33 +54,63 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         bio: data?.bio ?? "",
         photo: data?.avatar_url ?? "",
       });
+      // Mark loaded on the next tick so the form-hydration state update above
+      // does not fire the auto-save effect.
+      loadedRef.current = false;
+      requestAnimationFrame(() => { loadedRef.current = true; });
     })();
-  }, [supabase]);
+  }, [supabase, onProfileName]);
 
-  const saveProfile = async () => {
-    setProfileSaving(true);
+  const persistProfile = useCallback(async (form: ProfileForm) => {
+    setSaveState("saving");
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await supabase.from("profiles").upsert({
+      if (!user) { setSaveState("idle"); return; }
+      const { error } = await supabase.from("profiles").upsert({
         id: user.id,
-        display_name: profileForm.name.trim(),
-        role_title: profileForm.role.trim(),
-        bio: profileForm.bio.trim(),
-        avatar_url: profileForm.photo.trim(),
+        display_name: form.name.trim(),
+        role_title: form.role.trim(),
+        bio: form.bio.trim(),
+        avatar_url: form.photo.trim(),
         updated_at: new Date().toISOString(),
       });
-      const savedName = profileForm.name.trim() || "Account";
-      setProfile({ name: savedName, role: profileForm.role.trim() });
+      if (error) throw error;
+      const savedName = form.name.trim() || "Account";
+      setProfile({ name: savedName, role: form.role.trim() });
       onProfileName?.(savedName);
-      setProfileOpen(false);
-      toast("Profile saved", "success", "Profile");
+      setSaveState("saved");
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSaveState("idle"), 2000);
     } catch {
+      setSaveState("error");
       toast("Could not save profile", "error", "Profile");
-    } finally {
-      setProfileSaving(false);
     }
-  };
+  }, [supabase, onProfileName, toast]);
+
+  // Debounced auto-save: any change to the form (after initial load) schedules
+  // an upsert ~600ms later. The modal being open is not required — edits flush
+  // even if the user closes it mid-debounce because the timer outlives the modal.
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void persistProfile(profileForm);
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [profileForm, persistProfile]);
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+  }, []);
+
+  const saveStateLabel =
+    saveState === "saving" ? "Saving…" :
+    saveState === "saved" ? "Saved" :
+    saveState === "error" ? "Retry pending…" :
+    "";
 
   const handlePhotoFile = async (file: File) => {
     if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
@@ -127,18 +168,50 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         )}
       </div>
 
-      {/* Profile modal */}
+      {/* Profile modal — fields auto-save on edit (debounced). */}
       <Modal
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
         title="Profile"
         footer={
-          <>
-            <Button variant="ghost" onClick={() => setProfileOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => void saveProfile()} disabled={profileSaving}>
-              {profileSaving ? "Saving…" : "Save"}
-            </Button>
-          </>
+          <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+            <span
+              role="status"
+              aria-live="polite"
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                letterSpacing: ".1em",
+                textTransform: "uppercase",
+                color: saveState === "error" ? "var(--clay-2)" : saveState === "saved" ? "var(--gold)" : "var(--ink-faint)",
+                transition: "color .2s",
+                minHeight: 14,
+              }}
+            >
+              {saveStateLabel ? (
+                <>
+                  {saveState === "saving" && (
+                    <span
+                      aria-hidden
+                      style={{
+                        display: "inline-block",
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: "currentColor",
+                        marginRight: 7,
+                        verticalAlign: "middle",
+                        animation: "pulse 1s ease-in-out infinite",
+                      }}
+                    />
+                  )}
+                  {saveStateLabel}
+                </>
+              ) : (
+                "Changes save automatically"
+              )}
+            </span>
+          </div>
         }
       >
         {/* Avatar upload */}
