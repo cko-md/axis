@@ -99,22 +99,7 @@ export function AppShell({ section, page, children }: Props) {
 
   return (
     <SpotifyProvider>
-      <a
-        href="#main-content"
-        className="skip-link"
-        style={{
-          position: "absolute",
-          left: "-9999px",
-          top: 0,
-          zIndex: 10000,
-          padding: "0.75rem 1.25rem",
-          background: "var(--accent, #2563eb)",
-          color: "#fff",
-          borderRadius: "0 0 8px 0",
-        }}
-        onFocus={(e) => { e.currentTarget.style.left = "0"; }}
-        onBlur={(e) => { e.currentTarget.style.left = "-9999px"; }}
-      >
+      <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
       <div className="depthfield" aria-hidden>
