@@ -125,6 +125,49 @@ function relativeTime(iso: string): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+// Route every preview image through our own /api/og-image proxy so CORS / 403
+// hotlink-protection on the upstream host can't silently break the thumbnail.
+function proxyImage(url: string): string {
+  return `/api/og-image?url=${encodeURIComponent(url)}`;
+}
+
+// Scrape an article page for its og:image when the feed item carried no image.
+async function scrapeOgImage(pageUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/og-image?url=${encodeURIComponent(pageUrl)}&meta=1`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.image === "string" ? data.image : null;
+  } catch {
+    return null;
+  }
+}
+
+// Preview image overlaid on a card/reader whose parent already paints a gradient.
+// Routed through /api/og-image (proxy mode) to dodge CORS / 403 hotlink failures;
+// on any load error the <img> removes itself, revealing the gradient underneath.
+function PreviewImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={proxyImage(src)}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        zIndex: 0,
+      }}
+    />
+  );
+}
+
 export function BriefingModule() {
   const { open: openInApp } = useWebViewer();
   const { toast } = useToast();
@@ -220,6 +263,19 @@ export function BriefingModule() {
           }),
         );
         setFeedItems(items);
+
+        // For items the feed gave no image, scrape the article's og:image in the
+        // background and patch it in. Failures are silent (gradient stays).
+        items
+          .filter((it) => !it.image && it.url)
+          .forEach((it) => {
+            void scrapeOgImage(it.url).then((img) => {
+              if (!img) return;
+              setFeedItems((prev) =>
+                prev.map((p) => (p.id === it.id && !p.image ? { ...p, image: img } : p)),
+              );
+            });
+          });
       })
       .catch(() => {})
       .finally(() => { if (!opts?.silent) setFeedsLoading(false); });
@@ -345,9 +401,12 @@ export function BriefingModule() {
       <div className="reader">
         <div
           className="r-media"
-          style={reader.image ? { backgroundImage: `url(${reader.image})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+          style={reader.gradient ? { background: reader.gradient } : undefined}
         >
-          <div className="play" onClick={() => openInApp(reader.url, reader.shortTitle)} style={{ cursor: "pointer" }} title="Open in app" />
+          {reader.image && (
+            <PreviewImage src={reader.image} alt={reader.shortTitle} />
+          )}
+          <div className="play" onClick={() => openInApp(reader.url, reader.shortTitle)} style={{ cursor: "pointer", position: "relative", zIndex: 1 }} title="Open in app" />
           <div className="scrub">
             <span>02:14</span>
             <div className="bar" />
@@ -495,8 +554,9 @@ export function BriefingModule() {
           >
             <div
               className="thumb"
-              style={s.image ? { backgroundImage: `url(${s.image})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.gradient }}
+              style={{ background: s.gradient }}
             >
+              {s.image && <PreviewImage src={s.image} alt={s.shortTitle} />}
               <div className="nc-cat">{s.cat}</div>
               {s.video && (
                 <div className="play">

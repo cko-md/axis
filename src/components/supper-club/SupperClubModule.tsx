@@ -8,6 +8,24 @@ const SAVED_KEY   = "axis-supper-saved";
 const RECIPES_KEY = "axis-supper-recipes";
 const DIET_KEY    = "axis-supper-diet";
 
+function proxyImage(url: string): string {
+  return `/api/og-image?url=${encodeURIComponent(url)}`;
+}
+
+function RecipeImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={proxyImage(src)}
+      alt={alt}
+      onError={() => setFailed(true)}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }}
+    />
+  );
+}
+
 function RecipeCard({
   recipe,
   saved,
@@ -22,10 +40,12 @@ function RecipeCard({
   return (
     <div className="recipe" style={{ cursor: "pointer" }} onClick={onOpen}>
       <div className="rc-img" style={{ background: recipe.g }}>
-        <span className="rc-diet">{recipe.mine ? "Mine" : DIET_LABEL[recipe.diets[0]]}</span>
+        {recipe.image && <RecipeImage src={recipe.image} alt={recipe.t} />}
+        <span className="rc-diet" style={{ zIndex: 1 }}>{recipe.mine ? "Mine" : DIET_LABEL[recipe.diets[0]]}</span>
         {!recipe.mine && (
           <span
             className={`rc-save${saved ? " on" : ""}`}
+            style={{ zIndex: 1 }}
             title="Save to Supper Club"
             onClick={(e) => {
               e.stopPropagation();
