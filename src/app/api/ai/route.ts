@@ -156,6 +156,57 @@ function heuristicNoteTitle(text: string): { title: string } {
   return { title: first || "Untitled" };
 }
 
+// ── Study-aid types + heuristic fallbacks (no API key) ───────────────────────
+type Flashcard = { front: string; back: string };
+type QuizItem = { question: string; answer: string };
+type MindMapNode = { label: string; children?: MindMapNode[] };
+
+// Split prose into the most "sentence-like" chunks for heuristic generation.
+function sentencesOf(text: string, limit = 12): string[] {
+  return stripHtml(text)
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 12)
+    .slice(0, limit);
+}
+
+function heuristicFlashcards(text: string, title?: string): { cards: Flashcard[] } {
+  const sentences = sentencesOf(text, 8);
+  const cards: Flashcard[] = sentences.map((s) => {
+    // Use the first few words as the "front" cue, the full sentence as the "back".
+    const words = s.split(/\s+/);
+    const front = words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");
+    return { front: `What about: ${front}`, back: s };
+  });
+  if (!cards.length) cards.push({ front: title || "This note", back: "Add more content to generate flashcards." });
+  return { cards };
+}
+
+function heuristicQuiz(text: string): { items: QuizItem[] } {
+  const sentences = sentencesOf(text, 6);
+  const items: QuizItem[] = sentences.map((s, i) => ({
+    question: `Q${i + 1}. Explain: "${s.split(/\s+/).slice(0, 8).join(" ")}…"`,
+    answer: s,
+  }));
+  if (!items.length) items.push({ question: "Add content to generate quiz questions.", answer: "—" });
+  return { items };
+}
+
+function heuristicMindMap(text: string, title?: string): { root: MindMapNode } {
+  const sentences = sentencesOf(text, 6);
+  return {
+    root: {
+      label: title || "Note",
+      children: sentences.map((s) => ({ label: s.split(/\s+/).slice(0, 7).join(" ") })),
+    },
+  };
+}
+
+function heuristicStudySummary(text: string, title?: string): { summary: string } {
+  // Same shape as notes-summarize, but framed as study notes.
+  return heuristicNoteSummarize(text, title);
+}
+
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -194,6 +245,10 @@ export async function POST(req: NextRequest) {
     if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
     if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
     if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));
+    if (mode === "flashcards") return NextResponse.json(heuristicFlashcards(text, title));
+    if (mode === "quiz") return NextResponse.json(heuristicQuiz(text));
+    if (mode === "mindmap") return NextResponse.json(heuristicMindMap(text, title));
+    if (mode === "summary") return NextResponse.json(heuristicStudySummary(text, title));
     if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
@@ -339,6 +394,71 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ title: generated });
     }
 
+    // ── flashcards (study aid) ───────────────────────────────────────────────────
+    if (mode === "flashcards") {
+      const noteCtx = title ? `Note: "${title}"\n\n` : "";
+      const result = await aiJSON<{ cards: Flashcard[] }>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You are a study-aid generator. From the note content, produce a set of revision flashcards. Return ONLY a JSON object with key "cards": an array of 6-12 objects, each { front (a question/cue, ≤120 chars), back (the concise answer, ≤300 chars) }. Cover the most important, testable facts and concepts. No markdown, no preamble.',
+        userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
+        maxTokens: 1200,
+      });
+      const { _model: _, ...data } = result;
+      const cards = Array.isArray(data.cards) ? data.cards : [];
+      return NextResponse.json({ cards });
+    }
+
+    // ── quiz (study aid) ─────────────────────────────────────────────────────────
+    if (mode === "quiz") {
+      const noteCtx = title ? `Note: "${title}"\n\n` : "";
+      const result = await aiJSON<{ items: QuizItem[] }>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You are a study-aid generator. From the note content, write quiz questions with reveal answers. Return ONLY a JSON object with key "items": an array of 5-8 objects, each { question (a clear self-test question, ≤160 chars), answer (the model answer, ≤400 chars) }. Favor questions that test understanding, not trivia. No markdown, no preamble.',
+        userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
+        maxTokens: 1200,
+      });
+      const { _model: _, ...data } = result;
+      const items = Array.isArray(data.items) ? data.items : [];
+      return NextResponse.json({ items });
+    }
+
+    // ── mindmap (study aid) ──────────────────────────────────────────────────────
+    if (mode === "mindmap") {
+      const noteCtx = title ? `Note title: "${title}"\n\n` : "";
+      const result = await aiJSON<{ root: MindMapNode }>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You build a hierarchical mind map from note content. Return ONLY a JSON object with key "root": a node object { label (string, ≤60 chars), children (array of node objects, optional, recursive) }. The root label is the central topic. Use 3-6 top-level branches, each with 2-4 children. Keep at most 3 levels deep. No markdown, no preamble.',
+        userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
+        maxTokens: 1000,
+      });
+      const { _model: _, ...data } = result;
+      const root: MindMapNode = data.root && typeof data.root === "object"
+        ? data.root
+        : { label: title || "Note", children: [] };
+      return NextResponse.json({ root });
+    }
+
+    // ── summary (study aid) ──────────────────────────────────────────────────────
+    // Study-focused summary (distinct from notes-summarize's terse bullets).
+    if (mode === "summary") {
+      const noteCtx = title ? `Note: "${title}"\n\n` : "";
+      const { text: summary } = await aiGenerate({
+        mode,
+        anthropic,
+        providerPref,
+        system: "You are a study tutor. Given note content, produce a study summary in Markdown: a one-sentence overview, then a '**Key concepts**' section with 3-6 bullets, then a '**Remember**' section with 2-4 of the most exam-relevant takeaways. Be concise. Return only the Markdown, no preamble.",
+        userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
+        maxTokens: 700,
+      });
+      return NextResponse.json({ summary });
+    }
+
     // ── meeting-summary ────────────────────────────────────────────────────────
     if (mode === "meeting-summary") {
       const noteCtx = title ? `Note title: ${title}\n\n` : "";
@@ -415,6 +535,10 @@ export async function POST(req: NextRequest) {
     if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
     if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
     if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));
+    if (mode === "flashcards") return NextResponse.json(heuristicFlashcards(text, title));
+    if (mode === "quiz") return NextResponse.json(heuristicQuiz(text));
+    if (mode === "mindmap") return NextResponse.json(heuristicMindMap(text, title));
+    if (mode === "summary") return NextResponse.json(heuristicStudySummary(text, title));
     if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
