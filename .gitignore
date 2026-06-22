@@ -42,3 +42,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .superdesign
+
+# claude code local-only state
+.claude/workflows/
+.claude/settings.local.json
+.claude/worktrees/

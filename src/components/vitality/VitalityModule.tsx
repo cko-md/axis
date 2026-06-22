@@ -905,7 +905,8 @@ const HEALTH_DEVICES = [
     description: "HRV · sleep stages · readiness · body temp",
     metrics: ["HRV", "Sleep", "Readiness", "Resting HR"],
     color: "var(--gold)",
-    comingSoon: false,
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "garmin",
@@ -914,7 +915,8 @@ const HEALTH_DEVICES = [
     description: "VO₂ max · training load · GPS activities · recovery",
     metrics: ["VO₂ Max", "Training Load", "Steps", "Resting HR"],
     color: "var(--marine)",
-    comingSoon: false,
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "whoop",
@@ -923,7 +925,8 @@ const HEALTH_DEVICES = [
     description: "Recovery score · strain · sleep performance · SpO₂",
     metrics: ["Recovery", "Strain", "Sleep", "HRV"],
     color: "#7c6fad",
-    comingSoon: false,
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "fitbit",
@@ -932,7 +935,8 @@ const HEALTH_DEVICES = [
     description: "Steps · active zone minutes · sleep · resting HR",
     metrics: ["Steps", "Active Minutes", "Sleep", "Resting HR"],
     color: "#4fa89c",
-    comingSoon: false,
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "apple_health",
@@ -942,6 +946,7 @@ const HEALTH_DEVICES = [
     metrics: ["All metrics via HealthKit"],
     color: "var(--ink-faint)",
     comingSoon: true,
+    badge: "iOS only",
   },
 ];
 
@@ -957,6 +962,7 @@ const HEALTH_METRICS = [
 function HealthMetricsPanel() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connected, setConnected]   = useState<Set<string>>(new Set());
+  const [devicesOpen, setDevicesOpen] = useState(false);
   const { toast } = useToast();
 
   const handleConnect = async (deviceId: string) => {
@@ -1022,10 +1028,29 @@ function HealthMetricsPanel() {
         )}
       </div>
 
-      {/* Device connection cards */}
+      {/* Device connection cards — collapsed by default; none are wired up yet */}
       <div className="card" style={{ padding: "18px 20px", marginTop: 12 }}>
-        <h2 className="sec">Devices<span className="rule" /></h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+        <h2 className="sec">
+          Devices
+          <span className="rule" />
+          <span className="count" style={{ color: "var(--ink-faint)" }}>
+            {connected.size > 0 ? `${connected.size} connected` : `${HEALTH_DEVICES.length} coming soon`}
+          </span>
+        </h2>
+        <button
+          type="button"
+          onClick={() => setDevicesOpen((o) => !o)}
+          style={{
+            background: "none", border: "none", color: "var(--ink-faint)", fontSize: 11,
+            fontFamily: "var(--mono)", letterSpacing: ".08em", cursor: "pointer",
+            padding: "6px 0", display: "block", width: "100%", textAlign: "center",
+          }}
+          aria-expanded={devicesOpen}
+        >
+          {devicesOpen ? "▲ Collapse" : `▼ Show wearable integrations (${HEALTH_DEVICES.length})`}
+        </button>
+        {devicesOpen && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
           {HEALTH_DEVICES.map((d) => {
             const isConnected = connected.has(d.id);
             const isConnecting = connecting === d.id;
@@ -1055,7 +1080,7 @@ function HealthMetricsPanel() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>{d.name}</span>
                     {d.comingSoon && (
-                      <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>iOS only</span>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>{d.badge}</span>
                     )}
                     {isConnected && (
                       <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--up)", border: "1px solid var(--up)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>syncing</span>
@@ -1097,9 +1122,12 @@ function HealthMetricsPanel() {
             );
           })}
         </div>
+        )}
+        {devicesOpen && (
         <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 14, lineHeight: 1.6, letterSpacing: ".06em" }}>
           OAUTH 2.0 · END-TO-END ENCRYPTED · NO DATA SOLD
         </p>
+        )}
       </div>
     </>
   );

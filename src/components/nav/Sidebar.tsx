@@ -513,41 +513,28 @@ export function Sidebar({ collapsed, onToggle }: Props) {
             const moonT = Math.max(0, Math.min(1, moonHour / 12));
             const arcX = (t: number) => 3 + t * 24;
             const arcY = (t: number) => Math.round((24 - Math.sin(Math.PI * t) * 17) * 1e6) / 1e6;
-            const sx = arcX(sunT); const sy = arcY(sunT);
-            const mx = arcX(moonT); const my = arcY(moonT);
+            const t = isDay ? sunT : moonT;
+            const ox = arcX(t); const oy = arcY(t);
+            const starOp = sunHour >= 20 || sunHour < 4 ? 1 :
+              sunHour >= 18 ? (sunHour - 18) / 2 :
+              sunHour < 6 ? (6 - sunHour) / 2 : 0;
             return (
               <svg viewBox="0 0 30 30" fill="none" style={{ width: 30, height: 30 }}>
                 <defs>
-                  <linearGradient id="mtnGrad" x1="15" y1="24" x2="15" y2="9" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="white" stopOpacity="0.85" />
-                    <stop offset="100%" stopColor="#16B8F3" />
-                  </linearGradient>
+                  <radialGradient id="orbGlow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor={isDay ? "var(--accent-bright)" : "var(--marine-2)"} stopOpacity="1" />
+                    <stop offset="55%" stopColor={isDay ? "var(--accent)" : "var(--marine)"} stopOpacity=".5" />
+                    <stop offset="100%" stopColor={isDay ? "var(--accent)" : "var(--marine)"} stopOpacity="0" />
+                  </radialGradient>
                 </defs>
-                {isDay && <>
-                  <circle cx={sx} cy={sy} r="6" fill="rgba(255,140,50,.38)" className="sun-aura" />
-                  <circle cx={sx} cy={sy} r="2.2" fill="#FF8C3A" className="sun-core" />
-                </>}
-                {!isDay && <>
-                  <circle cx={mx} cy={my} r="6" fill="rgba(180,210,255,.16)" className="moon-aura" />
-                  <circle cx={mx} cy={my} r="2.2" fill="#d4e8ff" />
-                </>}
-                {(() => {
-                  const op = sunHour >= 20 || sunHour < 4 ? 1 :
-                    sunHour >= 18 ? (sunHour - 18) / 2 :
-                    sunHour < 6 ? (6 - sunHour) / 2 : 0;
-                  return op > 0 ? (
-                    <g opacity={op}>
-                      <circle cx="4.5" cy="5" r="0.6" fill="white" className="logo-star ls1" />
-                      <circle cx="16" cy="3" r="0.5" fill="white" className="logo-star ls2" />
-                      <circle cx="26" cy="5" r="0.65" fill="white" className="logo-star ls3" />
-                      <circle cx="9" cy="14" r="0.5" fill="white" className="logo-star ls4" />
-                      <circle cx="23" cy="15" r="0.55" fill="white" className="logo-star ls5" />
-                      <circle cx="28.5" cy="12" r="0.5" fill="white" className="logo-star ls6" />
-                    </g>
-                  ) : null;
-                })()}
-                <path d="M3 24 L11 9 L16.5 18 L20 12.5 L27 24" stroke="url(#mtnGrad)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M3 24 H27" stroke="#9aa7b8" strokeWidth="1.1" strokeLinecap="round" opacity=".7" />
+                <path d="M3 24 H27" stroke="var(--line)" strokeWidth="1.1" strokeLinecap="round" />
+                {starOp > 0 && (
+                  <g opacity={starOp}>
+                    <circle cx="6" cy="6" r="0.55" fill="var(--ink-faint)" className="logo-star ls1" />
+                    <circle cx="24.5" cy="5.5" r="0.5" fill="var(--ink-faint)" className="logo-star ls2" />
+                  </g>
+                )}
+                <circle cx={ox} cy={oy} r="6" fill="url(#orbGlow)" className="logo-orb" />
               </svg>
             );
           })()}

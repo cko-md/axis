@@ -11,6 +11,8 @@ import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { Seg } from "@/components/ui/Seg";
+import type { AIProviderPref } from "@/lib/ai/router";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -90,6 +92,8 @@ export function ControlRoomModule() {
   // Service setup-states ---------------------------------------------------
   const [marketStatus, setMarketStatus] = useState<ServiceStatus | null>(null);
   const [aiStatus, setAiStatus] = useState<ServiceStatus | null>(null);
+  const [aiProvider, setAiProvider] = useState<AIProviderPref>("auto");
+  const [aiProviderSaving, setAiProviderSaving] = useState(false);
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [stravaConnected, setStravaConnected] = useState<boolean | null>(null);
   const [brokerStatus, setBrokerStatus] = useState<ServiceStatus | null>(null);
@@ -150,12 +154,13 @@ export function ControlRoomModule() {
       let roleTitle: string | null = null;
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, role_title")
+        .select("display_name, role_title, ai_provider")
         .eq("id", u.id)
         .maybeSingle();
       if (profile) {
         displayName = profile.display_name ?? null;
         roleTitle = profile.role_title ?? null;
+        setAiProvider((profile.ai_provider as AIProviderPref) ?? "auto");
       }
       if (!alive) return;
       setUser({
@@ -266,6 +271,16 @@ export function ControlRoomModule() {
   useEffect(() => {
     loadActivity();
   }, [loadActivity]);
+
+  const saveAiProvider = useCallback(async (pref: AIProviderPref) => {
+    setAiProvider(pref);
+    setAiProviderSaving(true);
+    const { data } = await supabase.auth.getUser();
+    if (data.user) {
+      await supabase.from("profiles").update({ ai_provider: pref }).eq("id", data.user.id);
+    }
+    setAiProviderSaving(false);
+  }, [supabase]);
 
   // --- Load security settings when security tab is active ----------------
   useEffect(() => {
@@ -748,6 +763,28 @@ export function ControlRoomModule() {
               )}
             </div>
           ))}
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <h2 className="sec">
+            AI Model<span className="rule" />
+          </h2>
+          <p className={styles.note} style={{ marginBottom: 10 }}>
+            Auto picks the cheapest capable model per task (Gemini for quick classification, Claude for writing and
+            conversation). Forcing a provider routes every AI feature through it instead, falling back to the other
+            only if it&rsquo;s unavailable. Semantic search always uses Gemini&rsquo;s embedding model regardless of this
+            setting — switching embedding providers would break existing search results.
+          </p>
+          <Seg<AIProviderPref>
+            options={[
+              { label: "Auto", value: "auto" },
+              { label: "Gemini", value: "gemini" },
+              { label: "Claude", value: "anthropic" },
+            ]}
+            value={aiProvider}
+            onChange={(v) => void saveAiProvider(v)}
+          />
+          {aiProviderSaving && <p className={styles.note} style={{ marginTop: 8 }}>Saving…</p>}
         </div>
       </div>
 

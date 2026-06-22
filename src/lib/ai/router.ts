@@ -1,23 +1,31 @@
 /**
  * AI Model Router
  *
- * Picks the cheapest capable model for each task:
+ * Default ("auto") picks the cheapest capable model for each task:
  *   1. Gemini Flash (free tier) — simple JSON classification & short text
  *   2. Claude Haiku             — writing quality, personality, complex JSON
  *
- * Modes routed to Gemini first (falls back to Haiku on error / missing key):
+ * Modes routed to Gemini first under "auto" (falls back to Haiku on error / missing key):
  *   capture | triage | route | notes-title
  *
- * Modes always on Haiku (quality / conversation / long output):
+ * Modes always on Haiku under "auto" (quality / conversation / long output):
  *   companion | notes-summarize | notes-rewrite | meeting-summary |
  *   deck-insights | regimen | regimenPlan
+ *
+ * A user can override this via profiles.ai_provider ("gemini" | "anthropic"),
+ * forcing every mode onto that provider (falling back to the other only if
+ * the forced one is unavailable/fails). This NEVER affects embedText()
+ * (src/lib/ai/embed.ts) — semantic search stays Gemini-only regardless,
+ * since switching embedding providers would silently break vector search.
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
 
 // ── Gemini config ──────────────────────────────────────────────────────────────
 
-const GEMINI_MODEL = "gemini-1.5-flash";
+// gemini-1.5-flash was retired by Google and 404s — gemini-2.5-flash is the
+// current stable equivalent for cheap classification/short-text generation.
+const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Tasks suitable for Gemini: small outputs, JSON classification, no personality required
@@ -52,6 +60,10 @@ async function geminiGenerate(params: {
       generationConfig: {
         maxOutputTokens: params.maxTokens,
         temperature: params.temperature ?? 0.05,
+        // These modes are short deterministic classification/generation —
+        // 2.5 Flash's "thinking" tokens count against maxOutputTokens and can
+        // starve the actual answer on tight budgets (e.g. notes-title at 60).
+        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
   });
@@ -74,6 +86,8 @@ async function geminiGenerate(params: {
 
 // ── Main router ────────────────────────────────────────────────────────────────
 
+export type AIProviderPref = "auto" | "gemini" | "anthropic";
+
 export interface AIGenerateParams {
   mode: string;
   system: string;
@@ -83,6 +97,8 @@ export interface AIGenerateParams {
   anthropic: Anthropic | null;
   // For multi-turn modes (companion, etc.)
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
+  // User's profiles.ai_provider preference. Defaults to "auto" (cost-routed).
+  providerPref?: AIProviderPref;
 }
 
 export interface AIGenerateResult {
@@ -91,14 +107,17 @@ export interface AIGenerateResult {
 }
 
 /**
- * Smart AI call: Gemini Flash → Claude Haiku, in order of cost.
- * Always returns { text, model } — caller decides how to parse.
+ * Smart AI call: Gemini Flash → Claude Haiku, in order of cost (under "auto"),
+ * or a forced provider per providerPref. Always returns { text, model } —
+ * caller decides how to parse.
  */
 export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateResult> {
-  const { mode, system, userMessage, maxTokens, temperature, anthropic, conversationHistory } = params;
+  const { mode, system, userMessage, maxTokens, temperature, anthropic, conversationHistory, providerPref = "auto" } = params;
 
-  // ── Tier 1: Gemini Flash (free) ─────────────────────────────────────────────
-  if (GEMINI_ELIGIBLE.has(mode) && process.env.GEMINI_API_KEY) {
+  const tryGemini = providerPref === "gemini" || (providerPref === "auto" && GEMINI_ELIGIBLE.has(mode));
+
+  // ── Tier 1: Gemini Flash ─────────────────────────────────────────────────────
+  if (tryGemini && process.env.GEMINI_API_KEY) {
     try {
       const history: GeminiContent[] = (conversationHistory ?? []).map((m) => ({
         role: m.role === "assistant" ? "model" : "user",

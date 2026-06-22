@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
@@ -37,6 +37,7 @@ export function AppShell({ section, page, children }: Props) {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isNight, setIsNight] = useState(false);
+  const autoCollapsedRef = useRef(false);
 
   useEffect(() => {
     const check = () => {
@@ -59,19 +60,42 @@ export function AppShell({ section, page, children }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Auto-collapse sidebar on narrow viewports
+  // Auto-collapse sidebar on narrow viewports, and restore it when the
+  // viewport widens back out — but only if the collapse was automatic
+  // (a manual toggle via cycleMode sticks across resizes).
   useEffect(() => {
     const onResize = () => {
       const w = window.innerWidth;
-      if (w < 600) setSidebarMode((m) => (m === "open" || m === "icons") ? "hidden" : m);
-      else if (w < 860) setSidebarMode((m) => m === "open" ? "icons" : m);
+      if (w < 600) {
+        setSidebarMode((m) => {
+          if (m === "open" || m === "icons") {
+            autoCollapsedRef.current = true;
+            return "hidden";
+          }
+          return m;
+        });
+      } else if (w < 860) {
+        setSidebarMode((m) => {
+          if (m === "open") {
+            autoCollapsedRef.current = true;
+            return "icons";
+          }
+          return m;
+        });
+      } else if (autoCollapsedRef.current) {
+        autoCollapsedRef.current = false;
+        setSidebarMode("open");
+      }
     };
     onResize();
     window.addEventListener("resize", onResize, { passive: true });
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const cycleMode = () => setSidebarMode((m) => NEXT_MODE[m]);
+  const cycleMode = () => {
+    autoCollapsedRef.current = false;
+    setSidebarMode((m) => NEXT_MODE[m]);
+  };
 
   return (
     <SpotifyProvider>

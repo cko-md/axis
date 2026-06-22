@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-import { aiGenerate, aiJSON } from "@/lib/ai/router";
+import { aiGenerate, aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 import { memoryRateLimit } from "@/lib/ratelimit";
 
@@ -183,6 +183,9 @@ export async function POST(req: NextRequest) {
 
   const { mode, text, body, title } = (await req.json()) as { mode: string; text: string; body?: string; title?: string };
 
+  const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
+  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "auto";
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const hasGemini = !!process.env.GEMINI_API_KEY;
 
@@ -222,29 +225,28 @@ export async function POST(req: NextRequest) {
   try {
     // ── companion ──────────────────────────────────────────────────────────────
     if (mode === "companion") {
-      if (!anthropic) return NextResponse.json({ response: "Companion requires an Anthropic API key." });
-
       const ctx = body ? JSON.parse(body) as { context?: string; history?: Array<{ role: string; content: string }>; persona?: string } : {};
       const rawContext = String(ctx.context ?? "").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 1500);
       const context = rawContext ? `<context>${rawContext}</context>` : "";
-      const history = (ctx.history ?? []).slice(-10);
+      const history = (ctx.history ?? []).slice(-10).map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
       const persona = ctx.persona ?? "axiom";
 
       const systemPrompt = persona === "nova"
         ? `You are Nova, a single-shot oracle embedded in Axis. ${context} Give one direct, precise answer. No lists, no follow-ups. Max 2 sentences. Never start with "I". Be oracular — distilled, final.`
         : `You are Axiom, the persistent intelligence layer in Axis — a personal operating system for a neuroscience physician-researcher. You hold the thread across the session: reference what was discussed, track open loops, surface what matters next. ${context} Respond with precision and strategic brevity. Avoid filler. When you give lists, keep them to 3 items. Never start your reply with "I". Stay contextually grounded.`;
 
-      // Companion always on Haiku — personality and context continuity matter
-      const msg = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: persona === "nova" ? 120 : 400,
+      // "auto" keeps companion on Haiku (personality/context continuity) unless
+      // the user explicitly forces Gemini or Anthropic via providerPref.
+      const { text: response } = await aiGenerate({
+        mode,
+        anthropic,
+        providerPref,
         system: systemPrompt,
-        messages: [
-          ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-          { role: "user", content: text },
-        ],
+        userMessage: text,
+        conversationHistory: history,
+        maxTokens: persona === "nova" ? 120 : 400,
       });
-      return NextResponse.json({ response: (msg.content[0] as { type: string; text: string }).text.trim() });
+      return NextResponse.json({ response });
     }
 
     // ── deck-insights ──────────────────────────────────────────────────────────
@@ -254,6 +256,7 @@ export async function POST(req: NextRequest) {
       const raw = await aiGenerate({
         mode,
         anthropic,
+        providerPref,
         system: `You generate concise contextual intelligence cards for a personal OS. Given the current module and time of day, return ONLY a JSON array of 3–5 objects. Each has: title (string, ≤5 words), body (string, ≤22 words, specific and actionable), optionally: actionLabel (string, ≤3 words), actionPath (string, URL path like "/literature" or "/agenda"). Focus on what the user should pay attention to right now. No markdown, no preamble.`,
         userMessage: context,
         maxTokens: 500,
@@ -268,6 +271,7 @@ export async function POST(req: NextRequest) {
       const result = await aiJSON<RegimenResult>({
         mode,
         anthropic,
+        providerPref,
         system: `You are an elite personal trainer and running coach. Given a workout session spec, return ONLY a JSON object with keys: warmup (string or null), items (array of exercise objects), cooldown (string or null). Each item has: name (string), and as relevant: sets (number), reps (string like "8-12"), weight (string like "RPE 8" or "BW"), rest (string like "90s"), zone (string like "Z2" or "Z4-5"), dist (string like "6 km"), pace (string like "4:45/km"). Return no more than 8 items. No markdown.`,
         userMessage: `kind: ${ctx.kind ?? "other"}\nduration: ${ctx.duration_min ?? 45} min\nintensity: ${ctx.intensity ?? "moderate"}\ntitle: ${text}\nnotes: ${ctx.notes ?? "none"}`,
         maxTokens: 600,
@@ -285,6 +289,7 @@ export async function POST(req: NextRequest) {
       const result = await aiJSON<RegimenPlanResult>({
         mode,
         anthropic,
+        providerPref,
         system: `You are an elite ${ctx.discipline === "run" ? "running" : ctx.discipline === "mobility" ? "mobility & Pilates" : "strength & conditioning"} coach. Design a structured weekly ${ctx.discipline === "mobility" ? "mobility/yoga/Pilates flow" : "training"} plan. Return ONLY a JSON object with keys: days (array), summary (string, 1-2 sentences). Each day object has: dow (0=Mon to 6=Sun), title (string), kind (run|lift|mobility|rest|other), duration_min (number), intensity (easy|moderate|hard|key), notes (string), items (array of exercises, same format as a single session). Include rest days. No markdown.`,
         userMessage: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}`,
         maxTokens: 1400,
@@ -299,6 +304,7 @@ export async function POST(req: NextRequest) {
       const { text: summary } = await aiGenerate({
         mode,
         anthropic,
+        providerPref,
         system: "You are an expert note summarizer. Given note content, produce a concise summary as 3-5 Markdown bullet points. Return only the bullets, no preamble.",
         userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
         maxTokens: 500,
@@ -311,6 +317,7 @@ export async function POST(req: NextRequest) {
       const { text: rewritten } = await aiGenerate({
         mode,
         anthropic,
+        providerPref,
         system: "You are an expert editor. Rewrite the given text to be clearer, more concise, and better structured while preserving all key information and the author's voice. Return only the rewritten prose, no preamble.",
         userMessage: stripHtml(text).slice(0, 6000),
         maxTokens: 1200,
@@ -324,6 +331,7 @@ export async function POST(req: NextRequest) {
       const { text: generated } = await aiGenerate({
         mode,
         anthropic,
+        providerPref,
         system: "Generate a precise, descriptive title for this note (5-10 words). Return only the title, nothing else.",
         userMessage: stripHtml(text).slice(0, 3000),
         maxTokens: 60,
@@ -337,6 +345,7 @@ export async function POST(req: NextRequest) {
       const { text: summary } = await aiGenerate({
         mode,
         anthropic,
+        providerPref,
         system: "You are an expert meeting note-taker. Given a transcript (possibly rough speech-to-text), produce a clean structured summary in Markdown. Format exactly as:\n\n## Meeting Summary\n\n**Key Points:**\n- ...\n\n**Action Items:**\n- ...\n\n**Decisions Made:**\n- ...\n\nKeep each bullet concise (one line). If a section has nothing, write '- None identified'. Return only the Markdown, no preamble.",
         userMessage: `${noteCtx}Transcript:\n${text.slice(0, 6000)}`,
         maxTokens: 700,
@@ -350,6 +359,7 @@ export async function POST(req: NextRequest) {
       const result = await aiJSON<RouteResult>({
         mode,
         anthropic,
+        providerPref,
         system: 'You route a research note to the right destination in a personal knowledge OS. Given a note title and body, return ONLY a JSON object with keys: destination ("research" = working research notes, "literature" = a referenced paper/citation to file in the literature library, "task" = an actionable to-do), label (short human destination name, e.g. "New task" or "Literature library"), reason (one sentence, max 22 words, explaining the choice), tags (array of 1-4 short lowercase keywords). No markdown, no explanation.',
         userMessage: `title: ${text}\nbody: ${stripHtml(body ?? "").slice(0, 4000)}`,
         maxTokens: 250,
@@ -364,6 +374,7 @@ export async function POST(req: NextRequest) {
       const result = await aiJSON<TriageResult>({
         mode,
         anthropic,
+        providerPref,
         system: 'You are a task router for a personal OS. Given a signal title and optional body, return ONLY a JSON object with keys: title (string, cleaned up), priority ("hi"|"med"|"lo"), category ("clinical"|"research"|"life"|"personal"|"admin"), effort ("~15m"|"~1h"|"~2h"|"~3h+"). No markdown, no explanation.',
         userMessage: `title: ${text}\nbody: ${body ?? ""}`,
         maxTokens: 200,
@@ -377,6 +388,7 @@ export async function POST(req: NextRequest) {
       const { text: summary } = await aiGenerate({
         mode,
         anthropic,
+        providerPref,
         system: `You are a reflective intelligence layer. Given a series of weekly reflection notes, synthesize the key patterns, recurring themes, wins, and friction points into a concise weekly summary. Write in second person ("You've been..."). Keep it under 200 words. No markdown headers. Focus on insight, not repetition.`,
         userMessage: text,
         maxTokens: 350,

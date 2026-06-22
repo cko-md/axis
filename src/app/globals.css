@@ -278,43 +278,24 @@ body::before {
   100% { opacity: 0.85; transform: translate3d(2%, -1%, 0); }
 }
 
-/* ── Sun logo animation ── */
-@keyframes sunAura {
-  0%, 100% { transform: scale(1); opacity: .38; }
-  50% { transform: scale(1.45); opacity: .6; }
+/* ── Sidebar mark: time-of-day orb (single breathing glow, theme-driven) ── */
+@keyframes orbBreathe {
+  0%, 100% { transform: scale(1); opacity: .92; }
+  50% { transform: scale(1.08); opacity: 1; }
 }
-@keyframes sunCore {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .75; }
-}
-.sun-aura {
+.logo-orb {
   transform-box: fill-box;
   transform-origin: center;
-  animation: sunAura 3.2s ease-in-out infinite;
-}
-.sun-core { animation: sunCore 3.2s ease-in-out infinite; }
-
-@keyframes moonAura {
-  0%, 100% { transform: scale(1); opacity: .16; }
-  50% { transform: scale(1.25); opacity: .28; }
-}
-.moon-aura {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: moonAura 5s ease-in-out infinite;
+  animation: orbBreathe 6s ease-in-out infinite;
 }
 
 @keyframes logoStar {
-  0%, 100% { opacity: .75; }
-  50% { opacity: .08; }
+  0%, 100% { opacity: .15; }
+  50% { opacity: .8; }
 }
-.logo-star { animation: logoStar 2.4s ease-in-out infinite; }
+.logo-star { animation: logoStar 6s ease-in-out infinite; }
 .ls1 { animation-delay: 0s; }
-.ls2 { animation-delay: .65s; }
-.ls3 { animation-delay: 1.3s; }
-.ls4 { animation-delay: .35s; }
-.ls5 { animation-delay: 1.85s; }
-.ls6 { animation-delay: 1.05s; }
+.ls2 { animation-delay: 3s; }
 
 /* ── Night starfield ── */
 @keyframes twinkle {
@@ -516,7 +497,10 @@ html.light body {
 
 .app-shell.mode-open  { --sb-w: 240px; }
 .app-shell.mode-icons { --sb-w: 62px; }
-.app-shell.mode-hidden { --sb-w: 0px; }
+/* sidebar becomes position:fixed below and drops out of grid flow, leaving
+   .main-scroll as the sole grid item — give it the full row instead of
+   collapsing into the (now-empty) first column track. */
+.app-shell.mode-hidden { --sb-w: 0px; grid-template-columns: 1fr; }
 
 /* hidden mode — sidebar slides off-screen, peeks on hover */
 .app-shell.mode-hidden .sidebar {
