@@ -28,6 +28,7 @@ import {
 } from "@/lib/hooks/useNotes";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
+import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditor";
 import styles from "./NotesEditor.module.css";
@@ -184,7 +185,7 @@ function preview(html: string): string {
 }
 
 export function NotesModule() {
-  const { notes, loading, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock } = useNotes();
+  const { notes, loading, refresh: refreshNotes, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock } = useNotes();
   const { addTask } = useTasks();
   const { toast } = useToast();
 
@@ -273,6 +274,29 @@ export function NotesModule() {
 
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiPanel, setAiPanel] = useState<{ mode: string; content: string } | null>(null);
+
+  // ── study aids (flashcards / quiz / mindmap / summary) ────────────────────
+  type Flashcard = { front: string; back: string };
+  type QuizItem = { question: string; answer: string };
+  type MindMapNode = { label: string; children?: MindMapNode[] };
+  type StudyAid =
+    | { type: "flashcards"; cards: Flashcard[] }
+    | { type: "quiz"; items: QuizItem[] }
+    | { type: "mindmap"; root: MindMapNode }
+    | { type: "summary"; summary: string };
+  const [studyAidLoading, setStudyAidLoading] = useState<string | null>(null);
+  const [studyAid, setStudyAid] = useState<StudyAid | null>(null);
+  const supabase = useMemo(() => createClient(), []);
+
+  // ── YouTube import ──────────────────────────────────────────────────────────
+  const [ytOpen, setYtOpen] = useState(false);
+  const [ytUrl, setYtUrl] = useState("");
+  const [ytImporting, setYtImporting] = useState(false);
+
+  // ── live transcription (Gemini) ─────────────────────────────────────────────
+  const [liveTranscribing, setLiveTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // ── meeting recorder ──────────────────────────────────────────
   type RecState = "idle" | "recording" | "processing" | "done" | "denied" | "unsupported";
@@ -552,6 +576,133 @@ export function NotesModule() {
     }
   };
 
+  // Best-effort persistence — note_artifacts may not exist yet if the
+  // migration hasn't landed; swallow errors so generation always still works.
+  const persistStudyAid = async (aid: StudyAid) => {
+    if (!selected) return;
+    try {
+      await supabase.from("note_artifacts").insert({
+        note_id: selected.id,
+        type: aid.type,
+        data: aid,
+      });
+    } catch {
+      /* table not migrated yet — non-fatal */
+    }
+  };
+
+  const handleStudyAid = async (type: StudyAid["type"]) => {
+    if (!selected || studyAidLoading) return;
+    setStudyAidLoading(type);
+    setStudyAid(null);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: type, text: selected.body, title: selected.title }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      const aid: StudyAid =
+        type === "flashcards" ? { type, cards: data.cards ?? [] } :
+        type === "quiz" ? { type, items: data.items ?? [] } :
+        type === "mindmap" ? { type, root: data.root ?? { label: selected.title || "Note" } } :
+        { type, summary: data.summary ?? "" };
+      setStudyAid(aid);
+      void persistStudyAid(aid);
+    } catch {
+      toast(`Could not generate ${type} — check your API key`, "error", "Study Aids");
+    } finally {
+      setStudyAidLoading(null);
+    }
+  };
+
+  const handleYoutubeImport = async () => {
+    const url = ytUrl.trim();
+    if (!url || ytImporting) return;
+    setYtImporting(true);
+    try {
+      const res = await fetch("/api/notes/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Import failed");
+      toast(`Imported "${data.title}"`, "success", "YouTube Import");
+      setYtUrl("");
+      setYtOpen(false);
+      await refreshNotes();
+      if (data?.note?.id) setSelectedId(data.note.id);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not import this video", "error", "YouTube Import");
+    } finally {
+      setYtImporting(false);
+    }
+  };
+
+  // Records short audio chunks and transcribes each via Gemini, appending the
+  // result into the active note as it arrives (near-real-time, chunk-based —
+  // true Gemini Live bidirectional streaming isn't available from a Next.js
+  // route handler; see src/app/api/notes/transcribe/route.ts).
+  const toggleLiveTranscribe = async () => {
+    if (liveTranscribing) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    if (!selected || locked) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = async (e) => {
+        if (!e.data || e.data.size < 1000 || !selected) return;
+        try {
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.split(",")[1] ?? "");
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(e.data);
+          });
+          const res = await fetch("/api/notes/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audio: base64, mimeType }),
+          });
+          const data = await res.json();
+          const transcript = (data?.transcript ?? "").trim();
+          if (transcript) {
+            const appended = `${selected.body ?? ""}<p>${transcript}</p>`;
+            updateNoteDebounced(selected.id, { body: appended });
+          }
+        } catch {
+          /* drop this chunk — recording continues */
+        }
+      };
+      recorder.onstop = () => {
+        mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setLiveTranscribing(false);
+      };
+      recorder.start(7000); // emit a chunk every 7s
+      setLiveTranscribing(true);
+    } catch {
+      toast("Microphone access denied or unavailable", "error", "Live Transcribe");
+    }
+  };
+
+  useEffect(() => () => {
+    mediaRecorderRef.current?.stop();
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
+
   const acceptRoute = async () => {
     if (!selected || !suggestion) return;
     const folderMap: Record<RouteSuggestion["destination"], string> = {
@@ -690,6 +841,131 @@ export function NotesModule() {
           loading: aiLoading,
         }}
       />
+
+      {/* Study aids + YouTube import + live transcription toolbar */}
+      {!locked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase", marginRight: 2 }}>
+            Study Aids
+          </span>
+          {([
+            ["flashcards", "Flashcards"],
+            ["quiz", "Quiz"],
+            ["mindmap", "Mind Map"],
+            ["summary", "Summary"],
+          ] as const).map(([type, label]) => (
+            <button
+              key={type}
+              type="button"
+              className="aibtn"
+              disabled={!!studyAidLoading}
+              onClick={() => handleStudyAid(type)}
+            >
+              {studyAidLoading === type ? "…" : label}
+            </button>
+          ))}
+          <span style={{ width: 1, height: 16, background: "var(--line)", margin: "0 4px" }} />
+          <button type="button" className="aibtn" onClick={() => setYtOpen((o) => !o)}>
+            ▶ Import YouTube
+          </button>
+          <button
+            type="button"
+            className="aibtn"
+            onClick={toggleLiveTranscribe}
+            style={liveTranscribing ? { color: "var(--clay-2)", borderColor: "var(--clay-2)" } : undefined}
+          >
+            {liveTranscribing ? "● Stop transcribing" : "🎙 Live Transcribe"}
+          </button>
+        </div>
+      )}
+
+      {ytOpen && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <input
+            type="url"
+            placeholder="Paste a YouTube link…"
+            value={ytUrl}
+            onChange={(e) => setYtUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void handleYoutubeImport(); }}
+            className="ytimport-input"
+            style={{
+              flex: 1,
+              background: "var(--surface-2)",
+              border: "1px solid var(--line)",
+              borderRadius: "var(--r)",
+              padding: "7px 10px",
+              fontSize: 12,
+              color: "var(--ink)",
+              fontFamily: "var(--sans)",
+            }}
+          />
+          <button type="button" className="aibtn" disabled={ytImporting || !ytUrl.trim()} onClick={handleYoutubeImport}>
+            {ytImporting ? "Importing…" : "Import"}
+          </button>
+        </div>
+      )}
+
+      {/* Study aid result panel */}
+      {studyAid && (
+        <div className="rec-panel">
+          <div className="rec-panel-head">
+            <span>
+              {studyAid.type === "flashcards" ? "Flashcards" :
+                studyAid.type === "quiz" ? "Quiz" :
+                studyAid.type === "mindmap" ? "Mind Map" : "Study Summary"}
+            </span>
+            <button type="button" className="savebtn" style={{ padding: "2px 8px", fontSize: 10 }} onClick={() => setStudyAid(null)}>
+              Dismiss
+            </button>
+          </div>
+
+          {studyAid.type === "flashcards" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8, marginTop: 4 }}>
+              {studyAid.cards.map((c, i) => (
+                <details key={i} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "8px 10px" }}>
+                  <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--ink)" }}>{c.front}</summary>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-dim)" }}>{c.back}</div>
+                </details>
+              ))}
+            </div>
+          )}
+
+          {studyAid.type === "quiz" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+              {studyAid.items.map((q, i) => (
+                <details key={i} style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "8px 10px" }}>
+                  <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--ink)" }}>{q.question}</summary>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-dim)" }}>{q.answer}</div>
+                </details>
+              ))}
+            </div>
+          )}
+
+          {studyAid.type === "mindmap" && (
+            <div style={{ fontSize: 12, lineHeight: 1.7, marginTop: 4 }}>
+              <div style={{ fontWeight: 600, color: "var(--gold)" }}>{studyAid.root.label}</div>
+              <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                {(studyAid.root.children ?? []).map((child, i) => (
+                  <li key={i} style={{ color: "var(--ink-dim)", marginBottom: 4 }}>
+                    {child.label}
+                    {child.children?.length ? (
+                      <ul style={{ margin: "2px 0 0 16px" }}>
+                        {child.children.map((grand, j) => (
+                          <li key={j} style={{ color: "var(--ink-faint)", fontSize: 11.5 }}>{grand.label}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {studyAid.type === "summary" && (
+            <div className="rec-panel-summary" style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{studyAid.summary}</div>
+          )}
+        </div>
+      )}
 
       {/* Recording result panel */}
       {recState === "done" && (recTranscript || recSummary) && (
