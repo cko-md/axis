@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { refreshGoogleOAuth, refreshMicrosoftOAuth } from "@/lib/oauth/refresh";
+import { listComposioMailAccounts } from "./composio";
 
 const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 const OUTLOOK_MAIL_SCOPE = "Mail.Read offline_access User.Read";
@@ -81,19 +82,37 @@ export async function deleteMailTokens(
     .eq("mail_email", mailEmail);
 }
 
-export async function listMailAccounts(
-  userId: string,
-): Promise<Array<{ provider: MailProvider; mailEmail: string }>> {
+export type MailAccountRef = {
+  provider: MailProvider;
+  mailEmail: string;
+  via?: "composio";
+  connectedAccountId?: string;
+};
+
+export async function listMailAccounts(userId: string): Promise<MailAccountRef[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("mail_connections")
     .select("provider, mail_email")
     .eq("user_id", userId);
 
-  return (data ?? []).map((row) => ({
+  const oauthAccounts: MailAccountRef[] = (data ?? []).map((row) => ({
     provider: row.provider as MailProvider,
     mailEmail: row.mail_email as string,
   }));
+
+  const composioAccounts = await listComposioMailAccounts(userId);
+  const composioRefs: MailAccountRef[] = composioAccounts.map((a) => ({
+    provider: a.provider,
+    mailEmail: a.mailEmail,
+    via: "composio" as const,
+    connectedAccountId: a.connectedAccountId,
+  }));
+
+  // A given mailbox may only be connected one way at a time — prefer the
+  // legacy OAuth row if both somehow exist for the same address.
+  const seen = new Set(oauthAccounts.map((a) => `${a.provider}:${a.mailEmail}`));
+  return [...oauthAccounts, ...composioRefs.filter((a) => !seen.has(`${a.provider}:${a.mailEmail}`))];
 }
 
 export async function getFreshMailAccessToken(

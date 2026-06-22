@@ -85,6 +85,59 @@ export function AddAccountPicker({
       >
         <ProviderDot provider="outlook" /> Outlook
       </button>
+      <div style={{ height: 1, background: "var(--line)", margin: "4px 2px" }} />
+      <button
+        type="button"
+        onClick={() => {
+          onClose();
+          openOAuthPopup("/api/integrations/composio/connect?toolkit=gmail", (_provider, status) => {
+            if (status === "ok") onConnected("gmail");
+          });
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 10px",
+          borderRadius: 5,
+          background: "none",
+          border: "none",
+          color: "var(--ink-dim)",
+          fontSize: "12px",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+      >
+        <ProviderDot provider="gmail" /> Gmail (via Composio)
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onClose();
+          openOAuthPopup("/api/integrations/composio/connect?toolkit=outlook", (_provider, status) => {
+            if (status === "ok") onConnected("outlook");
+          });
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 10px",
+          borderRadius: 5,
+          background: "none",
+          border: "none",
+          color: "var(--ink-dim)",
+          fontSize: "12px",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+      >
+        <ProviderDot provider="outlook" /> Outlook (via Composio)
+      </button>
       <button
         type="button"
         onClick={onClose}

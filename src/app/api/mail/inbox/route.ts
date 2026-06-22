@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
 import { listGmailInbox, type MailMessage } from "@/lib/mail/gmail";
 import { listOutlookInbox } from "@/lib/mail/outlook";
+import { listComposioInbox } from "@/lib/mail/composio";
 
 // GET /api/mail/inbox
 // Optional per-account pagination: ?account=email@x.com&provider=gmail&pageToken=...&skip=0
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
 
   const settled = await Promise.allSettled(
     accountsToFetch.map(async (acct) => {
+      if (acct.via === "composio" && acct.connectedAccountId) {
+        return listComposioInbox(acct.provider, acct.connectedAccountId, user.id, acct.mailEmail);
+      }
       if (acct.provider === "gmail") {
         const r = await listGmailInbox(user.id, acct.mailEmail, pageToken);
         return r.messages;

@@ -100,6 +100,40 @@ export function ControlRoomModule() {
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
   const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
   const [mailStatus, setMailStatus] = useState<{ gmail: boolean; gmailEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [composioStatus, setComposioStatus] = useState<
+    { toolkit: string; status: string; account_label: string | null }[] | null
+  >(null);
+
+  const refreshMailStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/mail/status", { cache: "no-store" });
+      const { accounts } = (await res.json()) as {
+        accounts: Array<{ provider: "gmail" | "outlook"; mailEmail: string }>;
+      };
+      const gmailAcct = accounts.find((a) => a.provider === "gmail");
+      const outlookAcct = accounts.find((a) => a.provider === "outlook");
+      setMailStatus({
+        gmail: !!gmailAcct,
+        gmailEmail: gmailAcct?.mailEmail ?? null,
+        outlook: !!outlookAcct,
+        outlookEmail: outlookAcct?.mailEmail ?? null,
+      });
+    } catch {
+      setMailStatus({ gmail: false, gmailEmail: null, outlook: false, outlookEmail: null });
+    }
+  }, []);
+
+  const refreshComposioStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/integrations/composio/status", { cache: "no-store" });
+      const { connections } = (await res.json()) as {
+        connections: Array<{ toolkit: string; status: string; account_label: string | null }>;
+      };
+      setComposioStatus(connections);
+    } catch {
+      setComposioStatus([]);
+    }
+  }, []);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -223,17 +257,13 @@ export function ControlRoomModule() {
       } catch {
         if (alive) setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
       }
-      try {
-        const mail = await fetch("/api/mail/status", { cache: "no-store" });
-        if (alive) setMailStatus(await mail.json());
-      } catch {
-        if (alive) setMailStatus({ gmail: false, gmailEmail: null, outlook: false, outlookEmail: null });
-      }
+      if (alive) await refreshMailStatus();
+      if (alive) await refreshComposioStatus();
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refreshMailStatus, refreshComposioStatus]);
 
   // --- Load real activity from content tables -----------------------------
   const loadActivity = useCallback(async () => {
@@ -306,6 +336,17 @@ export function ControlRoomModule() {
     openOAuthPopup("/api/spotify/auth", (_provider, status) => {
       if (status === "ok") setSpotifyConnected(true);
     });
+  };
+
+  const connectComposioToolkit = (toolkit: "gmail" | "outlook") => {
+    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+      if (status === "ok") void refreshComposioStatus();
+    });
+  };
+
+  const disconnectComposioToolkit = async (toolkit: "gmail" | "outlook") => {
+    await fetch(`/api/integrations/composio/disconnect?toolkit=${toolkit}`, { method: "DELETE" });
+    void refreshComposioStatus();
   };
 
   const exportLocalData = () => {
@@ -590,9 +631,7 @@ export function ControlRoomModule() {
       action: mailStatus && !mailStatus.gmail
         ? { label: "Connect", onClick: () => {
             openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
-              if (status === "ok") {
-                fetch("/api/mail/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setMailStatus(s)).catch(() => {});
-              }
+              if (status === "ok") void refreshMailStatus();
             });
           } }
         : mailStatus?.gmail
@@ -610,9 +649,7 @@ export function ControlRoomModule() {
       action: mailStatus && !mailStatus.outlook
         ? { label: "Connect", onClick: () => {
             openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
-              if (status === "ok") {
-                fetch("/api/mail/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setMailStatus(s)).catch(() => {});
-              }
+              if (status === "ok") void refreshMailStatus();
             });
           } }
         : mailStatus?.outlook
@@ -622,6 +659,26 @@ export function ControlRoomModule() {
           }}
         : undefined,
     },
+    ...(["gmail", "outlook"] as const).map((toolkit) => {
+      const row = composioStatus?.find((c) => c.toolkit === toolkit);
+      const isActive = row?.status === "ACTIVE";
+      return {
+        name: `${toolkit === "gmail" ? "Gmail" : "Outlook"} (via Composio)`,
+        desc: "Composio-managed connection — the foundation for migrating every integration off hand-rolled OAuth",
+        state: (composioStatus === null ? "pending" : isActive ? "on" : "off") as ConnState,
+        detail:
+          composioStatus === null
+            ? "Checking…"
+            : isActive
+              ? (row?.account_label ?? "Connected")
+              : row
+                ? `Connecting… (${row.status})`
+                : "Not connected",
+        action: !row
+          ? { label: "Connect", onClick: () => connectComposioToolkit(toolkit) }
+          : { label: "Disconnect", onClick: () => disconnectComposioToolkit(toolkit) },
+      };
+    }),
   ];
 
   const connectedCount = connections.filter((c) => c.state === "on").length;
