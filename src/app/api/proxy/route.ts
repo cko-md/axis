@@ -22,6 +22,33 @@ const NAV_INTERCEPT = `<script>(function(){
   },true);
 })();</script>`;
 
+/**
+ * Tiny document served into the iframe when the upstream content cannot be
+ * embedded (PDF, X-Frame-Options/CSP framebusting, or a fetch error). It posts
+ * a `proxy-reader` message to the parent WebViewer, which then loads the Tavily
+ * reader view. The visible text is a fallback for the brief moment before the
+ * parent swaps in reader mode.
+ */
+function readerFallbackDoc(targetUrl: string, reason: string): string {
+  const safeUrl = targetUrl.replace(/"/g, "%22").replace(/</g, "%3C");
+  const safeReason = reason.replace(/</g, "&lt;");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:system-ui;background:#0a0b0e;color:#888;display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center"><p style="font-size:13px">Opening reader view…</p><p style="font-size:11px;color:#555">${safeReason}</p></div><script>(function(){try{window.parent.postMessage({type:'proxy-reader',url:"${safeUrl}"},'*');}catch(e){}})();</script></body></html>`;
+}
+
+/**
+ * Decide whether an upstream HTML page will refuse to embed in our iframe.
+ * We strip these headers on our OWN response, but a page that sets them almost
+ * always also framebusts via JS, so it's a reliable signal to use reader mode.
+ */
+function willBlockEmbedding(headers: Headers): boolean {
+  const xfo = headers.get("x-frame-options")?.toLowerCase() ?? "";
+  if (xfo.includes("deny") || xfo.includes("sameorigin")) return true;
+  const csp = headers.get("content-security-policy")?.toLowerCase() ?? "";
+  const fa = csp.match(/frame-ancestors([^;]*)/)?.[1] ?? "";
+  if (fa && !fa.includes("*")) return true; // any restrictive frame-ancestors
+  return false;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -49,13 +76,27 @@ export async function GET(req: NextRequest) {
     const ct = upstream.headers.get('content-type') ?? 'text/html';
 
     if (!ct.includes('text/html')) {
-      const buf = await upstream.arrayBuffer();
-      return new NextResponse(buf, {
-        status: upstream.status,
-        headers: {
-          'Content-Type': ct,
-          'Cache-Control': 'public, max-age=120',
-        },
+      // Images render fine inside the iframe; pass them through untouched.
+      if (ct.startsWith('image/')) {
+        const buf = await upstream.arrayBuffer();
+        return new NextResponse(buf, {
+          status: upstream.status,
+          headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=120' },
+        });
+      }
+      // PDFs and other binary content can't render usefully in the sandboxed
+      // iframe — hand off to the Tavily reader view.
+      const label = ct.includes('pdf') ? 'PDF document' : 'Unsupported content type';
+      return new NextResponse(readerFallbackDoc(url, label), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+
+    // Upstream sets framebusting headers → it will refuse to embed. Switch to
+    // reader mode immediately rather than wait for the client-side timeout.
+    if (willBlockEmbedding(upstream.headers)) {
+      return new NextResponse(readerFallbackDoc(url, 'This site blocks embedding'), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }
 
@@ -82,9 +123,11 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
+    // Fetch failed (timeout, DNS, TLS, upstream refusal). Hand off to reader
+    // mode so the user still gets the content via Tavily.
     const msg = err instanceof Error ? err.message : 'Fetch failed';
-    const origin = target.origin;
-    const errorHtml = `<!DOCTYPE html><html><head><base href="${origin}"></head><body style="font-family:system-ui;padding:32px;background:#0a0b0e;color:#888;"><h3 style="color:#c9a463">Could not load page</h3><p style="font-size:14px">${msg}</p><p><a href="${url}" target="_blank" style="color:#c9a463">Open in browser →</a></p></body></html>`;
-    return new NextResponse(errorHtml, { headers: { 'Content-Type': 'text/html' } });
+    return new NextResponse(readerFallbackDoc(url, `Could not load page: ${msg}`), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
   }
 }

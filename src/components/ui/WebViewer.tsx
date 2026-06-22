@@ -49,6 +49,14 @@ export function WebViewer() {
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ok" | "blocked">("idle");
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Reader view (via Tavily) — shown when the iframe can't embed a page/PDF.
+  type ReaderData = { url: string; title: string; html: string };
+  const [readerState, setReaderState] = useState<"off" | "loading" | "ok" | "error">("off");
+  const [readerData, setReaderData] = useState<ReaderData | null>(null);
+  const [readerError, setReaderError] = useState<string>("");
+  // Token guards against stale async responses landing on a newer navigation.
+  const readerTokenRef = useRef(0);
+
   useEffect(() => { setFavs(loadFavs()); }, []);
 
   // Track whether viewer is open to avoid stale closure in event handler
@@ -126,6 +134,11 @@ export function WebViewer() {
       )
     );
     if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
+    // New navigation supersedes any in-flight reader fetch and clears reader UI.
+    readerTokenRef.current += 1;
+    setReaderState("off");
+    setReaderData(null);
+    setReaderError("");
     if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
     if (url) {
       setLoadState("loading");
@@ -135,16 +148,59 @@ export function WebViewer() {
     }
   }, [activeTabId]);
 
-  // Handle navigation messages posted by the proxy's injected script
+  // Fetch clean readable content via Tavily and switch to reader view.
+  const openReader = useCallback(async (rawUrl?: string) => {
+    const url = (rawUrl ?? activeUrl).trim();
+    if (!url) return;
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    const token = ++readerTokenRef.current;
+    setReaderState("loading");
+    setReaderError("");
+    setReaderData(null);
+    try {
+      const res = await fetch(`/api/tavily/extract?url=${encodeURIComponent(url)}`);
+      if (token !== readerTokenRef.current) return; // superseded
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setReaderError(body?.error || `Reader unavailable (${res.status})`);
+        setReaderState("error");
+        return;
+      }
+      const data = (await res.json()) as ReaderData;
+      if (token !== readerTokenRef.current) return; // superseded
+      setReaderData(data);
+      setReaderState("ok");
+    } catch (err) {
+      if (token !== readerTokenRef.current) return;
+      setReaderError(err instanceof Error ? err.message : "Reader failed");
+      setReaderState("error");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUrl]);
+
+  // Handle navigation + reader-handoff messages posted by the proxy's injected script
   useEffect(() => {
     function onProxyMsg(e: MessageEvent) {
-      if (e.data?.type !== 'proxy-navigate') return;
-      const url = e.data.url as string;
-      if (url) navigate(url);
+      if (e.data?.type === 'proxy-navigate') {
+        const url = e.data.url as string;
+        if (url) navigate(url);
+        return;
+      }
+      if (e.data?.type === 'proxy-reader') {
+        const url = e.data.url as string;
+        if (url) void openReader(url);
+      }
     }
     window.addEventListener('message', onProxyMsg);
     return () => window.removeEventListener('message', onProxyMsg);
-  }, [navigate]);
+  }, [navigate, openReader]);
+
+  // Fallback: if the iframe never settles within the timeout (a silent JS
+  // framebust the server-side header check didn't catch), offer reader view
+  // instead of leaving the user staring at a blank/blocked frame.
+  useEffect(() => {
+    if (loadState === "blocked" && readerState === "off") void openReader();
+  }, [loadState, readerState, openReader]);
 
   const goBack = useCallback(() => {
     setTabs((prev) => {
@@ -398,10 +454,57 @@ export function WebViewer() {
               setLoadState("ok");
             }}
           />
-          {loadState === "blocked" && (
+          {loadState === "blocked" && readerState === "off" && (
             <div className="wv-blocked-hint">
               <span>This site can&apos;t be embedded in-app.</span>
+              <button type="button" onClick={() => void openReader()}>Reader view (via Tavily) →</button>
               <button type="button" onClick={() => window.open(activeUrl, "_blank", "noopener")}>Open in browser →</button>
+            </div>
+          )}
+
+          {(readerState === "loading" || readerState === "ok" || readerState === "error") && (
+            <div className="wv-reader" style={{ position: "absolute", inset: 0, background: "var(--surface)", overflow: "auto", padding: "28px 32px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, paddingBottom: 12, borderBottom: "1px solid var(--line)" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--gold)" }}>
+                  Reader view · via Tavily
+                </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="wv-navbtn" onClick={() => window.open(activeUrl, "_blank", "noopener")}>
+                    Open original →
+                  </button>
+                  <button
+                    type="button"
+                    className="wv-navbtn"
+                    onClick={() => { setReaderState("off"); setReaderData(null); setReaderError(""); }}
+                  >
+                    ✕ Close reader
+                  </button>
+                </div>
+              </div>
+
+              {readerState === "loading" && (
+                <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Extracting readable content…</p>
+              )}
+              {readerState === "error" && (
+                <div>
+                  <p style={{ color: "var(--clay-2)", fontSize: 13 }}>{readerError || "Could not extract this page."}</p>
+                  <button type="button" className="wv-navbtn" onClick={() => window.open(activeUrl, "_blank", "noopener")}>
+                    Open in browser instead →
+                  </button>
+                </div>
+              )}
+              {readerState === "ok" && readerData && (
+                <article style={{ maxWidth: 720, margin: "0 auto" }}>
+                  <h1 style={{ fontFamily: "var(--serif)", fontSize: 22, margin: "0 0 16px", color: "var(--ink)" }}>
+                    {readerData.title}
+                  </h1>
+                  <div
+                    className="wv-reader-content"
+                    style={{ color: "var(--ink)", fontSize: 14.5, lineHeight: 1.7 }}
+                    dangerouslySetInnerHTML={{ __html: readerData.html }}
+                  />
+                </article>
+              )}
             </div>
           )}
         </div>
