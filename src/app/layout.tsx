@@ -1,5 +1,14 @@
 import type { Metadata } from "next";
-import { Archivo, Archivo_Narrow, Fraunces, JetBrains_Mono } from "next/font/google";
+import {
+  Archivo,
+  Archivo_Narrow,
+  Fraunces,
+  JetBrains_Mono,
+  Playfair_Display,
+  Space_Grotesk,
+  Inter,
+  IBM_Plex_Sans,
+} from "next/font/google";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
@@ -33,6 +42,38 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ["400", "500"],
 });
 
+// ── Optional faces selectable in Interface Studio (display + body). ──
+// These MUST be loaded here so their CSS variables exist; otherwise the
+// face pickers silently fall back to the defaults and "do nothing".
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-grotesk",
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  weight: ["300", "400", "500", "600"],
+  display: "swap",
+});
+
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  variable: "--font-plex",
+  weight: ["300", "400", "500", "600"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "AXIS[CKO] — Personal Operating System",
   description: "Signal console, fund, and schedule — your personal operating system.",
@@ -56,7 +97,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}>
+      <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${playfair.variable} ${spaceGrotesk.variable} ${inter.variable} ${ibmPlexSans.variable}`}>
         <WebViewerProvider>
           <ThemeProvider>
             <ToastProvider>

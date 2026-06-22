@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { ACCENT_PRESETS, type AccentPreset, type BodyFace, type Companion, type Density, type DisplayFace, type NotifFeatures, type NotifType, type Presence, type SurfaceTone } from "@/lib/theme/interface-settings";
+import { ACCENT_PRESETS, DEFAULT_INTERFACE_SETTINGS, type AccentPreset, type BodyFace, type Companion, type Density, type DisplayFace, type NotifFeatures, type NotifType, type Presence, type SurfaceTone } from "@/lib/theme/interface-settings";
 import { Seg } from "@/components/ui/Seg";
 import type { ThemeMode } from "@/lib/types";
 
@@ -70,6 +70,14 @@ function DensityPicker({ value, onChange }: { value: Density; onChange: (d: Dens
 export function InterfaceStudioDrawer() {
   const { theme, setTheme, interfaceSettings, setInterfaceSettings, interfaceStudioOpen, closeInterfaceStudio } = useTheme();
   if (!interfaceStudioOpen) return null;
+
+  const resetToDefaults = () => {
+    if (typeof window !== "undefined" && !window.confirm("Reset all interface settings to their defaults? Theme, accent, faces, density, and presence will revert.")) {
+      return;
+    }
+    setInterfaceSettings(DEFAULT_INTERFACE_SETTINGS);
+    setTheme("dark");
+  };
 
   const modes: { label: string; value: ThemeMode }[] = [
     { label: "Dark", value: "dark" },
@@ -259,6 +267,32 @@ export function InterfaceStudioDrawer() {
             </>
           )}
           <div className="dr-note" style={{ marginTop: 8 }}>Banner notifications require browser permission. Silent mode logs to Dispatch without an OS alert.</div>
+
+          <div className="dr-sec">Reset</div>
+          <button
+            type="button"
+            onClick={resetToDefaults}
+            style={{
+              width: "100%",
+              background: "var(--glass)",
+              border: "1px solid var(--line-strong)",
+              borderRadius: "var(--rl)",
+              padding: "10px 12px",
+              cursor: "pointer",
+              fontFamily: "var(--narrow)",
+              fontWeight: 600,
+              fontSize: 10,
+              letterSpacing: ".12em",
+              textTransform: "uppercase",
+              color: "var(--ink-dim)",
+              transition: "border-color .14s, color .14s, background .14s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--clay-2)"; e.currentTarget.style.color = "var(--clay-2)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line-strong)"; e.currentTarget.style.color = "var(--ink-dim)"; }}
+          >
+            Reset to defaults
+          </button>
+          <div className="dr-note" style={{ marginTop: 8 }}>Reverts theme, accent, faces, density, and presence to the Atelier defaults. Confirmation required.</div>
 
           <div className="dr-note">Theme editing lives here only — not in the sidebar. Changes apply instantly via CSS variables.</div>
         </div>
