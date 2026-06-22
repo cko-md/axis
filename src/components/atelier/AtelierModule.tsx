@@ -1,6 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
@@ -129,6 +146,75 @@ function dayToIso(abbrev: string, hour = 8): { start: string; end: string } {
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+function SortableMoodTile({
+  img,
+  height,
+  onRemove,
+}: {
+  img: MoodImage;
+  height: number;
+  onRemove: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: img.id,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{
+        height,
+        background: `url(${img.image_url}) center/cover`,
+        backgroundPosition: "center",
+        position: "relative",
+        borderRadius: "var(--r)",
+        border: "1px solid var(--line)",
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        zIndex: isDragging ? 2 : 1,
+        cursor: "grab",
+        touchAction: "none",
+      }}
+    >
+      <span
+        role="button"
+        tabIndex={0}
+        title="Remove image"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove(img.id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.stopPropagation();
+            onRemove(img.id);
+          }
+        }}
+        style={{
+          position: "absolute",
+          top: 6,
+          right: 6,
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          background: "rgba(0,0,0,0.55)",
+          color: "#fff",
+          display: "grid",
+          placeItems: "center",
+          fontSize: 12,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        ×
+      </span>
+    </div>
+  );
+}
+
 export function AtelierModule() {
   const { toast } = useToast();
   const { open: openInApp } = useWebViewer();
@@ -147,6 +233,12 @@ export function AtelierModule() {
   const [langFeedItems, setLangFeedItems] = useState<Record<LangKey, RssItem[]>>({ fr: [], es: [], yo: [] });
   const [trendItems, setTrendItems] = useState<RssItem[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(true);
+  const [trendsRefreshing, setTrendsRefreshing] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     localStorage.setItem(PINS_KEY, JSON.stringify(pins));
@@ -193,6 +285,50 @@ export function AtelierModule() {
     setMoodImages((p) => p.filter((img) => img.id !== id));
   };
 
+  // Persist the new ordering to moodboard_images, scoped to the signed-in user.
+  // `ordered` already carries each row's target sort_order (= its array index);
+  // we write only rows whose position changed from `prev`.
+  const persistMoodOrder = useCallback(
+    async (ordered: MoodImage[], prev: MoodImage[]) => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast("Sign in to save the moodboard order.", "warn", "Atelier"); return; }
+      const prevOrder = new Map(prev.map((img) => [img.id, img.sort_order]));
+      const changed = ordered.filter((img) => prevOrder.get(img.id) !== img.sort_order);
+      if (changed.length === 0) return;
+      const results = await Promise.all(
+        changed.map((img) =>
+          supabase
+            .from("moodboard_images")
+            .update({ sort_order: img.sort_order })
+            .eq("id", img.id)
+            .eq("user_id", user.id),
+        ),
+      );
+      if (results.some((r) => r.error)) {
+        toast("Failed to save the new order.", "error", "Atelier");
+        void loadMoodImages();
+      }
+    },
+    [toast, loadMoodImages],
+  );
+
+  const handleMoodDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setMoodImages((prev) => {
+      const oldIndex = prev.findIndex((img) => img.id === active.id);
+      const newIndex = prev.findIndex((img) => img.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const reordered = arrayMove(prev, oldIndex, newIndex).map((img, i) => ({
+        ...img,
+        sort_order: i,
+      }));
+      void persistMoodOrder(reordered, prev);
+      return reordered;
+    });
+  };
+
   // ── Pinned-resources "auto-refresh" feeds, keyed per language, and the
   // Men's-Style trends card — both backed by the same generic, auth-checked,
   // SSRF-guarded RSS proxy BriefingModule/LiteratureModule already use.
@@ -226,19 +362,29 @@ export function AtelierModule() {
     return () => { cancelled = true; clearInterval(id); };
   }, [loadFeed]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadTrends = async () => {
-      const items = await loadFeed(MENS_STYLE_FEEDS);
-      if (!cancelled) {
-        setTrendItems(items.slice(0, 4));
-        setTrendsLoading(false);
-      }
-    };
-    loadTrends();
-    const id = setInterval(loadTrends, 4 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(id); };
+  // Shared loader for the Men's-Style trends card. The silent 4-min interval
+  // and the manual "Refresh" button both call this; the button sets a visible
+  // refreshing state while in flight.
+  const loadTrends = useCallback(async () => {
+    const items = await loadFeed(MENS_STYLE_FEEDS);
+    setTrendItems(items.slice(0, 4));
+    setTrendsLoading(false);
   }, [loadFeed]);
+
+  const refreshTrends = useCallback(async () => {
+    setTrendsRefreshing(true);
+    try {
+      await loadTrends();
+    } finally {
+      setTrendsRefreshing(false);
+    }
+  }, [loadTrends]);
+
+  useEffect(() => {
+    void loadTrends();
+    const id = setInterval(() => { void loadTrends(); }, 4 * 60 * 1000);
+    return () => { clearInterval(id); };
+  }, [loadTrends]);
 
   const addWeekToAgenda = async () => {
     const supabase = createClient();
@@ -365,48 +511,36 @@ export function AtelierModule() {
       <div className={`subpanel${tab === "atl-style" ? " on" : ""}`} id="atl-style">
         <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, alignItems: "start" }}>
           <div className="card">
-            <h2 className="sec">Moodboard<span className="rule" /><span className="count">Drop images to add</span></h2>
-            <div className="mood" style={{ marginTop: 14 }}>
-              {moodImages.length === 0
-                ? MOOD_TILES.map((t, i) => (
-                    <div key={i} style={{ height: t.height, background: t.background }} />
-                  ))
-                : moodImages.map((img, i) => (
-                    <div
-                      key={img.id}
-                      style={{
-                        height: MOOD_TILES[i % MOOD_TILES.length].height,
-                        background: `url(${img.image_url}) center/cover`,
-                        position: "relative",
-                      }}
-                    >
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        title="Remove image"
-                        onClick={() => removeMoodImage(img.id)}
-                        onKeyDown={(e) => e.key === "Enter" && removeMoodImage(img.id)}
-                        style={{
-                          position: "absolute",
-                          top: 6,
-                          right: 6,
-                          width: 20,
-                          height: 20,
-                          borderRadius: "50%",
-                          background: "rgba(0,0,0,0.55)",
-                          color: "#fff",
-                          display: "grid",
-                          placeItems: "center",
-                          fontSize: 12,
-                          lineHeight: 1,
-                          cursor: "pointer",
-                        }}
-                      >
-                        ×
-                      </span>
-                    </div>
-                  ))}
-            </div>
+            <h2 className="sec">Moodboard<span className="rule" /><span className="count">{moodImages.length > 0 ? "Drag to rearrange" : "Drop images to add"}</span></h2>
+            {moodImages.length === 0 ? (
+              <div className="mood" style={{ marginTop: 14 }}>
+                {MOOD_TILES.map((t, i) => (
+                  <div key={i} style={{ height: t.height, background: t.background }} />
+                ))}
+              </div>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMoodDragEnd}>
+                <SortableContext items={moodImages.map((img) => img.id)} strategy={rectSortingStrategy}>
+                  <div
+                    style={{
+                      marginTop: 14,
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      gap: 12,
+                    }}
+                  >
+                    {moodImages.map((img, i) => (
+                      <SortableMoodTile
+                        key={img.id}
+                        img={img}
+                        height={MOOD_TILES[i % MOOD_TILES.length].height}
+                        onRemove={removeMoodImage}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
             <input
               ref={moodInputRef}
               type="file"
@@ -426,7 +560,19 @@ export function AtelierModule() {
             </div>
           </div>
           <div className="card">
-            <h2 className="sec">Men&apos;s Style — Trends<span className="rule" /></h2>
+            <h2 className="sec">
+              Men&apos;s Style — Trends<span className="rule" />
+              <span
+                className="count"
+                role="button"
+                tabIndex={0}
+                style={{ cursor: trendsRefreshing ? "default" : "pointer", opacity: trendsRefreshing ? 0.5 : 1 }}
+                onClick={!trendsRefreshing ? refreshTrends : undefined}
+                onKeyDown={(e) => !trendsRefreshing && e.key === "Enter" && refreshTrends()}
+              >
+                {trendsRefreshing ? "Refreshing…" : "Refresh ↻"}
+              </span>
+            </h2>
             <div style={{ marginTop: 12 }}>
               {trendsLoading && trendItems.length === 0 ? (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "9px 0" }}>
