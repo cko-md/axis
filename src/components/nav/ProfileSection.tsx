@@ -3,9 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Cropper, { type Area, type Point } from "react-easy-crop";
 import { createClient } from "@/lib/supabase/client";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { getCroppedImageBlob } from "./cropImage";
 
 type Props = {
   onSignOut: () => void;
@@ -27,6 +29,13 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const [profileForm, setProfileForm] = useState<ProfileForm>({ name: "", role: "", bio: "", photo: "" });
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Crop step — selecting a file opens this instead of uploading immediately.
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropPoint, setCropPoint] = useState<Point>({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropArea, setCropArea] = useState<Area | null>(null);
+  const [cropSaving, setCropSaving] = useState(false);
 
   // Auto-save plumbing. We persist the actual upsert behind a debounce so rapid
   // keystrokes collapse into one write. `loadedRef` guards against the initial
@@ -112,13 +121,12 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     saveState === "error" ? "Retry pending…" :
     "";
 
-  const handlePhotoFile = async (file: File) => {
-    if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
+  const handlePhotoFile = async (file: File | Blob, revokeUrl?: string) => {
     const preview = URL.createObjectURL(file);
     setProfileForm((p) => ({ ...p, photo: preview }));
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, "avatar.jpg");
       const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
       const json = await res.json() as { url?: string; error?: string };
       if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
@@ -128,6 +136,34 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
       setProfileForm((p) => ({ ...p, photo: "" }));
     } finally {
       URL.revokeObjectURL(preview);
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+    }
+  };
+
+  const openCropForFile = (file: File) => {
+    if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
+    setCropPoint({ x: 0, y: 0 });
+    setCropZoom(1);
+    setCropArea(null);
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const cancelCrop = () => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(null);
+  };
+
+  const confirmCrop = async () => {
+    if (!cropSrc || !cropArea) return;
+    setCropSaving(true);
+    try {
+      const blob = await getCroppedImageBlob(cropSrc, cropArea);
+      await handlePhotoFile(blob, cropSrc);
+    } catch {
+      toast("Could not crop photo", "error", "Profile");
+    } finally {
+      setCropSaving(false);
+      setCropSrc(null);
     }
   };
 
@@ -168,12 +204,34 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         )}
       </div>
 
-      {/* Profile modal — fields auto-save on edit (debounced). */}
+      {/* Profile modal — fields auto-save on edit (debounced). Swaps to a crop
+          step in place when a new photo is selected, rather than stacking a
+          second modal on top. */}
       <Modal
         open={profileOpen}
-        onClose={() => setProfileOpen(false)}
-        title="Profile"
+        onClose={() => { if (cropSrc) cancelCrop(); setProfileOpen(false); }}
+        title={cropSrc ? "Adjust Photo" : "Profile"}
         footer={
+          cropSrc ? (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, width: "100%" }}>
+              <button
+                type="button"
+                onClick={cancelCrop}
+                disabled={cropSaving}
+                style={{ background: "none", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "6px 14px", fontSize: 12, color: "var(--ink-dim)", cursor: cropSaving ? "default" : "pointer", fontFamily: "var(--narrow)" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmCrop}
+                disabled={cropSaving || !cropArea}
+                style={{ background: "var(--accent)", border: "none", borderRadius: "var(--r)", padding: "6px 14px", fontSize: 12, color: "#fff", cursor: cropSaving ? "default" : "pointer", fontFamily: "var(--narrow)", opacity: cropSaving ? 0.6 : 1 }}
+              >
+                {cropSaving ? "Saving…" : "Save Photo"}
+              </button>
+            </div>
+          ) : (
           <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
             <span
               role="status"
@@ -212,8 +270,51 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
               )}
             </span>
           </div>
+          )
         }
       >
+        {cropSrc ? (
+          <div>
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                height: 320,
+                borderRadius: "var(--r)",
+                overflow: "hidden",
+                background: "#111",
+              }}
+            >
+              <Cropper
+                image={cropSrc}
+                crop={cropPoint}
+                zoom={cropZoom}
+                aspect={1}
+                cropShape="round"
+                showGrid={false}
+                onCropChange={setCropPoint}
+                onZoomChange={setCropZoom}
+                onCropComplete={(_area, areaPixels) => setCropArea(areaPixels)}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--ink-faint)" }}>
+                Zoom
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.01}
+                value={cropZoom}
+                onChange={(e) => setCropZoom(Number(e.target.value))}
+                style={{ flex: 1, accentColor: "var(--accent)" }}
+                aria-label="Zoom"
+              />
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Avatar upload */}
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
           <div
@@ -260,7 +361,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
             type="file"
             accept="image/*"
             style={{ display: "none" }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); e.target.value = ""; }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) openCropForFile(f); e.target.value = ""; }}
           />
         </div>
 
@@ -303,6 +404,8 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
             className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
           />
         </div>
+        </>
+        )}
       </Modal>
     </>
   );
