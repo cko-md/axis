@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getFreshMailAccessToken, listMailAccounts, type MailProvider } from "@/lib/mail/tokens";
+import { sendComposioMail } from "@/lib/mail/composio";
 
 interface SendPayload {
   to: string;
@@ -91,6 +92,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const accounts = await listMailAccounts(user.id);
   const account = accounts.find((a) => a.provider === provider && a.mailEmail === mailEmail);
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
+
+  if (account.via === "composio" && account.connectedAccountId) {
+    const result = await sendComposioMail(provider, account.connectedAccountId, user.id, to, subject, body);
+    if (!result.ok) return NextResponse.json({ error: `${provider} error: ${result.error ?? "unknown"}` }, { status: 502 });
+    return NextResponse.json({ ok: true });
+  }
 
   const accessToken = await getFreshMailAccessToken(user.id, provider, mailEmail);
   if (!accessToken) return NextResponse.json({ error: "Token unavailable — please reconnect your account" }, { status: 401 });

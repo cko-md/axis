@@ -20,9 +20,10 @@ function OAuthDoneInner(): React.ReactElement {
       let dest = '/';
       if (provider === 'spotify') dest = '/listening-vault?connected=1';
       else if (provider === 'google_calendar') dest = '/schedule?connected=google';
-      else if (provider === 'mail_gmail' || provider === 'mail_outlook' || provider === 'mail' || provider === 'gmail' || provider === 'outlook') {
+      else if (provider === 'mail_gmail' || provider === 'mail_outlook' || provider === 'mail' || provider === 'gmail' || provider === 'outlook' || provider === 'composio_gmail' || provider === 'composio_outlook') {
         dest = `/mail?connected=${provider}`;
       } else if (provider === 'strava') dest = '/vitality?connected=strava';
+      else if (provider.startsWith('composio_')) dest = '/control-room?connected=composio';
       window.location.replace(dest);
     }
   }, [provider, status]);
