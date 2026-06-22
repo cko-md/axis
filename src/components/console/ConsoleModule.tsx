@@ -15,14 +15,14 @@ import {
 import {
   SortableContext,
   arrayMove,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG } from "@/lib/store/widgets";
+import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG, normalizeConsoleLayout, type BlockSize } from "@/lib/store/widgets";
 import { formatDateLong } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -274,8 +274,13 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
+        // While dragging, lift the card above its neighbors so the snap target
+        // reads clearly during the freeform rearrange.
+        zIndex: isDragging ? 2 : 1,
         position: "relative",
-        flex: size === "sm" ? "0 0 calc(50% - 13px)" : "0 0 100%",
+        // Structured grid snapping: "sm" cards occupy one column, "full" cards
+        // span both — so the packing stays a clean 2-up grid with no overlaps.
+        gridColumn: size === "sm" ? "span 1" : "1 / -1",
         minWidth: 0,
       }}
     >
@@ -339,6 +344,12 @@ export function ConsoleModule() {
   const [blockSizes, setBlockSizes] = useState<Record<SectionId, "sm" | "full">>({ ...DEFAULT_BLOCK_SIZES });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
+  // Layout auto-save plumbing. `layoutColumnRef` flips to false the first time a
+  // write reveals the `layout` column isn't applied yet — after that we persist
+  // to localStorage only so the UX never blocks on an unmigrated DB.
+  const layoutColumnRef = useRef(true);
+  const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const topTasks = useMemo(() => rankTasks(tasks).slice(0, 3), [tasks]);
   const { people } = usePeople();
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
@@ -373,13 +384,56 @@ export function ConsoleModule() {
     } catch { /* ignore */ }
   }, []);
 
+  // Debounced auto-save of the freeform layout (order + per-block sizes).
+  // Always mirrors to localStorage; additionally persists to the `layout` jsonb
+  // column when it exists. If the column isn't applied yet, the first write
+  // detects the schema error, flips layoutColumnRef off, and we degrade to
+  // localStorage-only — the drag/snap UX is unaffected either way.
+  const persistLayout = useCallback(
+    (order: SectionId[], sizes: Record<SectionId, "sm" | "full">) => {
+      try { localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
+      try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(sizes)); } catch { /* ignore */ }
+
+      if (!layoutColumnRef.current) return;
+      if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
+      layoutSaveTimer.current = setTimeout(async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { error } = await supabase.from("console_widgets").upsert(
+          {
+            user_id: user.id,
+            layout: { order, sizes },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" },
+        );
+        // 42703 = undefined_column, PGRST204 = column not in PostgREST schema cache.
+        if (error && (error.code === "42703" || error.code === "PGRST204" || /layout/i.test(error.message))) {
+          layoutColumnRef.current = false;
+        }
+      }, 600);
+    },
+    [supabase],
+  );
+
+  useEffect(() => () => { if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current); }, []);
+
   const toggleBlockSize = useCallback((id: string) => {
     setBlockSizes((prev) => {
       const next = { ...prev, [id]: prev[id as SectionId] === "sm" ? "full" : "sm" } as Record<SectionId, "sm" | "full">;
-      try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      persistLayout(sectionOrder, next);
       return next;
     });
-  }, []);
+  }, [persistLayout, sectionOrder]);
+
+  const resetLayout = useCallback(() => {
+    const order: SectionId[] = [...DEFAULT_SECTION_ORDER];
+    const sizes: Record<SectionId, "sm" | "full"> = { ...DEFAULT_BLOCK_SIZES };
+    setSectionOrder(order);
+    setBlockSizes(sizes);
+    persistLayout(order, sizes);
+    toast("Layout reset to default.", "success", "Console");
+  }, [persistLayout, toast]);
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -397,6 +451,18 @@ export function ConsoleModule() {
     else if (data) {
       setWidgetIds(data.widget_ids?.length ? data.widget_ids : DEFAULT_WIDGET_IDS);
       setWidgetTexts((data.widget_texts as Record<string, { v: string; k: string }>) || {});
+
+      // Freeform layout (order + per-block sizes). `layout` may be absent if the
+      // migration hasn't been applied yet — guard the read so we silently fall
+      // back to the localStorage/default order set by the mount effect.
+      const layout = normalizeConsoleLayout(
+        (data as { layout?: unknown }).layout,
+        DEFAULT_SECTION_ORDER,
+      );
+      if (layout) {
+        setSectionOrder(layout.order as SectionId[]);
+        setBlockSizes((prev) => ({ ...prev, ...(layout.sizes as Record<SectionId, BlockSize>) }));
+      }
     }
 
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -555,12 +621,10 @@ export function ConsoleModule() {
     setSectionOrder((prev) => {
       const oldIndex = prev.indexOf(active.id as SectionId);
       const newIndex = prev.indexOf(over.id as SectionId);
+      if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
-      try {
-        localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
+      // Auto-save on drag-end (debounced) — no manual "save" step for layout.
+      persistLayout(next, blockSizes);
       return next;
     });
   };
@@ -1038,6 +1102,23 @@ export function ConsoleModule() {
 
   return (
     <>
+      {/* Scoped freeform-grid styles (this unit must not touch globals.css).
+          Structured 2-up grid that snaps cards to slots; collapses to a single
+          column on narrow viewports so the layout never overflows. */}
+      <style>{`
+        .console-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-auto-flow: row dense;
+          gap: var(--section-gap);
+          margin-top: var(--space-3);
+          align-items: start;
+        }
+        @media (max-width: 680px) {
+          .console-grid { grid-template-columns: 1fr; }
+          .console-grid > .block-wrap { grid-column: 1 / -1 !important; }
+        }
+      `}</style>
       <div className="eyebrow">{formatDateLong()}</div>
       <HeroLine tasks={tasks} />
 
@@ -1064,6 +1145,13 @@ export function ConsoleModule() {
         <button type="button" className="capt-go" onClick={handleCapture}>Capture</button>
       </div>
 
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: "var(--section-gap)" }}>
+        <span style={{ marginRight: "auto", fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-faint)", letterSpacing: ".06em" }}>
+          Drag ⠿ to rearrange · ⊞/⊟ to resize
+        </span>
+        <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>
+      </div>
+
       <BlockSizeContext.Provider value={{ sizes: blockSizes, toggle: toggleBlockSize }}>
         <DndContext
           sensors={sensors}
@@ -1071,8 +1159,8 @@ export function ConsoleModule() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <SortableContext items={sectionOrder} strategy={verticalListSortingStrategy}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--section-gap)", marginTop: "var(--section-gap)", alignItems: "flex-start" }}>
+          <SortableContext items={sectionOrder} strategy={rectSortingStrategy}>
+            <div className="console-grid">
               {sectionOrder.map((id) => sectionMap[id])}
             </div>
           </SortableContext>
