@@ -5,8 +5,17 @@ import {
   getOrCreateAuthConfig,
   initiateConnection,
   isSupportedToolkit,
+  CUSTOM_AUTH_TOOLKITS,
   ComposioError,
 } from "@/lib/integrations/composio";
+
+// Toolkits in CUSTOM_AUTH_TOOLKITS need our own OAuth client registered with
+// Composio (it doesn't manage their auth) — map each to the env vars that
+// hold those credentials. Reuses the same Google OAuth app the legacy direct
+// Contacts flow already uses (src/app/api/contacts/connect/route.ts).
+const CUSTOM_AUTH_ENV: Record<string, { clientId?: string; clientSecret?: string }> = {
+  googlecontacts: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET },
+};
 
 // GET /api/integrations/composio/connect?toolkit=gmail|outlook
 // Mirrors /api/mail/connect's shape (a popup-friendly redirect) so it can be
@@ -23,8 +32,21 @@ export async function GET(req: NextRequest) {
 
   const callbackUrl = `${getAppOrigin(req)}/oauth-done?provider=composio_${toolkit}&status=ok`;
 
+  const needsCustomAuth = (CUSTOM_AUTH_TOOLKITS as readonly string[]).includes(toolkit);
+  if (needsCustomAuth) {
+    const creds = CUSTOM_AUTH_ENV[toolkit];
+    if (!creds?.clientId || !creds?.clientSecret) {
+      return NextResponse.json({ error: "Composio is not configured" }, { status: 503 });
+    }
+  }
+
   try {
-    const authConfigId = await getOrCreateAuthConfig(toolkit);
+    const authConfigId = needsCustomAuth
+      ? await getOrCreateAuthConfig(toolkit, {
+          clientId: CUSTOM_AUTH_ENV[toolkit].clientId!,
+          clientSecret: CUSTOM_AUTH_ENV[toolkit].clientSecret!,
+        })
+      : await getOrCreateAuthConfig(toolkit);
     const { connectedAccountId, redirectUrl, status } = await initiateConnection({
       toolkitSlug: toolkit,
       authConfigId,

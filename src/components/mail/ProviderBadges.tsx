@@ -1,6 +1,6 @@
 "use client";
 
-export function ProviderDot({ provider }: { provider: "gmail" | "outlook" }) {
+export function ProviderDot({ provider }: { provider: "gmail" | "outlook" | "google" }) {
   return (
     <span
       style={{
@@ -8,7 +8,7 @@ export function ProviderDot({ provider }: { provider: "gmail" | "outlook" }) {
         width: 6,
         height: 6,
         borderRadius: "50%",
-        background: provider === "gmail" ? "#ea4335" : "#0078d4",
+        background: provider === "outlook" ? "#0078d4" : "#ea4335",
         flexShrink: 0,
       }}
     />

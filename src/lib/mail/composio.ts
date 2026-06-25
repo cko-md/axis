@@ -10,48 +10,21 @@
 // Outlook OAuth grant via Composio is a user step (see plan). Input argument
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
 import { createClient } from "@/lib/supabase/server";
-import { executeTool, type SupportedToolkit } from "@/lib/integrations/composio";
+import { executeTool } from "@/lib/integrations/composio";
 import type { MailMessage } from "./gmail";
 
-const PROFILE_TOOL: Record<SupportedToolkit, string> = {
-  gmail: "GMAIL_GET_PROFILE",
-  outlook: "OUTLOOK_OUTLOOK_GET_PROFILE",
-};
-const LIST_TOOL: Record<SupportedToolkit, string> = {
+// Profile/email resolution for ACTIVE connections now lives in the shared
+// integrations/composio.ts (resolveProfileLabel) since Calendar and Contacts
+// need the same concept — see that file for gmail/outlook tool slugs.
+type MailToolkit = "gmail" | "outlook";
+const LIST_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_FETCH_EMAILS",
   outlook: "OUTLOOK_OUTLOOK_LIST_MESSAGES",
 };
-const SEND_TOOL: Record<SupportedToolkit, string> = {
+const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
-
-function firstString(obj: unknown, keys: string[]): string | null {
-  if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) {
-    const v = (obj as Record<string, unknown>)[k];
-    if (typeof v === "string" && v.includes("@")) return v;
-  }
-  return null;
-}
-
-export async function resolveAccountEmail(
-  toolkit: SupportedToolkit,
-  connectedAccountId: string,
-  userId: string,
-): Promise<string | null> {
-  try {
-    const res = await executeTool({
-      toolSlug: PROFILE_TOOL[toolkit],
-      connectedAccountId,
-      userId,
-    });
-    if (!res.successful) return null;
-    return firstString(res.data, ["emailAddress", "email", "mail", "userPrincipalName"]);
-  } catch {
-    return null;
-  }
-}
 
 export type ComposioMailAccount = {
   provider: "gmail" | "outlook";
@@ -126,7 +99,7 @@ function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail: strin
 }
 
 export async function listComposioInbox(
-  toolkit: SupportedToolkit,
+  toolkit: MailToolkit,
   connectedAccountId: string,
   userId: string,
   accountEmail: string,
@@ -151,7 +124,7 @@ export async function listComposioInbox(
 }
 
 export async function sendComposioMail(
-  toolkit: SupportedToolkit,
+  toolkit: MailToolkit,
   connectedAccountId: string,
   userId: string,
   to: string,

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getConnectedAccount, isSupportedToolkit } from "@/lib/integrations/composio";
-import { resolveAccountEmail } from "@/lib/mail/composio";
+import { getConnectedAccount, isSupportedToolkit, resolveProfileLabel } from "@/lib/integrations/composio";
 
 // Statuses Composio won't transition out of on its own — no point repolling.
 const DEAD_END_STATUSES = new Set(["FAILED", "EXPIRED", "REVOKED"]);
@@ -29,7 +28,7 @@ export async function GET() {
         const patch: Record<string, unknown> = {};
         if (live.status !== row.status) patch.status = live.status;
         if (live.status === "ACTIVE" && !row.account_label && isSupportedToolkit(row.toolkit)) {
-          const email = await resolveAccountEmail(row.toolkit, row.connected_account_id, user.id);
+          const email = await resolveProfileLabel(row.toolkit, row.connected_account_id, user.id);
           if (email) patch.account_label = email;
         }
         if (Object.keys(patch).length > 0) {

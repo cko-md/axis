@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { hourLabel } from "@/lib/format";
 import type { ScheduleEvent } from "@/lib/types";
@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { AddCalendarPicker } from "./AddCalendarPicker";
+
+type ComposioCalState = { active: boolean; email: string | null };
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -92,7 +94,38 @@ export function ScheduleModule() {
   const [signedIn, setSignedIn] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ScheduleEvent | null>(null);
   const [calStatus, setCalStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [composioCal, setComposioCal] = useState<{ google: ComposioCalState; outlook: ComposioCalState }>({
+    google: { active: false, email: null },
+    outlook: { active: false, email: null },
+  });
+  const [showCalPicker, setShowCalPicker] = useState(false);
+  const calBtnRef = useRef<HTMLDivElement>(null);
   const [externalEvents, setExternalEvents] = useState<ScheduleEvent[]>([]);
+
+  const refreshComposioCalStatus = useCallback(() => {
+    fetch("/api/integrations/composio/status")
+      .then((r) => r.json())
+      .then((d: { connections?: Array<{ toolkit: string; status: string; account_label: string | null }> }) => {
+        const conns = d.connections ?? [];
+        const g = conns.find((c) => c.toolkit === "googlecalendar" && c.status === "ACTIVE");
+        const o = conns.find((c) => c.toolkit === "outlook" && c.status === "ACTIVE");
+        setComposioCal({
+          google: { active: !!g, email: g?.account_label ?? null },
+          outlook: { active: !!o, email: o?.account_label ?? null },
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  // Close calendar picker on outside click
+  useEffect(() => {
+    if (!showCalPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (calBtnRef.current && !calBtnRef.current.contains(e.target as Node)) setShowCalPicker(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showCalPicker]);
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
   const todayIdx = useMemo(() => {
@@ -140,13 +173,18 @@ export function ScheduleModule() {
       .then((r) => r.json())
       .then((s) => setCalStatus(s))
       .catch(() => {});
-  }, [load]);
+    refreshComposioCalStatus();
+  }, [load, refreshComposioCalStatus]);
+
+  const hasGoogle = !!calStatus?.google || composioCal.google.active;
+  const hasOutlook = !!calStatus?.outlook || composioCal.outlook.active;
 
   // Pull real events from connected Google/Outlook calendars (read-only — never
   // written to schedule_events) so connecting a provider surfaces actual content,
-  // not just a connected badge. Re-fetches whenever a provider connects/disconnects.
+  // not just a connected badge. Re-fetches whenever a provider connects/disconnects
+  // (legacy direct-OAuth or Composio).
   useEffect(() => {
-    if (!calStatus?.google && !calStatus?.outlook) {
+    if (!hasGoogle && !hasOutlook) {
       setExternalEvents([]);
       return;
     }
@@ -167,7 +205,7 @@ export function ScheduleModule() {
         );
       })
       .catch(() => setExternalEvents([]));
-  }, [calStatus?.google, calStatus?.outlook, weekStart]);
+  }, [hasGoogle, hasOutlook, weekStart]);
 
   const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
 
@@ -302,12 +340,35 @@ export function ScheduleModule() {
     load();
 
     // Sync to connected external calendars
-    if (inserted && (calStatus?.google || calStatus?.outlook)) {
+    if (inserted && (hasGoogle || hasOutlook)) {
       fetch("/api/calendar/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId: inserted.id, title: form.title, start_at: start.toISOString(), end_at: end.toISOString() }),
       }).catch(() => { toast("Event saved, but calendar sync failed.", "warn", "Schedule"); });
+    }
+
+    // Context-aware conflict check — reads local + (if connected) Google
+    // Calendar state at save time and suggests an alternative if it overlaps.
+    // Only checks the first instance of a recurring series, not every
+    // generated occurrence — a single heads-up toast is enough signal.
+    if (inserted) {
+      fetch("/api/calendar/conflicts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start_at: start.toISOString(), end_at: end.toISOString(), excludeEventId: inserted.id }),
+      })
+        .then((r) => r.json())
+        .then((data: { conflict?: boolean; conflictingTitles?: string[]; suggestions?: Array<{ start_at: string; end_at: string }> }) => {
+          if (!data.conflict) return;
+          const withWhat = data.conflictingTitles?.length ? ` with ${data.conflictingTitles.join(", ")}` : "";
+          const next = data.suggestions?.[0];
+          const suggestionText = next
+            ? ` Free slot: ${new Date(next.start_at).toLocaleString("en-GB", { weekday: "short", hour: "numeric", minute: "2-digit" })}–${new Date(next.end_at).toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit" })}.`
+            : "";
+          toast(`Heads up — this overlaps${withWhat}.${suggestionText}`, "warn", "Schedule");
+        })
+        .catch(() => {});
     }
   };
 
@@ -318,7 +379,7 @@ export function ScheduleModule() {
       return;
     }
     // Remove from external calendars before deleting locally
-    if (calStatus?.google || calStatus?.outlook) {
+    if (hasGoogle || hasOutlook) {
       fetch(`/api/calendar/event/${id}`, { method: "DELETE" }).catch(() => {});
     }
     const { error } = await supabase.from("schedule_events").delete().eq("id", id);
@@ -332,7 +393,7 @@ export function ScheduleModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-        {/* Google Calendar */}
+        {/* Google Calendar — connected via legacy direct-OAuth or Composio */}
         {calStatus?.google ? (
           <button
             type="button"
@@ -347,27 +408,22 @@ export function ScheduleModule() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             {calStatus.googleEmail ?? "Google Calendar"} ✓
           </button>
-        ) : (
+        ) : composioCal.google.active ? (
           <button
             type="button"
             className="selectbox"
-            style={{ background: "none" }}
-            onClick={() => {
-              openOAuthPopup("/api/calendar/connect?provider=google", (_provider, status) => {
-                if (status === "ok") {
-                  fetch("/api/calendar/status")
-                    .then((r) => r.json())
-                    .then((s) => setCalStatus(s))
-                    .catch(() => {});
-                }
-              });
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              await fetch("/api/integrations/composio/disconnect?toolkit=googlecalendar", { method: "DELETE" });
+              setComposioCal((s) => ({ ...s, google: { active: false, email: null } }));
+              toast("Google Calendar disconnected", "info", "Schedule");
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            Connect Google Calendar
+            {composioCal.google.email ?? "Google Calendar"} ✓
           </button>
-        )}
-        {/* Outlook Calendar */}
+        ) : null}
+        {/* Outlook Calendar — connected via legacy direct-OAuth or Composio */}
         {calStatus?.outlook ? (
           <button
             type="button"
@@ -382,26 +438,37 @@ export function ScheduleModule() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             {calStatus.outlookEmail ?? "Outlook"} ✓
           </button>
-        ) : (
+        ) : composioCal.outlook.active ? (
           <button
             type="button"
             className="selectbox"
-            style={{ background: "none" }}
-            onClick={() => {
-              openOAuthPopup("/api/calendar/connect?provider=outlook", (_provider, status) => {
-                if (status === "ok") {
-                  fetch("/api/calendar/status")
-                    .then((r) => r.json())
-                    .then((s) => setCalStatus(s))
-                    .catch(() => {});
-                }
-              });
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              await fetch("/api/integrations/composio/disconnect?toolkit=outlook", { method: "DELETE" });
+              setComposioCal((s) => ({ ...s, outlook: { active: false, email: null } }));
+              toast("Outlook Calendar disconnected", "info", "Schedule");
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            Connect Outlook
+            {composioCal.outlook.email ?? "Outlook"} ✓
           </button>
-        )}
+        ) : null}
+        <div ref={calBtnRef} style={{ position: "relative" }}>
+          <div className="selectbox" style={{ cursor: "pointer" }} onClick={() => setShowCalPicker((v) => !v)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            Connect Calendar
+          </div>
+          {showCalPicker && (
+            <AddCalendarPicker
+              onClose={() => setShowCalPicker(false)}
+              onConnected={(provider) => {
+                toast(`${provider === "google" ? "Google" : "Outlook"} Calendar connected`, "success", "Schedule");
+                fetch("/api/calendar/status").then((r) => r.json()).then((s) => setCalStatus(s)).catch(() => {});
+                refreshComposioCalStatus();
+              }}
+            />
+          )}
+        </div>
         <div className="vtoggle">
           <button type="button" className={view === "week" ? "on" : ""} onClick={() => setView("week")}>WEEK</button>
           <button type="button" className={view === "month" ? "on" : ""} onClick={() => setView("month")}>MONTH</button>

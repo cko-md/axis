@@ -4,6 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 import { generatePkce } from "@/lib/auth/pkce";
 
+// This legacy path has no status/disconnect route by design — Composio
+// (googlecontacts toolkit) is the supported path going forward for new
+// connections; see /api/integrations/composio/{status,disconnect}. This
+// route stays as-is for users already connected through it.
 const CONTACTS_SCOPES =
   "https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/userinfo.email";
 
