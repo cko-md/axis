@@ -1,10 +1,5 @@
-import { AppShell } from "@/components/layout/AppShell";
-import { FundModule } from "@/components/fund/FundModule";
+import { OverviewModule } from "@/components/fund/OverviewModule";
 
-export default function FundPage() {
-  return (
-    <AppShell section="Capital" page="Fund">
-      <FundModule />
-    </AppShell>
-  );
+export default function FundOverviewPage() {
+  return <OverviewModule />;
 }

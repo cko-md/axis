@@ -19,6 +19,8 @@ import {
   type SignalRoute,
 } from "@/lib/hooks/useSignalRoutes";
 import { triageSignalToTask, useTasks, type TaskCategory, type TaskPriority } from "@/lib/hooks/useTasks";
+import { useNotes } from "@/lib/hooks/useNotes";
+import { normalizeName, triageSignalToPerson, usePeople } from "@/lib/hooks/usePeople";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -66,9 +68,11 @@ function applyChip(signals: Signal[], chip: Chip) {
 }
 
 export function SignalsModule() {
-  const { signals, loading, capture, markRead, routeTo, updateSignal, deleteSignal, applyClassification } = useSignals();
+  const { signals, loading, capture, markRead, routeTo, updateSignal, deleteSignal, applyClassification, refresh: refreshSignals } = useSignals();
   const { routes, addRoute, updateRoute, deleteRoute } = useSignalRoutes();
-  const { tasks, addTask } = useTasks();
+  const { addTask } = useTasks();
+  const { createNote, updateNote } = useNotes();
+  const { people, addPerson, updatePerson } = usePeople();
   const { toast } = useToast();
 
   const [activeChip, setActiveChip] = useState<Chip>("All");
@@ -138,7 +142,7 @@ export function SignalsModule() {
     );
   };
 
-  // Commit a route: stamp signal, and for action/awaiting destined to agenda, materialise a task.
+  // Commit a route: stamp signal, and materialise the right side-effect per destination.
   const commitRoute = async (s: Signal, destination: string, priority: RoutePriority | "hi" | "med" | "lo", via: "ai" | "manual" | "rule") => {
     if (destination === "agenda") {
       const triaged = await triageSignalToTask(s);
@@ -149,6 +153,18 @@ export function SignalsModule() {
         priority: pri,
         effort: triaged.effort,
       });
+    } else if (destination === "notes") {
+      const note = await createNote(s.title, "All Notes");
+      if (note) await updateNote(note.id, { body: s.body ?? "" });
+    } else if (destination === "people") {
+      const triaged = await triageSignalToPerson(s);
+      const target = normalizeName(triaged.name);
+      const matched = people.find((p) => normalizeName(p.name) === target);
+      if (matched) {
+        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
+      } else {
+        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
+      }
     }
     await routeTo(s.id, destination, via);
     toast(`Routed → ${destLabel(destination)}`, "success", "Signals");
@@ -203,51 +219,39 @@ export function SignalsModule() {
       const triaged = await triageSignalToTask(s);
       const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
       await addTask({ title: triaged.title, category: safeCategory(triaged.category), priority: pri, effort: triaged.effort });
+    } else if (destination === "notes") {
+      const note = await createNote(s.title, "All Notes");
+      if (note) await updateNote(note.id, { body: s.body ?? "" });
+    } else if (destination === "people") {
+      const triaged = await triageSignalToPerson(s);
+      const target = normalizeName(triaged.name);
+      const matched = people.find((p) => normalizeName(p.name) === target);
+      if (matched) {
+        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
+      } else {
+        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
+      }
     }
     await routeTo(s.id, destination, via);
   };
 
-  // Scan platform modules for new signals via AI — reads tasks + existing signals for context.
+  // Scan platform modules for new signals via AI — server does the read+AI+insert, we just refresh.
   const scanPlatform = useCallback(async () => {
     setScanning(true);
     toast("Scanning platform…", "info", "Dispatch");
     try {
-      const existingTitles = signals.map((s) => s.title).slice(0, 20).join("; ");
-      const taskCtx = tasks.slice(0, 15).map((t) =>
-        `[${t.priority.toUpperCase()}] ${t.title} (${t.category}, ${t.status}${t.deadline ? `, due ${t.deadline}` : ""})`
-      ).join("\n");
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "companion",
-          text: `You are the Axis dispatch intelligence. Scan the following platform context and identify up to 4 signals that genuinely need attention, routing, or action. Do NOT duplicate signals already in the inbox. Return ONLY a JSON array of objects with keys: title (string, <60 chars), body (string, <120 chars), signal_type ("action"|"awaiting"|"fyi"), source (string). No markdown, just raw JSON.\n\nCurrent tasks:\n${taskCtx || "No tasks."}\n\nAlready in inbox: ${existingTitles || "Empty"}`,
-          body: JSON.stringify({ context: "dispatch scan", history: [], persona: "dispatch" }),
-        }),
-      });
-      const data = await res.json() as { response?: string };
-      const raw = (data.response ?? "").trim();
-      const start = raw.indexOf("[");
-      const end   = raw.lastIndexOf("]");
-      if (start === -1 || end === -1) throw new Error("No JSON array");
-      const items = JSON.parse(raw.slice(start, end + 1)) as Array<{ title: string; body?: string; signal_type?: string; source?: string }>;
-      let captured = 0;
-      for (const item of items.slice(0, 4)) {
-        if (!item.title) continue;
-        const type: SignalType = ["action","awaiting","fyi"].includes(item.signal_type ?? "") ? (item.signal_type as SignalType) : "fyi";
-        const created = await capture(item.title, type, item.source ?? "Platform Scan");
-        if (created && item.body) {
-          await updateSignal(created.id, { body: item.body } as Partial<Signal>);
-        }
-        if (created) captured++;
-      }
+      const res = await fetch("/api/signals/scan", { method: "POST" });
+      const data = await res.json() as { created?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Scan failed");
+      const captured = data.created ?? 0;
+      if (captured > 0) await refreshSignals();
       toast(captured > 0 ? `${captured} new signal${captured === 1 ? "" : "s"} surfaced` : "Platform looks clear", "success", "Dispatch");
     } catch {
       toast("Scan failed — check connection", "error", "Dispatch");
     } finally {
       setScanning(false);
     }
-  }, [signals, tasks, capture, updateSignal, toast]);
+  }, [refreshSignals, toast]);
 
   const handleCapture = async () => {
     const text = draft.trim();

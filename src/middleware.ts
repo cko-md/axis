@@ -17,6 +17,8 @@ export async function middleware(request: NextRequest) {
     "/api/calendar/callback",         // OAuth redirect from Google/Microsoft
     "/api/mail/callback",             // OAuth redirect from Google/Microsoft (mail)
     "/api/spotify/callback",          // OAuth redirect from Spotify
+    "/api/plaid/webhook",             // Inbound from Plaid — self-authenticates via signed JWT
+    "/api/webhooks/make",             // Inbound from Make — self-authenticates via shared secret + HMAC
   ];
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next({ request });
@@ -62,6 +64,7 @@ export async function middleware(request: NextRequest) {
       "/api/massive",
       "/api/plaid",
       "/api/brokerage",
+      "/api/fund",
       "/api/ai",
       "/api/signals-ai",
       "/api/strava",

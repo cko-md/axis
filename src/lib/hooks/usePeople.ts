@@ -18,6 +18,20 @@ export type Person = {
   updated_at: string;
 };
 
+/**
+ * Normalize a person's name for fuzzy duplicate matching: trim, lowercase,
+ * collapse internal whitespace, and strip common title prefixes (Dr./Mr./etc).
+ * Used by the Dispatch "route to People" flow to detect an existing match
+ * before creating a duplicate row.
+ */
+export function normalizeName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^(dr|mr|mrs|ms|miss|prof|professor)\.?\s+/i, "")
+    .replace(/\s+/g, " ");
+}
+
 export function personIsDue(p: Person, now = new Date()) {
   if (!p.follow_up_on) return false;
   return new Date(`${p.follow_up_on}T23:59:59`) <= now || daysUntil(p.follow_up_on, now) <= 2;
@@ -115,4 +129,32 @@ export function usePeople() {
   }, [supabase]);
 
   return { people, loading, signedIn, refresh, addPerson, updatePerson, deletePerson };
+}
+
+/** AI-backed triage: calls /api/ai for real extraction, heuristic fallback is server-side */
+export async function triageSignalToPerson(signal: {
+  title: string;
+  body?: string | null;
+}): Promise<{ name: string; role: string; note: string; tag: PersonTag }> {
+  try {
+    const res = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "triage-person", text: signal.title, body: signal.body }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { name: string; role: string; note: string; tag: PersonTag };
+      return data;
+    }
+  } catch {
+    // network error — fall through to heuristic
+  }
+  // local heuristic fallback
+  const nameMatch = signal.title.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
+  const name = (nameMatch?.[1] ?? signal.title).trim().slice(0, 80) || "Unknown";
+  const lower = `${signal.title} ${signal.body ?? ""}`.toLowerCase();
+  let tag: PersonTag = "collaborator";
+  if (/mentor|advisor|professor|supervisor|pi\b/.test(lower)) tag = "mentor";
+  if (/friend|birthday|catch up|personal/.test(lower)) tag = "friend";
+  return { name, role: "", note: signal.body ?? "", tag };
 }
