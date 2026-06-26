@@ -22,6 +22,7 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 import { useFitnessRoutines, type FitnessRoutine, type FitnessDiscipline } from "@/lib/hooks/useFitnessRoutines";
+import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -52,7 +53,6 @@ type MedSession = {
   notes: string;
 };
 
-const MED_KEY = "axis-meditation-log";
 const PACE_UNIT_KEY = "axis-pace-unit";
 const PR_GOALS_KEY = "axis-pr-goals";
 
@@ -176,13 +176,6 @@ const YOGA_VIDEOS: Video[] = [
 
 const RUN_CHIPS = ["All", "Form & Drills", "Training", "Race Strategy", "Gear Reviews"];
 const YOGA_CHIPS = ["All", "Yoga for Runners", "Pilates Core", "Mobility", "Recovery / Restorative"];
-
-const INITIAL_MEALS = [
-  { ic: "☕", t: "Greek yogurt, berries, granola", m: "Breakfast · 07:40", k: "P 32 · 410" },
-  { ic: "🥗", t: "Chicken, quinoa & greens bowl", m: "Lunch · 12:50", k: "P 48 · 620" },
-  { ic: "🥤", t: "Whey + banana (post-run)", m: "Snack · 16:10", k: "P 30 · 280" },
-  { ic: "🍽️", t: "Salmon, sweet potato, broccoli", m: "Dinner · planned", k: "P 32 · 530" },
-];
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -550,7 +543,7 @@ function BriefingList({ feedUrls, emptyLabel, artlink, columns }: { feedUrls: st
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch("/api/briefing/fetch-feeds", {
+      const res = await fetch("/api/feeds/cached", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedUrls }),
@@ -659,12 +652,21 @@ function MedSessionList({ sessions }: { sessions: MedSession[] }) {
 
 // ── Meditation Tab ────────────────────────────────────────────────────────────
 
-function MeditationTab() {
+function MeditationTab({ rawSessions, addSession }: { rawSessions: MeditationSession[]; addSession: ReturnType<typeof useVitalityLogs>["addSession"] }) {
   const { toast } = useToast();
 
-  const [sessions, setSessions] = useState<MedSession[]>(() => {
-    try { return JSON.parse(localStorage.getItem(MED_KEY) ?? "[]"); } catch { return []; }
-  });
+  const sessions: MedSession[] = useMemo(
+    () => rawSessions.map((s) => ({
+      id: s.id,
+      date: s.occurred_at,
+      type: s.type as MedType,
+      durationMin: s.duration_min,
+      moodBefore: s.mood_before,
+      moodAfter: s.mood_after,
+      notes: s.notes,
+    })),
+    [rawSessions],
+  );
   const [medType, setMedType] = useState<MedType>("breath");
   const [duration, setDuration] = useState(10);
   const [moodBefore, setMoodBefore] = useState(3);
@@ -713,19 +715,12 @@ function MeditationTab() {
     finally { setAiLoading(false); }
   };
 
-  const saveSession = () => {
-    const session: MedSession = {
-      id: Date.now().toString(36),
-      date: new Date().toISOString(),
-      type: medType,
-      durationMin: duration,
-      moodBefore,
-      moodAfter,
-      notes,
-    };
-    const next = [session, ...sessions].slice(0, 60);
-    setSessions(next);
-    try { localStorage.setItem(MED_KEY, JSON.stringify(next)); } catch {}
+  const saveSession = async () => {
+    const result = await addSession({ type: medType, durationMin: duration, moodBefore, moodAfter, notes });
+    if (!result) {
+      toast("Failed to log session — sign in to save.", "error", "Meditation");
+      return;
+    }
     setDone(false); setNotes(""); setMoodAfter(3);
     toast("Session logged.", "success", "Meditation");
   };
@@ -1285,7 +1280,7 @@ export function VitalityModule() {
   const [tab, setTab] = useState("fit-health");
   const [runChip, setRunChip] = useState("All");
   const [yogaChip, setYogaChip] = useState("All");
-  const [meals, setMeals] = useState(INITIAL_MEALS);
+  const { sessions: medSessions, addSession, meals, addMeal, removeMeal } = useVitalityLogs();
   const [mealInput, setMealInput] = useState("");
   const [mealParsing, setMealParsing] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
@@ -1376,18 +1371,18 @@ export function VitalityModule() {
       if (match) {
         try {
           const obj = JSON.parse(match[0]);
-          setMeals((m) => [{ ic: obj.emoji || "🍽️", t: obj.title || text, m: obj.timing || "Logged", k: obj.macros || "—" }, ...m]);
+          await addMeal({ emoji: obj.emoji || "🍽️", title: obj.title || text, timing: obj.timing || "Logged", macros: obj.macros || "—" });
           toast("Meal logged via AI", "success", "Nutrition");
         } catch {
-          setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+          await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
           toast("Logged (AI parse failed — added raw)", "info", "Nutrition");
         }
       } else {
-        setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+        await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
         toast("Meal logged", "success", "Nutrition");
       }
     } catch {
-      setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+      await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
       toast("Meal logged", "success", "Nutrition");
     } finally {
       setMealInput("");
@@ -1454,7 +1449,7 @@ export function VitalityModule() {
 
       {/* ── MEDITATION TAB ───────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-meditation" ? " on" : ""}`} id="fit-meditation">
-        {tab === "fit-meditation" && <MeditationTab />}
+        {tab === "fit-meditation" && <MeditationTab rawSessions={medSessions} addSession={addSession} />}
       </div>
 
       {/* ── RUNNING TAB ──────────────────────────────────────────────────────── */}
@@ -1773,14 +1768,14 @@ export function VitalityModule() {
             <h2 className="sec">Today&apos;s Meals<span className="rule" /><span className="count">1,840 kcal</span></h2>
             <div className="meal-list">
               {meals.map((meal) => (
-                <div className="meal" key={meal.t}>
-                  <div className="meal-ic">{meal.ic}</div>
+                <div className="meal" key={meal.id}>
+                  <div className="meal-ic">{meal.emoji}</div>
                   <div className="meal-b">
-                    <div className="meal-t">{meal.t}</div>
-                    <div className="meal-m">{meal.m}</div>
+                    <div className="meal-t">{meal.title}</div>
+                    <div className="meal-m">{meal.timing}</div>
                   </div>
-                  <div className="meal-k">{meal.k}</div>
-                  <button type="button" className="meal-x" title="Remove" aria-label={`Remove ${meal.t}`} onClick={() => setMeals((ms) => ms.filter((m) => m !== meal))}>✕</button>
+                  <div className="meal-k">{meal.macros}</div>
+                  <button type="button" className="meal-x" title="Remove" aria-label={`Remove ${meal.title}`} onClick={() => removeMeal(meal.id)}>✕</button>
                 </div>
               ))}
             </div>
