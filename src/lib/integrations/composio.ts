@@ -7,11 +7,17 @@ const COMPOSIO_BASE = "https://backend.composio.dev/api/v3";
 
 // Toolkits the app's connect/execute routes will broker. Extend as more
 // domains (calendar, contacts, spotify, ...) migrate onto Composio.
-export const SUPPORTED_TOOLKITS = ["gmail", "outlook"] as const;
+export const SUPPORTED_TOOLKITS = ["gmail", "outlook", "googlecalendar", "googlecontacts"] as const;
 export type SupportedToolkit = (typeof SUPPORTED_TOOLKITS)[number];
 export function isSupportedToolkit(v: string): v is SupportedToolkit {
   return (SUPPORTED_TOOLKITS as readonly string[]).includes(v);
 }
+
+// Toolkits Composio does not manage OAuth for — we must register our own
+// OAuth client (client_id/secret) as a "custom auth" auth_config. Verified
+// live: googlecalendar/outlook/gmail have composio_managed_auth_schemes
+// non-empty; googlecontacts (and spotify, unused here) have it empty.
+export const CUSTOM_AUTH_TOOLKITS = ["googlecontacts"] as const;
 
 export class ComposioError extends Error {
   status: number;
@@ -65,21 +71,39 @@ export type ComposioAuthConfig = {
 };
 
 // Composio requires an auth_config (the OAuth "app" record) before a user can
-// connect to a toolkit. We lazily create one Composio-managed auth_config per
-// toolkit (no client_id/secret of ours required — Composio brokers the OAuth
-// app itself) and reuse it for every user.
-export async function getOrCreateAuthConfig(toolkitSlug: string): Promise<string> {
+// connect to a toolkit. For most toolkits we lazily create one Composio-
+// managed auth_config (no client_id/secret of ours required — Composio
+// brokers the OAuth app itself) and reuse it for every user. A few toolkits
+// (CUSTOM_AUTH_TOOLKITS) don't offer managed auth, so the caller must pass
+// `custom` — our own OAuth client credentials — and we register those as a
+// "use_custom_auth" auth_config instead.
+//
+// NOTE: the use_custom_auth request shape below (credentials.client_id/
+// client_secret nested under auth_config) is our best read of Composio's API
+// — it was not exercised against a live POST during implementation (doing so
+// would have meant putting a real client_secret on a command line). Verify
+// it against a real call the first time a googlecontacts connect is tested.
+export async function getOrCreateAuthConfig(
+  toolkitSlug: string,
+  custom?: { clientId: string; clientSecret: string },
+): Promise<string> {
   const existing = await composioFetch<{ items: ComposioAuthConfig[] }>(
     `/auth_configs?toolkit_slug=${encodeURIComponent(toolkitSlug)}&limit=10`,
   );
-  const reusable = existing.items.find((c) => c.is_composio_managed);
+  const reusable = existing.items.find((c) => (custom ? !c.is_composio_managed : c.is_composio_managed));
   if (reusable) return reusable.id;
 
   const created = await composioFetch<{ auth_config: { id: string } }>(`/auth_configs`, {
     method: "POST",
     body: JSON.stringify({
       toolkit: { slug: toolkitSlug },
-      auth_config: { type: "use_composio_managed_auth", name: `axis-${toolkitSlug}` },
+      auth_config: custom
+        ? {
+            type: "use_custom_auth",
+            name: `axis-${toolkitSlug}`,
+            credentials: { client_id: custom.clientId, client_secret: custom.clientSecret },
+          }
+        : { type: "use_composio_managed_auth", name: `axis-${toolkitSlug}` },
     }),
   });
   return created.auth_config.id;
@@ -154,4 +178,55 @@ export async function executeTool(opts: {
       arguments: opts.arguments ?? {},
     }),
   });
+}
+
+// The tool whose response identifies *whose* account this is (almost always
+// an email address), called once the first time a connection goes ACTIVE so
+// the UI can show "Connected as you@example.com" instead of a bare toolkit
+// name. googlecontacts has no tool that reliably returns the connected
+// account's own identity, so it's handled as a special case below rather
+// than through this map.
+const PROFILE_TOOL: Partial<Record<SupportedToolkit, string>> = {
+  gmail: "GMAIL_GET_PROFILE",
+  outlook: "OUTLOOK_OUTLOOK_GET_PROFILE",
+  googlecalendar: "GOOGLECALENDAR_LIST_CALENDARS",
+};
+
+function firstString(obj: unknown, keys: string[]): string | null {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of keys) {
+    const v = (obj as Record<string, unknown>)[k];
+    if (typeof v === "string" && v.includes("@")) return v;
+  }
+  return null;
+}
+
+// Best-effort label resolution, generalized across all supported toolkits
+// (lifted out of the Mail-specific module it started in, since Calendar and
+// Contacts need it too). googlecalendar resolves via its calendar list — the
+// "primary" calendar's `id` field *is* the user's email, the standard way to
+// identify whose Google Calendar this is. googlecontacts has no equivalent
+// tool, so it falls back to a static label — an accepted simplification
+// since a user is only expected to have one Google Contacts connection.
+export async function resolveProfileLabel(
+  toolkit: SupportedToolkit,
+  connectedAccountId: string,
+  userId: string,
+): Promise<string | null> {
+  if (toolkit === "googlecontacts") return "Google Contacts";
+  const toolSlug = PROFILE_TOOL[toolkit];
+  if (!toolSlug) return null;
+  try {
+    const res = await executeTool({ toolSlug, connectedAccountId, userId });
+    if (!res.successful) return null;
+    if (toolkit === "googlecalendar") {
+      const data = res.data as Record<string, unknown>;
+      const items = (data.items ?? []) as Record<string, unknown>[];
+      const primary = items.find((c) => c.primary === true) ?? items[0];
+      return firstString(primary, ["id"]);
+    }
+    return firstString(res.data, ["emailAddress", "email", "mail", "userPrincipalName"]);
+  } catch {
+    return null;
+  }
 }
