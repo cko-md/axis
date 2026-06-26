@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/crypto";
 import { syncPlaidTransactions } from "@/lib/fund/syncPlaidTransactions";
-import { detectRecurring, snapshotNetWorth, writeDailyBrief } from "@/lib/fund/financeDailyJobs";
+import { detectRecurring, sendBillReminders, snapshotNetWorth, writeDailyBrief } from "@/lib/fund/financeDailyJobs";
+import { checkBudgetThresholds, detectAndExplainAnomalies, writeSubscriptionAudit, writeWeeklyRecap } from "@/lib/fund/financeNarratorJobs";
 
 /**
  * Vercel cron: nightly safety net for everything the Plaid webhook
@@ -57,10 +59,20 @@ export async function GET(req: NextRequest) {
     ...new Set([...(users ?? []).map((u) => u.user_id), ...(holdingUsers ?? []).map((u) => u.user_id)]),
   ];
 
+  const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+
   for (const userId of userIds) {
+    const { data: authUser } = await admin.auth.admin.getUserById(userId);
+    const userEmail = authUser?.user?.email ?? null;
+
     await snapshotNetWorth(admin, userId);
     await detectRecurring(admin, userId);
-    await writeDailyBrief(admin, userId);
+    await writeDailyBrief(admin, userId, userEmail);
+    await sendBillReminders(admin, userId, userEmail);
+    await checkBudgetThresholds(admin, userId, userEmail);
+    await detectAndExplainAnomalies(admin, userId, userEmail, anthropic);
+    await writeWeeklyRecap(admin, userId, userEmail, anthropic);
+    await writeSubscriptionAudit(admin, userId, userEmail, anthropic);
   }
 
   return NextResponse.json({

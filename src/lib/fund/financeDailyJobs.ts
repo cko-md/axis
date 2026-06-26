@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto";
 import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
 import { fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client";
+import { notifyViaMake } from "@/lib/fund/notifyViaMake";
 
 /** Fetches live Plaid balances server-side for the finance-daily snapshot job. */
 async function fetchPlaidCash(accessToken: string): Promise<number> {
@@ -152,7 +153,7 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
  * Advisor will replace this with a richer, narrated brief that still only
  * reads from these same deterministic sources.
  */
-export async function writeDailyBrief(admin: SupabaseClient, userId: string): Promise<void> {
+export async function writeDailyBrief(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
   const { data: snapshots } = await admin
     .from("net_worth_snapshots")
     .select("captured_on, net_worth")
@@ -180,4 +181,45 @@ export async function writeDailyBrief(admin: SupabaseClient, userId: string): Pr
     confidence: "high",
     requires_review: false,
   });
+
+  if (userEmail) {
+    await notifyViaMake(admin, {
+      idempotencyKey: `daily_brief:${userId}:${today.captured_on}`,
+      kind: "daily_brief",
+      userId,
+      to: userEmail,
+      subject: "Your daily finance brief",
+      bodyText: body,
+      meta: { net_worth: today.net_worth, change },
+    });
+  }
+}
+
+/**
+ * FIN-503/506: bill-reminder check. Fires 2 days before a recurring
+ * charge's next_expected_date — deterministic, no AI needed for "this bill
+ * is due soon." Idempotent per merchant per due-date via audit_logs.
+ */
+export async function sendBillReminders(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
+  if (!userEmail) return;
+  const reminderDate = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+
+  const { data: dueSoon } = await admin
+    .from("fund_recurring_transactions")
+    .select("merchant_name, expected_amount, next_expected_date")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .eq("next_expected_date", reminderDate);
+
+  for (const bill of dueSoon ?? []) {
+    await notifyViaMake(admin, {
+      idempotencyKey: `bill_reminder:${userId}:${bill.merchant_name}:${bill.next_expected_date}`,
+      kind: "bill_reminder",
+      userId,
+      to: userEmail,
+      subject: `Upcoming bill: ${bill.merchant_name}`,
+      bodyText: `${bill.merchant_name} ($${Number(bill.expected_amount).toFixed(2)}) is expected on ${bill.next_expected_date}.`,
+      meta: { merchant: bill.merchant_name, amount: Number(bill.expected_amount), due_date: bill.next_expected_date },
+    });
+  }
 }
