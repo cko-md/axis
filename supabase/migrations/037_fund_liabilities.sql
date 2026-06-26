@@ -1,5 +1,7 @@
 -- 037_fund_liabilities.sql
--- Credit cards / loans, currently untracked entirely.
+-- Liabilities (credit cards, loans — currently untracked entirely) plus
+-- additive columns so net worth accounts for debt and holdings can be
+-- attributed to a source without ever merging rows across sources.
 
 create table if not exists public.fund_liabilities (
   id uuid primary key default gen_random_uuid(),
@@ -29,3 +31,15 @@ create policy "fund_liabilities_delete_own"
   on public.fund_liabilities for delete using (auth.uid() = user_id);
 
 create index if not exists idx_fund_liabilities_user on public.fund_liabilities (user_id);
+
+-- Holdings: tag where a position came from. Multi-source holdings are never
+-- merged into one row — the analytics layer sums by symbol across sources.
+alter table public.fund_holdings
+  add column if not exists source text not null default 'manual'
+    check (source in ('manual', 'plaid', 'public')),
+  add column if not exists connection_id uuid references public.fund_connections (id) on delete set null;
+
+-- Net worth: subtract liabilities so net_worth reflects assets minus debt,
+-- not just assets. Existing rows backfill to liabilities = 0 (unchanged net worth).
+alter table public.net_worth_snapshots
+  add column if not exists liabilities numeric not null default 0;

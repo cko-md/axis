@@ -8,6 +8,7 @@ import { memoryRateLimit } from "@/lib/ratelimit";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
+type TriagePersonResult = { name: string; role: string; note: string; tag: "mentor" | "collaborator" | "friend" };
 type RouteResult = {
   destination: "research" | "literature" | "task";
   label: string;
@@ -85,6 +86,17 @@ function heuristicTriage(title: string, body?: string): TriageResult {
   if (/quick|5 min|15 min/.test(lower)) effort = "~15m";
   if (/deep|2h|90/.test(lower)) effort = "~2h";
   return { title, priority, category, effort };
+}
+
+function heuristicTriagePerson(text: string, body?: string): TriagePersonResult {
+  const lower = `${text} ${body ?? ""}`.toLowerCase();
+  // Prefer a run of capitalized words (likely a proper name) over the raw text.
+  const nameMatch = text.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
+  const name = (nameMatch?.[1] ?? text).trim().slice(0, 80) || "Unknown";
+  let tag: TriagePersonResult["tag"] = "collaborator";
+  if (/mentor|advisor|professor|supervisor|pi\b/.test(lower)) tag = "mentor";
+  if (/friend|birthday|catch up|personal/.test(lower)) tag = "friend";
+  return { name, role: "", note: body ?? "", tag };
 }
 
 type RegimenItem = {
@@ -251,6 +263,7 @@ export async function POST(req: NextRequest) {
     if (mode === "summary") return NextResponse.json(heuristicStudySummary(text, title));
     if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
+    if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
     if (mode === "regimen") {
       const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string } : {};
@@ -503,6 +516,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(triageData as TriageResult);
     }
 
+    // ── triage-person ──────────────────────────────────────────────────────────
+    // Gemini eligible — pure JSON extraction
+    if (mode === "triage-person") {
+      const result = await aiJSON<TriagePersonResult>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You extract a person contact from a signal for a personal OS. Given a signal title and optional body, return ONLY a JSON object with keys: name (string, the person\'s name cleaned up), role (string, their role/title if mentioned, else ""), note (string, a brief context note — use the body if given, else a short summary derived from the title), tag ("mentor"|"collaborator"|"friend" — default to "collaborator" if unclear). No markdown, no explanation.',
+        userMessage: `title: ${text}\nbody: ${body ?? ""}`,
+        maxTokens: 200,
+      });
+      const { _model: _, ...personData } = result;
+      return NextResponse.json(personData as TriagePersonResult);
+    }
+
     // ── debrief_summary ────────────────────────────────────────────────────────
     if (mode === "debrief_summary") {
       const { text: summary } = await aiGenerate({
@@ -541,6 +569,7 @@ export async function POST(req: NextRequest) {
     if (mode === "summary") return NextResponse.json(heuristicStudySummary(text, title));
     if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
+    if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
     if (mode === "regimen") {
       const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string } : {};

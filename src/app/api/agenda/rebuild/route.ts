@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
@@ -34,6 +35,9 @@ export async function POST(req: NextRequest) {
     .eq("user_id", user.id)
     .limit(5);
 
+  const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
+  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "auto";
+
   const name = prefs?.display_name ?? "the user";
   const objectivesList =
     objectives && objectives.length > 0
@@ -50,21 +54,25 @@ export async function POST(req: NextRequest) {
     night: `You are an elite sleep and recovery coach. Design an optimized night wind-down routine for ${name} — a physician-researcher who needs quality sleep for peak cognition.\n\nCurrent routine:\n${currentList}\n\nUser objectives:\n${objectivesList}\n\nReturn ONLY a JSON array of 6–8 steps with this exact shape: [{id,time,title,sub}] where id is a short unique string, time is "HH:MM" (starting 21:00–21:30), title is the step name (max 48 chars), sub is a brief rationale (max 60 chars). Prioritise sleep onset, stress reduction, and next-day prep. No preamble, no explanation — only the JSON array.`,
   };
 
-  const client = new Anthropic();
-  const msg = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 700,
-    messages: [{ role: "user", content: prompts[type] }],
-  });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
   try {
-    const text = msg.content[0].type === "text" ? msg.content[0].text : "";
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) throw new Error("No JSON array found");
-    const steps: RoutineStep[] = JSON.parse(match[0]);
-    if (!Array.isArray(steps) || steps.length === 0) throw new Error("Empty array");
-    // Ensure each step has the required shape
-    const sanitized = steps.map((s) => ({
+    // aiJSON spreads the parsed JSON onto an object (`{...parsed, _model}`) — asking
+    // for a bare array would corrupt it into {0:.., 1:.., _model}. Request a wrapper
+    // object instead, matching every other aiJSON consumer in this codebase.
+    const result = await aiJSON<{ steps: RoutineStep[] }>({
+      mode: "agenda-rebuild",
+      anthropic,
+      providerPref,
+      system: 'You are an elite performance/recovery coach for a physician-researcher. Return ONLY a JSON object with key "steps": an array of 6-8 routine step objects, each {id,time,title,sub} where id is a short unique string, time is "HH:MM", title is the step name (max 48 chars), sub is a brief rationale (max 60 chars). No markdown, no preamble.',
+      userMessage: prompts[type],
+      maxTokens: 700,
+    });
+    const { _model: _, ...rest } = result;
+    const rawSteps = rest.steps;
+    if (!Array.isArray(rawSteps) || rawSteps.length === 0) throw new Error("Empty or invalid steps array");
+    const sanitized = rawSteps.map((s) => ({
       id: String(s.id ?? crypto.randomUUID()),
       time: String(s.time ?? "—"),
       title: String(s.title ?? "").slice(0, 60),
@@ -72,6 +80,7 @@ export async function POST(req: NextRequest) {
     }));
     return NextResponse.json({ steps: sanitized });
   } catch {
-    return NextResponse.json({ error: "AI_PARSE_FAILED" }, { status: 500 });
+    // Graceful degrade: hand back whatever steps the client already had rather than a 500.
+    return NextResponse.json({ steps: currentSteps });
   }
 }

@@ -20,7 +20,7 @@ export async function GET() {
   const since = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("net_worth_snapshots")
-    .select("captured_on, cash, invested, net_worth")
+    .select("captured_on, cash, invested, liabilities, net_worth")
     .eq("user_id", user.id)
     .gte("captured_on", since)
     .order("captured_on", { ascending: true });
@@ -36,21 +36,23 @@ export async function POST(req: NextRequest) {
 
   let cash = 0;
   let invested = 0;
+  let liabilities = 0;
   try {
     const body = await req.json();
     cash = Number(body.cash) || 0;
     invested = Number(body.invested) || 0;
+    liabilities = Number(body.liabilities) || 0;
   } catch {
     /* default to zeros */
   }
 
-  const net_worth = cash + invested;
+  const net_worth = cash + invested - liabilities;
   const captured_on = new Date().toISOString().slice(0, 10);
 
   const { error } = await supabase
     .from("net_worth_snapshots")
     .upsert(
-      { user_id: user.id, captured_on, cash, invested, net_worth },
+      { user_id: user.id, captured_on, cash, invested, liabilities, net_worth },
       { onConflict: "user_id,captured_on" },
     );
 
