@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import { useAtelierPrefs } from "@/lib/hooks/useAtelierPrefs";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -130,8 +131,6 @@ function initialPins() {
   return pins;
 }
 
-const PINS_KEY = "axis-atelier-pins";
-
 function dayToIso(abbrev: string, hour = 8): { start: string; end: string } {
   const map: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
   const target = map[abbrev.toUpperCase()] ?? 1;
@@ -221,11 +220,7 @@ export function AtelierModule() {
   const [tab, setTab] = useState<"atl-lang" | "atl-style">("atl-lang");
   const [lang, setLang] = useState<LangKey>("fr");
   const [addingAgenda, setAddingAgenda] = useState(false);
-  const [pins, setPins] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return initialPins();
-    try { return JSON.parse(localStorage.getItem(PINS_KEY) ?? "null") ?? initialPins(); }
-    catch { return initialPins(); }
-  });
+  const { pins, togglePin } = useAtelierPrefs(initialPins());
 
   const [moodImages, setMoodImages] = useState<MoodImage[]>([]);
   const moodInputRef = useRef<HTMLInputElement>(null);
@@ -239,10 +234,6 @@ export function AtelierModule() {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  useEffect(() => {
-    localStorage.setItem(PINS_KEY, JSON.stringify(pins));
-  }, [pins]);
 
   const loadMoodImages = useCallback(async () => {
     const supabase = createClient();
@@ -334,7 +325,7 @@ export function AtelierModule() {
   // SSRF-guarded RSS proxy BriefingModule/LiteratureModule already use.
   const loadFeed = useCallback(async (feedUrls: string[]): Promise<RssItem[]> => {
     try {
-      const res = await fetch("/api/briefing/fetch-feeds", {
+      const res = await fetch("/api/feeds/cached", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedUrls }),
@@ -461,7 +452,7 @@ export function AtelierModule() {
                 <div className="resource" key={`${lang}-${r.label}`}>
                   <span
                     className={`pin${pins[`${lang}:${i}`] ? " on" : ""}`}
-                    onClick={() => setPins((p) => ({ ...p, [`${lang}:${i}`]: !p[`${lang}:${i}`] }))}
+                    onClick={() => togglePin(`${lang}:${i}`)}
                   >
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2l2.6 6.3 6.8.5-5.2 4.4 1.7 6.6L12 17l-5.9 3.3 1.7-6.6L2.6 8.8l6.8-.5z" />

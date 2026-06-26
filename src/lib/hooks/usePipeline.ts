@@ -38,6 +38,7 @@ export type Conference = {
   travel: string;
   next_step: string;
   linked_study_id: string | null;
+  abstract_due_date: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -183,6 +184,7 @@ export function usePipeline() {
         travel: partial.travel ?? "",
         next_step: partial.next_step ?? "",
         linked_study_id: partial.linked_study_id ?? null,
+        abstract_due_date: partial.abstract_due_date ?? null,
       })
       .select()
       .single();

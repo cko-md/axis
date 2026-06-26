@@ -99,6 +99,8 @@ function heuristicTriagePerson(text: string, body?: string): TriagePersonResult 
   return { name, role: "", note: body ?? "", tag };
 }
 
+type PipelineDraftResult = { draft: string };
+
 type RegimenItem = {
   name: string;
   sets?: number;
@@ -284,6 +286,7 @@ export async function POST(req: NextRequest) {
     if (mode === "companion") return NextResponse.json({ response: "I'm offline right now — check your connection and try again." });
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
     if (mode === "debrief_summary") return NextResponse.json({ summary: "Summary unavailable — API key required." });
+    if (mode === "pipeline-draft") return NextResponse.json({ draft: "" } as PipelineDraftResult);
     return NextResponse.json(heuristicCapture(text));
   }
 
@@ -531,6 +534,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(personData as TriagePersonResult);
     }
 
+    // ── pipeline-draft ─────────────────────────────────────────────────────────
+    if (mode === "pipeline-draft") {
+      const ctx = body ? JSON.parse(body) as { kind?: "study" | "conference"; role?: string; meta?: string } : {};
+      const result = await aiJSON<PipelineDraftResult>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You are an academic medical writing assistant for a physician-researcher. Draft a concise scientific abstract (Background/Methods/Results/Conclusion in plain prose, no markdown headers) for the given study or conference submission. 150-250 words. Return ONLY a JSON object with key "draft": the abstract text as a single string. No markdown, no preamble.',
+        userMessage: `kind: ${ctx.kind ?? "study"}\ntitle: ${text}\nrole: ${ctx.role ?? "First Author"}\ncontext: ${ctx.meta ?? "none"}`,
+        maxTokens: 500,
+      });
+      const { _model: _, ...draftData } = result;
+      return NextResponse.json({ draft: typeof draftData.draft === "string" ? draftData.draft : "" } as PipelineDraftResult);
+    }
+
     // ── debrief_summary ────────────────────────────────────────────────────────
     if (mode === "debrief_summary") {
       const { text: summary } = await aiGenerate({
@@ -578,6 +596,7 @@ export async function POST(req: NextRequest) {
     if (mode === "regimenPlan") {
       return NextResponse.json({ days: [], summary: "Could not generate plan — check your API key and try again." } as RegimenPlanResult);
     }
+    if (mode === "pipeline-draft") return NextResponse.json({ draft: "" } as PipelineDraftResult);
     return NextResponse.json(heuristicCapture(text));
   }
 }

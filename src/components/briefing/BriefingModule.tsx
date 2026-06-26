@@ -3,16 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
-
-const SAVED_KEY = "axis-briefing-saved";
-type SavedItem = { id: string; title: string; url: string; savedAt: string; type: "read" | "watch" };
-
-function loadSaved(): SavedItem[] {
-  try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "[]"); } catch { return []; }
-}
-function persistSaved(items: SavedItem[]) {
-  localStorage.setItem(SAVED_KEY, JSON.stringify(items));
-}
+import { useBriefing } from "@/lib/hooks/useBriefing";
 
 type Story = {
   id: string;
@@ -175,16 +166,13 @@ export function BriefingModule() {
     () => new Set(CHIPS.filter((c) => c.on).map((c) => c.f)),
   );
   const [readerId, setReaderId] = useState<string>(STORIES[0].id);
-  const [saved, setSaved] = useState<SavedItem[]>(() => loadSaved());
+  const { savedItems: saved, feeds: savedFeeds, addSavedItem, removeSavedItem, addFeed, removeFeed } = useBriefing();
   const [showSaved, setShowSaved] = useState(false);
 
   const [feedSearchOpen, setFeedSearchOpen] = useState(false);
   const [feedQuery, setFeedQuery] = useState("");
   const [feedSearching, setFeedSearching] = useState(false);
   const [feedResults, setFeedResults] = useState<Array<{name: string; url: string; description: string}>>([]);
-  const [savedFeeds, setSavedFeeds] = useState<Array<{name: string; url: string}>>(() => {
-    try { return JSON.parse(localStorage.getItem("axis-briefing-feeds") ?? "[]"); } catch { return []; }
-  });
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [feedItems, setFeedItems] = useState<Story[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(false);
@@ -241,7 +229,7 @@ export function BriefingModule() {
   const loadFeeds = useCallback((opts?: { silent?: boolean }) => {
     if (savedFeeds.length === 0) { setFeedItems([]); return; }
     if (!opts?.silent) setFeedsLoading(true);
-    fetch("/api/briefing/fetch-feeds", {
+    fetch("/api/feeds/cached", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ feedUrls: savedFeeds.map((f) => f.url) }),
@@ -298,14 +286,15 @@ export function BriefingModule() {
     });
   };
 
-  const toggleSave = (s: Story, type: "read" | "watch" = "read") => {
-    const already = saved.find((x) => x.id === s.id);
-    const next = already
-      ? saved.filter((x) => x.id !== s.id)
-      : [...saved, { id: s.id, title: s.shortTitle, url: s.url, savedAt: new Date().toISOString(), type }];
-    setSaved(next);
-    persistSaved(next);
-    toast(already ? "Removed from saved" : `Saved for ${type === "watch" ? "later" : "reading"}`, "success", "Briefing");
+  const toggleSave = async (s: Story, type: "read" | "watch" = "read") => {
+    const already = saved.some((x) => x.url === s.url);
+    if (already) {
+      await removeSavedItem(s.url);
+      toast("Removed from saved", "success", "Briefing");
+    } else {
+      await addSavedItem({ title: s.shortTitle, url: s.url, type });
+      toast(`Saved for ${type === "watch" ? "later" : "reading"}`, "success", "Briefing");
+    }
   };
 
   const searchFeeds = async () => {
@@ -333,17 +322,9 @@ export function BriefingModule() {
     }
   };
 
-  const saveFeed = (feed: {name: string; url: string}) => {
-    const next = [...savedFeeds.filter(f => f.url !== feed.url), feed];
-    setSavedFeeds(next);
-    localStorage.setItem("axis-briefing-feeds", JSON.stringify(next));
+  const saveFeed = async (feed: {name: string; url: string}) => {
+    await addFeed(feed);
     toast(`${feed.name} added to sources.`, "success", "Briefing");
-  };
-
-  const removeFeed = (url: string) => {
-    const next = savedFeeds.filter(f => f.url !== url);
-    setSavedFeeds(next);
-    localStorage.setItem("axis-briefing-feeds", JSON.stringify(next));
   };
 
   const allStories = [...STORIES, ...feedItems];
@@ -440,11 +421,11 @@ export function BriefingModule() {
             <button
               type="button"
               className="feed-manage"
-              style={{ fontSize: 11, color: saved.some((x) => x.id === reader.id) ? "var(--gold)" : undefined }}
+              style={{ fontSize: 11, color: saved.some((x) => x.url === reader.url) ? "var(--gold)" : undefined }}
               onClick={() => toggleSave(reader, reader.video ? "watch" : "read")}
-              title={saved.some((x) => x.id === reader.id) ? "Remove from saved" : "Save for later"}
+              title={saved.some((x) => x.url === reader.url) ? "Remove from saved" : "Save for later"}
             >
-              {saved.some((x) => x.id === reader.id) ? "★ Saved" : "☆ Save"}
+              {saved.some((x) => x.url === reader.url) ? "★ Saved" : "☆ Save"}
             </button>
           </div>
         </div>
@@ -464,7 +445,7 @@ export function BriefingModule() {
                     <div style={{ fontSize: 12, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
                   </div>
                   <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => openInApp(item.url, item.title)}>Open →</button>
-                  <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => { setSaved((s) => { const n = s.filter((x) => x.id !== item.id); persistSaved(n); return n; }); }}>✕</button>
+                  <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => removeSavedItem(item.url)}>✕</button>
                 </div>
               ))}
             </div>
@@ -566,10 +547,10 @@ export function BriefingModule() {
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); toggleSave(s, s.video ? "watch" : "read"); }}
-                style={{ position: "absolute", top: 7, right: 7, background: "rgba(7,8,11,.55)", border: "none", borderRadius: 3, width: 24, height: 24, display: "grid", placeItems: "center", cursor: "pointer", color: saved.some((x) => x.id === s.id) ? "#c9a463" : "rgba(193,196,199,.7)", fontSize: 12 }}
-                title={saved.some((x) => x.id === s.id) ? "Remove from saved" : "Save for later"}
+                style={{ position: "absolute", top: 7, right: 7, background: "rgba(7,8,11,.55)", border: "none", borderRadius: 3, width: 24, height: 24, display: "grid", placeItems: "center", cursor: "pointer", color: saved.some((x) => x.url === s.url) ? "#c9a463" : "rgba(193,196,199,.7)", fontSize: 12 }}
+                title={saved.some((x) => x.url === s.url) ? "Remove from saved" : "Save for later"}
               >
-                {saved.some((x) => x.id === s.id) ? "★" : "☆"}
+                {saved.some((x) => x.url === s.url) ? "★" : "☆"}
               </button>
             </div>
             <div className="nc-b">
