@@ -117,23 +117,6 @@ export interface TickerHit {
   ex: string;
 }
 
-export interface MoverResult {
-  sym: string;
-  price: number;
-  chg: number;
-}
-
-export async function fetchMovers(direction: "gainers" | "losers"): Promise<MoverResult[]> {
-  const j = await massiveRequest<{
-    tickers?: Array<{ ticker: string; day?: { c: number }; todaysChangePerc?: number }>;
-  }>(`/v2/snapshot/locale/us/markets/stocks/${direction}`, {});
-  return (j.tickers ?? []).slice(0, 10).map((t) => ({
-    sym: t.ticker,
-    price: t.day?.c ?? 0,
-    chg: t.todaysChangePerc ?? 0,
-  }));
-}
-
 export interface NewsItem {
   title: string;
   url: string;

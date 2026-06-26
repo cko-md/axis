@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "-p", "3210"],
       "port": 3210
+    },
+    {
+      "name": "axis-worktree-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3220"],
+      "port": 3220
     }
   ]
 }
