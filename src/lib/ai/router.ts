@@ -6,11 +6,11 @@
  *   2. Claude Haiku             — writing quality, personality, complex JSON
  *
  * Modes routed to Gemini first under "auto" (falls back to Haiku on error / missing key):
- *   capture | triage | route | notes-title
+ *   capture | triage | triage-person | route | notes-title | platform-scan
  *
  * Modes always on Haiku under "auto" (quality / conversation / long output):
  *   companion | notes-summarize | notes-rewrite | meeting-summary |
- *   deck-insights | regimen | regimenPlan
+ *   deck-insights | regimen | regimenPlan | agenda-rebuild | objectives-scan
  *
  * A user can override this via profiles.ai_provider ("gemini" | "anthropic"),
  * forcing every mode onto that provider (falling back to the other only if
@@ -32,8 +32,10 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 export const GEMINI_ELIGIBLE = new Set([
   "capture",
   "triage",
+  "triage-person",
   "route",
   "notes-title",
+  "platform-scan",
 ]);
 
 type GeminiRole = "user" | "model";
