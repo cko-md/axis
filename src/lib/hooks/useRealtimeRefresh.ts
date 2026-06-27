@@ -24,7 +24,9 @@ export function useRealtimeRefresh(
 
   useEffect(() => {
     if (!userId) return;
-    const channel = supabase.channel(`realtime:${key}:${userId}`);
+    const channel = supabase.channel(
+      `realtime:${key}:${userId}:${crypto.randomUUID()}`,
+    );
     for (const table of tableList) {
       channel.on(
         "postgres_changes",
