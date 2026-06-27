@@ -142,8 +142,10 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
         temperature,
       });
       return { text, model: `gemini/${GEMINI_MODEL}` };
-    } catch {
-      // Fall through to Haiku — logged server-side only
+    } catch (err) {
+      // Fall through to Haiku — surface the real cause so a misconfigured/
+      // failing Gemini call isn't masked by the generic "no AI client" throw.
+      console.error(`[ai/router] Gemini failed (mode=${mode}):`, err instanceof Error ? err.message : err);
     }
   }
 

@@ -2615,6 +2615,9 @@ body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
 /* hidden mode — sidebar is off-screen; pin the toggle to the left edge so it
    reads as "show sidebar" and stays fully on-screen (no straddle at left:0). */
 .app-shell.mode-hidden .sb-toggle{left:10px;transform:translateY(-50%)}
+/* ...and shift the topbar right so the toggle sits in its own gutter instead of
+   landing on top of the breadcrumb (which read as a stray floating button). */
+.app-shell.mode-hidden .topbar{left:48px}
 
 /* Collapsed (icons) mode — center icons horizontally */
 .app-shell.mode-icons .navitem{justify-content:center;padding:7px 4px}
@@ -3688,6 +3691,19 @@ a:focus-visible,
 }
 .wv-navbtn svg { width: 13px; height: 13px; }
 .wv-navbtn:hover { background: var(--glass); color: var(--ink); }
+/* The reader bar/error actions reuse .wv-navbtn but carry text labels ("Open
+   original →", "✕ Close reader") rather than an icon — the fixed 28×28 icon box
+   forced those labels to wrap and overlap. Relax to an auto-width text button. */
+.wv-reader-bar .wv-navbtn,
+.wv-reader-error .wv-navbtn {
+  width: auto;
+  height: auto;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
 .wv-close { color: var(--ink-faint); }
 .wv-close:hover { background: color-mix(in srgb, var(--clay) 15%, transparent); color: var(--clay); border-color: var(--clay); }
 

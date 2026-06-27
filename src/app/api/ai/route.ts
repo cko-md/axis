@@ -639,8 +639,18 @@ export async function POST(req: NextRequest) {
     // model output, upstream errors) are invisible and surface only as the
     // generic fallback strings, making them near-impossible to diagnose.
     console.error(`[ai/route] mode=${mode} failed:`, err);
+    // A 429 from the model provider means the API key is valid but out of
+    // quota — tell the user that specifically so they fix billing rather than
+    // retrying into the same wall.
+    const rateLimited = err instanceof Error && /\b429\b|quota|rate.?limit/i.test(err.message);
     // ── Error fallbacks ────────────────────────────────────────────────────────
-    if (mode === "companion") return NextResponse.json({ response: "Something went wrong. Try again." });
+    if (mode === "companion") {
+      return NextResponse.json({
+        response: rateLimited
+          ? "AI quota reached — the model provider is rate-limiting requests. Check the API key's billing/quota and try again later."
+          : "AI is unavailable right now. Check the model API key in Control Room.",
+      });
+    }
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
     if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
     if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));

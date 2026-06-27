@@ -89,22 +89,6 @@ export function CommandPalette({ open, onClose }: Props) {
         run: openInterfaceStudio,
       },
       {
-        id: "action-gallery-discover",
-        label: "Discover Art",
-        hint: "Action · gallery",
-        group: "action",
-        icon: "◈",
-        run: () => router.push("/gallery"),
-      },
-      {
-        id: "action-poetry",
-        label: "Read Poetry",
-        hint: "Action · gallery · poetry",
-        group: "action",
-        icon: "◈",
-        run: () => router.push("/gallery"),
-      },
-      {
         id: "action-vitality",
         label: "Log Workout",
         hint: "Action · vitality",
