@@ -117,6 +117,36 @@ export interface TickerHit {
   ex: string;
 }
 
+export interface NewsItem {
+  title: string;
+  url: string;
+  publisher: string;
+  tickers: string[];
+  publishedAt: string;
+}
+
+export async function fetchNews(tickers: string[], limit = 10): Promise<NewsItem[]> {
+  const j = await massiveRequest<{
+    results?: Array<{
+      title: string;
+      article_url: string;
+      publisher?: { name: string };
+      tickers?: string[];
+      published_utc: string;
+    }>;
+  }>("/v2/reference/news", {
+    ...(tickers.length ? { ticker: tickers.join(",") } : {}),
+    limit: String(limit),
+  });
+  return (j.results ?? []).map((r) => ({
+    title: r.title,
+    url: r.article_url,
+    publisher: r.publisher?.name ?? "",
+    tickers: r.tickers ?? [],
+    publishedAt: r.published_utc,
+  }));
+}
+
 export async function searchTickers(q: string): Promise<TickerHit[]> {
   const j = await massiveRequest<{
     results?: Array<{
