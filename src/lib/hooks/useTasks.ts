@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type TaskCategory = "research" | "clinical" | "life" | "personal";
 export type TaskPriority = "hi" | "med" | "lo";
@@ -29,9 +30,11 @@ export function useTasks() {
   const supabase = useMemo(() => createClient(), []);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setTasks([]);
       setLoading(false);
@@ -57,6 +60,8 @@ export function useTasks() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "tasks", userId, refresh);
 
   const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
     const { data: { user } } = await supabase.auth.getUser();

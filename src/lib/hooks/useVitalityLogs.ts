@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type MeditationSession = {
   id: string;
@@ -52,9 +53,11 @@ export function useVitalityLogs() {
   const [sessions, setSessions] = useState<MeditationSession[]>([]);
   const [meals, setMeals] = useState<MealLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSessions([]);
       setMeals([]);
@@ -107,6 +110,8 @@ export function useVitalityLogs() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, ["meditation_sessions", "meal_logs"], userId, refresh);
 
   const addSession = useCallback(async (session: { type: string; durationMin: number; moodBefore: number; moodAfter: number; notes: string }) => {
     try {

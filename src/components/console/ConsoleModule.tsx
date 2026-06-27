@@ -22,7 +22,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG, normalizeConsoleLayout, type BlockSize } from "@/lib/store/widgets";
+import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG, normalizeConsoleLayout, BLOCK_SIZES, type BlockSize } from "@/lib/store/widgets";
 import { formatDateLong } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -213,7 +213,7 @@ const DEFAULT_SECTION_ORDER = [
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
 
 const CONSOLE_BLOCK_SIZES_KEY = "axis-console-block-sizes";
-const DEFAULT_BLOCK_SIZES: Record<SectionId, "sm" | "full"> = {
+const DEFAULT_BLOCK_SIZES: Record<SectionId, BlockSize> = {
   "widgets": "full", "photos": "full", "dispatch-block": "full",
   "pomodoro": "sm", "routine": "full", "daily-rings": "full",
   "todays-arc": "full", "focus-ranked": "full", "people-spotlight": "full",
@@ -221,7 +221,12 @@ const DEFAULT_BLOCK_SIZES: Record<SectionId, "sm" | "full"> = {
   "art-gallery": "full",
 };
 
-type BlockSizeCtx = { sizes: Record<string, "sm" | "full">; toggle: (id: string) => void };
+// Three-step granular sizing: sm (1 col) → md (2 col) → full (all 4 cols) → sm…
+const NEXT_BLOCK_SIZE: Record<BlockSize, BlockSize> = { sm: "md", md: "full", full: "sm" };
+const BLOCK_SIZE_GLYPH: Record<BlockSize, string> = { sm: "⊞", md: "⊡", full: "⊟" };
+const BLOCK_SIZE_LABEL: Record<BlockSize, string> = { sm: "Compact", md: "Medium", full: "Full width" };
+
+type BlockSizeCtx = { sizes: Record<string, BlockSize>; toggle: (id: string) => void };
 const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, toggle: () => {} });
 
 /* ── HeroLine ──────────────────────────────────────────────────── */
@@ -262,6 +267,12 @@ function HeroLine({ tasks }: { tasks: Task[] }) {
 
 /* ── DraggableBlock ────────────────────────────────────────────── */
 
+// Structured grid snapping on a 4-col base grid: "sm" cards occupy one column,
+// "md" cards span two, "full" cards span the entire row — so the packing
+// stays clean with no overlaps while giving more granular size steps than a
+// binary sm/full toggle.
+const BLOCK_SPAN: Record<BlockSize, string> = { sm: "span 1", md: "span 2", full: "1 / -1" };
+
 function DraggableBlock({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const { sizes, toggle } = useContext(BlockSizeContext);
@@ -269,7 +280,7 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
   return (
     <div
       ref={setNodeRef}
-      className={`block-wrap${size === "sm" ? " block-sm" : ""}`}
+      className={`block-wrap${size !== "full" ? ` block-${size}` : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -278,9 +289,7 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
         // reads clearly during the freeform rearrange.
         zIndex: isDragging ? 2 : 1,
         position: "relative",
-        // Structured grid snapping: "sm" cards occupy one column, "full" cards
-        // span both — so the packing stays a clean 2-up grid with no overlaps.
-        gridColumn: size === "sm" ? "span 1" : "1 / -1",
+        gridColumn: BLOCK_SPAN[size],
         minWidth: 0,
       }}
     >
@@ -289,18 +298,17 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
           type="button"
           onClick={() => toggle(id)}
           style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", fontSize: 13, lineHeight: 1, padding: "2px 3px", borderRadius: "var(--r)" }}
-          title={size === "sm" ? "Expand block" : "Compact block"}
+          title={`${BLOCK_SIZE_LABEL[size]} — click to resize`}
         >
-          {size === "sm" ? "⊞" : "⊟"}
+          {BLOCK_SIZE_GLYPH[size]}
         </button>
         <div
           {...attributes}
           {...listeners}
-          style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 14, lineHeight: 1, padding: "2px 4px", borderRadius: "var(--r)" }}
           className="block-drag-handle"
-          title="Drag to reorder"
+          title="Drag anywhere on this handle to move the block"
         >
-          ⠿
+          <span className="block-drag-grip">⠿</span>
         </div>
       </div>
       {children}
@@ -337,11 +345,27 @@ export function ConsoleModule() {
     if (typeof window === "undefined") return 0;
     try { return Number(localStorage.getItem(`axis-pom-${new Date().toDateString()}`) ?? "0"); } catch { return 0; }
   });
-  const { data: liveData, refreshOne, refreshAll } = useWidgetData(widgetIds, interfaceSettings.locationServices);
+  const { data: liveData, refreshOne, refreshAll, geoStatus } = useWidgetData(widgetIds, interfaceSettings.locationServices);
+
+  // Location Services is opt-in (Interface Studio); if the browser denies the
+  // permission prompt (or geolocation isn't available at all) the widgets
+  // silently fall back to the default location — surface that once instead
+  // of leaving the user wondering why "On" never seems to do anything.
+  const geoNoticeShown = useRef(false);
+  useEffect(() => {
+    if (geoNoticeShown.current) return;
+    if (geoStatus === "denied") {
+      geoNoticeShown.current = true;
+      toast("Location permission denied — showing weather for the default location instead.", "warn", "Location");
+    } else if (geoStatus === "unavailable") {
+      geoNoticeShown.current = true;
+      toast("Location isn't available on this device/browser — showing the default location.", "warn", "Location");
+    }
+  }, [geoStatus, toast]);
 
   // Section ordering + block size state
   const [sectionOrder, setSectionOrder] = useState<SectionId[]>([...DEFAULT_SECTION_ORDER]);
-  const [blockSizes, setBlockSizes] = useState<Record<SectionId, "sm" | "full">>({ ...DEFAULT_BLOCK_SIZES });
+  const [blockSizes, setBlockSizes] = useState<Record<SectionId, BlockSize>>({ ...DEFAULT_BLOCK_SIZES });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   // Layout auto-save plumbing. `layoutColumnRef` flips to false the first time a
@@ -378,8 +402,12 @@ export function ConsoleModule() {
       }
       const storedSizes = localStorage.getItem(CONSOLE_BLOCK_SIZES_KEY);
       if (storedSizes) {
-        const parsedSizes = JSON.parse(storedSizes) as Record<string, "sm" | "full">;
-        setBlockSizes((prev) => ({ ...prev, ...parsedSizes }));
+        const parsedSizes = JSON.parse(storedSizes) as Record<string, BlockSize>;
+        const valid: Partial<Record<SectionId, BlockSize>> = {};
+        for (const [id, size] of Object.entries(parsedSizes)) {
+          if ((BLOCK_SIZES as string[]).includes(size)) valid[id as SectionId] = size;
+        }
+        setBlockSizes((prev) => ({ ...prev, ...valid }));
       }
     } catch { /* ignore */ }
   }, []);
@@ -390,7 +418,7 @@ export function ConsoleModule() {
   // detects the schema error, flips layoutColumnRef off, and we degrade to
   // localStorage-only — the drag/snap UX is unaffected either way.
   const persistLayout = useCallback(
-    (order: SectionId[], sizes: Record<SectionId, "sm" | "full">) => {
+    (order: SectionId[], sizes: Record<SectionId, BlockSize>) => {
       try { localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
       try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(sizes)); } catch { /* ignore */ }
 
@@ -420,7 +448,8 @@ export function ConsoleModule() {
 
   const toggleBlockSize = useCallback((id: string) => {
     setBlockSizes((prev) => {
-      const next = { ...prev, [id]: prev[id as SectionId] === "sm" ? "full" : "sm" } as Record<SectionId, "sm" | "full">;
+      const current = prev[id as SectionId] ?? "full";
+      const next = { ...prev, [id]: NEXT_BLOCK_SIZE[current] } as Record<SectionId, BlockSize>;
       persistLayout(sectionOrder, next);
       return next;
     });
@@ -428,7 +457,7 @@ export function ConsoleModule() {
 
   const resetLayout = useCallback(() => {
     const order: SectionId[] = [...DEFAULT_SECTION_ORDER];
-    const sizes: Record<SectionId, "sm" | "full"> = { ...DEFAULT_BLOCK_SIZES };
+    const sizes: Record<SectionId, BlockSize> = { ...DEFAULT_BLOCK_SIZES };
     setSectionOrder(order);
     setBlockSizes(sizes);
     persistLayout(order, sizes);
@@ -604,9 +633,11 @@ export function ConsoleModule() {
     return () => clearInterval(id);
   }, [pomRunning, toast]);
 
-  // dnd-kit sensors
+  // dnd-kit sensors. Activation distance lowered from 8px → 3px so drags
+  // start responsively now that pointer events are scoped to the (larger)
+  // drag handle — the handle no longer needs a long pull before it "takes".
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 3 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -818,7 +849,9 @@ export function ConsoleModule() {
         <h2 className="sec">Markets &amp; Body<span className="rule" /><span className="count">{liveData.markets ? "Live" : "Cached"}</span></h2>
         <div style={{ marginTop: 12 }}>
           <div className="metricrow"><span className="metric-k">Markets</span><span className="metric-v">{liveData.markets?.v ?? "—"}</span></div>
-          <div className="metricrow"><span className="metric-k">Hint</span><span className="metric-v" style={{ fontSize: 11 }}>{liveData.markets?.k ?? "Set POLYGON_API_KEY"}</span></div>
+          {liveData.markets?.k && (
+            <div className="metricrow"><span className="metric-k">Hint</span><span className="metric-v" style={{ fontSize: 11 }}>{liveData.markets.k}</span></div>
+          )}
         </div>
       </Card>
     </DraggableBlock>
@@ -1108,11 +1141,19 @@ export function ConsoleModule() {
       <style>{`
         .console-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          /* 4-col base grid gives three size steps (sm = 1, md = 2, full = 4
+             columns) for more granular resizing than a binary half/full split. */
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           grid-auto-flow: row dense;
           gap: var(--section-gap);
           margin-top: var(--space-3);
           align-items: start;
+        }
+        @media (max-width: 900px) {
+          .console-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .console-grid > .block-wrap.block-sm { grid-column: span 1; }
+          .console-grid > .block-wrap.block-md,
+          .console-grid > .block-wrap:not(.block-sm):not(.block-md) { grid-column: 1 / -1; }
         }
         @media (max-width: 680px) {
           .console-grid { grid-template-columns: 1fr; }
@@ -1147,7 +1188,7 @@ export function ConsoleModule() {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: "var(--section-gap)" }}>
         <span style={{ marginRight: "auto", fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-faint)", letterSpacing: ".06em" }}>
-          Drag ⠿ to rearrange · ⊞/⊟ to resize
+          Drag ⠿ to rearrange · click ⊞/⊡/⊟ to cycle size
         </span>
         <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>
       </div>

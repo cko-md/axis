@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 // Legacy localStorage key AtelierModule.tsx used before this hook existed.
 // Read once for the one-time import below; left in place afterward since this
@@ -23,21 +24,20 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
   const userId = useRef<string | null>(null);
   const [pins, setPins] = useState<Record<string, boolean>>(defaultPins);
   const [loading, setLoading] = useState(true);
+  const [subscribedUserId, setSubscribedUserId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      userId.current = user.id;
-
+  const loadPins = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    userId.current = user.id;
+    setSubscribedUserId(user.id);
+    {
       const { data, error } = await supabase
         .from("atelier_prefs")
         .select("pins")
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (cancelled) return;
       if (!error && data) {
         setPins(data.pins as Record<string, boolean>);
         setLoading(false);
@@ -53,14 +53,16 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
         .upsert({ user_id: user.id, pins: seeded })
         .select("pins")
         .maybeSingle();
-      if (!cancelled) {
-        setPins((inserted?.pins as Record<string, boolean>) ?? seeded);
-        setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase]);
+      setPins((inserted?.pins as Record<string, boolean>) ?? seeded);
+      setLoading(false);
+    }
+  }, [supabase, defaultPins]);
+
+  useEffect(() => {
+    void loadPins();
+  }, [loadPins]);
+
+  useRealtimeRefresh(supabase, "atelier_prefs", subscribedUserId, loadPins);
 
   const togglePin = useCallback((key: string) => {
     setPins((prev) => {

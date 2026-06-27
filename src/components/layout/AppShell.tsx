@@ -109,19 +109,31 @@ export function AppShell({ section, page, children }: Props) {
       </div>
       <div className="grain" aria-hidden />
       <div className={`app-shell mode-${sidebarMode}`}>
-        <Sidebar collapsed={sidebarMode === "icons"} onToggle={cycleMode} />
+        <Sidebar collapsed={sidebarMode === "icons"} />
         <div className="main-scroll">
           <Topbar section={section} page={page} onOpenPalette={() => setPaletteOpen(true)} />
           <main id="main-content" className="view-pad">{children}</main>
         </div>
       </div>
-      {sidebarMode === "hidden" && (
-        <button className="sb-reveal" onClick={cycleMode} aria-label="Show sidebar" title="Show sidebar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
-      )}
+      {/* Single sidebar toggle — fixed in the same on-screen spot across all
+          three modes (open/icons/hidden), so collapse and expand are always
+          the same control, never two different buttons in two places. */}
+      <button
+        className="sb-toggle"
+        onClick={cycleMode}
+        aria-label={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
+        title={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          style={{ width: 14, height: 14, transform: sidebarMode === "open" ? undefined : "rotate(180deg)" }}
+        >
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+      </button>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Mascot />
       <InterfaceStudioDrawer />

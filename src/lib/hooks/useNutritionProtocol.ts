@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 import { DIETS, type Diet } from "@/lib/recipes";
 
 export type NutritionProtocol = {
@@ -148,6 +149,8 @@ export function useNutritionProtocol() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "nutrition_protocol", userId, refresh);
 
   const updateProtocol = useCallback(
     async (patch: Partial<Omit<NutritionProtocol, "user_id" | "created_at">>) => {

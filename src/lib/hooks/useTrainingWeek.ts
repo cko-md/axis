@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type TrainingKind = "run" | "lift" | "mobility" | "rest" | "other";
 export type TrainingIntensity = "easy" | "moderate" | "hard" | "key";
@@ -202,6 +203,8 @@ export function useTrainingWeek() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "training_sessions", userId, refresh);
 
   const addSession = useCallback(
     async (partial: NewSession) => {

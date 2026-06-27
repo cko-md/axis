@@ -180,7 +180,7 @@ function PastReflectionRow({ note }: { note: Note }) {
 
 export function DebriefModule() {
   const { notes, createNote, updateNote } = useNotes();
-  const { tasks, loading, addTask } = useTasks();
+  const { tasks, loading, addTask, toggleDone, deleteTask } = useTasks();
   const { toast }                  = useToast();
 
   const [signedIn,      setSignedIn]      = useState(false);
@@ -325,17 +325,38 @@ export function DebriefModule() {
         <div className="card">
           <h2 className="sec">Friction<span className="rule" /><span className="count">overdue · idle</span></h2>
           <div style={{ marginTop: 12 }}>
-            {(!signedIn || loading ? DEMO_FRICTION : friction.map((t) => ({
+            {(!signedIn || loading ? DEMO_FRICTION.map((f) => ({ ...f, id: null })) : friction.map((t) => ({
+              id: t.id,
               title: t.title,
               badge: t.status === "overdue" ? "overdue" : "14d idle",
               cls: t.status === "overdue" ? "hi" : "med",
             }))).map((f) => (
-              <div key={f.title} className="task">
-                <div className="check" />
+              <div key={f.id ?? f.title} className="task">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={false}
+                  aria-label={`Mark "${f.title}" complete`}
+                  className="check"
+                  disabled={!f.id}
+                  onClick={() => f.id && toggleDone(f.id)}
+                  style={{ background: "none", padding: 0 }}
+                />
                 <div className="task-main">
                   <div className="task-title">{f.title}</div>
                   <div className="task-meta"><span className={`pill ${f.cls}`}>{f.badge}</span></div>
                 </div>
+                {f.id && (
+                  <button
+                    type="button"
+                    onClick={() => deleteTask(f.id as string)}
+                    title="Delete"
+                    aria-label={`Delete "${f.title}"`}
+                    style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0 }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             ))}
             {signedIn && !loading && friction.length === 0 && (

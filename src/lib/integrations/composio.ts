@@ -6,8 +6,13 @@
 const COMPOSIO_BASE = "https://backend.composio.dev/api/v3";
 
 // Toolkits the app's connect/execute routes will broker. Extend as more
-// domains (calendar, contacts, spotify, ...) migrate onto Composio.
-export const SUPPORTED_TOOLKITS = ["gmail", "outlook", "googlecalendar", "googlecontacts"] as const;
+// domains (calendar, contacts, spotify, strava, ...) migrate onto Composio.
+// strava/spotify added as secondary (Composio) connect paths alongside their
+// existing direct-OAuth implementations — see useStrava.ts / src/app/api/
+// spotify — which stay primary since they're deeply integrated (token
+// refresh, playback control, library/search) well beyond what a generic
+// toolkit bridge replaces in one pass.
+export const SUPPORTED_TOOLKITS = ["gmail", "outlook", "googlecalendar", "googlecontacts", "strava", "spotify"] as const;
 export type SupportedToolkit = (typeof SUPPORTED_TOOLKITS)[number];
 export function isSupportedToolkit(v: string): v is SupportedToolkit {
   return (SUPPORTED_TOOLKITS as readonly string[]).includes(v);
@@ -15,9 +20,12 @@ export function isSupportedToolkit(v: string): v is SupportedToolkit {
 
 // Toolkits Composio does not manage OAuth for — we must register our own
 // OAuth client (client_id/secret) as a "custom auth" auth_config. Verified
-// live: googlecalendar/outlook/gmail have composio_managed_auth_schemes
-// non-empty; googlecontacts (and spotify, unused here) have it empty.
-export const CUSTOM_AUTH_TOOLKITS = ["googlecontacts"] as const;
+// live against backend.composio.dev/api/v3/toolkits/<slug> on 2026-06-27:
+// googlecalendar/outlook/gmail/strava have composio_managed_auth_schemes
+// non-empty (Composio brokers its own OAuth app); googlecontacts and spotify
+// have it empty (composio_managed_auth_schemes: []) — Composio requires our
+// own client_id/secret for those, registered as a use_custom_auth auth_config.
+export const CUSTOM_AUTH_TOOLKITS = ["googlecontacts", "spotify"] as const;
 
 export class ComposioError extends Error {
   status: number;
@@ -117,12 +125,46 @@ export type InitiateConnectionResult = {
 
 // Starts an OAuth2 connection. `userId` is our Supabase user id, passed through
 // verbatim as Composio's user_id (the mapping the foundation relies on).
+//
+// Composio is mid-migration on POST /connected_accounts: for Composio-managed
+// OAuth1/OAuth2/DCR_OAUTH auth configs, that endpoint is retired in favor of
+// POST /connected_accounts/link (new orgs cut over 2026-05-08, all orgs by
+// 2026-07-03 — verified live against this org's account on 2026-06-27: a real
+// Gmail connect attempt through the old endpoint sat at connected_accounts
+// status EXPIRED with status_reason "Connection initiation did not complete
+// within 10 minutes", which is consistent with the popup completing the
+// redirect_url's hosted Composio leg but the old endpoint never actually
+// wiring up the OAuth2 grant — the likely cause of "popup opens and closes
+// without completing auth". Custom auth configs (our own client_id/secret —
+// CUSTOM_AUTH_TOOLKITS) are explicitly unaffected per Composio's docs and
+// keep using the old endpoint, which still returns a redirectUrl for them.
 export async function initiateConnection(opts: {
   toolkitSlug: string;
   authConfigId: string;
   userId: string;
   callbackUrl: string;
+  composioManaged: boolean;
 }): Promise<InitiateConnectionResult> {
+  if (opts.composioManaged) {
+    const res = await composioFetch<{
+      connected_account_id: string;
+      redirect_url: string;
+      link_token?: string;
+    }>(`/connected_accounts/link`, {
+      method: "POST",
+      body: JSON.stringify({
+        auth_config_id: opts.authConfigId,
+        user_id: opts.userId,
+        callback_url: opts.callbackUrl,
+      }),
+    });
+    return {
+      connectedAccountId: res.connected_account_id,
+      redirectUrl: res.redirect_url ?? null,
+      status: "INITIATED",
+    };
+  }
+
   const res = await composioFetch<{
     id: string;
     connectionData?: { authScheme: string; val?: { status: string; redirectUrl?: string } };

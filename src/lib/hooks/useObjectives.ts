@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type KeyResult = {
   id: string;
@@ -80,9 +81,11 @@ export function useObjectives() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSignedIn(false);
       setObjectives([]);
@@ -123,6 +126,8 @@ export function useObjectives() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, ["objectives", "key_results", "habits", "habit_checks"], userId, refresh);
 
   const addObjective = useCallback(async (title: string, descriptor: string) => {
     const { data: { user } } = await supabase.auth.getUser();

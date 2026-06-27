@@ -1,57 +1,58 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
 import { useToast } from "@/components/ui/Toast";
 
-type Photo = { id: string; caption: string; image_url: string; sort_order: number };
+// "Figures & Images" collection in Library — same bucket LibraryModule files
+// photo uploads into, so anything added from either surface ends up in the
+// same place.
+const PHOTOS_COLLECTION = 3;
 
-const DEFAULT_PHOTOS = [
-  { caption: "Lab Retreat · Apr", gradient: "linear-gradient(135deg,#26323f,#10161f)" },
-  { caption: "Lagos · Dec", gradient: "linear-gradient(135deg,#2c2738,#10161f)" },
-  { caption: "Marathon PR", gradient: "linear-gradient(135deg,#243430,#10161f)" },
-  { caption: "OR · Day One", gradient: "linear-gradient(135deg,#312a2a,#10161f)" },
-];
+// Fallback background while a tile's signed URL is loading (or failed to
+// resolve) — without this, `background` was left `undefined` and the tile
+// rendered as an empty bordered box with no error feedback. Mirrors the
+// `.photo`/`.fthumb` gradient fallback LibraryModule already uses.
+const THUMB_BG = "linear-gradient(135deg,var(--surface-2),var(--surface-3))";
 
+/**
+ * Featured Photos — mirrors the real photo set from the Library module
+ * (`library_files` rows whose mime type is image/*) instead of a separate
+ * console-only photo store, so anything a user adds in Library shows up
+ * here too. Uploading via "Add" here also writes through to Library.
+ */
 export function FeaturedPhotos() {
-  const supabase = useMemo(() => createClient(), []);
   const { toast } = useToast();
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const { files, uploadFile, getDownloadUrl } = useLibraryFiles();
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase.from("console_photos").select("*").eq("user_id", user.id).order("sort_order");
-    setPhotos((data ?? []) as Photo[]);
-  }, [supabase]);
+  const photos = useMemo(
+    () => files.filter((f) => f.mime_type?.startsWith("image/")).slice(0, 8),
+    [files],
+  );
+  const photoIds = useMemo(() => photos.map((p) => p.id).join(","), [photos]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    photos.forEach((p) => {
+      if (photoUrls[p.id]) return;
+      getDownloadUrl(p.storage_path).then((url) => {
+        if (url) setPhotoUrls((prev) => ({ ...prev, [p.id]: url }));
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photoIds]);
 
   const addPhoto = async (file: File) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      toast("Sign in to save photos", "error", "Photos");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const image_url = reader.result as string;
-      const caption = file.name.replace(/\.[^.]+$/, "").slice(0, 40);
-      const { data, error } = await supabase
-        .from("console_photos")
-        .insert({ user_id: user.id, caption, image_url, sort_order: photos.length })
-        .select()
-        .single();
-      if (error) toast(error.message, "error", "Photos");
-      else if (data) {
-        setPhotos((p) => [...p, data as Photo]);
-        toast("Photo added", "success", "Photos");
-      }
-    };
-    reader.readAsDataURL(file);
+    const result = await uploadFile(file, PHOTOS_COLLECTION);
+    if (result.error) toast(result.error, "error", "Photos");
+    else toast("Photo added — also visible in Library", "success", "Photos");
+  };
+
+  const onOpen = async (f: LibraryFile) => {
+    const url = photoUrls[f.id] ?? (await getDownloadUrl(f.storage_path));
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else toast("Couldn't open photo", "error", "Photos");
   };
 
   return (
@@ -68,25 +69,23 @@ export function FeaturedPhotos() {
         </span>
       </div>
       <div className="pst-rail">
-        {photos.length === 0
-          ? DEFAULT_PHOTOS.map((p) => (
-              <div key={p.caption} className="pst" style={{ background: p.gradient }}>
-                <span className="pst-cap">{p.caption}</span>
-              </div>
-            ))
-          : photos.map((p) => (
-              <div
-                key={p.id}
-                className="pst"
-                style={{
-                  background: p.image_url.startsWith("data:") || p.image_url.startsWith("http")
-                    ? `url(${p.image_url}) center/cover`
-                    : p.image_url,
-                }}
-              >
-                <span className="pst-cap">{p.caption}</span>
-              </div>
-            ))}
+        {photos.length === 0 ? (
+          <div className="lib-empty" style={{ flex: 1 }}>Drop image files in Library, or use Add here, to feature them.</div>
+        ) : (
+          photos.map((p) => (
+            <div
+              key={p.id}
+              className="pst"
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpen(p)}
+              onKeyDown={(e) => e.key === "Enter" && onOpen(p)}
+              style={{ background: photoUrls[p.id] ? `url(${photoUrls[p.id]}) center/cover` : THUMB_BG }}
+            >
+              <span className="pst-cap">{p.display_name}</span>
+            </div>
+          ))
+        )}
         <div
           className="pst add"
           role="button"

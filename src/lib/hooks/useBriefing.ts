@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type BriefingSavedItem = {
   id: string;
@@ -43,9 +44,11 @@ export function useBriefing() {
   const [savedItems, setSavedItems] = useState<BriefingSavedItem[]>([]);
   const [feeds, setFeeds] = useState<BriefingFeed[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSavedItems([]);
       setFeeds([]);
@@ -101,6 +104,8 @@ export function useBriefing() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, ["briefing_saved_items", "briefing_feeds"], userId, refresh);
 
   const addSavedItem = useCallback(async (item: { title: string; url: string; type: "read" | "watch" }) => {
     try {

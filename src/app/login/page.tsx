@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
 import { usePasskey } from '@/hooks/usePasskey';
 import MFAChallenge from '@/components/auth/MFAChallenge';
+import { isPasswordPwned, PWNED_PASSWORD_MESSAGE } from '@/lib/auth/passwordCheck';
 
 type Mode = 'signin' | 'signup' | 'forgot-password';
 
@@ -114,6 +115,11 @@ function LoginForm() {
       if (!agreed) {
         setLoading(false);
         setError('Please accept the Terms of Service and Privacy Policy to continue.');
+        return;
+      }
+      if (await isPasswordPwned(password)) {
+        setLoading(false);
+        setError(PWNED_PASSWORD_MESSAGE);
         return;
       }
       const { data, error: signUpError } = await supabase.auth.signUp({

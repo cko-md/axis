@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 import type { Signal } from "./useSignals";
 
 export type RouteDestination =
@@ -82,11 +83,13 @@ export function useSignalRoutes() {
   const supabase = useMemo(() => createClient(), []);
   const [routes, setRoutes] = useState<SignalRoute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setRoutes([]);
       setLoading(false);
@@ -104,6 +107,8 @@ export function useSignalRoutes() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "signal_routes", userId, refresh);
 
   const addRoute = useCallback(async (input: RouteInput) => {
     const {

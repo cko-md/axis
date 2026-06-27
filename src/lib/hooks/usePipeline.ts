@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type Study = {
   id: string;
@@ -66,9 +67,11 @@ export function usePipeline() {
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSignedIn(false);
       setStages([]);
@@ -107,6 +110,8 @@ export function usePipeline() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, ["pipeline_stages", "studies", "conferences"], userId, refresh);
 
   const addStage = useCallback(async (name: string, swatch: string) => {
     const { data: { user } } = await supabase.auth.getUser();

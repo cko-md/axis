@@ -134,16 +134,14 @@ export function LiteratureModule() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "capture",
-          text: `Why might this paper matter to a neuroscience research student? One or two sentences. "${a.title}" — ${a.summary}`,
+          mode: "literature-relevance",
+          text: a.title,
+          body: JSON.stringify({ summary: a.summary, authors: a.authors, source: a.source, topics }),
         }),
       });
-      const json = (await res.json()) as { action?: string; label?: string };
-      const note =
-        json.action && json.label
-          ? `${json.label}: ${json.action}`
-          : json.action || json.label || "No relevance signal available.";
-      setWhy((w) => ({ ...w, [a.id]: note }));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { relevance?: string };
+      setWhy((w) => ({ ...w, [a.id]: json.relevance || "No relevance signal available." }));
     } catch {
       toast("Couldn't reach the assistant", "warn", "Literature");
     } finally {

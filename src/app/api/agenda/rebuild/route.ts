@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     .limit(5);
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
-  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "auto";
+  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
 
   const name = prefs?.display_name ?? "the user";
   const objectivesList =

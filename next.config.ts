@@ -95,7 +95,12 @@ const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // geolocation=(self) — Location Services (Interface Studio) calls
+  // navigator.geolocation from this origin for local weather/air-quality/
+  // daylight widgets; an empty allowlist here blocks the API outright
+  // before the browser's own permission prompt ever runs. Camera/mic stay
+  // fully disabled since nothing in the app uses them.
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 

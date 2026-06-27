@@ -405,10 +405,9 @@ function SortableNavGroup({
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
 type Props = {
   collapsed: boolean;
-  onToggle: () => void;
 };
 
-export function Sidebar({ collapsed, onToggle }: Props) {
+export function Sidebar({ collapsed }: Props) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -558,11 +557,6 @@ export function Sidebar({ collapsed, onToggle }: Props) {
             <sup className="tm">[{profileInitials(profileName)}]</sup>
           </div>
         )}
-        <button type="button" className="toggle" onClick={onToggle} title="Collapse sidebar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 14, height: 14, transform: collapsed ? "rotate(180deg)" : undefined }}>
-            <path d="M15 6l-6 6 6 6" />
-          </svg>
-        </button>
       </div>
 
       <nav className="nav">
