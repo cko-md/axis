@@ -108,6 +108,16 @@ const FEED_GRADIENTS = [
   "linear-gradient(135deg,#1a2433,#10141b)",
 ];
 
+// YouTube/Vimeo links are the only "real video" signal available for feed
+// items — RssItem (src/lib/feeds/rss.ts) carries no enclosure mime-type, so a
+// URL-pattern check is the only reliable detector short of fetching each link.
+// Hardcoded STORIES instead carry an explicit `video` flag.
+const VIDEO_URL_RE = /(?:youtube\.com\/watch|youtu\.be\/|vimeo\.com\/\d)/i;
+
+function isVideoStory(s: Story): boolean {
+  return !!s.video || VIDEO_URL_RE.test(s.url);
+}
+
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const h = Math.floor(diff / 3600000);
@@ -333,6 +343,7 @@ export function BriefingModule() {
     : allStories.filter((s) => active.has(CAT_TO_FILTER[s.cat] ?? "feed") || feedItems.some((fi) => fi.id === s.id));
 
   const reader = allStories.find((s) => s.id === readerId) ?? STORIES[0];
+  const readerIsVideo = isVideoStory(reader);
 
   return (
     <>
@@ -380,20 +391,32 @@ export function BriefingModule() {
         ))}
       </div>
       <div className="reader">
-        <div
-          className="r-media"
-          style={reader.gradient ? { background: reader.gradient } : undefined}
-        >
-          {reader.image && (
-            <PreviewImage src={reader.image} alt={reader.shortTitle} />
-          )}
-          <div className="play" onClick={() => openInApp(reader.url, reader.shortTitle)} style={{ cursor: "pointer", position: "relative", zIndex: 1 }} title="Open in app" />
-          <div className="scrub">
-            <span>02:14</span>
-            <div className="bar" />
-            <span>11:38</span>
+        {readerIsVideo ? (
+          <div
+            className="r-media"
+            style={reader.gradient ? { background: reader.gradient } : undefined}
+          >
+            {reader.image && (
+              <PreviewImage src={reader.image} alt={reader.shortTitle} />
+            )}
+            <div className="play" onClick={() => openInApp(reader.url, reader.shortTitle)} style={{ cursor: "pointer", position: "relative", zIndex: 1 }} title="Open in app" />
+            <div className="scrub">
+              <span>02:14</span>
+              <div className="bar" />
+              <span>11:38</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <button
+            type="button"
+            className="r-art-header"
+            onClick={() => openInApp(reader.url, reader.shortTitle)}
+            title="Open in app"
+          >
+            <span className="r-art-source">{reader.src}</span>
+            <span className="r-art-open">Open in app →</span>
+          </button>
+        )}
         <div className="r-body">
           <div className="r-cat">{reader.cat}</div>
           <h2>{reader.title}</h2>
@@ -406,7 +429,7 @@ export function BriefingModule() {
               onClick={() => openInApp(reader.url, reader.shortTitle)}
               style={{ fontSize: 11 }}
             >
-              {reader.video ? "Watch in-app →" : "Read in-app →"}
+              {readerIsVideo ? "Watch in-app →" : "Read in-app →"}
             </button>
             <a
               href={reader.url}
@@ -422,7 +445,7 @@ export function BriefingModule() {
               type="button"
               className="feed-manage"
               style={{ fontSize: 11, color: saved.some((x) => x.url === reader.url) ? "var(--gold)" : undefined }}
-              onClick={() => toggleSave(reader, reader.video ? "watch" : "read")}
+              onClick={() => toggleSave(reader, readerIsVideo ? "watch" : "read")}
               title={saved.some((x) => x.url === reader.url) ? "Remove from saved" : "Save for later"}
             >
               {saved.some((x) => x.url === reader.url) ? "★ Saved" : "☆ Save"}
@@ -528,7 +551,7 @@ export function BriefingModule() {
         {visible.map((s) => (
           <div
             key={s.id}
-            className={`ncard${s.video ? " video" : ""}${s.size === "big" ? " big" : ""}${s.size === "wide" ? " wide" : ""}`}
+            className={`ncard${isVideoStory(s) ? " video" : ""}${s.size === "big" ? " big" : ""}${s.size === "wide" ? " wide" : ""}`}
             onClick={() => setReaderId(s.id)}
             onDoubleClick={() => openInApp(s.url, s.shortTitle)}
             title={`Click to preview · Double-click to read in-app`}
@@ -539,14 +562,14 @@ export function BriefingModule() {
             >
               {s.image && <PreviewImage src={s.image} alt={s.shortTitle} />}
               <div className="nc-cat">{s.cat}</div>
-              {s.video && (
+              {isVideoStory(s) && (
                 <div className="play">
                   <span />
                 </div>
               )}
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); toggleSave(s, s.video ? "watch" : "read"); }}
+                onClick={(e) => { e.stopPropagation(); toggleSave(s, isVideoStory(s) ? "watch" : "read"); }}
                 style={{ position: "absolute", top: 7, right: 7, background: "rgba(7,8,11,.55)", border: "none", borderRadius: 3, width: 24, height: 24, display: "grid", placeItems: "center", cursor: "pointer", color: saved.some((x) => x.url === s.url) ? "#c9a463" : "rgba(193,196,199,.7)", fontSize: 12 }}
                 title={saved.some((x) => x.url === s.url) ? "Remove from saved" : "Save for later"}
               >

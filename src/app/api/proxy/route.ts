@@ -32,7 +32,11 @@ const NAV_INTERCEPT = `<script>(function(){
 function readerFallbackDoc(targetUrl: string, reason: string): string {
   const safeUrl = targetUrl.replace(/"/g, "%22").replace(/</g, "%3C");
   const safeReason = reason.replace(/</g, "&lt;");
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:system-ui;background:#0a0b0e;color:#888;display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center"><p style="font-size:13px">Opening reader view…</p><p style="font-size:11px;color:#555">${safeReason}</p></div><script>(function(){try{window.parent.postMessage({type:'proxy-reader',url:"${safeUrl}"},'*');}catch(e){}})();</script></body></html>`;
+  // The reason is also forwarded to the parent via postMessage so WebViewer can
+  // show a specific "why" message (e.g. "this site blocks embedding") instead of
+  // a generic one — see the `proxy-reader` handler in WebViewer.tsx.
+  const reasonForParent = JSON.stringify(reason);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:system-ui;background:#0a0b0e;color:#888;display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center"><p style="font-size:13px">Opening reader view…</p><p style="font-size:11px;color:#555">${safeReason}</p></div><script>(function(){try{window.parent.postMessage({type:'proxy-reader',url:"${safeUrl}",reason:${reasonForParent}},'*');}catch(e){}})();</script></body></html>`;
 }
 
 /**

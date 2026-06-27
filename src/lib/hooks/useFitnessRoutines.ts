@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type FitnessDiscipline = "strength" | "mobility";
 
@@ -284,6 +285,8 @@ export function useFitnessRoutines(discipline: FitnessDiscipline) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, ["fitness_routines", "fitness_routine_exercises"], userId, refresh);
 
   const addRoutine = useCallback(
     async (name: string, exercises: NewExercise[] = []) => {

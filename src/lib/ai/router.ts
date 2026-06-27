@@ -6,11 +6,12 @@
  *   2. Claude Haiku             — writing quality, personality, complex JSON
  *
  * Modes routed to Gemini first under "auto" (falls back to Haiku on error / missing key):
- *   capture | triage | triage-person | route | notes-title | platform-scan | feed-discovery
+ *   capture | triage | triage-person | route | notes-title | platform-scan | feed-discovery |
+ *   objectives-scan | literature-relevance
  *
  * Modes always on Haiku under "auto" (quality / conversation / long output):
  *   companion | notes-summarize | notes-rewrite | meeting-summary |
- *   deck-insights | regimen | regimenPlan | agenda-rebuild | objectives-scan | pipeline-draft
+ *   deck-insights | regimen | regimenPlan | agenda-rebuild | pipeline-draft
  *
  * A user can override this via profiles.ai_provider ("gemini" | "anthropic"),
  * forcing every mode onto that provider (falling back to the other only if
@@ -37,6 +38,14 @@ export const GEMINI_ELIGIBLE = new Set([
   "notes-title",
   "platform-scan",
   "feed-discovery",
+  // Same shape as platform-scan (JSON array of {target/title, module/source,
+  // confidence}) — was previously Haiku-only, which meant the Objectives
+  // "Scan platform for targets" feature silently returned [] in any
+  // environment with only GEMINI_API_KEY set (no ANTHROPIC_API_KEY).
+  "objectives-scan",
+  // Small JSON extraction task (one relevance sentence keyed to the user's
+  // saved topics) — no personality/voice required, fits Gemini Flash.
+  "literature-relevance",
 ]);
 
 type GeminiRole = "user" | "model";
@@ -139,7 +148,27 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
   }
 
   // ── Tier 2: Claude Haiku ────────────────────────────────────────────────────
-  if (!anthropic) throw new Error("No AI client available — set ANTHROPIC_API_KEY or GEMINI_API_KEY");
+  if (!anthropic) {
+    // No Anthropic client (ANTHROPIC_API_KEY unset) — if we haven't already
+    // tried Gemini above (i.e. this mode isn't GEMINI_ELIGIBLE and provider
+    // isn't forced to gemini), fall back to it now rather than throwing.
+    // Without this, any Haiku-only mode (companion, deck-insights, etc.) hard
+    // fails in Gemini-only environments instead of degrading gracefully.
+    if (!tryGemini && process.env.GEMINI_API_KEY) {
+      const history: GeminiContent[] = (conversationHistory ?? []).map((m) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }));
+      const text = await geminiGenerate({
+        system,
+        messages: [...history, { role: "user", parts: [{ text: userMessage }] }],
+        maxTokens,
+        temperature,
+      });
+      return { text, model: `gemini/${GEMINI_MODEL}` };
+    }
+    throw new Error("No AI client available — set ANTHROPIC_API_KEY or GEMINI_API_KEY");
+  }
 
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [
     ...(conversationHistory ?? []).map((m) => ({

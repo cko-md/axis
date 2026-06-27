@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
 
   // ── 3. Turn the transcript into structured study notes ──────────────────────
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
-  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "auto";
+  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 

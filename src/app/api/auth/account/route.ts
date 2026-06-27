@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isPasswordPwned, PWNED_PASSWORD_MESSAGE } from "@/lib/auth/passwordCheck";
 
 // ── POST /api/auth/account ─────────────────────────────────────────────────────
 // Handles email, password, and phone updates for the authenticated user.
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
         { error: "Password must be at least 8 characters" },
         { status: 400 },
       );
+    }
+    if (await isPasswordPwned(password)) {
+      return NextResponse.json({ error: PWNED_PASSWORD_MESSAGE }, { status: 400 });
     }
 
     const { error } = await supabase.auth.updateUser({ password });

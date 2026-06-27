@@ -156,6 +156,19 @@ function sessionMeta(s: TrainingSession) {
 
 type Video = { t: string; c: string; d: string; tag: string; g: string };
 
+/**
+ * These cards are curated placeholders (title/channel/duration), not results from
+ * a live YouTube Data API call — there's no YOUTUBE_API_KEY configured for this
+ * app, and wiring the real Data API v3 search endpoint would cost a quota-limited
+ * key for what's a recommendations list, not user-supplied content. Clicking a
+ * card opens the matching YouTube search instead of a dead, non-interactive tile —
+ * mirrors VaultModule's toYouTubeEmbedUrl() pattern of resolving straight to the
+ * official youtube.com surface rather than proxying it.
+ */
+function youtubeSearchUrl(v: Video): string {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${v.t} ${v.c}`)}`;
+}
+
 const RUN_VIDEOS: Video[] = [
   { t: "Perfect Running Form — 5 Drills to Fix It", c: "The Run Experience", d: "11:38", tag: "Form & Drills", g: "" },
   { t: "How to Run Your First Sub-1:30 Half", c: "Sage Running", d: "16:21", tag: "Race Strategy", g: "" },
@@ -221,8 +234,9 @@ function AiIcon() {
 }
 
 function VidCard({ v }: { v: Video }) {
+  const href = youtubeSearchUrl(v);
   return (
-    <div className="vid">
+    <a className="vid" href={href} target="_blank" rel="noopener noreferrer" title={`Find “${v.t}” on YouTube`} style={{ display: "block", textDecoration: "none", color: "inherit", cursor: "pointer" }}>
       <div className="vthumb" style={{ background: v.g || "linear-gradient(135deg, var(--surface-2), var(--surface-3))" }}>
         <span className="tag">{v.tag}</span>
         <div className="pl"><span /></div>
@@ -235,7 +249,7 @@ function VidCard({ v }: { v: Video }) {
           <span>YouTube</span>
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -1645,7 +1659,7 @@ export function VitalityModule() {
         )}
 
         <div className="divider" />
-        <h2 className="sec" style={{ marginBottom: 14 }}>Running Videos<span className="rule" /><span className="count">YouTube API</span></h2>
+        <h2 className="sec" style={{ marginBottom: 14 }}>Running Videos<span className="rule" /><span className="count">Curated · YouTube</span></h2>
         <ChipRow chips={RUN_CHIPS} active={runChip} onPick={setRunChip} />
         <div className="vidgrid" id="runVids">
           {RUN_VIDEOS.filter((v) => runChip === "All" || v.tag === runChip).map((v) => <VidCard key={v.t} v={v} />)}
@@ -1714,7 +1728,7 @@ export function VitalityModule() {
             </button>
           </div>
         </div>
-        <h2 className="sec" style={{ marginBottom: 14 }}>Yoga &amp; Pilates Videos<span className="rule" /><span className="count">YouTube API</span></h2>
+        <h2 className="sec" style={{ marginBottom: 14 }}>Yoga &amp; Pilates Videos<span className="rule" /><span className="count">Curated · YouTube</span></h2>
         <ChipRow chips={YOGA_CHIPS} active={yogaChip} onPick={setYogaChip} />
         <div className="vidgrid" id="yogaVids">
           {YOGA_VIDEOS.filter((v) => yogaChip === "All" || v.tag === yogaChip).map((v) => <VidCard key={v.t} v={v} />)}

@@ -31,14 +31,16 @@ export type WidgetCategory = (typeof WIDGET_CATEGORIES)[number];
 
 /* ── console module (section) layout ─────────────────────────────── */
 
-export type BlockSize = "sm" | "full";
+export type BlockSize = "sm" | "md" | "full";
+export const BLOCK_SIZES: readonly BlockSize[] = ["sm", "md", "full"];
 
 /**
  * Structured layout for the freeform dashboard grid.
  *  - `order`: section render order (drag-to-rearrange).
- *  - `sizes`: per-section grid span — "sm" is a half-width slot, "full" is a
- *    full-width slot. Cards snap to these slots so the packing stays structured
- *    (no overlaps), while still being draggable to any slot they fit.
+ *  - `sizes`: per-section grid span — "sm" is a one-column slot, "md" spans two
+ *    columns (on the 4-col grid), "full" spans the entire row. Cards snap to
+ *    these slots so the packing stays structured (no overlaps), while still
+ *    being draggable to any slot they fit.
  *
  * Persisted to the `console_widgets.layout` jsonb column and auto-saved
  * (debounced) on drag-end. Both keys are optional so a partially-populated or
@@ -77,7 +79,7 @@ export function normalizeConsoleLayout(
   if (blob.sizes && typeof blob.sizes === "object") {
     const out: Record<string, BlockSize> = {};
     for (const [id, size] of Object.entries(blob.sizes)) {
-      if (known.has(id) && (size === "sm" || size === "full")) out[id] = size;
+      if (known.has(id) && (BLOCK_SIZES as string[]).includes(size as string)) out[id] = size as BlockSize;
     }
     if (Object.keys(out).length > 0) sizes = out;
   }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type Note = {
   id: string;
@@ -48,9 +49,11 @@ export function useNotes() {
   const supabase = useMemo(() => createClient(), []);
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setNotes([]);
       setLoading(false);
@@ -71,6 +74,8 @@ export function useNotes() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "notes", userId, refresh);
 
   const createNote = useCallback(async (title: string, folder = "All Notes") => {
     try {

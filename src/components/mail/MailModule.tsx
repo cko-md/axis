@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 import { useToast } from "@/components/ui/Toast";
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { ProviderDot, ProviderBadge } from "./ProviderBadges";
 import { AddAccountPicker } from "./AddAccountPicker";
 import { ComposeModal, type ComposeDraft } from "./ComposeModal";
@@ -326,30 +325,19 @@ export function MailModule() {
             Link Gmail or Outlook (read-only) to triage, summarize, and route mail.
             Tokens are encrypted server-side — never stored in the browser.
           </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+          {/* Same AddAccountPicker the connected-state toolbar's "+ Add" button
+              opens (line ~545) — previously this empty state had its own
+              hardcoded direct-OAuth-only buttons, so a brand-new user could
+              never reach the Composio rows on their first connect. */}
+          <div ref={addBtnRef} style={{ position: "relative", display: "inline-block" }}>
             <button
               type="button"
               className="setup-btn"
-              onClick={() => {
-                openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
-                  if (status === "ok") refreshMailStatus();
-                });
-              }}
+              onClick={() => setShowAddPicker((v) => !v)}
             >
-              Connect Gmail →
+              Connect mailbox →
             </button>
-            <button
-              type="button"
-              className="setup-btn"
-              onClick={() => {
-                openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
-                  if (status === "ok") refreshMailStatus();
-                });
-              }}
-              style={{ background: "rgba(0,120,212,0.12)", borderColor: "rgba(0,120,212,0.3)", color: "#60b0ff" }}
-            >
-              Connect Outlook →
-            </button>
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailStatus} />}
           </div>
         </div>
       </>

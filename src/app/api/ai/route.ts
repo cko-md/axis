@@ -15,6 +15,7 @@ type RouteResult = {
   reason: string;
   tags: string[];
 };
+type LiteratureRelevanceResult = { relevance: string };
 
 // Strip HTML tags so heuristics + the model see clean prose.
 function stripHtml(s: string): string {
@@ -57,6 +58,18 @@ function heuristicRoute(title: string, body?: string): RouteResult {
     reason = "Mentions references/citations — file under your Literature library.";
   }
   return { destination, label, reason, tags: tags.length ? tags : ["note"] };
+}
+
+// Heuristic when no AI client is reachable — still topic-aware (not a static
+// per-source template) so a degraded response is at least specific to the
+// article, even without a model call.
+function heuristicLiteratureRelevance(articleTitle: string, summary: string, topics: string[]): LiteratureRelevanceResult {
+  const lower = `${articleTitle} ${summary}`.toLowerCase();
+  const matched = topics.find((t) => lower.includes(t.toLowerCase().replace(/_/g, " ")));
+  const relevance = matched
+    ? `Touches on ${matched.replace(/_/g, " ")}, one of your saved topics — worth a skim to see how it connects to your current focus.`
+    : "Couldn't generate a tailored relevance note right now — open the article to judge fit against your current focus.";
+  return { relevance };
 }
 
 export const runtime = "nodejs";
@@ -249,7 +262,7 @@ export async function POST(req: NextRequest) {
   const { mode, text, body, title } = (await req.json()) as { mode: string; text: string; body?: string; title?: string };
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
-  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "auto";
+  const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const hasGemini = !!process.env.GEMINI_API_KEY;
@@ -267,6 +280,10 @@ export async function POST(req: NextRequest) {
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
     if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
+    if (mode === "literature-relevance") {
+      const ctx = body ? JSON.parse(body) as { summary?: string; topics?: string[] } : {};
+      return NextResponse.json(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []));
+    }
     if (mode === "regimen") {
       const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string } : {};
       return NextResponse.json(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"));
@@ -534,6 +551,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(personData as TriagePersonResult);
     }
 
+    // ── literature-relevance ────────────────────────────────────────────────────
+    // Gemini eligible — small extraction task, no personality required.
+    // `text` = article title, `body` = JSON { summary, authors?, source? }.
+    // Saved topics come from literature_prefs (server-side lookup, same pattern
+    // as the providerPref query above) so the explanation is grounded in what
+    // this specific user actually follows, not a generic persona.
+    if (mode === "literature-relevance") {
+      const ctx = body ? JSON.parse(body) as { summary?: string; authors?: string; source?: string; topics?: string[] } : {};
+
+      // Prefer topics passed by the client (already loaded in useLiterature's
+      // state); fall back to a server-side lookup so the feature still works
+      // even if the caller didn't send them. Degrades to [] (generic framing)
+      // if the table doesn't exist yet — never throws.
+      let topics = Array.isArray(ctx.topics) ? ctx.topics : [];
+      if (!topics.length) {
+        try {
+          const { data: prefs } = await supabase
+            .from("literature_prefs")
+            .select("topics")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          topics = prefs?.topics ?? [];
+        } catch {
+          topics = [];
+        }
+      }
+      const topicsLabel = topics.length
+        ? topics.map((t) => t.replace(/_/g, " ")).join(", ")
+        : "neuroscience research (no specific topics saved yet)";
+
+      const result = await aiJSON<LiteratureRelevanceResult>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You explain why a specific paper might matter to a physician-researcher, given the topics they actively follow. Return ONLY a JSON object with key "relevance": 1-2 sentences (max 50 words total), specific to this article\'s actual content — not a generic template. Reference the article\'s real subject matter and, where it genuinely connects, tie it to the reader\'s saved topics. If the connection to their topics is weak or absent, say what the article is useful for instead rather than forcing a connection. No markdown, no preamble, no restating the title verbatim.',
+        userMessage: `Reader's saved topics: ${topicsLabel}\n\nArticle title: ${text}\nAuthors: ${ctx.authors ?? "unknown"}\nSource: ${ctx.source ?? "unknown"}\nSummary: ${stripHtml(ctx.summary ?? "").slice(0, 1200)}`,
+        maxTokens: 150,
+      });
+      const { _model: _, ...relevanceData } = result;
+      return NextResponse.json(relevanceData as LiteratureRelevanceResult);
+    }
+
     // ── pipeline-draft ─────────────────────────────────────────────────────────
     if (mode === "pipeline-draft") {
       const ctx = body ? JSON.parse(body) as { kind?: "study" | "conference"; role?: string; meta?: string } : {};
@@ -574,7 +633,12 @@ export async function POST(req: NextRequest) {
     const { _model: _, ...captureData } = result;
     return NextResponse.json(captureData as CaptureResult);
 
-  } catch {
+  } catch (err) {
+    // Logged server-side only — the client always gets a graceful fallback below,
+    // never a raw 500. Without this, failures (missing/wrong API key, malformed
+    // model output, upstream errors) are invisible and surface only as the
+    // generic fallback strings, making them near-impossible to diagnose.
+    console.error(`[ai/route] mode=${mode} failed:`, err);
     // ── Error fallbacks ────────────────────────────────────────────────────────
     if (mode === "companion") return NextResponse.json({ response: "Something went wrong. Try again." });
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
@@ -589,6 +653,10 @@ export async function POST(req: NextRequest) {
     if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
     if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
+    if (mode === "literature-relevance") {
+      const ctx = body ? JSON.parse(body) as { summary?: string; topics?: string[] } : {};
+      return NextResponse.json(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []));
+    }
     if (mode === "regimen") {
       const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string } : {};
       return NextResponse.json(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"));

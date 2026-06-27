@@ -38,7 +38,7 @@ export async function scanForObjectives(
   if (!lines) return [];
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", userId).maybeSingle();
-  const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "auto";
+  const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;

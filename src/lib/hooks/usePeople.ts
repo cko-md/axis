@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type PersonTag = "mentor" | "collaborator" | "friend";
 
@@ -65,9 +66,11 @@ export function usePeople() {
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSignedIn(false);
       setPeople([]);
@@ -87,6 +90,8 @@ export function usePeople() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "people", userId, refresh);
 
   const addPerson = useCallback(async (partial: Partial<Person> & { name: string }) => {
     const { data: { user } } = await supabase.auth.getUser();

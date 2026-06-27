@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type LibraryFile = {
   id: string;
@@ -20,9 +21,11 @@ export function useLibraryFiles() {
   const supabase = useMemo(() => createClient(), []);
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setFiles([]);
       setLoading(false);
@@ -40,6 +43,8 @@ export function useLibraryFiles() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "library_files", userId, refresh);
 
   const uploadFile = useCallback(async (file: File, collection: number) => {
     try {
@@ -97,7 +102,10 @@ export function useLibraryFiles() {
 
   const getDownloadUrl = useCallback(async (storagePath: string) => {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 10);
-    if (error || !data) return null;
+    if (error || !data) {
+      console.error("[useLibraryFiles] getDownloadUrl", error);
+      return null;
+    }
     return data.signedUrl;
   }, [supabase]);
 

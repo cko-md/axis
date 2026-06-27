@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type SignalType = "action" | "awaiting" | "fyi";
 
@@ -90,9 +91,11 @@ export function useSignals() {
   const supabase = useMemo(() => createClient(), []);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSignals([]);
       setLoading(false);
@@ -112,6 +115,8 @@ export function useSignals() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useRealtimeRefresh(supabase, "signals", userId, refresh);
 
   const capture = useCallback(async (title: string, type: SignalType = "action", source = "capture") => {
     const { data: { user } } = await supabase.auth.getUser();

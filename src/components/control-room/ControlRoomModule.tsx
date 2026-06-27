@@ -194,7 +194,7 @@ export function ControlRoomModule() {
       if (profile) {
         displayName = profile.display_name ?? null;
         roleTitle = profile.role_title ?? null;
-        setAiProvider((profile.ai_provider as AIProviderPref) ?? "auto");
+        setAiProvider((profile.ai_provider as AIProviderPref) ?? "gemini");
       }
       if (!alive) return;
       setUser({
@@ -338,7 +338,7 @@ export function ControlRoomModule() {
     });
   };
 
-  const connectComposioToolkit = (toolkit: "gmail" | "outlook") => {
+  const connectComposioToolkit = (toolkit: "gmail" | "outlook" | "strava" | "spotify") => {
     openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
       if (status === "ok") void refreshComposioStatus();
     });
@@ -494,6 +494,13 @@ export function ControlRoomModule() {
     state: ConnState;
     detail: string;
     action?: { label: string; onClick: () => void };
+    // Secondary Composio-bridge connect path, shown dimmer alongside the
+    // primary direct-OAuth action (mirrors AddAccountPicker.tsx's pattern).
+    // Direct OAuth stays primary for both — Spotify's direct integration
+    // covers playback/library/search well beyond a generic toolkit bridge,
+    // and Strava's existing direct OAuth already works, so neither is being
+    // ripped out, just given a working alternate path.
+    composioToolkit?: "strava" | "spotify";
   }[] = [
     {
       name: "Supabase",
@@ -529,6 +536,7 @@ export function ControlRoomModule() {
                 },
               }
             : undefined,
+      composioToolkit: "spotify",
     },
     {
       name: "Strava",
@@ -564,6 +572,7 @@ export function ControlRoomModule() {
                 },
               }
             : undefined,
+      composioToolkit: "strava",
     },
     {
       name: "AI (Anthropic)",
@@ -753,9 +762,24 @@ export function ControlRoomModule() {
                   <div className={styles.svcName}>{c.name}</div>
                   <div className={styles.svcDesc}>{c.detail}</div>
                 </div>
-                <span className={styles.svcState} data-state={c.state}>
-                  {c.state === "on" ? "Live" : c.state === "pending" ? "…" : "Setup"}
-                </span>
+                {c.state !== "on" && c.state !== "pending" ? (
+                  <button
+                    type="button"
+                    className={styles.svcAction}
+                    // Services with a real connect flow (Spotify/Strava, etc.)
+                    // fire it directly — same handler the Connections tab's
+                    // button uses. Config-only services (Market Data, AI,
+                    // Brokerage) have no inline OAuth action, so "Setup" just
+                    // jumps to the Connections tab where the setup detail lives.
+                    onClick={() => (c.action ? c.action.onClick() : setTab("connections"))}
+                  >
+                    Setup
+                  </button>
+                ) : (
+                  <span className={styles.svcState} data-state={c.state}>
+                    {c.state === "on" ? "Live" : "…"}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -808,6 +832,15 @@ export function ControlRoomModule() {
                 <div className={styles.svcDesc}>
                   {c.desc} — {c.detail}
                 </div>
+                {c.composioToolkit && c.state === "off" && (
+                  <button
+                    type="button"
+                    className={styles.svcComposioLink}
+                    onClick={() => connectComposioToolkit(c.composioToolkit!)}
+                  >
+                    Connect via Composio
+                  </button>
+                )}
               </div>
               {c.action ? (
                 <button type="button" className={styles.svcAction} onClick={c.action.onClick}>

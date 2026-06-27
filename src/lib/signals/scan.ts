@@ -29,7 +29,7 @@ export async function scanPlatformForUser(
     .map((t) => `[${String(t.priority).toUpperCase()}] ${t.title} (${t.category}, ${t.status}${t.deadline ? `, due ${t.deadline}` : ""})`)
     .join("\n");
 
-  const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "auto";
+  const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
