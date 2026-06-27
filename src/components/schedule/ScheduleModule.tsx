@@ -127,11 +127,48 @@ export function ScheduleModule() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showCalPicker]);
 
-  const weekStart = useMemo(() => startOfWeek(new Date()), []);
+  // Anchor date for navigation — prev/next shifts it by the active view's unit.
+  const [anchor, setAnchor] = useState(() => new Date());
+  const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
+  // Index (Mon=0) of today within the anchored week — only ≥0 when that week
+  // actually contains today, so the highlight disappears on other weeks.
   const todayIdx = useMemo(() => {
-    const d = new Date().getDay();
-    return d === 0 ? 6 : d - 1;
-  }, []);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((today.getTime() - weekStart.getTime()) / 86400000);
+    return diff >= 0 && diff < 7 ? diff : -1;
+  }, [weekStart]);
+
+  // The date range the active view spans — drives both the Supabase query and
+  // the external-calendar fetch, so navigating to another week/month pulls that
+  // period's events instead of only the current week's.
+  const range = useMemo(() => {
+    if (view === "month") {
+      const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+      const offset = (first.getDay() + 6) % 7;
+      const start = addDays(first, -offset);
+      return { start, end: addDays(start, 42) }; // 6-week grid
+    }
+    if (view === "day") {
+      const start = new Date(anchor); start.setHours(0, 0, 0, 0);
+      return { start, end: addDays(start, 1) };
+    }
+    return { start: weekStart, end: addDays(weekStart, 7) };
+  }, [view, anchor, weekStart]);
+
+  const shiftPeriod = useCallback((dir: -1 | 1) => {
+    setAnchor((d) => {
+      if (view === "month") return new Date(d.getFullYear(), d.getMonth() + dir, Math.min(d.getDate(), 28));
+      if (view === "day") return addDays(d, dir);
+      return addDays(d, dir * 7);
+    });
+  }, [view]);
+
+  const periodLabel = useMemo(() => {
+    if (view === "month") return anchor.toLocaleDateString([], { month: "long", year: "numeric" });
+    if (view === "day") return anchor.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+    const we = addDays(weekStart, 6);
+    return `${weekStart.toLocaleDateString([], { month: "short", day: "numeric" })} – ${we.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+  }, [view, anchor, weekStart]);
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -144,13 +181,12 @@ export function ScheduleModule() {
     }
     setSignedIn(true);
 
-    const weekEnd = addDays(weekStart, 7);
     const { data, error } = await supabase
       .from("schedule_events")
       .select("*")
       .eq("user_id", user.id)
-      .gte("start_at", weekStart.toISOString())
-      .lt("start_at", weekEnd.toISOString())
+      .gte("start_at", range.start.toISOString())
+      .lt("start_at", range.end.toISOString())
       .order("start_at");
 
     if (error) toast(error.message, "error", "Schedule");
@@ -165,7 +201,7 @@ export function ScheduleModule() {
       })),
     );
     setLoading(false);
-  }, [supabase, toast, weekStart]);
+  }, [supabase, toast, range]);
 
   useEffect(() => {
     load();
@@ -188,8 +224,7 @@ export function ScheduleModule() {
       setExternalEvents([]);
       return;
     }
-    const weekEnd = addDays(weekStart, 7);
-    fetch(`/api/calendar/external?start=${weekStart.toISOString()}&end=${weekEnd.toISOString()}`)
+    fetch(`/api/calendar/external?start=${range.start.toISOString()}&end=${range.end.toISOString()}`)
       .then((r) => r.json())
       .then((data: { events?: Array<{ externalId: string; title: string; start_at: string; end_at: string; all_day: boolean; source: "google" | "outlook" }> }) => {
         setExternalEvents(
@@ -205,20 +240,19 @@ export function ScheduleModule() {
         );
       })
       .catch(() => setExternalEvents([]));
-  }, [hasGoogle, hasOutlook, weekStart]);
+  }, [hasGoogle, hasOutlook, range]);
 
   const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
 
   const monthCells = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+    const year = anchor.getFullYear();
+    const month = anchor.getMonth();
     const first = new Date(year, month, 1);
     const offset = (first.getDay() + 6) % 7; // weeks start Monday
     const gridStart = addDays(first, -offset);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const weeks = Math.ceil((offset + daysInMonth) / 7);
-    const todayKey = now.toDateString();
+    const todayKey = new Date().toDateString();
 
     return Array.from({ length: weeks * 7 }, (_, i) => {
       const date = addDays(gridStart, i);
@@ -238,13 +272,13 @@ export function ScheduleModule() {
         chips: chips.slice(0, 3),
       };
     });
-  }, [displayEvents, signedIn]);
+  }, [displayEvents, signedIn, anchor]);
 
   const dayRows = useMemo(() => {
     const now = new Date();
-    const todayKey = now.toDateString();
+    const dayKey = anchor.toDateString();
     const rows = displayEvents
-      .filter((ev) => new Date(ev.start_at).toDateString() === todayKey)
+      .filter((ev) => new Date(ev.start_at).toDateString() === dayKey)
       .sort((a, b) => a.start_at.localeCompare(b.start_at))
       .map((ev) => {
         const start = new Date(ev.start_at);
@@ -256,8 +290,9 @@ export function ScheduleModule() {
         };
       });
     if (rows.length) return rows;
-    return signedIn ? [] : DAY_SAMPLE_ROWS;
-  }, [displayEvents, signedIn]);
+    // Demo-mode sample only when viewing *today* and signed out.
+    return signedIn || dayKey !== now.toDateString() ? [] : DAY_SAMPLE_ROWS;
+  }, [displayEvents, signedIn, anchor]);
 
   // Precomputed day+hour -> events lookup, built once per displayEvents/weekStart
   // change instead of re-filtering the full events array per grid cell render.
@@ -468,6 +503,13 @@ export function ScheduleModule() {
               }}
             />
           )}
+        </div>
+        {/* Period navigation — prev / next shift by the active view's unit. */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <button type="button" className="selectbox" style={{ padding: "4px 9px", cursor: "pointer" }} onClick={() => shiftPeriod(-1)} aria-label="Previous">‹</button>
+          <span style={{ minWidth: 132, textAlign: "center", fontSize: 12, fontFamily: "var(--narrow)", color: "var(--ink-dim)", letterSpacing: ".02em" }}>{periodLabel}</span>
+          <button type="button" className="selectbox" style={{ padding: "4px 9px", cursor: "pointer" }} onClick={() => shiftPeriod(1)} aria-label="Next">›</button>
+          <button type="button" className="selectbox" style={{ padding: "4px 10px", cursor: "pointer", fontSize: 11 }} onClick={() => setAnchor(new Date())}>Today</button>
         </div>
         <div className="vtoggle">
           <button type="button" className={view === "week" ? "on" : ""} onClick={() => setView("week")}>WEEK</button>
