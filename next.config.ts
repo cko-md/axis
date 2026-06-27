@@ -103,6 +103,19 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Exclude browser-only packages from the server bundle (SSR/prerendering)
   serverExternalPackages: ["@simplewebauthn/browser"],
+  webpack(config) {
+    // next-pwa's custom webpack() hook (added below by withPWA) makes Next
+    // disable its build worker and compile client/server/edge in one process
+    // instead of isolated worker threads (see next.config.ts comment at the
+    // bottom — useBuildWorker is forced off whenever config.webpack is set).
+    // Next's default output.hashFunction is the WASM-backed 'xxhash64', which
+    // has documented "Cannot read properties of undefined (reading 'length')"
+    // crashes in WasmHash._updateWithBuffer when its shared instance pool is
+    // stressed — exactly the failure this app hit intermittently with PWA
+    // enabled. Forcing a native (non-WASM) digest sidesteps that pool entirely.
+    config.output.hashFunction = "sha256";
+    return config;
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
