@@ -527,16 +527,29 @@ function VideoLounge() {
           onClick={() => setPlaying(null)}
         >
           <div style={{ width: "min(960px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--ink)", paddingRight: 12 }}>{playing.t}</div>
-              <button
-                type="button"
-                onClick={() => setPlaying(null)}
-                aria-label="Close"
-                style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 20, lineHeight: 1, flexShrink: 0 }}
-              >
-                ×
-              </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12 }}>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--ink)", paddingRight: 12, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{playing.t}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                {/* Escape hatch: many official/label videos disable embedding,
+                    which renders as "Video unavailable" inside the iframe — this
+                    always opens the real video on YouTube. */}
+                <a
+                  href={playing.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: ".06em", color: "var(--ink-dim)", textDecoration: "none", whiteSpace: "nowrap" }}
+                >
+                  Watch on YouTube ↗
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPlaying(null)}
+                  aria-label="Close"
+                  style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 20, lineHeight: 1, flexShrink: 0 }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", borderRadius: "var(--rl)", overflow: "hidden", border: "1px solid var(--line)" }}>
               {(() => {
