@@ -100,9 +100,6 @@ export function ControlRoomModule() {
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
   const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
   const [mailStatus, setMailStatus] = useState<{ gmail: boolean; gmailEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
-  const [composioStatus, setComposioStatus] = useState<
-    { toolkit: string; status: string; account_label: string | null }[] | null
-  >(null);
 
   const refreshMailStatus = useCallback(async () => {
     try {
@@ -124,14 +121,23 @@ export function ControlRoomModule() {
   }, []);
 
   const refreshComposioStatus = useCallback(async () => {
+    // Hitting the status route triggers Composio's poll-on-read, which flips a
+    // freshly-connected account to ACTIVE in our DB — the merged mail/calendar
+    // status routes then surface it. We don't render the raw list here, so the
+    // call is made purely for that side effect.
     try {
-      const res = await fetch("/api/integrations/composio/status", { cache: "no-store" });
-      const { connections } = (await res.json()) as {
-        connections: Array<{ toolkit: string; status: string; account_label: string | null }>;
-      };
-      setComposioStatus(connections);
+      await fetch("/api/integrations/composio/status", { cache: "no-store" });
     } catch {
-      setComposioStatus([]);
+      /* ignore */
+    }
+  }, []);
+
+  const refreshCalendarStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/calendar/status", { cache: "no-store" });
+      setCalendarStatus(await res.json());
+    } catch {
+      setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
     }
   }, []);
 
@@ -338,15 +344,26 @@ export function ControlRoomModule() {
     });
   };
 
-  const connectComposioToolkit = (toolkit: "gmail" | "outlook" | "strava" | "spotify") => {
+  type ComposioToolkit = "gmail" | "outlook" | "strava" | "spotify" | "googlecalendar" | "googlecontacts";
+
+  // After any Composio connect/disconnect, refresh every status the change could
+  // touch: the raw Composio list plus the merged mail/calendar views (which now
+  // read Composio), so whichever row triggered it reflects the new state.
+  const refreshAfterComposio = useCallback(() => {
+    void refreshComposioStatus();
+    void refreshMailStatus();
+    void refreshCalendarStatus();
+  }, [refreshComposioStatus, refreshMailStatus, refreshCalendarStatus]);
+
+  const connectComposioToolkit = (toolkit: ComposioToolkit) => {
     openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
-      if (status === "ok") void refreshComposioStatus();
+      if (status === "ok") refreshAfterComposio();
     });
   };
 
-  const disconnectComposioToolkit = async (toolkit: "gmail" | "outlook") => {
+  const disconnectComposioToolkit = async (toolkit: ComposioToolkit) => {
     await fetch(`/api/integrations/composio/disconnect?toolkit=${toolkit}`, { method: "DELETE" });
-    void refreshComposioStatus();
+    refreshAfterComposio();
   };
 
   const exportLocalData = () => {
@@ -598,18 +615,9 @@ export function ControlRoomModule() {
       state: calendarStatus === null ? "pending" : calendarStatus.google ? "on" : "off",
       detail: calendarStatus === null ? "Checking…" : calendarStatus.google ? (calendarStatus.googleEmail ?? "Connected") : "Not connected",
       action: calendarStatus && !calendarStatus.google
-        ? { label: "Connect", onClick: () => {
-            openOAuthPopup("/api/calendar/connect?provider=google", (_provider, status) => {
-              if (status === "ok") {
-                fetch("/api/calendar/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setCalendarStatus(s)).catch(() => {});
-              }
-            });
-          } }
+        ? { label: "Connect", onClick: () => connectComposioToolkit("googlecalendar") }
         : calendarStatus?.google
-        ? { label: "Disconnect", onClick: async () => {
-            await fetch("/api/calendar/disconnect?provider=google", { method: "DELETE" });
-            setCalendarStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
-          }}
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("googlecalendar") }
         : undefined,
     },
     {
@@ -618,18 +626,9 @@ export function ControlRoomModule() {
       state: calendarStatus === null ? "pending" : calendarStatus.outlook ? "on" : "off",
       detail: calendarStatus === null ? "Checking…" : calendarStatus.outlook ? (calendarStatus.outlookEmail ?? "Connected") : "Not connected",
       action: calendarStatus && !calendarStatus.outlook
-        ? { label: "Connect", onClick: () => {
-            openOAuthPopup("/api/calendar/connect?provider=outlook", (_provider, status) => {
-              if (status === "ok") {
-                fetch("/api/calendar/status", { cache: "no-store" }).then((r) => r.json()).then((s) => setCalendarStatus(s)).catch(() => {});
-              }
-            });
-          } }
+        ? { label: "Connect", onClick: () => connectComposioToolkit("outlook") }
         : calendarStatus?.outlook
-        ? { label: "Disconnect", onClick: async () => {
-            await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
-            setCalendarStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
-          }}
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("outlook") }
         : undefined,
     },
     {
@@ -638,16 +637,9 @@ export function ControlRoomModule() {
       state: mailStatus === null ? "pending" : mailStatus.gmail ? "on" : "off",
       detail: mailStatus === null ? "Checking…" : mailStatus.gmail ? (mailStatus.gmailEmail ?? "Connected") : "Not connected",
       action: mailStatus && !mailStatus.gmail
-        ? { label: "Connect", onClick: () => {
-            openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
-              if (status === "ok") void refreshMailStatus();
-            });
-          } }
+        ? { label: "Connect", onClick: () => connectComposioToolkit("gmail") }
         : mailStatus?.gmail
-        ? { label: "Disconnect", onClick: async () => {
-            await fetch("/api/mail/disconnect?provider=gmail", { method: "DELETE" });
-            setMailStatus((s) => s ? { ...s, gmail: false, gmailEmail: null } : s);
-          }}
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("gmail") }
         : undefined,
     },
     {
@@ -656,38 +648,11 @@ export function ControlRoomModule() {
       state: mailStatus === null ? "pending" : mailStatus.outlook ? "on" : "off",
       detail: mailStatus === null ? "Checking…" : mailStatus.outlook ? (mailStatus.outlookEmail ?? "Connected") : "Not connected",
       action: mailStatus && !mailStatus.outlook
-        ? { label: "Connect", onClick: () => {
-            openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
-              if (status === "ok") void refreshMailStatus();
-            });
-          } }
+        ? { label: "Connect", onClick: () => connectComposioToolkit("outlook") }
         : mailStatus?.outlook
-        ? { label: "Disconnect", onClick: async () => {
-            await fetch("/api/mail/disconnect?provider=outlook", { method: "DELETE" });
-            setMailStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
-          }}
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("outlook") }
         : undefined,
     },
-    ...(["gmail", "outlook"] as const).map((toolkit) => {
-      const row = composioStatus?.find((c) => c.toolkit === toolkit);
-      const isActive = row?.status === "ACTIVE";
-      return {
-        name: `${toolkit === "gmail" ? "Gmail" : "Outlook"} (via Composio)`,
-        desc: "Composio-managed connection — the foundation for migrating every integration off hand-rolled OAuth",
-        state: (composioStatus === null ? "pending" : isActive ? "on" : "off") as ConnState,
-        detail:
-          composioStatus === null
-            ? "Checking…"
-            : isActive
-              ? (row?.account_label ?? "Connected")
-              : row
-                ? `Connecting… (${row.status})`
-                : "Not connected",
-        action: !row
-          ? { label: "Connect", onClick: () => connectComposioToolkit(toolkit) }
-          : { label: "Disconnect", onClick: () => disconnectComposioToolkit(toolkit) },
-      };
-    }),
   ];
 
   const connectedCount = connections.filter((c) => c.state === "on").length;

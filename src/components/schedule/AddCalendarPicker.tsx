@@ -4,12 +4,10 @@ import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { ProviderDot } from "@/components/mail/ProviderBadges";
 
 /**
- * Google/Outlook Calendar picker, mirroring AddAccountPicker.tsx's pattern:
- * a primary-tier legacy direct-OAuth row per provider, plus a secondary
- * dimmer-tier "via Composio" row. Outlook's Composio connection reuses the
- * same "outlook" toolkit Mail already connects — a user with Outlook mail
- * connected via Composio already has calendar access through that same
- * connected account, no second OAuth grant required.
+ * Google/Outlook Calendar picker. All connections go through Composio — the app
+ * no longer ships its own Calendar OAuth client. Google Calendar uses the
+ * `googlecalendar` toolkit; Outlook Calendar reuses the same `outlook` toolkit
+ * Mail connects (one connected account grants both mail + calendar access).
  */
 export function AddCalendarPicker({
   onClose,
@@ -18,7 +16,7 @@ export function AddCalendarPicker({
   onClose: () => void;
   onConnected: (provider: "google" | "outlook") => void;
 }) {
-  const rowStyle = (dim: boolean): React.CSSProperties => ({
+  const rowStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
     gap: 8,
@@ -26,14 +24,20 @@ export function AddCalendarPicker({
     borderRadius: 5,
     background: "none",
     border: "none",
-    color: dim ? "var(--ink-dim)" : "var(--ink)",
-    fontSize: dim ? "12px" : "13px",
+    color: "var(--ink)",
+    fontSize: "13px",
     cursor: "pointer",
     textAlign: "left",
-  });
+  };
   const hoverProps = {
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; },
     onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "none"; },
+  };
+  const connect = (toolkit: "googlecalendar" | "outlook", provider: "google" | "outlook") => {
+    onClose();
+    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+      if (status === "ok") onConnected(provider);
+    });
   };
 
   return (
@@ -54,58 +58,11 @@ export function AddCalendarPicker({
         boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
       }}
     >
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/calendar/connect?provider=google", (_provider, status) => {
-            if (status === "ok") onConnected("google");
-          });
-        }}
-        style={rowStyle(false)}
-        {...hoverProps}
-      >
+      <button type="button" onClick={() => connect("googlecalendar", "google")} style={rowStyle} {...hoverProps}>
         <ProviderDot provider="google" /> Google Calendar
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/calendar/connect?provider=outlook", (_provider, status) => {
-            if (status === "ok") onConnected("outlook");
-          });
-        }}
-        style={rowStyle(false)}
-        {...hoverProps}
-      >
+      <button type="button" onClick={() => connect("outlook", "outlook")} style={rowStyle} {...hoverProps}>
         <ProviderDot provider="outlook" /> Outlook Calendar
-      </button>
-      <div style={{ height: 1, background: "var(--line)", margin: "4px 2px" }} />
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/integrations/composio/connect?toolkit=googlecalendar", (_provider, status) => {
-            if (status === "ok") onConnected("google");
-          });
-        }}
-        style={rowStyle(true)}
-        {...hoverProps}
-      >
-        <ProviderDot provider="google" /> Google Calendar (via Composio)
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/integrations/composio/connect?toolkit=outlook", (_provider, status) => {
-            if (status === "ok") onConnected("outlook");
-          });
-        }}
-        style={rowStyle(true)}
-        {...hoverProps}
-      >
-        <ProviderDot provider="outlook" /> Outlook Calendar (via Composio)
       </button>
       <button
         type="button"

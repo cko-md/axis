@@ -11,6 +11,7 @@ import { MessagePanel } from "./MessagePanel";
 interface MailAccount {
   provider: "gmail" | "outlook";
   mailEmail: string;
+  via?: "composio";
 }
 
 type SortMode = "date" | "priority";
@@ -279,10 +280,14 @@ export function MailModule() {
   };
 
   const disconnect = async (acct: MailAccount) => {
-    const res = await fetch(
-      `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
-      { method: "DELETE" },
-    );
+    // Composio-connected accounts disconnect through Composio (toolkit == provider);
+    // any remaining legacy direct-OAuth accounts use the token-table disconnect.
+    const res = acct.via === "composio"
+      ? await fetch(`/api/integrations/composio/disconnect?toolkit=${acct.provider}`, { method: "DELETE" })
+      : await fetch(
+          `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
+          { method: "DELETE" },
+        );
     if (!res.ok) {
       toast("Failed to disconnect account. Try again.", "error", "Mail");
       return;
