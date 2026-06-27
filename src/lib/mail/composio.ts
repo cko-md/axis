@@ -35,17 +35,20 @@ export type ComposioMailAccount = {
 
 export async function listComposioMailAccounts(userId: string): Promise<ComposioMailAccount[]> {
   const supabase = await createClient();
+  // Don't gate message listing on account_label being resolved — the label is
+  // cosmetic (filled lazily by the status route) and requiring it left a
+  // freshly-connected, ACTIVE inbox showing no mail until that round-trip
+  // landed. List as soon as ACTIVE; fall back to a generic label.
   const { data } = await supabase
     .from("composio_connections")
     .select("toolkit, connected_account_id, account_label")
     .eq("user_id", userId)
     .eq("status", "ACTIVE")
-    .in("toolkit", ["gmail", "outlook"])
-    .not("account_label", "is", null);
+    .in("toolkit", ["gmail", "outlook"]);
 
   return (data ?? []).map((row) => ({
     provider: row.toolkit as "gmail" | "outlook",
-    mailEmail: row.account_label as string,
+    mailEmail: (row.account_label as string | null) ?? "Connected account",
     via: "composio" as const,
     connectedAccountId: row.connected_account_id as string,
   }));

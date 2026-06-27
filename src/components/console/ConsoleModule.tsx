@@ -89,6 +89,9 @@ function WidgetSecondLine({ id, raw }: { id: string; raw?: Record<string, unknow
     const sign = (raw.chg as number) >= 0 ? "▴" : "▾";
     return <div className="tb-raw">SPY {sign}{Math.abs(raw.chg as number).toFixed(2)}%</div>;
   }
+  if (id === "run" && raw.km !== undefined) {
+    return <div className="tb-raw">{String(raw.km)} km this week · {Number(raw.streak) > 0 ? `${raw.streak}-day streak` : "no active streak"}</div>;
+  }
   return null;
 }
 
@@ -213,12 +216,16 @@ const DEFAULT_SECTION_ORDER = [
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
 
 const CONSOLE_BLOCK_SIZES_KEY = "axis-console-block-sizes";
+// Defaults lean on "md" (half-width) for the content cards so blocks sit
+// side-by-side out of the box — that's what makes "drag a widget to the right"
+// possible. The full-bleed sections (the tidbits bar + featured photos) stay
+// "full"; pomodoro stays compact. Any block can still be resized sm/md/full.
 const DEFAULT_BLOCK_SIZES: Record<SectionId, BlockSize> = {
-  "widgets": "full", "photos": "full", "dispatch-block": "full",
-  "pomodoro": "sm", "routine": "full", "daily-rings": "full",
-  "todays-arc": "full", "focus-ranked": "full", "people-spotlight": "full",
-  "weekly-devotional": "full", "stoic-maxim": "full", "markets-body": "full",
-  "art-gallery": "full",
+  "widgets": "full", "photos": "full", "dispatch-block": "md",
+  "pomodoro": "sm", "routine": "md", "daily-rings": "md",
+  "todays-arc": "md", "focus-ranked": "md", "people-spotlight": "md",
+  "weekly-devotional": "md", "stoic-maxim": "md", "markets-body": "md",
+  "art-gallery": "md",
 };
 
 // Three-step granular sizing: sm (1 col) → md (2 col) → full (all 4 cols) → sm…
@@ -1144,7 +1151,11 @@ export function ConsoleModule() {
           /* 4-col base grid gives three size steps (sm = 1, md = 2, full = 4
              columns) for more granular resizing than a binary half/full split. */
           grid-template-columns: repeat(4, minmax(0, 1fr));
-          grid-auto-flow: row dense;
+          /* Plain row flow (NOT "dense"): dense back-fills gaps, which makes the
+             visual order diverge from DOM order and breaks dnd-kit's drop math —
+             dragging a block to the right would land it somewhere else. With
+             plain row flow, where you drop is where it stays. */
+          grid-auto-flow: row;
           gap: var(--section-gap);
           margin-top: var(--space-3);
           align-items: start;
