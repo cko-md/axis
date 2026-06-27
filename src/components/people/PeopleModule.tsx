@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -147,6 +147,29 @@ export function PeopleModule() {
       .catch(() => setContactsLoaded(true));
   };
 
+  // After connecting Google Contacts via Composio, the connection is often still
+  // INITIATED on the first read — a one-shot fetch returns nothing and the CRM
+  // looks like it didn't sync. Poll a few times (nudging Composio's poll-on-read
+  // status so the connection flips ACTIVE) until contacts actually land.
+  const refreshContactsAfterConnect = useCallback(() => {
+    let tries = 0;
+    const attempt = async () => {
+      tries += 1;
+      await fetch("/api/integrations/composio/status", { cache: "no-store" }).catch(() => {});
+      const data = await fetch("/api/contacts/list")
+        .then((r) => (r.ok ? (r.json() as Promise<GoogleContact[]>) : null))
+        .catch(() => null);
+      if (data && data.length > 0) {
+        setContacts(data);
+        setContactsLoaded(true);
+        return;
+      }
+      if (tries < 4) setTimeout(attempt, 2500);
+      else setContactsLoaded(true);
+    };
+    void attempt();
+  }, []);
+
   useEffect(() => {
     fetchContacts();
   }, []);
@@ -284,8 +307,8 @@ export function PeopleModule() {
             <AddContactsPicker
               onClose={() => setShowContactsPicker(false)}
               onConnected={() => {
-                toast("Google Contacts connected", "success", "People");
-                fetchContacts();
+                toast("Google Contacts connected — syncing…", "success", "People");
+                refreshContactsAfterConnect();
                 setShowContactsPicker(false);
               }}
             />

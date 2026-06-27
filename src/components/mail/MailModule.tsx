@@ -181,6 +181,8 @@ export function MailModule() {
   const [loadingMsg, setLoadingMsg] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("date");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
+  const [query, setQuery] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [showAddPicker, setShowAddPicker] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null>(null);
   const mountedRef = useRef(true);
@@ -299,15 +301,26 @@ export function MailModule() {
     if (accountFilter === acct.mailEmail) setAccountFilter("all");
   };
 
-  // Filter + sort
+  // Filter + sort: account → unread → text search → sort.
   const visibleMessages = (() => {
     let list = accountFilter === "all"
       ? messages
       : messages.filter((m) => m.accountEmail === accountFilter);
 
-    if (sortMode === "priority") {
-      list = [...list].sort((a, b) => priorityScore(b) - priorityScore(a));
+    if (unreadOnly) list = list.filter((m) => m.isUnread);
+
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter((m) =>
+        m.subject?.toLowerCase().includes(q) ||
+        m.from?.toLowerCase().includes(q) ||
+        m.snippet?.toLowerCase().includes(q),
+      );
     }
+
+    list = sortMode === "priority"
+      ? [...list].sort((a, b) => priorityScore(b) - priorityScore(a))
+      : [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return list;
   })();
 
@@ -484,6 +497,45 @@ export function MailModule() {
               );
             })}
           </div>
+
+          {/* Search */}
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search mail…"
+            style={{
+              flex: "1 1 140px",
+              minWidth: 110,
+              maxWidth: 260,
+              fontSize: 12,
+              padding: "4px 9px",
+              borderRadius: 4,
+              border: "1px solid var(--line)",
+              background: "var(--glass)",
+              color: "var(--ink)",
+              outline: "none",
+            }}
+          />
+
+          {/* Unread-only filter */}
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            aria-pressed={unreadOnly}
+            style={{
+              fontSize: 11,
+              fontWeight: unreadOnly ? 600 : 400,
+              padding: "4px 9px",
+              borderRadius: 4,
+              border: `1px solid ${unreadOnly ? "var(--accent)" : "var(--line)"}`,
+              background: unreadOnly ? "var(--glass)" : "transparent",
+              color: unreadOnly ? "var(--accent)" : "var(--ink-dim)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            Unread
+          </button>
 
           {/* Sort toggle */}
           <div
