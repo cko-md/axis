@@ -4,8 +4,11 @@ import { useMemo, useState } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import type { MailMessageFull } from "@/lib/mail/gmail";
 import type { MailProvider } from "@/lib/mail/tokens";
+import type { ProviderCapabilities } from "@/lib/integrations/registry";
 import { ProviderBadge } from "./ProviderBadges";
 import type { ComposeDraft } from "./ComposeModal";
+
+type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 
 // Email bodies come straight from Gmail/Outlook senders and are fully
 // attacker-controlled — sanitize before ever touching innerHTML. Scripts,
@@ -35,15 +38,24 @@ function stripHtml(html: string): string {
 
 export function MessagePanel({
   message,
+  capabilities,
+  busyAction,
   onClose,
   onReply,
+  onAction,
 }: {
   message: MailMessageFull;
+  capabilities?: ProviderCapabilities;
+  busyAction?: MailMessageAction | null;
   onClose: () => void;
   onReply?: (draft: ComposeDraft) => void;
+  onAction?: (action: MailMessageAction) => void;
 }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
+  const readAction: MailMessageAction = message.isUnread ? "mark-read" : "mark-unread";
+  const readLabel = message.isUnread ? "Mark read" : "Mark unread";
+  const unavailableTitle = "Not available for this mailbox connection yet.";
 
   const sanitizedBody = useMemo(
     () => (message.bodyIsHtml ? sanitizeMailHtml(message.body) : message.body),
@@ -113,6 +125,64 @@ export function MessagePanel({
         </button>
         <span style={{ flex: 1 }} />
         <ProviderBadge provider={message.provider} />
+        {onAction && (
+          <>
+            <button
+              type="button"
+              onClick={() => onAction(readAction)}
+              disabled={!capabilities?.markRead || !!busyAction}
+              title={capabilities?.markRead ? readLabel : unavailableTitle}
+              style={{
+                background: "var(--glass)",
+                border: "1px solid var(--line)",
+                borderRadius: 6,
+                color: "var(--ink)",
+                fontSize: "12px",
+                padding: "5px 10px",
+                cursor: !capabilities?.markRead || busyAction ? "default" : "pointer",
+                opacity: !capabilities?.markRead || busyAction ? 0.55 : 1,
+              }}
+            >
+              {busyAction === readAction ? "Saving..." : readLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => onAction("archive")}
+              disabled={!capabilities?.archive || !!busyAction}
+              title={capabilities?.archive ? "Archive" : unavailableTitle}
+              style={{
+                background: "var(--glass)",
+                border: "1px solid var(--line)",
+                borderRadius: 6,
+                color: "var(--ink)",
+                fontSize: "12px",
+                padding: "5px 10px",
+                cursor: !capabilities?.archive || busyAction ? "default" : "pointer",
+                opacity: !capabilities?.archive || busyAction ? 0.55 : 1,
+              }}
+            >
+              {busyAction === "archive" ? "Archiving..." : "Archive"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onAction("delete")}
+              disabled={!capabilities?.delete || !!busyAction}
+              title={capabilities?.delete ? "Move to trash" : unavailableTitle}
+              style={{
+                background: "var(--glass)",
+                border: "1px solid var(--line)",
+                borderRadius: 6,
+                color: "var(--danger, #ef4444)",
+                fontSize: "12px",
+                padding: "5px 10px",
+                cursor: !capabilities?.delete || busyAction ? "default" : "pointer",
+                opacity: !capabilities?.delete || busyAction ? 0.55 : 1,
+              }}
+            >
+              {busyAction === "delete" ? "Deleting..." : "Delete"}
+            </button>
+          </>
+        )}
         {onReply && (
           <button
             type="button"

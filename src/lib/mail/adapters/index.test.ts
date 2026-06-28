@@ -89,3 +89,34 @@ describe("mailErrorStatus()", () => {
     expect(mailErrorStatus("unknown")).toBe(502);
   });
 });
+
+describe("Composio mutation guardrails", () => {
+  it.each([
+    ["gmail" as const, "user@gmail.com"],
+    ["outlook" as const, "user@outlook.com"],
+  ])("returns not_supported for unverified %s Composio actions", async (provider, mailEmail) => {
+    const adapter = resolveMailAdapter(provider, "composio");
+    const ctx = {
+      userId: "uid",
+      provider,
+      mailEmail,
+      transport: "composio" as const,
+      connectedAccountId: "ca_123",
+    };
+    const results = await Promise.all([
+      adapter.markRead(ctx, "msg_1"),
+      adapter.markUnread(ctx, "msg_1"),
+      adapter.archiveMessage(ctx, "msg_1"),
+      adapter.deleteMessage(ctx, "msg_1"),
+    ]);
+
+    for (const result of results) {
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe("not_supported");
+        expect(result.error.provider).toBe(provider);
+        expect(result.error.transport).toBe("composio");
+      }
+    }
+  });
+});
