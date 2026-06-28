@@ -25,7 +25,7 @@ export function decrypt(encoded: string): string | null {
   if (!key) return null;
   try {
     const [ivB64, tagB64, dataB64] = encoded.split(":");
-    if (!ivB64 || !tagB64 || !dataB64) return null;
+    if (!ivB64 || !tagB64 || dataB64 === undefined || dataB64 === null) return null;
     const iv = Buffer.from(ivB64, "base64");
     const authTag = Buffer.from(tagB64, "base64");
     const data = Buffer.from(dataB64, "base64");
