@@ -1,6 +1,7 @@
 import crypto from "crypto";
+import { optionalEnv } from "@/lib/env";
 
-const KEY_HEX = process.env.PASSKEY_ENCRYPTION_KEY ?? "";
+const KEY_HEX = optionalEnv("PASSKEY_ENCRYPTION_KEY") ?? "";
 const ALGORITHM = "aes-256-gcm";
 
 function getKey(): Buffer | null {

@@ -1,3 +1,5 @@
+import { optionalEnv } from "@/lib/env";
+
 /**
  * Calls Gemini gemini-embedding-001 to generate a 768-dim embedding for text.
  * Truncated to 768 dims (the model's native output is 3072) via
@@ -7,7 +9,7 @@
  */
 export async function embedText(text: string): Promise<number[]> {
   const apiKey =
-    process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "";
+    optionalEnv("GEMINI_API_KEY") ?? optionalEnv("GOOGLE_GENERATIVE_AI_API_KEY") ?? "";
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
   const res = await fetch(

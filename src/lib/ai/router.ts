@@ -21,6 +21,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { optionalEnv } from "@/lib/env";
 
 // ── Gemini config ──────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ async function geminiGenerate(params: {
   maxTokens: number;
   temperature?: number;
 }): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
+  const key = optionalEnv("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY not set");
 
   const res = await fetch(`${GEMINI_URL}?key=${key}`, {
@@ -129,7 +130,7 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
   const tryGemini = providerPref === "gemini" || (providerPref === "auto" && GEMINI_ELIGIBLE.has(mode));
 
   // ── Tier 1: Gemini Flash ─────────────────────────────────────────────────────
-  if (tryGemini && process.env.GEMINI_API_KEY) {
+  if (tryGemini && optionalEnv("GEMINI_API_KEY")) {
     try {
       const history: GeminiContent[] = (conversationHistory ?? []).map((m) => ({
         role: m.role === "assistant" ? "model" : "user",
@@ -156,7 +157,7 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
     // isn't forced to gemini), fall back to it now rather than throwing.
     // Without this, any Haiku-only mode (companion, deck-insights, etc.) hard
     // fails in Gemini-only environments instead of degrading gracefully.
-    if (!tryGemini && process.env.GEMINI_API_KEY) {
+    if (!tryGemini && optionalEnv("GEMINI_API_KEY")) {
       const history: GeminiContent[] = (conversationHistory ?? []).map((m) => ({
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content }],

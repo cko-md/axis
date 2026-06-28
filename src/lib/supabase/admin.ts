@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getPublicEnv, optionalEnv } from "@/lib/env";
 
 /**
  * Service-role Supabase client for trusted server-side operations that must
@@ -15,10 +16,10 @@ import { createClient as createSupabaseClient, type SupabaseClient } from "@supa
  * NEVER import this into a client component or expose the key to the browser.
  */
 export function createAdminClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createSupabaseClient(url, serviceKey, {
+  const serviceKey = optionalEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!serviceKey) return null;
+  const env = getPublicEnv();
+  return createSupabaseClient(env.NEXT_PUBLIC_SUPABASE_URL, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

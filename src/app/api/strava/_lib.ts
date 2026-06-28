@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
 /**
  * Shared Strava server helpers. Tokens live in httpOnly cookies and are
@@ -13,7 +14,7 @@ const TOKEN_URL = "https://www.strava.com/oauth/token";
 export const STRAVA_API = "https://www.strava.com/api/v3";
 
 export function isConfigured(): boolean {
-  return Boolean(process.env.STRAVA_CLIENT_ID && process.env.STRAVA_CLIENT_SECRET);
+  return hasOptionalEnv("STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET");
 }
 
 /** Returns a valid access token, refreshing via the stored refresh token when needed, or null. */
@@ -23,8 +24,8 @@ export async function getAccessToken(): Promise<string | null> {
   if (token) return token;
 
   const refresh = cookieStore.get("strava_refresh_token")?.value;
-  const clientId = process.env.STRAVA_CLIENT_ID;
-  const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+  const clientId = optionalEnv("STRAVA_CLIENT_ID");
+  const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET");
   if (!refresh || !clientId || !clientSecret) return null;
 
   const res = await fetch(TOKEN_URL, {

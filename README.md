@@ -56,7 +56,11 @@ Open [http://localhost:3000](http://localhost:3000) — redirects to `/console`.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes (auth) | Supabase anon/publishable key |
 | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | No | Server-side Polygon key for live quotes |
 
-On **Vercel**, add the same variables under Project → Settings → Environment Variables. Never prefix the Polygon key with `NEXT_PUBLIC_`.
+See `docs/env.md` for the full required/optional list. On **Vercel**, add required Supabase variables for Preview and Production. Optional provider keys should degrade to setup/not-configured states when absent. Never prefix server-only provider keys with `NEXT_PUBLIC_`.
+
+## Deployment gate
+
+Agents push branches and open PRs after local checks pass. Vercel preview validation and Sentry review happen after the PR is open; Sentry is not a human pre-push blocker, but it remains required evidence before production merge. See `docs/deployment.md`.
 
 ## Routes
 
