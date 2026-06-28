@@ -17,18 +17,20 @@ export interface MailMessageFull extends MailMessage {
   bodyIsHtml: boolean;
 }
 
-interface GmailPayload {
+// Exported so the Composio Gmail adapter can reuse the exact same body/header
+// normalization (Composio's Gmail tools return the native API payload shape).
+export interface GmailPayload {
   mimeType?: string;
   headers?: Array<{ name: string; value: string }>;
   body?: { data?: string };
   parts?: GmailPayload[];
 }
 
-function getHeader(headers: Array<{ name: string; value: string }>, name: string): string {
+export function getHeader(headers: Array<{ name: string; value: string }>, name: string): string {
   return headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
-function decodeBase64Url(data: string): string {
+export function decodeBase64Url(data: string): string {
   const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
   try {
     return Buffer.from(base64, "base64").toString("utf-8");
@@ -37,7 +39,7 @@ function decodeBase64Url(data: string): string {
   }
 }
 
-function extractBody(payload: GmailPayload): { content: string; isHtml: boolean } {
+export function extractBody(payload: GmailPayload): { content: string; isHtml: boolean } {
   if (payload.body?.data) {
     const isHtml = payload.mimeType === "text/html";
     return { content: decodeBase64Url(payload.body.data), isHtml };
