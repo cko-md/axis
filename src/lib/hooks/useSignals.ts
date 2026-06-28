@@ -14,6 +14,7 @@ export type SignalAIMeta = {
   ai_confidence?: number;
   ai_at?: string;
   routed_via?: "ai" | "manual" | "rule";
+  routed_task_id?: string;
 };
 
 export type Signal = {
@@ -134,19 +135,21 @@ export function useSignals() {
   }, [supabase]);
 
   const updateSignal = useCallback(async (id: string, patch: Partial<Signal>) => {
-    const { data } = await supabase.from("signals").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
-    if (data) setSignals((prev) => prev.map((s) => (s.id === id ? (data as Signal) : s)));
+    const { data, error } = await supabase.from("signals").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
+    if (error || !data) return null;
+    setSignals((prev) => prev.map((s) => (s.id === id ? (data as Signal) : s)));
+    return data as Signal;
   }, [supabase]);
 
   const markRead = useCallback((id: string) => updateSignal(id, { read_at: new Date().toISOString() }), [updateSignal]);
 
-  const routeTo = useCallback((id: string, target: string, via: SignalAIMeta["routed_via"] = "manual") => {
+  const routeTo = useCallback((id: string, target: string, via: SignalAIMeta["routed_via"] = "manual", metadataPatch: Record<string, unknown> = {}) => {
     const current = signals.find((s) => s.id === id);
     return updateSignal(id, {
       route_target: target,
       routed_at: new Date().toISOString(),
       read_at: current?.read_at ?? new Date().toISOString(),
-      metadata: { ...(current?.metadata ?? {}), routed_via: via },
+      metadata: { ...(current?.metadata ?? {}), routed_via: via, ...metadataPatch },
     });
   }, [signals, updateSignal]);
 

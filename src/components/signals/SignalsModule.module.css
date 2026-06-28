@@ -39,6 +39,38 @@
   background: color-mix(in srgb, var(--marine) 7%, transparent);
   border-radius: var(--rl);
 }
+.detailAction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.routeStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--up);
+}
+.routeStatus span {
+  border: 1px solid color-mix(in srgb, var(--up) 28%, transparent);
+  background: color-mix(in srgb, var(--up) 7%, transparent);
+  border-radius: 2px;
+  padding: 3px 6px;
+}
+.routeError {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--clay) 30%, transparent);
+  background: color-mix(in srgb, var(--clay) 8%, transparent);
+  border-radius: var(--r);
+  color: var(--clay-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .suggestHead {
   display: flex;
   align-items: center;

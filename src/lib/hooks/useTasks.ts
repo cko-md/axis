@@ -75,6 +75,7 @@ export function useTasks() {
         priority: partial.priority ?? "med",
         effort: partial.effort ?? null,
         deadline: partial.deadline ?? null,
+        metadata: partial.metadata ?? {},
         status: "open",
         sort_order: tasks.length,
       })
