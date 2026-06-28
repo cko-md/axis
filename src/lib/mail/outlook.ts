@@ -1,5 +1,6 @@
 import { getFreshMailAccessToken } from "./tokens";
 import type { MailMessage, MailMessageFull } from "./gmail";
+import { normalizeMailDate } from "./dates";
 
 interface OutlookEmailAddress {
   name: string;
@@ -50,7 +51,7 @@ export async function listOutlookInbox(
     threadId: msg.conversationId ?? msg.id,
     from: formatSender(msg),
     subject: msg.subject || "(no subject)",
-    date: msg.receivedDateTime,
+    date: normalizeMailDate(msg.receivedDateTime),
     snippet: msg.bodyPreview ?? "",
     isUnread: !msg.isRead,
     provider: "outlook" as const,
@@ -83,7 +84,7 @@ export async function getOutlookMessage(
     threadId: msg.conversationId ?? msg.id,
     from: formatSender(msg),
     subject: msg.subject || "(no subject)",
-    date: msg.receivedDateTime,
+    date: normalizeMailDate(msg.receivedDateTime),
     snippet: msg.bodyPreview ?? "",
     isUnread: !msg.isRead,
     provider: "outlook" as const,

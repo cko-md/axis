@@ -92,6 +92,6 @@ describe("getCapabilities()", () => {
 
   it("returns undefined for unknown transport", () => {
     // Transport not in the capabilities record
-    expect(getCapabilities("mail", "gmail", "unknown-transport" as any)).toBeUndefined();
+    expect(getCapabilities("mail", "gmail", "unknown-transport" as never)).toBeUndefined();
   });
 });

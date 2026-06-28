@@ -1,4 +1,5 @@
 import { getFreshMailAccessToken } from "./tokens";
+import { normalizeMailDate } from "./dates";
 
 export interface MailMessage {
   id: string;
@@ -91,7 +92,7 @@ export async function listGmailInbox(
         threadId: d.threadId as string,
         from: getHeader(headers, "From"),
         subject: getHeader(headers, "Subject") || "(no subject)",
-        date: getHeader(headers, "Date"),
+        date: normalizeMailDate(getHeader(headers, "Date") || d.internalDate),
         snippet: (d.snippet as string) ?? "",
         isUnread: ((d.labelIds as string[]) ?? []).includes("UNREAD"),
         provider: "gmail" as const,
@@ -128,7 +129,7 @@ export async function getGmailMessage(
     threadId: d.threadId as string,
     from: getHeader(headers, "From"),
     subject: getHeader(headers, "Subject") || "(no subject)",
-    date: getHeader(headers, "Date"),
+    date: normalizeMailDate(getHeader(headers, "Date") || d.internalDate),
     snippet: (d.snippet as string) ?? "",
     isUnread: ((d.labelIds as string[]) ?? []).includes("UNREAD"),
     provider: "gmail",
