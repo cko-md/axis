@@ -1,3 +1,5 @@
+import { timedProviderFetch } from "@/lib/observability/providerTiming";
+
 const BASE = "https://api.polygon.io";
 const GAP_MS = 280;
 
@@ -27,9 +29,18 @@ export async function massiveRequest<T>(
   lastRequest = Date.now();
 
   const qs = new URLSearchParams({ ...params, apiKey });
-  const res = await fetch(`${BASE}${path}?${qs}`, {
-    next: { revalidate: 60 },
-  });
+  const res = await timedProviderFetch(
+    `${BASE}${path}?${qs}`,
+    { next: { revalidate: 60 } },
+    {
+      area: "fund",
+      provider: "polygon",
+      operation: path.split("/").filter(Boolean).slice(0, 3).join("_") || "request",
+      timeoutMs: 5_000,
+      slowMs: 1_500,
+      tags: { host: "api.polygon.io" },
+    },
+  );
 
   if (!res.ok) {
     const err = new Error(`Massive API ${res.status}`) as Error & {

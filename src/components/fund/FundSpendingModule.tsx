@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
@@ -39,7 +39,10 @@ type Status = "loading" | "ok" | "no-plaid" | "no-account" | "error";
 export function FundSpendingModule() {
   const { toast } = useToast();
   const [txns, setTxns] = useState<BankTxn[]>([]);
+  const txnsRef = useRef<BankTxn[]>([]);
   const [status, setStatus] = useState<Status>("loading");
+  const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [unreviewedOnly, setUnreviewedOnly] = useState(false);
@@ -48,8 +51,14 @@ export function FundSpendingModule() {
   const [newBudgetCategory, setNewBudgetCategory] = useState(CATEGORIES[0]);
   const [newBudgetLimit, setNewBudgetLimit] = useState("200");
 
+  useEffect(() => {
+    txnsRef.current = txns;
+  }, [txns]);
+
   const load = useCallback(async () => {
-    setStatus("loading");
+    if (txnsRef.current.length === 0) setStatus("loading");
+    setRefreshing(true);
+    setNotice(null);
     try {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -60,8 +69,16 @@ export function FundSpendingModule() {
       const data = await res.json();
       setTxns(data.transactions ?? []);
       setStatus("ok");
+      setNotice(null);
     } catch {
-      setStatus("error");
+      if (txnsRef.current.length > 0) {
+        setStatus("ok");
+        setNotice("Transaction refresh failed — showing last loaded results.");
+      } else {
+        setStatus("error");
+      }
+    } finally {
+      setRefreshing(false);
     }
   }, [search, categoryFilter, unreviewedOnly]);
 
@@ -171,6 +188,8 @@ export function FundSpendingModule() {
       <Card tick>
         <h2 className="sec">Transactions<span className="rule" /><span className="count">{txns.length}</span></h2>
         <div style={{ marginTop: 10 }}>
+          {refreshing && txns.length > 0 && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Refreshing…</p>}
+          {notice && <p style={{ fontSize: 12, color: "var(--clay)" }}>{notice}</p>}
           {status === "loading" && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
           {status === "error" && <p style={{ fontSize: 12, color: "var(--clay)" }}>Sign in to see transactions.</p>}
           {status === "ok" && txns.length === 0 && (

@@ -18,6 +18,7 @@ export function usePlaidConnection() {
   const [plaidLinked, setPlaidLinked] = useState(false);
   const [brokerageConfigured, setBrokerageConfigured] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [balanceError, setBalanceError] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
 
@@ -27,9 +28,12 @@ export function usePlaidConnection() {
       const data = await res.json();
       if (data?.configured && Array.isArray(data.accounts)) {
         setBankAccounts(data.accounts);
+        setBalanceError(false);
+      } else if (data?.error) {
+        setBalanceError(true);
       }
     } catch {
-      // keep empty-state
+      setBalanceError(true);
     }
   }, []);
 
@@ -116,6 +120,7 @@ export function usePlaidConnection() {
     plaidLinked,
     brokerageConfigured,
     bankAccounts,
+    balanceError,
     cash,
     connectBank,
     linking,

@@ -1,4 +1,5 @@
 import { getFreshAccessToken } from "./tokens";
+import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const BASE = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
@@ -11,6 +12,12 @@ export type ExternalCalendarEvent = {
   all_day: boolean;
 };
 
+function googleCalendarError(operation: string, status: number): Error & { status: number } {
+  const err = new Error(`Google Calendar ${operation} failed with ${status}`) as Error & { status: number };
+  err.status = status;
+  return err;
+}
+
 export async function listGoogleEvents(
   userId: string,
   timeMin: string,
@@ -20,8 +27,12 @@ export async function listGoogleEvents(
   if (!token) return [];
 
   const url = `${BASE}?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return [];
+  const res = await timedProviderFetch(
+    url,
+    { headers: { Authorization: `Bearer ${token}` } },
+    { area: "calendar", provider: "google", operation: "list_events", timeoutMs: 6_000, slowMs: 1_500 },
+  );
+  if (!res.ok) throw googleCalendarError("list_events", res.status);
 
   const json = await res.json();
   const items: unknown[] = Array.isArray(json.items) ? json.items : [];
@@ -57,18 +68,22 @@ export async function createGoogleEvent(
   const token = await getFreshAccessToken(userId, "google");
   if (!token) return null;
 
-  const res = await fetch(BASE, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      summary: event.title,
-      description: event.description ?? "",
-      start: { dateTime: event.start_at, timeZone: "UTC" },
-      end: { dateTime: event.end_at, timeZone: "UTC" },
-    }),
-  });
+  const res = await timedProviderFetch(
+    BASE,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: event.title,
+        description: event.description ?? "",
+        start: { dateTime: event.start_at, timeZone: "UTC" },
+        end: { dateTime: event.end_at, timeZone: "UTC" },
+      }),
+    },
+    { area: "calendar", provider: "google", operation: "create_event", timeoutMs: 8_000, slowMs: 2_000 },
+  );
 
-  if (!res.ok) return null;
+  if (!res.ok) throw googleCalendarError("create_event", res.status);
   const json = await res.json();
   return json.id as string;
 }
@@ -77,10 +92,15 @@ export async function deleteGoogleEvent(userId: string, gcalEventId: string): Pr
   const token = await getFreshAccessToken(userId, "google");
   if (!token) return false;
 
-  const res = await fetch(`${BASE}/${encodeURIComponent(gcalEventId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await timedProviderFetch(
+    `${BASE}/${encodeURIComponent(gcalEventId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { area: "calendar", provider: "google", operation: "delete_event", timeoutMs: 6_000, slowMs: 1_500 },
+  );
 
+  if (!res.ok && res.status !== 404) throw googleCalendarError("delete_event", res.status);
   return res.ok || res.status === 404;
 }

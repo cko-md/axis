@@ -19,19 +19,31 @@ export function FundMarketModule() {
   const [losers, setLosers] = useState<Mover[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [moversStatus, setMoversStatus] = useState<"loading" | "ok" | "empty" | "not-configured" | "error">("loading");
+  const [moversNotice, setMoversNotice] = useState<string | null>(null);
+  const [newsNotice, setNewsNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/massive/movers")
       .then((r) => r.json())
-      .then((d: { gainers?: Mover[]; losers?: Mover[]; empty?: boolean; error?: string }) => {
+      .then((d: { gainers?: Mover[]; losers?: Mover[]; empty?: boolean; error?: string; partial?: boolean; failed?: number }) => {
         if (d.error) { setMoversStatus(d.error === "POLYGON_API_KEY_NOT_CONFIGURED" ? "not-configured" : "error"); return; }
         if (d.empty) { setMoversStatus("empty"); return; }
         setGainers(d.gainers ?? []);
         setLosers(d.losers ?? []);
+        setMoversNotice(d.partial ? `${d.failed ?? "Some"} tracked symbols did not refresh.` : null);
         setMoversStatus("ok");
       })
       .catch(() => setMoversStatus("error"));
-    fetch("/api/massive/news?limit=8").then((r) => r.json()).then((d) => setNews(d.news ?? [])).catch(() => null);
+    fetch("/api/massive/news?limit=8")
+      .then((r) => {
+        if (!r.ok) throw new Error("News failed");
+        return r.json();
+      })
+      .then((d) => {
+        setNews(d.news ?? []);
+        setNewsNotice(null);
+      })
+      .catch(() => setNewsNotice("Market news could not refresh."));
   }, []);
 
   return (
@@ -47,6 +59,9 @@ export function FundMarketModule() {
           )}
           {moversStatus === "error" && (
             <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 10 }}>Couldn&apos;t load movers.</p>
+          )}
+          {moversNotice && (
+            <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 10 }}>{moversNotice}</p>
           )}
           {moversStatus === "ok" && gainers.length === 0 && (
             <p style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 10 }}>Nothing up today among your tracked symbols.</p>
@@ -69,7 +84,9 @@ export function FundMarketModule() {
       <Card>
         <h2 className="sec">Market news<span className="rule" /></h2>
         <div style={{ marginTop: 10 }}>
-          {news.length === 0 ? (
+          {newsNotice ? (
+            <p style={{ fontSize: 12, color: "var(--clay)" }}>{newsNotice}</p>
+          ) : news.length === 0 ? (
             <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>No recent news, or Polygon is not configured.</p>
           ) : (
             news.map((n) => (

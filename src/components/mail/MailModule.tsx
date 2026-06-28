@@ -14,6 +14,23 @@ interface MailAccount {
   via?: "composio";
 }
 
+type MailInboxError = {
+  provider: "gmail" | "outlook";
+  accountEmail: string;
+  transport: "direct" | "composio";
+  code: string;
+  message: string;
+};
+
+type MailInboxResponse = {
+  messages?: MailMessage[];
+  accounts?: MailAccount[];
+  partial?: boolean;
+  errors?: MailInboxError[];
+  fetchedAt?: string;
+  error?: string;
+};
+
 type SortMode = "date" | "priority";
 type AccountFilter = "all" | string; // "all" or a specific mailEmail
 
@@ -177,6 +194,8 @@ export function MailModule() {
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [inboxNotice, setInboxNotice] = useState<string | null>(null);
+  const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [selected, setSelected] = useState<MailMessageFull | null>(null);
   const [loadingMsg, setLoadingMsg] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("date");
@@ -186,12 +205,17 @@ export function MailModule() {
   const [showAddPicker, setShowAddPicker] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null>(null);
   const mountedRef = useRef(true);
+  const messagesRef = useRef<MailMessage[]>([]);
   const addBtnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Close picker on outside click
   useEffect(() => {
@@ -226,16 +250,34 @@ export function MailModule() {
     setLoading(true);
     try {
       const res = await fetch("/api/mail/inbox");
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = (await res.json().catch(() => ({}))) as MailInboxResponse;
       if (!mountedRef.current) return;
+      if (!res.ok) {
+        const message = data.error ?? "Inbox refresh failed.";
+        setInboxNotice(messagesRef.current.length ? `Showing last loaded inbox — ${message}` : message);
+        toast(message, "error", "Mail");
+        return;
+      }
       setMessages(data.messages ?? []);
       // Refresh accounts list from response
       if (data.accounts) setAccounts(data.accounts);
+      setLastFetchedAt(data.fetchedAt ?? new Date().toISOString());
+      if (data.partial && data.errors?.length) {
+        const label = data.errors.length === 1 ? "1 mailbox" : `${data.errors.length} mailboxes`;
+        setInboxNotice(`Inbox partially refreshed — ${label} could not be reached.`);
+        toast(`Inbox partially refreshed — ${label} skipped.`, "warn", "Mail");
+      } else {
+        setInboxNotice(null);
+      }
+    } catch {
+      if (!mountedRef.current) return;
+      const message = "Network error refreshing inbox.";
+      setInboxNotice(messagesRef.current.length ? `Showing last loaded inbox — ${message}` : message);
+      toast(message, "error", "Mail");
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   const refreshMailStatus = useCallback(() => {
     fetch("/api/mail/status")
@@ -275,7 +317,14 @@ export function MailModule() {
       const res = await fetch(
         `/api/mail/message/${msg.id}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
       );
-      if (res.ok && mountedRef.current) setSelected(await res.json());
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && mountedRef.current) {
+        setSelected(data);
+      } else if (mountedRef.current) {
+        toast(data.error ?? "Couldn't open that message.", "error", "Mail");
+      }
+    } catch {
+      if (mountedRef.current) toast("Network error loading message.", "error", "Mail");
     } finally {
       if (mountedRef.current) setLoadingMsg(false);
     }
@@ -632,11 +681,34 @@ export function MailModule() {
           </button>
         </div>
 
+        {(inboxNotice || (loading && messages.length > 0)) && (
+          <div
+            style={{
+              padding: "7px 16px",
+              borderBottom: "1px solid var(--line)",
+              fontSize: 11,
+              color: inboxNotice ? "var(--clay)" : "var(--ink-faint)",
+              background: "var(--glass)",
+            }}
+          >
+            {inboxNotice ?? "Refreshing inbox…"}
+            {lastFetchedAt && !loading && (
+              <span style={{ color: "var(--ink-faint)" }}>
+                {" "}Last updated {new Date(lastFetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Message list */}
         <div style={{ flex: 1, overflow: "auto" }}>
           {loading && visibleMessages.length === 0 ? (
             <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
               Loading…
+            </div>
+          ) : inboxNotice && messages.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--clay)", fontSize: "13px" }}>
+              {inboxNotice}
             </div>
           ) : visibleMessages.length === 0 ? (
             <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
