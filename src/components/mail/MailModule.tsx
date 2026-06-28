@@ -676,7 +676,16 @@ export function MailModule() {
           <MessagePanel
             message={selected}
             onClose={() => setSelected(null)}
-            onReply={(draft) => { setSelected(null); setComposeDraft(draft); }}
+            onReply={(draft) => {
+              const account = accounts.find(
+                (a) => a.provider === selected.provider && a.mailEmail === selected.accountEmail,
+              );
+              setSelected(null);
+              setComposeDraft({
+                ...draft,
+                via: account?.via === "composio" ? "composio" : "direct",
+              });
+            }}
           />
         )}
       </div>

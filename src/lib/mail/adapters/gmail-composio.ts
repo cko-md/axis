@@ -81,8 +81,13 @@ export const gmailComposioAdapter: MailAdapter = {
   // Composio's send tool doesn't expose threading params we've verified, so a
   // reply is sent as a normal message (subject "Re:" + quoted body come from
   // the caller). Threaded reply is a follow-up once the tool args are confirmed.
-  replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {
-    return this.sendMessage(ctx, { to: input.to, subject: input.subject, body: input.body });
+  async replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {
+    const result = await this.sendMessage(ctx, { to: input.to, subject: input.subject, body: input.body });
+    if (!result.ok) return result;
+    return ok({
+      ...result.data,
+      warning: "Reply sent as a new message because Composio Gmail threading is not verified yet.",
+    });
   },
 
   markRead(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("mark-read")); },
