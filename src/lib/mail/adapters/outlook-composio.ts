@@ -7,6 +7,7 @@ import {
   getComposioMessage,
   sendComposioMail,
   normalizeOutlookMessage,
+  normalizeOutlookMessageFull,
 } from "../composio";
 import type { MailMessage, MailMessageFull } from "../gmail";
 import {
@@ -90,14 +91,6 @@ export const outlookComposioAdapter: MailAdapter = {
   },
 
   normalizeMessageFull(raw: unknown, ctx: MailAccountContext): MailMessageFull | null {
-    const base = normalizeOutlookMessage(raw as Record<string, unknown>, ctx.mailEmail);
-    if (!base) return null;
-    const m = raw as Record<string, unknown>;
-    const bodyObj = m.body as { content?: string; contentType?: string } | undefined;
-    return {
-      ...base,
-      body: bodyObj?.content ?? (m.bodyPreview as string) ?? "",
-      bodyIsHtml: (bodyObj?.contentType ?? "").toLowerCase() === "html",
-    };
+    return normalizeOutlookMessageFull(raw as Record<string, unknown>, ctx.mailEmail);
   },
 };

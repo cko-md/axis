@@ -9,8 +9,9 @@ import {
   getComposioMessage,
   sendComposioMail,
   normalizeGmailMessage,
+  normalizeGmailMessageFull,
 } from "../composio";
-import { extractBody, type GmailPayload, type MailMessage, type MailMessageFull } from "../gmail";
+import type { MailMessage, MailMessageFull } from "../gmail";
 import {
   ok,
   fail,
@@ -95,23 +96,6 @@ export const gmailComposioAdapter: MailAdapter = {
   },
 
   normalizeMessageFull(raw: unknown, ctx: MailAccountContext): MailMessageFull | null {
-    const base = normalizeGmailMessage(raw as Record<string, unknown>, ctx.mailEmail);
-    if (!base) return null;
-    const m = raw as Record<string, unknown>;
-    const payload = m.payload as GmailPayload | undefined;
-    let body = "";
-    let bodyIsHtml = false;
-    if (payload) {
-      const extracted = extractBody(payload);
-      body = extracted.content;
-      bodyIsHtml = extracted.isHtml;
-    }
-    if (!body) {
-      const html = (m.messageHtml ?? m.bodyHtml) as string | undefined;
-      const text = (m.messageText ?? m.bodyText ?? m.snippet) as string | undefined;
-      if (html) { body = html; bodyIsHtml = true; }
-      else if (text) { body = text; }
-    }
-    return { ...base, body, bodyIsHtml };
+    return normalizeGmailMessageFull(raw as Record<string, unknown>, ctx.mailEmail);
   },
 };

@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeGmailMessage,
+  normalizeGmailMessageFull,
   normalizeOutlookMessage,
+  normalizeOutlookMessageFull,
 } from "./composio";
 
 describe("normalizeGmailMessage()", () => {
@@ -155,5 +157,89 @@ describe("normalizeOutlookMessage()", () => {
     const raw = { id: "outlook7" };
     const result = normalizeOutlookMessage(raw, "user@outlook.com");
     expect(result!.isUnread).toBe(false);
+  });
+});
+
+describe("normalizeGmailMessageFull()", () => {
+  it("prefers flattened Composio HTML bodies over text fallbacks", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-1",
+        subject: "Rendered email",
+        messageHtml: "<p>Hello <a href=\"https://example.com\">there</a></p>",
+        messageText: "Hello there",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "<p>Hello <a href=\"https://example.com\">there</a></p>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("treats generic Composio body strings that contain markup as HTML", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-2",
+        body: "<div><img src=\"https://example.com/pixel.png\" alt=\"\" /></div>",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "<div><img src=\"https://example.com/pixel.png\" alt=\"\" /></div>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("preserves plain text bodies as non-HTML", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-3",
+        bodyText: "Line one\nLine two",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "Line one\nLine two",
+      bodyIsHtml: false,
+    });
+  });
+});
+
+describe("normalizeOutlookMessageFull()", () => {
+  it("normalizes Outlook Graph HTML body objects", () => {
+    const result = normalizeOutlookMessageFull(
+      {
+        id: "outlook-full-1",
+        body: {
+          contentType: "html",
+          content: "<div><a href=\"https://example.com\">Open</a></div>",
+        },
+      },
+      "user@outlook.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "<div><a href=\"https://example.com\">Open</a></div>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("falls back to bodyPreview as plain text", () => {
+    const result = normalizeOutlookMessageFull(
+      {
+        id: "outlook-full-2",
+        bodyPreview: "Preview line",
+      },
+      "user@outlook.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "Preview line",
+      bodyIsHtml: false,
+    });
   });
 });

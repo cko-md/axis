@@ -39,23 +39,35 @@ export function decodeBase64Url(data: string): string {
   }
 }
 
+function findBodyPart(payload: GmailPayload, mimeType: "text/html" | "text/plain"): GmailPayload | null {
+  if (payload.mimeType?.toLowerCase() === mimeType && payload.body?.data) {
+    return payload;
+  }
+  for (const part of payload.parts ?? []) {
+    const found = findBodyPart(part, mimeType);
+    if (found) return found;
+  }
+  return null;
+}
+
 export function extractBody(payload: GmailPayload): { content: string; isHtml: boolean } {
+  const html = findBodyPart(payload, "text/html");
+  if (html?.body?.data) {
+    return { content: decodeBase64Url(html.body.data), isHtml: true };
+  }
+
+  const plain = findBodyPart(payload, "text/plain");
+  if (plain?.body?.data) {
+    return { content: decodeBase64Url(plain.body.data), isHtml: false };
+  }
+
   if (payload.body?.data) {
-    const isHtml = payload.mimeType === "text/html";
-    return { content: decodeBase64Url(payload.body.data), isHtml };
+    return {
+      content: decodeBase64Url(payload.body.data),
+      isHtml: payload.mimeType?.toLowerCase() === "text/html",
+    };
   }
-  if (payload.parts) {
-    const plain = payload.parts.find((p) => p.mimeType === "text/plain");
-    if (plain?.body?.data) return { content: decodeBase64Url(plain.body.data), isHtml: false };
-    const html = payload.parts.find((p) => p.mimeType === "text/html");
-    if (html?.body?.data) return { content: decodeBase64Url(html.body.data), isHtml: true };
-    for (const part of payload.parts) {
-      if (part.parts) {
-        const nested = extractBody(part);
-        if (nested.content) return nested;
-      }
-    }
-  }
+
   return { content: "", isHtml: false };
 }
 
