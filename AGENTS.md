@@ -57,6 +57,8 @@ For every issue, the agent must:
 15. **Provide Sentry validation steps.**
 16. **Provide a manual test checklist** (happy path, error path, refresh/persistence, RLS where relevant, related-module regression).
 
+**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Merge only after the Vercel preview, Supabase/Tembo, and Sentry checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
+
 End the session with the response format in §12.
 
 ---
@@ -173,7 +175,9 @@ See `docs/architecture/integration-adapters.md` for the contract and the full ma
 
 Implement in this order (from `docs/linear/axis-mvp-issues.md`). Do not jump ahead unless an issue says so.
 
-1. Integration adapter foundation
+> **Status:** item 1 (integration adapter foundation) is **merged to production** — `src/lib/integrations/{types,registry}.ts` + `src/lib/mail/adapters/*`, with `api/mail/{inbox,message/[id],send}` rewired to it (see `docs/architecture/integration-adapters.md`). The next actionable issue is **item 2, Mail: Composio Gmail detail**.
+
+1. Integration adapter foundation ✅ (merged)
 2. Mail: Composio Gmail detail
 3. Mail: Composio Outlook detail
 4. Mail visible error state

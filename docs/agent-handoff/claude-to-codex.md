@@ -11,7 +11,7 @@ Claude Code has been the primary agent for AXIS so far. It produced the foundati
 
 - The platform audit — [`docs/audits/axis-platform-audit.md`](../audits/axis-platform-audit.md) (platform map, UX/architecture/latency/integration findings, P0–P3 roadmap).
 - The Linear-ready issue plan — [`docs/linear/axis-mvp-issues.md`](../linear/axis-mvp-issues.md) (initiatives, projects, milestones, per-issue specs + acceptance criteria + module order).
-- The integration adapter foundation for Mail — [`docs/architecture/integration-adapters.md`](../architecture/integration-adapters.md) and `src/lib/integrations/*` + `src/lib/mail/adapters/*`.
+- The integration adapter foundation for Mail — [`docs/architecture/integration-adapters.md`](../architecture/integration-adapters.md) and `src/lib/integrations/*` + `src/lib/mail/adapters/*`. **This foundation is merged to `main`/production**, so module-priority item 1 is complete.
 
 There is no root `CLAUDE.md`; durable guidance now lives in `AGENTS.md` so it is shared by every agent.
 
@@ -45,7 +45,7 @@ Follow `AGENTS.md` §11 / `docs/linear/axis-mvp-issues.md`:
 
 **"Mail: Composio Gmail messages open into readable detail."**
 
-This is the highest-value entry point: the adapter foundation already exists, and this issue completes the most visible broken workflow (Composio Gmail inbox rows that don't open into a readable message). Verify against the full Mail matrix in `docs/architecture/integration-adapters.md` (direct Gmail, direct Outlook, Composio Gmail, Composio Outlook × list/detail/send/actions/error states).
+This is the highest-value entry point: the adapter foundation is **already merged to production**, and this issue completes the most visible broken workflow (Composio Gmail inbox rows that don't open into a readable message). The `MailAdapter.getMessage` path exists but its Composio single-message tool slug (`GET_TOOL` in `src/lib/mail/composio.ts`) is best-effort and **must be verified against a live connected account**. Verify against the full Mail matrix in `docs/architecture/integration-adapters.md` (direct Gmail, direct Outlook, Composio Gmail, Composio Outlook × list/detail/send/actions/error states).
 
 ## 7. Copy-paste Codex starter prompt
 
