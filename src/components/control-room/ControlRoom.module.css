@@ -41,6 +41,10 @@
   background: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
+.svcDot[data-state="broken"] {
+  background: var(--clay);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--clay) 22%, transparent);
+}
 
 .svcBody {
   flex: 1;
@@ -76,6 +80,18 @@
 .svcState[data-state="pending"] {
   color: var(--accent);
 }
+.svcState[data-state="broken"] {
+  color: var(--clay);
+}
+
+.svcActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 .svcAction {
   flex-shrink: 0;
@@ -94,6 +110,27 @@
 .svcAction:hover {
   border-color: var(--accent);
   color: var(--accent-bright);
+}
+.svcAction[data-variant="secondary"] {
+  border-color: var(--line);
+  color: var(--ink-dim);
+}
+.svcAction[data-variant="secondary"]:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+@media (max-width: 620px) {
+  .svcRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .svcActions {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 22px;
+  }
 }
 
 /* Secondary Composio-bridge connect link — dimmer than .svcAction, mirrors
