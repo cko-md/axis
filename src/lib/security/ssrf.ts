@@ -28,7 +28,8 @@ export function isBlockedUrl(raw: string): boolean {
     const u = new URL(raw);
     if (u.protocol !== "http:" && u.protocol !== "https:") return true;
     const h = u.hostname.toLowerCase();
-    if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "0.0.0.0") return true;
+    const bare = h.replace(/\[|\]/g, "");
+    if (h === "localhost" || bare === "127.0.0.1" || bare === "::1" || bare === "0.0.0.0") return true;
     if (/^10\./.test(h)) return true;
     if (/^192\.168\./.test(h)) return true;
     if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
