@@ -1,3 +1,5 @@
+import { optionalEnv } from "@/lib/env";
+
 /**
  * Shared server-side Tavily client.
  *
@@ -62,7 +64,7 @@ export class TavilyError extends Error {
 }
 
 function getApiKey(): string {
-  const key = process.env.TAVILY_API_KEY;
+  const key = optionalEnv("TAVILY_API_KEY");
   if (!key) throw new TavilyError("TAVILY_API_KEY is not configured", 503);
   return key;
 }

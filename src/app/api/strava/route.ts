@@ -11,6 +11,7 @@ import {
   type StravaAthlete,
 } from "./_lib";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { optionalEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -37,9 +38,12 @@ export async function GET(req: NextRequest) {
 
   // ── AUTH REDIRECT ──────────────────────────────────────────────────────────
   if (action === "auth") {
-    const clientId = process.env.STRAVA_CLIENT_ID;
+    const clientId = optionalEnv("STRAVA_CLIENT_ID");
     if (!clientId) {
-      return NextResponse.json({ error: "STRAVA_CLIENT_ID not configured" }, { status: 503 });
+      return NextResponse.json(
+        { error: "NOT_CONFIGURED", message: "Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET to enable Strava." },
+        { status: 503 },
+      );
     }
 
     const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
@@ -76,8 +80,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
-    const clientId = process.env.STRAVA_CLIENT_ID;
-    const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+    const clientId = optionalEnv("STRAVA_CLIENT_ID");
+    const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET");
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }

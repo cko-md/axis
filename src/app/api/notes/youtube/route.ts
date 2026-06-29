@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiGenerate, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
+import { optionalEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -168,7 +169,7 @@ export async function POST(req: NextRequest) {
   // ── 3. Turn the transcript into structured study notes ──────────────────────
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
   let bodyHtml: string;

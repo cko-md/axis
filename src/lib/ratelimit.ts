@@ -1,4 +1,6 @@
 /** Simple in-memory rate limiter — per-instance fallback when Redis is unavailable. */
+import { hasOptionalEnv } from "@/lib/env";
+
 const store = new Map<string, { count: number; resetAt: number }>();
 type RateLimitWindow = `${number} ${"ms" | "s" | "m" | "h" | "d"}` | `${number}${"ms" | "s" | "m" | "h" | "d"}`;
 
@@ -24,7 +26,7 @@ export async function redisRateLimit(
   window: RateLimitWindow,
   prefix: string,
 ): Promise<{ success: boolean } | null> {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  if (!hasOptionalEnv("UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN")) {
     return null;
   }
 

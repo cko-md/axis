@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/crypto";
+import { optionalEnv } from "@/lib/env";
 import { syncPlaidTransactions } from "@/lib/fund/syncPlaidTransactions";
 import { detectRecurring, sendBillReminders, snapshotNetWorth, writeDailyBrief } from "@/lib/fund/financeDailyJobs";
 import { checkBudgetThresholds, detectAndExplainAnomalies, writeSubscriptionAudit, writeWeeklyRecap } from "@/lib/fund/financeNarratorJobs";
@@ -16,11 +17,12 @@ import { checkBudgetThresholds, detectAndExplainAnomalies, writeSubscriptionAudi
  * production (see verification steps in the implementation plan).
  */
 export async function GET(req: NextRequest) {
-  if (!process.env.CRON_SECRET) {
+  const cronSecret = optionalEnv("CRON_SECRET");
+  if (!cronSecret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -59,7 +61,8 @@ export async function GET(req: NextRequest) {
     ...new Set([...(users ?? []).map((u) => u.user_id), ...(holdingUsers ?? []).map((u) => u.user_id)]),
   ];
 
-  const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+  const anthropicApiKey = optionalEnv("ANTHROPIC_API_KEY");
+  const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) : null;
 
   for (const userId of userIds) {
     const { data: authUser } = await admin.auth.admin.getUserById(userId);

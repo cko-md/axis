@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { optionalEnv } from "@/lib/env";
 
 // Vercel cron: runs daily at 06:00 UTC (configured in vercel.json)
 // GitHub Actions also triggers this at 07:00 UTC via daily-health.yml.
 // Requires CRON_SECRET env var — Vercel sets the Authorization header automatically
 // when invoking crons; set the same secret in your project env vars.
 export async function GET(req: NextRequest) {
-  if (!process.env.CRON_SECRET) {
+  const cronSecret = optionalEnv("CRON_SECRET");
+  if (!cronSecret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

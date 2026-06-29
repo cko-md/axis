@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds } from "../_lib";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Plaid connectivity status. Mirrors /api/massive/status: returns a clean
@@ -15,12 +16,22 @@ export async function GET() {
 
   const creds = getPlaidCreds();
 
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from("fund_connections")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
     .eq("provider", "plaid")
     .eq("status", "linked");
+  if (error) {
+    captureRouteError(error, {
+      route: "/api/plaid/status",
+      operation: "read_connection_status",
+      area: "fund",
+      provider: "supabase",
+      status: 500,
+    });
+    return NextResponse.json({ error: "STATUS_UNAVAILABLE", message: "Could not read Plaid connection status." }, { status: 500 });
+  }
 
   return NextResponse.json({
     configured: !!creds,

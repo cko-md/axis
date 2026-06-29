@@ -1,5 +1,5 @@
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
-import { optionalEnv } from "@/lib/env";
+import { getPolygonApiKeyEnv } from "@/lib/env";
 
 const BASE = "https://api.polygon.io";
 const GAP_MS = 280;
@@ -7,7 +7,7 @@ const GAP_MS = 280;
 let lastRequest = 0;
 
 export function getPolygonApiKey(): string | undefined {
-  return optionalEnv("POLYGON_API_KEY") || optionalEnv("MASSIVE_API_KEY");
+  return getPolygonApiKeyEnv();
 }
 
 export function mapSymbol(sym: string): string {

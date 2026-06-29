@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
+import { getGeminiApiKey, optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 type PersonTag = "mentor" | "collaborator" | "friend";
@@ -97,8 +98,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
+  const hasGemini = !!getGeminiApiKey();
   const client = apiKey ? new Anthropic({ apiKey }) : null;
 
   if (ambiguous.length > 0 && people.length > 0 && (client || hasGemini)) {

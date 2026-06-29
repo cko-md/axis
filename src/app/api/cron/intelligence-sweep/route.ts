@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { scanPlatformForUser } from "@/lib/signals/scan";
 import { scanForObjectives } from "@/lib/objectives/scan";
 import { scanForNewPapers } from "@/lib/literature/watch";
+import { optionalEnv } from "@/lib/env";
 
 const DEBRIEF_STALE_DAYS = 6;
 const OBJECTIVE_DEDUP_WINDOW_DAYS = 30;
@@ -27,11 +28,12 @@ const ABSTRACT_DUE_WINDOW_DAYS = 7;
 // Uses the service-role admin client to cross user boundaries directly
 // (bypasses RLS) — no SECURITY DEFINER RPCs needed, unlike /api/cron/daily.
 export async function POST(req: NextRequest) {
-  if (!process.env.MAKE_SWEEP_SECRET) {
+  const sweepSecret = optionalEnv("MAKE_SWEEP_SECRET");
+  if (!sweepSecret) {
     return NextResponse.json({ error: "MAKE_SWEEP_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.MAKE_SWEEP_SECRET}`) {
+  if (authHeader !== `Bearer ${sweepSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

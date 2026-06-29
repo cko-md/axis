@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit } from "@/lib/ratelimit";
 import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return NextResponse.json({ error: "ANTHROPIC_API_KEY_NOT_CONFIGURED" }, { status: 503 });
   }

@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getConnectedAccount, isSupportedToolkit, resolveProfileLabel } from "@/lib/integrations/composio";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 // Statuses Composio won't transition out of on its own — no point repolling.
 const DEAD_END_STATUSES = new Set(["FAILED", "EXPIRED", "REVOKED"]);
+
+function errorStatus(err: unknown): number {
+  if (!err || typeof err !== "object" || !("status" in err)) return 502;
+  const status = Number((err as { status: unknown }).status);
+  return Number.isFinite(status) ? status : 502;
+}
 
 // GET /api/integrations/composio/status
 // Returns this user's Composio connections, refreshing any non-dead-end rows
@@ -36,7 +43,15 @@ export async function GET() {
           await supabase.from("composio_connections").update(patch).eq("id", row.id);
         }
         return { ...row, ...patch };
-      } catch {
+      } catch (err) {
+        captureRouteError(err, {
+          route: "/api/integrations/composio/status",
+          operation: "refresh_connection",
+          area: "integrations",
+          provider: "composio",
+          status: errorStatus(err),
+          tags: { toolkit: row.toolkit, connectionStatus: row.status },
+        });
         return row;
       }
     }),

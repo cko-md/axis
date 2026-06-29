@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
+import { optionalEnv } from "@/lib/env";
 
 type FeedSuggestion = { name: string; url: string; description: string };
 
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
   try {

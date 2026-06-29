@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
+import { optionalEnv } from "@/lib/env";
 
 type SignalType = "action" | "awaiting" | "fyi";
 const VALID_SIGNAL_TYPES: SignalType[] = ["action", "awaiting", "fyi"];
@@ -30,7 +31,7 @@ export async function scanPlatformForUser(
     .join("\n");
 
   const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
   let items: ScannedSignal[] = [];

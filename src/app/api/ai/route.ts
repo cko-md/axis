@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiGenerate, aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
+import { getGeminiApiKey, optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
@@ -252,8 +253,8 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
+  const hasGemini = !!getGeminiApiKey();
 
   // No AI keys at all → heuristics only
   if (!apiKey && !hasGemini) {

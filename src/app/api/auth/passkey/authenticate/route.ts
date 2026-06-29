@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { decrypt } from "@/lib/crypto";
+import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
   }
 
-  if (!process.env.PASSKEY_ENCRYPTION_KEY) {
+  if (!optionalEnv("PASSKEY_ENCRYPTION_KEY")) {
     console.warn("[passkey] PASSKEY_ENCRYPTION_KEY not set — refresh token decryption unavailable");
   }
 

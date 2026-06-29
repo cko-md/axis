@@ -10,12 +10,13 @@ import type {
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
 } from "@simplewebauthn/server";
+import { optionalEnv } from "@/lib/env";
 
 export const RP_NAME = "Axis";
 
 /** Derive rpID (bare domain) and origin from APP_URL env var or fallback. */
 export function getRpConfig(): { rpID: string; origin: string } {
-  const raw = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3200";
+  const raw = optionalEnv("NEXT_PUBLIC_APP_URL") ?? optionalEnv("NEXT_PUBLIC_BASE_URL") ?? "http://localhost:3200";
   try {
     const url = new URL(raw);
     return { rpID: url.hostname, origin: url.origin };
