@@ -25,7 +25,45 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
-type ConnState = "on" | "off" | "pending";
+type ConnState = "on" | "off" | "pending" | "broken";
+
+type ComposioToolkit = "gmail" | "outlook" | "strava" | "spotify" | "googlecalendar" | "googlecontacts";
+
+type ComposioConnection = {
+  id: string;
+  toolkit: ComposioToolkit;
+  connected_account_id: string;
+  status: string;
+  account_label: string | null;
+  created_at: string;
+};
+
+type MailAccount = {
+  provider: "gmail" | "outlook";
+  mailEmail: string;
+  via?: "composio";
+  connectedAccountId?: string;
+};
+
+type CalendarStatus = {
+  google: boolean;
+  googleEmail: string | null;
+  outlook: boolean;
+  outlookEmail: string | null;
+};
+
+type ContactsStatus = {
+  google: boolean;
+  googleEmail: string | null;
+  via: "oauth" | "composio" | null;
+};
+
+type OAuthProviderStatus = {
+  connected: boolean;
+  label: string | null;
+};
+
+type StatusSource = "mail" | "calendar" | "contacts" | "composio" | "spotify" | "strava";
 
 type ServiceStatus = {
   configured: boolean;
@@ -46,6 +84,23 @@ type ActivityItem = {
   text: string;
   at: string;
 };
+
+type ConnectionAction = {
+  label: string;
+  onClick: () => void;
+  variant?: "primary" | "secondary";
+};
+
+type ConnectionRow = {
+  name: string;
+  desc: string;
+  state: ConnState;
+  detail: string;
+  action?: ConnectionAction;
+  secondaryAction?: ConnectionAction;
+};
+
+const BROKEN_COMPOSIO_STATUSES = new Set(["FAILED", "EXPIRED", "REVOKED"]);
 
 const THEME_LABEL: Record<string, string> = {
   dark: "Dark",
@@ -77,6 +132,39 @@ function relTime(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function humanizeComposioStatus(status: string): string {
+  const normalized = status.trim().toUpperCase();
+  if (normalized === "ACTIVE") return "Connected";
+  if (normalized === "INITIATED" || normalized === "INITIALIZING") return "Finishing authorization";
+  if (normalized === "EXPIRED") return "Authorization expired";
+  if (normalized === "REVOKED") return "Access revoked";
+  if (normalized === "FAILED") return "Authorization failed";
+  return normalized.replaceAll("_", " ").toLowerCase();
+}
+
+function pickComposioConnection(
+  connections: ComposioConnection[] | null,
+  toolkits: ComposioToolkit[],
+): ComposioConnection | null {
+  const matches = (connections ?? [])
+    .filter((connection) => toolkits.includes(connection.toolkit))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  return (
+    matches.find((connection) => connection.status === "ACTIVE") ??
+    matches.find((connection) => BROKEN_COMPOSIO_STATUSES.has(connection.status)) ??
+    matches[0] ??
+    null
+  );
+}
+
+function composioState(connection: ComposioConnection | null): ConnState {
+  if (!connection) return "off";
+  if (connection.status === "ACTIVE") return "on";
+  if (BROKEN_COMPOSIO_STATUSES.has(connection.status)) return "broken";
+  return "pending";
+}
+
 export function ControlRoomModule() {
   const [tab, setTab] = useState<TabId>("overview");
   const { theme, interfaceSettings, openInterfaceStudio } = useTheme();
@@ -94,52 +182,105 @@ export function ControlRoomModule() {
   const [aiStatus, setAiStatus] = useState<ServiceStatus | null>(null);
   const [aiProvider, setAiProvider] = useState<AIProviderPref>("auto");
   const [aiProviderSaving, setAiProviderSaving] = useState(false);
-  const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
-  const [stravaConnected, setStravaConnected] = useState<boolean | null>(null);
+  const [spotifyStatus, setSpotifyStatus] = useState<OAuthProviderStatus | null>(null);
+  const [stravaStatus, setStravaStatus] = useState<OAuthProviderStatus | null>(null);
   const [brokerStatus, setBrokerStatus] = useState<ServiceStatus | null>(null);
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
-  const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
-  const [mailStatus, setMailStatus] = useState<{ gmail: boolean; gmailEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [calendarStatus, setCalendarStatus] = useState<CalendarStatus | null>(null);
+  const [mailAccounts, setMailAccounts] = useState<MailAccount[] | null>(null);
+  const [contactsStatus, setContactsStatus] = useState<ContactsStatus | null>(null);
+  const [composioConnections, setComposioConnections] = useState<ComposioConnection[] | null>(null);
+  const [statusErrors, setStatusErrors] = useState<Partial<Record<StatusSource, string>>>({});
+
+  const setStatusError = useCallback((source: StatusSource, message: string | null) => {
+    setStatusErrors((prev) => {
+      const next = { ...prev };
+      if (message) next[source] = message;
+      else delete next[source];
+      return next;
+    });
+  }, []);
 
   const refreshMailStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/mail/status", { cache: "no-store" });
+      if (!res.ok) throw new Error("Mail status unavailable");
       const { accounts } = (await res.json()) as {
-        accounts: Array<{ provider: "gmail" | "outlook"; mailEmail: string }>;
+        accounts: MailAccount[];
       };
-      const gmailAcct = accounts.find((a) => a.provider === "gmail");
-      const outlookAcct = accounts.find((a) => a.provider === "outlook");
-      setMailStatus({
-        gmail: !!gmailAcct,
-        gmailEmail: gmailAcct?.mailEmail ?? null,
-        outlook: !!outlookAcct,
-        outlookEmail: outlookAcct?.mailEmail ?? null,
-      });
+      setMailAccounts(accounts);
+      setStatusError("mail", null);
     } catch {
-      setMailStatus({ gmail: false, gmailEmail: null, outlook: false, outlookEmail: null });
+      setMailAccounts([]);
+      setStatusError("mail", "Mail status unavailable.");
     }
-  }, []);
+  }, [setStatusError]);
 
   const refreshComposioStatus = useCallback(async () => {
     // Hitting the status route triggers Composio's poll-on-read, which flips a
-    // freshly-connected account to ACTIVE in our DB — the merged mail/calendar
-    // status routes then surface it. We don't render the raw list here, so the
-    // call is made purely for that side effect.
+    // freshly-connected account to ACTIVE in our DB. The raw list also powers
+    // the reconnect states for failed/expired provider accounts in this panel.
     try {
-      await fetch("/api/integrations/composio/status", { cache: "no-store" });
+      const res = await fetch("/api/integrations/composio/status", { cache: "no-store" });
+      if (!res.ok) throw new Error("Composio status unavailable");
+      const json = (await res.json()) as { connections?: ComposioConnection[] };
+      setComposioConnections(json.connections ?? []);
+      setStatusError("composio", null);
     } catch {
-      /* ignore */
+      setComposioConnections([]);
+      setStatusError("composio", "Composio status unavailable.");
     }
-  }, []);
+  }, [setStatusError]);
 
   const refreshCalendarStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/calendar/status", { cache: "no-store" });
+      if (!res.ok) throw new Error("Calendar status unavailable");
       setCalendarStatus(await res.json());
+      setStatusError("calendar", null);
     } catch {
       setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
+      setStatusError("calendar", "Calendar status unavailable.");
     }
-  }, []);
+  }, [setStatusError]);
+
+  const refreshContactsStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/contacts/status", { cache: "no-store" });
+      if (!res.ok) throw new Error("Contacts status unavailable");
+      setContactsStatus(await res.json());
+      setStatusError("contacts", null);
+    } catch {
+      setContactsStatus({ google: false, googleEmail: null, via: null });
+      setStatusError("contacts", "Contacts status unavailable.");
+    }
+  }, [setStatusError]);
+
+  const refreshSpotifyStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/spotify/playback", { cache: "no-store" });
+      if (!res.ok) throw new Error("Spotify status unavailable");
+      const json = (await res.json()) as { connected?: boolean };
+      setSpotifyStatus({ connected: !!json.connected, label: null });
+      setStatusError("spotify", null);
+    } catch {
+      setSpotifyStatus({ connected: false, label: null });
+      setStatusError("spotify", "Spotify status unavailable.");
+    }
+  }, [setStatusError]);
+
+  const refreshStravaStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/strava?action=status", { cache: "no-store" });
+      if (!res.ok) throw new Error("Strava status unavailable");
+      const json = (await res.json()) as { connected?: boolean; athlete?: { name?: string | null } | null };
+      setStravaStatus({ connected: !!json.connected, label: json.athlete?.name ?? null });
+      setStatusError("strava", null);
+    } catch {
+      setStravaStatus({ connected: false, label: null });
+      setStatusError("strava", "Strava status unavailable.");
+    }
+  }, [setStatusError]);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -243,33 +384,27 @@ export function ControlRoomModule() {
       setAiStatus(ai);
       setBrokerStatus(b);
       setPlaidStatus(p);
-      try {
-        const sp = await fetch("/api/spotify/playback", { cache: "no-store" });
-        const spJson = await sp.json();
-        if (alive) setSpotifyConnected(!!spJson.connected);
-      } catch {
-        if (alive) setSpotifyConnected(false);
-      }
-      try {
-        const st = await fetch("/api/strava?action=status", { cache: "no-store" });
-        const stJson = await st.json();
-        if (alive) setStravaConnected(!!stJson.connected);
-      } catch {
-        if (alive) setStravaConnected(false);
-      }
-      try {
-        const cal = await fetch("/api/calendar/status", { cache: "no-store" });
-        if (alive) setCalendarStatus(await cal.json());
-      } catch {
-        if (alive) setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
-      }
-      if (alive) await refreshMailStatus();
-      if (alive) await refreshComposioStatus();
+      await refreshComposioStatus();
+      if (!alive) return;
+      await Promise.all([
+        refreshSpotifyStatus(),
+        refreshStravaStatus(),
+        refreshCalendarStatus(),
+        refreshMailStatus(),
+        refreshContactsStatus(),
+      ]);
     })();
     return () => {
       alive = false;
     };
-  }, [refreshMailStatus, refreshComposioStatus]);
+  }, [
+    refreshCalendarStatus,
+    refreshContactsStatus,
+    refreshComposioStatus,
+    refreshMailStatus,
+    refreshSpotifyStatus,
+    refreshStravaStatus,
+  ]);
 
   // --- Load real activity from content tables -----------------------------
   const loadActivity = useCallback(async () => {
@@ -340,30 +475,90 @@ export function ControlRoomModule() {
   // --- Actions ------------------------------------------------------------
   const connectSpotify = () => {
     openOAuthPopup("/api/spotify/auth", (_provider, status) => {
-      if (status === "ok") setSpotifyConnected(true);
+      if (status === "ok") void refreshSpotifyStatus();
     });
   };
 
-  type ComposioToolkit = "gmail" | "outlook" | "strava" | "spotify" | "googlecalendar" | "googlecontacts";
+  const connectStrava = () => {
+    openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+      if (status === "ok") void refreshStravaStatus();
+    });
+  };
 
   // After any Composio connect/disconnect, refresh every status the change could
-  // touch: the raw Composio list plus the merged mail/calendar views (which now
-  // read Composio), so whichever row triggered it reflects the new state.
-  const refreshAfterComposio = useCallback(() => {
-    void refreshComposioStatus();
-    void refreshMailStatus();
-    void refreshCalendarStatus();
-  }, [refreshComposioStatus, refreshMailStatus, refreshCalendarStatus]);
+  // touch: the raw Composio list first, then the merged views that read those
+  // rows from Supabase.
+  const refreshAfterComposio = useCallback(async () => {
+    await refreshComposioStatus();
+    await Promise.all([
+      refreshMailStatus(),
+      refreshCalendarStatus(),
+      refreshContactsStatus(),
+      refreshSpotifyStatus(),
+      refreshStravaStatus(),
+    ]);
+  }, [
+    refreshCalendarStatus,
+    refreshContactsStatus,
+    refreshComposioStatus,
+    refreshMailStatus,
+    refreshSpotifyStatus,
+    refreshStravaStatus,
+  ]);
 
   const connectComposioToolkit = (toolkit: ComposioToolkit) => {
     openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
-      if (status === "ok") refreshAfterComposio();
+      if (status === "ok") void refreshAfterComposio();
     });
   };
 
   const disconnectComposioToolkit = async (toolkit: ComposioToolkit) => {
-    await fetch(`/api/integrations/composio/disconnect?toolkit=${toolkit}`, { method: "DELETE" });
-    refreshAfterComposio();
+    const res = await fetch(`/api/integrations/composio/disconnect?toolkit=${toolkit}`, { method: "DELETE" });
+    if (!res.ok) {
+      toast("Could not disconnect provider.", "error", "Connections");
+      return;
+    }
+    await refreshAfterComposio();
+  };
+
+  const disconnectMailAccount = async (provider: "gmail" | "outlook", account: MailAccount) => {
+    const url =
+      account.via === "composio"
+        ? `/api/integrations/composio/disconnect?toolkit=${provider}`
+        : `/api/mail/disconnect?provider=${provider}&email=${encodeURIComponent(account.mailEmail)}`;
+    const res = await fetch(url, { method: "DELETE" });
+    if (!res.ok) {
+      toast("Could not disconnect mail.", "error", "Connections");
+      return;
+    }
+    await refreshAfterComposio();
+  };
+
+  const disconnectCalendarProvider = async (provider: "google" | "outlook") => {
+    const res = await fetch(`/api/calendar/disconnect?provider=${provider}`, { method: "DELETE" });
+    if (!res.ok) {
+      toast("Could not disconnect calendar.", "error", "Connections");
+      return;
+    }
+    await refreshAfterComposio();
+  };
+
+  const disconnectSpotify = async () => {
+    const res = await fetch("/api/spotify/disconnect", { method: "POST" });
+    if (!res.ok) {
+      toast("Could not disconnect Spotify.", "error", "Connections");
+      return;
+    }
+    await refreshSpotifyStatus();
+  };
+
+  const disconnectStrava = async () => {
+    const res = await fetch("/api/strava?action=disconnect");
+    if (!res.ok) {
+      toast("Could not disconnect Strava.", "error", "Connections");
+      return;
+    }
+    await refreshStravaStatus();
   };
 
   const exportLocalData = () => {
@@ -504,21 +699,242 @@ export function ControlRoomModule() {
 
   const accentLabel = ACCENT_PRESETS[interfaceSettings.accent]?.label ?? interfaceSettings.accent;
 
+  const sourceError = (...sources: StatusSource[]) => sources.map((source) => statusErrors[source]).find(Boolean) ?? null;
+  const isActiveComposio = (connection: ComposioConnection | null) => connection?.status === "ACTIVE";
+  const composioDetail = (connection: ComposioConnection | null, disconnected = "Not connected") => {
+    if (!connection) return disconnected;
+    const label = connection.account_label;
+    if (connection.status === "ACTIVE") return `${label ?? "Connected account"} via Composio`;
+    const prefix = label ? `${label} · ` : "";
+    const suffix = BROKEN_COMPOSIO_STATUSES.has(connection.status)
+      ? "Reconnect to restore access."
+      : "Finish provider authorization.";
+    return `${prefix}${humanizeComposioStatus(connection.status)}. ${suffix}`;
+  };
+  const composioConnectAction = (toolkit: ComposioToolkit, state: ConnState): ConnectionAction => ({
+    label: state === "broken" ? "Reconnect" : state === "pending" ? "Continue" : "Connect",
+    onClick: () => connectComposioToolkit(toolkit),
+  });
+
+  const gmailAccount = mailAccounts?.find((account) => account.provider === "gmail") ?? null;
+  const outlookAccount = mailAccounts?.find((account) => account.provider === "outlook") ?? null;
+  const gmailComposio = pickComposioConnection(composioConnections, ["gmail"]);
+  const outlookComposio = pickComposioConnection(composioConnections, ["outlook"]);
+  const googleCalendarComposio = pickComposioConnection(composioConnections, ["googlecalendar"]);
+  const contactsComposio = pickComposioConnection(composioConnections, ["googlecontacts"]);
+  const spotifyComposio = pickComposioConnection(composioConnections, ["spotify"]);
+  const stravaComposio = pickComposioConnection(composioConnections, ["strava"]);
+
+  const gmailState: ConnState =
+    gmailAccount || isActiveComposio(gmailComposio)
+      ? "on"
+      : mailAccounts === null || composioConnections === null
+        ? "pending"
+        : sourceError("mail", "composio")
+          ? "broken"
+          : composioState(gmailComposio);
+  const outlookConnected = !!outlookAccount || !!calendarStatus?.outlook || isActiveComposio(outlookComposio);
+  const outlookState: ConnState =
+    outlookConnected
+      ? "on"
+      : mailAccounts === null || calendarStatus === null || composioConnections === null
+        ? "pending"
+        : sourceError("mail", "calendar", "composio")
+          ? "broken"
+          : composioState(outlookComposio);
+  const googleCalendarState: ConnState =
+    calendarStatus?.google || isActiveComposio(googleCalendarComposio)
+      ? "on"
+      : calendarStatus === null || composioConnections === null
+        ? "pending"
+        : sourceError("calendar", "composio")
+          ? "broken"
+          : composioState(googleCalendarComposio);
+  const contactsState: ConnState =
+    contactsStatus?.google || isActiveComposio(contactsComposio)
+      ? "on"
+      : contactsStatus === null || composioConnections === null
+        ? "pending"
+        : sourceError("contacts", "composio")
+          ? "broken"
+          : composioState(contactsComposio);
+  const spotifyState: ConnState =
+    spotifyStatus?.connected || isActiveComposio(spotifyComposio)
+      ? "on"
+      : spotifyStatus === null || composioConnections === null
+        ? "pending"
+        : sourceError("spotify", "composio")
+          ? "broken"
+          : composioState(spotifyComposio);
+  const stravaState: ConnState =
+    stravaStatus?.connected || isActiveComposio(stravaComposio)
+      ? "on"
+      : stravaStatus === null || composioConnections === null
+        ? "pending"
+        : sourceError("strava", "composio")
+          ? "broken"
+          : composioState(stravaComposio);
+
+  const providerRows: ConnectionRow[] = [
+    {
+      name: "Gmail",
+      desc: "Mail triage, message detail, and send workflows",
+      state: gmailState,
+      detail: gmailAccount
+        ? `${gmailAccount.mailEmail} via ${gmailAccount.via === "composio" ? "Composio" : "OAuth"}`
+        : gmailState === "pending"
+          ? "Checking..."
+          : sourceError("mail", "composio") && !gmailComposio
+            ? sourceError("mail", "composio")!
+            : composioDetail(gmailComposio),
+      action:
+        gmailState === "on" && gmailAccount
+          ? { label: "Disconnect", onClick: () => void disconnectMailAccount("gmail", gmailAccount) }
+          : gmailState === "off" || gmailState === "broken" || (gmailState === "pending" && gmailComposio)
+            ? composioConnectAction("gmail", gmailState)
+            : undefined,
+    },
+    {
+      name: "Outlook",
+      desc: "Microsoft mail and calendar access",
+      state: outlookState,
+      detail: outlookConnected
+        ? `${outlookAccount?.mailEmail ?? calendarStatus?.outlookEmail ?? outlookComposio?.account_label ?? "Microsoft 365"} via ${
+            outlookAccount?.via === "composio" || isActiveComposio(outlookComposio) ? "Composio" : "OAuth"
+          }`
+        : outlookState === "pending"
+          ? "Checking..."
+          : sourceError("mail", "calendar", "composio") && !outlookComposio
+            ? sourceError("mail", "calendar", "composio")!
+            : composioDetail(outlookComposio),
+      action:
+        outlookState === "on"
+          ? {
+              label: "Disconnect",
+              onClick: async () => {
+                if (outlookAccount?.via === "composio" || isActiveComposio(outlookComposio)) {
+                  await disconnectComposioToolkit("outlook");
+                  return;
+                }
+                if (outlookAccount) await disconnectMailAccount("outlook", outlookAccount);
+                if (calendarStatus?.outlook) await disconnectCalendarProvider("outlook");
+              },
+            }
+          : outlookState === "off" || outlookState === "broken" || (outlookState === "pending" && outlookComposio)
+            ? composioConnectAction("outlook", outlookState)
+            : undefined,
+    },
+    {
+      name: "Google Calendar",
+      desc: "Schedule sync and calendar conflict checks",
+      state: googleCalendarState,
+      detail: isActiveComposio(googleCalendarComposio)
+        ? composioDetail(googleCalendarComposio, "Google Calendar via Composio")
+        : calendarStatus?.google
+          ? `${calendarStatus.googleEmail ?? "Google Calendar"} via OAuth`
+          : googleCalendarState === "pending"
+            ? "Checking..."
+            : sourceError("calendar", "composio") && !googleCalendarComposio
+              ? sourceError("calendar", "composio")!
+              : composioDetail(googleCalendarComposio),
+      action:
+        googleCalendarState === "on"
+          ? {
+              label: "Disconnect",
+              onClick: () =>
+                void (isActiveComposio(googleCalendarComposio)
+                  ? disconnectComposioToolkit("googlecalendar")
+                  : disconnectCalendarProvider("google")),
+            }
+          : googleCalendarState === "off" || googleCalendarState === "broken" || (googleCalendarState === "pending" && googleCalendarComposio)
+            ? composioConnectAction("googlecalendar", googleCalendarState)
+            : undefined,
+    },
+    {
+      name: "Google Contacts",
+      desc: "People sync and CRM matching",
+      state: contactsState,
+      detail: contactsStatus?.google
+        ? `${contactsStatus.googleEmail ?? "Google Contacts"} via ${contactsStatus.via === "composio" ? "Composio" : "OAuth"}`
+        : isActiveComposio(contactsComposio)
+          ? composioDetail(contactsComposio)
+          : contactsState === "pending"
+            ? "Checking..."
+            : sourceError("contacts", "composio") && !contactsComposio
+              ? sourceError("contacts", "composio")!
+              : composioDetail(contactsComposio),
+      action:
+        contactsState === "on" && (contactsStatus?.via === "composio" || isActiveComposio(contactsComposio))
+          ? { label: "Disconnect", onClick: () => void disconnectComposioToolkit("googlecontacts") }
+          : contactsState === "off" || contactsState === "broken" || (contactsState === "pending" && contactsComposio)
+            ? composioConnectAction("googlecontacts", contactsState)
+            : undefined,
+    },
+    {
+      name: "Spotify",
+      desc: "Listening Vault, search, library, and miniplayer",
+      state: spotifyState,
+      detail: spotifyStatus?.connected
+        ? `${spotifyStatus.label ?? "Spotify account"} via OAuth`
+        : isActiveComposio(spotifyComposio)
+          ? composioDetail(spotifyComposio)
+          : spotifyState === "pending"
+            ? "Checking..."
+            : sourceError("spotify", "composio") && !spotifyComposio
+              ? sourceError("spotify", "composio")!
+              : composioDetail(spotifyComposio, "Not connected"),
+      action:
+        spotifyState === "on"
+          ? {
+              label: "Disconnect",
+              onClick: () =>
+                void (spotifyStatus?.connected ? disconnectSpotify() : disconnectComposioToolkit("spotify")),
+            }
+          : spotifyState === "broken" && spotifyComposio
+            ? composioConnectAction("spotify", spotifyState)
+            : spotifyState === "broken"
+              ? { label: "Retry", onClick: () => void refreshSpotifyStatus() }
+              : spotifyState === "off"
+                ? { label: "Connect", onClick: connectSpotify }
+                : spotifyState === "pending" && spotifyComposio
+                  ? composioConnectAction("spotify", spotifyState)
+                  : undefined,
+      secondaryAction: spotifyState === "off" ? { label: "Via Composio", onClick: () => connectComposioToolkit("spotify"), variant: "secondary" } : undefined,
+    },
+    {
+      name: "Strava",
+      desc: "Vitality activity, training load, and plan context",
+      state: stravaState,
+      detail: stravaStatus?.connected
+        ? `${stravaStatus.label ?? "Strava athlete"} via OAuth`
+        : isActiveComposio(stravaComposio)
+          ? composioDetail(stravaComposio)
+          : stravaState === "pending"
+            ? "Checking..."
+            : sourceError("strava", "composio") && !stravaComposio
+              ? sourceError("strava", "composio")!
+              : composioDetail(stravaComposio, "Not connected"),
+      action:
+        stravaState === "on"
+          ? {
+              label: "Disconnect",
+              onClick: () => void (stravaStatus?.connected ? disconnectStrava() : disconnectComposioToolkit("strava")),
+            }
+          : stravaState === "broken" && stravaComposio
+            ? composioConnectAction("strava", stravaState)
+            : stravaState === "broken"
+              ? { label: "Retry", onClick: () => void refreshStravaStatus() }
+              : stravaState === "off"
+                ? { label: "Connect", onClick: connectStrava }
+                : stravaState === "pending" && stravaComposio
+                  ? composioConnectAction("strava", stravaState)
+                  : undefined,
+      secondaryAction: stravaState === "off" ? { label: "Via Composio", onClick: () => connectComposioToolkit("strava"), variant: "secondary" } : undefined,
+    },
+  ];
+
   // --- Service definitions for the Connections tab ------------------------
-  const connections: {
-    name: string;
-    desc: string;
-    state: ConnState;
-    detail: string;
-    action?: { label: string; onClick: () => void };
-    // Secondary Composio-bridge connect path, shown dimmer alongside the
-    // primary direct-OAuth action (mirrors AddAccountPicker.tsx's pattern).
-    // Direct OAuth stays primary for both — Spotify's direct integration
-    // covers playback/library/search well beyond a generic toolkit bridge,
-    // and Strava's existing direct OAuth already works, so neither is being
-    // ripped out, just given a working alternate path.
-    composioToolkit?: "strava" | "spotify";
-  }[] = [
+  const serviceConnections: ConnectionRow[] = [
     {
       name: "Supabase",
       desc: "Auth, Postgres & sync — Notes, Signals, Fund, Schedule",
@@ -530,66 +946,6 @@ export function ControlRoomModule() {
       desc: "Fund quotes & snapshots (Polygon / Massive)",
       state: marketStatus ? (marketStatus.configured ? "on" : "off") : "pending",
       detail: marketStatus?.message ?? "Checking…",
-    },
-    {
-      name: "Spotify",
-      desc: "Listening Vault & sidebar miniplayer",
-      state: spotifyConnected === null ? "pending" : spotifyConnected ? "on" : "off",
-      detail:
-        spotifyConnected === null
-          ? "Checking…"
-          : spotifyConnected
-            ? "Connected via OAuth"
-            : "Connect your Spotify account",
-      action:
-        spotifyConnected === false
-          ? { label: "Connect", onClick: connectSpotify }
-          : spotifyConnected
-            ? {
-                label: "Disconnect",
-                onClick: async () => {
-                  await fetch("/api/spotify/disconnect", { method: "POST" });
-                  setSpotifyConnected(false);
-                },
-              }
-            : undefined,
-      composioToolkit: "spotify",
-    },
-    {
-      name: "Strava",
-      desc: "Vitality — runs, rides & training load",
-      state: stravaConnected === null ? "pending" : stravaConnected ? "on" : "off",
-      detail:
-        stravaConnected === null
-          ? "Checking…"
-          : stravaConnected
-            ? "Connected via OAuth"
-            : "Connect your Strava account",
-      action:
-        stravaConnected === false
-          ? {
-              label: "Connect",
-              onClick: () => {
-                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-                  if (status === "ok") {
-                    fetch("/api/strava?action=status", { cache: "no-store" })
-                      .then((r) => r.json())
-                      .then((s) => setStravaConnected(!!s.connected))
-                      .catch(() => {});
-                  }
-                });
-              },
-            }
-          : stravaConnected
-            ? {
-                label: "Disconnect",
-                onClick: async () => {
-                  await fetch("/api/strava?action=disconnect");
-                  setStravaConnected(false);
-                },
-              }
-            : undefined,
-      composioToolkit: "strava",
     },
     {
       name: "AI (Anthropic)",
@@ -609,53 +965,11 @@ export function ControlRoomModule() {
       state: plaidStatus ? (plaidStatus.configured ? "on" : "off") : "pending",
       detail: plaidStatus ? (plaidStatus.configured ? "Configured" : "Not configured") : "Checking…",
     },
-    {
-      name: "Google Calendar",
-      desc: "Sync schedule events to Google Calendar",
-      state: calendarStatus === null ? "pending" : calendarStatus.google ? "on" : "off",
-      detail: calendarStatus === null ? "Checking…" : calendarStatus.google ? (calendarStatus.googleEmail ?? "Connected") : "Not connected",
-      action: calendarStatus && !calendarStatus.google
-        ? { label: "Connect", onClick: () => connectComposioToolkit("googlecalendar") }
-        : calendarStatus?.google
-        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("googlecalendar") }
-        : undefined,
-    },
-    {
-      name: "Outlook Calendar",
-      desc: "Sync schedule events to Outlook / Microsoft 365",
-      state: calendarStatus === null ? "pending" : calendarStatus.outlook ? "on" : "off",
-      detail: calendarStatus === null ? "Checking…" : calendarStatus.outlook ? (calendarStatus.outlookEmail ?? "Connected") : "Not connected",
-      action: calendarStatus && !calendarStatus.outlook
-        ? { label: "Connect", onClick: () => connectComposioToolkit("outlook") }
-        : calendarStatus?.outlook
-        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("outlook") }
-        : undefined,
-    },
-    {
-      name: "Gmail",
-      desc: "Read-only inbox access for triage and summarization",
-      state: mailStatus === null ? "pending" : mailStatus.gmail ? "on" : "off",
-      detail: mailStatus === null ? "Checking…" : mailStatus.gmail ? (mailStatus.gmailEmail ?? "Connected") : "Not connected",
-      action: mailStatus && !mailStatus.gmail
-        ? { label: "Connect", onClick: () => connectComposioToolkit("gmail") }
-        : mailStatus?.gmail
-        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("gmail") }
-        : undefined,
-    },
-    {
-      name: "Outlook Mail",
-      desc: "Read-only inbox access for triage and summarization",
-      state: mailStatus === null ? "pending" : mailStatus.outlook ? "on" : "off",
-      detail: mailStatus === null ? "Checking…" : mailStatus.outlook ? (mailStatus.outlookEmail ?? "Connected") : "Not connected",
-      action: mailStatus && !mailStatus.outlook
-        ? { label: "Connect", onClick: () => connectComposioToolkit("outlook") }
-        : mailStatus?.outlook
-        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("outlook") }
-        : undefined,
-    },
   ];
 
-  const connectedCount = connections.filter((c) => c.state === "on").length;
+  const overviewConnections = [...serviceConnections.slice(1), ...providerRows];
+  const allConnections = [...serviceConnections, ...providerRows];
+  const connectedCount = allConnections.filter((c) => c.state === "on").length;
 
   return (
     <>
@@ -709,7 +1023,7 @@ export function ControlRoomModule() {
                 <div className={styles.kv}>
                   <span className={styles.kvKey}>Connections live</span>
                   <span className={styles.kvVal}>
-                    {connectedCount} / {connections.length}
+                    {connectedCount} / {allConnections.length}
                   </span>
                 </div>
               </>
@@ -720,7 +1034,7 @@ export function ControlRoomModule() {
             <h2 className="sec">
               Services<span className="rule" />
             </h2>
-            {connections.slice(1).map((c) => (
+            {overviewConnections.map((c) => (
               <div key={c.name} className={styles.svcRow}>
                 <span className={styles.svcDot} data-state={c.state} />
                 <div className={styles.svcBody}>
@@ -731,14 +1045,9 @@ export function ControlRoomModule() {
                   <button
                     type="button"
                     className={styles.svcAction}
-                    // Services with a real connect flow (Spotify/Strava, etc.)
-                    // fire it directly — same handler the Connections tab's
-                    // button uses. Config-only services (Market Data, AI,
-                    // Brokerage) have no inline OAuth action, so "Setup" just
-                    // jumps to the Connections tab where the setup detail lives.
                     onClick={() => (c.action ? c.action.onClick() : setTab("connections"))}
                   >
-                    Setup
+                    {c.action?.label ?? "Review"}
                   </button>
                 ) : (
                   <span className={styles.svcState} data-state={c.state}>
@@ -783,13 +1092,12 @@ export function ControlRoomModule() {
       <div className={tab === "connections" ? "subpanel on" : "subpanel"}>
         <div className="card">
           <h2 className="sec">
-            Integrations<span className="rule" />
+            Provider Accounts<span className="rule" />
           </h2>
           <p className={styles.note} style={{ marginBottom: 4 }}>
-            Live status is read from the server — credentials never leave it. Services without keys show a setup state
-            rather than fake data.
+            Live status is read from existing server routes and connection rows. Credentials and environment values stay server-side.
           </p>
-          {connections.map((c) => (
+          {providerRows.map((c) => (
             <div key={c.name} className={styles.svcRow}>
               <span className={styles.svcDot} data-state={c.state} />
               <div className={styles.svcBody}>
@@ -797,15 +1105,41 @@ export function ControlRoomModule() {
                 <div className={styles.svcDesc}>
                   {c.desc} — {c.detail}
                 </div>
-                {c.composioToolkit && c.state === "off" && (
-                  <button
-                    type="button"
-                    className={styles.svcComposioLink}
-                    onClick={() => connectComposioToolkit(c.composioToolkit!)}
-                  >
-                    Connect via Composio
-                  </button>
-                )}
+              </div>
+              {c.action || c.secondaryAction ? (
+                <div className={styles.svcActions}>
+                  {c.action && (
+                    <button type="button" className={styles.svcAction} data-variant={c.action.variant} onClick={c.action.onClick}>
+                      {c.action.label}
+                    </button>
+                  )}
+                  {c.secondaryAction && (
+                    <button type="button" className={styles.svcAction} data-variant={c.secondaryAction.variant} onClick={c.secondaryAction.onClick}>
+                      {c.secondaryAction.label}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <span className={styles.svcState} data-state={c.state}>
+                  {c.state === "on" ? "Connected" : c.state === "pending" ? "Checking" : c.state === "broken" ? "Reconnect" : "Not set"}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <h2 className="sec">
+            Platform Services<span className="rule" />
+          </h2>
+          {serviceConnections.map((c) => (
+            <div key={c.name} className={styles.svcRow}>
+              <span className={styles.svcDot} data-state={c.state} />
+              <div className={styles.svcBody}>
+                <div className={styles.svcName}>{c.name}</div>
+                <div className={styles.svcDesc}>
+                  {c.desc} — {c.detail}
+                </div>
               </div>
               {c.action ? (
                 <button type="button" className={styles.svcAction} onClick={c.action.onClick}>
@@ -813,7 +1147,7 @@ export function ControlRoomModule() {
                 </button>
               ) : (
                 <span className={styles.svcState} data-state={c.state}>
-                  {c.state === "on" ? "Connected" : c.state === "pending" ? "Checking" : "Not set"}
+                  {c.state === "on" ? "Configured" : c.state === "pending" ? "Checking" : c.state === "broken" ? "Review" : "Not set"}
                 </span>
               )}
             </div>
