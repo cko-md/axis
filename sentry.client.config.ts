@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { scrubSentryEvent } from "@/lib/observability/sentryScrub";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -16,5 +17,7 @@ Sentry.init({
 
   // Disable in dev unless DSN is explicitly set
   enabled: process.env.NODE_ENV === "production" || !!process.env.NEXT_PUBLIC_SENTRY_DSN,
+  beforeSend: scrubSentryEvent,
+  sendDefaultPii: false,
   debug: false,
 });
