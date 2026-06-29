@@ -47,10 +47,19 @@ const FULL: ProviderCapabilities = {
   delete: true,
 };
 
-// Composio mail today: list/read/send/reply are wired; per-message mutations
-// (markRead/archive/delete) await live tool-slug verification, so they're
-// declared unsupported until confirmed (see docs/architecture/integration-adapters.md).
-const COMPOSIO_MAIL: ProviderCapabilities = {
+const COMPOSIO_GMAIL: ProviderCapabilities = {
+  list: true,
+  read: true,
+  send: true,
+  reply: true,
+  markRead: true,
+  archive: true,
+  delete: true,
+};
+
+// Composio Outlook list/read/send/reply are wired, but per-message mutations
+// stay disabled until an active Outlook account exists for live validation.
+const COMPOSIO_OUTLOOK: ProviderCapabilities = {
   list: true,
   read: true,
   send: true,
@@ -67,7 +76,7 @@ export const INTEGRATION_REGISTRY: ProviderDescriptor[] = [
     composioToolkit: "gmail",
     transports: ["direct", "composio"],
     label: "Gmail",
-    capabilities: { direct: FULL, composio: COMPOSIO_MAIL },
+    capabilities: { direct: FULL, composio: COMPOSIO_GMAIL },
   },
   {
     domain: "mail",
@@ -75,7 +84,7 @@ export const INTEGRATION_REGISTRY: ProviderDescriptor[] = [
     composioToolkit: "outlook",
     transports: ["direct", "composio"],
     label: "Outlook",
-    capabilities: { direct: FULL, composio: COMPOSIO_MAIL },
+    capabilities: { direct: FULL, composio: COMPOSIO_OUTLOOK },
   },
 ];
 

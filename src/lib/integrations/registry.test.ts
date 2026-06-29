@@ -76,12 +76,21 @@ describe("getCapabilities()", () => {
     expect(cap!.delete).toBe(true);
   });
 
-  it("returns limited capabilities for gmail composio", () => {
+  it("returns verified action capabilities for gmail composio", () => {
     const cap = getCapabilities("mail", "gmail", "composio");
     expect(cap).toBeDefined();
     expect(cap!.list).toBe(true);
     expect(cap!.send).toBe(true);
-    // Per-message mutations not yet supported on composio
+    expect(cap!.markRead).toBe(true);
+    expect(cap!.archive).toBe(true);
+    expect(cap!.delete).toBe(true);
+  });
+
+  it("keeps unverified Outlook composio action capabilities disabled", () => {
+    const cap = getCapabilities("mail", "outlook", "composio");
+    expect(cap).toBeDefined();
+    expect(cap!.list).toBe(true);
+    expect(cap!.send).toBe(true);
     expect(cap!.markRead).toBe(false);
     expect(cap!.archive).toBe(false);
     expect(cap!.delete).toBe(false);

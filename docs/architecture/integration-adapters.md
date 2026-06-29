@@ -111,7 +111,8 @@ Rewired routes: `api/mail/inbox`, `api/mail/message/[id]`, `api/mail/send`. None
 `src/lib/integrations/registry.ts` declares, per `(domain, provider, transport)`, what's supported. Today:
 
 - **Gmail/Outlook direct** — full (list/read/send/reply/markRead/archive/delete).
-- **Gmail/Outlook Composio** — list/read/send/reply. `markRead`/`archive`/`delete` are declared **unsupported** and the adapters return a structured `not_supported` error rather than firing unverified tool calls.
+- **Gmail Composio** — full for the current Mail contract. `markRead`/`markUnread` use `GMAIL_ADD_LABEL_TO_EMAIL` to remove/add `UNREAD`, `archive` removes `INBOX`, and `delete` uses `GMAIL_MOVE_TO_TRASH` (recoverable trash, matching the direct Gmail adapter).
+- **Outlook Composio** — list/read/send/reply. `markRead`/`archive`/`delete` remain **unsupported** until an active Composio Outlook account is available for live validation; the adapter returns a structured `not_supported` error and the UI disables the affordances.
 
 UI/Control Room should read `getCapabilities(domain, provider, transport)` to decide which affordances to show.
 
@@ -119,9 +120,9 @@ UI/Control Room should read `getCapabilities(domain, provider, transport)` to de
 
 Composio tool-slug accuracy is confirmed only for the already-live paths (list via `GMAIL_FETCH_EMAILS` / `OUTLOOK_OUTLOOK_LIST_MESSAGES`, send via `GMAIL_SEND_EMAIL` / `OUTLOOK_OUTLOOK_SEND_EMAIL`). New in this change:
 
-- **`getMessage`** uses best-effort single-message slugs (`GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `OUTLOOK_OUTLOOK_GET_MESSAGE`) with defensive payload parsing. If a slug is wrong it surfaces as a visible `provider_error` (strictly better than the previous silent 404). **Verify against a live connected account and adjust `GET_TOOL` in `src/lib/mail/composio.ts` if needed.**
+- **`getMessage`** uses single-message slugs (`GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `OUTLOOK_OUTLOOK_GET_MESSAGE`) with defensive payload parsing. Gmail detail has been verified against a live Composio account; Outlook detail still needs an active Outlook account for final live validation.
 - **Composio `replyToMessage`** intentionally degrades to the verified send tools until native threading args are confirmed. The composer displays this before send, and the API returns a safe success warning after send so the limitation is explicit rather than hidden.
-- **markRead/archive/delete** are intentionally `not_supported` for Composio until their slugs are verified — promote them to real `executeTool` calls + flip the `registry.ts` capability flags in a follow-up.
+- **Gmail Composio actions** are verified and wired. **Outlook Composio actions** stay `not_supported` until active-account validation confirms the right mutation semantics and folder IDs.
 
 ---
 

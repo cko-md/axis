@@ -36,6 +36,8 @@ const GET_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
   outlook: "OUTLOOK_OUTLOOK_GET_MESSAGE",
 };
+const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
+const GMAIL_MOVE_TO_TRASH_TOOL = "GMAIL_MOVE_TO_TRASH";
 
 export type ComposioMailAccount = {
   provider: "gmail" | "outlook";
@@ -298,4 +300,59 @@ export async function sendComposioMail(
         : { to_email: to, subject, body },
   });
   return res.successful ? { ok: true } : { ok: false, error: res.error ?? "Send failed" };
+}
+
+export async function markComposioGmailReadState(
+  connectedAccountId: string,
+  userId: string,
+  messageId: string,
+  unread: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await executeTool({
+    toolSlug: GMAIL_MODIFY_LABELS_TOOL,
+    connectedAccountId,
+    userId,
+    arguments: {
+      user_id: "me",
+      message_id: messageId,
+      add_label_ids: unread ? ["UNREAD"] : [],
+      remove_label_ids: unread ? [] : ["UNREAD"],
+    },
+  });
+  return res.successful ? { ok: true } : { ok: false, error: res.error ?? "Gmail read state update failed" };
+}
+
+export async function archiveComposioGmailMessage(
+  connectedAccountId: string,
+  userId: string,
+  messageId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await executeTool({
+    toolSlug: GMAIL_MODIFY_LABELS_TOOL,
+    connectedAccountId,
+    userId,
+    arguments: {
+      user_id: "me",
+      message_id: messageId,
+      remove_label_ids: ["INBOX"],
+    },
+  });
+  return res.successful ? { ok: true } : { ok: false, error: res.error ?? "Gmail archive failed" };
+}
+
+export async function trashComposioGmailMessage(
+  connectedAccountId: string,
+  userId: string,
+  messageId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await executeTool({
+    toolSlug: GMAIL_MOVE_TO_TRASH_TOOL,
+    connectedAccountId,
+    userId,
+    arguments: {
+      user_id: "me",
+      message_id: messageId,
+    },
+  });
+  return res.successful ? { ok: true } : { ok: false, error: res.error ?? "Gmail move to trash failed" };
 }
