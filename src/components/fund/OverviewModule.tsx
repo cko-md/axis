@@ -10,7 +10,7 @@ import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 type Insight = { id: string; title: string; body: string; confidence: string };
 
 export function OverviewModule() {
-  const { plaidConfigured, plaidLinked, bankAccounts, cash, connectBank, brokerageConfigured } =
+  const { plaidConfigured, plaidLinked, bankAccounts, cash, connectBank, brokerageConfigured, balanceError } =
     usePlaidConnection();
   const [signedIn, setSignedIn] = useState(false);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
@@ -83,8 +83,13 @@ export function OverviewModule() {
                 ? "Plaid connected"
                 : signedIn
                   ? "No bank linked"
-                  : "Sign in to connect"}
+                : "Sign in to connect"}
           </div>
+          {balanceError && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
+              Balance refresh failed
+            </div>
+          )}
           {bankAccounts.length ? (
             bankAccounts.map((a) => (
               <div key={a.name + (a.mask ?? "")} className="metricrow" style={{ marginTop: 8 }}>

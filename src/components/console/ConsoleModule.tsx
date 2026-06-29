@@ -727,6 +727,14 @@ export function ConsoleModule() {
                     setWidgetTexts(next);
                   }}>{expandedWidget === id ? `${hint} · tap to collapse` : hint}</div>
                   {expandedWidget === id && !editing && <WidgetSecondLine id={id} raw={live?.raw} />}
+                  {!editing && live?.loading && live.updatedAt && (
+                    <div className="tb-raw">Refreshing…</div>
+                  )}
+                  {!editing && live?.error && (
+                    <div className="tb-raw" style={{ color: "var(--clay)" }}>
+                      {live.stale ? "Showing last update" : "Refresh failed"}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -853,7 +861,12 @@ export function ConsoleModule() {
   const marketsBodySection = (
     <DraggableBlock key="markets-body" id="markets-body">
       <Card>
-        <h2 className="sec">Markets &amp; Body<span className="rule" /><span className="count">{liveData.markets ? "Live" : "Cached"}</span></h2>
+        <h2 className="sec">
+          Markets &amp; Body<span className="rule" />
+          <span className="count">
+            {liveData.markets?.error ? "Stale" : liveData.markets ? "Live" : "Cached"}
+          </span>
+        </h2>
         <div style={{ marginTop: 12 }}>
           <div className="metricrow"><span className="metric-k">Markets</span><span className="metric-v">{liveData.markets?.v ?? "—"}</span></div>
           {liveData.markets?.k && (

@@ -10,7 +10,7 @@ type Aggregated = { symbol: string; name: string; shares: number; cost_basis: nu
 type Liability = { id: string; name: string; balance: number };
 
 export function FundNetWorthModule() {
-  const { cash, plaidLinked } = usePlaidConnection();
+  const { cash, plaidLinked, balanceError } = usePlaidConnection();
   const [signedIn, setSignedIn] = useState(false);
   const [holdings, setHoldings] = useState<Aggregated[]>([]);
   const [liabilities, setLiabilities] = useState<Liability[]>([]);
@@ -47,6 +47,9 @@ export function FundNetWorthModule() {
           <h2 className="sec">Assets<span className="rule" /><span className="count">{fmtUsd(cash + invested)}</span></h2>
           <div style={{ marginTop: 10 }}>
             <div className="metricrow"><span className="metric-k">Cash {plaidLinked ? "· Plaid" : ""}</span><span className="metric-v">{fmtUsd(cash)}</span></div>
+            {balanceError && (
+              <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 8 }}>Bank balances could not refresh.</p>
+            )}
             {holdings.map((h) => (
               <div key={h.symbol} className="metricrow">
                 <span className="metric-k">{h.symbol} · {h.sources.join("+")}</span>

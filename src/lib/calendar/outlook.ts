@@ -1,8 +1,15 @@
 import { getFreshAccessToken } from "./tokens";
 import type { ExternalCalendarEvent } from "./google";
+import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const BASE = "https://graph.microsoft.com/v1.0/me/events";
 const VIEW_BASE = "https://graph.microsoft.com/v1.0/me/calendarView";
+
+function outlookCalendarError(operation: string, status: number): Error & { status: number } {
+  const err = new Error(`Outlook Calendar ${operation} failed with ${status}`) as Error & { status: number };
+  err.status = status;
+  return err;
+}
 
 export async function listOutlookEvents(
   userId: string,
@@ -13,10 +20,14 @@ export async function listOutlookEvents(
   if (!token) return [];
 
   const url = `${VIEW_BASE}?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}&$orderby=start/dateTime`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="UTC"' },
-  });
-  if (!res.ok) return [];
+  const res = await timedProviderFetch(
+    url,
+    {
+      headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="UTC"' },
+    },
+    { area: "calendar", provider: "outlook", operation: "list_events", timeoutMs: 6_000, slowMs: 1_500 },
+  );
+  if (!res.ok) throw outlookCalendarError("list_events", res.status);
 
   const json = await res.json();
   const items: unknown[] = Array.isArray(json.value) ? json.value : [];
@@ -54,18 +65,22 @@ export async function createOutlookEvent(
   const token = await getFreshAccessToken(userId, "outlook");
   if (!token) return null;
 
-  const res = await fetch(BASE, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      subject: event.title,
-      body: { contentType: "text", content: event.description ?? "" },
-      start: { dateTime: event.start_at, timeZone: "UTC" },
-      end: { dateTime: event.end_at, timeZone: "UTC" },
-    }),
-  });
+  const res = await timedProviderFetch(
+    BASE,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: event.title,
+        body: { contentType: "text", content: event.description ?? "" },
+        start: { dateTime: event.start_at, timeZone: "UTC" },
+        end: { dateTime: event.end_at, timeZone: "UTC" },
+      }),
+    },
+    { area: "calendar", provider: "outlook", operation: "create_event", timeoutMs: 8_000, slowMs: 2_000 },
+  );
 
-  if (!res.ok) return null;
+  if (!res.ok) throw outlookCalendarError("create_event", res.status);
   const json = await res.json();
   return json.id as string;
 }
@@ -74,10 +89,15 @@ export async function deleteOutlookEvent(userId: string, outlookEventId: string)
   const token = await getFreshAccessToken(userId, "outlook");
   if (!token) return false;
 
-  const res = await fetch(`${BASE}/${encodeURIComponent(outlookEventId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await timedProviderFetch(
+    `${BASE}/${encodeURIComponent(outlookEventId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { area: "calendar", provider: "outlook", operation: "delete_event", timeoutMs: 6_000, slowMs: 1_500 },
+  );
 
+  if (!res.ok && res.status !== 404) throw outlookCalendarError("delete_event", res.status);
   return res.ok || res.status === 404;
 }

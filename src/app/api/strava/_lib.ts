@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
 /**
@@ -73,15 +74,25 @@ export async function stravaFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  return fetch(`${STRAVA_API}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
+  return timedProviderFetch(
+    `${STRAVA_API}${path}`,
+    {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
     },
-    cache: "no-store",
-  });
+    {
+      area: "vitality",
+      provider: "strava",
+      operation: path.split("?")[0].split("/").filter(Boolean).join("_") || "request",
+      timeoutMs: 6_000,
+      slowMs: 1_500,
+    },
+  );
 }
 
 /** GET an API path and parse JSON, tolerating empty bodies. Returns null on error. */

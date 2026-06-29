@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { listComposioCalendarAccounts, queryFreeBusy, findFreeSlots } from "@/lib/calendar/composio";
+import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 
 // POST /api/calendar/conflicts { start_at, end_at }
 // Called after a schedule_event saves — checks for overlaps against the
@@ -13,6 +14,7 @@ import { listComposioCalendarAccounts, queryFreeBusy, findFreeSlots } from "@/li
 // Scoped to Google Calendar only — Outlook's Composio toolkit has no
 // confirmed free/busy tool slug (see src/lib/calendar/composio.ts).
 export async function POST(req: NextRequest) {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ conflict: false, conflictingTitles: [], suggestions: [] });
@@ -38,8 +40,22 @@ export async function POST(req: NextRequest) {
   const composioAccounts = await listComposioCalendarAccounts(user.id);
   const googleAccount = composioAccounts.find((a) => a.provider === "googlecalendar");
 
+  let externalError: string | null = null;
   const externalBusy = googleAccount
-    ? await queryFreeBusy(googleAccount.connectedAccountId, user.id, start_at, end_at).catch(() => [])
+    ? await timedProviderOperation(
+        {
+          area: "calendar",
+          provider: "google",
+          transport: "composio",
+          operation: "free_busy",
+          timeoutMs: 7_000,
+          slowMs: 1_500,
+        },
+        () => queryFreeBusy(googleAccount.connectedAccountId, user.id, start_at, end_at),
+      ).catch(() => {
+        externalError = "Google Calendar free/busy could not be checked.";
+        return [];
+      })
     : [];
 
   const conflictingTitles = (localOverlaps ?? []).map((e) => e.title);
@@ -52,18 +68,39 @@ export async function POST(req: NextRequest) {
     windowStart.setHours(0, 0, 0, 0);
     const windowEnd = new Date(windowStart);
     windowEnd.setDate(windowEnd.getDate() + 2);
-    const slots = await findFreeSlots(
-      googleAccount.connectedAccountId,
-      user.id,
-      windowStart.toISOString(),
-      windowEnd.toISOString(),
-    ).catch(() => []);
+    const slots = await timedProviderOperation(
+      {
+        area: "calendar",
+        provider: "google",
+        transport: "composio",
+        operation: "find_free_slots",
+        timeoutMs: 7_000,
+        slowMs: 1_500,
+      },
+      () => findFreeSlots(
+        googleAccount.connectedAccountId,
+        user.id,
+        windowStart.toISOString(),
+        windowEnd.toISOString(),
+      ),
+    ).catch(() => {
+      externalError = externalError ?? "Google Calendar free slots could not be checked.";
+      return [];
+    });
     suggestions = slots.slice(0, 3).map((s) => ({ start_at: s.start, end_at: s.end }));
   }
+
+  logRouteTiming("/api/calendar/conflicts", routeStartedAt, {
+    conflict,
+    externalChecked: !!googleAccount && !externalError,
+  });
 
   return NextResponse.json({
     conflict,
     conflictingTitles: hasExternalConflict ? [...conflictingTitles, "an event on your Google Calendar"] : conflictingTitles,
     suggestions,
+    externalChecked: !!googleAccount && !externalError,
+    partial: !!externalError,
+    errors: externalError ? [{ source: "google", transport: "composio", message: externalError }] : [],
   });
 }

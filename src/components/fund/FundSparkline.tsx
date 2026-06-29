@@ -11,20 +11,27 @@ import { Card } from "@/components/ui/Card";
  */
 export function FundSparkline({ symbol, live }: { symbol: string; live?: boolean }) {
   const [points, setPoints] = useState<number[]>([]);
+  const [fallback, setFallback] = useState(false);
 
   useEffect(() => {
     async function load() {
       if (live) {
-        const to = new Date().toISOString().slice(0, 10);
-        const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-        const res = await fetch(`/api/massive/history?symbol=${symbol}&from=${from}&to=${to}`);
-        if (res.ok) {
-          const data = await res.json();
-          setPoints((data.bars ?? []).map((b: { c: number }) => b.c));
-          return;
+        try {
+          const to = new Date().toISOString().slice(0, 10);
+          const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+          const res = await fetch(`/api/massive/history?symbol=${symbol}&from=${from}&to=${to}`);
+          if (res.ok) {
+            const data = await res.json();
+            setPoints((data.bars ?? []).map((b: { c: number }) => b.c));
+            setFallback(false);
+            return;
+          }
+        } catch {
+          // Fall through to the explicit simulated fallback below.
         }
       }
       setPoints([100, 102, 101, 105, 103, 108, 110, 109, 112, 115]);
+      setFallback(!!live);
     }
     load();
   }, [symbol, live]);
@@ -42,8 +49,11 @@ export function FundSparkline({ symbol, live }: { symbol: string; live?: boolean
   return (
     <Card className="mt-4">
       <div className="seclabel">
-        {symbol} · 90d {live ? "live" : "simulated"}
+        {symbol} · 90d {live && !fallback ? "live" : "simulated"}
       </div>
+      {fallback && (
+        <div style={{ fontSize: 11, color: "var(--clay)", marginTop: 4 }}>Live history unavailable.</div>
+      )}
       <svg viewBox="0 0 160 34" className="mt-2 h-10 w-full" preserveAspectRatio="none">
         <polyline fill="none" stroke="var(--accent)" strokeWidth="2" points={norm.join(" ")} />
       </svg>

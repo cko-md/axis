@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { formatDaylight } from "@/lib/daylight";
 import { parseGeoQuery } from "@/lib/geo/default-location";
 import { createClient } from "@/lib/supabase/server";
+import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 
 /** "2026-06-12T05:21" (already local to the queried coords) → "5:21 AM" */
 function localLabel(iso: string) {
@@ -20,6 +21,7 @@ function minusMinutes(iso: string, minutes: number) {
 }
 
 export async function GET(req: Request) {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -34,7 +36,11 @@ export async function GET(req: Request) {
     url.searchParams.set("timezone", "auto");
     url.searchParams.set("forecast_days", "1");
 
-    const res = await fetch(url.toString());
+    const res = await timedProviderFetch(
+      url.toString(),
+      {},
+      { area: "console", provider: "open-meteo", operation: "daylight", timeoutMs: 4_000, slowMs: 1_200 },
+    );
     if (!res.ok) throw new Error("Daylight API failed");
     const data = await res.json();
     const sunrise = data.daily?.sunrise?.[0] as string | undefined;
@@ -43,13 +49,15 @@ export async function GET(req: Request) {
     if (!sunrise || !sunset) throw new Error("Missing sun times");
 
     const golden = minusMinutes(sunset, 45);
+    logRouteTiming("/api/widgets/daylight", routeStartedAt, { fallback: false });
     return NextResponse.json(
       { value: formatDaylight(daylightMs), hint: `Sunset ${localLabel(sunset)} · golden hour ${localLabel(golden)}`, raw: { sunrise, sunset, daylightMs } },
       { headers: { "Cache-Control": "s-maxage=3600, stale-while-revalidate=7200" } },
     );
   } catch {
+    logRouteTiming("/api/widgets/daylight", routeStartedAt, { fallback: true });
     return NextResponse.json(
-      { value: "Daylight unavailable", hint: `${geo.name} · could not reach sun-times API`, fallback: true },
+      { value: "Daylight unavailable", hint: `${geo.name} · refresh failed`, fallback: true, error: true },
       { headers: { "Cache-Control": "no-store" } },
     );
   }

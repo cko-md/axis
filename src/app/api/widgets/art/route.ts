@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 
 type ArticHit = {
   id: number;
@@ -11,6 +12,7 @@ type ArticHit = {
 };
 
 export async function GET(req: NextRequest) {
+  const routeStartedAt = Date.now();
   const seed = parseInt(req.nextUrl.searchParams.get("seed") ?? "0", 10) || Math.floor(Date.now() / 86400000);
   const from = Math.abs(seed) % 2000;
 
@@ -22,7 +24,11 @@ export async function GET(req: NextRequest) {
     url.searchParams.set("limit", "1");
     url.searchParams.set("from", String(from));
 
-    const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+    const res = await timedProviderFetch(
+      url.toString(),
+      { next: { revalidate: 3600 } },
+      { area: "console", provider: "artic", operation: "artwork_search", timeoutMs: 5_000, slowMs: 1_500 },
+    );
     if (!res.ok) throw new Error(`ARTIC ${res.status}`);
 
     const json = (await res.json()) as { data: ArticHit[] };
@@ -31,6 +37,7 @@ export async function GET(req: NextRequest) {
 
     const artist = art.artist_display?.split("\n")[0]?.trim() ?? "Unknown";
 
+    logRouteTiming("/api/widgets/art", routeStartedAt, { fallback: false });
     return NextResponse.json(
       {
         id: art.id,
@@ -45,6 +52,7 @@ export async function GET(req: NextRequest) {
       { headers: { "Cache-Control": "s-maxage=3600, stale-while-revalidate=86400" } },
     );
   } catch {
+    logRouteTiming("/api/widgets/art", routeStartedAt, { fallback: true });
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
 }

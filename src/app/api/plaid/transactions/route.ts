@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
 import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
+import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 
 export async function POST() {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const creds = getPlaidCreds();
   if (!creds) {
+    logRouteTiming("/api/plaid/transactions", routeStartedAt, { configured: false });
     return NextResponse.json({ configured: false, transactions: [] });
   }
 
@@ -23,23 +26,26 @@ export async function POST() {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   try {
-    const res = await fetch(`${plaidHost(creds.env)}/transactions/get`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: creds.clientId,
-        secret: creds.secret,
-        access_token: accessToken,
-        start_date: thirtyDaysAgo.toISOString().slice(0, 10),
-        end_date: now.toISOString().slice(0, 10),
-        options: { count: 50, offset: 0 },
-      }),
-      cache: "no-store",
-    });
+    const res = await timedProviderFetch(
+      `${plaidHost(creds.env)}/transactions/get`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: creds.clientId,
+          secret: creds.secret,
+          access_token: accessToken,
+          start_date: thirtyDaysAgo.toISOString().slice(0, 10),
+          end_date: now.toISOString().slice(0, 10),
+          options: { count: 50, offset: 0 },
+        }),
+        cache: "no-store",
+      },
+      { area: "fund", provider: "plaid", operation: "transactions", timeoutMs: 8_000, slowMs: 2_000 },
+    );
 
     if (!res.ok) {
-      const detail = await res.text();
-      console.error("[plaid/transactions] upstream error:", detail);
+      logRouteTiming("/api/plaid/transactions", routeStartedAt, { ok: false, status: res.status });
       return NextResponse.json({ configured: true, error: "PLAID_TXN_FAILED" }, { status: 502 });
     }
 
@@ -67,8 +73,10 @@ export async function POST() {
       }),
     );
 
+    logRouteTiming("/api/plaid/transactions", routeStartedAt, { ok: true, transactions: transactions.length });
     return NextResponse.json({ configured: true, transactions });
   } catch {
+    logRouteTiming("/api/plaid/transactions", routeStartedAt, { ok: false });
     return NextResponse.json({ configured: true, error: "PLAID_TXN_FAILED" }, { status: 502 });
   }
 }
