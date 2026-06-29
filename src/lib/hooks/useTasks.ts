@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
@@ -24,6 +25,22 @@ export type Task = {
   completed_at: string | null;
 };
 
+export type TaskMutationError = {
+  operation: "load" | "add" | "update" | "delete";
+  message: string;
+  code?: string;
+};
+
+type SupabaseLikeError = {
+  code?: string;
+  status?: number;
+};
+
+export type TaskUpdate = Partial<Pick<
+  Task,
+  "title" | "priority" | "effort" | "deadline" | "category" | "status" | "sort_order" | "metadata" | "completed_at"
+>>;
+
 const DONE_HIDE_MS = 18 * 60 * 60 * 1000; // 18 hours
 
 export function useTasks() {
@@ -31,9 +48,37 @@ export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [error, setError] = useState<TaskMutationError | null>(null);
+
+  const recordError = useCallback((operation: TaskMutationError["operation"], rawError: unknown, message: string) => {
+    const err = rawError as SupabaseLikeError | null;
+    const next = { operation, message, code: err?.code };
+    setError(next);
+    Sentry.captureException(new Error(`Task ${operation} failed`), {
+      tags: {
+        area: "tasks",
+        operation,
+        supabase_code: err?.code ?? "unknown",
+      },
+      contexts: {
+        supabase: {
+          status: err?.status ?? null,
+        },
+      },
+    });
+    return next;
+  }, []);
+
+  const clearError = useCallback(() => setError(null), []);
 
   const refresh = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError) {
+      recordError("load", authError, "Could not load tasks — sign in again and retry.");
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
     setUserId(user?.id ?? null);
     if (!user) {
       setTasks([]);
@@ -45,7 +90,11 @@ export function useTasks() {
       .select("*")
       .eq("user_id", user.id)
       .order("sort_order", { ascending: true });
-    if (error || !data) { setLoading(false); return; }
+    if (error || !data) {
+      recordError("load", error, "Could not load tasks — check your connection and retry.");
+      setLoading(false);
+      return;
+    }
     const now = Date.now();
     const normalized = data.map((t) => {
       if (t.status === "open" && t.deadline && new Date(t.deadline).getTime() < now) {
@@ -54,8 +103,9 @@ export function useTasks() {
       return t as Task;
     });
     setTasks(normalized);
+    clearError();
     setLoading(false);
-  }, [supabase]);
+  }, [clearError, recordError, supabase]);
 
   useEffect(() => {
     refresh();
@@ -64,8 +114,15 @@ export function useTasks() {
   useRealtimeRefresh(supabase, "tasks", userId, refresh);
 
   const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError) {
+      recordError("add", authError, "Could not create task — sign in again and retry.");
+      return null;
+    }
+    if (!user) {
+      setError({ operation: "add", message: "Sign in to create tasks." });
+      return null;
+    }
     const { data, error } = await supabase
       .from("tasks")
       .insert({
@@ -75,6 +132,7 @@ export function useTasks() {
         priority: partial.priority ?? "med",
         effort: partial.effort ?? null,
         deadline: partial.deadline ?? null,
+        metadata: partial.metadata ?? {},
         status: "open",
         sort_order: tasks.length,
       })
@@ -82,32 +140,46 @@ export function useTasks() {
       .single();
     if (!error && data) {
       setTasks((prev) => [...prev, data as Task]);
+      clearError();
       return data as Task;
     }
+    recordError("add", error, "Could not create task — check your connection and retry.");
     return null;
-  }, [supabase, tasks.length]);
+  }, [clearError, recordError, supabase, tasks.length]);
 
-  const updateTask = useCallback(async (id: string, patch: Partial<Task>) => {
+  const updateTask = useCallback(async (id: string, patch: TaskUpdate) => {
     const { data, error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
-    if (!error && data) setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
-  }, [supabase]);
+    if (!error && data) {
+      setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
+      clearError();
+      return data as Task;
+    }
+    recordError("update", error, "Could not update task — check your connection and retry.");
+    return null;
+  }, [clearError, recordError, supabase]);
 
   const deleteTask = useCallback(async (id: string) => {
     const { error } = await supabase.from("tasks").delete().eq("id", id);
-    if (!error) setTasks((prev) => prev.filter((t) => t.id !== id));
-  }, [supabase]);
+    if (!error) {
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      clearError();
+      return true;
+    }
+    recordError("delete", error, "Could not delete task — check your connection and retry.");
+    return false;
+  }, [clearError, recordError, supabase]);
 
   const toggleDone = useCallback(async (id: string) => {
     const t = tasks.find((x) => x.id === id);
-    if (!t) return;
+    if (!t) return null;
     const isDone = t.status === "done";
-    await updateTask(id, {
+    return updateTask(id, {
       status: isDone ? "open" : "done",
       completed_at: isDone ? null : new Date().toISOString(),
     });
   }, [tasks, updateTask]);
 
-  return { tasks, loading, refresh, addTask, updateTask, deleteTask, toggleDone };
+  return { tasks, loading, error, clearError, refresh, addTask, updateTask, deleteTask, toggleDone };
 }
 
 export function rankTasks(tasks: Task[]) {

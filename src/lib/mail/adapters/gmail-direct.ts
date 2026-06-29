@@ -12,6 +12,7 @@ import {
   type MailMessage,
   type MailMessageFull,
 } from "../gmail";
+import { normalizeMailDate } from "../dates";
 import { getFreshMailAccessToken } from "../tokens";
 import {
   ok,
@@ -159,7 +160,7 @@ export const gmailDirectAdapter: MailAdapter = {
       threadId: (m.threadId as string) ?? m.id,
       from: getHeader(headers, "From"),
       subject: getHeader(headers, "Subject") || "(no subject)",
-      date: getHeader(headers, "Date"),
+      date: normalizeMailDate(getHeader(headers, "Date") || m.internalDate),
       snippet: (m.snippet as string) ?? "",
       isUnread: ((m.labelIds as string[]) ?? []).includes("UNREAD"),
       provider: "gmail",

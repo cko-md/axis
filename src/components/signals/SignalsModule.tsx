@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import {
   classifySignal,
@@ -49,6 +50,50 @@ const VALID_DESTINATIONS: RouteDestination[] = DESTINATIONS.map((d) => d.id);
 const safeDestination = (d: string): RouteDestination =>
   (VALID_DESTINATIONS as string[]).includes(d) ? (d as RouteDestination) : "agenda";
 
+type RouteVia = "ai" | "manual" | "rule";
+type RouteArtifacts = { taskId?: string; noteId?: string; personId?: string };
+
+function asError(error: unknown, fallback: string) {
+  return error instanceof Error ? error : new Error(fallback);
+}
+
+function artifactMetadata(artifacts: RouteArtifacts): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+  if (artifacts.taskId) metadata.routed_task_id = artifacts.taskId;
+  if (artifacts.noteId) metadata.routed_note_id = artifacts.noteId;
+  if (artifacts.personId) metadata.routed_person_id = artifacts.personId;
+  return metadata;
+}
+
+function routeFailureMessage(destination: RouteDestination) {
+  if (destination === "agenda") return "Could not complete task conversion. Signal was not routed.";
+  return `Could not route to ${destLabel(destination)}. Signal was not routed.`;
+}
+
+function captureDispatchFailure(
+  error: unknown,
+  context: {
+    op: "route_signal" | "triage_signal";
+    signal: Pick<Signal, "id" | "signal_type" | "source">;
+    phase: "detail" | "batch";
+    destination?: RouteDestination;
+    via?: RouteVia;
+  },
+) {
+  Sentry.captureException(asError(error, "Dispatch action failed"), {
+    tags: {
+      area: "dispatch",
+      op: context.op,
+      phase: context.phase,
+      destination: context.destination ?? "none",
+      via: context.via ?? "none",
+      signal_type: context.signal.signal_type,
+      source: context.signal.source.slice(0, 40),
+    },
+    extra: { signal_id: context.signal.id },
+  });
+}
+
 function pillClass(type: SignalType) {
   if (type === "action") return "hi";
   if (type === "awaiting") return "med";
@@ -92,6 +137,8 @@ export function SignalsModule() {
   const [routesOpen, setRoutesOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [routingDestination, setRoutingDestination] = useState<RouteDestination | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   const filtered = useMemo(() => applyChip(signals, activeChip), [signals, activeChip]);
 
@@ -112,6 +159,7 @@ export function SignalsModule() {
 
   const openDetail = (s: Signal) => {
     setSelected(s);
+    setRouteError(null);
     // Show any previously-stored AI suggestion immediately.
     if (s.metadata?.ai_destination) {
       setSuggestion({
@@ -129,53 +177,94 @@ export function SignalsModule() {
   const closeDetail = () => {
     setSelected(null);
     setSuggestion(null);
+    setRouteError(null);
   };
 
   // AI triage a single signal: classify, store on signal, surface suggestion + matching user route.
   const triageOne = async (s: Signal) => {
     setThinking(true);
+    setRouteError(null);
     toast("Triaging with AI…", "info", "AI Triage");
-    const c = await classifySignal(s);
-    await applyClassification(s.id, c);
-    setSuggestion(c);
-    setThinking(false);
-    const rule = findMatchingRoute(routes, { ...s, signal_type: c.signal_type });
-    toast(
-      rule
-        ? `Matches your route “${rule.label}” → ${destLabel(rule.destination)}`
-        : `Suggested → ${destLabel(c.destination)} · ${c.priority}`,
-      "success",
-      "AI Triage",
-    );
+    try {
+      const c = await classifySignal(s);
+      const updated = await applyClassification(s.id, c);
+      if (!updated) throw new Error("Signal classification update failed");
+      setSuggestion(c);
+      const rule = findMatchingRoute(routes, { ...s, signal_type: c.signal_type });
+      toast(
+        rule
+          ? `Matches your route “${rule.label}” → ${destLabel(rule.destination)}`
+          : `Suggested → ${destLabel(safeDestination(c.destination))} · ${c.priority}`,
+        "success",
+        "AI Triage",
+      );
+    } catch (error) {
+      captureDispatchFailure(error, { op: "triage_signal", signal: s, phase: "detail" });
+      toast("AI triage failed. Nothing was changed.", "error", "AI Triage");
+    } finally {
+      setThinking(false);
+    }
   };
 
-  // Commit a route: stamp signal, and materialise the right side-effect per destination.
-  const commitRoute = async (s: Signal, destination: string, priority: RoutePriority | "hi" | "med" | "lo", via: "ai" | "manual" | "rule") => {
+  const materializeDestination = async (s: Signal, destination: RouteDestination, priority: RoutePriority | "hi" | "med" | "lo"): Promise<RouteArtifacts> => {
     if (destination === "agenda") {
       const triaged = await triageSignalToTask(s);
       const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
-      await addTask({
+      const task = await addTask({
         title: triaged.title,
         category: safeCategory(triaged.category),
         priority: pri,
         effort: triaged.effort,
+        metadata: {
+          created_via: "dispatch_signal",
+          source_signal_id: s.id,
+          source_signal_type: s.signal_type,
+          source_signal_source: s.source,
+        },
       });
+      if (!task) throw new Error("Task creation failed");
+      return { taskId: task.id };
     } else if (destination === "notes") {
       const note = await createNote(s.title, "All Notes");
-      if (note) await updateNote(note.id, { body: s.body ?? "" });
+      if (!note) throw new Error("Note creation failed");
+      await updateNote(note.id, { body: s.body ?? "" });
+      return { noteId: note.id };
     } else if (destination === "people") {
       const triaged = await triageSignalToPerson(s);
       const target = normalizeName(triaged.name);
       const matched = people.find((p) => normalizeName(p.name) === target);
-      if (matched) {
-        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
-      } else {
-        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
-      }
+      const result = matched
+        ? await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) })
+        : await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
+      if ("error" in result && result.error) throw new Error(result.error);
+      return { personId: result.data?.id };
     }
-    await routeTo(s.id, destination, via);
-    toast(`Routed → ${destLabel(destination)}`, "success", "Signals");
-    closeDetail();
+    return {};
+  };
+
+  // Commit a route: materialise the side-effect first, then stamp the signal.
+  const commitRoute = async (s: Signal, destination: string, priority: RoutePriority | "hi" | "med" | "lo", via: RouteVia) => {
+    const target = safeDestination(destination);
+    if (s.routed_at) {
+      toast("Signal is already routed.", "info", "Dispatch");
+      return;
+    }
+    setRoutingDestination(target);
+    setRouteError(null);
+    try {
+      const artifacts = await materializeDestination(s, target, priority);
+      const routed = await routeTo(s.id, target, via, artifactMetadata(artifacts));
+      if (!routed) throw new Error("Signal route update failed");
+      toast(target === "agenda" ? "Task created and signal routed." : `Routed → ${destLabel(target)}`, "success", "Signals");
+      closeDetail();
+    } catch (error) {
+      const message = routeFailureMessage(target);
+      setRouteError(message);
+      captureDispatchFailure(error, { op: "route_signal", signal: s, phase: "detail", destination: target, via });
+      toast(message, "error", "Dispatch");
+    } finally {
+      setRoutingDestination(null);
+    }
   };
 
   // Apply the best matching user route (if any) for the selected signal.
@@ -200,55 +289,67 @@ export function SignalsModule() {
     }
     setBatching(true);
     toast(`Triaging ${pending.length} signals…`, "info", "AI Triage");
-    const results = await classifySignals(pending);
-    let routed = 0;
-    let viaRules = 0;
-    for (const c of results) {
-      const s = pending.find((x) => x.id === c.id);
-      if (!s) continue;
-      await applyClassification(s.id, c);
-      const rule = findMatchingRoute(routes, { ...s, signal_type: c.signal_type });
-      if (rule) {
-        await commitRouteSilent(s, rule.destination, rule.set_priority, "rule");
-        viaRules += 1;
-      } else {
-        // No user rule — route to the AI's suggested destination so it doesn't
-        // linger as unrouted.
-        await commitRouteSilent(s, safeDestination(c.destination), c.priority, "ai");
+    try {
+      const results = await classifySignals(pending);
+      let routed = 0;
+      let viaRules = 0;
+      let failed = 0;
+      for (const c of results) {
+        const s = pending.find((x) => x.id === c.id);
+        if (!s) continue;
+        let target = safeDestination(c.destination);
+        let via: "ai" | "rule" = "ai";
+        try {
+          const updated = await applyClassification(s.id, c);
+          if (!updated) throw new Error("Signal classification update failed");
+          const rule = findMatchingRoute(routes, { ...s, signal_type: c.signal_type });
+          if (rule) {
+            target = rule.destination;
+            via = "rule";
+            await commitRouteSilent(s, target, rule.set_priority, via);
+            viaRules += 1;
+          } else {
+            // No user rule — route to the AI's suggested destination so it doesn't
+            // linger as unrouted.
+            await commitRouteSilent(s, target, c.priority, via);
+          }
+          routed += 1;
+        } catch (error) {
+          failed += 1;
+          captureDispatchFailure(error, { op: "route_signal", signal: s, phase: "batch", destination: target, via });
+        }
       }
-      routed += 1;
+      if (failed > 0) {
+        toast(
+          `Routed ${routed} signal${routed === 1 ? "" : "s"} · ${failed} failed`,
+          routed > 0 ? "warn" : "error",
+          "AI Triage",
+        );
+        return;
+      }
+      toast(
+        viaRules > 0
+          ? `Routed ${routed} signal${routed === 1 ? "" : "s"} · ${viaRules} via your rules`
+          : `Routed ${routed} signal${routed === 1 ? "" : "s"} to their suggested destinations`,
+        "success",
+        "AI Triage",
+      );
+    } catch (error) {
+      Sentry.captureException(asError(error, "Dispatch batch triage failed"), {
+        tags: { area: "dispatch", op: "triage_all" },
+      });
+      toast("AI triage failed. No signals were routed.", "error", "AI Triage");
+    } finally {
+      setBatching(false);
     }
-    setBatching(false);
-    toast(
-      viaRules > 0
-        ? `Routed ${routed} signal${routed === 1 ? "" : "s"} · ${viaRules} via your rules`
-        : `Routed ${routed} signal${routed === 1 ? "" : "s"} to their suggested destinations`,
-      "success",
-      "AI Triage",
-    );
   };
 
   // Like commitRoute but without toast/close — used inside batch loops. `via`
   // is "rule" for user-rule matches, "ai" for AI-suggested fallbacks.
   const commitRouteSilent = async (s: Signal, destination: RouteDestination, priority: RoutePriority | "hi" | "med" | "lo", via: "ai" | "rule") => {
-    if (destination === "agenda") {
-      const triaged = await triageSignalToTask(s);
-      const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
-      await addTask({ title: triaged.title, category: safeCategory(triaged.category), priority: pri, effort: triaged.effort });
-    } else if (destination === "notes") {
-      const note = await createNote(s.title, "All Notes");
-      if (note) await updateNote(note.id, { body: s.body ?? "" });
-    } else if (destination === "people") {
-      const triaged = await triageSignalToPerson(s);
-      const target = normalizeName(triaged.name);
-      const matched = people.find((p) => normalizeName(p.name) === target);
-      if (matched) {
-        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
-      } else {
-        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
-      }
-    }
-    await routeTo(s.id, destination, via);
+    const artifacts = await materializeDestination(s, destination, priority);
+    const routed = await routeTo(s.id, destination, via, artifactMetadata(artifacts));
+    if (!routed) throw new Error("Signal route update failed");
   };
 
   // Scan platform modules for new signals via AI — server does the read+AI+insert, we just refresh.
@@ -404,6 +505,30 @@ export function SignalsModule() {
               {live.routed_at && ` · routed → ${destLabel(live.route_target ?? "")}`}
             </div>
 
+            {live.routed_at && (
+              <div className={styles.routeStatus}>
+                <span>{live.route_target ? `Routed to ${destLabel(live.route_target)}` : "Routed"}</span>
+                {typeof live.metadata?.routed_task_id === "string" && <span>Task linked</span>}
+              </div>
+            )}
+
+            <div className={styles.detailAction}>
+              <Button
+                variant="primary"
+                loading={routingDestination === "agenda"}
+                disabled={!!live.routed_at || !!routingDestination}
+                onClick={() => commitRoute(live, "agenda", "keep", "manual")}
+              >
+                {live.routed_at ? "Routed" : "Convert to task"}
+              </Button>
+            </div>
+
+            {routeError && (
+              <div className={styles.routeError} role="alert">
+                {routeError}
+              </div>
+            )}
+
             {suggestion && (
               <div className={styles.suggest}>
                 <div className={styles.suggestHead}>
@@ -411,7 +536,7 @@ export function SignalsModule() {
                   <span className={`pill ${pillClass(suggestion.signal_type)}`}>{suggestion.signal_type.toUpperCase()}</span>
                 </div>
                 <div className={styles.suggestBody}>
-                  Route to <strong style={{ color: "var(--ink)" }}>{destLabel(suggestion.destination)}</strong> at{" "}
+                  Route to <strong style={{ color: "var(--ink)" }}>{destLabel(safeDestination(suggestion.destination))}</strong> at{" "}
                   <strong style={{ color: "var(--ink)" }}>{suggestion.priority}</strong> priority.
                   {suggestion.reason ? ` ${suggestion.reason}.` : ""}
                 </div>
@@ -422,9 +547,10 @@ export function SignalsModule() {
                   type="button"
                   className="aibtn"
                   style={{ marginTop: 10 }}
-                  onClick={() => commitRoute(live, suggestion.destination, suggestion.priority, "ai")}
+                  disabled={!!live.routed_at || !!routingDestination}
+                  onClick={() => commitRoute(live, safeDestination(suggestion.destination), suggestion.priority, "ai")}
                 >
-                  Route → {destLabel(suggestion.destination)}
+                  Route → {destLabel(safeDestination(suggestion.destination))}
                 </button>
               </div>
             )}
@@ -434,18 +560,24 @@ export function SignalsModule() {
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
               {DESTINATIONS.map((r) => (
-                <button key={r.id} type="button" className="capt-pill" onClick={() => commitRoute(live, r.id, "keep", "manual")}>
+                <button
+                  key={r.id}
+                  type="button"
+                  className="capt-pill"
+                  disabled={!!live.routed_at || !!routingDestination}
+                  onClick={() => commitRoute(live, r.id, "keep", "manual")}
+                >
                   {r.label}
                 </button>
               ))}
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="aibtn" onClick={() => triageOne(live)} disabled={thinking}>
+              <button type="button" className="aibtn" onClick={() => triageOne(live)} disabled={thinking || !!routingDestination}>
                 {thinking ? "Thinking…" : suggestion ? "Re-run AI triage" : "AI triage"}
               </button>
               {findMatchingRoute(routes, live) && (
-                <button type="button" className="savebtn" onClick={() => applyMatchingRoute(live)}>
+                <button type="button" className="savebtn" disabled={!!live.routed_at || !!routingDestination} onClick={() => applyMatchingRoute(live)}>
                   Apply matched rule
                 </button>
               )}

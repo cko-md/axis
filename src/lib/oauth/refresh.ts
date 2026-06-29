@@ -1,3 +1,5 @@
+import { optionalEnv } from "@/lib/env";
+
 /**
  * Shared OAuth token-refresh helpers.
  *
@@ -22,8 +24,8 @@ export async function refreshGoogleOAuth(refreshToken: string): Promise<Refreshe
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      client_id: optionalEnv("GOOGLE_CLIENT_ID") ?? "",
+      client_secret: optionalEnv("GOOGLE_CLIENT_SECRET") ?? "",
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
@@ -39,8 +41,8 @@ export async function refreshMicrosoftOAuth(refreshToken: string, scope: string)
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
-      client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
+      client_id: optionalEnv("MICROSOFT_CLIENT_ID") ?? "",
+      client_secret: optionalEnv("MICROSOFT_CLIENT_SECRET") ?? "",
       refresh_token: refreshToken,
       grant_type: "refresh_token",
       scope,

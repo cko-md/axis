@@ -1,10 +1,12 @@
+import { optionalEnv } from "@/lib/env";
+
 const BASE = "https://api.polygon.io";
 const GAP_MS = 280;
 
 let lastRequest = 0;
 
 export function getPolygonApiKey(): string | undefined {
-  return process.env.POLYGON_API_KEY || process.env.MASSIVE_API_KEY;
+  return optionalEnv("POLYGON_API_KEY") || optionalEnv("MASSIVE_API_KEY");
 }
 
 export function mapSymbol(sym: string): string {

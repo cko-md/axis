@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
 /**
  * Shared Spotify server helpers. Tokens live in httpOnly cookies and are
@@ -13,7 +14,7 @@ const TOKEN_URL = "https://accounts.spotify.com/api/token";
 export const API = "https://api.spotify.com/v1";
 
 export function isConfigured(): boolean {
-  return Boolean(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
+  return hasOptionalEnv("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET");
 }
 
 /** Returns a valid access token, refreshing via the stored refresh token when needed, or null. */
@@ -23,8 +24,8 @@ export async function getAccessToken(): Promise<string | null> {
   if (token) return token;
 
   const refresh = cookieStore.get("spotify_refresh_token")?.value;
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
+  const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
   if (!refresh || !clientId || !clientSecret) return null;
 
   const res = await fetch(TOKEN_URL, {

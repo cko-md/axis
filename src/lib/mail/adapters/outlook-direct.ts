@@ -6,6 +6,7 @@ import {
   getOutlookMessage,
 } from "../outlook";
 import type { MailMessage, MailMessageFull } from "../gmail";
+import { normalizeMailDate } from "../dates";
 import { getFreshMailAccessToken } from "../tokens";
 import {
   ok,
@@ -100,11 +101,12 @@ export const outlookDirectAdapter: MailAdapter = {
     return sendMailGraph(ctx, input);
   },
 
-  // Outlook direct has no native threading wired today (the legacy route sent a
-  // fresh mail for replies). Preserve that behavior; threadId/inReplyTo are
-  // accepted for contract parity but not yet used. Native /reply is a follow-up.
-  replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {
-    return sendMailGraph(ctx, input);
+  async replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {
+    const res = await graphCall(ctx, `/messages/${encodeURIComponent(input.inReplyTo)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ comment: input.body }),
+    });
+    return res.ok ? ok({}) : res;
   },
 
   async markRead(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
@@ -146,7 +148,7 @@ export const outlookDirectAdapter: MailAdapter = {
       threadId: (m.conversationId as string) ?? m.id,
       from: formatSender(m),
       subject: (m.subject as string) || "(no subject)",
-      date: (m.receivedDateTime as string) ?? "",
+      date: normalizeMailDate(m.receivedDateTime),
       snippet: (m.bodyPreview as string) ?? "",
       isUnread: m.isRead === false,
       provider: "outlook",

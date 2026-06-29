@@ -25,6 +25,8 @@ export async function listOutlookEvents(
       id?: string;
       subject?: string;
       bodyPreview?: string;
+      location?: { displayName?: string };
+      attendees?: Array<{ emailAddress?: { name?: string; address?: string } }>;
       isAllDay?: boolean;
       start?: { dateTime?: string };
       end?: { dateTime?: string };
@@ -36,6 +38,10 @@ export async function listOutlookEvents(
       start_at: `${item.start.dateTime}Z`,
       end_at: `${item.end.dateTime}Z`,
       description: item.bodyPreview ?? null,
+      location: item.location?.displayName ?? null,
+      attendees: (item.attendees ?? [])
+        .map((attendee) => attendee.emailAddress?.name || attendee.emailAddress?.address)
+        .filter((attendee): attendee is string => !!attendee),
       all_day: !!item.isAllDay,
     }];
   });

@@ -9,6 +9,7 @@ import {
   Inter,
   IBM_Plex_Sans,
 } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
@@ -108,6 +109,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </ThemeProvider>
           <WebViewer />
         </WebViewerProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
