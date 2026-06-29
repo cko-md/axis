@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
 import { usePasskey } from '@/hooks/usePasskey';
 import MFAChallenge from '@/components/auth/MFAChallenge';
+import { isPasswordPwned, PWNED_PASSWORD_MESSAGE } from '@/lib/auth/passwordCheck';
 
 type Mode = 'signin' | 'signup' | 'forgot-password';
 
@@ -29,7 +30,13 @@ function LoginForm() {
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [showPasskeyBtn, setShowPasskeyBtn] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [agreed, setAgreed] = useState(false);
   const [mfaState, setMfaState] = useState<MFAState | null>(null);
+
+  // Consent applies to account creation only — clear it whenever we leave signup.
+  useEffect(() => {
+    if (mode !== 'signup') setAgreed(false);
+  }, [mode]);
 
   // Load persisted remember-me preference and passkey availability
   useEffect(() => {
@@ -104,7 +111,28 @@ function LoginForm() {
 
     // Sign-up
     if (mode === 'signup') {
-      const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+      // Defense-in-depth: the button is also disabled until this is checked.
+      if (!agreed) {
+        setLoading(false);
+        setError('Please accept the Terms of Service and Privacy Policy to continue.');
+        return;
+      }
+      if (await isPasswordPwned(password)) {
+        setLoading(false);
+        setError(PWNED_PASSWORD_MESSAGE);
+        return;
+      }
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            terms_accepted_at: new Date().toISOString(),
+            terms_version: '2026-06-19',
+            privacy_version: '2026-06-19',
+          },
+        },
+      });
       setLoading(false);
       if (signUpError) { setError(signUpError.message); return; }
       if (!data.session) {
@@ -139,15 +167,13 @@ function LoginForm() {
       const totp = factorsData?.totp;
       if (totp && totp.length > 0) {
         const factorId = totp[0].id;
-        // Create challenge via API route
-        const challengeRes = await fetch('/api/auth/mfa/challenge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ factorId }),
-        });
-        const challengeData = await challengeRes.json().catch(() => ({}));
+        const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
         setLoading(false);
-        setMfaState({ factorId, challengeId: challengeData.challengeId ?? '' });
+        if (challengeError || !challengeData) {
+          setError(challengeError?.message ?? 'Failed to start MFA challenge');
+          return;
+        }
+        setMfaState({ factorId, challengeId: challengeData.id });
         return;
       }
     }
@@ -157,11 +183,21 @@ function LoginForm() {
     router.refresh();
   }
 
+  const Bg = () => (
+    <>
+      <div className="depthfield" aria-hidden>
+        <div className="wash" /><div className="aurora" /><div className="aurora2" />
+        <div className="haze" /><div className="fall" /><div className="vig" />
+      </div>
+      <div className="grain" aria-hidden />
+    </>
+  );
+
   // MFA challenge overlay
   if (mfaState) {
     return (
       <div className="relative flex min-h-screen items-center justify-center p-6">
-        <div className="grain" aria-hidden />
+        <Bg />
         <MFAChallenge
           factorId={mfaState.factorId}
           challengeId={mfaState.challengeId}
@@ -174,7 +210,7 @@ function LoginForm() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center p-6">
-      <div className="grain" aria-hidden />
+      <Bg />
       <div className="card relative z-10 w-full max-w-md tick">
         {/* Header */}
         <div className="mb-6 text-center">
@@ -257,10 +293,42 @@ function LoginForm() {
             </div>
           )}
 
+          {/* Required consent — gates account creation */}
+          {mode === 'signup' && (
+            <label
+              htmlFor="tos-consent"
+              className="flex items-start gap-2 text-[11px] text-[var(--ink-dim)] leading-snug cursor-pointer"
+            >
+              <input
+                id="tos-consent"
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 shrink-0 accent-[var(--accent)]"
+              />
+              <span>
+                I agree to the{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                  Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                  Privacy Policy
+                </a>.
+              </span>
+            </label>
+          )}
+
           {error && <p className="text-xs text-[var(--down)]">{error}</p>}
           {notice && <p className="text-xs text-[var(--up)]">{notice}</p>}
 
-          <Button type="submit" variant="primary" loading={loading} className="w-full py-2.5">
+          <Button
+            type="submit"
+            variant="primary"
+            loading={loading}
+            disabled={mode === 'signup' && !agreed}
+            className="w-full py-2.5"
+          >
             {mode === 'signin' && 'Sign in'}
             {mode === 'signup' && 'Create account'}
             {mode === 'forgot-password' && 'Send reset link'}
@@ -286,9 +354,19 @@ function LoginForm() {
           </button>
         )}
 
-        <p className="mt-6 text-center font-mono text-[9px] text-[var(--ink-faint)]">
-          Configure Supabase env vars before signing in.
-        </p>
+        {/* Subtle legal links — always reachable; signup also has the consent checkbox above */}
+        {mode !== 'signup' && (
+          <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[var(--ink-faint)]">
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--ink-dim)]">
+              Terms
+            </a>
+            <span aria-hidden>·</span>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--ink-dim)]">
+              Privacy
+            </a>
+          </div>
+        )}
+
       </div>
     </div>
   );

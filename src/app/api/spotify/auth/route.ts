@@ -1,7 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const SCOPES = [
+  // Web Playback SDK (the in-browser "Axis Web Player" device) requires these
+  // three — without `streaming` the SDK token is rejected and no device ever
+  // becomes ready, so play/pause silently no-ops with "no active device".
+  // (Spotify also requires a Premium account for SDK playback.)
+  "streaming",
+  "user-read-email",
+  "user-read-private",
   "user-read-playback-state",
   "user-modify-playback-state",
   "user-read-currently-playing",
@@ -14,15 +23,25 @@ const SCOPES = [
   "playlist-modify-public",
 ].join(" ");
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   if (!clientId) {
     return NextResponse.json({ error: "SPOTIFY_CLIENT_ID not configured" }, { status: 503 });
   }
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/spotify/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const state = crypto.randomUUID();
   const cookieStore = await cookies();
-  cookieStore.set("spotify_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+  cookieStore.set("spotify_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
+    path: "/",
+  });
 
   const params = new URLSearchParams({
     client_id: clientId,

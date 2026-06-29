@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback"];
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -14,7 +14,9 @@ export async function middleware(request: NextRequest) {
     // Auth routes that don't require a session (pre-login flows)
     "/api/auth/forgot-password",
     "/api/auth/passkey/authenticate", // login-time: no session yet
-    "/api/calendar/callback",         // OAuth redirect from Google/Microsoft
+    "/api/spotify/callback",          // OAuth redirect from Spotify
+    "/api/plaid/webhook",             // Inbound from Plaid — self-authenticates via signed JWT
+    "/api/webhooks/make",             // Inbound from Make — self-authenticates via shared secret + HMAC
   ];
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next({ request });
@@ -53,15 +55,18 @@ export async function middleware(request: NextRequest) {
   // API routes never redirect to the login page.
   // Financial, AI, and data-mutation routes require a session — returning 401
   // provides defense-in-depth on top of per-route auth guards.
-  // Widget and Spotify read-only routes are intentionally left open.
+  // Widget routes are intentionally left open. /api/spotify/auth issues its
+  // own redirect-to-provider and is guarded below the same as other actions.
   if (pathname.startsWith("/api")) {
     const GUARDED_PREFIXES = [
       "/api/massive",
       "/api/plaid",
       "/api/brokerage",
+      "/api/fund",
       "/api/ai",
       "/api/signals-ai",
       "/api/strava",
+      "/api/spotify",
       "/api/profile",
       "/api/auth/passkey/register",
       "/api/auth/passkey/token",
@@ -71,6 +76,8 @@ export async function middleware(request: NextRequest) {
       "/api/auth/mfa",
       "/api/auth/account",
       "/api/calendar",
+      "/api/mail",
+      "/api/briefing",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
     if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {
@@ -79,7 +86,7 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isPublic = pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

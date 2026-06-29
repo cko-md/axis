@@ -1,23 +1,24 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
+export async function GET(req: NextRequest) {
+  const url = req.nextUrl;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieStore = await cookies();
   const saved = cookieStore.get("spotify_oauth_state")?.value;
 
   if (!code || !state || state !== saved) {
-    return NextResponse.redirect(new URL("/listening-vault?error=oauth", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/spotify/callback`;
+  const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
 
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(new URL("/listening-vault?error=config", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
   const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
@@ -30,15 +31,28 @@ export async function GET(req: Request) {
   });
 
   if (!tokenRes.ok) {
-    return NextResponse.redirect(new URL("/listening-vault?error=token", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
   const tokens = await tokenRes.json();
-  cookieStore.set("spotify_access_token", tokens.access_token, { httpOnly: true, maxAge: tokens.expires_in ?? 3600, path: "/" });
+  const secure = process.env.NODE_ENV === "production";
+  cookieStore.set("spotify_access_token", tokens.access_token, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    maxAge: tokens.expires_in ?? 3600,
+    path: "/",
+  });
   if (tokens.refresh_token) {
-    cookieStore.set("spotify_refresh_token", tokens.refresh_token, { httpOnly: true, maxAge: 60 * 60 * 24 * 30, path: "/" });
+    cookieStore.set("spotify_refresh_token", tokens.refresh_token, {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 30,
+      path: "/",
+    });
   }
   cookieStore.delete("spotify_oauth_state");
 
-  return NextResponse.redirect(new URL("/listening-vault?connected=1", req.url));
+  return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=ok", req.url));
 }

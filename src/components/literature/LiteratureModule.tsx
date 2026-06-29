@@ -134,16 +134,14 @@ export function LiteratureModule() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "capture",
-          text: `Why might this paper matter to a neuroscience research student? One or two sentences. "${a.title}" — ${a.summary}`,
+          mode: "literature-relevance",
+          text: a.title,
+          body: JSON.stringify({ summary: a.summary, authors: a.authors, source: a.source, topics }),
         }),
       });
-      const json = (await res.json()) as { action?: string; label?: string };
-      const note =
-        json.action && json.label
-          ? `${json.label}: ${json.action}`
-          : json.action || json.label || "No relevance signal available.";
-      setWhy((w) => ({ ...w, [a.id]: note }));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { relevance?: string };
+      setWhy((w) => ({ ...w, [a.id]: json.relevance || "No relevance signal available." }));
     } catch {
       toast("Couldn't reach the assistant", "warn", "Literature");
     } finally {
@@ -228,14 +226,17 @@ export function LiteratureModule() {
             }}
           >
             {t.label}
-            <span
+            <button
+              type="button"
+              aria-label={`Remove topic ${t.label}`}
               style={{
                 position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
                 fontSize: 9, cursor: "pointer", color: "var(--ink-faint)", lineHeight: 1,
+                background: "none", border: "none", padding: 0,
               }}
               onClick={(e) => { e.stopPropagation(); removeCustomTopic(t.key); }}
               title="Remove topic"
-            >✕</span>
+            >✕</button>
           </span>
         ))}
         {addingTopic ? (
@@ -259,23 +260,26 @@ export function LiteratureModule() {
                 letterSpacing: ".08em", textTransform: "uppercase", width: 110,
               }}
             />
-            <span
-              style={{ cursor: "pointer", color: "var(--ink-faint)", fontSize: 11 }}
+            <button
+              type="button"
+              aria-label="Cancel adding topic"
+              style={{ cursor: "pointer", color: "var(--ink-faint)", fontSize: 11, background: "none", border: "none", padding: 0 }}
               onClick={() => { setTopicDraft(""); setAddingTopic(false); }}
-            >✕</span>
+            >✕</button>
           </span>
         ) : (
-          <span
+          <button
+            type="button"
             className="chip"
             onClick={() => setAddingTopic(true)}
             style={{ color: "var(--ink-faint)", borderStyle: "dashed" }}
             title="Add custom topic"
-          >+ Topic</span>
+          >+ Topic</button>
         )}
         {query && (
-          <span className="chip on" onClick={() => { setDraft(""); clearSearch(); }}>
+          <button type="button" className="chip on" aria-label={`Clear search for "${query}"`} onClick={() => { setDraft(""); clearSearch(); }}>
             ✕ &quot;{query}&quot;
-          </span>
+          </button>
         )}
       </div>
 
@@ -316,14 +320,15 @@ export function LiteratureModule() {
       {/* reader (split editorial) */}
       {reader && (
         <div className="reader">
-          <div className="r-media">
-            <div className="play" />
-            <div className="scrub">
-              <span>{reader.source}</span>
-              <div className="bar" />
-              <span>{fmtDate(reader.publishedAt)}</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            className={styles.litHeader}
+            onClick={() => openInApp(reader.url, reader.title)}
+            title="Open in app"
+          >
+            <span className={styles.litHeaderSource}>{fmtDate(reader.publishedAt)}</span>
+            <span className={styles.litHeaderOpen}>Open in app →</span>
+          </button>
           <div className="r-body">
             <div className="r-cat">{reader.source}</div>
             <h2>{reader.title}</h2>

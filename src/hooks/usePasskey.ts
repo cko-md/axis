@@ -1,7 +1,5 @@
 'use client';
 
-import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
-
 export interface PasskeyRegisterResult {
   ok: boolean;
   passkeyId?: string;
@@ -28,12 +26,12 @@ export function usePasskey() {
       }
       const options = await optRes.json();
 
+      const { startRegistration } = await import('@simplewebauthn/browser');
       let attResp;
       try {
         attResp = await startRegistration({ optionsJSON: options });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        // user cancelled, timeout, or other browser-level errors
         if (
           msg.toLowerCase().includes('cancel') ||
           msg.toLowerCase().includes('abort') ||
@@ -71,6 +69,7 @@ export function usePasskey() {
       }
       const options = await optRes.json();
 
+      const { startAuthentication } = await import('@simplewebauthn/browser');
       let authResp;
       try {
         authResp = await startAuthentication({ optionsJSON: options });
@@ -95,7 +94,7 @@ export function usePasskey() {
         const body = await verifyRes.json().catch(() => ({}));
         return { ok: false, error: body.error ?? 'Authentication failed' };
       }
-      const { verified, userId, refreshToken } = await verifyRes.json();
+      const { verified, refreshToken } = await verifyRes.json();
       if (!verified) return { ok: false, error: 'Passkey not verified' };
       return { ok: true, ...(refreshToken ? { refreshToken } : {}) };
     } catch (err: unknown) {

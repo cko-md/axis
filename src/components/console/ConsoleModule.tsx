@@ -15,14 +15,14 @@ import {
 import {
   SortableContext,
   arrayMove,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG } from "@/lib/store/widgets";
+import { DEFAULT_WIDGET_IDS, getWidgetById, WIDGET_CATALOG, normalizeConsoleLayout, BLOCK_SIZES, type BlockSize } from "@/lib/store/widgets";
 import { formatDateLong } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -88,6 +88,9 @@ function WidgetSecondLine({ id, raw }: { id: string; raw?: Record<string, unknow
   if (id === "markets" && raw.chg !== undefined) {
     const sign = (raw.chg as number) >= 0 ? "▴" : "▾";
     return <div className="tb-raw">SPY {sign}{Math.abs(raw.chg as number).toFixed(2)}%</div>;
+  }
+  if (id === "run" && raw.km !== undefined) {
+    return <div className="tb-raw">{String(raw.km)} km this week · {Number(raw.streak) > 0 ? `${raw.streak}-day streak` : "no active streak"}</div>;
   }
   return null;
 }
@@ -213,15 +216,24 @@ const DEFAULT_SECTION_ORDER = [
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
 
 const CONSOLE_BLOCK_SIZES_KEY = "axis-console-block-sizes";
-const DEFAULT_BLOCK_SIZES: Record<SectionId, "sm" | "full"> = {
-  "widgets": "full", "photos": "full", "dispatch-block": "full",
-  "pomodoro": "sm", "routine": "full", "daily-rings": "full",
-  "todays-arc": "full", "focus-ranked": "full", "people-spotlight": "full",
-  "weekly-devotional": "full", "stoic-maxim": "full", "markets-body": "full",
-  "art-gallery": "full",
+// Defaults lean on "md" (half-width) for the content cards so blocks sit
+// side-by-side out of the box — that's what makes "drag a widget to the right"
+// possible. The full-bleed sections (the tidbits bar + featured photos) stay
+// "full"; pomodoro stays compact. Any block can still be resized sm/md/full.
+const DEFAULT_BLOCK_SIZES: Record<SectionId, BlockSize> = {
+  "widgets": "full", "photos": "full", "dispatch-block": "md",
+  "pomodoro": "sm", "routine": "md", "daily-rings": "md",
+  "todays-arc": "md", "focus-ranked": "md", "people-spotlight": "md",
+  "weekly-devotional": "md", "stoic-maxim": "md", "markets-body": "md",
+  "art-gallery": "md",
 };
 
-type BlockSizeCtx = { sizes: Record<string, "sm" | "full">; toggle: (id: string) => void };
+// Three-step granular sizing: sm (1 col) → md (2 col) → full (all 4 cols) → sm…
+const NEXT_BLOCK_SIZE: Record<BlockSize, BlockSize> = { sm: "md", md: "full", full: "sm" };
+const BLOCK_SIZE_GLYPH: Record<BlockSize, string> = { sm: "⊞", md: "⊡", full: "⊟" };
+const BLOCK_SIZE_LABEL: Record<BlockSize, string> = { sm: "Compact", md: "Medium", full: "Full width" };
+
+type BlockSizeCtx = { sizes: Record<string, BlockSize>; toggle: (id: string) => void };
 const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, toggle: () => {} });
 
 /* ── HeroLine ──────────────────────────────────────────────────── */
@@ -262,6 +274,12 @@ function HeroLine({ tasks }: { tasks: Task[] }) {
 
 /* ── DraggableBlock ────────────────────────────────────────────── */
 
+// Structured grid snapping on a 4-col base grid: "sm" cards occupy one column,
+// "md" cards span two, "full" cards span the entire row — so the packing
+// stays clean with no overlaps while giving more granular size steps than a
+// binary sm/full toggle.
+const BLOCK_SPAN: Record<BlockSize, string> = { sm: "span 1", md: "span 2", full: "1 / -1" };
+
 function DraggableBlock({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const { sizes, toggle } = useContext(BlockSizeContext);
@@ -269,13 +287,16 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
   return (
     <div
       ref={setNodeRef}
-      className={`block-wrap${size === "sm" ? " block-sm" : ""}`}
+      className={`block-wrap${size !== "full" ? ` block-${size}` : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
+        // While dragging, lift the card above its neighbors so the snap target
+        // reads clearly during the freeform rearrange.
+        zIndex: isDragging ? 2 : 1,
         position: "relative",
-        flex: size === "sm" ? "0 0 calc(50% - 13px)" : "0 0 100%",
+        gridColumn: BLOCK_SPAN[size],
         minWidth: 0,
       }}
     >
@@ -284,18 +305,17 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
           type="button"
           onClick={() => toggle(id)}
           style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", fontSize: 13, lineHeight: 1, padding: "2px 3px", borderRadius: "var(--r)" }}
-          title={size === "sm" ? "Expand block" : "Compact block"}
+          title={`${BLOCK_SIZE_LABEL[size]} — click to resize`}
         >
-          {size === "sm" ? "⊞" : "⊟"}
+          {BLOCK_SIZE_GLYPH[size]}
         </button>
         <div
           {...attributes}
           {...listeners}
-          style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 14, lineHeight: 1, padding: "2px 4px", borderRadius: "var(--r)" }}
           className="block-drag-handle"
-          title="Drag to reorder"
+          title="Drag anywhere on this handle to move the block"
         >
-          ⠿
+          <span className="block-drag-grip">⠿</span>
         </div>
       </div>
       {children}
@@ -314,6 +334,7 @@ export function ConsoleModule() {
   const { createNote } = useNotes();
   const [widgetIds, setWidgetIds] = useState<string[]>(DEFAULT_WIDGET_IDS);
   const [widgetTexts, setWidgetTexts] = useState<Record<string, { v: string; k: string }>>({});
+  const [arcEvents, setArcEvents] = useState<Array<{ id: string; title: string; start_at: string; end_at: string | null }>>([]);
   const [editing, setEditing] = useState(false);
   const [expandedWidget, setExpandedWidget] = useState<string | null>(null);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
@@ -331,16 +352,51 @@ export function ConsoleModule() {
     if (typeof window === "undefined") return 0;
     try { return Number(localStorage.getItem(`axis-pom-${new Date().toDateString()}`) ?? "0"); } catch { return 0; }
   });
-  const { data: liveData, refreshOne, refreshAll } = useWidgetData(widgetIds, interfaceSettings.locationServices);
+  const { data: liveData, refreshOne, refreshAll, geoStatus } = useWidgetData(widgetIds, interfaceSettings.locationServices);
+
+  // Location Services is opt-in (Interface Studio); if the browser denies the
+  // permission prompt (or geolocation isn't available at all) the widgets
+  // silently fall back to the default location — surface that once instead
+  // of leaving the user wondering why "On" never seems to do anything.
+  const geoNoticeShown = useRef(false);
+  useEffect(() => {
+    if (geoNoticeShown.current) return;
+    if (geoStatus === "denied") {
+      geoNoticeShown.current = true;
+      toast("Location permission denied — showing weather for the default location instead.", "warn", "Location");
+    } else if (geoStatus === "unavailable") {
+      geoNoticeShown.current = true;
+      toast("Location isn't available on this device/browser — showing the default location.", "warn", "Location");
+    }
+  }, [geoStatus, toast]);
 
   // Section ordering + block size state
   const [sectionOrder, setSectionOrder] = useState<SectionId[]>([...DEFAULT_SECTION_ORDER]);
-  const [blockSizes, setBlockSizes] = useState<Record<SectionId, "sm" | "full">>({ ...DEFAULT_BLOCK_SIZES });
+  const [blockSizes, setBlockSizes] = useState<Record<SectionId, BlockSize>>({ ...DEFAULT_BLOCK_SIZES });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
-  const topTasks = rankTasks(tasks).slice(0, 3);
+  // Layout auto-save plumbing. `layoutColumnRef` flips to false the first time a
+  // write reveals the `layout` column isn't applied yet — after that we persist
+  // to localStorage only so the UX never blocks on an unmigrated DB.
+  const layoutColumnRef = useRef(true);
+  const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const topTasks = useMemo(() => rankTasks(tasks).slice(0, 3), [tasks]);
   const { people } = usePeople();
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+
+  const unread = useMemo(() => signals.filter((s) => !s.read_at).length, [signals]);
+  const actionable = useMemo(
+    () => signals.filter((s) => s.signal_type === "action" && !s.routed_at),
+    [signals],
+  );
+  const duePeople = useMemo(() => {
+    const nowMs = Date.now();
+    return people
+      .filter((p) => p.follow_up_on && new Date(`${p.follow_up_on}T23:59:59`) <= new Date(nowMs + 3 * 86400000))
+      .sort((a, b) => (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""))
+      .slice(0, 4);
+  }, [people]);
 
   // Load section order + block sizes from localStorage on mount
   useEffect(() => {
@@ -353,19 +409,67 @@ export function ConsoleModule() {
       }
       const storedSizes = localStorage.getItem(CONSOLE_BLOCK_SIZES_KEY);
       if (storedSizes) {
-        const parsedSizes = JSON.parse(storedSizes) as Record<string, "sm" | "full">;
-        setBlockSizes((prev) => ({ ...prev, ...parsedSizes }));
+        const parsedSizes = JSON.parse(storedSizes) as Record<string, BlockSize>;
+        const valid: Partial<Record<SectionId, BlockSize>> = {};
+        for (const [id, size] of Object.entries(parsedSizes)) {
+          if ((BLOCK_SIZES as string[]).includes(size)) valid[id as SectionId] = size;
+        }
+        setBlockSizes((prev) => ({ ...prev, ...valid }));
       }
     } catch { /* ignore */ }
   }, []);
 
+  // Debounced auto-save of the freeform layout (order + per-block sizes).
+  // Always mirrors to localStorage; additionally persists to the `layout` jsonb
+  // column when it exists. If the column isn't applied yet, the first write
+  // detects the schema error, flips layoutColumnRef off, and we degrade to
+  // localStorage-only — the drag/snap UX is unaffected either way.
+  const persistLayout = useCallback(
+    (order: SectionId[], sizes: Record<SectionId, BlockSize>) => {
+      try { localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
+      try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(sizes)); } catch { /* ignore */ }
+
+      if (!layoutColumnRef.current) return;
+      if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
+      layoutSaveTimer.current = setTimeout(async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { error } = await supabase.from("console_widgets").upsert(
+          {
+            user_id: user.id,
+            layout: { order, sizes },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" },
+        );
+        // 42703 = undefined_column, PGRST204 = column not in PostgREST schema cache.
+        if (error && (error.code === "42703" || error.code === "PGRST204" || /layout/i.test(error.message))) {
+          layoutColumnRef.current = false;
+        }
+      }, 600);
+    },
+    [supabase],
+  );
+
+  useEffect(() => () => { if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current); }, []);
+
   const toggleBlockSize = useCallback((id: string) => {
     setBlockSizes((prev) => {
-      const next = { ...prev, [id]: prev[id as SectionId] === "sm" ? "full" : "sm" } as Record<SectionId, "sm" | "full">;
-      try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      const current = prev[id as SectionId] ?? "full";
+      const next = { ...prev, [id]: NEXT_BLOCK_SIZE[current] } as Record<SectionId, BlockSize>;
+      persistLayout(sectionOrder, next);
       return next;
     });
-  }, []);
+  }, [persistLayout, sectionOrder]);
+
+  const resetLayout = useCallback(() => {
+    const order: SectionId[] = [...DEFAULT_SECTION_ORDER];
+    const sizes: Record<SectionId, BlockSize> = { ...DEFAULT_BLOCK_SIZES };
+    setSectionOrder(order);
+    setBlockSizes(sizes);
+    persistLayout(order, sizes);
+    toast("Layout reset to default.", "success", "Console");
+  }, [persistLayout, toast]);
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -383,7 +487,31 @@ export function ConsoleModule() {
     else if (data) {
       setWidgetIds(data.widget_ids?.length ? data.widget_ids : DEFAULT_WIDGET_IDS);
       setWidgetTexts((data.widget_texts as Record<string, { v: string; k: string }>) || {});
+
+      // Freeform layout (order + per-block sizes). `layout` may be absent if the
+      // migration hasn't been applied yet — guard the read so we silently fall
+      // back to the localStorage/default order set by the mount effect.
+      const layout = normalizeConsoleLayout(
+        (data as { layout?: unknown }).layout,
+        DEFAULT_SECTION_ORDER,
+      );
+      if (layout) {
+        setSectionOrder(layout.order as SectionId[]);
+        setBlockSizes((prev) => ({ ...prev, ...(layout.sizes as Record<SectionId, BlockSize>) }));
+      }
     }
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const { data: events } = await supabase
+      .from("schedule_events")
+      .select("id, title, start_at, end_at")
+      .eq("user_id", user.id)
+      .gte("start_at", todayStart.toISOString())
+      .lte("start_at", todayEnd.toISOString())
+      .order("start_at", { ascending: true });
+    if (events) setArcEvents(events);
+
     setLoading(false);
   }, [supabase, toast]);
 
@@ -512,9 +640,11 @@ export function ConsoleModule() {
     return () => clearInterval(id);
   }, [pomRunning, toast]);
 
-  // dnd-kit sensors
+  // dnd-kit sensors. Activation distance lowered from 8px → 3px so drags
+  // start responsively now that pointer events are scoped to the (larger)
+  // drag handle — the handle no longer needs a long pull before it "takes".
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 3 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -529,12 +659,10 @@ export function ConsoleModule() {
     setSectionOrder((prev) => {
       const oldIndex = prev.indexOf(active.id as SectionId);
       const newIndex = prev.indexOf(over.id as SectionId);
+      if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
-      try {
-        localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
+      // Auto-save on drag-end (debounced) — no manual "save" step for layout.
+      persistLayout(next, blockSizes);
       return next;
     });
   };
@@ -614,31 +742,53 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
+  const tasksDone  = tasks.filter((t) => t.status === "done").length;
+  const tasksTotal = Math.max(tasks.length, 8);
+  const tasksPct   = Math.min(tasksDone / tasksTotal, 1);
+  // r3 circumference = 2π × 28 ≈ 175.9
+  const r3Offset   = Math.round(175.9 * (1 - tasksPct));
+  // r1 ≈ 75% (3/4h), r2 = 100% (8/8km) — hardcoded until data sources exist
+  const overallPct = Math.round(((0.75 + 1.0 + tasksPct) / 3) * 100);
+
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
       <Card tick>
-        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">74%</span></h2>
+        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">{overallPct}%</span></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
             <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" />
             <circle className="rbg" cx="60" cy="60" r="40" /><circle className="rfg r2" cx="60" cy="60" r="40" />
-            <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" />
+            <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" style={{ strokeDashoffset: r3Offset }} />
           </svg>
           <div className="rings-legend">
             <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">3.0 / 4h</span></div>
             <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">8 / 8 km</span></div>
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent-2)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasks.filter((t) => t.status === "done").length} / {Math.max(tasks.length, 8)}</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--marine)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasksDone} / {tasksTotal}</span></div>
           </div>
         </div>
       </Card>
     </DraggableBlock>
   );
 
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
   const todaysArcSection = (
     <DraggableBlock key="todays-arc" id="todays-arc">
       <Card tick>
-        <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">Schedule</span></h2>
-        <p style={{ marginTop: 12, color: "var(--ink-dim)", fontSize: 12 }}>Synced from Schedule module — add events on the Schedule page.</p>
+        <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">{arcEvents.length || "Schedule"}</span></h2>
+        {arcEvents.length === 0 ? (
+          <p style={{ marginTop: 12, color: "var(--ink-faint)", fontSize: 12 }}>No events scheduled for today. Add events on the Schedule page.</p>
+        ) : (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            {arcEvents.map((ev) => (
+              <div key={ev.id} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--ink-dim)", flexShrink: 0 }}>{fmtTime(ev.start_at)}</span>
+                <span style={{ fontSize: 13, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</span>
+                {ev.end_at && <span style={{ fontSize: 11, color: "var(--ink-faint)", flexShrink: 0 }}>→ {fmtTime(ev.end_at)}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </DraggableBlock>
   );
@@ -706,15 +856,15 @@ export function ConsoleModule() {
         <h2 className="sec">Markets &amp; Body<span className="rule" /><span className="count">{liveData.markets ? "Live" : "Cached"}</span></h2>
         <div style={{ marginTop: 12 }}>
           <div className="metricrow"><span className="metric-k">Markets</span><span className="metric-v">{liveData.markets?.v ?? "—"}</span></div>
-          <div className="metricrow"><span className="metric-k">Hint</span><span className="metric-v" style={{ fontSize: 11 }}>{liveData.markets?.k ?? "Set POLYGON_API_KEY"}</span></div>
+          {liveData.markets?.k && (
+            <div className="metricrow"><span className="metric-k">Hint</span><span className="metric-v" style={{ fontSize: 11 }}>{liveData.markets.k}</span></div>
+          )}
         </div>
       </Card>
     </DraggableBlock>
   );
 
   // ── Dispatch block ──────────────────────────────────────────────
-  const unread = signals.filter((s) => !s.read_at).length;
-  const actionable = signals.filter((s) => s.signal_type === "action" && !s.routed_at);
   const dispatchBlockSection = (
     <DraggableBlock key="dispatch-block" id="dispatch-block">
       <Card>
@@ -848,10 +998,6 @@ export function ConsoleModule() {
 
   // ── People CRM spotlight ────────────────────────────────────────
   const now = new Date();
-  const duePeople = people
-    .filter((p) => p.follow_up_on && new Date(`${p.follow_up_on}T23:59:59`) <= new Date(now.getTime() + 3 * 86400000))
-    .sort((a, b) => (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""))
-    .slice(0, 4);
   const tagColor: Record<string, string> = { mentor: "var(--marine-2)", collaborator: "var(--up)", friend: "var(--gold-2)" };
 
   const peopleSpotlightSection = (
@@ -996,6 +1142,35 @@ export function ConsoleModule() {
 
   return (
     <>
+      {/* Scoped freeform-grid styles (this unit must not touch globals.css).
+          Structured 2-up grid that snaps cards to slots; collapses to a single
+          column on narrow viewports so the layout never overflows. */}
+      <style>{`
+        .console-grid {
+          display: grid;
+          /* 4-col base grid gives three size steps (sm = 1, md = 2, full = 4
+             columns) for more granular resizing than a binary half/full split. */
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          /* Plain row flow (NOT "dense"): dense back-fills gaps, which makes the
+             visual order diverge from DOM order and breaks dnd-kit's drop math —
+             dragging a block to the right would land it somewhere else. With
+             plain row flow, where you drop is where it stays. */
+          grid-auto-flow: row;
+          gap: var(--section-gap);
+          margin-top: var(--space-3);
+          align-items: start;
+        }
+        @media (max-width: 900px) {
+          .console-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .console-grid > .block-wrap.block-sm { grid-column: span 1; }
+          .console-grid > .block-wrap.block-md,
+          .console-grid > .block-wrap:not(.block-sm):not(.block-md) { grid-column: 1 / -1; }
+        }
+        @media (max-width: 680px) {
+          .console-grid { grid-template-columns: 1fr; }
+          .console-grid > .block-wrap { grid-column: 1 / -1 !important; }
+        }
+      `}</style>
       <div className="eyebrow">{formatDateLong()}</div>
       <HeroLine tasks={tasks} />
 
@@ -1022,6 +1197,13 @@ export function ConsoleModule() {
         <button type="button" className="capt-go" onClick={handleCapture}>Capture</button>
       </div>
 
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: "var(--section-gap)" }}>
+        <span style={{ marginRight: "auto", fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-faint)", letterSpacing: ".06em" }}>
+          Drag ⠿ to rearrange · click ⊞/⊡/⊟ to cycle size
+        </span>
+        <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>
+      </div>
+
       <BlockSizeContext.Provider value={{ sizes: blockSizes, toggle: toggleBlockSize }}>
         <DndContext
           sensors={sensors}
@@ -1029,8 +1211,8 @@ export function ConsoleModule() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <SortableContext items={sectionOrder} strategy={verticalListSortingStrategy}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--section-gap)", marginTop: "var(--section-gap)", alignItems: "flex-start" }}>
+          <SortableContext items={sectionOrder} strategy={rectSortingStrategy}>
+            <div className="console-grid">
               {sectionOrder.map((id) => sectionMap[id])}
             </div>
           </SortableContext>

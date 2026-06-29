@@ -17,6 +17,7 @@
   /* ── glass ── */
   --glass: rgba(232, 228, 220, 0.05);
   --glass-2: rgba(232, 228, 220, 0.08);
+  --accent-subtle: rgba(201, 164, 99, 0.10);
   --line: rgba(205, 195, 177, 0.16);
   --line-strong: rgba(214, 204, 186, 0.28);
   --edge: rgba(244, 238, 228, 0.12);
@@ -27,7 +28,7 @@
   --ink: #ece8e0;
   --ink-2: #d4cec2;
   --ink-dim: #a09891;
-  --ink-faint: #726c62;
+  --ink-faint: #857e74;   /* 5.1:1 on #0a0b0e — passes WCAG AA */
 
   /* ── afrofuturist accents — gold primary, marine data, clay warm ── */
   --gold: #c9a463;
@@ -40,27 +41,15 @@
   --up: #7fa86a;
   --down: #c2603f;
 
-  /* ── legacy accent aliases (Interface Studio overrides these) ── */
+  /* ── accent aliases — set dynamically by Interface Studio ── */
   --accent: #c9a463;
   --accent-bright: #e0c388;
   --accent-deep: #9a7c46;
-  --accent-2: #c9a463;
-  --accent-violet: #6f9bc7;
-  --accent-teal: #6f9bc7;
-  --accent-coral: #d98a5f;
-  --accent-magenta: #cdc7bb;
+  --accent-2: #c9a463;       /* secondary accent; overridden per theme preset */
   --spark: #7fa86a;
   --spark-bright: #9cc488;
   --dew: #7fa86a;
   --dew-warm: #e0c388;
-  --slate-deep: #161a23;
-  --slate-mid: #8b8579;
-  --iris-light: #e0c388;
-  --iris-deep: #9a7c46;
-  --v-yellow: #d4b977;
-  --v-orange: #d98a5f;
-  --v-green: #7fa86a;
-  --v-purple: #6f9bc7;
 
   /* ── effects — refractive, never drop-shadow-heavy ── */
   --blur: saturate(135%) blur(52px);
@@ -132,21 +121,22 @@ html.slate {
 
 /* light — museum gallery: architectural paper, north-facing skylight */
 html.light {
+  --accent-subtle: rgba(120, 80, 20, 0.10);
   --bg: #f4f0e8;
   --surface: #ede8de;
-  --surface-2: #e6e0d4;
-  --surface-3: #ddd8cc;
-  --line: rgba(30, 24, 16, 0.18);
-  --line-strong: rgba(30, 24, 16, 0.3);
+  --surface-2: #dcd6c6;   /* widened delta vs --surface for visible card depth */
+  --surface-3: #ccc6b6;
+  --line: rgba(30, 24, 16, 0.28);   /* was 0.18 — borders now visible on parchment */
+  --line-strong: rgba(30, 24, 16, 0.44);
   --edge: rgba(255, 255, 255, 0.72);
   --metal-edge: rgba(255, 255, 255, 0.72);
-  --glass: rgba(20, 16, 10, 0.06);
-  --glass-2: rgba(20, 16, 10, 0.1);
-  --grid: rgba(30, 24, 16, 0.05);
+  --glass: rgba(20, 16, 10, 0.12);   /* was 0.06 — glass panels now visible */
+  --glass-2: rgba(20, 16, 10, 0.18);
+  --grid: rgba(30, 24, 16, 0.06);
   --ink: #1a1612;
   --ink-2: #302b24;
-  --ink-dim: #5c5146;
-  --ink-faint: #8c8074;
+  --ink-dim: #4e4439;   /* darkened 15% from #5c5146 for contrast on parchment */
+  --ink-faint: #5c5248;   /* darkened 15% from #6e6358 — still WCAG AA compliant */
   --gold: #b8922e;
   --gold-2: #d4aa52;
   --gold-deep: #7a5e1e;
@@ -288,43 +278,46 @@ body::before {
   100% { opacity: 0.85; transform: translate3d(2%, -1%, 0); }
 }
 
-/* ── Sun logo animation ── */
+/* ── Sidebar mark: time-of-day sun / moon over the peak ── */
+/* Refined for restraint: gentle aura pulse, soft opacity deltas, slow smooth easing. */
 @keyframes sunAura {
-  0%, 100% { transform: scale(1); opacity: .38; }
-  50% { transform: scale(1.45); opacity: .6; }
+  0%, 100% { transform: scale(1); opacity: .34; }
+  50% { transform: scale(1.12); opacity: .5; }
 }
 @keyframes sunCore {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .75; }
+  0%, 100% { opacity: .92; }
+  50% { opacity: 1; }
 }
 .sun-aura {
   transform-box: fill-box;
   transform-origin: center;
-  animation: sunAura 3.2s ease-in-out infinite;
+  animation: sunAura 4.6s cubic-bezier(.4, 0, .2, 1) infinite;
+  will-change: transform, opacity;
 }
-.sun-core { animation: sunCore 3.2s ease-in-out infinite; }
+.sun-core { animation: sunCore 4.6s cubic-bezier(.4, 0, .2, 1) infinite; }
 
 @keyframes moonAura {
   0%, 100% { transform: scale(1); opacity: .16; }
-  50% { transform: scale(1.25); opacity: .28; }
+  50% { transform: scale(1.1); opacity: .24; }
 }
 .moon-aura {
   transform-box: fill-box;
   transform-origin: center;
-  animation: moonAura 5s ease-in-out infinite;
+  animation: moonAura 5.4s cubic-bezier(.4, 0, .2, 1) infinite;
+  will-change: transform, opacity;
 }
 
 @keyframes logoStar {
-  0%, 100% { opacity: .75; }
-  50% { opacity: .08; }
+  0%, 100% { opacity: .7; }
+  50% { opacity: .18; }
 }
-.logo-star { animation: logoStar 2.4s ease-in-out infinite; }
+.logo-star { animation: logoStar 3.4s cubic-bezier(.4, 0, .2, 1) infinite; }
 .ls1 { animation-delay: 0s; }
-.ls2 { animation-delay: .65s; }
-.ls3 { animation-delay: 1.3s; }
-.ls4 { animation-delay: .35s; }
-.ls5 { animation-delay: 1.85s; }
-.ls6 { animation-delay: 1.05s; }
+.ls2 { animation-delay: .55s; }
+.ls3 { animation-delay: 1.1s; }
+.ls4 { animation-delay: 1.7s; }
+.ls5 { animation-delay: 2.3s; }
+.ls6 { animation-delay: .9s; }
 
 /* ── Night starfield ── */
 @keyframes twinkle {
@@ -526,7 +519,10 @@ html.light body {
 
 .app-shell.mode-open  { --sb-w: 240px; }
 .app-shell.mode-icons { --sb-w: 62px; }
-.app-shell.mode-hidden { --sb-w: 0px; }
+/* sidebar becomes position:fixed below and drops out of grid flow, leaving
+   .main-scroll as the sole grid item — give it the full row instead of
+   collapsing into the (now-empty) first column track. */
+.app-shell.mode-hidden { --sb-w: 0px; grid-template-columns: 1fr; }
 
 /* hidden mode — sidebar slides off-screen, peeks on hover */
 .app-shell.mode-hidden .sidebar {
@@ -609,26 +605,6 @@ html.dim .topbar {
   vertical-align: super;
   margin-left: 3px;
   opacity: 0.85;
-}
-
-.toggle {
-  margin-left: auto;
-  width: 25px;
-  height: 25px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: none;
-  color: var(--ink-dim);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  transition: 0.16s;
-  flex: none;
-}
-
-.toggle:hover {
-  color: var(--ink);
-  border-color: var(--line-strong);
 }
 
 .nav {
@@ -1697,10 +1673,36 @@ html.light .card::after {
 }
 
 /* ── drag handle — reveals on block hover ─────────────────────── */
+/* Enlarged hit area (28x24 vs. the old 14px glyph) so grabbing the handle
+   doesn't require pixel-precision aim — the grip glyph stays visually small
+   but the whole padded box is draggable/clickable. */
 
 .block-drag-handle {
   opacity: 0;
-  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  cursor: grab;
+  color: var(--ink-faint);
+  border-radius: var(--r);
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.block-drag-handle:hover {
+  background: var(--glass-2);
+  color: var(--ink-dim);
+}
+
+.block-drag-handle:active {
+  cursor: grabbing;
+}
+
+.block-drag-grip {
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
 }
 
 *:hover > .block-drag-handle {
@@ -2154,6 +2156,8 @@ html.light .card::after {
 
 /* ── motion / stagger ── */
 @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes modal-bg-in{from{opacity:0}to{opacity:1}}
+@keyframes modal-card-in{from{opacity:0;transform:translateY(-10px) scale(0.97)}to{opacity:1;transform:none}}
 .stagger>*{opacity:0;animation:fade .45s cubic-bezier(.2,.7,.2,1) forwards}
 .stagger>*:nth-child(1){animation-delay:.03s}.stagger>*:nth-child(2){animation-delay:.09s}.stagger>*:nth-child(3){animation-delay:.15s}.stagger>*:nth-child(4){animation-delay:.21s}.stagger>*:nth-child(5){animation-delay:.27s}
 @keyframes draw{to{stroke-dashoffset:0}}
@@ -2249,7 +2253,7 @@ html.light .pst-cap{background:linear-gradient(transparent,rgba(20,16,8,.6));col
 .cell{border-right:1px solid var(--line);border-top:1px solid var(--line);padding:6px 7px;position:relative;overflow:hidden}.cell:nth-child(7n){border-right:none}
 .cell .dn{font-family:var(--mono);font-size:10px;color:var(--ink-dim)}.cell.out .dn{opacity:.35}.cell.today{background:color-mix(in srgb,var(--gold) 7%,transparent)}.cell.today .dn{color:var(--gold);font-weight:500}
 .ev{font-size:10px;border-radius:2px;padding:2px 6px;margin-top:3px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ev.a{background:color-mix(in srgb,var(--marine) 16%,transparent);color:var(--marine-2);border-left:2px solid var(--marine)}.ev.b{background:color-mix(in srgb,var(--up) 13%,transparent);color:var(--up);border-left:2px solid var(--up)}.ev.c{background:color-mix(in srgb,var(--clay) 14%,transparent);color:var(--clay-2);border-left:2px solid var(--clay)}
+.ev.a{background:color-mix(in srgb,var(--marine) 16%,transparent);color:var(--marine-2);border-left:2px solid var(--marine)}.ev.b{background:color-mix(in srgb,var(--up) 13%,transparent);color:var(--up);border-left:2px solid var(--up)}.ev.c{background:color-mix(in srgb,var(--clay) 14%,transparent);color:var(--clay-2);border-left:2px solid var(--clay)}.ev.or{background:color-mix(in srgb,var(--gold) 14%,transparent);color:var(--gold-2);border-left:2px solid var(--gold)}
 
 /* ── stats ── */
 .stat-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
@@ -2305,6 +2309,15 @@ html.light .pst-cap{background:linear-gradient(transparent,rgba(20,16,8,.6));col
 .reader .r-media .play::after{content:"";border-left:15px solid var(--ink);border-top:9px solid transparent;border-bottom:9px solid transparent;margin-left:4px}
 .reader .r-media .scrub{position:absolute;left:0;right:0;bottom:0;height:32px;background:rgba(7,8,11,.62);display:flex;align-items:center;gap:10px;padding:0 14px;font-family:var(--mono);font-size:9px;color:var(--ink-dim)}
 .reader .r-media .scrub .bar{flex:1;height:3px;background:var(--surface-3);border-radius:2px;position:relative}.reader .r-media .scrub .bar::before{content:"";position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--gold);border-radius:2px}
+/* Article-style reader header — text-only eyebrow bar, mirrors Literature's
+   .litHeader. Used in place of .r-media's video play/scrub UI whenever the
+   reader item isn't actual video content (mirrors LiteratureModule, which
+   has no video/thumbnail content at all). */
+.reader .r-art-header{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:13px 22px;background:var(--surface-2);border:none;border-bottom:1px solid var(--line);cursor:pointer;transition:.15s;text-align:left;font:inherit}
+.reader .r-art-header:hover{background:color-mix(in srgb,var(--gold) 7%,var(--surface-2))}
+.reader .r-art-header:hover .r-art-open{color:var(--gold)}
+.reader .r-art-source{font-family:var(--narrow);font-weight:600;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reader .r-art-open{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--ink-faint);flex-shrink:0;transition:.15s}
 .reader .r-body{padding:22px}.reader .r-cat{font-family:var(--narrow);font-weight:600;font-size:10px;color:var(--gold);letter-spacing:.18em;text-transform:uppercase}
 .reader .r-body h2{font-family:var(--serif);font-weight:400;font-size:24px;line-height:1.15;margin:8px 0 6px;color:var(--ink)}.reader .r-src{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);margin-bottom:14px;letter-spacing:.06em}.reader .r-body p{color:var(--ink-dim);font-size:12.5px;line-height:1.7;max-width:70ch}
 .bento{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;grid-auto-flow:dense}
@@ -2328,6 +2341,10 @@ html.light .pst-cap{background:linear-gradient(transparent,rgba(20,16,8,.6));col
 .file .ftype{font-family:var(--mono);font-size:9.5px;font-weight:500;padding:3px 8px;border-radius:2px;letter-spacing:.06em;border:1px solid currentColor}.file .ftype.pdf{color:var(--clay-2)}.file .ftype.doc{color:var(--marine-2)}.file .ftype.img{color:var(--up)}
 .file .vbadge{position:absolute;width:32px;height:32px;border-radius:50%;background:rgba(7,8,11,.5);border:1px solid var(--line-strong);display:grid;place-items:center}.file .vbadge::after{content:"";border-left:9px solid var(--ink);border-top:5px solid transparent;border-bottom:5px solid transparent;margin-left:3px}
 .file .fmeta{padding:10px 11px}.file .fn{font-size:11px;font-weight:400;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.file .fs{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint);margin-top:4px;display:flex;justify-content:space-between}
+.fdel{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;border:1px solid var(--line-strong);background:rgba(7,8,11,.55);color:var(--ink-dim);font-size:14px;line-height:1;display:grid;place-items:center;cursor:pointer;opacity:0;transition:opacity .12s,color .12s,border-color .12s}
+.file:hover .fdel{opacity:1}
+.fdel:hover{color:var(--down);border-color:var(--down)}
+.lib-empty{grid-column:1/-1;padding:28px 16px;text-align:center;font-size:12px;color:var(--ink-faint);border:1px dashed var(--line);border-radius:var(--r);background:var(--glass)}
 
 /* ── finance extras ── */
 .fin-top{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;align-items:stretch}
@@ -2490,12 +2507,21 @@ html.light .drawer{box-shadow:-24px 0 60px rgba(60,48,28,.25)}
 .dr-sec{font-family:var(--narrow);font-weight:600;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);margin:20px 0 10px}.dr-sec:first-child{margin-top:0}
 .dr-note{font-family:var(--mono);font-size:9px;color:var(--ink-faint);line-height:1.6;margin-top:22px}
 
-/* ── density (data-density on body) ── */
-body[data-density="compact"]{font-size:12.5px}
-body[data-density="compact"] .card{padding:13px}
-body[data-density="compact"] .view-pad{padding:calc(var(--topbar-h) + 12px) 22px 56px}
-body[data-density="cozy"] .card{padding:20px}
-body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 32px) 38px 72px}
+/* ── density (data-density on body) ──
+   Defaults: font-size 13px · --card-pad 16px · --space-3 (grid gap) 14px ·
+   .view-pad calc(topbar + 44px) 34px 70px. The three steps below are tuned to
+   be clearly, visibly distinct — compact reads dense, cozy reads airy. */
+body[data-density="compact"]{font-size:12px}
+body[data-density="compact"] .card{padding:10px}
+body[data-density="compact"] .view-pad{padding:calc(var(--topbar-h) + 16px) 20px 48px}
+body[data-density="compact"] .grid{gap:9px}
+body[data-density="compact"]{--space-3:9px;--card-pad:10px}
+
+body[data-density="cozy"]{font-size:14px}
+body[data-density="cozy"] .card{padding:24px}
+body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 40px) 40px 80px}
+body[data-density="cozy"] .grid{gap:22px}
+body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
 
 /* ── app window overlay (external apps) ── */
 .overlay{position:fixed;inset:0;z-index:50;background:rgba(5,6,8,.78);backdrop-filter:blur(8px) saturate(120%);display:none;align-items:center;justify-content:center;padding:2.4vh 2vw}.overlay.on{display:flex;animation:fade .25s ease}
@@ -2576,10 +2602,22 @@ body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 32px) 38px 72
 .mascot-restore{position:fixed;z-index:55;right:20px;bottom:20px;width:30px;height:30px;border-radius:50%;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-faint);cursor:pointer;display:none;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.35);transition:.15s}
 .mascot-restore.on{display:grid}.mascot-restore:hover{color:var(--gold);border-color:var(--gold)}.mascot-restore svg{width:16px;height:16px}
 
-/* Sidebar reveal tab — visible only in mode-hidden */
-.sb-reveal{position:fixed;left:0;top:50%;transform:translateY(-50%);width:22px;height:72px;background:var(--surface-2);border:1px solid var(--line-strong);border-left:none;border-radius:0 10px 10px 0;color:var(--ink-dim);cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:4px 0 20px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.04);transition:.18s}
-.sb-reveal:hover{color:var(--accent);border-color:var(--accent);width:30px;background:var(--surface-2);box-shadow:4px 0 24px rgba(0,0,0,.6),0 0 12px rgba(var(--accent-rgb,100,160,255),.2)}
-.sb-reveal svg{width:11px;height:11px}
+/* Sidebar toggle — the single collapse/expand control, fixed at the same
+   the same control in every mode (open/icons/hidden). It rides the sidebar's
+   right edge by reading the --sb-w grid variable from its .app-shell ancestor,
+   straddling the divider between rail and content — so it sits well clear of
+   the AXIS logo/wordmark in the .sb-top header instead of on top of it. In
+   hidden mode it pins to the far-left screen edge (the "show sidebar" affordance).
+   z-index above .sidebar in every mode keeps it on top of the peeking rail. */
+.sb-toggle{position:fixed;left:var(--sb-w,240px);top:calc((var(--topbar-h) + 12px) / 2);transform:translate(-50%,-50%);width:25px;height:25px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r);color:var(--ink-dim);cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:0 4px 14px rgba(0,0,0,.4);transition:left .26s cubic-bezier(.4,0,.2,1),color .16s,border-color .16s}
+.sb-toggle:hover{color:var(--accent);border-color:var(--accent)}
+.sb-toggle svg{width:14px;height:14px}
+/* hidden mode — sidebar is off-screen; pin the toggle to the left edge so it
+   reads as "show sidebar" and stays fully on-screen (no straddle at left:0). */
+.app-shell.mode-hidden .sb-toggle{left:10px;transform:translateY(-50%)}
+/* ...and shift the topbar right so the toggle sits in its own gutter instead of
+   landing on top of the breadcrumb (which read as a stray floating button). */
+.app-shell.mode-hidden .topbar{left:48px}
 
 /* Collapsed (icons) mode — center icons horizontally */
 .app-shell.mode-icons .navitem{justify-content:center;padding:7px 4px}
@@ -2683,19 +2721,39 @@ body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 32px) 38px 72
 .url-module-x:hover{color:var(--clay-2);opacity:1}
 @media (prefers-reduced-motion:reduce){.mono-core,.deck-scope,.deck-eq .eqb,.m-body,.m-shadow,.deck-ring,.m-orb-arm{animation:none}.deck-scope{stroke-dashoffset:0}}
 
-/* ── listening vault — brushed chromatic silver ── */
+/* ── listening vault — themed metal cabinet (hybrid media stage) ──
+   The "record room" chrome (frame, hero, dividers, type, shelf labels,
+   transport bar) re-themes per theme via the scoped --vault-* finish tokens
+   declared on .vault-room: gunmetal (default) / brass (dim) / blued-steel
+   (slate) / polished-nickel (light). The MEDIA CORE — Spotify embed iframe
+   (cross-origin, un-restylable), album-art crates, vinyl spines, and the
+   RecordPlayer/visualizer — stays on a deliberately dark --vault-stage in
+   every theme, because album art + the dark iframe present best on dark.
+   Default-dark values below are the original frozen hex (1:1 map → unchanged
+   in dark). The live accent (.vd-hub::after, .eq) keeps var(--accent).
+   NOTE: .vault-door/.vd-* below is legacy/unused (VaultModule renders the
+   <RecordPlayer> SVG, not .vault-door) — left as-is, no visual effect. */
 .vault-view{padding-top:18px}
 .vault-panel{padding:24px 4px 0}
-.vault-room{margin-top:18px;background:repeating-linear-gradient(90deg,rgba(193,196,199,.018) 0 1px,transparent 1px 5px),repeating-linear-gradient(0deg,rgba(193,196,199,.01) 0 1px,transparent 1px 9px),linear-gradient(160deg,#2a2c30,#1c1e22 45%,#222428 100%);border:1px solid rgba(193,196,199,.2);border-radius:12px;padding:6px;box-shadow:0 1px 0 rgba(193,196,199,.1) inset,0 30px 60px -34px rgba(0,0,0,.9),0 0 40px rgba(193,196,199,.04)}
-.vr-frame{border:1px solid rgba(193,196,199,.1);border-radius:8px;padding:28px 28px 26px;background:repeating-linear-gradient(90deg,rgba(193,196,199,.016) 0 1px,transparent 1px 4px)}
-/* brushed silver divider — #c1c4c7 */
-.vr-silver-strip{height:1.5px;background:linear-gradient(90deg,transparent,#c1c4c7 18%,rgba(220,224,228,.8) 50%,#c1c4c7 82%,transparent);border-radius:1px;margin:0 0 24px;opacity:.5}
+.vault-room{
+  --vault-metal:#2a2c30;--vault-metal-2:#1c1e22;--vault-metal-3:#222428;
+  --vault-chrome:#c1c4c7;--vault-edge:rgba(193,196,199,.2);
+  --vault-ink:#c8ccd4;--vault-ink-dim:#9aa4b2;--vault-ink-faint:#7a8090;
+  --vault-shadow:rgba(0,0,0,.9);--vault-inset-hi:rgba(193,196,199,.1);
+  --vault-stage:#14161b;
+  margin-top:18px;background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--vault-chrome) 2%,transparent) 0 1px,transparent 1px 5px),repeating-linear-gradient(0deg,color-mix(in srgb,var(--vault-chrome) 1%,transparent) 0 1px,transparent 1px 9px),linear-gradient(160deg,var(--vault-metal),var(--vault-metal-2) 45%,var(--vault-metal-3) 100%);border:1px solid var(--vault-edge);border-radius:12px;padding:6px;box-shadow:0 1px 0 var(--vault-inset-hi) inset,0 30px 60px -34px var(--vault-shadow),0 0 40px color-mix(in srgb,var(--vault-chrome) 4%,transparent)}
+html.dim .vault-room{--vault-metal:#241f14;--vault-metal-2:#1a160d;--vault-metal-3:#1f1a10;--vault-chrome:#d8b56a;--vault-edge:rgba(216,181,106,.22);--vault-ink:#e8d2a0;--vault-ink-dim:#b59a6a;--vault-ink-faint:#8c7f63;--vault-inset-hi:rgba(216,181,106,.12);--vault-stage:#1a160d}
+html.slate .vault-room{--vault-metal:#1a2a3d;--vault-metal-2:#101622;--vault-metal-3:#16202f;--vault-chrome:#b8cdec;--vault-edge:rgba(184,205,236,.2);--vault-ink:#dbe6f5;--vault-ink-dim:#8590a3;--vault-ink-faint:#5c6a82;--vault-inset-hi:rgba(184,205,236,.1);--vault-stage:#0d121c}
+html.light .vault-room{--vault-metal:#d2cec4;--vault-metal-2:#c2bdb2;--vault-metal-3:#cac6bc;--vault-chrome:#ffffff;--vault-edge:var(--line-strong);--vault-ink:#2a2e36;--vault-ink-dim:#4e4439;--vault-ink-faint:#4e4439;--vault-shadow:rgba(60,48,28,.30);--vault-inset-hi:rgba(255,255,255,.9);--vault-stage:#1e1c18}
+.vr-frame{border:1px solid color-mix(in srgb,var(--vault-chrome) 10%,transparent);border-radius:8px;padding:28px 28px 26px;background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--vault-chrome) 2%,transparent) 0 1px,transparent 1px 4px)}
+/* brushed metal divider — follows --vault-chrome per theme */
+.vr-silver-strip{height:1.5px;background:linear-gradient(90deg,transparent,var(--vault-chrome) 18%,color-mix(in srgb,var(--vault-chrome) 78%,#fff) 50%,var(--vault-chrome) 82%,transparent);border-radius:1px;margin:0 0 24px;opacity:.5}
 .vault-hero{display:flex;align-items:center;gap:26px;justify-content:space-between;margin-bottom:24px}
 .vh-left{max-width:520px}
-.vh-eyebrow{font-family:var(--narrow);font-weight:600;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:#9aa4b2}
-.vh-title{font-family:var(--disp);font-size:36px;letter-spacing:.02em;color:#c8ccd4;margin:8px 0 6px}
-.vh-sub{font-size:12.5px;color:#9aa4b2;line-height:1.6;font-weight:300}
-.vh-meta{display:flex;align-items:center;gap:10px;margin-top:14px;font-family:var(--mono);font-size:9.5px;color:#7a8090}
+.vh-eyebrow{font-family:var(--narrow);font-weight:600;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--vault-ink-dim)}
+.vh-title{font-family:var(--disp);font-size:36px;letter-spacing:.02em;color:var(--vault-ink);margin:8px 0 6px}
+.vh-sub{font-size:12.5px;color:var(--vault-ink-dim);line-height:1.6;font-weight:300}
+.vh-meta{display:flex;align-items:center;gap:10px;margin-top:14px;font-family:var(--mono);font-size:9.5px;color:var(--vault-ink-faint)}
 .vh-dot{opacity:.4}
 .vault-door.big{position:relative;width:128px;height:128px;flex:none;border-radius:50%;background:linear-gradient(135deg,#8898b8 0%,#404860 40%,#2c3248 65%,#5a6882 100%);box-shadow:0 0 0 6px #1e2230,0 0 0 7px rgba(210,225,255,.3),0 0 0 13px #252b3a,0 0 0 14px rgba(200,215,255,.12),0 20px 50px rgba(0,0,0,.7),0 0 30px rgba(160,185,240,.08) inset;cursor:pointer}
 .vd-spokes{position:absolute;inset:0;animation:vspin 14s linear infinite}
@@ -2703,20 +2761,20 @@ body[data-density="cozy"] .view-pad{padding:calc(var(--topbar-h) + 32px) 38px 72
 .vd-spokes i:nth-child(2){transform:rotate(60deg)}.vd-spokes i:nth-child(3){transform:rotate(120deg)}
 .vd-hub{position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;background:radial-gradient(circle at 33% 28%,#c8d4f0,#6878a0 45%,#2a3048 80%);box-shadow:0 0 0 3px #1e2230,0 0 0 4px rgba(210,225,255,.32),0 2px 8px rgba(0,0,0,.6)}
 .vd-hub::after{content:"";position:absolute;inset:11px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px color-mix(in srgb,var(--accent) 60%,transparent)}
-.vr-shelf-label{font-family:var(--narrow);font-weight:600;font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:#8890a0;margin:18px 0 10px}.vr-shelf-label span{opacity:.55;letter-spacing:.08em;text-transform:none}
-.spine-shelf{display:flex;gap:5px;align-items:flex-end;padding:0 2px 12px;border-bottom:1px solid rgba(193,196,199,.14)}
+.vr-shelf-label{font-family:var(--narrow);font-weight:600;font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--vault-ink-faint);margin:18px 0 10px}.vr-shelf-label span{opacity:.55;letter-spacing:.08em;text-transform:none}
+.spine-shelf{display:flex;gap:5px;align-items:flex-end;padding:0 2px 12px;border-bottom:1px solid color-mix(in srgb,var(--vault-chrome) 14%,transparent)}
 .spine{width:34px;height:118px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,color-mix(in srgb,var(--sc) 86%,#fff 8%),var(--sc) 30%,color-mix(in srgb,var(--sc) 70%,#000 22%));border:1px solid rgba(255,255,255,.09);box-shadow:0 1px 0 rgba(255,255,255,.14) inset,3px 0 6px -3px rgba(0,0,0,.6);cursor:pointer;position:relative;transition:.18s}
 .spine:hover{transform:translateY(-8px) rotate(-2deg)}
 .spine span{position:absolute;left:50%;top:8px;transform:translateX(-50%);writing-mode:vertical-rl;font-family:var(--narrow);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(220,228,242,.85);white-space:nowrap}
 .crate-row{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px}
-.crate{flex:none;width:148px;border-radius:7px;overflow:hidden;border:1px solid rgba(200,215,255,.16);background:linear-gradient(168deg,#2e3448 40%,#1e2434 55%);cursor:pointer;transition:.15s}
-.crate:hover{border-color:rgba(200,215,255,.38)}
+.crate{flex:none;width:148px;border-radius:7px;overflow:hidden;border:1px solid color-mix(in srgb,var(--vault-chrome) 16%,transparent);background:linear-gradient(168deg,color-mix(in srgb,var(--vault-chrome) 10%,var(--vault-stage)) 40%,var(--vault-stage) 55%);cursor:pointer;transition:.15s}
+.crate:hover{border-color:color-mix(in srgb,var(--vault-chrome) 38%,transparent)}
 .crate .cr-art{height:88px;background-size:cover;background-position:center;position:relative}
 .crate .cr-art::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(10,12,18,.7))}
 .crate .cr-b{padding:10px 11px}.crate .cr-t{font-size:11.5px;font-weight:400;color:#d8e0f0}.crate .cr-m{font-family:var(--mono);font-size:9px;color:#7a86a2;margin-top:3px}
-.vault-player{border-radius:12px;overflow:hidden;border:1px solid rgba(193,196,199,.2);background:#121212;margin-top:18px}
+.vault-player{border-radius:12px;overflow:hidden;border:1px solid var(--vault-edge);background:var(--vault-stage);margin-top:18px}
 .vault-player iframe{display:block;width:100%;height:152px;border:none;display:block}
-.vp-bar{display:flex;gap:10px;align-items:center;padding:11px 13px;border-top:1px solid rgba(193,196,199,.12);background:#1a1c1e;position:relative;z-index:1;margin-top:-1px}
+.vp-bar{display:flex;gap:10px;align-items:center;padding:11px 13px;border-top:1px solid color-mix(in srgb,var(--vault-chrome) 12%,transparent);background:var(--vault-stage);position:relative;z-index:1;margin-top:-1px}
 .vp-bar input{flex:1;background:#222426;border:1px solid rgba(193,196,199,.18);border-radius:3px;padding:7px 13px;color:#c8ccd4;font-family:var(--mono);font-size:10px;outline:none}
 .vp-open{display:grid;place-items:center;width:28px;height:28px;border-radius:6px;color:rgba(193,196,199,.5);flex-shrink:0;transition:.15s}.vp-open:hover{color:#1db954}.vp-open svg{width:13px;height:13px}
 .eq{display:inline-flex;align-items:flex-end;gap:2px;height:14px}
@@ -2925,8 +2983,8 @@ a:focus-visible,
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(0,0,0,.55);
-  color: #fff;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--on-accent);
   border: none;
   border-radius: 50%;
   width: 28px;
@@ -3566,9 +3624,10 @@ a:focus-visible,
   transition: opacity .15s;
 }
 .block-wrap:hover .block-controls { opacity: 1; }
-/* Compact blocks show the expand button faintly so user knows it's resizable */
-.block-sm .block-controls { opacity: 0.35; }
-.block-sm:hover .block-controls { opacity: 1; }
+/* Non-full blocks show the resize control faintly so the user knows it's
+   resizable even before hovering. */
+.block-sm .block-controls, .block-md .block-controls { opacity: 0.35; }
+.block-sm:hover .block-controls, .block-md:hover .block-controls { opacity: 1; }
 
 /* ── WebViewer ────────────────────────────────────────────────── */
 
@@ -3632,6 +3691,19 @@ a:focus-visible,
 }
 .wv-navbtn svg { width: 13px; height: 13px; }
 .wv-navbtn:hover { background: var(--glass); color: var(--ink); }
+/* The reader bar/error actions reuse .wv-navbtn but carry text labels ("Open
+   original →", "✕ Close reader") rather than an icon — the fixed 28×28 icon box
+   forced those labels to wrap and overlap. Relax to an auto-width text button. */
+.wv-reader-bar .wv-navbtn,
+.wv-reader-error .wv-navbtn {
+  width: auto;
+  height: auto;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
 .wv-close { color: var(--ink-faint); }
 .wv-close:hover { background: color-mix(in srgb, var(--clay) 15%, transparent); color: var(--clay); border-color: var(--clay); }
 
@@ -3730,6 +3802,214 @@ a:focus-visible,
   cursor: pointer;
   letter-spacing: .05em;
   text-transform: uppercase;
+}
+
+/* WebViewer Reader view (Tavily extract → article typography) */
+.wv-reader {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  overflow: auto;
+  padding: var(--space-5) var(--space-6);
+}
+
+.wv-reader-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.wv-reader-badge-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.wv-reader-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.wv-reader-reason {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.wv-reader-status {
+  font-family: var(--sans);
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.wv-reader-error p {
+  font-family: var(--sans);
+  color: var(--clay-2);
+  font-size: 13px;
+  margin: 0 0 6px;
+}
+.wv-reader-error-sub {
+  color: var(--ink-faint) !important;
+  font-size: 12px !important;
+  margin-bottom: var(--space-3) !important;
+}
+
+.wv-reader-article {
+  max-width: 680px;
+  margin: 0 auto;
+  padding-bottom: var(--space-6);
+}
+.wv-reader-title {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 600;
+  margin: 0 0 var(--space-4);
+  color: var(--ink);
+  letter-spacing: -.01em;
+}
+
+/* Article body typography — mirrors the rest of Atelier's token set (serif
+   headings, sans body, mono/narrow accents) since Tavily's markdown→HTML only
+   emits semantic tags with no styling of its own. */
+.wv-reader-content {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+
+.wv-reader-content > *:first-child { margin-top: 0; }
+
+.wv-reader-content p {
+  margin: 0 0 var(--space-3);
+}
+
+.wv-reader-content h1,
+.wv-reader-content h2,
+.wv-reader-content h3,
+.wv-reader-content h4,
+.wv-reader-content h5,
+.wv-reader-content h6 {
+  font-family: var(--serif);
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: var(--space-5) 0 var(--space-2);
+}
+.wv-reader-content h1 { font-size: 22px; }
+.wv-reader-content h2 { font-size: 19px; }
+.wv-reader-content h3 { font-size: 16.5px; }
+.wv-reader-content h4,
+.wv-reader-content h5,
+.wv-reader-content h6 {
+  font-family: var(--narrow);
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.wv-reader-content ul,
+.wv-reader-content ol {
+  margin: 0 0 var(--space-3);
+  padding-left: 1.4em;
+}
+.wv-reader-content li {
+  margin-bottom: var(--space-1);
+}
+.wv-reader-content li::marker {
+  color: var(--gold-deep);
+}
+
+.wv-reader-content a {
+  color: var(--marine-2);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--marine-2) 40%, transparent);
+  text-underline-offset: 2px;
+}
+.wv-reader-content a:hover {
+  color: var(--gold);
+  text-decoration-color: var(--gold);
+}
+
+.wv-reader-content strong { color: var(--ink); font-weight: 600; }
+.wv-reader-content em { color: var(--ink); }
+
+.wv-reader-content blockquote {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--gold-deep);
+  background: var(--glass);
+  color: var(--ink-dim);
+  font-style: italic;
+  border-radius: 0 var(--r) var(--r) 0;
+}
+.wv-reader-content blockquote p:last-child { margin-bottom: 0; }
+
+.wv-reader-content code {
+  font-family: var(--mono);
+  font-size: .9em;
+  background: var(--glass-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--gold-2);
+}
+.wv-reader-content pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow-x: auto;
+}
+.wv-reader-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-2);
+}
+
+.wv-reader-content hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: var(--space-5) 0;
+}
+
+.wv-reader-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: var(--space-3) auto;
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+}
+
+.wv-reader-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--space-3);
+  font-size: 13.5px;
+}
+.wv-reader-content th,
+.wv-reader-content td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+}
+.wv-reader-content th {
+  font-family: var(--narrow);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: var(--glass);
 }
 
 /* WebViewer Tab bar */

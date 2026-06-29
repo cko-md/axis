@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type Note = {
   id: string;
@@ -31,13 +32,28 @@ const SEED = [
   { title: "Grant Aims — Restructure", body: "Aim 1 too broad. Split into mechanistic + outcomes arms.", folder: "Grants", tags: ["grant"] },
 ];
 
+// Fire-and-forget: refreshes the note's embedding for semantic search. Silently
+// no-ops if GEMINI_API_KEY isn't configured server-side — search degrades to
+// quick (non-semantic) results rather than failing the note save.
+function reembedNote(noteId: string, title: string, body: string) {
+  const text = `${title}\n\n${body}`.trim();
+  if (!text) return;
+  fetch("/api/embeddings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ noteId, text }),
+  }).catch(() => {});
+}
+
 export function useNotes() {
   const supabase = useMemo(() => createClient(), []);
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setNotes([]);
       setLoading(false);
@@ -59,7 +75,9 @@ export function useNotes() {
     refresh();
   }, [refresh]);
 
-  const createNote = async (title: string, folder = "All Notes") => {
+  useRealtimeRefresh(supabase, "notes", userId, refresh);
+
+  const createNote = useCallback(async (title: string, folder = "All Notes") => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
@@ -75,17 +93,18 @@ export function useNotes() {
       console.error("[useNotes] createNote", err);
       return null;
     }
-  };
+  }, [supabase]);
 
-  const updateNote = async (id: string, patch: Partial<Note>) => {
+  const updateNote = useCallback(async (id: string, patch: Partial<Note>) => {
     try {
       const { data, error } = await supabase.from("notes").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
       if (error || !data) return;
       setNotes((prev) => prev.map((n) => (n.id === id ? (data as Note) : n)));
+      if (patch.title !== undefined || patch.body !== undefined) reembedNote(id, (data as Note).title, (data as Note).body);
     } catch (err) {
       console.error("[useNotes] updateNote", err);
     }
-  };
+  }, [supabase]);
 
   // Debounced variant for keystroke-driven edits: local state updates immediately,
   // the Supabase write coalesces to one request per pause in typing.
@@ -106,24 +125,28 @@ export function useNotes() {
               .from("notes")
               .update({ ...p, updated_at: new Date().toISOString() })
               .eq("id", id)
-              .then(undefined, () => {});
+              .select("title, body")
+              .single()
+              .then(({ data }) => {
+                if (data) reembedNote(id, data.title, data.body);
+              }, () => {});
           }
         }, 600),
       );
     };
   }, [supabase]);
 
-  const deleteNote = async (id: string) => {
+  const deleteNote = useCallback(async (id: string) => {
     try {
       const { error } = await supabase.from("notes").delete().eq("id", id);
       if (!error) setNotes((prev) => prev.filter((n) => n.id !== id));
     } catch (err) {
       console.error("[useNotes] deleteNote", err);
     }
-  };
+  }, [supabase]);
 
   // Lock state is stored as a sentinel tag so no schema migration is needed.
-  const toggleLock = async (id: string) => {
+  const toggleLock = useCallback(async (id: string) => {
     const note = notes.find((n) => n.id === id);
     if (!note) return false;
     const locked = note.tags.includes(LOCK_TAG);
@@ -137,7 +160,7 @@ export function useNotes() {
       console.error("[useNotes] toggleLock", err);
       return locked;
     }
-  };
+  }, [notes, supabase]);
 
   return { notes, loading, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock };
 }

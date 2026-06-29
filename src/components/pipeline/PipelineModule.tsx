@@ -204,6 +204,7 @@ const EMPTY_CONF_FORM = {
   travel: "",
   next_step: "",
   linked_study_id: "",
+  abstract_due_date: "",
 };
 
 const inputCls = "rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm";
@@ -243,6 +244,8 @@ export function PipelineModule() {
   const [confModalOpen, setConfModalOpen] = useState(false);
   const [editingConf, setEditingConf] = useState<Conference | null>(null);
   const [confForm, setConfForm] = useState(EMPTY_CONF_FORM);
+  const [draftText, setDraftText] = useState("");
+  const [drafting, setDrafting] = useState(false);
 
   const openAddStudy = (stageId: string) => {
     setEditingStudy(null);
@@ -319,6 +322,7 @@ export function PipelineModule() {
     }
     setEditingConf(null);
     setConfForm(EMPTY_CONF_FORM);
+    setDraftText("");
     setConfModalOpen(true);
   };
 
@@ -333,8 +337,39 @@ export function PipelineModule() {
       travel: c.travel,
       next_step: c.next_step,
       linked_study_id: c.linked_study_id ?? "",
+      abstract_due_date: c.abstract_due_date ?? "",
     });
+    setDraftText("");
     setConfModalOpen(true);
+  };
+
+  const draftAbstract = async () => {
+    if (!confForm.name.trim()) {
+      toast("Give the conference a name first.", "warn", "Pipeline");
+      return;
+    }
+    setDrafting(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "pipeline-draft",
+          text: confForm.abstract.trim() || confForm.name,
+          body: JSON.stringify({ kind: "conference", meta: [confForm.location, confForm.date_label].filter(Boolean).join(" · ") }),
+        }),
+      });
+      const d = await res.json();
+      if (d.draft) {
+        setDraftText(d.draft);
+      } else {
+        toast("Couldn't generate a draft right now — check your API key.", "warn", "Pipeline");
+      }
+    } catch {
+      toast("Couldn't reach the assistant.", "error", "Pipeline");
+    } finally {
+      setDrafting(false);
+    }
   };
 
   const saveConf = async () => {
@@ -351,6 +386,7 @@ export function PipelineModule() {
       travel: confForm.travel.trim(),
       next_step: confForm.next_step.trim(),
       linked_study_id: confForm.linked_study_id || null,
+      abstract_due_date: confForm.abstract_due_date || null,
     };
     const result = editingConf ? await updateConference(editingConf.id, payload) : await addConference(payload);
     if (result.error) {
@@ -582,11 +618,13 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Study title"
+            aria-label="Study title"
             value={studyForm.title}
             onChange={(e) => setStudyForm({ ...studyForm, title: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Role"
             value={studyForm.role}
             onChange={(e) => setStudyForm({ ...studyForm, role: e.target.value as Study["role"] })}
           >
@@ -595,6 +633,7 @@ export function PipelineModule() {
           </select>
           <select
             className={inputCls}
+            aria-label="Stage"
             value={studyForm.stage_id}
             onChange={(e) => setStudyForm({ ...studyForm, stage_id: e.target.value })}
           >
@@ -605,12 +644,14 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Meta — e.g. Type: Retrospective · n: 247"
+            aria-label="Study meta"
             value={studyForm.meta}
             onChange={(e) => setStudyForm({ ...studyForm, meta: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Next action"
+            aria-label="Next action"
             value={studyForm.next_action}
             onChange={(e) => setStudyForm({ ...studyForm, next_action: e.target.value })}
           />
@@ -632,11 +673,13 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Stage name — e.g. Revision"
+            aria-label="Stage name"
             value={stageForm.name}
             onChange={(e) => setStageForm({ ...stageForm, name: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Stage color"
             value={stageForm.swatch}
             onChange={(e) => setStageForm({ ...stageForm, swatch: e.target.value })}
           >
@@ -682,23 +725,27 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Conference name"
+            aria-label="Conference name"
             value={confForm.name}
             onChange={(e) => setConfForm({ ...confForm, name: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Location — e.g. Chicago"
+            aria-label="Location"
             value={confForm.location}
             onChange={(e) => setConfForm({ ...confForm, location: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Dates — e.g. Oct 12–16"
+            aria-label="Dates"
             value={confForm.date_label}
             onChange={(e) => setConfForm({ ...confForm, date_label: e.target.value })}
           />
           <select
             className={inputCls}
+            aria-label="Status"
             value={confForm.status}
             onChange={(e) => setConfForm({ ...confForm, status: e.target.value as ConferenceStatus })}
           >
@@ -709,11 +756,36 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Abstract title"
+            aria-label="Abstract title"
             value={confForm.abstract}
             onChange={(e) => setConfForm({ ...confForm, abstract: e.target.value })}
           />
+          <div>
+            <label htmlFor="conf-abstract-due" style={{ display: "block", fontSize: 10.5, color: "var(--ink-faint)", marginBottom: 4, fontFamily: "var(--mono)" }}>
+              Abstract due date — drives the 7-day reminder
+            </label>
+            <input
+              id="conf-abstract-due"
+              type="date"
+              className={inputCls}
+              style={{ width: "100%" }}
+              value={confForm.abstract_due_date}
+              onChange={(e) => setConfForm({ ...confForm, abstract_due_date: e.target.value })}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <Button variant="ghost" onClick={draftAbstract} disabled={drafting}>
+              {drafting ? "Drafting…" : "✦ Draft abstract"}
+            </Button>
+            {draftText && (
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 10, maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                {draftText}
+              </div>
+            )}
+          </div>
           <select
             className={inputCls}
+            aria-label="Linked study"
             value={confForm.linked_study_id}
             onChange={(e) => setConfForm({ ...confForm, linked_study_id: e.target.value })}
           >
@@ -725,12 +797,14 @@ export function PipelineModule() {
           <input
             className={inputCls}
             placeholder="Travel — e.g. Flights booked · hotel pending"
+            aria-label="Travel"
             value={confForm.travel}
             onChange={(e) => setConfForm({ ...confForm, travel: e.target.value })}
           />
           <input
             className={inputCls}
             placeholder="Next step — e.g. Poster print by Apr 10"
+            aria-label="Next step"
             value={confForm.next_step}
             onChange={(e) => setConfForm({ ...confForm, next_step: e.target.value })}
           />

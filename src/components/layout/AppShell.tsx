@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
@@ -37,6 +37,7 @@ export function AppShell({ section, page, children }: Props) {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isNight, setIsNight] = useState(false);
+  const autoCollapsedRef = useRef(false);
 
   useEffect(() => {
     const check = () => {
@@ -59,19 +60,42 @@ export function AppShell({ section, page, children }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Auto-collapse sidebar on narrow viewports
+  // Auto-collapse sidebar on narrow viewports, and restore it when the
+  // viewport widens back out — but only if the collapse was automatic
+  // (a manual toggle via cycleMode sticks across resizes).
   useEffect(() => {
     const onResize = () => {
       const w = window.innerWidth;
-      if (w < 600) setSidebarMode((m) => (m === "open" || m === "icons") ? "hidden" : m);
-      else if (w < 860) setSidebarMode((m) => m === "open" ? "icons" : m);
+      if (w < 600) {
+        setSidebarMode((m) => {
+          if (m === "open" || m === "icons") {
+            autoCollapsedRef.current = true;
+            return "hidden";
+          }
+          return m;
+        });
+      } else if (w < 860) {
+        setSidebarMode((m) => {
+          if (m === "open") {
+            autoCollapsedRef.current = true;
+            return "icons";
+          }
+          return m;
+        });
+      } else if (autoCollapsedRef.current) {
+        autoCollapsedRef.current = false;
+        setSidebarMode("open");
+      }
     };
     onResize();
     window.addEventListener("resize", onResize, { passive: true });
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const cycleMode = () => setSidebarMode((m) => NEXT_MODE[m]);
+  const cycleMode = () => {
+    autoCollapsedRef.current = false;
+    setSidebarMode((m) => NEXT_MODE[m]);
+  };
 
   return (
     <SpotifyProvider>
@@ -82,19 +106,32 @@ export function AppShell({ section, page, children }: Props) {
       </div>
       <div className="grain" aria-hidden />
       <div className={`app-shell mode-${sidebarMode}`}>
-        <Sidebar collapsed={sidebarMode === "icons"} onToggle={cycleMode} />
+        <Sidebar collapsed={sidebarMode === "icons"} />
         <div className="main-scroll">
           <Topbar section={section} page={page} onOpenPalette={() => setPaletteOpen(true)} />
-          <div className="view-pad">{children}</div>
+          <main id="main-content" className="view-pad">{children}</main>
         </div>
-      </div>
-      {sidebarMode === "hidden" && (
-        <button className="sb-reveal" onClick={cycleMode} aria-label="Show sidebar" title="Show sidebar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <polyline points="9 18 15 12 9 6" />
+        {/* Single sidebar toggle — rendered inside .app-shell so it can read the
+            --sb-w grid variable and ride the sidebar's right edge as it resizes
+            (open → icons → hidden). position:fixed keeps it out of the grid flow
+            and out of the .sb-top header, so it never overlaps the AXIS logo. */}
+        <button
+          className="sb-toggle"
+          onClick={cycleMode}
+          aria-label={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
+          title={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            style={{ width: 14, height: 14, transform: sidebarMode === "open" ? undefined : "rotate(180deg)" }}
+          >
+            <path d="M15 6l-6 6 6 6" />
           </svg>
         </button>
-      )}
+      </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Mascot />
       <InterfaceStudioDrawer />

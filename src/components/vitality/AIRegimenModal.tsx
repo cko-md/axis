@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type RegimenItem = {
@@ -49,7 +49,7 @@ const fieldStyle: React.CSSProperties = {
 const selStyle: React.CSSProperties = { ...fieldStyle, cursor: "pointer" };
 
 type Props = {
-  discipline: "run" | "lift";
+  discipline: "run" | "lift" | "mobility";
   open: boolean;
   onClose: () => void;
   onApply?: (days: PlanDay[]) => void;
@@ -57,15 +57,38 @@ type Props = {
   stravaContext?: string;
 };
 
+const GOAL_PLACEHOLDER: Record<Props["discipline"], string> = {
+  run: "e.g. sub-90 min half marathon, base building…",
+  lift: "e.g. hypertrophy, powerlifting, hybrid athlete…",
+  mobility: "e.g. hip & hamstring mobility, post-run recovery flow…",
+};
+
+const DEFAULT_GOAL: Record<Props["discipline"], string> = {
+  run: "sub-1:30 half marathon",
+  lift: "hypertrophy + strength base",
+  mobility: "improve hip mobility + post-run recovery",
+};
+
+const DAYS_LABEL: Record<Props["discipline"], string> = {
+  run: "Training days / week",
+  lift: "Lifting days / week",
+  mobility: "Flow days / week",
+};
+
+const MODAL_TITLE: Record<Props["discipline"], string> = {
+  run: "Running Plan",
+  lift: "Strength Program",
+  mobility: "Mobility & Pilates Flow",
+};
+
 export function AIRegimenModal({ discipline, open, onClose, onApply, stravaContext }: Props) {
-  const [daysPerWeek, setDaysPerWeek] = useState(discipline === "run" ? 4 : 3);
+  const [daysPerWeek, setDaysPerWeek] = useState(discipline === "run" ? 4 : discipline === "mobility" ? 5 : 3);
   const [level, setLevel] = useState("intermediate");
-  const [goal, setGoal] = useState(
-    discipline === "run" ? "sub-1:30 half marathon" : "hypertrophy + strength base",
-  );
+  const [goal, setGoal] = useState(DEFAULT_GOAL[discipline]);
   const [loading, setLoading] = useState(false);
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [error, setError] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -74,6 +97,27 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
     if (open) document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Focus trap
+  useEffect(() => {
+    if (!open) return;
+    const el = dialogRef.current;
+    const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+    const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+    nodes[0]?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first?.focus();
+      }
+    };
+    el?.addEventListener("keydown", trap);
+    return () => el?.removeEventListener("keydown", trap);
+  }, [open]);
 
   const generate = async () => {
     setLoading(true);
@@ -110,7 +154,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 1001,
+        zIndex: 200,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -118,8 +162,12 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
         backdropFilter: "blur(6px)",
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Generate ${discipline} plan`}
     >
       <div
+        ref={dialogRef}
         style={{
           width: "min(720px, 96vw)",
           maxHeight: "92vh",
@@ -164,12 +212,13 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                 letterSpacing: ".02em",
               }}
             >
-              {discipline === "run" ? "Running Plan" : "Strength Program"}
+              {MODAL_TITLE[discipline]}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             style={{
               background: "none",
               border: "none",
@@ -192,20 +241,15 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                 <input
                   value={goal}
                   onChange={(e) => setGoal(e.target.value)}
-                  placeholder={
-                    discipline === "run"
-                      ? "e.g. sub-90 min half marathon, base building…"
-                      : "e.g. hypertrophy, powerlifting, hybrid athlete…"
-                  }
+                  placeholder={GOAL_PLACEHOLDER[discipline]}
                   style={{ ...fieldStyle, marginTop: 5 }}
                 />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <FormLabel>
-                    {discipline === "run" ? "Training days / week" : "Lifting days / week"}
-                  </FormLabel>
+                  <FormLabel>{DAYS_LABEL[discipline]}</FormLabel>
                   <select
+                    aria-label="Days per week"
                     value={daysPerWeek}
                     onChange={(e) => setDaysPerWeek(Number(e.target.value))}
                     style={{ ...selStyle, marginTop: 5 }}
@@ -220,6 +264,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                 <div>
                   <FormLabel>Current level</FormLabel>
                   <select
+                    aria-label="Experience level"
                     value={level}
                     onChange={(e) => setLevel(e.target.value)}
                     style={{ ...selStyle, marginTop: 5 }}
@@ -393,7 +438,7 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
                                 style={{
                                   fontFamily: "var(--mono)",
                                   fontSize: 10,
-                                  color: "#3f6fb0",
+                                  color: "var(--marine)",
                                   whiteSpace: "nowrap",
                                 }}
                               >

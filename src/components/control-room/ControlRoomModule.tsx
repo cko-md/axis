@@ -10,6 +10,9 @@ import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { Seg } from "@/components/ui/Seg";
+import type { AIProviderPref } from "@/lib/ai/router";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -89,10 +92,54 @@ export function ControlRoomModule() {
   // Service setup-states ---------------------------------------------------
   const [marketStatus, setMarketStatus] = useState<ServiceStatus | null>(null);
   const [aiStatus, setAiStatus] = useState<ServiceStatus | null>(null);
+  const [aiProvider, setAiProvider] = useState<AIProviderPref>("auto");
+  const [aiProviderSaving, setAiProviderSaving] = useState(false);
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
+  const [stravaConnected, setStravaConnected] = useState<boolean | null>(null);
   const [brokerStatus, setBrokerStatus] = useState<ServiceStatus | null>(null);
   const [plaidStatus, setPlaidStatus] = useState<ServiceStatus | null>(null);
   const [calendarStatus, setCalendarStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [mailStatus, setMailStatus] = useState<{ gmail: boolean; gmailEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+
+  const refreshMailStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/mail/status", { cache: "no-store" });
+      const { accounts } = (await res.json()) as {
+        accounts: Array<{ provider: "gmail" | "outlook"; mailEmail: string }>;
+      };
+      const gmailAcct = accounts.find((a) => a.provider === "gmail");
+      const outlookAcct = accounts.find((a) => a.provider === "outlook");
+      setMailStatus({
+        gmail: !!gmailAcct,
+        gmailEmail: gmailAcct?.mailEmail ?? null,
+        outlook: !!outlookAcct,
+        outlookEmail: outlookAcct?.mailEmail ?? null,
+      });
+    } catch {
+      setMailStatus({ gmail: false, gmailEmail: null, outlook: false, outlookEmail: null });
+    }
+  }, []);
+
+  const refreshComposioStatus = useCallback(async () => {
+    // Hitting the status route triggers Composio's poll-on-read, which flips a
+    // freshly-connected account to ACTIVE in our DB — the merged mail/calendar
+    // status routes then surface it. We don't render the raw list here, so the
+    // call is made purely for that side effect.
+    try {
+      await fetch("/api/integrations/composio/status", { cache: "no-store" });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshCalendarStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/calendar/status", { cache: "no-store" });
+      setCalendarStatus(await res.json());
+    } catch {
+      setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
+    }
+  }, []);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -147,12 +194,13 @@ export function ControlRoomModule() {
       let roleTitle: string | null = null;
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, role_title")
+        .select("display_name, role_title, ai_provider")
         .eq("id", u.id)
         .maybeSingle();
       if (profile) {
         displayName = profile.display_name ?? null;
         roleTitle = profile.role_title ?? null;
+        setAiProvider((profile.ai_provider as AIProviderPref) ?? "gemini");
       }
       if (!alive) return;
       setUser({
@@ -203,16 +251,25 @@ export function ControlRoomModule() {
         if (alive) setSpotifyConnected(false);
       }
       try {
+        const st = await fetch("/api/strava?action=status", { cache: "no-store" });
+        const stJson = await st.json();
+        if (alive) setStravaConnected(!!stJson.connected);
+      } catch {
+        if (alive) setStravaConnected(false);
+      }
+      try {
         const cal = await fetch("/api/calendar/status", { cache: "no-store" });
         if (alive) setCalendarStatus(await cal.json());
       } catch {
         if (alive) setCalendarStatus({ google: false, googleEmail: null, outlook: false, outlookEmail: null });
       }
+      if (alive) await refreshMailStatus();
+      if (alive) await refreshComposioStatus();
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refreshMailStatus, refreshComposioStatus]);
 
   // --- Load real activity from content tables -----------------------------
   const loadActivity = useCallback(async () => {
@@ -251,6 +308,16 @@ export function ControlRoomModule() {
     loadActivity();
   }, [loadActivity]);
 
+  const saveAiProvider = useCallback(async (pref: AIProviderPref) => {
+    setAiProvider(pref);
+    setAiProviderSaving(true);
+    const { data } = await supabase.auth.getUser();
+    if (data.user) {
+      await supabase.from("profiles").update({ ai_provider: pref }).eq("id", data.user.id);
+    }
+    setAiProviderSaving(false);
+  }, [supabase]);
+
   // --- Load security settings when security tab is active ----------------
   useEffect(() => {
     if (tab !== "security") return;
@@ -272,8 +339,31 @@ export function ControlRoomModule() {
 
   // --- Actions ------------------------------------------------------------
   const connectSpotify = () => {
-    // OAuth redirect lives at /api/spotify/auth; it 503s cleanly if unconfigured.
-    window.location.href = "/api/spotify/auth";
+    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
+      if (status === "ok") setSpotifyConnected(true);
+    });
+  };
+
+  type ComposioToolkit = "gmail" | "outlook" | "strava" | "spotify" | "googlecalendar" | "googlecontacts";
+
+  // After any Composio connect/disconnect, refresh every status the change could
+  // touch: the raw Composio list plus the merged mail/calendar views (which now
+  // read Composio), so whichever row triggered it reflects the new state.
+  const refreshAfterComposio = useCallback(() => {
+    void refreshComposioStatus();
+    void refreshMailStatus();
+    void refreshCalendarStatus();
+  }, [refreshComposioStatus, refreshMailStatus, refreshCalendarStatus]);
+
+  const connectComposioToolkit = (toolkit: ComposioToolkit) => {
+    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+      if (status === "ok") refreshAfterComposio();
+    });
+  };
+
+  const disconnectComposioToolkit = async (toolkit: ComposioToolkit) => {
+    await fetch(`/api/integrations/composio/disconnect?toolkit=${toolkit}`, { method: "DELETE" });
+    refreshAfterComposio();
   };
 
   const exportLocalData = () => {
@@ -421,6 +511,13 @@ export function ControlRoomModule() {
     state: ConnState;
     detail: string;
     action?: { label: string; onClick: () => void };
+    // Secondary Composio-bridge connect path, shown dimmer alongside the
+    // primary direct-OAuth action (mirrors AddAccountPicker.tsx's pattern).
+    // Direct OAuth stays primary for both — Spotify's direct integration
+    // covers playback/library/search well beyond a generic toolkit bridge,
+    // and Strava's existing direct OAuth already works, so neither is being
+    // ripped out, just given a working alternate path.
+    composioToolkit?: "strava" | "spotify";
   }[] = [
     {
       name: "Supabase",
@@ -447,7 +544,52 @@ export function ControlRoomModule() {
       action:
         spotifyConnected === false
           ? { label: "Connect", onClick: connectSpotify }
-          : undefined,
+          : spotifyConnected
+            ? {
+                label: "Disconnect",
+                onClick: async () => {
+                  await fetch("/api/spotify/disconnect", { method: "POST" });
+                  setSpotifyConnected(false);
+                },
+              }
+            : undefined,
+      composioToolkit: "spotify",
+    },
+    {
+      name: "Strava",
+      desc: "Vitality — runs, rides & training load",
+      state: stravaConnected === null ? "pending" : stravaConnected ? "on" : "off",
+      detail:
+        stravaConnected === null
+          ? "Checking…"
+          : stravaConnected
+            ? "Connected via OAuth"
+            : "Connect your Strava account",
+      action:
+        stravaConnected === false
+          ? {
+              label: "Connect",
+              onClick: () => {
+                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+                  if (status === "ok") {
+                    fetch("/api/strava?action=status", { cache: "no-store" })
+                      .then((r) => r.json())
+                      .then((s) => setStravaConnected(!!s.connected))
+                      .catch(() => {});
+                  }
+                });
+              },
+            }
+          : stravaConnected
+            ? {
+                label: "Disconnect",
+                onClick: async () => {
+                  await fetch("/api/strava?action=disconnect");
+                  setStravaConnected(false);
+                },
+              }
+            : undefined,
+      composioToolkit: "strava",
     },
     {
       name: "AI (Anthropic)",
@@ -473,12 +615,9 @@ export function ControlRoomModule() {
       state: calendarStatus === null ? "pending" : calendarStatus.google ? "on" : "off",
       detail: calendarStatus === null ? "Checking…" : calendarStatus.google ? (calendarStatus.googleEmail ?? "Connected") : "Not connected",
       action: calendarStatus && !calendarStatus.google
-        ? { label: "Connect", onClick: () => { window.location.href = "/api/calendar/connect?provider=google"; } }
+        ? { label: "Connect", onClick: () => connectComposioToolkit("googlecalendar") }
         : calendarStatus?.google
-        ? { label: "Disconnect", onClick: async () => {
-            await fetch("/api/calendar/disconnect?provider=google", { method: "DELETE" });
-            setCalendarStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
-          }}
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("googlecalendar") }
         : undefined,
     },
     {
@@ -487,12 +626,31 @@ export function ControlRoomModule() {
       state: calendarStatus === null ? "pending" : calendarStatus.outlook ? "on" : "off",
       detail: calendarStatus === null ? "Checking…" : calendarStatus.outlook ? (calendarStatus.outlookEmail ?? "Connected") : "Not connected",
       action: calendarStatus && !calendarStatus.outlook
-        ? { label: "Connect", onClick: () => { window.location.href = "/api/calendar/connect?provider=outlook"; } }
+        ? { label: "Connect", onClick: () => connectComposioToolkit("outlook") }
         : calendarStatus?.outlook
-        ? { label: "Disconnect", onClick: async () => {
-            await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
-            setCalendarStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
-          }}
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("outlook") }
+        : undefined,
+    },
+    {
+      name: "Gmail",
+      desc: "Read-only inbox access for triage and summarization",
+      state: mailStatus === null ? "pending" : mailStatus.gmail ? "on" : "off",
+      detail: mailStatus === null ? "Checking…" : mailStatus.gmail ? (mailStatus.gmailEmail ?? "Connected") : "Not connected",
+      action: mailStatus && !mailStatus.gmail
+        ? { label: "Connect", onClick: () => connectComposioToolkit("gmail") }
+        : mailStatus?.gmail
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("gmail") }
+        : undefined,
+    },
+    {
+      name: "Outlook Mail",
+      desc: "Read-only inbox access for triage and summarization",
+      state: mailStatus === null ? "pending" : mailStatus.outlook ? "on" : "off",
+      detail: mailStatus === null ? "Checking…" : mailStatus.outlook ? (mailStatus.outlookEmail ?? "Connected") : "Not connected",
+      action: mailStatus && !mailStatus.outlook
+        ? { label: "Connect", onClick: () => connectComposioToolkit("outlook") }
+        : mailStatus?.outlook
+        ? { label: "Disconnect", onClick: () => disconnectComposioToolkit("outlook") }
         : undefined,
     },
   ];
@@ -569,9 +727,24 @@ export function ControlRoomModule() {
                   <div className={styles.svcName}>{c.name}</div>
                   <div className={styles.svcDesc}>{c.detail}</div>
                 </div>
-                <span className={styles.svcState} data-state={c.state}>
-                  {c.state === "on" ? "Live" : c.state === "pending" ? "…" : "Setup"}
-                </span>
+                {c.state !== "on" && c.state !== "pending" ? (
+                  <button
+                    type="button"
+                    className={styles.svcAction}
+                    // Services with a real connect flow (Spotify/Strava, etc.)
+                    // fire it directly — same handler the Connections tab's
+                    // button uses. Config-only services (Market Data, AI,
+                    // Brokerage) have no inline OAuth action, so "Setup" just
+                    // jumps to the Connections tab where the setup detail lives.
+                    onClick={() => (c.action ? c.action.onClick() : setTab("connections"))}
+                  >
+                    Setup
+                  </button>
+                ) : (
+                  <span className={styles.svcState} data-state={c.state}>
+                    {c.state === "on" ? "Live" : "…"}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -624,6 +797,15 @@ export function ControlRoomModule() {
                 <div className={styles.svcDesc}>
                   {c.desc} — {c.detail}
                 </div>
+                {c.composioToolkit && c.state === "off" && (
+                  <button
+                    type="button"
+                    className={styles.svcComposioLink}
+                    onClick={() => connectComposioToolkit(c.composioToolkit!)}
+                  >
+                    Connect via Composio
+                  </button>
+                )}
               </div>
               {c.action ? (
                 <button type="button" className={styles.svcAction} onClick={c.action.onClick}>
@@ -636,6 +818,28 @@ export function ControlRoomModule() {
               )}
             </div>
           ))}
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <h2 className="sec">
+            AI Model<span className="rule" />
+          </h2>
+          <p className={styles.note} style={{ marginBottom: 10 }}>
+            Auto picks the cheapest capable model per task (Gemini for quick classification, Claude for writing and
+            conversation). Forcing a provider routes every AI feature through it instead, falling back to the other
+            only if it&rsquo;s unavailable. Semantic search always uses Gemini&rsquo;s embedding model regardless of this
+            setting — switching embedding providers would break existing search results.
+          </p>
+          <Seg<AIProviderPref>
+            options={[
+              { label: "Auto", value: "auto" },
+              { label: "Gemini", value: "gemini" },
+              { label: "Claude", value: "anthropic" },
+            ]}
+            value={aiProvider}
+            onChange={(v) => void saveAiProvider(v)}
+          />
+          {aiProviderSaving && <p className={styles.note} style={{ marginTop: 8 }}>Saving…</p>}
         </div>
       </div>
 
@@ -707,6 +911,31 @@ export function ControlRoomModule() {
               </button>
               <button type="button" className={styles.dangerBtn} onClick={() => setClearOpen(true)}>
                 Clear local data
+              </button>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2 className="sec">
+              Legal<span className="rule" />
+            </h2>
+            <p className={styles.note}>
+              Review the legal documents governing your use of Axis.
+            </p>
+            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="savebtn"
+                onClick={() => window.open("/terms", "_blank", "width=720,height=900,noopener")}
+              >
+                Terms of Service ↗
+              </button>
+              <button
+                type="button"
+                className="savebtn"
+                onClick={() => window.open("/privacy", "_blank", "width=720,height=900,noopener")}
+              >
+                Privacy Policy ↗
               </button>
             </div>
           </div>

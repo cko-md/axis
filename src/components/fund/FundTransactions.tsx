@@ -1,33 +1,121 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 
-const TXNS = [
-  { ic: "🏦", title: "Salary — Hospital", meta: "Direct deposit · Jun 1", value: "+$3,400", up: true },
-  { ic: "🍃", title: "HYSA transfer", meta: "Savings · Jun 2", value: "−$1,500", up: false },
-  { ic: "📚", title: "UpToDate subscription", meta: "Education · Jun 3", value: "−$44", up: false },
-  { ic: "🍽️", title: "Dinner — Lilia", meta: "Dining · Jun 5", value: "−$128", up: false },
-  { ic: "📈", title: "Auto-invest — VTI", meta: "Brokerage · Jun 6", value: "−$1,000", up: false },
-];
+type PlaidTxn = {
+  id: string;
+  name: string;
+  category: string;
+  amount: number;
+  date: string;
+  pending: boolean;
+};
 
-/** Phase-3 static stub — Recent Transactions list (prototype finance view). */
+const CATEGORY_IC: Record<string, string> = {
+  FOOD_AND_DRINK: "🍽️",
+  GROCERIES: "🛒",
+  TRANSPORTATION: "🚗",
+  MEDICAL: "🏥",
+  ENTERTAINMENT: "🎬",
+  SUBSCRIPTION: "📱",
+  RENT_AND_UTILITIES: "🏠",
+  TRAVEL: "✈️",
+  GENERAL_MERCHANDISE: "🛍️",
+  INCOME: "🏦",
+};
+
+function fmtAmount(amount: number) {
+  const abs = Math.abs(amount).toFixed(2);
+  return amount >= 0 ? `+$${abs}` : `−$${abs}`;
+}
+
+function fmtDate(iso: string) {
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function FundTransactions() {
+  const [txns, setTxns] = useState<PlaidTxn[]>([]);
+  const [status, setStatus] = useState<"loading" | "ok" | "no-plaid" | "no-account" | "error">(
+    "loading",
+  );
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/plaid/transactions", { method: "POST" });
+      const data = await res.json();
+      if (!data.configured) { setStatus("no-plaid"); return; }
+      if (data.error === "NO_LINKED_ACCOUNT") { setStatus("no-account"); return; }
+      if (data.error) { setStatus("error"); return; }
+      setTxns(data.transactions ?? []);
+      setStatus("ok");
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
   return (
     <Card tick>
       <h2 className="sec">
         Recent Transactions
         <span className="rule" />
-        <span className="count">Plaid</span>
+        <span className="count">Plaid · 30d</span>
       </h2>
       <div style={{ marginTop: 10 }}>
-        {TXNS.map((t) => (
-          <div key={t.title} className="txn">
-            <div className="txn-ic">{t.ic}</div>
-            <div className="txn-b">
-              <div className="txn-t">{t.title}</div>
-              <div className="txn-m">{t.meta}</div>
+        {status === "loading" && (
+          <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading transactions…</p>
+        )}
+        {status === "no-plaid" && (
+          <p style={{ fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
+            Add PLAID_CLIENT_ID and PLAID_SECRET in Vercel to connect your bank.
+          </p>
+        )}
+        {status === "no-account" && (
+          <p style={{ fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
+            No linked bank account — use Plaid Link to connect one.
+          </p>
+        )}
+        {status === "error" && (
+          <p style={{ fontSize: 12, color: "var(--clay)" }}>
+            Could not load transactions. Try again later.
+          </p>
+        )}
+        {status === "ok" && txns.length === 0 && (
+          <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>
+            No transactions in the last 30 days.
+          </p>
+        )}
+        {status === "ok" &&
+          txns.slice(0, 8).map((t) => (
+            <div key={t.id} className="txn">
+              <div className="txn-ic">{CATEGORY_IC[t.category] ?? "📋"}</div>
+              <div className="txn-b">
+                <div className="txn-t">
+                  {t.name}
+                  {t.pending && (
+                    <span
+                      style={{
+                        marginLeft: 5,
+                        fontSize: 9,
+                        color: "var(--ink-faint)",
+                        fontFamily: "var(--mono)",
+                        letterSpacing: ".06em",
+                      }}
+                    >
+                      PENDING
+                    </span>
+                  )}
+                </div>
+                <div className="txn-m">
+                  {t.category.replace(/_/g, " ")} · {fmtDate(t.date)}
+                </div>
+              </div>
+              <div className={`txn-v${t.amount >= 0 ? " up" : ""}`}>{fmtAmount(t.amount)}</div>
             </div>
-            <div className={`txn-v${t.up ? " up" : ""}`}>{t.value}</div>
-          </div>
-        ))}
+          ))}
       </div>
     </Card>
   );

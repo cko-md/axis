@@ -44,6 +44,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (!fresh) return null;
   cookieStore.set("strava_access_token", fresh, {
     httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
     maxAge: data.expires_in ?? 21600,
     path: "/",
     sameSite: "lax",
@@ -51,6 +52,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (data.refresh_token) {
     cookieStore.set("strava_refresh_token", data.refresh_token, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
       maxAge: 60 * 60 * 24 * 90,
       path: "/",
       sameSite: "lax",
@@ -111,6 +113,21 @@ export type StravaActivity = {
   average_heartrate?: number;
   max_heartrate?: number;
   suffer_score?: number;
+  kudos_count?: number;
+  achievement_count?: number;
+  pr_count?: number;
+  map?: { summary_polyline?: string };
+};
+
+/** A best-effort split (mile/5K/10K/etc PR) within a single activity — only present on the activity-detail endpoint. */
+export type StravaBestEffort = {
+  id: number;
+  name: string;             // e.g. "5k", "10k", "1 mile"
+  distance: number;         // metres
+  moving_time: number;      // seconds
+  elapsed_time: number;     // seconds
+  start_date: string;
+  pr_rank: number | null;   // 1 = all-time PR, 2/3 = 2nd/3rd best, null = not a PR
 };
 
 export type StravaStats = {

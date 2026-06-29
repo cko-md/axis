@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import {
   useTrainingWeek,
@@ -11,10 +11,18 @@ import {
   type TrainingKind,
   type TrainingIntensity,
 } from "@/lib/hooks/useTrainingWeek";
-import { useStrava, type StravaActivity } from "@/lib/hooks/useStrava";
+import { useStrava, type StravaActivity, type PaceUnit } from "@/lib/hooks/useStrava";
+import { RouteMap } from "@/components/vitality/RouteMap";
 import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
+import { createClient } from "@/lib/supabase/client";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
+import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
+import { useFitnessRoutines, type FitnessRoutine, type FitnessDiscipline } from "@/lib/hooks/useFitnessRoutines";
+import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -45,7 +53,83 @@ type MedSession = {
   notes: string;
 };
 
-const MED_KEY = "axis-meditation-log";
+const PACE_UNIT_KEY = "axis-pace-unit";
+const PR_GOALS_KEY = "axis-pr-goals";
+
+// ── race goals ────────────────────────────────────────────────────────────────
+
+type RaceType = "5k" | "10k" | "half" | "marathon" | "custom";
+
+const RACE_TYPES: Array<{ id: RaceType; label: string }> = [
+  { id: "5k", label: "5K" },
+  { id: "10k", label: "10K" },
+  { id: "half", label: "Half Marathon" },
+  { id: "marathon", label: "Marathon" },
+  { id: "custom", label: "Custom" },
+];
+
+type RaceGoal = {
+  id: string;
+  raceType: RaceType;
+  customLabel?: string;
+  currentTime: string;
+  targetTime: string;
+};
+
+const DEFAULT_GOALS: RaceGoal[] = [
+  { id: "g1", raceType: "half", currentTime: "1:34:00", targetTime: "1:29:00" },
+];
+
+function raceGoalLabel(g: RaceGoal): string {
+  if (g.raceType === "custom") return g.customLabel?.trim() || "Custom";
+  return RACE_TYPES.find((r) => r.id === g.raceType)?.label ?? g.raceType;
+}
+
+/** Parse "h:mm:ss" or "mm:ss" into total seconds; returns 0 on parse failure. */
+function timeToSeconds(t: string): number {
+  const parts = t.split(":").map((p) => parseInt(p, 10));
+  if (parts.some((p) => Number.isNaN(p))) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] ?? 0;
+}
+
+/** Progress toward target from an implicit baseline (current time at 0%, target time at 100%).
+ * Since we don't track a fixed start point, approximate using how close current is to target
+ * relative to a generous 20%-of-current buffer below target — clamped to [0,100]. */
+function goalProgressPct(g: RaceGoal): number {
+  const cur = timeToSeconds(g.currentTime);
+  const tgt = timeToSeconds(g.targetTime);
+  if (!cur || !tgt || tgt >= cur) return tgt && cur && tgt <= cur ? 100 : 0;
+  const buffer = cur * 0.08; // assume training started ~8% slower than "current"
+  const start = cur + buffer;
+  const pct = ((start - cur) / (start - tgt)) * 100;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
+
+// ── briefing feeds (bug 7: real RSS content instead of static fake links) ────
+
+const RUN_FEEDS = [
+  "https://www.letsrun.com/news/feed/",
+  "https://www.runnersworld.com/rss/all.xml/",
+];
+
+const STRENGTH_FEEDS = [
+  "https://www.t-nation.com/feed/",
+  "https://www.muscleandstrength.com/articles/feed",
+];
+
+type FeedItem = { id: string; title: string; url: string; source: string; date: string };
+
+function relTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1d";
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
+}
 
 const KIND_ORDER: TrainingKind[] = ["run", "lift", "mobility", "rest", "other"];
 const INTENSITY_ORDER: TrainingIntensity[] = ["easy", "moderate", "hard", "key"];
@@ -72,52 +156,58 @@ function sessionMeta(s: TrainingSession) {
 
 type Video = { t: string; c: string; d: string; tag: string; g: string };
 
+/**
+ * These cards are curated placeholders (title/channel/duration), not results from
+ * a live YouTube Data API call — there's no YOUTUBE_API_KEY configured for this
+ * app, and wiring the real Data API v3 search endpoint would cost a quota-limited
+ * key for what's a recommendations list, not user-supplied content. Clicking a
+ * card opens the matching YouTube search instead of a dead, non-interactive tile —
+ * mirrors VaultModule's toYouTubeEmbedUrl() pattern of resolving straight to the
+ * official youtube.com surface rather than proxying it.
+ */
+function youtubeSearchUrl(v: Video): string {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${v.t} ${v.c}`)}`;
+}
+
 const RUN_VIDEOS: Video[] = [
-  { t: "Perfect Running Form — 5 Drills to Fix It", c: "The Run Experience", d: "11:38", tag: "Form & Drills", g: "linear-gradient(135deg,#1c3142,#0e1620)" },
-  { t: "How to Run Your First Sub-1:30 Half", c: "Sage Running", d: "16:21", tag: "Race Strategy", g: "linear-gradient(135deg,#23304a,#10141f)" },
-  { t: "Zone 2 Explained — Why Easy Runs Matter", c: "Göran Winblad", d: "13:05", tag: "Training", g: "linear-gradient(135deg,#1f3a3a,#0e1818)" },
-  { t: "Marathon Pace Workouts That Work", c: "Stephen Scullion", d: "18:44", tag: "Training", g: "linear-gradient(135deg,#2a2c44,#11121d)" },
-  { t: "2026 Carbon Super-Trainer Shootout", c: "Believe in the Run", d: "21:12", tag: "Gear Reviews", g: "linear-gradient(135deg,#2c2734,#141018)" },
-  { t: "Cadence & Stride: Run Faster, Injure Less", c: "James Dunne", d: "09:57", tag: "Form & Drills", g: "linear-gradient(135deg,#1d3540,#0e171d)" },
+  { t: "Perfect Running Form — 5 Drills to Fix It", c: "The Run Experience", d: "11:38", tag: "Form & Drills", g: "" },
+  { t: "How to Run Your First Sub-1:30 Half", c: "Sage Running", d: "16:21", tag: "Race Strategy", g: "" },
+  { t: "Zone 2 Explained — Why Easy Runs Matter", c: "Göran Winblad", d: "13:05", tag: "Training", g: "" },
+  { t: "Marathon Pace Workouts That Work", c: "Stephen Scullion", d: "18:44", tag: "Training", g: "" },
+  { t: "2026 Carbon Super-Trainer Shootout", c: "Believe in the Run", d: "21:12", tag: "Gear Reviews", g: "" },
+  { t: "Cadence & Stride: Run Faster, Injure Less", c: "James Dunne", d: "09:57", tag: "Form & Drills", g: "" },
 ];
 
 const YOGA_VIDEOS: Video[] = [
-  { t: "20-Min Yoga for Runners — Deep Hip Opener", c: "Yoga With Adriene", d: "20:14", tag: "Yoga for Runners", g: "linear-gradient(135deg,#2a2440,#12101c)" },
-  { t: "Pilates Core Burn — No Equipment, 15 Min", c: "Move With Nicole", d: "15:02", tag: "Pilates Core", g: "linear-gradient(135deg,#15303a,#0e171c)" },
-  { t: "Post-Run Stretch & Mobility Flow", c: "The Run Experience", d: "12:46", tag: "Mobility", g: "linear-gradient(135deg,#26303f,#101620)" },
-  { t: "Restorative Yoga for Recovery Days", c: "Yoga With Kassandra", d: "25:31", tag: "Recovery / Restorative", g: "linear-gradient(135deg,#2c2632,#141017)" },
-  { t: "Pilates for Posture & Spine Health", c: "Lottie Murphy", d: "18:09", tag: "Pilates Core", g: "linear-gradient(135deg,#1f3340,#0f181f)" },
-  { t: "Hip & Hamstring Yoga for Tight Runners", c: "Breathe and Flow", d: "22:55", tag: "Yoga for Runners", g: "linear-gradient(135deg,#28323f,#10161f)" },
+  { t: "20-Min Yoga for Runners — Deep Hip Opener", c: "Yoga With Adriene", d: "20:14", tag: "Yoga for Runners", g: "" },
+  { t: "Pilates Core Burn — No Equipment, 15 Min", c: "Move With Nicole", d: "15:02", tag: "Pilates Core", g: "" },
+  { t: "Post-Run Stretch & Mobility Flow", c: "The Run Experience", d: "12:46", tag: "Mobility", g: "" },
+  { t: "Restorative Yoga for Recovery Days", c: "Yoga With Kassandra", d: "25:31", tag: "Recovery / Restorative", g: "" },
+  { t: "Pilates for Posture & Spine Health", c: "Lottie Murphy", d: "18:09", tag: "Pilates Core", g: "" },
+  { t: "Hip & Hamstring Yoga for Tight Runners", c: "Breathe and Flow", d: "22:55", tag: "Yoga for Runners", g: "" },
 ];
 
 const RUN_CHIPS = ["All", "Form & Drills", "Training", "Race Strategy", "Gear Reviews"];
 const YOGA_CHIPS = ["All", "Yoga for Runners", "Pilates Core", "Mobility", "Recovery / Restorative"];
 
-const RECIPES = [
-  { id: "r1", t: "Sheet-Pan Salmon, Sweet Potato & Broccoli", diet: "High-Protein", kcal: 530, p: 42, time: "30 min", src: "Serious Eats", g: "linear-gradient(135deg,#c2603f,#5a2a1f)" },
-  { id: "r2", t: "Greek Yogurt Bowl, Berries & Toasted Oats", diet: "High-Protein", kcal: 410, p: 32, time: "5 min", src: "Bon Appétit", g: "linear-gradient(135deg,#7a5cc2,#2c2150)" },
-  { id: "r3", t: "Chicken, Quinoa & Charred Greens Bowl", diet: "High-Protein", kcal: 620, p: 48, time: "25 min", src: "NYT Cooking", g: "linear-gradient(135deg,#4f9e6a,#1d3a28)" },
-  { id: "r4", t: "Jollof-Spiced Brown Rice & Grilled Chicken", diet: "High-Protein", kcal: 640, p: 44, time: "40 min", src: "My Active Kitchen", g: "linear-gradient(135deg,#d06a2c,#5a2510)" },
-];
-
-const INITIAL_MEALS = [
-  { ic: "☕", t: "Greek yogurt, berries, granola", m: "Breakfast · 07:40", k: "P 32 · 410" },
-  { ic: "🥗", t: "Chicken, quinoa & greens bowl", m: "Lunch · 12:50", k: "P 48 · 620" },
-  { ic: "🥤", t: "Whey + banana (post-run)", m: "Snack · 16:10", k: "P 30 · 280" },
-  { ic: "🍽️", t: "Salmon, sweet potato, broccoli", m: "Dinner · planned", k: "P 32 · 530" },
-];
-
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function metresToKm(m: number): number {
-  return Math.round((m / 1000) * 10) / 10;
+const UNIT_LABELS: Record<PaceUnit, string> = { km: "km", mi: "mi" };
+const METRES_PER_MILE = 1609.34;
+
+/** Convert metres to the given unit (km or mi), rounded to 1dp. */
+function metresToUnit(m: number, unit: PaceUnit = "km"): number {
+  const divisor = unit === "mi" ? METRES_PER_MILE : 1000;
+  return Math.round((m / divisor) * 10) / 10;
 }
 
-function speedToPace(mps: number): string {
+/** Convert m/s to a pace string like "5:12", per-km or per-mile depending on `unit`. */
+function speedToPace(mps: number, unit: PaceUnit = "km"): string {
   if (!mps || mps <= 0) return "—";
-  const secPerKm = 1000 / mps;
-  const mins = Math.floor(secPerKm / 60);
-  const secs = Math.round(secPerKm % 60);
+  const distPerUnit = unit === "mi" ? METRES_PER_MILE : 1000;
+  const secPerUnit = distPerUnit / mps;
+  const mins = Math.floor(secPerUnit / 60);
+  const secs = Math.round(secPerUnit % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
@@ -144,9 +234,10 @@ function AiIcon() {
 }
 
 function VidCard({ v }: { v: Video }) {
+  const href = youtubeSearchUrl(v);
   return (
-    <div className="vid">
-      <div className="vthumb" style={{ background: v.g }}>
+    <a className="vid" href={href} target="_blank" rel="noopener noreferrer" title={`Find “${v.t}” on YouTube`} style={{ display: "block", textDecoration: "none", color: "inherit", cursor: "pointer" }}>
+      <div className="vthumb" style={{ background: v.g || "linear-gradient(135deg, var(--surface-2), var(--surface-3))" }}>
         <span className="tag">{v.tag}</span>
         <div className="pl"><span /></div>
         <span className="dur">{v.d}</span>
@@ -158,7 +249,7 @@ function VidCard({ v }: { v: Video }) {
           <span>YouTube</span>
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -166,9 +257,9 @@ function ChipRow({ chips, active, onPick }: { chips: string[]; active: string; o
   return (
     <div className="chips" style={{ marginBottom: 16 }}>
       {chips.map((c) => (
-        <span key={c} className={`chip${active === c ? " on" : ""}`} onClick={() => onPick(c)}>
+        <button key={c} type="button" className={`chip${active === c ? " on" : ""}`} aria-pressed={active === c} onClick={() => onPick(c)}>
           {c}
-        </span>
+        </button>
       ))}
     </div>
   );
@@ -188,10 +279,10 @@ function SessionEditor({
     <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 10, background: "var(--surface-2)", display: "flex", flexDirection: "column", gap: 8 }}>
       <input style={editFieldStyle} value={session.title} placeholder="Session title…" onChange={(e) => onChange({ title: e.target.value })} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <select style={editFieldStyle} value={session.kind} onChange={(e) => onChange({ kind: e.target.value as TrainingKind })}>
+        <select aria-label="Session type" style={editFieldStyle} value={session.kind} onChange={(e) => onChange({ kind: e.target.value as TrainingKind })}>
           {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
         </select>
-        <select style={editFieldStyle} value={session.intensity} onChange={(e) => onChange({ intensity: e.target.value as TrainingIntensity })}>
+        <select aria-label="Intensity" style={editFieldStyle} value={session.intensity} onChange={(e) => onChange({ intensity: e.target.value as TrainingIntensity })}>
           {INTENSITY_ORDER.map((i) => <option key={i} value={i}>{INTENSITY_LABELS[i]}</option>)}
         </select>
       </div>
@@ -205,7 +296,7 @@ function SessionEditor({
           <input type="checkbox" checked={session.completed} onChange={() => onChange({ completed: !session.completed })} />
           Completed
         </label>
-        <button type="button" className="del" title="Remove session" onClick={onRemove} style={{ fontSize: 16 }}>×</button>
+        <button type="button" className="del" title="Remove session" aria-label="Remove session" onClick={onRemove} style={{ fontSize: 16 }}>×</button>
       </div>
     </div>
   );
@@ -237,9 +328,9 @@ function TrainingWeekPlanner() {
       <h2 className="sec">
         Training Week<span className="rule" />
         <span className="count">{persistence === "supabase" ? "Synced" : signedIn ? "Local draft" : "Demo"}</span>
-        <span className="rings-edit" title={editing ? "Done editing" : "Edit plan"} onClick={() => { setEditing((v) => !v); setOpenDay(null); }}>
+        <button type="button" className="rings-edit" aria-label={editing ? "Done editing" : "Edit plan"} onClick={() => { setEditing((v) => !v); setOpenDay(null); }} style={{ background: "none", border: "none", padding: 0 }}>
           {editing ? "✓" : "✎"}
-        </span>
+        </button>
       </h2>
 
       <div className="ftop" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 14 }}>
@@ -283,9 +374,9 @@ function TrainingWeekPlanner() {
                     </div>
                     <div className="tw-meta">{sessionMeta(s)}</div>
                     {s.intensity === "key" && <span className="tw-tag">KEY</span>}
-                    <span onClick={(e) => { e.stopPropagation(); toggleComplete(s.id); }} title="Toggle complete" style={{ position: "absolute", top: 0, right: 0, fontFamily: "var(--mono)", fontSize: 10, color: s.completed ? "var(--up)" : "var(--line)", cursor: "pointer", lineHeight: 1, padding: "2px 4px", transition: "color .15s" }}>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); toggleComplete(s.id); }} title="Toggle complete" aria-pressed={s.completed} aria-label="Toggle complete" style={{ position: "absolute", top: 0, right: 0, fontFamily: "var(--mono)", fontSize: 10, color: s.completed ? "var(--up)" : "var(--line)", cursor: "pointer", lineHeight: 1, padding: "2px 4px", transition: "color .15s", background: "none", border: "none" }}>
                       {s.completed ? "✓" : "○"}
-                    </span>
+                    </button>
                   </div>
                 ))}
                 {editing && (
@@ -305,7 +396,34 @@ function TrainingWeekPlanner() {
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-        <button type="button" className="sig-go" onClick={() => toast("Sessions surfaced to Schedule & Agenda", "success", "Vitality")}>
+        <button type="button" className="sig-go" onClick={async () => {
+          const supabase = createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) { toast("Sign in to sync to Schedule.", "warn", "Vitality"); return; }
+          const today = new Date();
+          const monday = new Date(today);
+          monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+          monday.setHours(7, 0, 0, 0);
+          const DOW_MAP: Record<string, number> = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+          const rows = sessions.filter(s => !s.completed).map(s => {
+            const start = new Date(monday);
+            start.setDate(monday.getDate() + (DOW_MAP[s.dow] ?? 0));
+            const end = new Date(start);
+            end.setMinutes(end.getMinutes() + (s.duration_min ?? 60));
+            return {
+              user_id: user.id,
+              title: `${s.title} (${s.duration_min ?? 60}min)`,
+              start_at: start.toISOString(),
+              end_at: end.toISOString(),
+              description: [s.kind, s.intensity, s.notes].filter(Boolean).join(" · "),
+              updated_at: new Date().toISOString(),
+            };
+          });
+          if (!rows.length) { toast("No incomplete sessions to push.", "info", "Vitality"); return; }
+          const { error } = await supabase.from("schedule_events").insert(rows);
+          if (error) toast(error.message, "error", "Vitality");
+          else toast(`${rows.length} session${rows.length > 1 ? "s" : ""} added to Schedule.`, "success", "Vitality");
+        }}>
           ⤳ Push to Schedule &amp; Agenda
         </button>
         <button type="button" className="feed-manage" onClick={() => { setEditing((v) => !v); setOpenDay(null); }}>
@@ -327,7 +445,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 1002, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.7)", backdropFilter: "blur(6px)" }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.7)", backdropFilter: "blur(6px)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div style={{ width: "min(560px, 94vw)", maxHeight: "92vh", background: "var(--surface)", border: "1px solid var(--line-strong)", borderRadius: "var(--r)", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 28px 72px rgba(0,0,0,.6)" }}>
@@ -337,7 +455,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
             <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--accent)", textTransform: "uppercase", letterSpacing: ".12em", marginBottom: 3 }}>Apple Health</div>
             <h2 style={{ fontFamily: "var(--display)", fontSize: 20, color: "var(--ink)", margin: 0, letterSpacing: ".02em" }}>How to Sync Health Data</h2>
           </div>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--ink-faint)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: "var(--ink-faint)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
         </div>
 
         {/* Body */}
@@ -362,7 +480,7 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
 
           {/* Option 2 */}
           <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "14px 16px", marginBottom: 12, background: "var(--surface-2)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#3f6fb0", textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 6 }}>Option 2 · Available now</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--marine)", textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 6 }}>Option 2 · Available now</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)", marginBottom: 6 }}>Connect Strava → Running data</div>
             <p style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.55, margin: 0 }}>
               If your wearable (Garmin, Whoop, Polar, Wahoo) syncs to Strava, connect Strava in the Running tab. AXIS will pull your runs, rides, paces, and weekly mileage. Works today — go to the Running tab to connect.
@@ -394,32 +512,114 @@ function AppleHealthModal({ onClose }: { onClose: () => void }) {
 
 // ── Strava activity feed ──────────────────────────────────────────────────────
 
-function StravaActivityRow({ a }: { a: StravaActivity }) {
+function StravaActivityRow({ a, unit = "km" }: { a: StravaActivity; unit?: PaceUnit }) {
   const isRun = a.sport_type === "Run" || a.type === "Run";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
       <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", minWidth: 68 }}>{fmtDate(a.start_date)}</div>
       <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)", flex: 1 }}>{a.name}</div>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: isRun ? "var(--accent)" : "#3f6fb0", minWidth: 30 }}>{sportLabel(a)}</div>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToKm(a.distance)} km</div>
-      {isRun && <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", minWidth: 44, textAlign: "right" }}>{speedToPace(a.average_speed)}/km</div>}
+      <div style={{ minWidth: 56, display: "flex", justifyContent: "center", alignItems: "center" }}>
+        {a.map?.summary_polyline ? <RouteMap polyline={a.map.summary_polyline} width={52} height={30} /> : null}
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: isRun ? "var(--accent)" : "var(--marine)", minWidth: 30 }}>{sportLabel(a)}</div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToUnit(a.distance, unit)} {UNIT_LABELS[unit]}</div>
+      {isRun && <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", minWidth: 44, textAlign: "right" }}>{speedToPace(a.average_speed, unit)}/{UNIT_LABELS[unit]}</div>}
     </div>
   );
 }
 
 // ── Strava run list with expand/collapse ─────────────────────────────────────
 
-function StravaRunList({ activities }: { activities: StravaActivity[] }) {
+function StravaRunList({ activities, unit = "km" }: { activities: StravaActivity[]; unit?: PaceUnit }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? activities : activities.slice(0, 3);
   return (
     <div className="card" style={{ padding: "4px 14px 4px" }}>
-      {visible.map((a) => <StravaActivityRow key={a.id} a={a} />)}
+      {visible.map((a) => <StravaActivityRow key={a.id} a={a} unit={unit} />)}
       {activities.length > 3 && (
         <button type="button" onClick={() => setExpanded((e) => !e)} style={TOGGLE_BTN_STYLE}>
           {expanded ? "▲ Collapse" : `▼ Show all ${activities.length}`}
         </button>
       )}
+    </div>
+  );
+}
+
+// ── Real RSS briefing list (bug 7: replaces static fake headlines) ───────────
+
+function BriefingList({ feedUrls, emptyLabel, artlink, columns }: { feedUrls: string[]; emptyLabel: string; artlink?: boolean; columns?: boolean }) {
+  const { open: openInApp } = useWebViewer();
+  const [items, setItems] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const res = await fetch("/api/feeds/cached", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedUrls }),
+      });
+      const data = (await res.json()) as { items?: FeedItem[] };
+      setItems(data.items ?? []);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedUrls.join("|")]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const id = setInterval(() => void load(), 4 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      {loading && !items.length && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>Loading…</div>
+      )}
+      {!loading && error && !items.length && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>{emptyLabel}</div>
+      )}
+      {!loading && !error && !items.length && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>{emptyLabel}</div>
+      )}
+      <div style={columns ? { columnCount: 2, columnGap: 28 } : undefined}>
+        {items.map((it) => (
+          <div
+            key={it.id}
+            className={`hl${artlink ? " artlink" : ""}`}
+            role="button"
+            tabIndex={0}
+            style={{ cursor: "pointer", breakInside: "avoid" }}
+            onClick={() => openInApp(it.url, it.title)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInApp(it.url, it.title); } }}
+          >
+            <div className="cat">{it.source.split(" ")[0] || "News"}</div>
+            <div>
+              <div className="ht">{it.title}</div>
+              <div className="hs">{it.source.toUpperCase()} · {relTime(it.date)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="rings-edit"
+        aria-label="Refresh"
+        title="Refresh"
+        onClick={load}
+        disabled={loading}
+        style={{ background: "none", border: "none", padding: "4px 0", fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", cursor: loading ? "default" : "pointer" }}
+      >
+        {loading ? "…" : "↻ Refresh"}
+      </button>
     </div>
   );
 }
@@ -466,12 +666,21 @@ function MedSessionList({ sessions }: { sessions: MedSession[] }) {
 
 // ── Meditation Tab ────────────────────────────────────────────────────────────
 
-function MeditationTab() {
+function MeditationTab({ rawSessions, addSession }: { rawSessions: MeditationSession[]; addSession: ReturnType<typeof useVitalityLogs>["addSession"] }) {
   const { toast } = useToast();
 
-  const [sessions, setSessions] = useState<MedSession[]>(() => {
-    try { return JSON.parse(localStorage.getItem(MED_KEY) ?? "[]"); } catch { return []; }
-  });
+  const sessions: MedSession[] = useMemo(
+    () => rawSessions.map((s) => ({
+      id: s.id,
+      date: s.occurred_at,
+      type: s.type as MedType,
+      durationMin: s.duration_min,
+      moodBefore: s.mood_before,
+      moodAfter: s.mood_after,
+      notes: s.notes,
+    })),
+    [rawSessions],
+  );
   const [medType, setMedType] = useState<MedType>("breath");
   const [duration, setDuration] = useState(10);
   const [moodBefore, setMoodBefore] = useState(3);
@@ -520,19 +729,12 @@ function MeditationTab() {
     finally { setAiLoading(false); }
   };
 
-  const saveSession = () => {
-    const session: MedSession = {
-      id: Date.now().toString(36),
-      date: new Date().toISOString(),
-      type: medType,
-      durationMin: duration,
-      moodBefore,
-      moodAfter,
-      notes,
-    };
-    const next = [session, ...sessions].slice(0, 60);
-    setSessions(next);
-    try { localStorage.setItem(MED_KEY, JSON.stringify(next)); } catch {}
+  const saveSession = async () => {
+    const result = await addSession({ type: medType, durationMin: duration, moodBefore, moodAfter, notes });
+    if (!result) {
+      toast("Failed to log session — sign in to save.", "error", "Meditation");
+      return;
+    }
     setDone(false); setNotes(""); setMoodAfter(3);
     toast("Session logged.", "success", "Meditation");
   };
@@ -711,8 +913,9 @@ const HEALTH_DEVICES = [
     icon: "◎",
     description: "HRV · sleep stages · readiness · body temp",
     metrics: ["HRV", "Sleep", "Readiness", "Resting HR"],
-    color: "#c9a463",
-    comingSoon: false,
+    color: "var(--gold)",
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "garmin",
@@ -720,8 +923,9 @@ const HEALTH_DEVICES = [
     icon: "⬡",
     description: "VO₂ max · training load · GPS activities · recovery",
     metrics: ["VO₂ Max", "Training Load", "Steps", "Resting HR"],
-    color: "#3f6fb0",
-    comingSoon: false,
+    color: "var(--marine)",
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "whoop",
@@ -730,7 +934,8 @@ const HEALTH_DEVICES = [
     description: "Recovery score · strain · sleep performance · SpO₂",
     metrics: ["Recovery", "Strain", "Sleep", "HRV"],
     color: "#7c6fad",
-    comingSoon: false,
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "fitbit",
@@ -739,7 +944,8 @@ const HEALTH_DEVICES = [
     description: "Steps · active zone minutes · sleep · resting HR",
     metrics: ["Steps", "Active Minutes", "Sleep", "Resting HR"],
     color: "#4fa89c",
-    comingSoon: false,
+    comingSoon: true,
+    badge: "Coming soon",
   },
   {
     id: "apple_health",
@@ -749,6 +955,7 @@ const HEALTH_DEVICES = [
     metrics: ["All metrics via HealthKit"],
     color: "var(--ink-faint)",
     comingSoon: true,
+    badge: "iOS only",
   },
 ];
 
@@ -764,6 +971,7 @@ const HEALTH_METRICS = [
 function HealthMetricsPanel() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connected, setConnected]   = useState<Set<string>>(new Set());
+  const [devicesOpen, setDevicesOpen] = useState(false);
   const { toast } = useToast();
 
   const handleConnect = async (deviceId: string) => {
@@ -829,10 +1037,29 @@ function HealthMetricsPanel() {
         )}
       </div>
 
-      {/* Device connection cards */}
+      {/* Device connection cards — collapsed by default; none are wired up yet */}
       <div className="card" style={{ padding: "18px 20px", marginTop: 12 }}>
-        <h2 className="sec">Devices<span className="rule" /></h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+        <h2 className="sec">
+          Devices
+          <span className="rule" />
+          <span className="count" style={{ color: "var(--ink-faint)" }}>
+            {connected.size > 0 ? `${connected.size} connected` : `${HEALTH_DEVICES.length} coming soon`}
+          </span>
+        </h2>
+        <button
+          type="button"
+          onClick={() => setDevicesOpen((o) => !o)}
+          style={{
+            background: "none", border: "none", color: "var(--ink-faint)", fontSize: 11,
+            fontFamily: "var(--mono)", letterSpacing: ".08em", cursor: "pointer",
+            padding: "6px 0", display: "block", width: "100%", textAlign: "center",
+          }}
+          aria-expanded={devicesOpen}
+        >
+          {devicesOpen ? "▲ Collapse" : `▼ Show wearable integrations (${HEALTH_DEVICES.length})`}
+        </button>
+        {devicesOpen && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
           {HEALTH_DEVICES.map((d) => {
             const isConnected = connected.has(d.id);
             const isConnecting = connecting === d.id;
@@ -862,7 +1089,7 @@ function HealthMetricsPanel() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>{d.name}</span>
                     {d.comingSoon && (
-                      <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>iOS only</span>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>{d.badge}</span>
                     )}
                     {isConnected && (
                       <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--up)", border: "1px solid var(--up)", borderRadius: 2, padding: "1px 5px", textTransform: "uppercase", letterSpacing: ".08em" }}>syncing</span>
@@ -904,35 +1131,241 @@ function HealthMetricsPanel() {
             );
           })}
         </div>
+        )}
+        {devicesOpen && (
         <p style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: "var(--ink-faint)", marginTop: 14, lineHeight: 1.6, letterSpacing: ".06em" }}>
           OAUTH 2.0 · END-TO-END ENCRYPTED · NO DATA SOLD
         </p>
+        )}
       </div>
     </>
   );
 }
 
+// ── Editable fitness routine card (Strength & Conditioning / Yoga & Pilates) ─
+
+function ExerciseEditor({
+  exercise,
+  onChange,
+  onRemove,
+}: {
+  exercise: FitnessRoutine["exercises"][number];
+  onChange: (patch: Partial<FitnessRoutine["exercises"][number]>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 0.8fr auto", gap: 6, alignItems: "center" }}>
+      <input style={editFieldStyle} value={exercise.name} placeholder="Exercise" onChange={(e) => onChange({ name: e.target.value })} />
+      <input
+        style={editFieldStyle}
+        type="number"
+        min={0}
+        value={exercise.sets ?? ""}
+        placeholder="Sets"
+        onChange={(e) => onChange({ sets: e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0) })}
+      />
+      <input style={editFieldStyle} value={exercise.reps ?? ""} placeholder="Reps" onChange={(e) => onChange({ reps: e.target.value || null })} />
+      <button type="button" className="del" title="Remove exercise" aria-label={`Remove ${exercise.name}`} onClick={onRemove} style={{ fontSize: 14 }}>×</button>
+    </div>
+  );
+}
+
+function RoutineCard({
+  routine,
+  editing,
+  onUpdate,
+  onRemove,
+  onAddExercise,
+  onUpdateExercise,
+  onRemoveExercise,
+}: {
+  routine: FitnessRoutine;
+  editing: boolean;
+  onUpdate: (patch: Partial<Pick<FitnessRoutine, "name" | "category">>) => void;
+  onRemove: () => void;
+  onAddExercise: () => void;
+  onUpdateExercise: (exerciseId: string, patch: Partial<FitnessRoutine["exercises"][number]>) => void;
+  onRemoveExercise: (exerciseId: string) => void;
+}) {
+  return (
+    <div className="routine">
+      {editing ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            style={{ ...editFieldStyle, fontWeight: 500 }}
+            value={routine.name}
+            placeholder="Routine name"
+            onChange={(e) => onUpdate({ name: e.target.value, category: e.target.value })}
+          />
+          <button type="button" className="del" title="Remove routine" aria-label={`Remove ${routine.name}`} onClick={onRemove} style={{ fontSize: 15, flexShrink: 0 }}>×</button>
+        </div>
+      ) : (
+        <div className="rn">{routine.name}</div>
+      )}
+      {editing ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+          {routine.exercises.map((ex) => (
+            <ExerciseEditor
+              key={ex.id}
+              exercise={ex}
+              onChange={(patch) => onUpdateExercise(ex.id, patch)}
+              onRemove={() => onRemoveExercise(ex.id)}
+            />
+          ))}
+          <button type="button" className="feed-manage" onClick={onAddExercise} style={{ alignSelf: "flex-start" }}>+ Add exercise</button>
+        </div>
+      ) : (
+        routine.exercises.map((ex) => (
+          <div className="ex" key={ex.id}>
+            <span>{ex.name}</span>
+            <span className="es">{ex.sets ? `${ex.sets} × ${ex.reps ?? ""}` : ex.reps ?? "—"}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function RoutineGrid({
+  discipline,
+  columns,
+}: {
+  discipline: FitnessDiscipline;
+  columns: number;
+}) {
+  const { routines, loading, persistence, addRoutine, updateRoutine, removeRoutine, addExercise, updateExercise, removeExercise } =
+    useFitnessRoutines(discipline);
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: ".08em" }}>
+          {persistence === "supabase" ? "Synced" : "Local draft"}
+        </span>
+        <button
+          type="button"
+          className="rings-edit"
+          aria-label={editing ? "Done editing" : "Edit routines"}
+          onClick={() => setEditing((v) => !v)}
+          style={{ background: "none", border: "none", padding: 0 }}
+        >
+          {editing ? "✓ Done" : "✎ Edit"}
+        </button>
+      </div>
+      {loading ? (
+        <div className="empty-state">Loading routines…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: 16, alignItems: "start" }}>
+          {routines.map((r) => (
+            <RoutineCard
+              key={r.id}
+              routine={r}
+              editing={editing}
+              onUpdate={(patch) => updateRoutine(r.id, patch)}
+              onRemove={() => removeRoutine(r.id)}
+              onAddExercise={() => addExercise(r.id, { name: "New exercise", sets: 3, reps: "10" })}
+              onUpdateExercise={(exId, patch) => updateExercise(r.id, exId, patch)}
+              onRemoveExercise={(exId) => removeExercise(r.id, exId)}
+            />
+          ))}
+          {editing && (
+            <button
+              type="button"
+              className="savebtn"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => addRoutine(discipline === "strength" ? "New Routine" : "New Flow")}
+            >
+              + Add {discipline === "strength" ? "routine" : "flow"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main VitalityModule ───────────────────────────────────────────────────────
+
+const CRONOMETER_OPENED_KEY = "axis-cronometer-opened";
 
 export function VitalityModule() {
   const { toast } = useToast();
   const [tab, setTab] = useState("fit-health");
   const [runChip, setRunChip] = useState("All");
   const [yogaChip, setYogaChip] = useState("All");
-  const [meals, setMeals] = useState(INITIAL_MEALS);
+  const { sessions: medSessions, addSession, meals, addMeal, removeMeal } = useVitalityLogs();
   const [mealInput, setMealInput] = useState("");
   const [mealParsing, setMealParsing] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
-  const [regimenModal, setRegimenModal] = useState<"run" | "lift" | null>(null);
+  const [regimenModal, setRegimenModal] = useState<"run" | "lift" | "mobility" | null>(null);
+  const [cronometerOpened, setCronometerOpened] = useState(false);
+  const [paceUnit, setPaceUnit] = useState<PaceUnit>("km");
+  const [raceGoals, setRaceGoals] = useState<RaceGoal[]>(() => {
+    try {
+      const raw = localStorage.getItem(PR_GOALS_KEY);
+      return raw ? (JSON.parse(raw) as RaceGoal[]) : DEFAULT_GOALS;
+    } catch { return DEFAULT_GOALS; }
+  });
+  const [activeGoalId, setActiveGoalId] = useState<string>(() => raceGoals[0]?.id ?? "g1");
 
-  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, loading: stravaLoading, disconnect: stravaDisconnect } = useStrava();
+  useEffect(() => {
+    try { setCronometerOpened(localStorage.getItem(CRONOMETER_OPENED_KEY) === "1"); } catch {}
+    try {
+      const storedUnit = localStorage.getItem(PACE_UNIT_KEY);
+      if (storedUnit === "km" || storedUnit === "mi") setPaceUnit(storedUnit);
+    } catch {}
+  }, []);
+
+  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit } = useStrava(paceUnit);
+  const { open: openInApp } = useWebViewer();
+  const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet } = useNutritionProtocol();
+  const strengthRoutines = useFitnessRoutines("strength");
+  const mobilityRoutines = useFitnessRoutines("mobility");
 
   const stravaConnected = stravaStatus?.connected ?? false;
+
+  const changePaceUnit = (u: PaceUnit) => {
+    setPaceUnit(u);
+    setStravaUnit(u);
+    try { localStorage.setItem(PACE_UNIT_KEY, u); } catch {}
+  };
+
+  const activeGoal = raceGoals.find((g) => g.id === activeGoalId) ?? raceGoals[0] ?? DEFAULT_GOALS[0];
+
+  const persistGoals = (next: RaceGoal[]) => {
+    setRaceGoals(next);
+    try { localStorage.setItem(PR_GOALS_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const updateActiveGoal = (patch: Partial<RaceGoal>) => {
+    persistGoals(raceGoals.map((g) => (g.id === activeGoalId ? { ...g, ...patch } : g)));
+  };
+
+  const addGoal = () => {
+    const id = `g_${Date.now().toString(36)}`;
+    const next: RaceGoal = { id, raceType: "10k", currentTime: "0:50:00", targetTime: "0:45:00" };
+    persistGoals([...raceGoals, next]);
+    setActiveGoalId(id);
+  };
+
+  const removeGoal = (id: string) => {
+    if (raceGoals.length <= 1) return;
+    const next = raceGoals.filter((g) => g.id !== id);
+    persistGoals(next);
+    if (activeGoalId === id) setActiveGoalId(next[0]?.id ?? "");
+  };
 
   const toggleRecipe = (id: string) => {
     setSavedRecipes((s) => ({ ...s, [id]: !s[id] }));
     const r = RECIPES.find((r) => r.id === id);
     if (r && !savedRecipes[id]) toast(`"${r.t}" saved to Supper Club`, "success", "Nutrition");
+  };
+
+  const openCronometer = () => {
+    setCronometerOpened(true);
+    try { localStorage.setItem(CRONOMETER_OPENED_KEY, "1"); } catch {}
+    openInApp("https://cronometer.com/login/", "Cronometer");
   };
 
   const logMealWithAI = async () => {
@@ -952,18 +1385,18 @@ export function VitalityModule() {
       if (match) {
         try {
           const obj = JSON.parse(match[0]);
-          setMeals((m) => [{ ic: obj.emoji || "🍽️", t: obj.title || text, m: obj.timing || "Logged", k: obj.macros || "—" }, ...m]);
+          await addMeal({ emoji: obj.emoji || "🍽️", title: obj.title || text, timing: obj.timing || "Logged", macros: obj.macros || "—" });
           toast("Meal logged via AI", "success", "Nutrition");
         } catch {
-          setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+          await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
           toast("Logged (AI parse failed — added raw)", "info", "Nutrition");
         }
       } else {
-        setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+        await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
         toast("Meal logged", "success", "Nutrition");
       }
     } catch {
-      setMeals((m) => [{ ic: "🍽️", t: text, m: "Logged", k: "—" }, ...m]);
+      await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
       toast("Meal logged", "success", "Nutrition");
     } finally {
       setMealInput("");
@@ -972,9 +1405,11 @@ export function VitalityModule() {
   };
 
   // Derived running stats — real Strava data when connected, otherwise stub
-  const weeklyKm = stravaConnected && stravaSummary ? stravaSummary.weeklyKm : 38;
+  const sampleWeeklyDist = paceUnit === "mi" ? metresToUnit(38000, "mi") : 38;
+  const sampleAvgPace = paceUnit === "mi" ? "8:22" : "5:12";
+  const weeklyDist = stravaConnected && stravaSummary ? stravaSummary.weeklyDist : sampleWeeklyDist;
   const weeklyDelta = stravaConnected && stravaSummary ? stravaSummary.weeklyKmDelta : 12;
-  const avgPace = stravaConnected && stravaSummary ? stravaSummary.avgPace : "5:12";
+  const avgPace = stravaConnected && stravaSummary ? stravaSummary.avgPace : sampleAvgPace;
   const runActivities = stravaConnected ? stravaActivities.filter((a) => a.sport_type === "Run" || a.type === "Run") : [];
 
   return (
@@ -982,15 +1417,39 @@ export function VitalityModule() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         {/* Strava badge — live when connected, faded when not */}
         {stravaConnected ? (
-          <div className="selectbox" style={{ cursor: "pointer" }} title={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"} · click to disconnect`} onClick={() => stravaDisconnect()}>
+          <div
+            className="selectbox"
+            style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            title={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"} · click to disconnect`}
+            aria-label={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"}, click to disconnect`}
+            onClick={() => stravaDisconnect()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                stravaDisconnect();
+              }
+            }}
+          >
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L3 14h4l2-4 2 4h4z" opacity=".7" /></svg>
             Synced: Strava
           </div>
         ) : (
-          <a href="/api/strava?action=auth" className="selectbox" style={{ opacity: 0.45, textDecoration: "none", cursor: "pointer" }} title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}>
+          <button
+            type="button"
+            className="selectbox"
+            style={{ opacity: 0.45, cursor: "pointer", background: "none", border: "none" }}
+            title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}
+            onClick={() => {
+              openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+                if (status === "ok") window.location.reload();
+              });
+            }}
+          >
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L3 14h4l2-4 2 4h4z" opacity=".7" /></svg>
             {stravaLoading ? "Strava…" : "Connect Strava"}
-          </a>
+          </button>
         )}
       </div>
 
@@ -1004,15 +1463,35 @@ export function VitalityModule() {
 
       {/* ── MEDITATION TAB ───────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-meditation" ? " on" : ""}`} id="fit-meditation">
-        {tab === "fit-meditation" && <MeditationTab />}
+        {tab === "fit-meditation" && <MeditationTab rawSessions={medSessions} addSession={addSession} />}
       </div>
 
       {/* ── RUNNING TAB ──────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-run" ? " on" : ""}`} id="fit-run">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <div style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: "var(--r)", overflow: "hidden" }}>
+            {(["km", "mi"] as PaceUnit[]).map((u) => (
+              <button
+                key={u}
+                type="button"
+                aria-pressed={paceUnit === u}
+                onClick={() => changePaceUnit(u)}
+                style={{
+                  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".06em", textTransform: "uppercase",
+                  padding: "4px 10px", border: "none", cursor: "pointer",
+                  background: paceUnit === u ? "var(--accent)" : "transparent",
+                  color: paceUnit === u ? "var(--on-accent, #fff)" : "var(--ink-dim)",
+                }}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="ftop">
           <div className="card tick">
             <div className="seclabel">This Week</div>
-            <div className="bigmetric">{weeklyKm}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> km</span></div>
+            <div className="bigmetric">{weeklyDist}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> {UNIT_LABELS[paceUnit]}</span></div>
             {stravaConnected ? (
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: weeklyDelta >= 0 ? "var(--up)" : "var(--hi)", marginTop: 4 }}>
                 {weeklyDelta >= 0 ? "▴" : "▾"} {Math.abs(weeklyDelta)}% vs last week
@@ -1023,17 +1502,94 @@ export function VitalityModule() {
           </div>
           <div className="card">
             <div className="seclabel">Avg Pace</div>
-            <div className="bigmetric">{avgPace}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> /km</span></div>
+            <div className="bigmetric">{avgPace}<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> /{UNIT_LABELS[paceUnit]}</span></div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
               {stravaConnected ? "from Strava" : "Zone 2 · HR 142 · sample"}
             </div>
           </div>
           <div className="card">
-            <div className="seclabel">Goal · Half PR</div>
-            <div className="bigmetric">1:34<span style={{ fontSize: 18, color: "var(--ink-faint)" }}> → 1:29</span></div>
-            <div className="track" style={{ marginTop: 8 }}><div style={{ width: "70%" }} /></div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="seclabel">Goal · {raceGoalLabel(activeGoal)}</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <select
+                  aria-label="Select race goal"
+                  value={activeGoalId}
+                  onChange={(e) => setActiveGoalId(e.target.value)}
+                  style={{ ...editFieldStyle, width: "auto", fontSize: 9.5, padding: "2px 4px" }}
+                >
+                  {raceGoals.map((g) => <option key={g.id} value={g.id}>{raceGoalLabel(g)}</option>)}
+                </select>
+                <button type="button" className="rings-edit" title="Add goal" aria-label="Add goal" onClick={addGoal} style={{ background: "none", border: "none", padding: 0, fontSize: 13 }}>+</button>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <input
+                aria-label="Current time"
+                value={activeGoal.currentTime}
+                onChange={(e) => updateActiveGoal({ currentTime: e.target.value })}
+                placeholder="1:34:00"
+                style={{ ...editFieldStyle, width: 64, fontSize: 13, padding: "3px 5px" }}
+              />
+              <span style={{ color: "var(--ink-faint)" }}>→</span>
+              <input
+                aria-label="Target time"
+                value={activeGoal.targetTime}
+                onChange={(e) => updateActiveGoal({ targetTime: e.target.value })}
+                placeholder="1:29:00"
+                style={{ ...editFieldStyle, width: 64, fontSize: 13, padding: "3px 5px" }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <select
+                aria-label="Race type"
+                value={activeGoal.raceType}
+                onChange={(e) => updateActiveGoal({ raceType: e.target.value as RaceType })}
+                style={{ ...editFieldStyle, fontSize: 10 }}
+              >
+                {RACE_TYPES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+              {activeGoal.raceType === "custom" && (
+                <input
+                  aria-label="Custom race label"
+                  value={activeGoal.customLabel ?? ""}
+                  placeholder="Race name"
+                  onChange={(e) => updateActiveGoal({ customLabel: e.target.value })}
+                  style={{ ...editFieldStyle, fontSize: 10 }}
+                />
+              )}
+              {raceGoals.length > 1 && (
+                <button type="button" className="del" title="Remove goal" aria-label="Remove goal" onClick={() => removeGoal(activeGoalId)} style={{ fontSize: 13, flexShrink: 0 }}>×</button>
+              )}
+            </div>
+            <div className="track" style={{ marginTop: 8 }}><div style={{ width: `${goalProgressPct(activeGoal)}%` }} /></div>
           </div>
         </div>
+
+        {/* Strava highlights — kudos, PRs, achievements */}
+        {stravaConnected && stravaHighlights && (stravaHighlights.totalKudos > 0 || stravaHighlights.prActivityCount > 0) && (
+          <div className="card" style={{ marginTop: 14 }}>
+            <h2 className="sec">
+              Highlights<span className="rule" />
+              <span className="count">👏 {stravaHighlights.totalKudos} kudos</span>
+            </h2>
+            {stravaHighlights.prActivities.length > 0 ? (
+              <div style={{ marginTop: 10 }}>
+                {stravaHighlights.prActivities.map((a) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", minWidth: 68 }}>{fmtDate(a.start_date)}</div>
+                    <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--ink)", flex: 1 }}>{a.name}</div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-2)", minWidth: 44, textAlign: "right" }}>{metresToUnit(a.distance, paceUnit)} {UNIT_LABELS[paceUnit]}</div>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, padding: "2px 6px", borderRadius: 2, border: "1px solid var(--gold)", color: "var(--gold)", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                      {(a.pr_count ?? 0) > 0 ? "PR" : "Achievement"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 10 }}>No PRs or achievements yet this period — keep training.</p>
+            )}
+          </div>
+        )}
 
         {/* Strava connect prompt if not connected */}
         {!stravaConnected && !stravaLoading && (
@@ -1042,9 +1598,17 @@ export function VitalityModule() {
               <div style={{ fontFamily: "var(--sans)", fontSize: 12, fontWeight: 500, color: "var(--ink)", marginBottom: 2 }}>Connect Strava for live data</div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)" }}>Weekly mileage, pace trends, and recent activities pulled from your real runs.</div>
             </div>
-            <a href="/api/strava?action=auth" style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", textDecoration: "none", whiteSpace: "nowrap" }}>
+            <button
+              type="button"
+              style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", whiteSpace: "nowrap", cursor: "pointer" }}
+              onClick={() => {
+                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+                  if (status === "ok") window.location.reload();
+                });
+              }}
+            >
               Connect Strava →
-            </a>
+            </button>
           </div>
         )}
 
@@ -1063,19 +1627,22 @@ export function VitalityModule() {
             <div className="ex"><span>Wed — Intervals 6×800m</span><span className="es">Z4</span></div>
             <div className="ex"><span>Sat — Long run 16 km</span><span className="es">Z2</span></div>
             <div style={{ marginTop: 14 }}>
-              <span className="aibtn" onClick={() => setRegimenModal("run")} style={{ cursor: "pointer" }}>
+              <button type="button" className="aibtn" onClick={() => setRegimenModal("run")} style={{ cursor: "pointer" }}>
                 <AiIcon />{stravaConnected ? "Re-plan with AI + Strava data →" : "Re-plan with AI → Schedule"}
-              </span>
+              </button>
             </div>
           </div>
           <div className="card">
             <h2 className="sec">Running Briefing<span className="rule" /></h2>
-            <div style={{ marginTop: 12 }}>
-              <div className="hl"><div className="cat">Athletes</div><div><div className="ht">Kiptum&apos;s training blocks: what the splits reveal</div><div className="hs">LETSRUN · 1d</div></div></div>
-              <div className="hl"><div className="cat">Shoes</div><div><div className="ht">Super-trainer roundup: the daily-mileage carbon plates</div><div className="hs">DOCTORS OF RUNNING · 2d</div></div></div>
-              <div className="hl"><div className="cat">Tech</div><div><div className="ht">New running-power metrics on wrist optical sensors</div><div className="hs">DC RAINMAKER · 3d</div></div></div>
-              <div className="hl"><div className="cat">Gear</div><div><div className="ht">Hot-weather kit for summer base-building</div><div className="hs">OUTSIDE · 4d</div></div></div>
-            </div>
+            <BriefingList
+              emptyLabel="No reads available right now."
+              feedUrls={[
+                "https://www.letsrun.com/feed/",
+                "https://www.runnersworld.com/rss/all.xml/",
+                "https://www.dcrainmaker.com/feed",
+                "https://www.outsideonline.com/feed",
+              ]}
+            />
           </div>
         </div>
 
@@ -1092,7 +1659,7 @@ export function VitalityModule() {
         )}
 
         <div className="divider" />
-        <h2 className="sec" style={{ marginBottom: 14 }}>Running Videos<span className="rule" /><span className="count">YouTube API</span></h2>
+        <h2 className="sec" style={{ marginBottom: 14 }}>Running Videos<span className="rule" /><span className="count">Curated · YouTube</span></h2>
         <ChipRow chips={RUN_CHIPS} active={runChip} onPick={setRunChip} />
         <div className="vidgrid" id="runVids">
           {RUN_VIDEOS.filter((v) => runChip === "All" || v.tag === runChip).map((v) => <VidCard key={v.t} v={v} />)}
@@ -1123,24 +1690,22 @@ export function VitalityModule() {
           </div>
         </div>
         <div style={{ marginTop: 16 }}>
-          <span className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
+          <button type="button" className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
             <AiIcon />Build a Session with AI
-          </span>
+          </button>
         </div>
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 14 }}>Strength &amp; Conditioning Reads<span className="rule" /></h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 28px" }}>
-          <div>
-            <div className="hl artlink"><div className="cat">Lifting</div><div><div className="ht">How many hard sets actually build muscle</div><div className="hs">MEN&apos;S HEALTH · 1d</div></div></div>
-            <div className="hl artlink"><div className="cat">Hybrid</div><div><div className="ht">Lifting and running without killing either</div><div className="hs">MEN&apos;S JOURNAL · 2d</div></div></div>
-            <div className="hl artlink"><div className="cat">Program</div><div><div className="ht">Push/pull/legs for the time-crunched</div><div className="hs">MUSCLE &amp; STRENGTH · 3d</div></div></div>
-          </div>
-          <div>
-            <div className="hl artlink"><div className="cat">HIIT</div><div><div className="ht">EMOM circuits that complement mileage</div><div className="hs">MEN&apos;S FITNESS · 3d</div></div></div>
-            <div className="hl artlink"><div className="cat">Recovery</div><div><div className="ht">The recovery levers that actually move the needle</div><div className="hs">MUSCLE &amp; FITNESS · 4d</div></div></div>
-            <div className="hl artlink"><div className="cat">GQ</div><div><div className="ht">Why lifting is the best thing for your wardrobe</div><div className="hs">GQ · 5d</div></div></div>
-          </div>
-        </div>
+        <BriefingList
+          artlink
+          columns
+          emptyLabel="No reads available right now."
+          feedUrls={[
+            "https://www.menshealth.com/rss/fitness.xml/",
+            "https://www.muscleandfitness.com/feed/",
+            "https://www.gq.com/feed/rss",
+          ]}
+        />
       </div>
 
       {/* ── YOGA TAB ──────────────────────────────────────────────────────────── */}
@@ -1158,12 +1723,12 @@ export function VitalityModule() {
             <p style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.55, marginBottom: 12 }}>
               Generate a mobility or Pilates flow targeting your tight areas, then drop it into wind-down.
             </p>
-            <span className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
+            <button type="button" className="aibtn" onClick={() => setRegimenModal("lift")} style={{ cursor: "pointer" }}>
               <AiIcon />Build a Flow with AI
-            </span>
+            </button>
           </div>
         </div>
-        <h2 className="sec" style={{ marginBottom: 14 }}>Yoga &amp; Pilates Videos<span className="rule" /><span className="count">YouTube API</span></h2>
+        <h2 className="sec" style={{ marginBottom: 14 }}>Yoga &amp; Pilates Videos<span className="rule" /><span className="count">Curated · YouTube</span></h2>
         <ChipRow chips={YOGA_CHIPS} active={yogaChip} onPick={setYogaChip} />
         <div className="vidgrid" id="yogaVids">
           {YOGA_VIDEOS.filter((v) => yogaChip === "All" || v.tag === yogaChip).map((v) => <VidCard key={v.t} v={v} />)}
@@ -1173,13 +1738,20 @@ export function VitalityModule() {
       {/* ── NUTRITION TAB ─────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-nutrition" ? " on" : ""}`} id="fit-nutrition">
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 18px" }}>
-          <div className="selectbox">
+          <div className="selectbox" onClick={cycleNutritionDiet} title="Click to cycle diet protocol" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cycleNutritionDiet(); } }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" /></svg>
-            <span>Diet: High-Protein</span>
+            <span>Diet: {DIET_LABEL[nutritionProtocol?.diet_protocol ?? "high-protein"]}</span>
           </div>
-          <div className="selectbox">
+          <div
+            className="selectbox"
+            onClick={openCronometer}
+            title={cronometerOpened ? "Open Cronometer again" : "Not connected — tap to open Cronometer"}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCronometer(); } }}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 12h4l2-7 4 14 2-7h4" /></svg>
-            Synced: Cronometer
+            {cronometerOpened ? "Cronometer · opened" : "Open Cronometer"}
           </div>
         </div>
         <div className="ftop" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
@@ -1210,14 +1782,14 @@ export function VitalityModule() {
             <h2 className="sec">Today&apos;s Meals<span className="rule" /><span className="count">1,840 kcal</span></h2>
             <div className="meal-list">
               {meals.map((meal) => (
-                <div className="meal" key={meal.t}>
-                  <div className="meal-ic">{meal.ic}</div>
+                <div className="meal" key={meal.id}>
+                  <div className="meal-ic">{meal.emoji}</div>
                   <div className="meal-b">
-                    <div className="meal-t">{meal.t}</div>
-                    <div className="meal-m">{meal.m}</div>
+                    <div className="meal-t">{meal.title}</div>
+                    <div className="meal-m">{meal.timing}</div>
                   </div>
-                  <div className="meal-k">{meal.k}</div>
-                  <button type="button" className="meal-x" title="Remove" onClick={() => setMeals((ms) => ms.filter((m) => m !== meal))}>✕</button>
+                  <div className="meal-k">{meal.macros}</div>
+                  <button type="button" className="meal-x" title="Remove" aria-label={`Remove ${meal.title}`} onClick={() => removeMeal(meal.id)}>✕</button>
                 </div>
               ))}
             </div>
@@ -1238,33 +1810,102 @@ export function VitalityModule() {
           <div className="card">
             <h2 className="sec">Targets &amp; Notes<span className="rule" /></h2>
             <div style={{ marginTop: 12 }}>
-              <div className="metricrow"><span className="metric-k">Diet protocol</span><span className="metric-v">High-Protein</span></div>
-              <div className="metricrow"><span className="metric-k">Protein target</span><span className="metric-v">1.0 g/lb</span></div>
-              <div className="metricrow"><span className="metric-k">Hydration</span><span className="metric-v">2.1 / 3.0 L</span></div>
-              <div className="metricrow"><span className="metric-k">Training-day carbs</span><span className="metric-v up">+40g</span></div>
-              <p style={{ fontSize: 11, color: "var(--ink-faint)", lineHeight: 1.55, marginTop: 12 }}>
-                On long-run days AXIS nudges carbs up and front-loads them. Macros adapt to your selected protocol.
-              </p>
+              <div className="metricrow">
+                <span className="metric-k">Diet protocol</span>
+                <select
+                  className="metric-v"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  value={nutritionProtocol?.diet_protocol ?? "high-protein"}
+                  onChange={(e) => updateProtocol({ diet_protocol: e.target.value as Diet })}
+                >
+                  {DIETS.map((d) => <option key={d} value={d}>{DIET_LABEL[d]}</option>)}
+                </select>
+              </div>
+              <div className="metricrow">
+                <span className="metric-k">Protein target</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={nutritionProtocol?.protein_target_g_per_lb ?? 1.0}
+                    onChange={(e) => updateProtocol({ protein_target_g_per_lb: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 52, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v" style={{ fontSize: 11 }}>g/lb</span>
+                </span>
+              </div>
+              <div className="metricrow">
+                <span className="metric-k">Hydration</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={nutritionProtocol?.hydration_current_l ?? 0}
+                    onChange={(e) => updateProtocol({ hydration_current_l: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 44, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v" style={{ fontSize: 11 }}>/</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={nutritionProtocol?.hydration_target_l ?? 3.0}
+                    onChange={(e) => updateProtocol({ hydration_target_l: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 44, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v" style={{ fontSize: 11 }}>L</span>
+                </span>
+              </div>
+              <div className="metricrow">
+                <span className="metric-k">Training-day carbs</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="metric-v up" style={{ fontSize: 11 }}>+</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={nutritionProtocol?.training_day_carb_bump_g ?? 40}
+                    onChange={(e) => updateProtocol({ training_day_carb_bump_g: Math.max(0, Number(e.target.value) || 0) })}
+                    style={{ width: 48, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-2)" }}
+                  />
+                  <span className="metric-v up" style={{ fontSize: 11 }}>g</span>
+                </span>
+              </div>
+              <textarea
+                value={nutritionProtocol?.notes ?? ""}
+                onChange={(e) => updateProtocol({ notes: e.target.value })}
+                placeholder="On long-run days AXIS nudges carbs up and front-loads them. Macros adapt to your selected protocol."
+                rows={3}
+                style={{ width: "100%", marginTop: 12, resize: "vertical", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "8px 10px", fontFamily: "var(--sans)", fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.55, boxSizing: "border-box" }}
+              />
             </div>
           </div>
         </div>
         <div className="divider" />
         <h2 className="sec" style={{ marginBottom: 6 }}>
-          Recommended Recipes<span className="rule" /><span className="count">High-Protein</span>
-          <span className="rings-edit" title="Refresh recipes">↻</span>
+          Recommended Recipes<span className="rule" /><span className="count">{DIET_LABEL[nutritionProtocol?.diet_protocol ?? "high-protein"]}</span>
+          <button type="button" className="rings-edit" aria-label="Refresh recipes" title="Refresh recipes" style={{ background: "none", border: "none", padding: 0 }}>↻</button>
         </h2>
         <div className="recipe-grid" id="nutritionRecipes">
-          {RECIPES.map((r) => (
-            <div className="recipe" key={r.id}>
+          {RECIPES.filter((r) => r.diets.includes(nutritionProtocol?.diet_protocol ?? "high-protein")).map((r) => (
+            <div className="recipe" key={r.id} onClick={() => openInApp(recipeUrl(r), r.t)}>
               <div className="rc-img" style={{ background: r.g }}>
-                <span className="rc-diet">{r.diet}</span>
-                <span className={`rc-save${savedRecipes[r.id] ? " on" : ""}`} title="Save to Supper Club" onClick={() => toggleRecipe(r.id)}>
+                <span className="rc-diet">{DIET_LABEL[r.diets[0]]}</span>
+                <button
+                  type="button"
+                  className={`rc-save${savedRecipes[r.id] ? " on" : ""}`}
+                  title="Save to Supper Club"
+                  aria-pressed={!!savedRecipes[r.id]}
+                  aria-label="Save to Supper Club"
+                  onClick={(e) => { e.stopPropagation(); toggleRecipe(r.id); }}
+                >
                   {savedRecipes[r.id] ? "★" : "☆"}
-                </span>
+                </button>
               </div>
               <div className="rc-b">
                 <div className="rc-t">{r.t}</div>
-                <div className="rc-meta"><span>{r.kcal} kcal</span><span>P {r.p}g</span><span>{r.time}</span></div>
+                <div className="rc-meta"><span>{r.kcal} kcal</span>{r.p != null && <span>P {r.p}g</span>}<span>{r.time}</span></div>
                 <div className="rc-src">{r.src} ↗</div>
               </div>
             </div>

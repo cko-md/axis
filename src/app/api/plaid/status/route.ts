@@ -14,8 +14,17 @@ export async function GET() {
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const creds = getPlaidCreds();
+
+  const { count } = await supabase
+    .from("fund_connections")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("provider", "plaid")
+    .eq("status", "linked");
+
   return NextResponse.json({
     configured: !!creds,
+    linked: (count ?? 0) > 0,
     provider: "plaid",
     env: creds?.env ?? null,
     message: creds

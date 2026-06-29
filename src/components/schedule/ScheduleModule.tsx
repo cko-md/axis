@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { hourLabel } from "@/lib/format";
 import type { ScheduleEvent } from "@/lib/types";
@@ -8,11 +8,14 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { AddCalendarPicker } from "./AddCalendarPicker";
+
+type ComposioCalState = { active: boolean; email: string | null };
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-type ChipColor = "a" | "b" | "c";
+type ChipColor = "a" | "b" | "c" | "or";
 
 // Static sample chips sprinkled on fixed days of the current month (Phase-3 stub).
 const MONTH_SAMPLE_EVENTS: Record<number, Array<{ cls: ChipColor; title: string }>> = {
@@ -85,17 +88,87 @@ export function ScheduleModule() {
     startHour: "9",
     endHour: "10",
     color: "a" as "a" | "b" | "c",
+    recurrence: "none" as "none" | "daily" | "weekly",
   });
   const [view, setView] = useState<"week" | "month" | "day">("week");
   const [signedIn, setSignedIn] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ScheduleEvent | null>(null);
   const [calStatus, setCalStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [composioCal, setComposioCal] = useState<{ google: ComposioCalState; outlook: ComposioCalState }>({
+    google: { active: false, email: null },
+    outlook: { active: false, email: null },
+  });
+  const [showCalPicker, setShowCalPicker] = useState(false);
+  const calBtnRef = useRef<HTMLDivElement>(null);
+  const [externalEvents, setExternalEvents] = useState<ScheduleEvent[]>([]);
 
-  const weekStart = useMemo(() => startOfWeek(new Date()), []);
-  const todayIdx = useMemo(() => {
-    const d = new Date().getDay();
-    return d === 0 ? 6 : d - 1;
+  const refreshComposioCalStatus = useCallback(() => {
+    fetch("/api/integrations/composio/status")
+      .then((r) => r.json())
+      .then((d: { connections?: Array<{ toolkit: string; status: string; account_label: string | null }> }) => {
+        const conns = d.connections ?? [];
+        const g = conns.find((c) => c.toolkit === "googlecalendar" && c.status === "ACTIVE");
+        const o = conns.find((c) => c.toolkit === "outlook" && c.status === "ACTIVE");
+        setComposioCal({
+          google: { active: !!g, email: g?.account_label ?? null },
+          outlook: { active: !!o, email: o?.account_label ?? null },
+        });
+      })
+      .catch(() => {});
   }, []);
+
+  // Close calendar picker on outside click
+  useEffect(() => {
+    if (!showCalPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (calBtnRef.current && !calBtnRef.current.contains(e.target as Node)) setShowCalPicker(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showCalPicker]);
+
+  // Anchor date for navigation — prev/next shifts it by the active view's unit.
+  const [anchor, setAnchor] = useState(() => new Date());
+  const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
+  // Index (Mon=0) of today within the anchored week — only ≥0 when that week
+  // actually contains today, so the highlight disappears on other weeks.
+  const todayIdx = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((today.getTime() - weekStart.getTime()) / 86400000);
+    return diff >= 0 && diff < 7 ? diff : -1;
+  }, [weekStart]);
+
+  // The date range the active view spans — drives both the Supabase query and
+  // the external-calendar fetch, so navigating to another week/month pulls that
+  // period's events instead of only the current week's.
+  const range = useMemo(() => {
+    if (view === "month") {
+      const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+      const offset = (first.getDay() + 6) % 7;
+      const start = addDays(first, -offset);
+      return { start, end: addDays(start, 42) }; // 6-week grid
+    }
+    if (view === "day") {
+      const start = new Date(anchor); start.setHours(0, 0, 0, 0);
+      return { start, end: addDays(start, 1) };
+    }
+    return { start: weekStart, end: addDays(weekStart, 7) };
+  }, [view, anchor, weekStart]);
+
+  const shiftPeriod = useCallback((dir: -1 | 1) => {
+    setAnchor((d) => {
+      if (view === "month") return new Date(d.getFullYear(), d.getMonth() + dir, Math.min(d.getDate(), 28));
+      if (view === "day") return addDays(d, dir);
+      return addDays(d, dir * 7);
+    });
+  }, [view]);
+
+  const periodLabel = useMemo(() => {
+    if (view === "month") return anchor.toLocaleDateString([], { month: "long", year: "numeric" });
+    if (view === "day") return anchor.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+    const we = addDays(weekStart, 6);
+    return `${weekStart.toLocaleDateString([], { month: "short", day: "numeric" })} – ${we.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+  }, [view, anchor, weekStart]);
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -108,13 +181,12 @@ export function ScheduleModule() {
     }
     setSignedIn(true);
 
-    const weekEnd = addDays(weekStart, 7);
     const { data, error } = await supabase
       .from("schedule_events")
       .select("*")
       .eq("user_id", user.id)
-      .gte("start_at", weekStart.toISOString())
-      .lt("start_at", weekEnd.toISOString())
+      .gte("start_at", range.start.toISOString())
+      .lt("start_at", range.end.toISOString())
       .order("start_at");
 
     if (error) toast(error.message, "error", "Schedule");
@@ -129,7 +201,7 @@ export function ScheduleModule() {
       })),
     );
     setLoading(false);
-  }, [supabase, toast, weekStart]);
+  }, [supabase, toast, range]);
 
   useEffect(() => {
     load();
@@ -137,25 +209,57 @@ export function ScheduleModule() {
       .then((r) => r.json())
       .then((s) => setCalStatus(s))
       .catch(() => {});
-  }, [load]);
+    refreshComposioCalStatus();
+  }, [load, refreshComposioCalStatus]);
+
+  const hasGoogle = !!calStatus?.google || composioCal.google.active;
+  const hasOutlook = !!calStatus?.outlook || composioCal.outlook.active;
+
+  // Pull real events from connected Google/Outlook calendars (read-only — never
+  // written to schedule_events) so connecting a provider surfaces actual content,
+  // not just a connected badge. Re-fetches whenever a provider connects/disconnects
+  // (legacy direct-OAuth or Composio).
+  useEffect(() => {
+    if (!hasGoogle && !hasOutlook) {
+      setExternalEvents([]);
+      return;
+    }
+    fetch(`/api/calendar/external?start=${range.start.toISOString()}&end=${range.end.toISOString()}`)
+      .then((r) => r.json())
+      .then((data: { events?: Array<{ externalId: string; title: string; start_at: string; end_at: string; all_day: boolean; source: "google" | "outlook" }> }) => {
+        setExternalEvents(
+          (data.events ?? []).map((e) => ({
+            id: `ext-${e.source}-${e.externalId}`,
+            title: e.title,
+            start_at: e.start_at,
+            end_at: e.end_at,
+            color_class: "or" as const,
+            all_day: e.all_day,
+            source: e.source,
+          })),
+        );
+      })
+      .catch(() => setExternalEvents([]));
+  }, [hasGoogle, hasOutlook, range]);
+
+  const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
 
   const monthCells = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+    const year = anchor.getFullYear();
+    const month = anchor.getMonth();
     const first = new Date(year, month, 1);
     const offset = (first.getDay() + 6) % 7; // weeks start Monday
     const gridStart = addDays(first, -offset);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const weeks = Math.ceil((offset + daysInMonth) / 7);
-    const todayKey = now.toDateString();
+    const todayKey = new Date().toDateString();
 
     return Array.from({ length: weeks * 7 }, (_, i) => {
       const date = addDays(gridStart, i);
       const out = date.getMonth() !== month;
       const chips: Array<{ cls: ChipColor; title: string }> = [];
       if (!out && !signedIn) chips.push(...(MONTH_SAMPLE_EVENTS[date.getDate()] ?? []));
-      for (const ev of events) {
+      for (const ev of displayEvents) {
         if (new Date(ev.start_at).toDateString() === date.toDateString()) {
           chips.push({ cls: ev.color_class, title: ev.title });
         }
@@ -168,13 +272,13 @@ export function ScheduleModule() {
         chips: chips.slice(0, 3),
       };
     });
-  }, [events, signedIn]);
+  }, [displayEvents, signedIn, anchor]);
 
   const dayRows = useMemo(() => {
     const now = new Date();
-    const todayKey = now.toDateString();
-    const rows = events
-      .filter((ev) => new Date(ev.start_at).toDateString() === todayKey)
+    const dayKey = anchor.toDateString();
+    const rows = displayEvents
+      .filter((ev) => new Date(ev.start_at).toDateString() === dayKey)
       .sort((a, b) => a.start_at.localeCompare(b.start_at))
       .map((ev) => {
         const start = new Date(ev.start_at);
@@ -186,21 +290,36 @@ export function ScheduleModule() {
         };
       });
     if (rows.length) return rows;
-    return signedIn ? [] : DAY_SAMPLE_ROWS;
-  }, [events, signedIn]);
+    // Demo-mode sample only when viewing *today* and signed out.
+    return signedIn || dayKey !== now.toDateString() ? [] : DAY_SAMPLE_ROWS;
+  }, [displayEvents, signedIn, anchor]);
 
-  const eventsForSlot = (dayIdx: number, hour: number) => {
-    const day = addDays(weekStart, dayIdx);
-    return events.filter((ev) => {
-      const start = new Date(ev.start_at);
-      const end = new Date(ev.end_at);
-      const slotStart = new Date(day);
-      slotStart.setHours(hour, 0, 0, 0);
-      const slotEnd = new Date(day);
-      slotEnd.setHours(hour + 1, 0, 0, 0);
-      return start < slotEnd && end > slotStart;
-    });
-  };
+  // Precomputed day+hour -> events lookup, built once per displayEvents/weekStart
+  // change instead of re-filtering the full events array per grid cell render.
+  const slotMap = useMemo(() => {
+    const map = new Map<string, ScheduleEvent[]>();
+    for (let dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
+      const day = addDays(weekStart, dayIdx);
+      for (const hour of HOURS) {
+        const slotStart = new Date(day);
+        slotStart.setHours(hour, 0, 0, 0);
+        const slotEnd = new Date(day);
+        slotEnd.setHours(hour + 1, 0, 0, 0);
+        const slotEvents = displayEvents.filter((ev) => {
+          const start = new Date(ev.start_at);
+          const end = new Date(ev.end_at);
+          return start < slotEnd && end > slotStart;
+        });
+        map.set(`${dayIdx}-${hour}`, slotEvents);
+      }
+    }
+    return map;
+  }, [displayEvents, weekStart]);
+
+  const eventsForSlot = useCallback(
+    (dayIdx: number, hour: number) => slotMap.get(`${dayIdx}-${hour}`) ?? [],
+    [slotMap],
+  );
 
   const saveEvent = async () => {
     if (!form.title.trim()) {
@@ -220,32 +339,71 @@ export function ScheduleModule() {
       return;
     }
 
-    const { data: inserted, error } = await supabase
-      .from("schedule_events")
-      .insert({
+    const recurrenceRule = form.recurrence !== "none" ? form.recurrence : null;
+
+    // Build base insert; for recurring events also insert the next N instances
+    const instances: Array<{ user_id: string; title: string; start_at: string; end_at: string; color_class: string; recurrence_rule: string | null }> = [];
+    const duration = end.getTime() - start.getTime();
+    const repeatCount = form.recurrence === "daily" ? 6 : form.recurrence === "weekly" ? 3 : 0;
+    for (let i = 0; i <= repeatCount; i++) {
+      const offset = form.recurrence === "daily" ? i : i * 7;
+      const s = new Date(start.getTime() + offset * 24 * 60 * 60 * 1000);
+      const e = new Date(s.getTime() + duration);
+      instances.push({
         user_id: user.id,
         title: form.title,
-        start_at: start.toISOString(),
-        end_at: end.toISOString(),
+        start_at: s.toISOString(),
+        end_at: e.toISOString(),
         color_class: form.color,
-      })
+        recurrence_rule: recurrenceRule,
+      });
+    }
+
+    const { data: inserted, error } = await supabase
+      .from("schedule_events")
+      .insert(instances)
       .select("id")
+      .limit(1)
       .single();
 
     if (error) { toast(error.message, "error", "Schedule"); return; }
 
-    toast("Event added.", "success", "Schedule");
+    const label = form.recurrence === "none" ? "Event added." : `Event added (${repeatCount + 1} instances — ${form.recurrence}).`;
+    toast(label, "success", "Schedule");
     setModalOpen(false);
-    setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a" });
+    setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a", recurrence: "none" });
     load();
 
-    // Fire-and-forget calendar sync if any provider is connected
-    if (inserted && (calStatus?.google || calStatus?.outlook)) {
+    // Sync to connected external calendars
+    if (inserted && (hasGoogle || hasOutlook)) {
       fetch("/api/calendar/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId: inserted.id, title: form.title, start_at: start.toISOString(), end_at: end.toISOString() }),
-      }).catch(() => {});
+      }).catch(() => { toast("Event saved, but calendar sync failed.", "warn", "Schedule"); });
+    }
+
+    // Context-aware conflict check — reads local + (if connected) Google
+    // Calendar state at save time and suggests an alternative if it overlaps.
+    // Only checks the first instance of a recurring series, not every
+    // generated occurrence — a single heads-up toast is enough signal.
+    if (inserted) {
+      fetch("/api/calendar/conflicts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start_at: start.toISOString(), end_at: end.toISOString(), excludeEventId: inserted.id }),
+      })
+        .then((r) => r.json())
+        .then((data: { conflict?: boolean; conflictingTitles?: string[]; suggestions?: Array<{ start_at: string; end_at: string }> }) => {
+          if (!data.conflict) return;
+          const withWhat = data.conflictingTitles?.length ? ` with ${data.conflictingTitles.join(", ")}` : "";
+          const next = data.suggestions?.[0];
+          const suggestionText = next
+            ? ` Free slot: ${new Date(next.start_at).toLocaleString("en-GB", { weekday: "short", hour: "numeric", minute: "2-digit" })}–${new Date(next.end_at).toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit" })}.`
+            : "";
+          toast(`Heads up — this overlaps${withWhat}.${suggestionText}`, "warn", "Schedule");
+        })
+        .catch(() => {});
     }
   };
 
@@ -256,7 +414,7 @@ export function ScheduleModule() {
       return;
     }
     // Remove from external calendars before deleting locally
-    if (calStatus?.google || calStatus?.outlook) {
+    if (hasGoogle || hasOutlook) {
       fetch(`/api/calendar/event/${id}`, { method: "DELETE" }).catch(() => {});
     }
     const { error } = await supabase.from("schedule_events").delete().eq("id", id);
@@ -270,7 +428,7 @@ export function ScheduleModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-        {/* Google Calendar */}
+        {/* Google Calendar — connected via legacy direct-OAuth or Composio */}
         {calStatus?.google ? (
           <button
             type="button"
@@ -285,18 +443,22 @@ export function ScheduleModule() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             {calStatus.googleEmail ?? "Google Calendar"} ✓
           </button>
-        ) : (
+        ) : composioCal.google.active ? (
           <button
             type="button"
             className="selectbox"
-            style={{ background: "none" }}
-            onClick={() => { window.location.href = "/api/calendar/connect?provider=google"; }}
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              await fetch("/api/integrations/composio/disconnect?toolkit=googlecalendar", { method: "DELETE" });
+              setComposioCal((s) => ({ ...s, google: { active: false, email: null } }));
+              toast("Google Calendar disconnected", "info", "Schedule");
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            Connect Google Calendar
+            {composioCal.google.email ?? "Google Calendar"} ✓
           </button>
-        )}
-        {/* Outlook Calendar */}
+        ) : null}
+        {/* Outlook Calendar — connected via legacy direct-OAuth or Composio */}
         {calStatus?.outlook ? (
           <button
             type="button"
@@ -311,17 +473,44 @@ export function ScheduleModule() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             {calStatus.outlookEmail ?? "Outlook"} ✓
           </button>
-        ) : (
+        ) : composioCal.outlook.active ? (
           <button
             type="button"
             className="selectbox"
-            style={{ background: "none" }}
-            onClick={() => { window.location.href = "/api/calendar/connect?provider=outlook"; }}
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              await fetch("/api/integrations/composio/disconnect?toolkit=outlook", { method: "DELETE" });
+              setComposioCal((s) => ({ ...s, outlook: { active: false, email: null } }));
+              toast("Outlook Calendar disconnected", "info", "Schedule");
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            Connect Outlook
+            {composioCal.outlook.email ?? "Outlook"} ✓
           </button>
-        )}
+        ) : null}
+        <div ref={calBtnRef} style={{ position: "relative" }}>
+          <div className="selectbox" style={{ cursor: "pointer" }} onClick={() => setShowCalPicker((v) => !v)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            Connect Calendar
+          </div>
+          {showCalPicker && (
+            <AddCalendarPicker
+              onClose={() => setShowCalPicker(false)}
+              onConnected={(provider) => {
+                toast(`${provider === "google" ? "Google" : "Outlook"} Calendar connected`, "success", "Schedule");
+                fetch("/api/calendar/status").then((r) => r.json()).then((s) => setCalStatus(s)).catch(() => {});
+                refreshComposioCalStatus();
+              }}
+            />
+          )}
+        </div>
+        {/* Period navigation — prev / next shift by the active view's unit. */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <button type="button" className="selectbox" style={{ padding: "4px 9px", cursor: "pointer" }} onClick={() => shiftPeriod(-1)} aria-label="Previous">‹</button>
+          <span style={{ minWidth: 132, textAlign: "center", fontSize: 12, fontFamily: "var(--narrow)", color: "var(--ink-dim)", letterSpacing: ".02em" }}>{periodLabel}</span>
+          <button type="button" className="selectbox" style={{ padding: "4px 9px", cursor: "pointer" }} onClick={() => shiftPeriod(1)} aria-label="Next">›</button>
+          <button type="button" className="selectbox" style={{ padding: "4px 10px", cursor: "pointer", fontSize: 11 }} onClick={() => setAnchor(new Date())}>Today</button>
+        </div>
         <div className="vtoggle">
           <button type="button" className={view === "week" ? "on" : ""} onClick={() => setView("week")}>WEEK</button>
           <button type="button" className={view === "month" ? "on" : ""} onClick={() => setView("month")}>MONTH</button>
@@ -378,7 +567,7 @@ export function ScheduleModule() {
         <Card>
           <div className="empty-state">
             <strong>No events this week</strong>
-            <p>Add a block or connect Google Calendar in a future phase.</p>
+            <p>Connect Google Calendar or Outlook to sync your schedule, or add an event above.</p>
           </div>
         </Card>
       ) : (
@@ -400,11 +589,11 @@ export function ScheduleModule() {
                       <div
                         key={ev.id}
                         className={`wkev ${ev.color_class}`}
-                        title={`${ev.title} — click to manage`}
-                        onClick={() => setPendingDelete(ev)}
+                        title={ev.source ? `${ev.title} — synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"}` : `${ev.title} — click to manage`}
+                        onClick={() => ev.source ? toast(`Synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"} — manage it there.`, "info", "Schedule") : setPendingDelete(ev)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === "Enter" && setPendingDelete(ev)}
+                        onKeyDown={(e) => e.key === "Enter" && (ev.source ? toast(`Synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"} — manage it there.`, "info", "Schedule") : setPendingDelete(ev))}
                       >
                         {ev.title}
                       </div>
@@ -520,6 +709,17 @@ export function ScheduleModule() {
             <option value="a">Teal — Deep work</option>
             <option value="b">Green — Wellness</option>
             <option value="c">Clay — Meetings</option>
+          </select>
+          <select
+            className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-2 py-2 text-sm"
+            value={form.recurrence}
+            onChange={(e) =>
+              setForm({ ...form, recurrence: e.target.value as "none" | "daily" | "weekly" })
+            }
+          >
+            <option value="none">No repeat</option>
+            <option value="daily">Daily — next 7 days</option>
+            <option value="weekly">Weekly — next 4 weeks</option>
           </select>
         </div>
       </Modal>

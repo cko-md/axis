@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   type TrainingSession,
@@ -121,6 +121,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
   const [log, setLog] = useState<WorkoutLog | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -145,6 +146,27 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
     if (session) document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [session, onClose]);
+
+  // Focus trap
+  useEffect(() => {
+    if (!session) return;
+    const el = dialogRef.current;
+    const sel = 'button,input,textarea,select,[href],[tabindex]:not([tabindex="-1"])';
+    const nodes = [...(el?.querySelectorAll<HTMLElement>(sel) ?? [])];
+    nodes[0]?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first?.focus();
+      }
+    };
+    el?.addEventListener("keydown", trap);
+    return () => el?.removeEventListener("keydown", trap);
+  }, [session]);
 
   const generateWithAI = useCallback(async () => {
     if (!session) return;
@@ -225,7 +247,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 1000,
+        zIndex: 200,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -233,8 +255,12 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
         backdropFilter: "blur(6px)",
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="workout-detail-title"
     >
       <div
+        ref={dialogRef}
         style={{
           width: "min(660px, 96vw)",
           maxHeight: "90vh",
@@ -294,6 +320,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
               </span>
             </div>
             <h2
+              id="workout-detail-title"
               style={{
                 fontFamily: "var(--display)",
                 fontSize: 23,
@@ -693,7 +720,7 @@ function RegimenRow({
           background: "none",
           border: "none",
           borderBottom: "1px solid var(--line)",
-          color: "#3f6fb0",
+          color: "var(--marine)",
           fontFamily: "var(--mono)",
           fontSize: 10.5,
           outline: "none",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import {
   classifySignal,
   classifySignals,
@@ -18,6 +19,8 @@ import {
   type SignalRoute,
 } from "@/lib/hooks/useSignalRoutes";
 import { triageSignalToTask, useTasks, type TaskCategory, type TaskPriority } from "@/lib/hooks/useTasks";
+import { useNotes } from "@/lib/hooks/useNotes";
+import { normalizeName, triageSignalToPerson, usePeople } from "@/lib/hooks/usePeople";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -38,6 +41,13 @@ const destLabel = (id: string) => DESTINATIONS.find((d) => d.id === id)?.label ?
 // tasks.category has a CHECK constraint — the AI route may emit "admin"; map it to a valid value.
 const VALID_CATEGORIES: TaskCategory[] = ["research", "clinical", "life", "personal"];
 const safeCategory = (c: string): TaskCategory => (VALID_CATEGORIES as string[]).includes(c) ? (c as TaskCategory) : "research";
+
+// The AI classifier emits a free-form destination string; clamp it to a real
+// routable destination so "AI triage all" can route every signal (anything it
+// doesn't recognise falls back to Agenda, the safe catch-all for action items).
+const VALID_DESTINATIONS: RouteDestination[] = DESTINATIONS.map((d) => d.id);
+const safeDestination = (d: string): RouteDestination =>
+  (VALID_DESTINATIONS as string[]).includes(d) ? (d as RouteDestination) : "agenda";
 
 function pillClass(type: SignalType) {
   if (type === "action") return "hi";
@@ -65,9 +75,11 @@ function applyChip(signals: Signal[], chip: Chip) {
 }
 
 export function SignalsModule() {
-  const { signals, loading, capture, markRead, routeTo, updateSignal, applyClassification } = useSignals();
+  const { signals, loading, capture, markRead, routeTo, updateSignal, deleteSignal, applyClassification, refresh: refreshSignals } = useSignals();
   const { routes, addRoute, updateRoute, deleteRoute } = useSignalRoutes();
-  const { tasks, addTask } = useTasks();
+  const { addTask } = useTasks();
+  const { createNote, updateNote } = useNotes();
+  const { people, addPerson, updatePerson } = usePeople();
   const { toast } = useToast();
 
   const [activeChip, setActiveChip] = useState<Chip>("All");
@@ -78,6 +90,8 @@ export function SignalsModule() {
   const [scanning, setScanning] = useState(false);
   const [draft, setDraft] = useState("");
   const [routesOpen, setRoutesOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
 
   const filtered = useMemo(() => applyChip(signals, activeChip), [signals, activeChip]);
 
@@ -135,7 +149,7 @@ export function SignalsModule() {
     );
   };
 
-  // Commit a route: stamp signal, and for action/awaiting destined to agenda, materialise a task.
+  // Commit a route: stamp signal, and materialise the right side-effect per destination.
   const commitRoute = async (s: Signal, destination: string, priority: RoutePriority | "hi" | "med" | "lo", via: "ai" | "manual" | "rule") => {
     if (destination === "agenda") {
       const triaged = await triageSignalToTask(s);
@@ -146,6 +160,18 @@ export function SignalsModule() {
         priority: pri,
         effort: triaged.effort,
       });
+    } else if (destination === "notes") {
+      const note = await createNote(s.title, "All Notes");
+      if (note) await updateNote(note.id, { body: s.body ?? "" });
+    } else if (destination === "people") {
+      const triaged = await triageSignalToPerson(s);
+      const target = normalizeName(triaged.name);
+      const matched = people.find((p) => normalizeName(p.name) === target);
+      if (matched) {
+        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
+      } else {
+        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
+      }
     }
     await routeTo(s.id, destination, via);
     toast(`Routed → ${destLabel(destination)}`, "success", "Signals");
@@ -162,7 +188,10 @@ export function SignalsModule() {
     await commitRoute(s, rule.destination, rule.set_priority, "rule");
   };
 
-  // AI triage ALL un-routed signals in one batch, auto-applying any matching user route.
+  // AI triage ALL un-routed signals in one batch — classify each, then actually
+  // route it: to a matching user rule's destination when one exists, otherwise
+  // to the AI's own suggested destination. Nothing is left merely "classified
+  // but unrouted" — triage means route, so the inbox clears in one pass.
   const triageAll = async () => {
     const pending = signals.filter((s) => !s.routed_at);
     if (pending.length === 0) {
@@ -172,79 +201,73 @@ export function SignalsModule() {
     setBatching(true);
     toast(`Triaging ${pending.length} signals…`, "info", "AI Triage");
     const results = await classifySignals(pending);
-    let autoRouted = 0;
+    let routed = 0;
+    let viaRules = 0;
     for (const c of results) {
       const s = pending.find((x) => x.id === c.id);
       if (!s) continue;
       await applyClassification(s.id, c);
-      // Auto-route only when a user rule with auto_route matches.
       const rule = findMatchingRoute(routes, { ...s, signal_type: c.signal_type });
-      if (rule?.auto_route) {
+      if (rule) {
         await commitRouteSilent(s, rule.destination, rule.set_priority, "rule");
-        autoRouted += 1;
+        viaRules += 1;
+      } else {
+        // No user rule — route to the AI's suggested destination so it doesn't
+        // linger as unrouted.
+        await commitRouteSilent(s, safeDestination(c.destination), c.priority, "ai");
       }
+      routed += 1;
     }
     setBatching(false);
     toast(
-      autoRouted > 0
-        ? `Classified ${results.length} · auto-routed ${autoRouted} via your rules`
-        : `Classified ${results.length} signals — review suggestions`,
+      viaRules > 0
+        ? `Routed ${routed} signal${routed === 1 ? "" : "s"} · ${viaRules} via your rules`
+        : `Routed ${routed} signal${routed === 1 ? "" : "s"} to their suggested destinations`,
       "success",
       "AI Triage",
     );
   };
 
-  // Like commitRoute but without toast/close — used inside batch loops.
-  const commitRouteSilent = async (s: Signal, destination: string, priority: RoutePriority, via: "rule") => {
+  // Like commitRoute but without toast/close — used inside batch loops. `via`
+  // is "rule" for user-rule matches, "ai" for AI-suggested fallbacks.
+  const commitRouteSilent = async (s: Signal, destination: RouteDestination, priority: RoutePriority | "hi" | "med" | "lo", via: "ai" | "rule") => {
     if (destination === "agenda") {
       const triaged = await triageSignalToTask(s);
       const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
       await addTask({ title: triaged.title, category: safeCategory(triaged.category), priority: pri, effort: triaged.effort });
+    } else if (destination === "notes") {
+      const note = await createNote(s.title, "All Notes");
+      if (note) await updateNote(note.id, { body: s.body ?? "" });
+    } else if (destination === "people") {
+      const triaged = await triageSignalToPerson(s);
+      const target = normalizeName(triaged.name);
+      const matched = people.find((p) => normalizeName(p.name) === target);
+      if (matched) {
+        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
+      } else {
+        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
+      }
     }
     await routeTo(s.id, destination, via);
   };
 
-  // Scan platform modules for new signals via AI — reads tasks + existing signals for context.
+  // Scan platform modules for new signals via AI — server does the read+AI+insert, we just refresh.
   const scanPlatform = useCallback(async () => {
     setScanning(true);
     toast("Scanning platform…", "info", "Dispatch");
     try {
-      const existingTitles = signals.map((s) => s.title).slice(0, 20).join("; ");
-      const taskCtx = tasks.slice(0, 15).map((t) =>
-        `[${t.priority.toUpperCase()}] ${t.title} (${t.category}, ${t.status}${t.deadline ? `, due ${t.deadline}` : ""})`
-      ).join("\n");
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "companion",
-          text: `You are the Axis dispatch intelligence. Scan the following platform context and identify up to 4 signals that genuinely need attention, routing, or action. Do NOT duplicate signals already in the inbox. Return ONLY a JSON array of objects with keys: title (string, <60 chars), body (string, <120 chars), signal_type ("action"|"awaiting"|"fyi"), source (string). No markdown, just raw JSON.\n\nCurrent tasks:\n${taskCtx || "No tasks."}\n\nAlready in inbox: ${existingTitles || "Empty"}`,
-          body: JSON.stringify({ context: "dispatch scan", history: [], persona: "dispatch" }),
-        }),
-      });
-      const data = await res.json() as { response?: string };
-      const raw = (data.response ?? "").trim();
-      const start = raw.indexOf("[");
-      const end   = raw.lastIndexOf("]");
-      if (start === -1 || end === -1) throw new Error("No JSON array");
-      const items = JSON.parse(raw.slice(start, end + 1)) as Array<{ title: string; body?: string; signal_type?: string; source?: string }>;
-      let captured = 0;
-      for (const item of items.slice(0, 4)) {
-        if (!item.title) continue;
-        const type: SignalType = ["action","awaiting","fyi"].includes(item.signal_type ?? "") ? (item.signal_type as SignalType) : "fyi";
-        const created = await capture(item.title, type, item.source ?? "Platform Scan");
-        if (created && item.body) {
-          await updateSignal(created.id, { body: item.body } as Partial<Signal>);
-        }
-        if (created) captured++;
-      }
+      const res = await fetch("/api/signals/scan", { method: "POST" });
+      const data = await res.json() as { created?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Scan failed");
+      const captured = data.created ?? 0;
+      if (captured > 0) await refreshSignals();
       toast(captured > 0 ? `${captured} new signal${captured === 1 ? "" : "s"} surfaced` : "Platform looks clear", "success", "Dispatch");
     } catch {
       toast("Scan failed — check connection", "error", "Dispatch");
     } finally {
       setScanning(false);
     }
-  }, [signals, tasks, capture, updateSignal, toast]);
+  }, [refreshSignals, toast]);
 
   const handleCapture = async () => {
     const text = draft.trim();
@@ -254,10 +277,14 @@ export function SignalsModule() {
     if (created) toast("Signal captured", "success", "Signals");
   };
 
-  if (loading) return <div className="empty-state">Loading signals…</div>;
+  if (loading) return (
+    <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 8 }}>
+      {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} rows={2} />)}
+    </div>
+  );
 
   const renderRow = (s: Signal) => (
-    <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => openDetail(s)} style={{ cursor: "pointer" }}>
+    <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>
       <div
         className={s.read_at ? "check done" : "check"}
         onClick={(e) => {
@@ -266,7 +293,30 @@ export function SignalsModule() {
         }}
       />
       <div className="task-main">
-        <div className="task-title">{s.title}</div>
+        {editingId === s.id ? (
+          <input
+            autoFocus
+            value={editTitle}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onBlur={() => {
+              if (editTitle.trim() && editTitle !== s.title) updateSignal(s.id, { title: editTitle.trim() });
+              setEditingId(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.currentTarget.blur(); }
+              if (e.key === "Escape") { setEditingId(null); }
+            }}
+            style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid var(--line)", color: "var(--ink)", fontSize: 13, fontFamily: "inherit", padding: "0 0 2px", outline: "none" }}
+          />
+        ) : (
+          <div
+            className="task-title"
+            onDoubleClick={(e) => { e.stopPropagation(); setEditingId(s.id); setEditTitle(s.title); }}
+          >
+            {s.title}
+          </div>
+        )}
         <div className="task-meta" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           <span className={`pill ${pillClass(s.signal_type)}`}>{s.signal_type.toUpperCase()}</span>
           <span>
@@ -277,6 +327,14 @@ export function SignalsModule() {
           )}
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); deleteSignal(s.id); }}
+        title="Delete signal"
+        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0 }}
+      >
+        ×
+      </button>
     </div>
   );
 
@@ -307,9 +365,9 @@ export function SignalsModule() {
 
       <div className="chips">
         {CHIPS.map((chip) => (
-          <span key={chip} className={chip === activeChip ? "chip on" : "chip"} onClick={() => setActiveChip(chip)}>
+          <button key={chip} type="button" className={chip === activeChip ? "chip on" : "chip"} aria-pressed={chip === activeChip} onClick={() => setActiveChip(chip)}>
             {chip}
-          </span>
+          </button>
         ))}
       </div>
 

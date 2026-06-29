@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } from "../_lib";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -14,6 +15,10 @@ import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } f
  *  4. If create=true, build a private playlist and add the tracks; else just return the set to queue.
  */
 export async function POST(req: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const token = await getAccessToken();
   if (!token) return notConnected();
 

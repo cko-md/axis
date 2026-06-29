@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type SignalType = "action" | "awaiting" | "fyi";
 
@@ -90,9 +91,11 @@ export function useSignals() {
   const supabase = useMemo(() => createClient(), []);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setSignals([]);
       setLoading(false);
@@ -113,7 +116,9 @@ export function useSignals() {
     refresh();
   }, [refresh]);
 
-  const capture = async (title: string, type: SignalType = "action", source = "capture") => {
+  useRealtimeRefresh(supabase, "signals", userId, refresh);
+
+  const capture = useCallback(async (title: string, type: SignalType = "action", source = "capture") => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const { data } = await supabase
@@ -126,16 +131,16 @@ export function useSignals() {
       return data as Signal;
     }
     return null;
-  };
+  }, [supabase]);
 
-  const updateSignal = async (id: string, patch: Partial<Signal>) => {
+  const updateSignal = useCallback(async (id: string, patch: Partial<Signal>) => {
     const { data } = await supabase.from("signals").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
     if (data) setSignals((prev) => prev.map((s) => (s.id === id ? (data as Signal) : s)));
-  };
+  }, [supabase]);
 
-  const markRead = (id: string) => updateSignal(id, { read_at: new Date().toISOString() });
+  const markRead = useCallback((id: string) => updateSignal(id, { read_at: new Date().toISOString() }), [updateSignal]);
 
-  const routeTo = (id: string, target: string, via: SignalAIMeta["routed_via"] = "manual") => {
+  const routeTo = useCallback((id: string, target: string, via: SignalAIMeta["routed_via"] = "manual") => {
     const current = signals.find((s) => s.id === id);
     return updateSignal(id, {
       route_target: target,
@@ -143,10 +148,10 @@ export function useSignals() {
       read_at: current?.read_at ?? new Date().toISOString(),
       metadata: { ...(current?.metadata ?? {}), routed_via: via },
     });
-  };
+  }, [signals, updateSignal]);
 
   /** Persist an AI classification onto a signal (reclassifies type + stores suggestion in metadata). */
-  const applyClassification = (id: string, c: SignalClassification) => {
+  const applyClassification = useCallback((id: string, c: SignalClassification) => {
     const current = signals.find((s) => s.id === id);
     return updateSignal(id, {
       signal_type: c.signal_type,
@@ -159,9 +164,14 @@ export function useSignals() {
         ai_at: new Date().toISOString(),
       },
     });
-  };
+  }, [signals, updateSignal]);
 
-  return { signals, loading, refresh, capture, updateSignal, markRead, routeTo, applyClassification };
+  const deleteSignal = useCallback(async (id: string) => {
+    const { error } = await supabase.from("signals").delete().eq("id", id);
+    if (!error) setSignals((prev) => prev.filter((s) => s.id !== id));
+  }, [supabase]);
+
+  return { signals, loading, refresh, capture, updateSignal, deleteSignal, markRead, routeTo, applyClassification };
 }
 
 export function filterSignals(signals: Signal[], chip: string) {

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
-import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import styles from "./vault.module.css";
 
 const DEFAULT_EMBED = "https://open.spotify.com/embed/playlist/37i9dQZF1DWZeKCadgRdKQ?utm_source=axis";
@@ -17,6 +16,33 @@ function toEmbedUrl(raw: string): string | null {
     const [type, id] = url.pathname.split("/").filter(Boolean);
     if (!id || !["playlist", "album", "track", "artist", "episode", "show"].includes(type)) return null;
     return `https://open.spotify.com/embed/${type}/${id}?utm_source=axis`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * youtube.com/watch?v=ID, youtu.be/ID, or youtube.com/embed/ID → the official
+ * youtube-nocookie.com embed URL. Mirrors toEmbedUrl()'s Spotify pattern: render
+ * the dedicated, iframe-friendly embed player directly instead of relaying the
+ * full /watch SPA through the page-scraping /api/proxy (which breaks — YouTube's
+ * watch page depends on its real origin for cookies, CSP-via-meta, and XHR calls
+ * keyed to document.location.origin, none of which survive a proxied relay).
+ */
+function toYouTubeEmbedUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw.trim());
+    const host = url.hostname.replace(/^www\./, "");
+    let id: string | null = null;
+    if (host === "youtu.be") {
+      id = url.pathname.split("/").filter(Boolean)[0] ?? null;
+    } else if (host === "youtube.com" || host === "m.youtube.com") {
+      if (url.pathname === "/watch") id = url.searchParams.get("v");
+      else if (url.pathname.startsWith("/embed/")) id = url.pathname.split("/")[2] ?? null;
+      else if (url.pathname.startsWith("/shorts/")) id = url.pathname.split("/")[2] ?? null;
+    }
+    if (!id) return null;
+    return `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`;
   } catch {
     return null;
   }
@@ -448,24 +474,32 @@ function RecommendationsSection({ connected, spotify, toast }: { connected: bool
 
 // ── Video Lounge ──────────────────────────────────────────────────────────────
 
-function VideoLounge({ openInApp }: { openInApp: (url: string, title?: string) => void }) {
+function VideoLounge() {
   const [cat, setCat] = useState("All");
+  const [playing, setPlaying] = useState<VaultVideo | null>(null);
   const visible = cat === "All" ? VAULT_VIDEOS : VAULT_VIDEOS.filter((v) => v.cat === cat);
+
+  useEffect(() => {
+    if (!playing) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPlaying(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [playing]);
 
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ marginBottom: 18 }}>
         <h2 className="sec" style={{ margin: "0 0 6px" }}>Video Lounge<span className="rule" /><span className="count">Culture Feed</span></h2>
-        <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>Music videos, theory, interviews, release breakdowns — opens in-platform.</p>
+        <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>Music videos, theory, interviews, release breakdowns.</p>
       </div>
       <div className="chips" style={{ marginBottom: 16 }}>
         {VIDEO_CATS.map((c) => (
-          <span key={c} className={`chip${cat === c ? " on" : ""}`} onClick={() => setCat(c)}>{c}</span>
+          <button key={c} type="button" className={`chip${cat === c ? " on" : ""}`} aria-pressed={cat === c} onClick={() => setCat(c)}>{c}</button>
         ))}
       </div>
       <div className="vidgrid">
         {visible.map((v) => (
-          <div key={v.id} className="vid" onClick={() => openInApp(v.url, v.t)} style={{ cursor: "pointer" }}>
+          <div key={v.id} className="vid" onClick={() => setPlaying(v)} style={{ cursor: "pointer" }}>
             <div className="vthumb" style={{ background: v.g }}>
               <span className="tag">{v.cat}</span>
               <div className="pl"><span /></div>
@@ -481,6 +515,63 @@ function VideoLounge({ openInApp }: { openInApp: (url: string, title?: string) =
           </div>
         ))}
       </div>
+
+      {/* ── YouTube player overlay — direct official embed (mirrors Spotify's
+          embed iframe pattern), not the page-scraping /api/proxy webview ── */}
+      {playing && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={playing.t}
+          style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.86)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setPlaying(null)}
+        >
+          <div style={{ width: "min(960px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12 }}>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--ink)", paddingRight: 12, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{playing.t}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                {/* Escape hatch: many official/label videos disable embedding,
+                    which renders as "Video unavailable" inside the iframe — this
+                    always opens the real video on YouTube. */}
+                <a
+                  href={playing.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: ".06em", color: "var(--ink-dim)", textDecoration: "none", whiteSpace: "nowrap" }}
+                >
+                  Watch on YouTube ↗
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPlaying(null)}
+                  aria-label="Close"
+                  style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 20, lineHeight: 1, flexShrink: 0 }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", borderRadius: "var(--rl)", overflow: "hidden", border: "1px solid var(--line)" }}>
+              {(() => {
+                const embed = toYouTubeEmbedUrl(playing.url);
+                return embed ? (
+                  <iframe
+                    src={embed}
+                    title={playing.t}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--ink-faint)", fontSize: 12 }}>
+                    Couldn&apos;t load this video.
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -488,7 +579,6 @@ function VideoLounge({ openInApp }: { openInApp: (url: string, title?: string) =
 export function VaultModule() {
   const spotify = useSpotify();
   const { toast } = useToast();
-  const { open: openWebViewer } = useWebViewer();
   const { connected, configured, now, liveProgressMs, playing } = spotify;
 
   const [vaultTab, setVaultTab] = useState<"room" | "taste" | "recs" | "video">("room");
@@ -717,7 +807,7 @@ export function VaultModule() {
       {/* ── Video Lounge ── */}
       {vaultTab === "video" && (
         <div className="vault-panel">
-          <VideoLounge openInApp={openWebViewer} />
+          <VideoLounge />
         </div>
       )}
 

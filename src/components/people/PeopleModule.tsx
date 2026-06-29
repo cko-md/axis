@@ -1,10 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
+import { AddAccountPicker } from "@/components/mail/AddAccountPicker";
+import { AddContactsPicker } from "./AddContactsPicker";
+
+interface GoogleContact {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
+
+type ContactSuggestion =
+  | { contactId: string; type: "merge"; matchedPersonId: string; matchedPersonName: string; confidence: number }
+  | { contactId: string; type: "add"; suggestedTag: PersonTag; reason: string };
 
 const FILTERS = ["All", "Mentors", "Collaborators", "Friends", "Needs Follow-Up"] as const;
 
@@ -90,6 +104,104 @@ export function PeopleModule() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Person | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [contacts, setContacts] = useState<GoogleContact[]>([]);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
+  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
+  const matchedOnceRef = useRef(false);
+  const [showMailPicker, setShowMailPicker] = useState(false);
+  const mailBtnRef = useRef<HTMLDivElement>(null);
+  const [showContactsPicker, setShowContactsPicker] = useState(false);
+  const contactsBtnRef = useRef<HTMLDivElement>(null);
+
+  // Close mail picker on outside click
+  useEffect(() => {
+    if (!showMailPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (mailBtnRef.current && !mailBtnRef.current.contains(e.target as Node)) {
+        setShowMailPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMailPicker]);
+
+  // Close contacts picker on outside click
+  useEffect(() => {
+    if (!showContactsPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (contactsBtnRef.current && !contactsBtnRef.current.contains(e.target as Node)) {
+        setShowContactsPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showContactsPicker]);
+
+  const fetchContacts = () => {
+    fetch("/api/contacts/list")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: GoogleContact[] | null) => {
+        if (data) setContacts(data);
+        setContactsLoaded(true);
+      })
+      .catch(() => setContactsLoaded(true));
+  };
+
+  // After connecting Google Contacts via Composio, the connection is often still
+  // INITIATED on the first read — a one-shot fetch returns nothing and the CRM
+  // looks like it didn't sync. Poll a few times (nudging Composio's poll-on-read
+  // status so the connection flips ACTIVE) until contacts actually land.
+  const refreshContactsAfterConnect = useCallback(() => {
+    let tries = 0;
+    const attempt = async () => {
+      tries += 1;
+      await fetch("/api/integrations/composio/status", { cache: "no-store" }).catch(() => {});
+      const data = await fetch("/api/contacts/list")
+        .then((r) => (r.ok ? (r.json() as Promise<GoogleContact[]>) : null))
+        .catch(() => null);
+      if (data && data.length > 0) {
+        setContacts(data);
+        setContactsLoaded(true);
+        return;
+      }
+      if (tries < 4) setTimeout(attempt, 2500);
+      else setContactsLoaded(true);
+    };
+    void attempt();
+  }, []);
+
+  useEffect(() => {
+    fetchContacts();
+  }, []);
+
+  // Dedupe/auto-tag suggestions for newly-synced contacts — runs once per
+  // session against the CRM as it stood when contacts finished loading, not
+  // on every poll (this is an AI-backed call, not a cheap status check).
+  useEffect(() => {
+    if (matchedOnceRef.current || loading || !contactsLoaded || contacts.length === 0) return;
+    matchedOnceRef.current = true;
+    fetch("/api/people/match-contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contacts }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { suggestions?: ContactSuggestion[] } | null) => setSuggestions(data?.suggestions ?? []))
+      .catch(() => {});
+  }, [loading, contactsLoaded, contacts]);
+
+  const mergeContact = async (s: Extract<ContactSuggestion, { type: "merge" }>) => {
+    const result = await updatePerson(s.matchedPersonId, { last_contact_on: new Date().toISOString().slice(0, 10) });
+    if (result.error) { toast(result.error, "error", "People"); return; }
+    toast(`Marked contact with ${s.matchedPersonName}.`, "success", "People");
+    setSuggestions((prev) => prev.filter((x) => x.contactId !== s.contactId));
+  };
+
+  const addContactToCRM = (contact: GoogleContact, tag: PersonTag) => {
+    setEditing(null);
+    setForm({ ...EMPTY_FORM, name: contact.name, tag });
+    setModalOpen(true);
+  };
 
   const openAdd = () => {
     setEditing(null);
@@ -155,12 +267,52 @@ export function PeopleModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <div className="selectbox">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20a8 8 0 0 1 16 0" />
-          </svg>
-          Connect Contacts & Mail
+        <div ref={mailBtnRef} style={{ position: "relative" }}>
+          <div
+            className="selectbox"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowMailPicker((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 20a8 8 0 0 1 16 0" />
+            </svg>
+            Connect Mail
+          </div>
+          {showMailPicker && (
+            <AddAccountPicker
+              onClose={() => setShowMailPicker(false)}
+              onConnected={(provider) => {
+                toast(`${provider} mail connected`, "success", "People");
+                setShowMailPicker(false);
+              }}
+            />
+          )}
+        </div>
+        <div ref={contactsBtnRef} style={{ position: "relative" }}>
+          <div
+            className="selectbox"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowContactsPicker((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <circle cx="9" cy="10" r="2" />
+              <path d="M5 18a4 4 0 0 1 8 0" />
+              <path d="M15 8h4M15 12h4" />
+            </svg>
+            Connect Contacts
+          </div>
+          {showContactsPicker && (
+            <AddContactsPicker
+              onClose={() => setShowContactsPicker(false)}
+              onConnected={() => {
+                toast("Google Contacts connected — syncing…", "success", "People");
+                refreshContactsAfterConnect();
+                setShowContactsPicker(false);
+              }}
+            />
+          )}
         </div>
       </div>
       <div className="divider" />
@@ -168,15 +320,17 @@ export function PeopleModule() {
         <button type="button" className="sig-go" onClick={openAdd}>+ Add Person</button>
         <div className="chips" style={{ margin: 0 }}>
           {FILTERS.map((f) => (
-            <span key={f} className={`chip${filter === f ? " on" : ""}`} onClick={() => setFilter(f)}>
+            <button key={f} type="button" className={`chip${filter === f ? " on" : ""}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>
               {f}
-            </span>
+            </button>
           ))}
         </div>
       </div>
 
       {loading ? (
-        <div className="empty-state">Loading people…</div>
+        <div className="people-grid" style={{ pointerEvents: "none" }}>
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} rows={3} />)}
+        </div>
       ) : !signedIn ? (
         <div className="people-grid">
           {visibleDemo.map((p) => (
@@ -233,6 +387,47 @@ export function PeopleModule() {
             </div>
           ))}
         </div>
+      )}
+
+      {contactsLoaded && contacts.length > 0 && (
+        <>
+          <div className="divider" style={{ marginTop: 20 }} />
+          <div
+            className="seclabel"
+            style={{ marginTop: 12, marginBottom: 8 }}
+          >
+            Google Contacts
+          </div>
+          <div className="people-grid">
+            {contacts.map((c) => {
+              const suggestion = suggestions.find((s) => s.contactId === c.id);
+              return (
+                <div className="person" key={c.id}>
+                  <div className="ph">
+                    <div className="pav">{(c.name[0] ?? "?").toUpperCase()}</div>
+                    <div>
+                      <div className="pnm">{c.name}</div>
+                      <div className="prl">{c.email}</div>
+                    </div>
+                  </div>
+                  {suggestion && (
+                    <div className="pfoot">
+                      {suggestion.type === "merge" ? (
+                        <button type="button" className="chip" onClick={() => mergeContact(suggestion)}>
+                          Looks like {suggestion.matchedPersonName} — merge?
+                        </button>
+                      ) : (
+                        <button type="button" className="chip" onClick={() => addContactToCRM(c, suggestion.suggestedTag)}>
+                          Add to CRM as {TAG_LABELS[suggestion.suggestedTag]}?
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       <Modal

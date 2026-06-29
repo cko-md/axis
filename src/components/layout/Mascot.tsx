@@ -16,7 +16,6 @@ const MODULE_CONTEXTS: Record<string, string> = {
   "/briefing":        "Briefing — news and media intelligence",
   "/listening-vault": "Listening Vault — music and sound",
   "/fund":            "Fund — portfolio and capital management",
-  "/gallery":         "Gallery — art, culture, and aesthetics",
   "/people":          "People — network, contacts, relationships",
   "/pipeline":        "Pipeline — research and project pipeline",
   "/objectives":      "Objectives — OKRs and goal tracking",
@@ -223,9 +222,19 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
   const bottomRef     = useRef<HTMLDivElement>(null);
   const inputRef      = useRef<HTMLInputElement>(null);
   const focusInputRef = useRef<HTMLInputElement>(null);
+  const briefAbortRef = useRef<AbortController | null>(null);
+  const sendAbortRef  = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setFocus(localStorage.getItem("axiom-focus") ?? "");
+  }, []);
+
+  // Abort any in-flight requests on unmount.
+  useEffect(() => {
+    return () => {
+      briefAbortRef.current?.abort();
+      sendAbortRef.current?.abort();
+    };
   }, []);
 
   const saveFocus = (v: string) => {
@@ -234,6 +243,9 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
   };
 
   const generateBrief = useCallback(async () => {
+    briefAbortRef.current?.abort();
+    const controller = new AbortController();
+    briefAbortRef.current = controller;
     setLoading(true);
     try {
       const res = await fetch("/api/ai", {
@@ -244,13 +256,15 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
           text: `Deliver a 2-sentence strategic situation brief. ${context}. ${focus ? `User's active focus: "${focus}".` : "No active focus set — prompt them to set one."} Be direct. Field advisor tone, not chatbot. Surface one actionable priority.`,
           body: JSON.stringify({ context, history: [], persona: "axiom" }),
         }),
+        signal: controller.signal,
       });
       const data = await res.json() as { response?: string };
       setMessages([{ role: "assistant", content: data.response ?? "Situation nominal. Set a focus for a targeted brief." }]);
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       setMessages([{ role: "assistant", content: "Offline. Reconnect to receive briefing." }]);
     } finally {
-      setLoading(false);
+      if (briefAbortRef.current === controller) setLoading(false);
     }
   }, [context, focus]);
 
@@ -280,6 +294,9 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
   const send = useCallback(async () => {
     const q = input.trim();
     if (!q || loading) return;
+    sendAbortRef.current?.abort();
+    const controller = new AbortController();
+    sendAbortRef.current = controller;
     setInput("");
     setMessages((p) => [...p, { role: "user", content: q }]);
     setLoading(true);
@@ -288,14 +305,18 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: messages.slice(-8), persona: "axiom" }) }),
+        signal: controller.signal,
       });
       const data = await res.json() as { response?: string };
       setMessages((p) => [...p, { role: "assistant", content: data.response ?? "…" }]);
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       setMessages((p) => [...p, { role: "assistant", content: "Connection lost." }]);
     } finally {
-      setLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      if (sendAbortRef.current === controller) {
+        setLoading(false);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }
     }
   }, [input, loading, context, messages]);
 

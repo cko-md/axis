@@ -1,6 +1,45 @@
 import { getFreshAccessToken } from "./tokens";
+import type { ExternalCalendarEvent } from "./google";
 
 const BASE = "https://graph.microsoft.com/v1.0/me/events";
+const VIEW_BASE = "https://graph.microsoft.com/v1.0/me/calendarView";
+
+export async function listOutlookEvents(
+  userId: string,
+  startDateTime: string,
+  endDateTime: string,
+): Promise<ExternalCalendarEvent[]> {
+  const token = await getFreshAccessToken(userId, "outlook");
+  if (!token) return [];
+
+  const url = `${VIEW_BASE}?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}&$orderby=start/dateTime`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="UTC"' },
+  });
+  if (!res.ok) return [];
+
+  const json = await res.json();
+  const items: unknown[] = Array.isArray(json.value) ? json.value : [];
+  return items.flatMap((raw) => {
+    const item = raw as {
+      id?: string;
+      subject?: string;
+      bodyPreview?: string;
+      isAllDay?: boolean;
+      start?: { dateTime?: string };
+      end?: { dateTime?: string };
+    };
+    if (!item.id || !item.start?.dateTime || !item.end?.dateTime) return [];
+    return [{
+      externalId: item.id,
+      title: item.subject || "(No title)",
+      start_at: `${item.start.dateTime}Z`,
+      end_at: `${item.end.dateTime}Z`,
+      description: item.bodyPreview ?? null,
+      all_day: !!item.isAllDay,
+    }];
+  });
+}
 
 export async function createOutlookEvent(
   userId: string,

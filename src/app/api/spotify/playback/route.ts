@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, pickArt, spotifyFetch, spotifyGet } from "../_lib";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET — rich now-playing snapshot (track, progress, device, volume, shuffle/repeat)
 export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const token = await getAccessToken();
   if (!token) return notConnected();
 
@@ -34,27 +39,33 @@ export async function GET() {
 
 // POST — player controls. Body: { action, value? }
 export async function POST(req: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const token = await getAccessToken();
   if (!token) return NextResponse.json({ error: "Not connected" }, { status: 401 });
 
-  const { action, value, uri, uris, contextUri } = (await req.json()) as {
+  const { action, value, uri, uris, contextUri, device_id } = (await req.json()) as {
     action: string;
     value?: number;
     uri?: string;
     uris?: string[];
     contextUri?: string;
+    device_id?: string;
   };
 
   let res: Response;
   switch (action) {
     case "play": {
+      const deviceQs = device_id ? `?device_id=${encodeURIComponent(device_id)}` : "";
       let body: string | undefined;
       if (contextUri) {
         body = JSON.stringify({ context_uri: contextUri });
       } else if (uris?.length || uri) {
         body = JSON.stringify({ uris: uris ?? (uri ? [uri] : undefined) });
       }
-      res = await spotifyFetch(token, "/me/player/play", {
+      res = await spotifyFetch(token, `/me/player/play${deviceQs}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body,

@@ -3,14 +3,10 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { decrypt } from "@/lib/crypto";
-
-const verifyRatelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, "10 m"),
-  prefix: "axis:passkey-verify",
-});
+import { memoryRateLimit } from "@/lib/ratelimit";
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
@@ -22,7 +18,10 @@ export async function GET(req: NextRequest) {
 
   const email = req.nextUrl.searchParams.get("email") ?? undefined;
 
-  const supabase = await createClient();
+  // Pre-auth flow: no session exists, so RLS on user_passkeys/webauthn_challenges
+  // would block these reads/writes. Use the service-role client when configured;
+  // fall back to the anon client until SUPABASE_SERVICE_ROLE_KEY is set.
+  const supabase = createAdminClient() ?? (await createClient());
 
   // Clean up stale authentication challenges before creating a new one
   await supabase
@@ -58,9 +57,25 @@ export async function POST(req: NextRequest) {
   }
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
-  const { success } = await verifyRatelimit.limit(ip);
-  if (!success) {
-    return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const verifyRatelimit = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(10, "10 m"),
+      prefix: "axis:passkey-verify",
+    });
+    const { success } = await verifyRatelimit.limit(ip);
+    if (!success) {
+      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+    }
+  } else {
+    const { success } = memoryRateLimit(`passkey-verify:${ip}`, 10, 10 * 60_000);
+    if (!success) {
+      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+    }
+  }
+
+  if (!process.env.PASSKEY_ENCRYPTION_KEY) {
+    console.warn("[passkey] PASSKEY_ENCRYPTION_KEY not set — refresh token decryption unavailable");
   }
 
   let body: { response: AuthenticationResponseJSON; email?: string };
@@ -75,7 +90,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing response" }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  // Pre-auth flow: no session exists, so RLS on user_passkeys/webauthn_challenges
+  // would block these reads/writes. Use the service-role client when configured;
+  // fall back to the anon client until SUPABASE_SERVICE_ROLE_KEY is set.
+  const supabase = createAdminClient() ?? (await createClient());
 
   // Decode userHandle from the assertion response to get userId
   const userHandleB64 = response.response.userHandle;

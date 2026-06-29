@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeRefresh } from "./useRealtimeRefresh";
 
 export type TaskCategory = "research" | "clinical" | "life" | "personal";
 export type TaskPriority = "hi" | "med" | "lo";
@@ -20,15 +21,20 @@ export type Task = {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
 };
+
+const DONE_HIDE_MS = 18 * 60 * 60 * 1000; // 18 hours
 
 export function useTasks() {
   const supabase = useMemo(() => createClient(), []);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id ?? null);
     if (!user) {
       setTasks([]);
       setLoading(false);
@@ -55,7 +61,9 @@ export function useTasks() {
     refresh();
   }, [refresh]);
 
-  const addTask = async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
+  useRealtimeRefresh(supabase, "tasks", userId, refresh);
+
+  const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const { data, error } = await supabase
@@ -77,36 +85,61 @@ export function useTasks() {
       return data as Task;
     }
     return null;
-  };
+  }, [supabase, tasks.length]);
 
-  const updateTask = async (id: string, patch: Partial<Task>) => {
+  const updateTask = useCallback(async (id: string, patch: Partial<Task>) => {
     const { data, error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
     if (!error && data) setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
-  };
+  }, [supabase]);
 
-  const deleteTask = async (id: string) => {
+  const deleteTask = useCallback(async (id: string) => {
     const { error } = await supabase.from("tasks").delete().eq("id", id);
     if (!error) setTasks((prev) => prev.filter((t) => t.id !== id));
-  };
+  }, [supabase]);
 
-  const toggleDone = async (id: string) => {
+  const toggleDone = useCallback(async (id: string) => {
     const t = tasks.find((x) => x.id === id);
     if (!t) return;
-    await updateTask(id, { status: t.status === "done" ? "open" : "done" });
-  };
+    const isDone = t.status === "done";
+    await updateTask(id, {
+      status: isDone ? "open" : "done",
+      completed_at: isDone ? null : new Date().toISOString(),
+    });
+  }, [tasks, updateTask]);
 
   return { tasks, loading, refresh, addTask, updateTask, deleteTask, toggleDone };
 }
 
 export function rankTasks(tasks: Task[]) {
-  // Far-future sentinel keeps no-deadline tasks finite so priority still breaks ties
   const NO_DEADLINE = Date.UTC(2100, 0, 1);
   const score = (t: Task) => {
     const pri = t.priority === "hi" ? 3 : t.priority === "med" ? 2 : 1;
     const dl = t.deadline ? new Date(t.deadline).getTime() : NO_DEADLINE;
     return pri * NO_DEADLINE - dl;
   };
-  return [...tasks].filter((t) => t.status !== "done").sort((a, b) => score(b) - score(a));
+  const cutoff = Date.now() - DONE_HIDE_MS;
+  return [...tasks]
+    .filter((t) => {
+      if (t.status !== "done") return true;
+      // Keep recently-done tasks visible for 18h so user sees the strikethrough
+      const doneAt = t.completed_at ? new Date(t.completed_at).getTime() : 0;
+      return doneAt > cutoff;
+    })
+    .sort((a, b) => {
+      // Sort done tasks below active ones
+      if (a.status === "done" && b.status !== "done") return 1;
+      if (a.status !== "done" && b.status === "done") return -1;
+      return score(b) - score(a);
+    });
+}
+
+/** Done tasks completed today (for Agenda History / stat segment). */
+export function doneTodayTasks(tasks: Task[]) {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  return tasks.filter(
+    (t) => t.status === "done" && t.completed_at && new Date(t.completed_at) >= startOfDay
+  );
 }
 
 /** AI-backed triage: calls /api/ai for real classification, heuristic fallback is server-side */

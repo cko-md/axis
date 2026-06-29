@@ -6,23 +6,51 @@ import { getWidgetById } from "@/lib/store/widgets";
 
 export type WidgetData = { v: string; k: string; loading?: boolean; error?: boolean; raw?: Record<string, unknown> };
 
+/** Outcome of the last geolocation request — lets callers surface denial/
+ *  unavailability to the user instead of silently sitting on the fallback. */
+export type GeoStatus = "idle" | "pending" | "granted" | "denied" | "unavailable";
+
 const FETCHERS: Record<string, string> = {
   weather: "/api/widgets/weather",
   daylight: "/api/widgets/daylight",
   agenda: "/api/widgets/agenda",
   air: "/api/widgets/air-quality",
   markets: "/api/widgets/markets",
+  run: "/api/widgets/training",
 };
 
 export function useWidgetData(widgetIds: string[], locationEnabled = false) {
   const [data, setData] = useState<Record<string, WidgetData>>({});
   const geoRef = useRef<GeoLocation>(DEFAULT_LOCATION);
+  const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
+  // Bumped whenever geolocation resolves so the fetch effect below re-runs
+  // with the real coordinates instead of leaving widgets stuck on the
+  // DEFAULT_LOCATION fallback they fetched with on first mount.
+  const [geoVersion, setGeoVersion] = useState(0);
 
   useEffect(() => {
-    if (!locationEnabled || !navigator.geolocation) return;
+    if (!locationEnabled) {
+      setGeoStatus("idle");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGeoStatus("unavailable");
+      return;
+    }
+    setGeoStatus("pending");
     navigator.geolocation.getCurrentPosition(
-      (pos) => { geoRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, name: "Your location" }; },
-      () => {},
+      (pos) => {
+        geoRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, name: "Your location" };
+        setGeoStatus("granted");
+        setGeoVersion((v) => v + 1);
+      },
+      (err) => {
+        // Denied or otherwise unavailable — fall back to DEFAULT_LOCATION
+        // (geoRef.current is already seeded with it) but report *why*, so
+        // the caller can tell the user instead of failing silently.
+        geoRef.current = DEFAULT_LOCATION;
+        setGeoStatus(err.code === err.PERMISSION_DENIED ? "denied" : "unavailable");
+      },
       { timeout: 5000 },
     );
   }, [locationEnabled]);
@@ -66,7 +94,11 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
       controller.abort();
       clearInterval(intervalId);
     };
-  }, [refreshAll]);
+    // geoVersion is intentionally included: it bumps once real GPS coordinates
+    // land (see the geolocation effect above), so location-dependent widgets
+    // that already fetched against DEFAULT_LOCATION on mount get refetched
+    // with the user's actual position instead of silently keeping the stub.
+  }, [refreshAll, geoVersion]);
 
-  return { data, refreshOne, refreshAll };
+  return { data, refreshOne, refreshAll, geoStatus };
 }

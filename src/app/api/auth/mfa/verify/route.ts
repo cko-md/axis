@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
+import { memoryRateLimit } from "@/lib/ratelimit";
 
 // ── POST /api/auth/mfa/verify ──────────────────────────────────────────────────
 // Verifies an MFA challenge code. On success the factor is confirmed and
@@ -13,6 +16,25 @@ export async function POST(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+
+  // A 6-digit TOTP code has only 1,000,000 possibilities — throttle attempts
+  // per user so it can't be brute-forced within the code's validity window.
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const verifyRatelimit = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(5, "5 m"),
+      prefix: "axis:mfa-verify",
+    });
+    const { success } = await verifyRatelimit.limit(user.id);
+    if (!success) {
+      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+    }
+  } else {
+    const { success } = memoryRateLimit(`mfa-verify:${user.id}`, 5, 5 * 60_000);
+    if (!success) {
+      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+    }
+  }
 
   let body: { factorId?: unknown; challengeId?: unknown; code?: unknown };
   try {

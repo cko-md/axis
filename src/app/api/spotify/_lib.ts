@@ -42,6 +42,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (!fresh) return null;
   cookieStore.set("spotify_access_token", fresh, {
     httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
     maxAge: data.expires_in ?? 3600,
     path: "/",
     sameSite: "lax",

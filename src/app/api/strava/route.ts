@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import {
   isConfigured,
   getAccessToken,
@@ -9,6 +10,7 @@ import {
   type StravaStats,
   type StravaAthlete,
 } from "./_lib";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 export const runtime = "nodejs";
 
@@ -20,9 +22,18 @@ export const runtime = "nodejs";
  * GET /api/strava?action=activities  — recent activities (up to 20)
  * GET /api/strava?action=stats       — athlete lifetime stats
  * GET /api/strava?action=disconnect  — clear cookies / disconnect
+ *
+ * All actions except the OAuth callback (which arrives via redirect from
+ * Strava's domain but still carries the Axis session cookie in the browser)
+ * require an authenticated Supabase session — defense-in-depth on top of the
+ * middleware-level guard on /api/strava.
  */
 export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action") ?? "status";
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // ── AUTH REDIRECT ──────────────────────────────────────────────────────────
   if (action === "auth") {
@@ -31,10 +42,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "STRAVA_CLIENT_ID not configured" }, { status: 503 });
     }
 
-    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/strava?action=callback`;
+    const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
     const state = crypto.randomUUID();
     const cookieStore = await cookies();
-    cookieStore.set("strava_oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+    cookieStore.set("strava_oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -56,13 +73,13 @@ export async function GET(req: NextRequest) {
     const savedState = cookieStore.get("strava_oauth_state")?.value;
 
     if (!code || !state || state !== savedState) {
-      return NextResponse.redirect(new URL("/?module=vitality&error=strava_oauth", req.url));
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
     const clientId = process.env.STRAVA_CLIENT_ID;
     const clientSecret = process.env.STRAVA_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-      return NextResponse.redirect(new URL("/?module=vitality&error=strava_config", req.url));
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
     const tokenRes = await fetch("https://www.strava.com/oauth/token", {
@@ -77,7 +94,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL("/?module=vitality&error=strava_token", req.url));
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
     }
 
     const tokens = await tokenRes.json();
@@ -97,7 +114,7 @@ export async function GET(req: NextRequest) {
     }
     cookieStore.delete("strava_oauth_state");
 
-    return NextResponse.redirect(new URL("/?module=vitality&strava=connected", req.url));
+    return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=ok", req.url));
   }
 
   // ── DISCONNECT ─────────────────────────────────────────────────────────────

@@ -1,69 +1,51 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet, type Recipe } from "@/lib/recipes";
 
-type Diet =
-  | "high-protein"
-  | "mediterranean"
-  | "low-carb"
-  | "plant-forward"
-  | "endurance"
-  | "west-african";
+const SAVED_KEY   = "axis-supper-saved";
+const RECIPES_KEY = "axis-supper-recipes";
+const DIET_KEY    = "axis-supper-diet";
 
-const DIET_LABEL: Record<Diet, string> = {
-  "high-protein": "High-Protein",
-  mediterranean: "Mediterranean",
-  "low-carb": "Low-Carb",
-  "plant-forward": "Plant-Forward",
-  endurance: "Endurance Fuel",
-  "west-african": "West African",
-};
+function proxyImage(url: string): string {
+  return `/api/og-image?url=${encodeURIComponent(url)}`;
+}
 
-const DIETS = Object.keys(DIET_LABEL) as Diet[];
-
-type Recipe = {
-  id: string;
-  t: string;
-  diets: Diet[];
-  kcal: number | string;
-  p?: number;
-  time: string;
-  src: string;
-  g: string;
-  mine?: boolean;
-};
-
-const RECIPES: Recipe[] = [
-  { id: "r1", t: "Sheet-Pan Salmon, Sweet Potato & Broccoli", diets: ["high-protein", "endurance", "low-carb"], kcal: 530, p: 42, time: "30 min", src: "Serious Eats", g: "linear-gradient(135deg,#c2603f,#5a2a1f)" },
-  { id: "r2", t: "Greek Yogurt Bowl, Berries & Toasted Oats", diets: ["high-protein", "mediterranean"], kcal: 410, p: 32, time: "5 min", src: "Bon Appétit", g: "linear-gradient(135deg,#7a5cc2,#2c2150)" },
-  { id: "r3", t: "Chicken, Quinoa & Charred Greens Bowl", diets: ["high-protein", "endurance", "mediterranean"], kcal: 620, p: 48, time: "25 min", src: "NYT Cooking", g: "linear-gradient(135deg,#4f9e6a,#1d3a28)" },
-  { id: "r4", t: "Jollof-Spiced Brown Rice & Grilled Chicken", diets: ["high-protein", "west-african", "endurance"], kcal: 640, p: 44, time: "40 min", src: "My Active Kitchen", g: "linear-gradient(135deg,#d06a2c,#5a2510)" },
-  { id: "r5", t: "Mediterranean White Bean & Tuna Salad", diets: ["mediterranean", "high-protein", "low-carb"], kcal: 380, p: 34, time: "12 min", src: "The Mediterranean Dish", g: "linear-gradient(135deg,#4a8fb0,#16323f)" },
-  { id: "r6", t: "Egusi Soup with Lean Beef & Spinach", diets: ["west-african", "high-protein", "low-carb"], kcal: 560, p: 46, time: "50 min", src: "Sisi Jemimah", g: "linear-gradient(135deg,#5e9e3f,#22381a)" },
-  { id: "r7", t: "Tofu & Tempeh Stir-Fry, Sesame Greens", diets: ["plant-forward", "high-protein", "low-carb"], kcal: 440, p: 30, time: "20 min", src: "Minimalist Baker", g: "linear-gradient(135deg,#caa23f,#4a3914)" },
-  { id: "r8", t: "Overnight Oats, Banana & Peanut (Pre-Run)", diets: ["endurance", "plant-forward"], kcal: 480, p: 20, time: "5 min + chill", src: "The Run Experience", g: "linear-gradient(135deg,#b8863f,#473015)" },
-  { id: "r9", t: "Lentil & Roasted Veg Traybake", diets: ["plant-forward", "mediterranean"], kcal: 430, p: 22, time: "35 min", src: "BBC Good Food", g: "linear-gradient(135deg,#9e5fc2,#341f4f)" },
-  { id: "r10", t: "Steak, Eggs & Avocado Power Plate", diets: ["low-carb", "high-protein"], kcal: 610, p: 50, time: "15 min", src: "Diet Doctor", g: "linear-gradient(135deg,#b04f4f,#3a1818)" },
-  { id: "r11", t: "Suya-Spiced Turkey Lettuce Wraps", diets: ["west-african", "low-carb", "high-protein"], kcal: 390, p: 40, time: "20 min", src: "Chef Lola’s Kitchen", g: "linear-gradient(135deg,#cc7a2c,#4a2810)" },
-  { id: "r12", t: "Pasta with Sardines, Lemon & Chili", diets: ["mediterranean", "endurance"], kcal: 560, p: 30, time: "20 min", src: "NYT Cooking", g: "linear-gradient(135deg,#4a86b0,#16303f)" },
-];
+function RecipeImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={proxyImage(src)}
+      alt={alt}
+      onError={() => setFailed(true)}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }}
+    />
+  );
+}
 
 function RecipeCard({
   recipe,
   saved,
   onToggleSave,
+  onOpen,
 }: {
   recipe: Recipe;
   saved: boolean;
   onToggleSave: (id: string) => void;
+  onOpen?: () => void;
 }) {
   return (
-    <div className="recipe">
+    <div className="recipe" style={{ cursor: "pointer" }} onClick={onOpen}>
       <div className="rc-img" style={{ background: recipe.g }}>
-        <span className="rc-diet">{recipe.mine ? "Mine" : DIET_LABEL[recipe.diets[0]]}</span>
+        {recipe.image && <RecipeImage src={recipe.image} alt={recipe.t} />}
+        <span className="rc-diet" style={{ zIndex: 1 }}>{recipe.mine ? "Mine" : DIET_LABEL[recipe.diets[0]]}</span>
         {!recipe.mine && (
           <span
             className={`rc-save${saved ? " on" : ""}`}
+            style={{ zIndex: 1 }}
             title="Save to Supper Club"
             onClick={(e) => {
               e.stopPropagation();
@@ -88,15 +70,40 @@ function RecipeCard({
 }
 
 export function SupperClubModule() {
-  const [diet, setDiet] = useState<Diet>("high-protein");
-  const [savedIds, setSavedIds] = useState<string[]>(["r1", "r3", "r4"]);
-  const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
+  const { open: openInApp } = useWebViewer();
+  const [diet, setDiet] = useState<Diet>(() => {
+    if (typeof window === "undefined") return "high-protein";
+    const stored = localStorage.getItem(DIET_KEY) as Diet | null;
+    return stored && DIETS.includes(stored) ? stored : "high-protein";
+  });
+  const [savedIds, setSavedIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return ["r1", "r3", "r4"];
+    try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "null") ?? ["r1", "r3", "r4"]; }
+    catch { return ["r1", "r3", "r4"]; }
+  });
+  const [myRecipes, setMyRecipes] = useState<Recipe[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem(RECIPES_KEY) ?? "null") ?? []; }
+    catch { return []; }
+  });
   const [formOpen, setFormOpen] = useState(false);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const titleRef = useRef<HTMLInputElement>(null);
   const timeRef = useRef<HTMLInputElement>(null);
   const kcalRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(DIET_KEY, diet);
+  }, [diet]);
+
+  useEffect(() => {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(savedIds));
+  }, [savedIds]);
+
+  useEffect(() => {
+    localStorage.setItem(RECIPES_KEY, JSON.stringify(myRecipes));
+  }, [myRecipes]);
 
   const toggleSave = (id: string) => {
     setSavedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -120,6 +127,7 @@ export function SupperClubModule() {
         src: "Your recipe",
         g: "linear-gradient(135deg,#3a3f48,#23262b)",
         mine: true,
+        note: noteRef.current?.value || undefined,
       },
       ...prev,
     ]);
@@ -212,7 +220,7 @@ export function SupperClubModule() {
       <div className="recipe-grid" style={{ marginBottom: 26 }}>
         {savedList.length ? (
           savedList.map((r) => (
-            <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} />
+            <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} onOpen={() => openInApp(recipeUrl(r), r.t)} />
           ))
         ) : (
           <div className="empty" style={{ gridColumn: "1/-1" }}>
@@ -226,7 +234,7 @@ export function SupperClubModule() {
       </div>
       <div className="recipe-grid">
         {suggested.map((r) => (
-          <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} />
+          <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} onOpen={() => openInApp(recipeUrl(r), r.t)} />
         ))}
       </div>
     </>

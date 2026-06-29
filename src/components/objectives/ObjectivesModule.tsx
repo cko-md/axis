@@ -20,12 +20,6 @@ const DEMO_HABITS = [
   { ic: "📖", n: "Read 1 paper", streak: "5-day streak", pct: "68%", seed: 2 },
 ];
 
-const SCAN_RESULTS = [
-  { target: "Submit DBS manuscript — Neurosurgery", module: "Pipeline", confidence: "94%" },
-  { target: "French B2 oral exam — December", module: "Objectives", confidence: "88%" },
-  { target: "Renew BLS certification", module: "Agenda", confidence: "91%" },
-  { target: "AANS abstract follow-up", module: "Signals", confidence: "76%" },
-];
 
 function demoHeatLevels(seed: number): string[] {
   return Array.from({ length: 30 }, (_, i) => {
@@ -55,7 +49,7 @@ export function ObjectivesModule() {
 
   const [scanOpen, setScanOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [results, setResults] = useState<typeof SCAN_RESULTS>([]);
+  const [results, setResults] = useState<Array<{ target: string; module: string; confidence: string }>>([]);
 
   const [objModalOpen, setObjModalOpen] = useState(false);
   const [objForm, setObjForm] = useState({ title: "", descriptor: "" });
@@ -65,14 +59,18 @@ export function ObjectivesModule() {
   const [habitForm, setHabitForm] = useState({ icon: "✦", name: "" });
   const [pendingDeleteObjective, setPendingDeleteObjective] = useState<string | null>(null);
 
-  const runScan = () => {
+  const runScan = async () => {
     setScanOpen(true);
     setScanning(true);
     setResults([]);
-    setTimeout(() => {
-      setResults(SCAN_RESULTS);
-      setScanning(false);
-    }, 1200);
+    try {
+      const res = await fetch("/api/objectives/scan", { method: "POST" });
+      const data = await res.json();
+      setResults(data.results ?? []);
+    } catch {
+      setResults([]);
+    }
+    setScanning(false);
   };
 
   const saveObjective = async () => {
@@ -166,15 +164,43 @@ export function ObjectivesModule() {
         </div>
       ) : (
         <div>
-          {objectives.map((o) => (
+          {objectives.map((o) => {
+            const krCount = o.key_results.length;
+            const rollup = krCount
+              ? Math.round(
+                  (o.key_results.reduce(
+                    (s, kr) => s + Math.min(1, kr.target_value > 0 ? kr.current_value / kr.target_value : 0),
+                    0,
+                  ) /
+                    krCount) *
+                    100,
+                )
+              : 0;
+            return (
             <div className="goal" key={o.id}>
               <div className="go" style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                 <span style={{ flex: 1 }}>{o.title}</span>
+                {krCount > 0 && (
+                  <span
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      color: rollup >= 100 ? "var(--up)" : "var(--accent)",
+                    }}
+                  >
+                    {rollup}%
+                  </span>
+                )}
                 <Button variant="ghost" onClick={() => setPendingDeleteObjective(o.id)} aria-label="Remove objective">
                   ✕
                 </Button>
               </div>
               {o.descriptor && <div className="gq">{o.descriptor}</div>}
+              {krCount > 0 && (
+                <div className="track" style={{ marginTop: 8, marginBottom: 2 }}>
+                  <div style={{ width: `${rollup}%` }} />
+                </div>
+              )}
               {o.key_results.map((kr) => (
                 <div className="kr" key={kr.id}>
                   <div className="krt">{kr.title}</div>
@@ -208,7 +234,8 @@ export function ObjectivesModule() {
                 + Key result
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -278,17 +305,58 @@ export function ObjectivesModule() {
         </div>
       )}
 
-      <Modal open={scanOpen} onClose={() => setScanOpen(false)} title="Platform scan">
+      <Modal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        title="Platform scan"
+        footer={
+          !scanning && results.length > 0 ? (
+            <Button
+              variant="primary"
+              onClick={async () => {
+                for (const r of results) {
+                  await addObjective(r.target, r.module);
+                }
+                setScanOpen(false);
+                toast(`Imported ${results.length} objective${results.length === 1 ? "" : "s"}.`, "success", "Objectives");
+              }}
+            >
+              Import all ({results.length})
+            </Button>
+          ) : undefined
+        }
+      >
         {scanning ? (
           <p style={{ color: "var(--ink-dim)" }}>Scanning Agenda, Pipeline, Signals, Objectives…</p>
         ) : (
           <div className="tasklist">
             {results.map((r) => (
-              <div key={r.target} className="task">
-                <div className="task-main">
+              <div key={r.target} className="task" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="task-main" style={{ flex: 1 }}>
                   <div className="task-title">{r.target}</div>
                   <div className="task-meta">{r.module} · confidence {r.confidence}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await addObjective(r.target, r.module);
+                    setResults((prev) => prev.filter((x) => x.target !== r.target));
+                    toast(`"${r.target}" added.`, "success", "Objectives");
+                  }}
+                  style={{
+                    fontSize: "11px",
+                    padding: "3px 8px",
+                    borderRadius: 4,
+                    background: "var(--glass)",
+                    border: "1px solid var(--line)",
+                    color: "var(--ink-dim)",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  + Import
+                </button>
               </div>
             ))}
           </div>

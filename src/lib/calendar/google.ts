@@ -2,6 +2,54 @@ import { getFreshAccessToken } from "./tokens";
 
 const BASE = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
+export type ExternalCalendarEvent = {
+  externalId: string;
+  title: string;
+  start_at: string;
+  end_at: string;
+  description?: string | null;
+  all_day: boolean;
+};
+
+export async function listGoogleEvents(
+  userId: string,
+  timeMin: string,
+  timeMax: string,
+): Promise<ExternalCalendarEvent[]> {
+  const token = await getFreshAccessToken(userId, "google");
+  if (!token) return [];
+
+  const url = `${BASE}?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return [];
+
+  const json = await res.json();
+  const items: unknown[] = Array.isArray(json.items) ? json.items : [];
+  return items.flatMap((raw) => {
+    const item = raw as {
+      id?: string;
+      summary?: string;
+      description?: string;
+      status?: string;
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+    };
+    if (!item.id || item.status === "cancelled") return [];
+    const allDay = !item.start?.dateTime;
+    const start = item.start?.dateTime ?? item.start?.date;
+    const end = item.end?.dateTime ?? item.end?.date;
+    if (!start || !end) return [];
+    return [{
+      externalId: item.id,
+      title: item.summary || "(No title)",
+      start_at: start,
+      end_at: end,
+      description: item.description ?? null,
+      all_day: allDay,
+    }];
+  });
+}
+
 export async function createGoogleEvent(
   userId: string,
   event: { title: string; start_at: string; end_at: string; description?: string },
