@@ -268,6 +268,7 @@ export function NotesModule() {
   const [draft, setDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [newTag, setNewTag] = useState("");
 
   const [routing, setRouting] = useState(false);
   const [suggestion, setSuggestion] = useState<RouteSuggestion | null>(null);
@@ -1122,15 +1123,47 @@ export function NotesModule() {
         {confirmDelete ? "Click again to delete" : "Delete note"}
       </button>
 
-      {visibleTags(selected).length > 0 && (
-        <div className="chips" style={{ marginTop: 12 }}>
-          {visibleTags(selected).map((t) => (
-            <span key={t} className="chip">
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="chips" style={{ marginTop: 12, alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+        {visibleTags(selected).map((t) => (
+          <span key={t} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            {t}
+            <button
+              type="button"
+              aria-label={`Remove tag ${t}`}
+              onClick={() => updateNote(selected.id, { tags: selected.tags.filter((x) => x !== t) })}
+              style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 12 }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const t = newTag.trim().toLowerCase();
+              if (t && !selected.tags.includes(t)) {
+                updateNote(selected.id, { tags: [...selected.tags, t] });
+              }
+              setNewTag("");
+            }
+          }}
+          placeholder="+ add tag"
+          style={{
+            background: "none",
+            border: "1px dashed var(--line-strong)",
+            borderRadius: "var(--r)",
+            color: "var(--ink)",
+            font: "inherit",
+            fontSize: 11,
+            padding: "3px 8px",
+            width: 88,
+            outline: "none",
+          }}
+        />
+      </div>
     </>
   ) : (
     <p style={{ color: "var(--ink-faint)" }}>Select or create a note to edit.</p>

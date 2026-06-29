@@ -188,6 +188,17 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         }
         setSdkDeviceId(null);
       });
+      // authentication_error fires when the SDK token lacks the `streaming`
+      // scope (e.g. a connection made before that scope was added) — the user
+      // must reconnect Spotify to re-grant. account_error = non-Premium.
+      player.addListener('authentication_error', (state) => {
+        console.warn('[Axis Spotify] SDK auth failed — reconnect Spotify to grant streaming scope.', state.message);
+        setSdkDeviceId(null);
+      });
+      player.addListener('account_error', (state) => {
+        console.warn('[Axis Spotify] Spotify Premium required for in-browser playback.', state.message);
+        setSdkDeviceId(null);
+      });
       void player.connect();
     };
     return () => {

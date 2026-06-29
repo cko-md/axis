@@ -16,6 +16,7 @@ const FETCHERS: Record<string, string> = {
   agenda: "/api/widgets/agenda",
   air: "/api/widgets/air-quality",
   markets: "/api/widgets/markets",
+  run: "/api/widgets/training",
 };
 
 export function useWidgetData(widgetIds: string[], locationEnabled = false) {

@@ -7,6 +7,9 @@ import { ProviderDot } from "./ProviderBadges";
  * Gmail/Outlook picker dropdown used wherever a "Connect Mail" action needs to
  * disambiguate providers before kicking off the OAuth popup flow. Shared between
  * MailModule and PeopleModule (and anywhere else mail can be connected from).
+ *
+ * All connections go through Composio — the app no longer ships its own Gmail/
+ * Outlook OAuth client. One provider, one row, one auth path.
  */
 export function AddAccountPicker({
   onClose,
@@ -15,6 +18,30 @@ export function AddAccountPicker({
   onClose: () => void;
   onConnected: (provider: "gmail" | "outlook") => void;
 }) {
+  const rowStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 10px",
+    borderRadius: 5,
+    background: "none",
+    border: "none",
+    color: "var(--ink)",
+    fontSize: "13px",
+    cursor: "pointer",
+    textAlign: "left",
+  };
+  const hoverProps = {
+    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; },
+    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "none"; },
+  };
+  const connect = (toolkit: "gmail" | "outlook") => {
+    onClose();
+    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+      if (status === "ok") onConnected(toolkit);
+    });
+  };
+
   return (
     <div
       style={{
@@ -33,110 +60,11 @@ export function AddAccountPicker({
         boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
       }}
     >
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/mail/connect?provider=gmail", (_provider, status) => {
-            if (status === "ok") onConnected("gmail");
-          });
-        }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 10px",
-          borderRadius: 5,
-          background: "none",
-          border: "none",
-          color: "var(--ink)",
-          fontSize: "13px",
-          cursor: "pointer",
-          textAlign: "left",
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
-      >
+      <button type="button" onClick={() => connect("gmail")} style={rowStyle} {...hoverProps}>
         <ProviderDot provider="gmail" /> Gmail
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/mail/connect?provider=outlook", (_provider, status) => {
-            if (status === "ok") onConnected("outlook");
-          });
-        }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 10px",
-          borderRadius: 5,
-          background: "none",
-          border: "none",
-          color: "var(--ink)",
-          fontSize: "13px",
-          cursor: "pointer",
-          textAlign: "left",
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
-      >
+      <button type="button" onClick={() => connect("outlook")} style={rowStyle} {...hoverProps}>
         <ProviderDot provider="outlook" /> Outlook
-      </button>
-      <div style={{ height: 1, background: "var(--line)", margin: "4px 2px" }} />
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/integrations/composio/connect?toolkit=gmail", (_provider, status) => {
-            if (status === "ok") onConnected("gmail");
-          });
-        }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 10px",
-          borderRadius: 5,
-          background: "none",
-          border: "none",
-          color: "var(--ink-dim)",
-          fontSize: "12px",
-          cursor: "pointer",
-          textAlign: "left",
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
-      >
-        <ProviderDot provider="gmail" /> Gmail (via Composio)
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          openOAuthPopup("/api/integrations/composio/connect?toolkit=outlook", (_provider, status) => {
-            if (status === "ok") onConnected("outlook");
-          });
-        }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 10px",
-          borderRadius: 5,
-          background: "none",
-          border: "none",
-          color: "var(--ink-dim)",
-          fontSize: "12px",
-          cursor: "pointer",
-          textAlign: "left",
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
-      >
-        <ProviderDot provider="outlook" /> Outlook (via Composio)
       </button>
       <button
         type="button"

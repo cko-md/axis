@@ -4,6 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 
 const SCOPES = [
+  // Web Playback SDK (the in-browser "Axis Web Player" device) requires these
+  // three — without `streaming` the SDK token is rejected and no device ever
+  // becomes ready, so play/pause silently no-ops with "no active device".
+  // (Spotify also requires a Premium account for SDK playback.)
+  "streaming",
+  "user-read-email",
+  "user-read-private",
   "user-read-playback-state",
   "user-modify-playback-state",
   "user-read-currently-playing",

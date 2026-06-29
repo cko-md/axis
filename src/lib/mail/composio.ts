@@ -10,8 +10,8 @@
 // Outlook OAuth grant via Composio is a user step (see plan). Input argument
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
 import { createClient } from "@/lib/supabase/server";
-import { executeTool } from "@/lib/integrations/composio";
-import type { MailMessage } from "./gmail";
+import { executeTool, ComposioError } from "@/lib/integrations/composio";
+import { extractBody, type GmailPayload, type MailMessage, type MailMessageFull } from "./gmail";
 
 // Profile/email resolution for ACTIVE connections now lives in the shared
 // integrations/composio.ts (resolveProfileLabel) since Calendar and Contacts
@@ -25,6 +25,16 @@ const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
+// Single-message fetch tools. Best-effort slugs (Gmail's single-message fetch
+// and Outlook's get-message) — NOT yet confirmed against a live connected
+// account, mapped defensively like the list normalizers above. A wrong slug
+// surfaces as a structured `provider_error` the UI shows, which is strictly
+// better than the previous behavior (the message detail route had no Composio
+// branch at all, so Composio rows 404'd silently). Verify on first live test.
+const GET_TOOL: Record<MailToolkit, string> = {
+  gmail: "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+  outlook: "OUTLOOK_OUTLOOK_GET_MESSAGE",
+};
 
 export type ComposioMailAccount = {
   provider: "gmail" | "outlook";
@@ -35,17 +45,20 @@ export type ComposioMailAccount = {
 
 export async function listComposioMailAccounts(userId: string): Promise<ComposioMailAccount[]> {
   const supabase = await createClient();
+  // Don't gate message listing on account_label being resolved — the label is
+  // cosmetic (filled lazily by the status route) and requiring it left a
+  // freshly-connected, ACTIVE inbox showing no mail until that round-trip
+  // landed. List as soon as ACTIVE; fall back to a generic label.
   const { data } = await supabase
     .from("composio_connections")
     .select("toolkit, connected_account_id, account_label")
     .eq("user_id", userId)
     .eq("status", "ACTIVE")
-    .in("toolkit", ["gmail", "outlook"])
-    .not("account_label", "is", null);
+    .in("toolkit", ["gmail", "outlook"]);
 
   return (data ?? []).map((row) => ({
     provider: row.toolkit as "gmail" | "outlook",
-    mailEmail: row.account_label as string,
+    mailEmail: (row.account_label as string | null) ?? "Connected account",
     via: "composio" as const,
     connectedAccountId: row.connected_account_id as string,
   }));
@@ -63,7 +76,7 @@ function gmailHeader(headers: unknown, name: string): string {
 // gmail.ts produces, trying both the raw Gmail API resource shape (payload/
 // headers/labelIds — Composio's Gmail tools are documented to stay close to
 // the native API) and Composio's flattened convenience fields as a fallback.
-function normalizeGmailMessage(m: Record<string, unknown>, accountEmail: string): MailMessage | null {
+export function normalizeGmailMessage(m: Record<string, unknown>, accountEmail: string): MailMessage | null {
   const id = (m.id ?? m.messageId) as string | undefined;
   if (!id) return null;
   const headers = (m.payload as Record<string, unknown> | undefined)?.headers;
@@ -80,7 +93,7 @@ function normalizeGmailMessage(m: Record<string, unknown>, accountEmail: string)
   };
 }
 
-function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail: string): MailMessage | null {
+export function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail: string): MailMessage | null {
   const id = m.id as string | undefined;
   if (!id) return null;
   const from = m.from as { emailAddress?: { name?: string; address?: string } } | undefined;
@@ -96,6 +109,71 @@ function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail: strin
     provider: "outlook",
     accountEmail,
   };
+}
+
+// ── Full-message normalizers (header normalization reused; body added) ────────
+
+function normalizeGmailMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
+  const base = normalizeGmailMessage(m, accountEmail);
+  if (!base) return null;
+  // Prefer the native payload shape (same as the direct Gmail adapter); fall
+  // back to Composio's flattened convenience fields.
+  const payload = m.payload as GmailPayload | undefined;
+  let body = "";
+  let bodyIsHtml = false;
+  if (payload) {
+    const extracted = extractBody(payload);
+    body = extracted.content;
+    bodyIsHtml = extracted.isHtml;
+  }
+  if (!body) {
+    const html = (m.messageHtml ?? m.bodyHtml) as string | undefined;
+    const text = (m.messageText ?? m.bodyText ?? m.snippet) as string | undefined;
+    if (html) { body = html; bodyIsHtml = true; }
+    else if (text) { body = text; bodyIsHtml = false; }
+  }
+  return { ...base, body, bodyIsHtml };
+}
+
+function normalizeOutlookMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
+  const base = normalizeOutlookMessage(m, accountEmail);
+  if (!base) return null;
+  const bodyObj = m.body as { content?: string; contentType?: string } | undefined;
+  const body = bodyObj?.content ?? (m.bodyPreview as string) ?? "";
+  const bodyIsHtml = (bodyObj?.contentType ?? "").toLowerCase() === "html";
+  return { ...base, body, bodyIsHtml };
+}
+
+/**
+ * Fetch a single message's full body via Composio. Throws ComposioError on
+ * provider failure (the adapter wraps it into a structured Result); returns
+ * null only when the message genuinely isn't found / can't be normalized.
+ */
+export async function getComposioMessage(
+  toolkit: MailToolkit,
+  connectedAccountId: string,
+  userId: string,
+  messageId: string,
+  accountEmail: string,
+): Promise<MailMessageFull | null> {
+  const res = await executeTool({
+    toolSlug: GET_TOOL[toolkit],
+    connectedAccountId,
+    userId,
+    arguments:
+      toolkit === "gmail"
+        ? { message_id: messageId, user_id: "me", format: "full" }
+        : { message_id: messageId },
+  });
+  if (!res.successful) {
+    throw new ComposioError(res.error ?? `${toolkit} get-message failed`, 502);
+  }
+  // Tools may return the message at the top level or nested under data/message.
+  const data = res.data as Record<string, unknown>;
+  const raw = (data.message ?? data.data ?? data) as Record<string, unknown>;
+  return toolkit === "gmail"
+    ? normalizeGmailMessageFull(raw, accountEmail)
+    : normalizeOutlookMessageFull(raw, accountEmail);
 }
 
 export async function listComposioInbox(

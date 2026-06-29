@@ -99,9 +99,6 @@ export function AppShell({ section, page, children }: Props) {
 
   return (
     <SpotifyProvider>
-      <a href="#main-content" className="skip-link">
-        Skip to main content
-      </a>
       <div className="depthfield" aria-hidden>
         <div className="wash" /><div className="aurora" /><div className="aurora2" />
         <div className="haze" /><div className="fall" /><div className="vig" />
@@ -114,26 +111,27 @@ export function AppShell({ section, page, children }: Props) {
           <Topbar section={section} page={page} onOpenPalette={() => setPaletteOpen(true)} />
           <main id="main-content" className="view-pad">{children}</main>
         </div>
-      </div>
-      {/* Single sidebar toggle — fixed in the same on-screen spot across all
-          three modes (open/icons/hidden), so collapse and expand are always
-          the same control, never two different buttons in two places. */}
-      <button
-        className="sb-toggle"
-        onClick={cycleMode}
-        aria-label={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
-        title={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
-      >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          style={{ width: 14, height: 14, transform: sidebarMode === "open" ? undefined : "rotate(180deg)" }}
+        {/* Single sidebar toggle — rendered inside .app-shell so it can read the
+            --sb-w grid variable and ride the sidebar's right edge as it resizes
+            (open → icons → hidden). position:fixed keeps it out of the grid flow
+            and out of the .sb-top header, so it never overlaps the AXIS logo. */}
+        <button
+          className="sb-toggle"
+          onClick={cycleMode}
+          aria-label={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
+          title={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
         >
-          <path d="M15 6l-6 6 6 6" />
-        </svg>
-      </button>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            style={{ width: 14, height: 14, transform: sidebarMode === "open" ? undefined : "rotate(180deg)" }}
+          >
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+      </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Mascot />
       <InterfaceStudioDrawer />

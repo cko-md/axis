@@ -52,17 +52,21 @@ export type ComposioCalendarAccount = {
 
 export async function listComposioCalendarAccounts(userId: string): Promise<ComposioCalendarAccount[]> {
   const supabase = await createClient();
+  // NOTE: don't gate this on account_label being resolved. The label (the
+  // account's email) is cosmetic and is filled in lazily by the status route's
+  // poll-on-read — requiring it here meant a freshly-connected, ACTIVE calendar
+  // returned zero events until that label round-trip landed, so connecting
+  // "succeeded" but the schedule stayed empty. List events as soon as ACTIVE.
   const { data } = await supabase
     .from("composio_connections")
     .select("toolkit, connected_account_id, account_label")
     .eq("user_id", userId)
     .eq("status", "ACTIVE")
-    .in("toolkit", ["googlecalendar", "outlook"])
-    .not("account_label", "is", null);
+    .in("toolkit", ["googlecalendar", "outlook"]);
 
   return (data ?? []).map((row) => ({
     provider: row.toolkit as CalendarToolkit,
-    calendarEmail: row.account_label as string,
+    calendarEmail: (row.account_label as string | null) ?? "Connected calendar",
     via: "composio" as const,
     connectedAccountId: row.connected_account_id as string,
   }));

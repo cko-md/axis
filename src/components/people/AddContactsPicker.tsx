@@ -3,10 +3,9 @@
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 /**
- * Google Contacts picker, mirroring AddAccountPicker.tsx's pattern: a
- * primary-tier legacy direct-OAuth row, plus a secondary dimmer-tier "via
- * Composio" row. Only one provider (Google) exists for Contacts today, so
- * this is a 2-row picker rather than AddAccountPicker's provider x path grid.
+ * Google Contacts picker. The connection goes through Composio — the app no
+ * longer ships its own Contacts OAuth client. Google is the only Contacts
+ * provider today, so this is a single-row picker.
  */
 export function AddContactsPicker({
   onClose,
@@ -15,7 +14,7 @@ export function AddContactsPicker({
   onClose: () => void;
   onConnected: () => void;
 }) {
-  const rowStyle = (dim: boolean): React.CSSProperties => ({
+  const rowStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
     gap: 8,
@@ -23,11 +22,11 @@ export function AddContactsPicker({
     borderRadius: 5,
     background: "none",
     border: "none",
-    color: dim ? "var(--ink-dim)" : "var(--ink)",
-    fontSize: dim ? "12px" : "13px",
+    color: "var(--ink)",
+    fontSize: "13px",
     cursor: "pointer",
     textAlign: "left",
-  });
+  };
   const hoverProps = {
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; },
     onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "none"; },
@@ -55,28 +54,14 @@ export function AddContactsPicker({
         type="button"
         onClick={() => {
           onClose();
-          openOAuthPopup("/api/contacts/connect", (_provider, status) => {
-            if (status === "ok") onConnected();
-          });
-        }}
-        style={rowStyle(false)}
-        {...hoverProps}
-      >
-        Google Contacts
-      </button>
-      <div style={{ height: 1, background: "var(--line)", margin: "4px 2px" }} />
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
           openOAuthPopup("/api/integrations/composio/connect?toolkit=googlecontacts", (_provider, status) => {
             if (status === "ok") onConnected();
           });
         }}
-        style={rowStyle(true)}
+        style={rowStyle}
         {...hoverProps}
       >
-        Google Contacts (via Composio)
+        Google Contacts
       </button>
       <button
         type="button"

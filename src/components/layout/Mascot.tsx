@@ -16,7 +16,6 @@ const MODULE_CONTEXTS: Record<string, string> = {
   "/briefing":        "Briefing — news and media intelligence",
   "/listening-vault": "Listening Vault — music and sound",
   "/fund":            "Fund — portfolio and capital management",
-  "/gallery":         "Gallery — art, culture, and aesthetics",
   "/people":          "People — network, contacts, relationships",
   "/pipeline":        "Pipeline — research and project pipeline",
   "/objectives":      "Objectives — OKRs and goal tracking",

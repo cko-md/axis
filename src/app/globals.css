@@ -319,40 +319,6 @@ body::before {
 .ls5 { animation-delay: 2.3s; }
 .ls6 { animation-delay: .9s; }
 
-/* ── Skip link: visually hidden until keyboard focus (no visible bubble on load) ── */
-.skip-link {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-.skip-link:focus,
-.skip-link:focus-visible {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: auto;
-  height: auto;
-  margin: 0;
-  overflow: visible;
-  clip: auto;
-  clip-path: none;
-  white-space: normal;
-  z-index: 10000;
-  padding: 0.75rem 1.25rem;
-  background: var(--accent, #2563eb);
-  color: #fff;
-  border-radius: 0 0 8px 0;
-  outline: 2px solid var(--accent-bright, #fff);
-  outline-offset: -2px;
-}
-
 /* ── Night starfield ── */
 @keyframes twinkle {
   0%, 100% { opacity: .72; }
@@ -2637,14 +2603,21 @@ body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
 .mascot-restore.on{display:grid}.mascot-restore:hover{color:var(--gold);border-color:var(--gold)}.mascot-restore svg{width:16px;height:16px}
 
 /* Sidebar toggle — the single collapse/expand control, fixed at the same
-   on-screen spot in every mode (open/icons/hidden) so it never jumps around
-   or splits into two different buttons in two different places. Anchored
-   just right of the logo mark (which ends at ~36px) so it never overlaps
-   the wordmark/logo in open or icons mode, and floats above the sidebar
-   (z-index above .sidebar in every mode) so it stays put when hidden too. */
-.sb-toggle{position:fixed;left:44px;top:calc((var(--topbar-h) + 12px) / 2);transform:translateY(-50%);width:25px;height:25px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r);color:var(--ink-dim);cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:0 4px 14px rgba(0,0,0,.4);transition:.16s}
+   the same control in every mode (open/icons/hidden). It rides the sidebar's
+   right edge by reading the --sb-w grid variable from its .app-shell ancestor,
+   straddling the divider between rail and content — so it sits well clear of
+   the AXIS logo/wordmark in the .sb-top header instead of on top of it. In
+   hidden mode it pins to the far-left screen edge (the "show sidebar" affordance).
+   z-index above .sidebar in every mode keeps it on top of the peeking rail. */
+.sb-toggle{position:fixed;left:var(--sb-w,240px);top:calc((var(--topbar-h) + 12px) / 2);transform:translate(-50%,-50%);width:25px;height:25px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r);color:var(--ink-dim);cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:0 4px 14px rgba(0,0,0,.4);transition:left .26s cubic-bezier(.4,0,.2,1),color .16s,border-color .16s}
 .sb-toggle:hover{color:var(--accent);border-color:var(--accent)}
 .sb-toggle svg{width:14px;height:14px}
+/* hidden mode — sidebar is off-screen; pin the toggle to the left edge so it
+   reads as "show sidebar" and stays fully on-screen (no straddle at left:0). */
+.app-shell.mode-hidden .sb-toggle{left:10px;transform:translateY(-50%)}
+/* ...and shift the topbar right so the toggle sits in its own gutter instead of
+   landing on top of the breadcrumb (which read as a stray floating button). */
+.app-shell.mode-hidden .topbar{left:48px}
 
 /* Collapsed (icons) mode — center icons horizontally */
 .app-shell.mode-icons .navitem{justify-content:center;padding:7px 4px}
@@ -3718,6 +3691,19 @@ a:focus-visible,
 }
 .wv-navbtn svg { width: 13px; height: 13px; }
 .wv-navbtn:hover { background: var(--glass); color: var(--ink); }
+/* The reader bar/error actions reuse .wv-navbtn but carry text labels ("Open
+   original →", "✕ Close reader") rather than an icon — the fixed 28×28 icon box
+   forced those labels to wrap and overlap. Relax to an auto-width text button. */
+.wv-reader-bar .wv-navbtn,
+.wv-reader-error .wv-navbtn {
+  width: auto;
+  height: auto;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
 .wv-close { color: var(--ink-faint); }
 .wv-close:hover { background: color-mix(in srgb, var(--clay) 15%, transparent); color: var(--clay); border-color: var(--clay); }
 

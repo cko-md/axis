@@ -14,8 +14,6 @@ export async function middleware(request: NextRequest) {
     // Auth routes that don't require a session (pre-login flows)
     "/api/auth/forgot-password",
     "/api/auth/passkey/authenticate", // login-time: no session yet
-    "/api/calendar/callback",         // OAuth redirect from Google/Microsoft
-    "/api/mail/callback",             // OAuth redirect from Google/Microsoft (mail)
     "/api/spotify/callback",          // OAuth redirect from Spotify
     "/api/plaid/webhook",             // Inbound from Plaid — self-authenticates via signed JWT
     "/api/webhooks/make",             // Inbound from Make — self-authenticates via shared secret + HMAC

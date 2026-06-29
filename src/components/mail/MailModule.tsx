@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
+import { getCapabilities, type ProviderCapabilities } from "@/lib/integrations/registry";
+import type { IntegrationTransport } from "@/lib/integrations/types";
 import { useToast } from "@/components/ui/Toast";
 import { ProviderDot, ProviderBadge } from "./ProviderBadges";
 import { AddAccountPicker } from "./AddAccountPicker";
@@ -11,10 +13,12 @@ import { MessagePanel } from "./MessagePanel";
 interface MailAccount {
   provider: "gmail" | "outlook";
   mailEmail: string;
+  via?: "composio";
 }
 
 type SortMode = "date" | "priority";
 type AccountFilter = "all" | string; // "all" or a specific mailEmail
+type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -57,6 +61,23 @@ function abbreviateEmail(email: string, maxLen = 12): string {
   // truncate local part
   const truncated = local.slice(0, Math.max(1, maxLen - domain.length));
   return truncated + domain;
+}
+
+function sameMessage(a: Pick<MailMessage, "id" | "provider" | "accountEmail">, b: Pick<MailMessage, "id" | "provider" | "accountEmail">): boolean {
+  return a.id === b.id && a.provider === b.provider && a.accountEmail === b.accountEmail;
+}
+
+function supportsAction(caps: ProviderCapabilities | undefined, action: MailMessageAction): boolean {
+  if (!caps) return false;
+  switch (action) {
+    case "mark-read":
+    case "mark-unread":
+      return caps.markRead;
+    case "archive":
+      return caps.archive;
+    case "delete":
+      return caps.delete;
+  }
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
@@ -180,8 +201,11 @@ export function MailModule() {
   const [loadingMsg, setLoadingMsg] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("date");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
+  const [query, setQuery] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [showAddPicker, setShowAddPicker] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null>(null);
+  const [busyAction, setBusyAction] = useState<MailMessageAction | null>(null);
   const mountedRef = useRef(true);
   const addBtnRef = useRef<HTMLDivElement>(null);
 
@@ -266,23 +290,127 @@ export function MailModule() {
     }
   }, []);
 
+  const messageCapabilities = useCallback((msg: Pick<MailMessage, "provider" | "accountEmail">) => {
+    const account = accounts.find((acct) => acct.provider === msg.provider && acct.mailEmail === msg.accountEmail);
+    const transport: IntegrationTransport = account?.via === "composio" ? "composio" : "direct";
+    return getCapabilities("mail", msg.provider, transport);
+  }, [accounts]);
+
+  const updateLocalMessage = useCallback((msg: Pick<MailMessage, "id" | "provider" | "accountEmail">, patch: Partial<MailMessage>) => {
+    setMessages((prev) => prev.map((item) => (sameMessage(item, msg) ? { ...item, ...patch } : item)));
+    setSelected((prev) => (prev && sameMessage(prev, msg) ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const removeLocalMessage = useCallback((msg: Pick<MailMessage, "id" | "provider" | "accountEmail">) => {
+    setMessages((prev) => prev.filter((item) => !sameMessage(item, msg)));
+    setSelected((prev) => (prev && sameMessage(prev, msg) ? null : prev));
+  }, []);
+
+  const runMessageAction = useCallback(async (
+    msg: MailMessage,
+    action: MailMessageAction,
+    opts?: { automatic?: boolean },
+  ) => {
+    const caps = messageCapabilities(msg);
+    if (!supportsAction(caps, action)) {
+      if (!opts?.automatic) {
+        toast("That action is not available for this mailbox connection yet.", "error", "Mail");
+      }
+      return false;
+    }
+
+    if (action === "delete" && !window.confirm("Move this message to trash?")) {
+      return false;
+    }
+
+    const targetUnread =
+      action === "mark-read" ? false
+        : action === "mark-unread" ? true
+          : undefined;
+
+    if (targetUnread !== undefined) {
+      updateLocalMessage(msg, { isUnread: targetUnread });
+    } else {
+      removeLocalMessage(msg);
+    }
+
+    setBusyAction(action);
+    try {
+      const res = await fetch(`/api/mail/message/${encodeURIComponent(msg.id)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          provider: msg.provider,
+          email: msg.accountEmail,
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({} as { error?: string }));
+        throw new Error(typeof detail.error === "string" ? detail.error : "Provider action failed.");
+      }
+
+      if (!opts?.automatic) {
+        const verb =
+          action === "mark-read" ? "Marked read"
+            : action === "mark-unread" ? "Marked unread"
+              : action === "archive" ? "Archived"
+                : "Moved to trash";
+        toast(verb, "success", "Mail");
+      }
+      return true;
+    } catch {
+      if (targetUnread !== undefined) {
+        updateLocalMessage(msg, { isUnread: msg.isUnread });
+      } else {
+        setMessages((prev) => (prev.some((item) => sameMessage(item, msg)) ? prev : [msg, ...prev]));
+        setSelected((prev) => prev ?? ("body" in msg ? msg as MailMessageFull : null));
+      }
+      toast(
+        action === "mark-read"
+          ? "Couldn’t mark this message read. The unread indicator was restored."
+          : action === "mark-unread"
+            ? "Couldn’t mark this message unread. The read state was restored."
+            : action === "archive"
+              ? "Couldn’t archive this message. It was restored to the inbox."
+              : "Couldn’t delete this message. It was restored to the inbox.",
+        "error",
+        "Mail",
+      );
+      return false;
+    } finally {
+      if (mountedRef.current) setBusyAction(null);
+    }
+  }, [messageCapabilities, removeLocalMessage, toast, updateLocalMessage]);
+
   const openMessage = async (msg: MailMessage) => {
     setLoadingMsg(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${msg.id}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
       );
-      if (res.ok && mountedRef.current) setSelected(await res.json());
+      if (res.ok && mountedRef.current) {
+        const fullMessage = await res.json() as MailMessageFull;
+        setSelected(fullMessage);
+        if (msg.isUnread) {
+          void runMessageAction(fullMessage, "mark-read", { automatic: true });
+        }
+      }
     } finally {
       if (mountedRef.current) setLoadingMsg(false);
     }
   };
 
   const disconnect = async (acct: MailAccount) => {
-    const res = await fetch(
-      `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
-      { method: "DELETE" },
-    );
+    // Composio-connected accounts disconnect through Composio (toolkit == provider);
+    // any remaining legacy direct-OAuth accounts use the token-table disconnect.
+    const res = acct.via === "composio"
+      ? await fetch(`/api/integrations/composio/disconnect?toolkit=${acct.provider}`, { method: "DELETE" })
+      : await fetch(
+          `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
+          { method: "DELETE" },
+        );
     if (!res.ok) {
       toast("Failed to disconnect account. Try again.", "error", "Mail");
       return;
@@ -294,15 +422,26 @@ export function MailModule() {
     if (accountFilter === acct.mailEmail) setAccountFilter("all");
   };
 
-  // Filter + sort
+  // Filter + sort: account → unread → text search → sort.
   const visibleMessages = (() => {
     let list = accountFilter === "all"
       ? messages
       : messages.filter((m) => m.accountEmail === accountFilter);
 
-    if (sortMode === "priority") {
-      list = [...list].sort((a, b) => priorityScore(b) - priorityScore(a));
+    if (unreadOnly) list = list.filter((m) => m.isUnread);
+
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter((m) =>
+        m.subject?.toLowerCase().includes(q) ||
+        m.from?.toLowerCase().includes(q) ||
+        m.snippet?.toLowerCase().includes(q),
+      );
     }
+
+    list = sortMode === "priority"
+      ? [...list].sort((a, b) => priorityScore(b) - priorityScore(a))
+      : [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return list;
   })();
 
@@ -480,6 +619,45 @@ export function MailModule() {
             })}
           </div>
 
+          {/* Search */}
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search mail…"
+            style={{
+              flex: "1 1 140px",
+              minWidth: 110,
+              maxWidth: 260,
+              fontSize: 12,
+              padding: "4px 9px",
+              borderRadius: 4,
+              border: "1px solid var(--line)",
+              background: "var(--glass)",
+              color: "var(--ink)",
+              outline: "none",
+            }}
+          />
+
+          {/* Unread-only filter */}
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            aria-pressed={unreadOnly}
+            style={{
+              fontSize: 11,
+              fontWeight: unreadOnly ? 600 : 400,
+              padding: "4px 9px",
+              borderRadius: 4,
+              border: `1px solid ${unreadOnly ? "var(--accent)" : "var(--line)"}`,
+              background: unreadOnly ? "var(--glass)" : "transparent",
+              color: unreadOnly ? "var(--accent)" : "var(--ink-dim)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            Unread
+          </button>
+
           {/* Sort toggle */}
           <div
             style={{
@@ -618,8 +796,11 @@ export function MailModule() {
         {selected && !loadingMsg && (
           <MessagePanel
             message={selected}
+            capabilities={messageCapabilities(selected)}
+            busyAction={busyAction}
             onClose={() => setSelected(null)}
             onReply={(draft) => { setSelected(null); setComposeDraft(draft); }}
+            onAction={(action) => { void runMessageAction(selected, action); }}
           />
         )}
       </div>

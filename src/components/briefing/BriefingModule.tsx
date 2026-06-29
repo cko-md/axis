@@ -186,6 +186,9 @@ export function BriefingModule() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [feedItems, setFeedItems] = useState<Story[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(false);
+  // og:image scraped per curated story (they ship with a gradient only) so the
+  // featured cards get a real preview image, same as RSS items do.
+  const [storyImages, setStoryImages] = useState<Record<string, string>>({});
   const feedSearchDialogRef = useRef<HTMLDivElement>(null);
   const sourcesDialogRef = useRef<HTMLDivElement>(null);
 
@@ -279,6 +282,18 @@ export function BriefingModule() {
       .finally(() => { if (!opts?.silent) setFeedsLoading(false); });
   }, [savedFeeds]);
 
+  // Scrape an og:image for each curated story once on mount (failures stay
+  // silent — the gradient remains). Runs in parallel; patches as each resolves.
+  useEffect(() => {
+    let alive = true;
+    STORIES.filter((s) => !s.image && s.url).forEach((s) => {
+      void scrapeOgImage(s.url).then((img) => {
+        if (alive && img) setStoryImages((prev) => (prev[s.id] ? prev : { ...prev, [s.id]: img }));
+      });
+    });
+    return () => { alive = false; };
+  }, []);
+
   // Load on mount + whenever feeds change; refresh silently every 5 minutes
   // so headlines and preview images stay current while the board is open.
   useEffect(() => {
@@ -337,7 +352,10 @@ export function BriefingModule() {
     toast(`${feed.name} added to sources.`, "success", "Briefing");
   };
 
-  const allStories = [...STORIES, ...feedItems];
+  const allStories = [
+    ...STORIES.map((s) => (s.image ? s : { ...s, image: storyImages[s.id] ?? null })),
+    ...feedItems,
+  ];
   const visible = active.has("all")
     ? allStories
     : allStories.filter((s) => active.has(CAT_TO_FILTER[s.cat] ?? "feed") || feedItems.some((fi) => fi.id === s.id));

@@ -94,6 +94,10 @@ function deriveTitle(markdown: string, parsed: URL): string {
 
 function clean(s: string): string {
   return s
+    // Collapse markdown links/images to their visible text FIRST, so a linked
+    // heading like "[Browse World](https://reuters.com/world/)" becomes
+    // "Browse World" — not "Browse Worldhttps://reuters.com/world/".
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[#*_`>[\]()]/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -114,8 +118,14 @@ function markdownToSafeHtml(md: string): string {
     text
       .replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_m, alt, src) =>
         /^https?:\/\//i.test(src) ? `<img src="${src}" alt="${alt}" loading="lazy" />` : esc(alt))
-      .replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (_m, label, href) =>
-        /^https?:\/\//i.test(href) ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>` : label)
+      // Allow empty labels ([^\]]* not +): empty/whitespace-only link text means
+      // a bare logo/icon link in the source — drop the markdown artifact entirely
+      // instead of leaving raw "[](https://…)" text in the reader output.
+      .replace(/\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_m, label, href) => {
+        const lbl = label.trim();
+        if (!lbl) return "";
+        return /^https?:\/\//i.test(href) ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${lbl}</a>` : lbl;
+      })
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");

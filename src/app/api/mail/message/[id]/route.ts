@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { getGmailMessage } from "@/lib/mail/gmail";
-import { getOutlookMessage } from "@/lib/mail/outlook";
+import { listMailAccounts } from "@/lib/mail/tokens";
+import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
 
 // GET /api/mail/message/[id]?provider=gmail|outlook&email=user@example.com
+// Provider/transport selection is delegated to the mail adapter — this route
+// works identically for direct-OAuth and Composio accounts.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -25,11 +28,21 @@ export async function GET(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const message =
-    provider === "gmail"
-      ? await getGmailMessage(user.id, email, id)
-      : await getOutlookMessage(user.id, email, id);
+  // Ownership: the account must belong to this user (and tells us the transport).
+  const accounts = await listMailAccounts(user.id);
+  const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
+  if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
-  if (!message) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(message);
+  const adapter = adapterForAccount(account);
+  const result = await adapter.getMessage(toMailContext(user.id, account), id);
+
+  if (result.ok) return NextResponse.json(result.data);
+
+  const status = mailErrorStatus(result.error.code);
+  if (status >= 500) {
+    Sentry.captureException(new Error(result.error.message), {
+      tags: { area: "mail", op: "get_message", provider, transport: account.via ?? "direct", code: result.error.code },
+    });
+  }
+  return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
 }
