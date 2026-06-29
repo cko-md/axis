@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
+import { optionalEnv } from "@/lib/env";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
     night: `You are an elite sleep and recovery coach. Design an optimized night wind-down routine for ${name} — a physician-researcher who needs quality sleep for peak cognition.\n\nCurrent routine:\n${currentList}\n\nUser objectives:\n${objectivesList}\n\nReturn ONLY a JSON array of 6–8 steps with this exact shape: [{id,time,title,sub}] where id is a short unique string, time is "HH:MM" (starting 21:00–21:30), title is the step name (max 48 chars), sub is a brief rationale (max 60 chars). Prioritise sleep onset, stress reduction, and next-day prep. No preamble, no explanation — only the JSON array.`,
   };
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
   try {

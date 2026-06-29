@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAndParse } from "@/lib/feeds/rss";
+import { optionalEnv } from "@/lib/env";
 
 const CACHE_FRESH_HOURS = 20;
 
@@ -33,11 +34,12 @@ const ATELIER_FEEDS = [
 // Auth: bearer FEED_DIGEST_SECRET — a dedicated secret for this channel, not
 // CRON_SECRET (Vercel cron) or MAKE_SWEEP_SECRET (intelligence-sweep).
 export async function POST(req: NextRequest) {
-  if (!process.env.FEED_DIGEST_SECRET) {
+  const digestSecret = optionalEnv("FEED_DIGEST_SECRET");
+  if (!digestSecret) {
     return NextResponse.json({ error: "FEED_DIGEST_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.FEED_DIGEST_SECRET}`) {
+  if (authHeader !== `Bearer ${digestSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

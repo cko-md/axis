@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { optionalEnv } from "@/lib/env";
 
 const SCOPES = [
   // Web Playback SDK (the in-browser "Axis Web Player" device) requires these
@@ -28,9 +29,12 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   if (!clientId) {
-    return NextResponse.json({ error: "SPOTIFY_CLIENT_ID not configured" }, { status: 503 });
+    return NextResponse.json(
+      { error: "NOT_CONFIGURED", message: "Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to enable Spotify." },
+      { status: 503 },
+    );
   }
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const state = crypto.randomUUID();

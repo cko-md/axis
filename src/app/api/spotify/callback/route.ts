@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { optionalEnv } from "@/lib/env";
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl;
@@ -13,8 +14,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
   }
 
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
+  const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
 
   if (!clientId || !clientSecret) {

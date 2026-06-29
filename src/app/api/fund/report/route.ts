@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { optionalEnv } from "@/lib/env";
+import { getPolygonApiKey } from "@/lib/massive/client";
 
 export async function POST() {
   const supabase = await createClient();
@@ -20,7 +22,7 @@ export async function POST() {
     .limit(5);
 
   // Polygon news for top holdings — POLYGON_API_KEY stays server-side only
-  const polygonKey = process.env.POLYGON_API_KEY;
+  const polygonKey = getPolygonApiKey();
   let newsContext = "";
   if (polygonKey && holdings && holdings.length > 0) {
     const tickers = holdings
@@ -63,7 +65,18 @@ export async function POST() {
       ? `\nWatchlist: ${watchlist.map((w) => w.symbol).join(", ")}`
       : "";
 
-  const client = new Anthropic();
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error: "ANTHROPIC_API_KEY_NOT_CONFIGURED",
+        message: "Set ANTHROPIC_API_KEY to enable AI market reports.",
+      },
+      { status: 503 },
+    );
+  }
+
+  const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 500,

@@ -1,16 +1,12 @@
+import { getBrokerageAccountId, getBrokerageApiKey } from "@/lib/env";
+
 /**
  * Brokerage (Public.com) credential helpers — shared across brokerage routes.
  * Extracted here so that route.ts files only export valid HTTP verb handlers.
  */
 export function getBrokerageCreds() {
-  const apiKey =
-    process.env.APP_PUBLIC_API_KEY ||
-    process.env.PUBLIC_API_KEY ||
-    process.env.BROKERAGE_API_KEY;
-  const accountId =
-    process.env.APP_PUBLIC_ACCOUNT_ID ||
-    process.env.PUBLIC_ACCOUNT_ID ||
-    process.env.BROKERAGE_ACCOUNT_ID;
+  const apiKey = getBrokerageApiKey();
+  const accountId = getBrokerageAccountId();
   if (!apiKey) return null;
   return { apiKey, accountId: accountId ?? null };
 }

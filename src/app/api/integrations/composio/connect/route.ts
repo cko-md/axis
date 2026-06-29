@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { optionalEnv } from "@/lib/env";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import {
   getOrCreateAuthConfig,
   initiateConnection,
@@ -16,8 +18,8 @@ import {
 // route.ts); spotify reuses the same Spotify app the legacy direct flow uses
 // (src/app/api/spotify/auth/route.ts) — same SPOTIFY_CLIENT_ID/SECRET.
 const CUSTOM_AUTH_ENV: Record<string, { clientId?: string; clientSecret?: string }> = {
-  googlecontacts: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET },
-  spotify: { clientId: process.env.SPOTIFY_CLIENT_ID, clientSecret: process.env.SPOTIFY_CLIENT_SECRET },
+  googlecontacts: { clientId: optionalEnv("GOOGLE_CLIENT_ID"), clientSecret: optionalEnv("GOOGLE_CLIENT_SECRET") },
+  spotify: { clientId: optionalEnv("SPOTIFY_CLIENT_ID"), clientSecret: optionalEnv("SPOTIFY_CLIENT_SECRET") },
 };
 
 // GET /api/integrations/composio/connect?toolkit=gmail|outlook
@@ -39,7 +41,10 @@ export async function GET(req: NextRequest) {
   if (needsCustomAuth) {
     const creds = CUSTOM_AUTH_ENV[toolkit];
     if (!creds?.clientId || !creds?.clientSecret) {
-      return NextResponse.json({ error: "Composio is not configured" }, { status: 503 });
+      return NextResponse.json(
+        { error: "NOT_CONFIGURED", message: `Composio ${toolkit} requires OAuth client credentials.` },
+        { status: 503 },
+      );
     }
   }
 
@@ -72,18 +77,45 @@ export async function GET(req: NextRequest) {
     // If we can't record the pending connection, don't send the user through
     // an OAuth flow our status/execute routes will never be able to find.
     if (dbError) {
+      captureRouteError(dbError, {
+        route: "/api/integrations/composio/connect",
+        operation: "upsert_connection",
+        area: "integrations",
+        provider: "supabase",
+        status: 500,
+      });
       return NextResponse.redirect(new URL(`/oauth-done?provider=composio_${toolkit}&status=error`, req.url));
     }
 
     if (!redirectUrl) {
+      captureRouteError(new Error("Composio returned no redirect URL"), {
+        route: "/api/integrations/composio/connect",
+        operation: "initiate_connection",
+        area: "integrations",
+        provider: "composio",
+        status: 502,
+        code: "NO_REDIRECT_URL",
+        tags: { toolkit },
+      });
       return NextResponse.redirect(new URL(`/oauth-done?provider=composio_${toolkit}&status=error`, req.url));
     }
     return NextResponse.redirect(redirectUrl);
   } catch (err) {
     const status = err instanceof ComposioError ? err.status : 500;
     if (status === 503) {
-      return NextResponse.json({ error: "Composio is not configured" }, { status: 503 });
+      return NextResponse.json(
+        { error: "NOT_CONFIGURED", message: "Composio is not configured. Set COMPOSIO_API_KEY to enable this provider." },
+        { status: 503 },
+      );
     }
+    captureRouteError(err, {
+      route: "/api/integrations/composio/connect",
+      operation: "initiate_connection",
+      area: "integrations",
+      provider: "composio",
+      status,
+      tags: { toolkit },
+    });
     return NextResponse.redirect(new URL(`/oauth-done?provider=composio_${toolkit}&status=error`, req.url));
   }
 }

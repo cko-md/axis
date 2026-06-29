@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
-
-const anthropic = new Anthropic();
+import { optionalEnv } from '@/lib/env';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const supabase = await createClient();
@@ -12,6 +11,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = await req.json().catch(() => ({})) as { query?: string };
   const query = body.query?.trim();
   if (!query) return NextResponse.json({ error: 'Missing query' }, { status: 400 });
+  const apiKey = optionalEnv('ANTHROPIC_API_KEY');
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error: 'ANTHROPIC_API_KEY_NOT_CONFIGURED',
+        message: 'Set ANTHROPIC_API_KEY to enable AI search responses.',
+      },
+      { status: 503 },
+    );
+  }
 
   // Gather live context from user data
   const [tasksRes, eventsRes, holdingsRes, notesRes] = await Promise.allSettled([
@@ -32,6 +41,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (holdings.length) ctxParts.push(`Portfolio: ${holdings.map((h: { symbol: string; name: string }) => h.symbol).join(', ')}`);
   if (notes.length) ctxParts.push(`Recent notes: ${notes.map((n: { title: string }) => n.title).join(', ')}`);
 
+  const anthropic = new Anthropic({ apiKey });
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 350,

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { optionalEnv, type OptionalEnvName } from "@/lib/env";
 import { triggerWebhook } from "@/lib/integrations/make";
 
 /**
@@ -11,14 +12,14 @@ import { triggerWebhook } from "@/lib/integrations/make";
  */
 export type NotifyKind = "daily_brief" | "weekly_recap" | "bill_reminder" | "budget_alert" | "anomaly_alert" | "subscription_audit";
 
-const WEBHOOK_ENV_BY_KIND: Record<NotifyKind, string> = {
+const WEBHOOK_ENV_BY_KIND = {
   daily_brief: "MAKE_WEBHOOK_DAILY_BRIEF_URL",
   weekly_recap: "MAKE_WEBHOOK_WEEKLY_RECAP_URL",
   bill_reminder: "MAKE_WEBHOOK_BILL_REMINDER_URL",
   budget_alert: "MAKE_WEBHOOK_BUDGET_ALERT_URL",
   anomaly_alert: "MAKE_WEBHOOK_ANOMALY_ALERT_URL",
   subscription_audit: "MAKE_WEBHOOK_SUBSCRIPTION_AUDIT_URL",
-};
+} satisfies Record<NotifyKind, OptionalEnvName>;
 
 export type NotifyPayload = {
   idempotencyKey: string;
@@ -45,7 +46,7 @@ export type NotifyPayload = {
  */
 export async function notifyViaMake(admin: SupabaseClient, payload: NotifyPayload): Promise<{ sent: boolean; reason?: string }> {
   const envVar = WEBHOOK_ENV_BY_KIND[payload.kind];
-  const webhookUrl = process.env[envVar];
+  const webhookUrl = optionalEnv(envVar);
 
   if (!webhookUrl) {
     await admin.from("audit_logs").insert({

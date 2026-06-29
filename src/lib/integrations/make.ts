@@ -1,7 +1,9 @@
+import { optionalEnv } from "@/lib/env";
+
 // Server-only Make (integromat) client. Make zones are account-specific —
 // `MAKE_ZONE` defaults to the zone verified live for this account
 // (us2.make.com); override via env if the Make org ever migrates zones.
-const MAKE_ZONE = process.env.MAKE_ZONE || "us2.make.com";
+const MAKE_ZONE = optionalEnv("MAKE_ZONE") || "us2.make.com";
 const MAKE_BASE = `https://${MAKE_ZONE}/api/v2`;
 
 export class MakeError extends Error {
@@ -13,7 +15,7 @@ export class MakeError extends Error {
 }
 
 function getApiKey(): string {
-  const key = process.env.MAKE_API_KEY;
+  const key = optionalEnv("MAKE_API_KEY");
   if (!key) throw new MakeError("MAKE_API_KEY is not configured", 503);
   return key;
 }
@@ -44,7 +46,8 @@ let cachedTeamId: number | null = null;
 // lazily rather than hardcoding account-specific numbers in source. Override
 // via MAKE_TEAM_ID if the account has multiple teams.
 async function resolveTeamId(): Promise<number> {
-  if (process.env.MAKE_TEAM_ID) return Number(process.env.MAKE_TEAM_ID);
+  const configuredTeamId = optionalEnv("MAKE_TEAM_ID");
+  if (configuredTeamId) return Number(configuredTeamId);
   if (cachedTeamId) return cachedTeamId;
   const orgs = await makeFetch<{ organizations: MakeOrganization[] }>("/organizations");
   const org = orgs.organizations[0];

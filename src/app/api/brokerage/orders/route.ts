@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
 import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
+import { optionalEnv } from "@/lib/env";
 
 const PUBLIC_API_BASE = "https://api.public.com";
 
@@ -20,7 +21,7 @@ const PUBLIC_API_BASE = "https://api.public.com";
  */
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
-  if (process.env.TRADE_EXECUTION_ENABLED !== "true") {
+  if (optionalEnv("TRADE_EXECUTION_ENABLED") !== "true") {
     return NextResponse.json(
       { error: "TRADE_EXECUTION_DISABLED", message: "Trade execution is disabled. This is a deliberate product decision, not a missing feature." },
       { status: 501 },

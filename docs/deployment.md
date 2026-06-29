@@ -17,20 +17,29 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
 ## Vercel Preview Checklist
 
 - Preview build succeeds with required Supabase env present.
-- Optional provider keys that are absent show setup/not-configured UI instead of crashing.
+- Preview build succeeds when optional provider keys are absent: `COMPOSIO_API_KEY`, `POLYGON_API_KEY`/`MASSIVE_API_KEY`, `PLAID_*`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `MAKE_*`, `UPSTASH_*`, health provider IDs, and brokerage keys.
+- Optional provider keys that are absent show setup/not-configured UI or API responses instead of crashing.
+- Check optional-provider probes on the preview URL:
+  - `GET /api/massive/status` returns configured status without throwing.
+  - `GET /api/ai/status` reports configured AI providers or heuristic fallback.
+  - `GET /api/plaid/status` reports connected/not-connected or a visible status error.
+  - Composio connect/status flows return `NOT_CONFIGURED` or a stored status when `COMPOSIO_API_KEY` is absent.
 - Changed workflow is exercised on the preview URL, not only localhost.
 - Error path is exercised when safe to do so and produces visible UI feedback.
 - No secrets or private content appear in Vercel logs.
 - `NEXT_PUBLIC_APP_URL` points to the intended preview/production origin where required for OAuth/CORS.
 - Sentry tunnel `/monitoring` remains reachable and does not conflict with app routes.
+- Vercel logs do not show startup failures from missing optional provider keys.
 
 ## Sentry Checklist
 
 - Sentry review happens post-push/post-preview.
 - Happy-path preview validation creates no new error event.
 - Forced or observed failures capture safe tags: route/operation, provider, transport, status, normalized code.
+- Missing optional provider responses such as `NOT_CONFIGURED` are not captured as exceptions.
 - Events never include tokens, OAuth payloads, email bodies, recipients, or private content.
 - Source maps upload in Vercel when `SENTRY_AUTH_TOKEN`, org, and project are configured.
+- Server, edge, and client events show the expected Vercel environment/release metadata when available.
 
 ## Supabase And Tembo Checklist
 

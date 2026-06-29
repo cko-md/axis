@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { optionalEnv } from "@/lib/env";
 
 /**
  * POST /api/webhooks/make — inbound receiver for Make scenarios calling
@@ -17,7 +18,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * Expected body: { event: string, user_id: string, idempotency_key: string, data?: object }
  */
 export async function POST(request: NextRequest) {
-  const secret = process.env.MAKE_WEBHOOK_SECRET;
+  const secret = optionalEnv("MAKE_WEBHOOK_SECRET");
   if (!secret) {
     return NextResponse.json({ error: "MAKE_WEBHOOK_SECRET not configured" }, { status: 503 });
   }

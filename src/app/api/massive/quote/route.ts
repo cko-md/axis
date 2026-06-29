@@ -6,6 +6,7 @@ import {
   getPolygonApiKey,
 } from "@/lib/massive/client";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 const querySchema = z.object({
   symbol: z.string().min(1).max(12),
@@ -53,6 +54,14 @@ export async function GET(request: NextRequest) {
         ? Number((e as { status: number }).status)
         : 502;
     logRouteTiming("/api/massive/quote", routeStartedAt, { ok: false, symbol: symbol.toUpperCase(), status });
+    captureRouteError(e, {
+      route: "/api/massive/quote",
+      operation: "fetch_quote",
+      area: "fund",
+      provider: "polygon",
+      status,
+      tags: { symbol: symbol.toUpperCase() },
+    });
     return NextResponse.json({ error: message }, { status });
   }
 }

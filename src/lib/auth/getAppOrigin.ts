@@ -1,7 +1,6 @@
 import { type NextRequest } from "next/server";
+import { optionalEnv } from "@/lib/env";
 
 export function getAppOrigin(req: NextRequest): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ?? req.nextUrl.origin
-  );
+  return optionalEnv("NEXT_PUBLIC_APP_URL")?.replace(/\/$/, "") ?? req.nextUrl.origin;
 }
