@@ -36,6 +36,15 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+function replySubject(subject: string): string {
+  return /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`;
+}
+
+function replyAddress(from: string): string {
+  const fromMatch = from.match(/<([^>]+)>/);
+  return (fromMatch ? fromMatch[1] : from).trim();
+}
+
 export function MessagePanel({
   message,
   capabilities,
@@ -187,17 +196,16 @@ export function MessagePanel({
           <button
             type="button"
             onClick={() => {
-              const fromMatch = message.from.match(/<([^>]+)>/);
-              const replyTo = fromMatch ? fromMatch[1] : message.from;
-              const replySubject = message.subject.startsWith("Re:") ? message.subject : `Re: ${message.subject}`;
               const quotedBody = `\n\n---\nOn ${new Date(message.date).toLocaleString()}, ${message.from} wrote:\n${(message.bodyIsHtml ? stripHtml(message.body) : message.body).slice(0, 1000)}`;
               onReply({
-                to: replyTo,
-                subject: replySubject,
+                to: replyAddress(message.from),
+                subject: replySubject(message.subject),
                 body: quotedBody,
                 provider: message.provider as MailProvider,
                 mailEmail: message.accountEmail,
                 inReplyTo: message.id,
+                references: message.threadId && message.threadId !== message.id ? message.threadId : undefined,
+                threadId: message.threadId,
               });
             }}
             style={{

@@ -10,13 +10,31 @@ export interface ComposeDraft {
   body?: string;
   provider?: MailProvider;
   mailEmail?: string;
+  via?: "direct" | "composio";
   inReplyTo?: string;
   references?: string;
+  threadId?: string;
 }
 
 interface MailAccount {
   provider: "gmail" | "outlook";
   mailEmail: string;
+  via?: "composio";
+}
+
+type TransportHint = "direct" | "composio";
+
+function accountTransport(account: MailAccount): TransportHint {
+  return account.via === "composio" ? "composio" : "direct";
+}
+
+function accountKey(account: MailAccount): string {
+  return `${account.provider}|${accountTransport(account)}|${account.mailEmail}`;
+}
+
+function accountLabel(account: MailAccount): string {
+  const transport = accountTransport(account) === "composio" ? "Composio" : "Direct";
+  return `${account.mailEmail} (${account.provider}, ${transport})`;
 }
 
 export function ComposeModal({
@@ -31,12 +49,31 @@ export function ComposeModal({
   onSent: () => void;
 }) {
   const { toast } = useToast();
+  const fallbackAccount = accounts[0];
+  const draftTransport = draft.via ?? (fallbackAccount ? accountTransport(fallbackAccount) : "direct");
+  const initialAccount =
+    accounts.find(
+      (a) =>
+        a.provider === draft.provider &&
+        a.mailEmail === draft.mailEmail &&
+        accountTransport(a) === draftTransport,
+    ) ??
+    accounts.find((a) => a.provider === draft.provider && a.mailEmail === draft.mailEmail) ??
+    fallbackAccount;
+  const isReply = !!draft.inReplyTo;
   const [to, setTo] = useState(draft.to ?? "");
   const [subject, setSubject] = useState(draft.subject ?? "");
   const [body, setBody] = useState(draft.body ?? "");
-  const [provider, setProvider] = useState<MailProvider>(draft.provider ?? accounts[0]?.provider ?? "gmail");
-  const [mailEmail, setMailEmail] = useState(draft.mailEmail ?? accounts[0]?.mailEmail ?? "");
+  const [provider, setProvider] = useState<MailProvider>(initialAccount?.provider ?? draft.provider ?? "gmail");
+  const [mailEmail, setMailEmail] = useState(initialAccount?.mailEmail ?? draft.mailEmail ?? "");
+  const [via, setVia] = useState<TransportHint>(
+    initialAccount ? accountTransport(initialAccount) : draft.via ?? "direct",
+  );
   const [sending, setSending] = useState(false);
+  const accountMissing = !accounts.some(
+    (a) => a.provider === provider && a.mailEmail === mailEmail && accountTransport(a) === via,
+  );
+  const composioReplyFallback = isReply && via === "composio";
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -55,6 +92,10 @@ export function ComposeModal({
       toast("To, Subject, and Body are required.", "error", "Mail");
       return;
     }
+    if (!mailEmail || accountMissing) {
+      toast("Choose a connected sending account.", "error", "Mail");
+      return;
+    }
     setSending(true);
     try {
       const res = await fetch("/api/mail/send", {
@@ -66,13 +107,15 @@ export function ComposeModal({
           body,
           provider,
           mailEmail,
+          via,
           inReplyTo: draft.inReplyTo,
           references: draft.references,
+          threadId: draft.threadId,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; warning?: string };
       if (res.ok && data.ok) {
-        toast("Message sent.", "success", "Mail");
+        toast(data.warning ?? "Message sent.", data.warning ? "info" : "success", "Mail");
         onSent();
       } else {
         toast(data.error ?? "Send failed.", "error", "Mail");
@@ -130,20 +173,47 @@ export function ComposeModal({
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <label style={{ fontSize: 11, color: "var(--ink-faint)", width: 52, flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>FROM</label>
               <select
-                value={`${provider}:${mailEmail}`}
+                value={`${provider}|${via}|${mailEmail}`}
+                disabled={isReply}
                 onChange={(e) => {
-                  const [p, m] = e.target.value.split(":") as [MailProvider, string];
-                  setProvider(p);
-                  setMailEmail(m);
+                  const account = accounts.find((a) => accountKey(a) === e.target.value);
+                  if (!account) return;
+                  setProvider(account.provider);
+                  setMailEmail(account.mailEmail);
+                  setVia(accountTransport(account));
                 }}
-                style={{ ...inputStyle, cursor: "pointer" }}
+                style={{ ...inputStyle, cursor: isReply ? "default" : "pointer", opacity: isReply ? 0.75 : 1 }}
               >
                 {accounts.map((a) => (
-                  <option key={`${a.provider}:${a.mailEmail}`} value={`${a.provider}:${a.mailEmail}`}>
-                    {a.mailEmail} ({a.provider})
+                  <option key={accountKey(a)} value={accountKey(a)}>
+                    {accountLabel(a)}
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {accounts.length <= 1 && mailEmail && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <label style={{ fontSize: 11, color: "var(--ink-faint)", width: 52, flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>FROM</label>
+              <div style={{ ...inputStyle, color: "var(--ink-dim)" }}>
+                {mailEmail} ({provider}, {via === "composio" ? "Composio" : "Direct"})
+              </div>
+            </div>
+          )}
+          {composioReplyFallback && (
+            <div
+              role="status"
+              style={{
+                border: "1px solid var(--line)",
+                background: "var(--surface-2)",
+                borderRadius: 6,
+                color: "var(--ink-dim)",
+                fontSize: "12px",
+                lineHeight: 1.5,
+                padding: "8px 10px",
+              }}
+            >
+              Composio can send this reply, but native thread attachment is not verified yet. It will be sent as a new message with the reply subject and quote.
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
