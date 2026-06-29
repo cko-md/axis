@@ -5,6 +5,7 @@ import {
   listProviders,
   getCapabilities,
 } from "./registry";
+import type { IntegrationTransport } from "./types";
 
 describe("INTEGRATION_REGISTRY", () => {
   it("contains gmail and outlook mail providers", () => {
@@ -92,6 +93,6 @@ describe("getCapabilities()", () => {
 
   it("returns undefined for unknown transport", () => {
     // Transport not in the capabilities record
-    expect(getCapabilities("mail", "gmail", "unknown-transport" as never)).toBeUndefined();
+    expect(getCapabilities("mail", "gmail", "unknown-transport" as IntegrationTransport)).toBeUndefined();
   });
 });
