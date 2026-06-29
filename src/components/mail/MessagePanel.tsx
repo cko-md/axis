@@ -15,10 +15,17 @@ type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 // event handlers, iframes, objects, and forms are stripped; safe formatting
 // tags (links, tables, images) pass through.
 function sanitizeMailHtml(html: string): string {
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "link", "meta", "base"],
     FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur", "srcdoc", "formaction"],
+    ADD_ATTR: ["target", "rel", "referrerpolicy", "loading", "decoding", "srcset", "sizes"],
     ALLOW_DATA_ATTR: false,
+  });
+  return sanitized.replace(/<a\b([^>]*)>/gi, (_match, attrs: string) => {
+    const safeAttrs = attrs
+      .replace(/\s(?:target|rel)=("[^"]*"|'[^']*'|[^\s>]*)/gi, "")
+      .trim();
+    return `<a${safeAttrs ? ` ${safeAttrs}` : ""} target="_blank" rel="noopener noreferrer">`;
   });
 }
 
@@ -70,6 +77,8 @@ export function MessagePanel({
     () => (message.bodyIsHtml ? sanitizeMailHtml(message.body) : message.body),
     [message.body, message.bodyIsHtml],
   );
+  const plainBody = message.body || message.snippet || "No message body available.";
+  const hasHtmlBody = message.bodyIsHtml && sanitizedBody.trim().length > 0;
 
   const summarize = async () => {
     setSummarizing(true);
@@ -270,9 +279,48 @@ export function MessagePanel({
 
       {/* Body */}
       <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
-        {message.bodyIsHtml ? (
+        <style>{`
+          .mail-message-body {
+            overflow-wrap: anywhere;
+            word-break: normal;
+          }
+          .mail-message-body a {
+            color: #0b57d0;
+            text-decoration: underline;
+          }
+          .mail-message-body img {
+            max-width: 100%;
+            height: auto;
+          }
+          .mail-message-body table {
+            max-width: 100%;
+            border-collapse: collapse;
+          }
+          .mail-message-body blockquote {
+            border-left: 3px solid #d0d7de;
+            margin-left: 0;
+            padding-left: 12px;
+            color: #57606a;
+          }
+          .mail-message-body pre {
+            white-space: pre-wrap;
+            overflow-x: auto;
+          }
+        `}</style>
+        {hasHtmlBody ? (
           <div
-            style={{ fontSize: "13px", color: "var(--ink)", lineHeight: 1.6 }}
+            className="mail-message-body"
+            style={{
+              background: "#fff",
+              borderRadius: 8,
+              color: "#111827",
+              fontSize: "14px",
+              lineHeight: 1.55,
+              maxWidth: "100%",
+              minHeight: "100%",
+              overflowX: "auto",
+              padding: 16,
+            }}
             dangerouslySetInnerHTML={{ __html: sanitizedBody }}
           />
         ) : (
@@ -286,7 +334,7 @@ export function MessagePanel({
               margin: 0,
             }}
           >
-            {message.body || message.snippet}
+            {plainBody}
           </pre>
         )}
       </div>

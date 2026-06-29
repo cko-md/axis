@@ -73,6 +73,81 @@ function gmailHeader(headers: unknown, name: string): string {
   return typeof h?.value === "string" ? h.value : "";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringField(source: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unknown> {
+  const candidates = [
+    data.message,
+    data.email,
+    data.data,
+    data.result,
+    data.response_data,
+    data.responseData,
+    data.payload,
+    data,
+  ];
+
+  for (const candidate of candidates) {
+    const first = Array.isArray(candidate) ? candidate[0] : candidate;
+    const record = asRecord(first);
+    if (record) return record;
+  }
+
+  return data;
+}
+
+function looksLikeHtml(value: string): boolean {
+  return /<\/?[a-z][\s\S]*>/i.test(value);
+}
+
+function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIsHtml: boolean } {
+  const bodyObj = asRecord(m.body);
+  if (bodyObj) {
+    const content = stringField(bodyObj, ["content", "body", "value"]);
+    if (content) {
+      const contentType = stringField(bodyObj, ["contentType", "content_type", "mimeType", "mime_type"]) ?? "";
+      return { body: content, bodyIsHtml: contentType.toLowerCase().includes("html") || looksLikeHtml(content) };
+    }
+  }
+
+  const html = stringField(m, [
+    "messageHtml",
+    "bodyHtml",
+    "htmlBody",
+    "body_html",
+    "html",
+    "renderedBody",
+  ]);
+  if (html) return { body: html, bodyIsHtml: true };
+
+  const genericBody = stringField(m, ["body", "message", "content"]);
+  if (genericBody) return { body: genericBody, bodyIsHtml: looksLikeHtml(genericBody) };
+
+  const text = stringField(m, [
+    "messageText",
+    "bodyText",
+    "plainText",
+    "textBody",
+    "body_text",
+    "text",
+    "snippet",
+    "bodyPreview",
+  ]);
+  return { body: text ?? "", bodyIsHtml: false };
+}
+
 // Normalizes a single Gmail-toolkit message into the same MailMessage shape
 // gmail.ts produces, trying both the raw Gmail API resource shape (payload/
 // headers/labelIds — Composio's Gmail tools are documented to stay close to
@@ -120,11 +195,11 @@ export function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail
 
 // ── Full-message normalizers (header normalization reused; body added) ────────
 
-function normalizeGmailMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
+export function normalizeGmailMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
   const base = normalizeGmailMessage(m, accountEmail);
   if (!base) return null;
   // Prefer the native payload shape (same as the direct Gmail adapter); fall
-  // back to Composio's flattened convenience fields.
+  // back to Composio's flattened convenience fields and body objects.
   const payload = m.payload as GmailPayload | undefined;
   let body = "";
   let bodyIsHtml = false;
@@ -134,20 +209,17 @@ function normalizeGmailMessageFull(m: Record<string, unknown>, accountEmail: str
     bodyIsHtml = extracted.isHtml;
   }
   if (!body) {
-    const html = (m.messageHtml ?? m.bodyHtml) as string | undefined;
-    const text = (m.messageText ?? m.bodyText ?? m.snippet) as string | undefined;
-    if (html) { body = html; bodyIsHtml = true; }
-    else if (text) { body = text; bodyIsHtml = false; }
+    const extracted = extractProviderBody(m);
+    body = extracted.body;
+    bodyIsHtml = extracted.bodyIsHtml;
   }
   return { ...base, body, bodyIsHtml };
 }
 
-function normalizeOutlookMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
+export function normalizeOutlookMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
   const base = normalizeOutlookMessage(m, accountEmail);
   if (!base) return null;
-  const bodyObj = m.body as { content?: string; contentType?: string } | undefined;
-  const body = bodyObj?.content ?? (m.bodyPreview as string) ?? "";
-  const bodyIsHtml = (bodyObj?.contentType ?? "").toLowerCase() === "html";
+  const { body, bodyIsHtml } = extractProviderBody(m);
   return { ...base, body, bodyIsHtml };
 }
 
@@ -177,7 +249,7 @@ export async function getComposioMessage(
   }
   // Tools may return the message at the top level or nested under data/message.
   const data = res.data as Record<string, unknown>;
-  const raw = (data.message ?? data.data ?? data) as Record<string, unknown>;
+  const raw = unwrapMessageRecord(data);
   return toolkit === "gmail"
     ? normalizeGmailMessageFull(raw, accountEmail)
     : normalizeOutlookMessageFull(raw, accountEmail);
