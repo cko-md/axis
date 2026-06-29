@@ -144,31 +144,37 @@ export function SignalsModule() {
 
   // Commit a route: stamp signal, and materialise the right side-effect per destination.
   const commitRoute = async (s: Signal, destination: string, priority: RoutePriority | "hi" | "med" | "lo", via: "ai" | "manual" | "rule") => {
-    if (destination === "agenda") {
-      const triaged = await triageSignalToTask(s);
-      const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
-      await addTask({
-        title: triaged.title,
-        category: safeCategory(triaged.category),
-        priority: pri,
-        effort: triaged.effort,
-      });
-    } else if (destination === "notes") {
-      const note = await createNote(s.title, "All Notes");
-      if (note) await updateNote(note.id, { body: s.body ?? "" });
-    } else if (destination === "people") {
-      const triaged = await triageSignalToPerson(s);
-      const target = normalizeName(triaged.name);
-      const matched = people.find((p) => normalizeName(p.name) === target);
-      if (matched) {
-        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
-      } else {
-        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
-      }
+    const ok = await routeSideEffect(s, destination, priority);
+    if (!ok) {
+      toast(`Couldn't route to ${destLabel(destination)} — try again`, "error", "Signals");
+      return;
     }
     await routeTo(s.id, destination, via);
     toast(`Routed → ${destLabel(destination)}`, "success", "Signals");
     closeDetail();
+  };
+
+  // Materialise the side-effect for a destination; returns whether it succeeded.
+  const routeSideEffect = async (s: Signal, destination: string, priority: RoutePriority | "hi" | "med" | "lo") => {
+    if (destination === "agenda") {
+      const triaged = await triageSignalToTask(s);
+      const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
+      const task = await addTask({ title: triaged.title, category: safeCategory(triaged.category), priority: pri, effort: triaged.effort });
+      return !!task;
+    } else if (destination === "notes") {
+      const note = await createNote(s.title, "All Notes");
+      if (note) await updateNote(note.id, { body: s.body ?? "" });
+      return !!note;
+    } else if (destination === "people") {
+      const triaged = await triageSignalToPerson(s);
+      const target = normalizeName(triaged.name);
+      const matched = people.find((p) => normalizeName(p.name) === target);
+      const result = matched
+        ? await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) })
+        : await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
+      return !result.error;
+    }
+    return true;
   };
 
   // Apply the best matching user route (if any) for the selected signal.
@@ -199,8 +205,8 @@ export function SignalsModule() {
       // Auto-route only when a user rule with auto_route matches.
       const rule = findMatchingRoute(routes, { ...s, signal_type: c.signal_type });
       if (rule?.auto_route) {
-        await commitRouteSilent(s, rule.destination, rule.set_priority, "rule");
-        autoRouted += 1;
+        const ok = await commitRouteSilent(s, rule.destination, rule.set_priority, "rule");
+        if (ok) autoRouted += 1;
       }
     }
     setBatching(false);
@@ -213,26 +219,13 @@ export function SignalsModule() {
     );
   };
 
-  // Like commitRoute but without toast/close — used inside batch loops.
+  // Like commitRoute but without toast/close — used inside batch loops. On failure, leaves
+  // the signal unrouted (no routed_at stamp) so it stays visible for the user to retry.
   const commitRouteSilent = async (s: Signal, destination: string, priority: RoutePriority, via: "rule") => {
-    if (destination === "agenda") {
-      const triaged = await triageSignalToTask(s);
-      const pri: TaskPriority = priority === "keep" ? triaged.priority : (priority as TaskPriority);
-      await addTask({ title: triaged.title, category: safeCategory(triaged.category), priority: pri, effort: triaged.effort });
-    } else if (destination === "notes") {
-      const note = await createNote(s.title, "All Notes");
-      if (note) await updateNote(note.id, { body: s.body ?? "" });
-    } else if (destination === "people") {
-      const triaged = await triageSignalToPerson(s);
-      const target = normalizeName(triaged.name);
-      const matched = people.find((p) => normalizeName(p.name) === target);
-      if (matched) {
-        await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) });
-      } else {
-        await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
-      }
-    }
+    const ok = await routeSideEffect(s, destination, priority);
+    if (!ok) return false;
     await routeTo(s.id, destination, via);
+    return true;
   };
 
   // Scan platform modules for new signals via AI — server does the read+AI+insert, we just refresh.
