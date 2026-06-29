@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
+import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const PUBLIC_API_BASE = "https://api.public.com";
 
@@ -13,12 +14,14 @@ const PUBLIC_API_BASE = "https://api.public.com";
  * Returns { configured: false } when APP_PUBLIC_API_KEY is not set.
  */
 export async function GET() {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const creds = getBrokerageCreds();
   if (!creds) {
+    logRouteTiming("/api/brokerage/accounts", routeStartedAt, { configured: false });
     return NextResponse.json(
       { configured: false, error: "APP_PUBLIC_API_KEY not set in environment." },
       { status: 503 },
@@ -26,17 +29,16 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch(`${PUBLIC_API_BASE}/accounts`, {
+    const res = await timedProviderFetch(`${PUBLIC_API_BASE}/accounts`, {
       headers: {
         Authorization: `Bearer ${creds.apiKey}`,
         Accept: "application/json",
       },
       next: { revalidate: 0 },
-    });
+    }, { area: "fund", provider: "public", operation: "accounts", timeoutMs: 7_000, slowMs: 2_000 });
 
     if (!res.ok) {
-      const detail = await res.text();
-      console.error("[brokerage/accounts] upstream error:", res.status, detail);
+      logRouteTiming("/api/brokerage/accounts", routeStartedAt, { configured: true, ok: false, status: res.status });
       return NextResponse.json(
         { configured: true, error: "ACCOUNTS_FETCH_FAILED", status: res.status },
         { status: 502 },
@@ -46,6 +48,7 @@ export async function GET() {
     const data = await res.json();
     // Public.com may return { accounts: [...] } or an array directly
     const accounts = Array.isArray(data) ? data : (data.accounts ?? data.data ?? []);
+    logRouteTiming("/api/brokerage/accounts", routeStartedAt, { configured: true, ok: true, accounts: accounts.length });
 
     return NextResponse.json({
       configured: true,
@@ -58,8 +61,8 @@ export async function GET() {
       })),
       hint: "Set APP_PUBLIC_ACCOUNT_ID in Vercel to the `id` of the account you want to trade with.",
     });
-  } catch (err) {
-    console.error("[brokerage/accounts] fetch error:", err);
+  } catch {
+    logRouteTiming("/api/brokerage/accounts", routeStartedAt, { configured: true, ok: false });
     return NextResponse.json({ configured: true, error: "NETWORK_ERROR" }, { status: 502 });
   }
 }

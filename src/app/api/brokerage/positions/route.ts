@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
+import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const PUBLIC_API_BASE = "https://api.public.com";
 
@@ -13,12 +14,14 @@ const PUBLIC_API_BASE = "https://api.public.com";
  * collapse rows from different sources).
  */
 export async function GET() {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const creds = getBrokerageCreds();
   if (!creds?.accountId) {
+    logRouteTiming("/api/brokerage/positions", routeStartedAt, { configured: false });
     return NextResponse.json(
       { configured: false, error: "APP_PUBLIC_API_KEY / APP_PUBLIC_ACCOUNT_ID not set." },
       { status: 503 },
@@ -26,19 +29,19 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch(`${PUBLIC_API_BASE}/accounts/${creds.accountId}/portfolio`, {
+    const res = await timedProviderFetch(`${PUBLIC_API_BASE}/accounts/${creds.accountId}/portfolio`, {
       headers: { Authorization: `Bearer ${creds.apiKey}`, Accept: "application/json" },
       next: { revalidate: 0 },
-    });
+    }, { area: "fund", provider: "public", operation: "positions", timeoutMs: 7_000, slowMs: 2_000 });
 
     if (!res.ok) {
-      const detail = await res.text();
-      console.error("[brokerage/positions] upstream error:", res.status, detail);
+      logRouteTiming("/api/brokerage/positions", routeStartedAt, { configured: true, ok: false, status: res.status });
       return NextResponse.json({ configured: true, error: "POSITIONS_FETCH_FAILED" }, { status: 502 });
     }
 
     const data = await res.json();
     const positions = Array.isArray(data) ? data : (data.positions ?? data.holdings ?? []);
+    logRouteTiming("/api/brokerage/positions", routeStartedAt, { configured: true, ok: true, positions: positions.length });
 
     return NextResponse.json({
       configured: true,
@@ -49,8 +52,8 @@ export async function GET() {
         marketValue: Number(p.marketValue ?? p.market_value ?? 0),
       })),
     });
-  } catch (err) {
-    console.error("[brokerage/positions] fetch error:", err);
+  } catch {
+    logRouteTiming("/api/brokerage/positions", routeStartedAt, { configured: true, ok: false });
     return NextResponse.json({ configured: true, error: "NETWORK_ERROR" }, { status: 502 });
   }
 }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
+import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 type PlaidTxn = {
   transaction_id: string;
@@ -31,18 +32,23 @@ export async function syncPlaidTransactions(
   const now = new Date();
   const since = new Date(now.getTime() - 30 * 86400000);
 
-  const res = await fetch(`${plaidHost(creds.env)}/transactions/get`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: creds.clientId,
-      secret: creds.secret,
-      access_token: accessToken,
-      start_date: since.toISOString().slice(0, 10),
-      end_date: now.toISOString().slice(0, 10),
-      options: { count: 250, offset: 0 },
-    }),
-  });
+  const res = await timedProviderFetch(
+    `${plaidHost(creds.env)}/transactions/get`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: creds.clientId,
+        secret: creds.secret,
+        access_token: accessToken,
+        start_date: since.toISOString().slice(0, 10),
+        end_date: now.toISOString().slice(0, 10),
+        options: { count: 250, offset: 0 },
+      }),
+    },
+    { area: "fund", provider: "plaid", operation: "sync_transactions", timeoutMs: 10_000, slowMs: 2_500 },
+  ).catch(() => null);
+  if (!res) return { error: "PLAID_TXN_FETCH_FAILED" };
   if (!res.ok) return { error: "PLAID_TXN_FETCH_FAILED" };
 
   const data = await res.json();

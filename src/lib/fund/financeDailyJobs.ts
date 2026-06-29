@@ -3,17 +3,18 @@ import { decrypt } from "@/lib/crypto";
 import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
 import { fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client";
 import { notifyViaMake } from "@/lib/fund/notifyViaMake";
+import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 /** Fetches live Plaid balances server-side for the finance-daily snapshot job. */
 async function fetchPlaidCash(accessToken: string): Promise<number> {
   const creds = getPlaidCreds();
   if (!creds) return 0;
   try {
-    const res = await fetch(`${plaidHost(creds.env)}/accounts/balance/get`, {
+    const res = await timedProviderFetch(`${plaidHost(creds.env)}/accounts/balance/get`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client_id: creds.clientId, secret: creds.secret, access_token: accessToken }),
-    });
+    }, { area: "fund", provider: "plaid", operation: "daily_balance", timeoutMs: 8_000, slowMs: 2_000 });
     if (!res.ok) return 0;
     const data = await res.json();
     const accounts = (data.accounts ?? []) as Array<{ balances?: { current?: number } }>;

@@ -6,6 +6,18 @@ import { useToast } from "@/components/ui/Toast";
 
 export type BankAccount = { name: string; mask: string | null; subtype: string | null; current: number | null };
 
+const CLIENT_FETCH_TIMEOUT_MS = 8_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), CLIENT_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: init.signal ?? controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Shared Plaid Link + connection-status logic, extracted from the old
  * single-tab FundModule.tsx so every /fund/* sub-page (Overview, Cash Flow,
@@ -24,7 +36,7 @@ export function usePlaidConnection() {
 
   const loadBalances = useCallback(async () => {
     try {
-      const res = await fetch("/api/plaid/balances", { method: "POST" });
+      const res = await fetchWithTimeout("/api/plaid/balances", { method: "POST" });
       const data = await res.json();
       if (data?.configured && Array.isArray(data.accounts)) {
         setBankAccounts(data.accounts);
@@ -39,7 +51,7 @@ export function usePlaidConnection() {
 
   useEffect(() => {
     Promise.allSettled([
-      fetch("/api/plaid/status")
+      fetchWithTimeout("/api/plaid/status")
         .then((r) => r.json())
         .then((s: { configured?: boolean; linked?: boolean } | null) => {
           setPlaidConfigured(!!s?.configured);
@@ -47,7 +59,7 @@ export function usePlaidConnection() {
           if (s?.linked) loadBalances();
         })
         .catch(() => null),
-      fetch("/api/brokerage/status")
+      fetchWithTimeout("/api/brokerage/status")
         .then((r) => r.json())
         .then((s: { configured?: boolean } | null) => setBrokerageConfigured(!!s?.configured))
         .catch(() => null),
@@ -56,19 +68,19 @@ export function usePlaidConnection() {
 
   const fetchLinkToken = useCallback(async () => {
     try {
-      const res = await fetch("/api/plaid/link", { method: "POST" });
+      const res = await fetchWithTimeout("/api/plaid/link", { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as { link_token?: string };
       if (res.ok && data?.link_token) setLinkToken(data.link_token);
     } catch {
-      /* ignore */
+      toast("Plaid Link took too long to start. Try again.", "error", "Plaid");
     }
-  }, []);
+  }, [toast]);
 
   const handleSuccess = useCallback<PlaidLinkOnSuccess>(
     async (publicToken, metadata) => {
       setLinking(true);
       try {
-        const res = await fetch("/api/plaid/exchange", {
+        const res = await fetchWithTimeout("/api/plaid/exchange", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ public_token: publicToken, institution: metadata.institution?.name ?? null }),

@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
 import { adapterForAccount, mailErrorStatus, toMailContext } from "@/lib/mail/adapters";
 import type { MailProvider } from "@/lib/mail/tokens";
+import {
+  ProviderTimeoutError,
+  logRouteTiming,
+  recordProviderFailure,
+  timedProviderOperation,
+} from "@/lib/observability/providerTiming";
 
 type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 
@@ -19,6 +24,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const routeStartedAt = Date.now();
   const { id } = await params;
   const body = await req.json().catch(() => null) as {
     action?: unknown;
@@ -51,58 +57,77 @@ export async function POST(
 
   const adapter = adapterForAccount(account);
   const ctx = toMailContext(user.id, account);
-  let capturedUnexpected = false;
+  const transport = account.via === "composio" ? "composio" : "direct";
+  const timing = {
+    area: "mail",
+    provider,
+    transport,
+    operation: action,
+    timeoutMs: 8_000,
+    slowMs: 2_000,
+  };
+  const providerStartedAt = Date.now();
   const result = await (async () => {
     try {
-      return action === "mark-read" ? await adapter.markRead(ctx, id)
-        : action === "mark-unread" ? await adapter.markUnread(ctx, id)
-          : action === "archive" ? await adapter.archiveMessage(ctx, id)
-            : await adapter.deleteMessage(ctx, id);
+      return await timedProviderOperation(timing, () =>
+        action === "mark-read" ? adapter.markRead(ctx, id)
+          : action === "mark-unread" ? adapter.markUnread(ctx, id)
+            : action === "archive" ? adapter.archiveMessage(ctx, id)
+              : adapter.deleteMessage(ctx, id),
+      );
     } catch (error) {
-      capturedUnexpected = true;
-      Sentry.captureException(error, {
-        tags: {
-          area: "mail",
-          op: "mutate",
-          action,
-          provider,
-          transport: account.via ?? "direct",
-          code: "unknown",
-          status: "502",
-        },
-        extra: { messageId: id },
+      const isTimeout = error instanceof ProviderTimeoutError;
+      logRouteTiming("/api/mail/message/[id]/action", routeStartedAt, {
+        provider,
+        transport,
+        action,
+        ok: false,
+        code: "network",
+        status: isTimeout ? 504 : 502,
       });
       return {
         ok: false,
         error: {
-          code: "unknown" as const,
-          message: "Mail action failed. Try again.",
+          code: "network" as const,
+          message: isTimeout
+            ? "Mail provider took too long to update this message. Try again."
+            : "Mail action failed. Try again.",
           retryable: true,
           provider,
-          transport: account.via ?? "direct",
-          status: 502,
+          transport,
+          status: isTimeout ? 504 : 502,
         },
       };
     }
   })();
 
-  if (result.ok) return NextResponse.json({ ok: true });
-
-  const status = mailErrorStatus(result.error.code);
-  if (status >= 500 && !capturedUnexpected) {
-    Sentry.captureException(new Error(result.error.message), {
-      tags: {
-        area: "mail",
-        op: "mutate",
-        action,
-        provider,
-        transport: account.via ?? "direct",
-        code: result.error.code,
-        status: String(status),
-      },
-      extra: { messageId: id },
+  if (result.ok) {
+    logRouteTiming("/api/mail/message/[id]/action", routeStartedAt, {
+      provider,
+      transport,
+      action,
+      ok: true,
     });
+    return NextResponse.json({ ok: true });
   }
+
+  const status = result.error.status ?? mailErrorStatus(result.error.code);
+  recordProviderFailure(
+    timing,
+    {
+      code: result.error.code,
+      message: result.error.message,
+      status: result.error.status ?? status,
+    },
+    Date.now() - providerStartedAt,
+  );
+  logRouteTiming("/api/mail/message/[id]/action", routeStartedAt, {
+    provider,
+    transport,
+    action,
+    ok: false,
+    code: result.error.code,
+  });
 
   return NextResponse.json(
     {

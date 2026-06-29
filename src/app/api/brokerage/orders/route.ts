@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
+import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const PUBLIC_API_BASE = "https://api.public.com";
 
@@ -18,6 +19,7 @@ const PUBLIC_API_BASE = "https://api.public.com";
  * ticket — it does not and must not connect this to anything the AI calls.
  */
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   if (process.env.TRADE_EXECUTION_ENABLED !== "true") {
     return NextResponse.json(
       { error: "TRADE_EXECUTION_DISABLED", message: "Trade execution is disabled. This is a deliberate product decision, not a missing feature." },
@@ -43,15 +45,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const res = await fetch(`${PUBLIC_API_BASE}/accounts/${creds.accountId}/order`, {
+    const res = await timedProviderFetch(`${PUBLIC_API_BASE}/accounts/${creds.accountId}/order`, {
       method: "POST",
       headers: { Authorization: `Bearer ${creds.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ symbol, side, quantity, type: "market" }),
-    });
+    }, { area: "fund", provider: "public", operation: "place_order", timeoutMs: 8_000, slowMs: 2_000 });
 
     if (!res.ok) {
-      const detail = await res.text();
-      console.error("[brokerage/orders] upstream error:", res.status, detail);
+      logRouteTiming("/api/brokerage/orders", routeStartedAt, { ok: false, status: res.status });
       return NextResponse.json({ error: "ORDER_REJECTED" }, { status: 502 });
     }
 
@@ -65,9 +66,10 @@ export async function POST(request: NextRequest) {
       result: "success",
     });
 
+    logRouteTiming("/api/brokerage/orders", routeStartedAt, { ok: true });
     return NextResponse.json({ order });
-  } catch (err) {
-    console.error("[brokerage/orders] fetch error:", err);
+  } catch {
+    logRouteTiming("/api/brokerage/orders", routeStartedAt, { ok: false });
     return NextResponse.json({ error: "NETWORK_ERROR" }, { status: 502 });
   }
 }
