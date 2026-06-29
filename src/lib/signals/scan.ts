@@ -43,8 +43,7 @@ export async function scanPlatformForUser(
       userMessage: `Current tasks:\n${taskCtx || "No tasks."}\n\nAlready in inbox: ${existingTitles.slice(0, 20).join("; ") || "Empty"}`,
       maxTokens: 600,
     });
-    const { _model: _, ...rest } = result;
-    items = Array.isArray(rest.signals) ? rest.signals : [];
+    items = Array.isArray(result.signals) ? result.signals : [];
   } catch {
     // Graceful degrade — no new signals rather than throwing.
     return { created: 0 };

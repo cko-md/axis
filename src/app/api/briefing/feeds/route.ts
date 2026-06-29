@@ -31,8 +31,7 @@ export async function POST(req: NextRequest) {
       userMessage: `topic: ${query}`,
       maxTokens: 500,
     });
-    const { _model: _, ...rest } = result;
-    const feeds = Array.isArray(rest.feeds) ? rest.feeds : [];
+    const feeds = Array.isArray(result.feeds) ? result.feeds : [];
     return NextResponse.json({ feeds });
   } catch {
     // AI call failed (missing/invalid key, rate limit, network) or the

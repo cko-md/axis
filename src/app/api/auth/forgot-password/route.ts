@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(5, "15 m"),
-  prefix: "axis:forgot-password",
-});
+import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 const SUCCESS_RESPONSE = {
   ok: true,
@@ -25,7 +18,9 @@ const SUCCESS_RESPONSE = {
 // is the correct privacy-preserving behaviour.
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
-  const { success } = await ratelimit.limit(ip);
+  const { success } =
+    (await redisRateLimit(ip, 5, "15 m", "axis:forgot-password")) ??
+    memoryRateLimit(`forgot-password:${ip}`, 5, 15 * 60_000);
   if (!success) {
     return NextResponse.json(SUCCESS_RESPONSE); // opaque — don't reveal rate limiting
   }

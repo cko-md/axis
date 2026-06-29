@@ -6,7 +6,6 @@ import {
   codeFromStatus,
   failFromStatus,
   failFromException,
-  type Result,
 } from "./types";
 
 describe("ok()", () => {

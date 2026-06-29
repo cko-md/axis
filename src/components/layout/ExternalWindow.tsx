@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type Props = {
@@ -17,7 +17,7 @@ type Props = {
  */
 export function ExternalWindow({ title, url, onClose }: Props) {
   const [blocked, setBlocked] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -28,8 +28,10 @@ export function ExternalWindow({ title, url, onClose }: Props) {
   // If the iframe hasn't signalled load shortly, assume the host refused to embed.
   useEffect(() => {
     setBlocked(false);
-    setLoaded(false);
-    const t = setTimeout(() => setLoaded((l) => (l ? l : (setBlocked(true), true))), 3500);
+    loadedRef.current = false;
+    const t = setTimeout(() => {
+      if (!loadedRef.current) setBlocked(true);
+    }, 3500);
     return () => clearTimeout(t);
   }, [url]);
 
@@ -96,7 +98,7 @@ export function ExternalWindow({ title, url, onClose }: Props) {
             src={url}
             title={title}
             onLoad={() => {
-              setLoaded(true);
+              loadedRef.current = true;
               setBlocked(false);
             }}
             referrerPolicy="no-referrer"

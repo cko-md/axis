@@ -71,7 +71,7 @@
   --rl: 7px;
   --topbar-h: 54px;
 
-  --disp: "Bebas Neue", "Archivo Narrow", sans-serif;
+  --disp: var(--font-bebas, "Bebas Neue"), "Archivo Narrow", sans-serif;
   --narrow: "Archivo Narrow", sans-serif;
   --serif: "Fraunces", Georgia, serif;
   --sans: "Archivo", -apple-system, sans-serif;
@@ -166,7 +166,7 @@ body {
 
 body {
   /* Re-declare font stacks here where --font-* vars from next/font are in scope */
-  --disp: "Bebas Neue", var(--font-narrow, "Archivo Narrow"), sans-serif;
+  --disp: var(--font-bebas, "Bebas Neue"), var(--font-narrow, "Archivo Narrow"), sans-serif;
   --narrow: var(--font-narrow, "Archivo Narrow"), sans-serif;
   --serif: var(--font-serif, "Fraunces"), Georgia, serif;
   --sans: var(--font-sans, "Archivo"), -apple-system, sans-serif;

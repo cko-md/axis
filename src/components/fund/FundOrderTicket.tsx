@@ -1,23 +1,10 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { Card } from "@/components/ui/Card";
 import type { TransactionRow } from "@/lib/store/fund-defaults";
-
-const ticketInput: CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  background: "var(--surface-2)",
-  border: "1px solid var(--line)",
-  borderRadius: 6,
-  padding: "8px 11px",
-  color: "var(--ink)",
-  fontFamily: "var(--mono)",
-  fontSize: 11,
-  outline: "none",
-};
 
 interface Props {
   /** Pre-fill the symbol (e.g. from the selected chart ticker). */

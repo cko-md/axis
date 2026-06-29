@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-// @ts-ignore — next-pwa ships CJS without bundled types
+// @ts-expect-error — next-pwa ships CJS without bundled types
 import withPWAInit from "next-pwa";
 import { withSentryConfig } from "@sentry/nextjs";
 
@@ -109,6 +109,11 @@ const nextConfig: NextConfig = {
   // Exclude browser-only packages from the server bundle (SSR/prerendering)
   serverExternalPackages: ["@simplewebauthn/browser"],
   webpack(config) {
+    config.cache = false;
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      /A Node\.js API is used \(process\.version[\s\S]*Edge Runtime/,
+    ];
     // next-pwa's custom webpack() hook (added below by withPWA) makes Next
     // disable its build worker and compile client/server/edge in one process
     // instead of isolated worker threads (see next.config.ts comment at the

@@ -9,9 +9,11 @@ type Fav = { url: string; title: string };
 type Tab = { id: string; url: string; title: string; back: string[]; forward: string[] };
 
 function loadFavs(): Fav[] {
+  if (typeof window === "undefined") return [];
   try { return JSON.parse(localStorage.getItem(FAVS_KEY) ?? "[]"); } catch { return []; }
 }
 function saveFavs(favs: Fav[]) {
+  if (typeof window === "undefined") return;
   localStorage.setItem(FAVS_KEY, JSON.stringify(favs));
 }
 function uid() { return Math.random().toString(36).slice(2, 10); }

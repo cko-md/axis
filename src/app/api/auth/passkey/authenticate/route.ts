@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { decrypt } from "@/lib/crypto";
-import { memoryRateLimit } from "@/lib/ratelimit";
+import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
@@ -57,21 +55,11 @@ export async function POST(req: NextRequest) {
   }
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    const verifyRatelimit = new Ratelimit({
-      redis: Redis.fromEnv(),
-      limiter: Ratelimit.slidingWindow(10, "10 m"),
-      prefix: "axis:passkey-verify",
-    });
-    const { success } = await verifyRatelimit.limit(ip);
-    if (!success) {
-      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
-    }
-  } else {
-    const { success } = memoryRateLimit(`passkey-verify:${ip}`, 10, 10 * 60_000);
-    if (!success) {
-      return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
-    }
+  const { success } =
+    (await redisRateLimit(ip, 10, "10 m", "axis:passkey-verify")) ??
+    memoryRateLimit(`passkey-verify:${ip}`, 10, 10 * 60_000);
+  if (!success) {
+    return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
   }
 
   if (!process.env.PASSKEY_ENCRYPTION_KEY) {

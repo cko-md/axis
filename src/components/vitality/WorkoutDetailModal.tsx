@@ -137,7 +137,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
       });
     }
     setSaved(false);
-  }, [session?.id]);
+  }, [session]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

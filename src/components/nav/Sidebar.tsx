@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -593,9 +594,12 @@ export function Sidebar({ collapsed }: Props) {
       <Link href="/listening-vault" className="spotify" title="Open Listening Vault">
         <div className="sp-art">
           {spotify.connected && spotify.now.art ? (
-            <img
+            <Image
               src={spotify.now.art}
               alt=""
+              width={34}
+              height={34}
+              unoptimized
               style={{ width: 34, height: 34, borderRadius: 3, objectFit: "cover", display: "block" }}
             />
           ) : (

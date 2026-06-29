@@ -8,6 +8,7 @@ import {
   Space_Grotesk,
   Inter,
   IBM_Plex_Sans,
+  Bebas_Neue,
 } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
@@ -75,6 +76,13 @@ const ibmPlexSans = IBM_Plex_Sans({
   display: "swap",
 });
 
+const bebasNeue = Bebas_Neue({
+  subsets: ["latin"],
+  variable: "--font-bebas",
+  weight: "400",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "AXIS[CKO] — Personal Operating System",
   description: "Signal console, fund, and schedule — your personal operating system.",
@@ -90,15 +98,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Axis" />
         <meta name="theme-color" content="#0a0b0e" />
-        {/* Bebas Neue not available via next/font — load via Google Fonts link */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap"
-          rel="stylesheet"
-        />
       </head>
-      <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${playfair.variable} ${spaceGrotesk.variable} ${inter.variable} ${ibmPlexSans.variable}`}>
+      <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${playfair.variable} ${spaceGrotesk.variable} ${inter.variable} ${ibmPlexSans.variable} ${bebasNeue.variable}`}>
         <WebViewerProvider>
           <ThemeProvider>
             <ToastProvider>

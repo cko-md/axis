@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
 import { aiGenerate, aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
-import { memoryRateLimit } from "@/lib/ratelimit";
+import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
@@ -242,21 +240,11 @@ export async function POST(req: NextRequest) {
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Rate limit: 30 requests per minute per user (Redis when available, memory fallback)
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    const ratelimit = new Ratelimit({
-      redis: Redis.fromEnv(),
-      limiter: Ratelimit.slidingWindow(30, "1 m"),
-      prefix: "axis:ai",
-    });
-    const { success } = await ratelimit.limit(user.id);
-    if (!success) {
-      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
-    }
-  } else {
-    const { success } = memoryRateLimit(`ai:${user.id}`, 30, 60_000);
-    if (!success) {
-      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
-    }
+  const { success } =
+    (await redisRateLimit(user.id, 30, "1 m", "axis:ai")) ??
+    memoryRateLimit(`ai:${user.id}`, 30, 60_000);
+  if (!success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
   }
 
   const { mode, text, body, title } = (await req.json()) as { mode: string; text: string; body?: string; title?: string };
@@ -364,8 +352,11 @@ export async function POST(req: NextRequest) {
         userMessage: `kind: ${ctx.kind ?? "other"}\nduration: ${ctx.duration_min ?? 45} min\nintensity: ${ctx.intensity ?? "moderate"}\ntitle: ${text}\nnotes: ${ctx.notes ?? "none"}`,
         maxTokens: 600,
       });
-      const { _model: _, ...regimenData } = result;
-      return NextResponse.json(regimenData as RegimenResult);
+      return NextResponse.json({
+        warmup: result.warmup,
+        items: result.items,
+        cooldown: result.cooldown,
+      } satisfies RegimenResult);
     }
 
     // ── regimenPlan ────────────────────────────────────────────────────────────
@@ -382,8 +373,10 @@ export async function POST(req: NextRequest) {
         userMessage: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}`,
         maxTokens: 1400,
       });
-      const { _model: _, ...planData } = result;
-      return NextResponse.json(planData as RegimenPlanResult);
+      return NextResponse.json({
+        days: result.days,
+        summary: result.summary,
+      } satisfies RegimenPlanResult);
     }
 
     // ── notes-summarize ────────────────────────────────────────────────────────
@@ -438,8 +431,7 @@ export async function POST(req: NextRequest) {
         userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
         maxTokens: 1200,
       });
-      const { _model: _, ...data } = result;
-      const cards = Array.isArray(data.cards) ? data.cards : [];
+      const cards = Array.isArray(result.cards) ? result.cards : [];
       return NextResponse.json({ cards });
     }
 
@@ -454,8 +446,7 @@ export async function POST(req: NextRequest) {
         userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
         maxTokens: 1200,
       });
-      const { _model: _, ...data } = result;
-      const items = Array.isArray(data.items) ? data.items : [];
+      const items = Array.isArray(result.items) ? result.items : [];
       return NextResponse.json({ items });
     }
 
@@ -470,9 +461,8 @@ export async function POST(req: NextRequest) {
         userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
         maxTokens: 1000,
       });
-      const { _model: _, ...data } = result;
-      const root: MindMapNode = data.root && typeof data.root === "object"
-        ? data.root
+      const root: MindMapNode = result.root && typeof result.root === "object"
+        ? result.root
         : { label: title || "Note", children: [] };
       return NextResponse.json({ root });
     }
@@ -517,8 +507,12 @@ export async function POST(req: NextRequest) {
         userMessage: `title: ${text}\nbody: ${stripHtml(body ?? "").slice(0, 4000)}`,
         maxTokens: 250,
       });
-      const { _model: _, ...routeData } = result;
-      return NextResponse.json(routeData as RouteResult);
+      return NextResponse.json({
+        destination: result.destination,
+        label: result.label,
+        reason: result.reason,
+        tags: result.tags,
+      } satisfies RouteResult);
     }
 
     // ── triage ─────────────────────────────────────────────────────────────────
@@ -532,8 +526,12 @@ export async function POST(req: NextRequest) {
         userMessage: `title: ${text}\nbody: ${body ?? ""}`,
         maxTokens: 200,
       });
-      const { _model: _, ...triageData } = result;
-      return NextResponse.json(triageData as TriageResult);
+      return NextResponse.json({
+        title: result.title,
+        priority: result.priority,
+        category: result.category,
+        effort: result.effort,
+      } satisfies TriageResult);
     }
 
     // ── triage-person ──────────────────────────────────────────────────────────
@@ -547,8 +545,12 @@ export async function POST(req: NextRequest) {
         userMessage: `title: ${text}\nbody: ${body ?? ""}`,
         maxTokens: 200,
       });
-      const { _model: _, ...personData } = result;
-      return NextResponse.json(personData as TriagePersonResult);
+      return NextResponse.json({
+        name: result.name,
+        role: result.role,
+        note: result.note,
+        tag: result.tag,
+      } satisfies TriagePersonResult);
     }
 
     // ── literature-relevance ────────────────────────────────────────────────────
@@ -589,8 +591,9 @@ export async function POST(req: NextRequest) {
         userMessage: `Reader's saved topics: ${topicsLabel}\n\nArticle title: ${text}\nAuthors: ${ctx.authors ?? "unknown"}\nSource: ${ctx.source ?? "unknown"}\nSummary: ${stripHtml(ctx.summary ?? "").slice(0, 1200)}`,
         maxTokens: 150,
       });
-      const { _model: _, ...relevanceData } = result;
-      return NextResponse.json(relevanceData as LiteratureRelevanceResult);
+      return NextResponse.json({
+        relevance: result.relevance,
+      } satisfies LiteratureRelevanceResult);
     }
 
     // ── pipeline-draft ─────────────────────────────────────────────────────────
@@ -604,8 +607,9 @@ export async function POST(req: NextRequest) {
         userMessage: `kind: ${ctx.kind ?? "study"}\ntitle: ${text}\nrole: ${ctx.role ?? "First Author"}\ncontext: ${ctx.meta ?? "none"}`,
         maxTokens: 500,
       });
-      const { _model: _, ...draftData } = result;
-      return NextResponse.json({ draft: typeof draftData.draft === "string" ? draftData.draft : "" } as PipelineDraftResult);
+      return NextResponse.json({
+        draft: typeof result.draft === "string" ? result.draft : "",
+      } satisfies PipelineDraftResult);
     }
 
     // ── debrief_summary ────────────────────────────────────────────────────────
@@ -630,8 +634,11 @@ export async function POST(req: NextRequest) {
       userMessage: text,
       maxTokens: 150,
     });
-    const { _model: _, ...captureData } = result;
-    return NextResponse.json(captureData as CaptureResult);
+    return NextResponse.json({
+      label: result.label,
+      action: result.action,
+      priority: result.priority,
+    } satisfies CaptureResult);
 
   } catch (err) {
     // Logged server-side only — the client always gets a graceful fallback below,

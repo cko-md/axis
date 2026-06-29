@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import {
   DndContext,
   DragOverlay,
@@ -135,9 +136,12 @@ function ArtGalleryCard() {
         ) : art ? (
           <>
             <a href={art.artUrl} target="_blank" rel="noopener noreferrer" className="art-img-wrap">
-              <img
+              <Image
                 src={art.imageUrl}
                 alt={art.title}
+                fill
+                sizes="(max-width: 900px) 100vw, 25vw"
+                unoptimized
                 className={`art-img${imgLoaded ? " loaded" : ""}`}
                 onLoad={() => setImgLoaded(true)}
               />
@@ -975,7 +979,15 @@ export function ConsoleModule() {
     ? ["Review what got done", "Prepare top 3 tasks for tomorrow", "Clear Dispatch inbox", "Log open loops", "Screens off by 10 pm"]
     : ["Midday check: on track?", "Hydrate and move 5 min", "Clear any blocking decisions"];
   const toggleRoutineItem = (key: string) =>
-    setCheckedItems((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setCheckedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
 
   const routineSection = (
     <DraggableBlock key="routine" id="routine">

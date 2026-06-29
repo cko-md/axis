@@ -52,8 +52,7 @@ export async function scanForObjectives(
       userMessage: lines,
       maxTokens: 600,
     });
-    const { _model: _, ...rest } = result;
-    const results = Array.isArray(rest.results) ? rest.results : [];
+    const results = Array.isArray(result.results) ? result.results : [];
     return results
       .filter((r) => r && typeof r.target === "string" && r.target.trim())
       .map((r) => ({

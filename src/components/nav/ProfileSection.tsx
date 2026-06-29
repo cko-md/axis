@@ -320,7 +320,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           <div
             style={{
               width: 72, height: 72, borderRadius: "50%", border: "2px solid var(--line)",
-              background: "var(--surface-2)", overflow: "hidden", flexShrink: 0,
+              background: "var(--surface-2)", overflow: "hidden", flexShrink: 0, position: "relative",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 26, color: "var(--ink-faint)", cursor: "pointer",
             }}
@@ -328,9 +328,12 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
             title="Click to change photo"
           >
             {profileForm.photo ? (
-              <img
+              <Image
                 src={profileForm.photo}
                 alt="Avatar"
+                fill
+                sizes="72px"
+                unoptimized
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />

@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
 import { aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
-import { memoryRateLimit } from "@/lib/ratelimit";
+import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 type PersonTag = "mentor" | "collaborator" | "friend";
 const TAGS: PersonTag[] = ["mentor", "collaborator", "friend"];
@@ -71,14 +69,10 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    const ratelimit = new Ratelimit({ redis: Redis.fromEnv(), limiter: Ratelimit.slidingWindow(30, "1 m"), prefix: "axis:match-contacts" });
-    const { success } = await ratelimit.limit(user.id);
-    if (!success) return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
-  } else {
-    const { success } = memoryRateLimit(`match-contacts:${user.id}`, 30, 60_000);
-    if (!success) return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
-  }
+  const { success } =
+    (await redisRateLimit(user.id, 30, "1 m", "axis:match-contacts")) ??
+    memoryRateLimit(`match-contacts:${user.id}`, 30, 60_000);
+  if (!success) return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
 
   let body: { contacts?: SyncedContact[] };
   try { body = await req.json(); } catch {

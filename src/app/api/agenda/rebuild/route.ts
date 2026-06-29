@@ -69,8 +69,7 @@ export async function POST(req: NextRequest) {
       userMessage: prompts[type],
       maxTokens: 700,
     });
-    const { _model: _, ...rest } = result;
-    const rawSteps = rest.steps;
+    const rawSteps = result.steps;
     if (!Array.isArray(rawSteps) || rawSteps.length === 0) throw new Error("Empty or invalid steps array");
     const sanitized = rawSteps.map((s) => ({
       id: String(s.id ?? crypto.randomUUID()),

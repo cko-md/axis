@@ -21,7 +21,6 @@ import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
-import { useFitnessRoutines, type FitnessRoutine, type FitnessDiscipline } from "@/lib/hooks/useFitnessRoutines";
 import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
 
 const TABS = [
@@ -106,18 +105,6 @@ function goalProgressPct(g: RaceGoal): number {
   const pct = ((start - cur) / (start - tgt)) * 100;
   return Math.max(0, Math.min(100, Math.round(pct)));
 }
-
-// ── briefing feeds (bug 7: real RSS content instead of static fake links) ────
-
-const RUN_FEEDS = [
-  "https://www.letsrun.com/news/feed/",
-  "https://www.runnersworld.com/rss/all.xml/",
-];
-
-const STRENGTH_FEEDS = [
-  "https://www.t-nation.com/feed/",
-  "https://www.muscleandstrength.com/articles/feed",
-];
 
 type FeedItem = { id: string; title: string; url: string; source: string; date: string };
 
@@ -1144,147 +1131,6 @@ function HealthMetricsPanel() {
 
 // ── Editable fitness routine card (Strength & Conditioning / Yoga & Pilates) ─
 
-function ExerciseEditor({
-  exercise,
-  onChange,
-  onRemove,
-}: {
-  exercise: FitnessRoutine["exercises"][number];
-  onChange: (patch: Partial<FitnessRoutine["exercises"][number]>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 0.8fr auto", gap: 6, alignItems: "center" }}>
-      <input style={editFieldStyle} value={exercise.name} placeholder="Exercise" onChange={(e) => onChange({ name: e.target.value })} />
-      <input
-        style={editFieldStyle}
-        type="number"
-        min={0}
-        value={exercise.sets ?? ""}
-        placeholder="Sets"
-        onChange={(e) => onChange({ sets: e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0) })}
-      />
-      <input style={editFieldStyle} value={exercise.reps ?? ""} placeholder="Reps" onChange={(e) => onChange({ reps: e.target.value || null })} />
-      <button type="button" className="del" title="Remove exercise" aria-label={`Remove ${exercise.name}`} onClick={onRemove} style={{ fontSize: 14 }}>×</button>
-    </div>
-  );
-}
-
-function RoutineCard({
-  routine,
-  editing,
-  onUpdate,
-  onRemove,
-  onAddExercise,
-  onUpdateExercise,
-  onRemoveExercise,
-}: {
-  routine: FitnessRoutine;
-  editing: boolean;
-  onUpdate: (patch: Partial<Pick<FitnessRoutine, "name" | "category">>) => void;
-  onRemove: () => void;
-  onAddExercise: () => void;
-  onUpdateExercise: (exerciseId: string, patch: Partial<FitnessRoutine["exercises"][number]>) => void;
-  onRemoveExercise: (exerciseId: string) => void;
-}) {
-  return (
-    <div className="routine">
-      {editing ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input
-            style={{ ...editFieldStyle, fontWeight: 500 }}
-            value={routine.name}
-            placeholder="Routine name"
-            onChange={(e) => onUpdate({ name: e.target.value, category: e.target.value })}
-          />
-          <button type="button" className="del" title="Remove routine" aria-label={`Remove ${routine.name}`} onClick={onRemove} style={{ fontSize: 15, flexShrink: 0 }}>×</button>
-        </div>
-      ) : (
-        <div className="rn">{routine.name}</div>
-      )}
-      {editing ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-          {routine.exercises.map((ex) => (
-            <ExerciseEditor
-              key={ex.id}
-              exercise={ex}
-              onChange={(patch) => onUpdateExercise(ex.id, patch)}
-              onRemove={() => onRemoveExercise(ex.id)}
-            />
-          ))}
-          <button type="button" className="feed-manage" onClick={onAddExercise} style={{ alignSelf: "flex-start" }}>+ Add exercise</button>
-        </div>
-      ) : (
-        routine.exercises.map((ex) => (
-          <div className="ex" key={ex.id}>
-            <span>{ex.name}</span>
-            <span className="es">{ex.sets ? `${ex.sets} × ${ex.reps ?? ""}` : ex.reps ?? "—"}</span>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-function RoutineGrid({
-  discipline,
-  columns,
-}: {
-  discipline: FitnessDiscipline;
-  columns: number;
-}) {
-  const { routines, loading, persistence, addRoutine, updateRoutine, removeRoutine, addExercise, updateExercise, removeExercise } =
-    useFitnessRoutines(discipline);
-  const [editing, setEditing] = useState(false);
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-          {persistence === "supabase" ? "Synced" : "Local draft"}
-        </span>
-        <button
-          type="button"
-          className="rings-edit"
-          aria-label={editing ? "Done editing" : "Edit routines"}
-          onClick={() => setEditing((v) => !v)}
-          style={{ background: "none", border: "none", padding: 0 }}
-        >
-          {editing ? "✓ Done" : "✎ Edit"}
-        </button>
-      </div>
-      {loading ? (
-        <div className="empty-state">Loading routines…</div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: 16, alignItems: "start" }}>
-          {routines.map((r) => (
-            <RoutineCard
-              key={r.id}
-              routine={r}
-              editing={editing}
-              onUpdate={(patch) => updateRoutine(r.id, patch)}
-              onRemove={() => removeRoutine(r.id)}
-              onAddExercise={() => addExercise(r.id, { name: "New exercise", sets: 3, reps: "10" })}
-              onUpdateExercise={(exId, patch) => updateExercise(r.id, exId, patch)}
-              onRemoveExercise={(exId) => removeExercise(r.id, exId)}
-            />
-          ))}
-          {editing && (
-            <button
-              type="button"
-              className="savebtn"
-              style={{ alignSelf: "flex-start" }}
-              onClick={() => addRoutine(discipline === "strength" ? "New Routine" : "New Flow")}
-            >
-              + Add {discipline === "strength" ? "routine" : "flow"}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main VitalityModule ───────────────────────────────────────────────────────
 
 const CRONOMETER_OPENED_KEY = "axis-cronometer-opened";
@@ -1302,6 +1148,7 @@ export function VitalityModule() {
   const [cronometerOpened, setCronometerOpened] = useState(false);
   const [paceUnit, setPaceUnit] = useState<PaceUnit>("km");
   const [raceGoals, setRaceGoals] = useState<RaceGoal[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_GOALS;
     try {
       const raw = localStorage.getItem(PR_GOALS_KEY);
       return raw ? (JSON.parse(raw) as RaceGoal[]) : DEFAULT_GOALS;
@@ -1320,9 +1167,6 @@ export function VitalityModule() {
   const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit } = useStrava(paceUnit);
   const { open: openInApp } = useWebViewer();
   const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet } = useNutritionProtocol();
-  const strengthRoutines = useFitnessRoutines("strength");
-  const mobilityRoutines = useFitnessRoutines("mobility");
-
   const stravaConnected = stravaStatus?.connected ?? false;
 
   const changePaceUnit = (u: PaceUnit) => {

@@ -6,8 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
