@@ -9,6 +9,8 @@ export type ExternalCalendarEvent = {
   start_at: string;
   end_at: string;
   description?: string | null;
+  location?: string | null;
+  attendees?: string[];
   all_day: boolean;
 };
 
@@ -41,6 +43,8 @@ export async function listGoogleEvents(
       id?: string;
       summary?: string;
       description?: string;
+      location?: string;
+      attendees?: Array<{ displayName?: string; email?: string }>;
       status?: string;
       start?: { dateTime?: string; date?: string };
       end?: { dateTime?: string; date?: string };
@@ -56,6 +60,10 @@ export async function listGoogleEvents(
       start_at: start,
       end_at: end,
       description: item.description ?? null,
+      location: item.location ?? null,
+      attendees: (item.attendees ?? [])
+        .map((attendee) => attendee.displayName || attendee.email)
+        .filter((attendee): attendee is string => !!attendee),
       all_day: allDay,
     }];
   });

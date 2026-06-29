@@ -29,11 +29,11 @@ To parallelize and de-risk delivery. Multiple agents (Codex, Claude Code, GitHub
 ## 4. How Codex should interact with the toolchain
 
 - **Linear** — start from a specific issue (id + title); restate scope; do not exceed it. If no issue exists, request/create one or split the work.
-- **GitHub** — branch from `main` (e.g. `codex/<area>-<slug>`); one issue per branch/PR; PR description uses the §12 format and includes preview + validation evidence; never commit secrets.
+- **GitHub** — branch from `main` (e.g. `codex/<area>-<slug>`); one issue per branch/PR; push/open the PR after local checks pass; PR description uses the §12 format and includes preview + validation evidence; never commit secrets.
 - **Vercel** — every PR gets a preview deploy; validate the happy path **and** error path on the preview URL, not just locally; note the preview URL in the PR.
 - **Supabase** — source of truth for data + auth (RLS). Inspect existing migrations before schema changes; new tables need owner-scoped RLS and `user_id`; state whether a migration is applied (don't assume prod).
 - **Tembo** — role is **not yet documented**. Do not assume it is primary Postgres / analytics / queue / cache / unused. Inspect config and document findings; route nothing to it on assumption.
-- **Sentry** — capture actionable failures with safe metadata only (provider, operation, status, transport, normalized code); never log tokens/bodies/OAuth payloads; confirm the happy path produces no new Sentry error.
+- **Sentry** — capture actionable failures with safe metadata only (provider, operation, status, transport, normalized code); never log tokens/bodies/OAuth payloads; review Sentry after the Vercel preview is available, not as a human pre-push gate; confirm the happy path produces no new Sentry error before production merge.
 
 ## 5. Current module priority order
 
@@ -56,7 +56,7 @@ Execute only the Linear issue:
 “Mail: Composio Gmail messages open into readable detail.”
 
 Follow the delivery system:
-Linear issue → branch → implementation → PR → Vercel preview validation → Supabase/Tembo validation → Sentry check.
+Linear issue → branch → implementation → PR → Vercel preview validation → Supabase/Tembo validation → post-preview Sentry check.
 
 Do not work on unrelated modules.
 Do not refactor broadly.

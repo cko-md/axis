@@ -35,7 +35,7 @@ AXIS is a personal operating system: one private Next.js 15 (App Router) dashboa
 The delivery system is:
 
 ```
-Linear issue → agent session → GitHub branch → PR → Vercel preview → Supabase/Tembo validation → Sentry check → production readiness gate
+Linear issue → agent session → GitHub branch → PR → Vercel preview → Supabase/Tembo validation → post-preview Sentry check → production readiness gate
 ```
 
 For every issue, the agent must:
@@ -51,13 +51,13 @@ For every issue, the agent must:
 9. **Identify Sentry observability needs** (what failures to capture, with what safe metadata).
 10. **Implement** the vertical slice.
 11. **Run available checks** (`npx tsc --noEmit`, `npm run lint`; tests if/when they exist).
-12. **Provide a PR title and description.**
+12. **Provide a PR title and description, then push/open the PR after local checks pass.** Sentry review is not a human pre-push blocker.
 13. **Provide Vercel preview validation steps.**
 14. **Provide Supabase/Tembo validation steps.**
-15. **Provide Sentry validation steps.**
+15. **Provide Sentry validation steps for post-preview review.**
 16. **Provide a manual test checklist** (happy path, error path, refresh/persistence, RLS where relevant, related-module regression).
 
-**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Merge only after the Vercel preview, Supabase/Tembo, and Sentry checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
+**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Agents should push branches and open PRs after local checks; Sentry review happens after the Vercel preview exists and can be reviewed afterward. Merge only after the Vercel preview, Supabase/Tembo, and Sentry checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
 
 End the session with the response format in §12.
 
@@ -155,7 +155,7 @@ See `docs/architecture/integration-adapters.md` for the contract and the full ma
 - **Never log** tokens, secrets, full email bodies, OAuth payloads, or any private user content. Redact/hash addresses where an identifier is needed.
 - **Provider errors should include** provider, operation, HTTP status code, transport, normalized error code, and safe correlation metadata — nothing sensitive.
 - **Do not capture expected 4xx (e.g. not-found) as errors** — use breadcrumbs/info; reserve `captureException` for 5xx-class and unexpected failures.
-- **PR notes must include Vercel preview validation** (preview deploy succeeded; happy + error paths exercised on the preview URL; no new Sentry error for the happy path).
+- **PR notes must include Vercel preview validation** (preview deploy succeeded; happy + error paths exercised on the preview URL; no new Sentry error for the happy path). Push/open the PR after local checks; complete Sentry review post-preview before production merge.
 
 ---
 

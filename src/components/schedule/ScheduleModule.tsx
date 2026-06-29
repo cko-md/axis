@@ -16,6 +16,16 @@ const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type ChipColor = "a" | "b" | "c" | "or";
+type LocalColor = "a" | "b" | "c";
+type DetailMode = "view" | "edit";
+type EventChip = { cls: ChipColor; title: string; event?: ScheduleEvent };
+type EventEditForm = { title: string; description: string; startAt: string; endAt: string; color: LocalColor };
+
+const COLOR_OPTIONS: Array<{ value: LocalColor; label: string }> = [
+  { value: "a", label: "Teal — Deep work" },
+  { value: "b", label: "Green — Wellness" },
+  { value: "c", label: "Clay — Meetings" },
+];
 
 // Static sample chips sprinkled on fixed days of the current month (Phase-3 stub).
 const MONTH_SAMPLE_EVENTS: Record<number, Array<{ cls: ChipColor; title: string }>> = {
@@ -27,7 +37,7 @@ const MONTH_SAMPLE_EVENTS: Record<number, Array<{ cls: ChipColor; title: string 
   27: [{ cls: "c", title: "Clinic Review" }],
 };
 
-const DAY_SAMPLE_ROWS = [
+const DAY_SAMPLE_ROWS: Array<{ time: string; title: string; now: boolean; event?: ScheduleEvent }> = [
   { time: "07:00", title: "Zone-2 Run · 8 km", now: false },
   { time: "09:30", title: "DBS Manuscript — Discussion", now: true },
   { time: "12:00", title: "Lab Meeting · Dr. Adeyemi", now: false },
@@ -47,6 +57,43 @@ function addDays(d: Date, n: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
   return x;
+}
+
+function toDateTimeLocalValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function eventToEditForm(event: ScheduleEvent): EventEditForm {
+  return {
+    title: event.title,
+    description: event.description ?? "",
+    startAt: toDateTimeLocalValue(event.start_at),
+    endAt: toDateTimeLocalValue(event.end_at),
+    color: event.color_class === "or" ? "a" : event.color_class,
+  };
+}
+
+function sourceLabel(source?: string): string {
+  if (source === "google") return "Google Calendar";
+  if (source === "outlook") return "Outlook";
+  return "Schedule";
+}
+
+function formatEventWindow(event: ScheduleEvent): string {
+  const start = new Date(event.start_at);
+  const end = new Date(event.end_at);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "Time unavailable";
+  if (event.all_day) {
+    return `All day · ${start.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}`;
+  }
+  const startText = start.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const endText = start.toDateString() === end.toDateString()
+    ? end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : end.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return `${startText} – ${endText}`;
 }
 
 function makeSeedEvents(): Omit<ScheduleEvent, "id">[] {
@@ -87,12 +134,23 @@ export function ScheduleModule() {
     date: new Date().toISOString().slice(0, 10),
     startHour: "9",
     endHour: "10",
-    color: "a" as "a" | "b" | "c",
+    color: "a" as LocalColor,
     recurrence: "none" as "none" | "daily" | "weekly",
   });
   const [view, setView] = useState<"week" | "month" | "day">("week");
   const [signedIn, setSignedIn] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<ScheduleEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
+  const [detailMode, setDetailMode] = useState<DetailMode>("view");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editForm, setEditForm] = useState<EventEditForm>({
+    title: "",
+    description: "",
+    startAt: "",
+    endAt: "",
+    color: "a",
+  });
+  const [savingDetail, setSavingDetail] = useState(false);
+  const [deletingDetail, setDeletingDetail] = useState(false);
   const [calStatus, setCalStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
   const [composioCal, setComposioCal] = useState<{ google: ComposioCalState; outlook: ComposioCalState }>({
     google: { active: false, email: null },
@@ -199,6 +257,7 @@ export function ScheduleModule() {
         start_at: e.start_at,
         end_at: e.end_at,
         color_class: (e.color_class as "a" | "b" | "c") || "a",
+        all_day: e.all_day,
       })),
     );
     setLoading(false);
@@ -229,7 +288,17 @@ export function ScheduleModule() {
     fetch(`/api/calendar/external?start=${range.start.toISOString()}&end=${range.end.toISOString()}`)
       .then((r) => r.json())
       .then((data: {
-        events?: Array<{ externalId: string; title: string; start_at: string; end_at: string; all_day: boolean; source: "google" | "outlook" }>;
+        events?: Array<{
+          externalId: string;
+          title: string;
+          start_at: string;
+          end_at: string;
+          description?: string | null;
+          location?: string | null;
+          attendees?: string[];
+          all_day: boolean;
+          source: "google" | "outlook";
+        }>;
         partial?: boolean;
         errors?: Array<{ source: "google" | "outlook"; message: string }>;
       }) => {
@@ -237,6 +306,9 @@ export function ScheduleModule() {
           (data.events ?? []).map((e) => ({
             id: `ext-${e.source}-${e.externalId}`,
             title: e.title,
+            description: e.description ?? null,
+            location: e.location ?? null,
+            attendees: e.attendees ?? [],
             start_at: e.start_at,
             end_at: e.end_at,
             color_class: "or" as const,
@@ -256,6 +328,13 @@ export function ScheduleModule() {
 
   const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
 
+  const openEventDetail = useCallback((event: ScheduleEvent) => {
+    setSelectedEvent(event);
+    setDetailMode("view");
+    setConfirmingDelete(false);
+    setEditForm(eventToEditForm(event));
+  }, []);
+
   const monthCells = useMemo(() => {
     const year = anchor.getFullYear();
     const month = anchor.getMonth();
@@ -269,11 +348,11 @@ export function ScheduleModule() {
     return Array.from({ length: weeks * 7 }, (_, i) => {
       const date = addDays(gridStart, i);
       const out = date.getMonth() !== month;
-      const chips: Array<{ cls: ChipColor; title: string }> = [];
+      const chips: EventChip[] = [];
       if (!out && !signedIn) chips.push(...(MONTH_SAMPLE_EVENTS[date.getDate()] ?? []));
       for (const ev of displayEvents) {
         if (new Date(ev.start_at).toDateString() === date.toDateString()) {
-          chips.push({ cls: ev.color_class, title: ev.title });
+          chips.push({ cls: ev.color_class, title: ev.title, event: ev });
         }
       }
       return {
@@ -299,6 +378,7 @@ export function ScheduleModule() {
           time: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
           title: ev.title,
           now: start <= now && now < end,
+          event: ev,
         };
       });
     if (rows.length) return rows;
@@ -425,26 +505,94 @@ export function ScheduleModule() {
     }
   };
 
-  const deleteEvent = async (id: string) => {
-    setPendingDelete(null);
-    if (id.startsWith("seed-")) {
-      setEvents((e) => e.filter((x) => x.id !== id));
+  const updateSelectedEvent = async () => {
+    if (!selectedEvent || selectedEvent.source || selectedEvent.id.startsWith("seed-")) return;
+    const title = editForm.title.trim();
+    if (!title) {
+      toast("Give the event a title.", "warn", "Schedule");
       return;
     }
-    // Remove from external calendars before deleting locally
-    if (hasGoogle || hasOutlook) {
-      fetch(`/api/calendar/event/${id}`, { method: "DELETE" })
-        .then(async (r) => {
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok || data.partial) toast("Removed locally, but external calendar cleanup was partial.", "warn", "Schedule");
-        })
-        .catch(() => toast("Removed locally, but external calendar cleanup failed.", "warn", "Schedule"));
+    const start = new Date(editForm.startAt);
+    const end = new Date(editForm.endAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      toast("Choose a valid start and end time.", "warn", "Schedule");
+      return;
     }
-    const { error } = await supabase.from("schedule_events").delete().eq("id", id);
-    if (error) toast(error.message, "error", "Schedule");
-    else toast("Event removed.", "info", "Schedule");
-    load();
+    if (end <= start) {
+      toast("End time must be after start time.", "warn", "Schedule");
+      return;
+    }
+
+    setSavingDetail(true);
+    try {
+      const response = await fetch(`/api/calendar/event/${encodeURIComponent(selectedEvent.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description: editForm.description.trim() || null,
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+          color_class: editForm.color,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { event?: ScheduleEvent; error?: string };
+      if (!response.ok || !payload.event) {
+        throw new Error(payload.error || "Could not update event.");
+      }
+
+      const updated: ScheduleEvent = {
+        ...payload.event,
+        color_class: payload.event.color_class === "or" ? "a" : payload.event.color_class,
+      };
+      setEvents((current) => current.map((event) => (event.id === updated.id ? updated : event)));
+      setSelectedEvent(updated);
+      setEditForm(eventToEditForm(updated));
+      setDetailMode("view");
+      toast("Event updated.", "success", "Schedule");
+      load();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not update event.", "error", "Schedule");
+    } finally {
+      setSavingDetail(false);
+    }
   };
+
+  const deleteSelectedEvent = async () => {
+    if (!selectedEvent || selectedEvent.source) return;
+    setDeletingDetail(true);
+    try {
+      if (selectedEvent.id.startsWith("seed-")) {
+        setEvents((current) => current.filter((event) => event.id !== selectedEvent.id));
+        toast("Sample event removed.", "info", "Schedule");
+      } else {
+        const response = await fetch(`/api/calendar/event/${encodeURIComponent(selectedEvent.id)}`, { method: "DELETE" });
+        const payload = (await response.json().catch(() => ({}))) as { error?: string; calendarCleanupFailed?: boolean };
+        if (!response.ok) throw new Error(payload.error || "Could not delete event.");
+
+        setEvents((current) => current.filter((event) => event.id !== selectedEvent.id));
+        toast(
+          payload.calendarCleanupFailed
+            ? "Event removed locally, but calendar cleanup failed."
+            : "Event removed.",
+          payload.calendarCleanupFailed ? "warn" : "info",
+          "Schedule",
+        );
+        load();
+      }
+      setSelectedEvent(null);
+      setConfirmingDelete(false);
+      setDetailMode("view");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not delete event.", "error", "Schedule");
+    } finally {
+      setDeletingDetail(false);
+    }
+  };
+
+  const selectedCanEdit = !!selectedEvent && !selectedEvent.source && !selectedEvent.id.startsWith("seed-");
+  const selectedCanDelete = !!selectedEvent && !selectedEvent.source;
+  const selectedAttendees = selectedEvent?.attendees?.filter(Boolean) ?? [];
 
   if (loading) return <div className="empty-state">Loading schedule…</div>;
 
@@ -562,7 +710,19 @@ export function ScheduleModule() {
               >
                 <div className="dn">{cell.day}</div>
                 {cell.chips.map((chip, i) => (
-                  <div key={`${cell.key}-${i}`} className={`ev ${chip.cls}`} title={chip.title}>
+                  <div
+                    key={`${cell.key}-${i}`}
+                    className={`ev ${chip.cls}`}
+                    title={chip.event ? `${chip.title} — open details` : chip.title}
+                    role={chip.event ? "button" : undefined}
+                    tabIndex={chip.event ? 0 : undefined}
+                    onClick={() => chip.event && openEventDetail(chip.event)}
+                    onKeyDown={(e) => {
+                      if (!chip.event || (e.key !== "Enter" && e.key !== " ")) return;
+                      e.preventDefault();
+                      openEventDetail(chip.event);
+                    }}
+                  >
                     {chip.title}
                   </div>
                 ))}
@@ -573,15 +733,27 @@ export function ScheduleModule() {
       ) : view === "day" ? (
         <Card tick style={{ maxWidth: "min(600px, 92vw)" }}>
           <h2 className="sec">
-            {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+            {anchor.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
             <span className="rule" />
           </h2>
           <div style={{ marginTop: 14 }}>
             {dayRows.length === 0 ? (
-              <p style={{ color: "var(--ink-faint)", fontSize: 12 }}>Nothing scheduled today.</p>
+              <p style={{ color: "var(--ink-faint)", fontSize: 12 }}>Nothing scheduled for this day.</p>
             ) : (
               dayRows.map((row) => (
-                <div key={`${row.time}-${row.title}`} className="tl-item">
+                <div
+                  key={`${row.time}-${row.title}`}
+                  className="tl-item"
+                  role={row.event ? "button" : undefined}
+                  tabIndex={row.event ? 0 : undefined}
+                  style={row.event ? { cursor: "pointer" } : undefined}
+                  onClick={() => row.event && openEventDetail(row.event)}
+                  onKeyDown={(e) => {
+                    if (!row.event || (e.key !== "Enter" && e.key !== " ")) return;
+                    e.preventDefault();
+                    openEventDetail(row.event);
+                  }}
+                >
                   <div className="tl-time">{row.time}</div>
                   <div className={`tl-body${row.now ? " now" : ""}`}>
                     <div className="tl-title">{row.title}</div>
@@ -592,7 +764,7 @@ export function ScheduleModule() {
             )}
           </div>
         </Card>
-      ) : events.length === 0 ? (
+      ) : displayEvents.length === 0 ? (
         <Card>
           <div className="empty-state">
             <strong>No events this week</strong>
@@ -618,11 +790,15 @@ export function ScheduleModule() {
                       <div
                         key={ev.id}
                         className={`wkev ${ev.color_class}`}
-                        title={ev.source ? `${ev.title} — synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"}` : `${ev.title} — click to manage`}
-                        onClick={() => ev.source ? toast(`Synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"} — manage it there.`, "info", "Schedule") : setPendingDelete(ev)}
+                        title={ev.source ? `${ev.title} — synced from ${sourceLabel(ev.source)}` : `${ev.title} — open details`}
+                        onClick={() => openEventDetail(ev)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === "Enter" && (ev.source ? toast(`Synced from ${ev.source === "google" ? "Google Calendar" : "Outlook"} — manage it there.`, "info", "Schedule") : setPendingDelete(ev))}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          openEventDetail(ev);
+                        }}
                       >
                         {ev.title}
                       </div>
@@ -653,27 +829,171 @@ export function ScheduleModule() {
       </p>
 
       <Modal
-        open={!!pendingDelete}
-        onClose={() => setPendingDelete(null)}
-        title="Remove event"
+        open={!!selectedEvent}
+        onClose={() => {
+          setSelectedEvent(null);
+          setConfirmingDelete(false);
+          setDetailMode("view");
+        }}
+        title="Event detail"
         footer={
-          <>
-            <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={() => pendingDelete && deleteEvent(pendingDelete.id)}>
-              Remove
-            </Button>
-          </>
+          selectedEvent ? (
+            confirmingDelete ? (
+              <>
+                <Button variant="ghost" onClick={() => setConfirmingDelete(false)} disabled={deletingDetail}>
+                  Cancel
+                </Button>
+                <Button variant="danger" onClick={deleteSelectedEvent} loading={deletingDetail}>
+                  Remove
+                </Button>
+              </>
+            ) : detailMode === "edit" && selectedCanEdit ? (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setEditForm(eventToEditForm(selectedEvent));
+                    setDetailMode("view");
+                  }}
+                  disabled={savingDetail}
+                >
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={updateSelectedEvent} loading={savingDetail}>
+                  Save changes
+                </Button>
+              </>
+            ) : (
+              <>
+                {selectedCanDelete && (
+                  <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
+                    Delete
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setSelectedEvent(null);
+                    setConfirmingDelete(false);
+                  }}
+                >
+                  Close
+                </Button>
+                {selectedCanEdit && (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setEditForm(eventToEditForm(selectedEvent));
+                      setDetailMode("edit");
+                    }}
+                  >
+                    Edit
+                  </Button>
+                )}
+              </>
+            )
+          ) : null
         }
       >
-        {pendingDelete && (
-          <p style={{ fontSize: 13, color: "var(--ink-dim)" }}>
-            Remove <strong style={{ color: "var(--ink)" }}>{pendingDelete.title}</strong> (
-            {new Date(pendingDelete.start_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
-            ) from your schedule?
-          </p>
-        )}
+        {selectedEvent && detailMode === "edit" && selectedCanEdit ? (
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+              Title
+              <input
+                className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm normal-case tracking-normal text-[var(--ink)]"
+                value={editForm.title}
+                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+              />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+                Starts
+                <input
+                  type="datetime-local"
+                  className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm normal-case tracking-normal text-[var(--ink)]"
+                  value={editForm.startAt}
+                  onChange={(e) => setEditForm({ ...editForm, startAt: e.target.value })}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+                Ends
+                <input
+                  type="datetime-local"
+                  className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm normal-case tracking-normal text-[var(--ink)]"
+                  value={editForm.endAt}
+                  onChange={(e) => setEditForm({ ...editForm, endAt: e.target.value })}
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+              Description
+              <textarea
+                className="min-h-24 rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm normal-case tracking-normal text-[var(--ink)]"
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+              Color
+              <select
+                className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-2 py-2 text-sm normal-case tracking-normal text-[var(--ink)]"
+                value={editForm.color}
+                onChange={(e) => setEditForm({ ...editForm, color: e.target.value as LocalColor })}
+              >
+                {COLOR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : selectedEvent ? (
+          <div className="flex flex-col gap-4 text-sm">
+            <div>
+              <div className="seclabel">{sourceLabel(selectedEvent.source)}</div>
+              <h3 style={{ marginTop: 6, fontSize: 18, color: "var(--ink)" }}>{selectedEvent.title}</h3>
+              <p style={{ marginTop: 4, color: "var(--ink-dim)" }}>{formatEventWindow(selectedEvent)}</p>
+            </div>
+            {selectedEvent.source ? (
+              <p style={{ color: "var(--ink-faint)", fontSize: 12 }}>
+                Synced from {sourceLabel(selectedEvent.source)}. Provider events are read-only here.
+              </p>
+            ) : selectedEvent.id.startsWith("seed-") ? (
+              <p style={{ color: "var(--ink-faint)", fontSize: 12 }}>
+                Sample event. Sign in to save schedule changes to Supabase.
+              </p>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded border border-[var(--line)] bg-[var(--surface-2)] p-3">
+                <div className="seclabel">Location</div>
+                <div style={{ marginTop: 5, color: "var(--ink)" }}>{selectedEvent.location || "Not set"}</div>
+              </div>
+              <div className="rounded border border-[var(--line)] bg-[var(--surface-2)] p-3">
+                <div className="seclabel">Attendees</div>
+                <div style={{ marginTop: 5, color: "var(--ink)" }}>
+                  {selectedAttendees.length ? selectedAttendees.slice(0, 4).join(", ") : "None"}
+                  {selectedAttendees.length > 4 ? ` +${selectedAttendees.length - 4}` : ""}
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="seclabel">Description</div>
+              <p style={{ marginTop: 6, whiteSpace: "pre-wrap", color: selectedEvent.description ? "var(--ink)" : "var(--ink-faint)" }}>
+                {selectedEvent.description || "No description."}
+              </p>
+            </div>
+            {confirmingDelete && (
+              <div
+                role="alert"
+                className="rounded border border-[var(--down)] bg-[rgba(255,107,107,0.08)] p-3"
+                style={{ color: "var(--ink-dim)", fontSize: 13 }}
+              >
+                Remove <strong style={{ color: "var(--ink)" }}>{selectedEvent.title}</strong> from your schedule?
+              </div>
+            )}
+          </div>
+        ) : null}
       </Modal>
 
       <Modal

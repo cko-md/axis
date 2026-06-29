@@ -33,7 +33,7 @@ describe("normalizeGmailMessage()", () => {
       threadId: "thread1",
       from: "Alice <alice@example.com>",
       subject: "Hello",
-      date: "Thu, 1 Jan 2025 00:00:00 +0000",
+      date: "2025-01-01T00:00:00.000Z",
       snippet: "Hello there...",
       isUnread: true,
       provider: "gmail",
@@ -59,7 +59,19 @@ describe("normalizeGmailMessage()", () => {
     expect(result).not.toBeNull();
     expect(result!.from).toBe("bob@example.com");
     expect(result!.subject).toBe("Fallback subject");
-    expect(result!.date).toBe("2025-01-01T00:00:00Z");
+    expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
+  });
+
+  it("normalizes Gmail internalDate numeric strings", () => {
+    const raw = { id: "msg-date", internalDate: "1735689600000" };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
+  });
+
+  it("returns an empty date for invalid Gmail dates", () => {
+    const raw = { id: "msg-bad-date", date: "definitely not a date" };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.date).toBe("");
   });
 
   it("defaults subject to (no subject)", () => {
@@ -110,7 +122,7 @@ describe("normalizeOutlookMessage()", () => {
       threadId: "conv1",
       from: "Charlie <charlie@example.com>",
       subject: "Meeting tomorrow",
-      date: "2025-06-01T09:00:00Z",
+      date: "2025-06-01T09:00:00.000Z",
       snippet: "Let's meet at 3pm",
       isUnread: true,
       provider: "outlook",
@@ -155,5 +167,11 @@ describe("normalizeOutlookMessage()", () => {
     const raw = { id: "outlook7" };
     const result = normalizeOutlookMessage(raw, "user@outlook.com");
     expect(result!.isUnread).toBe(false);
+  });
+
+  it("returns an empty date for invalid Outlook dates", () => {
+    const raw = { id: "outlook8", receivedDateTime: "not a date" };
+    const result = normalizeOutlookMessage(raw, "user@outlook.com");
+    expect(result!.date).toBe("");
   });
 });

@@ -22,6 +22,8 @@ import { createClient } from "@/lib/supabase/client";
 import { useTasks, doneTodayTasks, type Task, type TaskCategory } from "@/lib/hooks/useTasks";
 import { usePeople, personIsDue, personFootLabel } from "@/lib/hooks/usePeople";
 import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
@@ -87,6 +89,17 @@ const TASK_TOGGLE_STYLE: React.CSSProperties = {
   textAlign: "center",
 };
 
+const TASK_OPEN_STYLE: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  textAlign: "left",
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: "inherit",
+  cursor: "pointer",
+};
+
 const TaskBlock = memo(function TaskBlock({
   title,
   category,
@@ -94,13 +107,15 @@ const TaskBlock = memo(function TaskBlock({
   onAdd,
   onToggle,
   onDelete,
+  onOpen,
 }: {
   title: string;
   category: TaskCategory;
   tasks: Task[];
-  onAdd: (title: string) => void;
-  onToggle: (id: string) => void;
-  onDelete: (id: string) => void;
+  onAdd: (title: string) => void | Promise<void>;
+  onToggle: (id: string) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onOpen: (id: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -124,12 +139,19 @@ const TaskBlock = memo(function TaskBlock({
               style={{ background: "none", padding: 0 }}
             />
             <div className="task-main">
-              <div className="task-title">{t.title}</div>
-              <div className="task-meta">
-                <span className={`pill ${t.priority}`}>{t.priority.toUpperCase()}</span>
-                {t.effort && <span>{t.effort}</span>}
-                {t.deadline && <span>due {new Date(t.deadline).toLocaleDateString()}</span>}
-              </div>
+              <button
+                type="button"
+                style={TASK_OPEN_STYLE}
+                onClick={() => onOpen(t.id)}
+                aria-label={`Open details for "${t.title}"`}
+              >
+                <div className="task-title">{t.title}</div>
+                <div className="task-meta">
+                  <span className={`pill ${t.priority}`}>{t.priority.toUpperCase()}</span>
+                  {t.effort && <span>{t.effort}</span>}
+                  {t.deadline && <span>due {new Date(t.deadline).toLocaleDateString()}</span>}
+                </div>
+              </button>
             </div>
             <div className="rowact">
               <button type="button" className="del" title="Delete" aria-label={`Delete "${t.title}"`} onClick={() => onDelete(t.id)}>×</button>
@@ -155,7 +177,7 @@ const TaskBlock = memo(function TaskBlock({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && draft.trim()) {
-              onAdd(draft.trim());
+              void onAdd(draft.trim());
               setDraft("");
             }
           }}
@@ -165,8 +187,167 @@ const TaskBlock = memo(function TaskBlock({
   );
 });
 
+function deadlineForInput(deadline: string | null) {
+  if (!deadline) return "";
+  return deadline.slice(0, 10);
+}
+
+function TaskDetailModal({
+  task,
+  open,
+  saving,
+  onClose,
+  onSave,
+  onToggle,
+  onDelete,
+}: {
+  task: Task | null;
+  open: boolean;
+  saving: "save" | "toggle" | "delete" | null;
+  onClose: () => void;
+  onSave: (patch: Pick<Task, "title" | "priority" | "category"> & { effort: string | null; deadline: string | null }) => Promise<void>;
+  onToggle: () => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState<Task["priority"]>("med");
+  const [category, setCategory] = useState<TaskCategory>("research");
+  const [effort, setEffort] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    if (!task) return;
+    setTitle(task.title);
+    setPriority(task.priority);
+    setCategory(task.category);
+    setEffort(task.effort ?? "");
+    setDeadline(deadlineForInput(task.deadline));
+    setConfirmDelete(false);
+  }, [task]);
+
+  if (!task) return null;
+
+  const completedLabel = task.completed_at
+    ? new Date(task.completed_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : null;
+  const canSave = title.trim().length > 0 && !saving;
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Task Detail"
+      footer={(
+        <>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={!!saving}>Close</Button>
+          <Button
+            type="button"
+            variant="secondary"
+            loading={saving === "toggle"}
+            onClick={() => void onToggle()}
+          >
+            {task.status === "done" ? "Reopen" : "Complete"}
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            loading={saving === "save"}
+            disabled={!canSave}
+            onClick={() => void onSave({
+              title: title.trim(),
+              priority,
+              category,
+              effort: effort.trim() || null,
+              deadline: deadline || null,
+            })}
+          >
+            Save
+          </Button>
+        </>
+      )}
+    >
+      <div style={{ display: "grid", gap: 12 }}>
+        <label style={{ display: "grid", gap: 5 }}>
+          <span className="task-meta">Title</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "8px 9px", color: "var(--ink)" }}
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={{ display: "grid", gap: 5 }}>
+            <span className="task-meta">Priority</span>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as Task["priority"])}
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "8px 9px", color: "var(--ink)" }}
+            >
+              <option value="hi">High</option>
+              <option value="med">Medium</option>
+              <option value="lo">Low</option>
+            </select>
+          </label>
+          <label style={{ display: "grid", gap: 5 }}>
+            <span className="task-meta">Category</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as TaskCategory)}
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "8px 9px", color: "var(--ink)" }}
+            >
+              <option value="research">Research</option>
+              <option value="clinical">Clinical</option>
+              <option value="life">Life</option>
+              <option value="personal">Personal</option>
+            </select>
+          </label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={{ display: "grid", gap: 5 }}>
+            <span className="task-meta">Effort</span>
+            <input
+              value={effort}
+              onChange={(e) => setEffort(e.target.value)}
+              placeholder="30m, ~1h..."
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "8px 9px", color: "var(--ink)" }}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 5 }}>
+            <span className="task-meta">Deadline</span>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 4, padding: "8px 9px", color: "var(--ink)" }}
+            />
+          </label>
+        </div>
+        <div className="task-meta">
+          <span className={`pill ${task.priority}`}>{task.status.toUpperCase()}</span>
+          <span>Created {new Date(task.created_at).toLocaleDateString()}</span>
+          {completedLabel && <span>Completed {completedLabel}</span>}
+        </div>
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          {confirmDelete ? (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+              <span style={{ color: "var(--ink-dim)", fontSize: 12 }}>Delete this task permanently?</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)} disabled={!!saving}>Cancel</Button>
+                <Button type="button" variant="danger" loading={saving === "delete"} onClick={() => void onDelete()}>Delete</Button>
+              </div>
+            </div>
+          ) : (
+            <Button type="button" variant="danger" onClick={() => setConfirmDelete(true)} disabled={!!saving}>Delete task</Button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function AgendaModule() {
-  const { tasks, addTask, toggleDone, deleteTask } = useTasks();
+  const { tasks, addTask, updateTask, toggleDone, deleteTask, error: taskError, clearError: clearTaskError } = useTasks();
   const { people } = usePeople();
   const dueContacts = people.filter((p) => personIsDue(p)).sort((a, b) => {
     const da = a.follow_up_on ?? "9999";
@@ -188,6 +369,21 @@ export function AgendaModule() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [rebuildingMorning, setRebuildingMorning] = useState(false);
   const [rebuildingNight, setRebuildingNight] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskAction, setTaskAction] = useState<"save" | "toggle" | "delete" | null>(null);
+
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
+    [selectedTaskId, tasks],
+  );
+
+  useEffect(() => {
+    if (selectedTaskId && !selectedTask) setSelectedTaskId(null);
+  }, [selectedTask, selectedTaskId]);
+
+  useEffect(() => {
+    if (taskError) toast(taskError.message, "error", "Agenda");
+  }, [taskError, toast]);
 
   const loadRoutine = useCallback(async () => {
     const key = todayKey();
@@ -230,14 +426,14 @@ export function AgendaModule() {
     }
   }, [loadRoutine]);
 
-  const saveNightRoutine = async (steps: RoutineStep[]) => {
+  const saveNightRoutine = useCallback(async (steps: RoutineStep[]) => {
     setNightRoutine(steps);
     localStorage.setItem("axis-night-routine", JSON.stringify(steps));
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       await supabase.from("user_preferences").upsert({ user_id: user.id, night_routine: steps, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
     }
-  };
+  }, [supabase]);
 
   const toggleNightCheck = (id: string) => {
     const key = todayKey();
@@ -252,14 +448,14 @@ export function AgendaModule() {
     persistNight().catch(() => {});
   };
 
-  const saveRoutine = async (steps: RoutineStep[]) => {
+  const saveRoutine = useCallback(async (steps: RoutineStep[]) => {
     setRoutine(steps);
     localStorage.setItem("axis-morning-routine", JSON.stringify(steps));
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       await supabase.from("user_preferences").upsert({ user_id: user.id, morning_routine: steps, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
     }
-  };
+  }, [supabase]);
 
   const toggleCheck = (id: string) => {
     const key = todayKey();
@@ -348,13 +544,54 @@ export function AgendaModule() {
     [routine, nightRoutine, toast, saveRoutine, saveNightRoutine],
   );
 
-  const parseAndAdd = useCallback((title: string, category: TaskCategory) => {
+  const handleToggleTask = useCallback(async (id: string) => {
+    clearTaskError();
+    setTaskAction("toggle");
+    try {
+      const updated = await toggleDone(id);
+      if (updated) toast(updated.status === "done" ? "Task completed." : "Task reopened.", "success", "Agenda");
+    } finally {
+      setTaskAction(null);
+    }
+  }, [clearTaskError, toast, toggleDone]);
+
+  const handleDeleteTask = useCallback(async (id: string) => {
+    clearTaskError();
+    setTaskAction("delete");
+    try {
+      const deleted = await deleteTask(id);
+      if (deleted) {
+        setSelectedTaskId((current) => (current === id ? null : current));
+        toast("Task deleted.", "success", "Agenda");
+      }
+    } finally {
+      setTaskAction(null);
+    }
+  }, [clearTaskError, deleteTask, toast]);
+
+  const handleSaveTask = useCallback(async (
+    id: string,
+    patch: Pick<Task, "title" | "priority" | "category"> & { effort: string | null; deadline: string | null },
+  ) => {
+    clearTaskError();
+    setTaskAction("save");
+    try {
+      const updated = await updateTask(id, patch);
+      if (updated) toast("Task updated.", "success", "Agenda");
+    } finally {
+      setTaskAction(null);
+    }
+  }, [clearTaskError, toast, updateTask]);
+
+  const parseAndAdd = useCallback(async (title: string, category: TaskCategory) => {
     const lower = title.toLowerCase();
     let priority: "hi" | "med" | "lo" = "med";
     if (/high|urgent/.test(lower)) priority = "hi";
     if (/low/.test(lower)) priority = "lo";
-    addTask({ title, category, priority });
-  }, [addTask]);
+    clearTaskError();
+    const created = await addTask({ title, category, priority });
+    if (created) toast("Task added.", "success", "Agenda");
+  }, [addTask, clearTaskError, toast]);
 
   const addResearch = useCallback((t: string) => parseAndAdd(t, "research"), [parseAndAdd]);
   const addClinical = useCallback((t: string) => parseAndAdd(t, "life"), [parseAndAdd]);
@@ -405,8 +642,8 @@ export function AgendaModule() {
         ))}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
-        <TaskBlock title="Research" category="research" tasks={filtered} onAdd={addResearch} onToggle={toggleDone} onDelete={deleteTask} />
-        <TaskBlock title="Clinical & Life" category="clinical" tasks={filtered} onAdd={addClinical} onToggle={toggleDone} onDelete={deleteTask} />
+        <TaskBlock title="Research" category="research" tasks={filtered} onAdd={addResearch} onToggle={handleToggleTask} onDelete={handleDeleteTask} onOpen={setSelectedTaskId} />
+        <TaskBlock title="Clinical & Life" category="clinical" tasks={filtered} onAdd={addClinical} onToggle={handleToggleTask} onDelete={handleDeleteTask} onOpen={setSelectedTaskId} />
       </div>
 
       {allDone.length > 0 && (
@@ -443,21 +680,28 @@ export function AgendaModule() {
                     aria-checked={true}
                     aria-label={`Reopen "${t.title}"`}
                     className="check done"
-                    onClick={() => toggleDone(t.id)}
+                    onClick={() => void handleToggleTask(t.id)}
                     title="Reopen"
                     style={{ background: "var(--accent)", padding: 0 }}
                   />
                   <div className="task-main">
-                    <div className="task-title" style={{ textDecoration: "line-through" }}>{t.title}</div>
-                    <div className="task-meta">
-                      {t.completed_at
-                        ? new Date(t.completed_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                        : "completed"}
-                    </div>
+                    <button
+                      type="button"
+                      style={TASK_OPEN_STYLE}
+                      onClick={() => setSelectedTaskId(t.id)}
+                      aria-label={`Open details for "${t.title}"`}
+                    >
+                      <div className="task-title" style={{ textDecoration: "line-through" }}>{t.title}</div>
+                      <div className="task-meta">
+                        {t.completed_at
+                          ? new Date(t.completed_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                          : "completed"}
+                      </div>
+                    </button>
                   </div>
                   <button
                     type="button"
-                    onClick={() => deleteTask(t.id)}
+                    onClick={() => void handleDeleteTask(t.id)}
                     title="Delete"
                     style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px" }}
                   >
@@ -653,6 +897,15 @@ export function AgendaModule() {
           )}
         </div>
       </div>
+      <TaskDetailModal
+        task={selectedTask}
+        open={!!selectedTask}
+        saving={taskAction}
+        onClose={() => setSelectedTaskId(null)}
+        onSave={(patch) => selectedTask ? handleSaveTask(selectedTask.id, patch) : Promise.resolve()}
+        onToggle={() => selectedTask ? handleToggleTask(selectedTask.id) : Promise.resolve()}
+        onDelete={() => selectedTask ? handleDeleteTask(selectedTask.id) : Promise.resolve()}
+      />
     </>
   );
 }
