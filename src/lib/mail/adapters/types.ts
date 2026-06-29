@@ -58,6 +58,11 @@ export interface ReplyInput extends SendInput {
 export interface SendResult {
   /** Provider id of the sent message, when the provider returns one. */
   id?: string;
+  /**
+   * Safe user-facing note about provider behavior, e.g. when a transport can
+   * send a reply-shaped message but cannot guarantee native thread attachment.
+   */
+  warning?: string;
 }
 
 /**

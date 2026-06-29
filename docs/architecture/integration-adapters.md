@@ -102,7 +102,7 @@ return NextResponse.json({ error: result.error.message, code: result.error.code 
                          { status: mailErrorStatus(result.error.code) });
 ```
 
-Rewired routes: `api/mail/inbox`, `api/mail/message/[id]`, `api/mail/send`. None of them name a provider transport anymore. Success response shapes are unchanged, so `MailModule` / `MessagePanel` / `ComposeModal` need no changes — they already consume only normalized types.
+Rewired routes: `api/mail/inbox`, `api/mail/message/[id]`, `api/mail/send`. None of them name a provider transport anymore. `api/mail/send` accepts an optional transport hint (`direct` or `composio`) so the composer can target the exact connected account, and it may return a safe `warning` string when the provider sends successfully with a documented limitation.
 
 ---
 
@@ -120,6 +120,7 @@ UI/Control Room should read `getCapabilities(domain, provider, transport)` to de
 Composio tool-slug accuracy is confirmed only for the already-live paths (list via `GMAIL_FETCH_EMAILS` / `OUTLOOK_OUTLOOK_LIST_MESSAGES`, send via `GMAIL_SEND_EMAIL` / `OUTLOOK_OUTLOOK_SEND_EMAIL`). New in this change:
 
 - **`getMessage`** uses best-effort single-message slugs (`GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `OUTLOOK_OUTLOOK_GET_MESSAGE`) with defensive payload parsing. If a slug is wrong it surfaces as a visible `provider_error` (strictly better than the previous silent 404). **Verify against a live connected account and adjust `GET_TOOL` in `src/lib/mail/composio.ts` if needed.**
+- **Composio `replyToMessage`** intentionally degrades to the verified send tools until native threading args are confirmed. The composer displays this before send, and the API returns a safe success warning after send so the limitation is explicit rather than hidden.
 - **markRead/archive/delete** are intentionally `not_supported` for Composio until their slugs are verified — promote them to real `executeTool` calls + flip the `registry.ts` capability flags in a follow-up.
 
 ---

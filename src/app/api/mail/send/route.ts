@@ -10,6 +10,7 @@ interface SendPayload {
   body: string;
   provider: MailProvider;
   mailEmail: string;
+  via?: "direct" | "composio";
   inReplyTo?: string;
   references?: string;
   threadId?: string;
@@ -30,14 +31,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 422 });
   }
 
-  const { to, subject, body, provider, mailEmail, inReplyTo, references, threadId } = payload;
+  const { to, subject, body, provider, mailEmail, via, inReplyTo, references, threadId } = payload;
   if (!to?.trim() || !subject?.trim() || !body?.trim() || !provider || !mailEmail) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 422 });
+  }
+  if (via && via !== "direct" && via !== "composio") {
+    return NextResponse.json({ error: "Invalid mail transport" }, { status: 422 });
   }
 
   // Ownership: the account must belong to this user.
   const accounts = await listMailAccounts(user.id);
-  const account = accounts.find((a) => a.provider === provider && a.mailEmail === mailEmail);
+  const account = accounts.find((a) => {
+    const transport = a.via === "composio" ? "composio" : "direct";
+    return a.provider === provider && a.mailEmail === mailEmail && (!via || transport === via);
+  });
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
   const adapter = adapterForAccount(account);
@@ -47,13 +54,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ? await adapter.replyToMessage(ctx, { to, subject, body, inReplyTo, references, threadId })
     : await adapter.sendMessage(ctx, { to, subject, body });
 
-  if (result.ok) return NextResponse.json({ ok: true });
+  if (result.ok) return NextResponse.json({ ok: true, warning: result.data.warning });
 
   const status = mailErrorStatus(result.error.code);
   if (status >= 500) {
     Sentry.captureException(new Error(result.error.message), {
-      tags: { area: "mail", op: inReplyTo ? "reply" : "send", provider, transport: account.via ?? "direct", code: result.error.code },
+      tags: {
+        area: "mail",
+        route: "/api/mail/send",
+        op: inReplyTo ? "reply" : "send",
+        provider,
+        transport: account.via ?? "direct",
+        code: result.error.code,
+        status: String(status),
+      },
     });
   }
-  return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
+  return NextResponse.json(
+    { error: result.error.message, code: result.error.code, retryable: result.error.retryable },
+    { status },
+  );
 }

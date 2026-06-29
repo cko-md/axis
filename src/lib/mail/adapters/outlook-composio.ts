@@ -76,8 +76,13 @@ export const outlookComposioAdapter: MailAdapter = {
     }
   },
 
-  replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {
-    return this.sendMessage(ctx, { to: input.to, subject: input.subject, body: input.body });
+  async replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {
+    const result = await this.sendMessage(ctx, { to: input.to, subject: input.subject, body: input.body });
+    if (!result.ok) return result;
+    return ok({
+      ...result.data,
+      warning: "Reply sent as a new message because Composio Outlook threading is not verified yet.",
+    });
   },
 
   markRead(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("mark-read")); },
