@@ -44,7 +44,7 @@ Missing optional keys should produce a configured/not-configured response, a set
 
 ## Sentry Safety
 
-Sentry is configured in `sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, and `src/instrumentation.ts`. Client replay masks text and blocks media. Server events must use safe metadata only: provider, route/operation, status, transport, and normalized error code. Never log tokens, OAuth payloads, full email bodies, recipients, or private message content.
+Sentry is configured in `instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, and `src/instrumentation.ts`. Client replay masks text and blocks media. Server events must use safe metadata only: provider, route/operation, status, transport, and normalized error code. Never log tokens, OAuth payloads, full email bodies, recipients, or private message content.
 
 ## Tembo
 

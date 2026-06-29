@@ -2149,7 +2149,7 @@ Confirmed: DSN set per environment (preview vs prod), errors captured client+ser
 
 ## Technical scope
 ### Files to inspect
-`sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, `next.config.ts` (withSentryConfig), `app/error.tsx`, `app/global-error.tsx`.
+`instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, `next.config.ts` (withSentryConfig), `app/error.tsx`, `app/global-error.tsx`.
 ### Files likely to change
 The sentry configs (env-gated DSN, `beforeSend` PII scrub, sample rates); a `docs/observability/sentry.md`.
 ### API/DB impact

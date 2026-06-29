@@ -21,3 +21,5 @@ Sentry.init({
   sendDefaultPii: false,
   debug: false,
 });
+
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

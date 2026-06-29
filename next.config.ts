@@ -188,9 +188,13 @@ export default withSentryConfig(withPWA(nextConfig), {
   // Proxy Sentry requests through /monitoring to avoid adblockers
   tunnelRoute: "/monitoring",
 
-  // Tree-shake Sentry logger in production
-  disableLogger: true,
+  webpack: {
+    // Tree-shake Sentry logger in production
+    treeshake: {
+      removeDebugLogging: true,
+    },
 
-  // Auto-instrument Vercel Cron routes as Sentry Cron Monitors
-  automaticVercelMonitors: true,
+    // Auto-instrument Vercel Cron routes as Sentry Cron Monitors
+    automaticVercelMonitors: true,
+  },
 });
