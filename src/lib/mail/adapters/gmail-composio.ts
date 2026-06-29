@@ -1,13 +1,14 @@
-// Composio Gmail adapter. List/read/send go through Composio's tool bridge;
-// per-message mutations are declared not_supported until their tool slugs are
-// verified live (see docs/architecture/integration-adapters.md). Returns the
-// same normalized types + structured errors as the direct adapter, so the
-// message-detail route now opens Composio Gmail messages (previously 404'd).
+// Composio Gmail adapter. List/read/send/action calls go through Composio's
+// tool bridge and return the same normalized types + structured errors as the
+// direct adapter.
 
 import {
   listComposioInbox,
   getComposioMessage,
   sendComposioMail,
+  markComposioGmailReadState,
+  archiveComposioGmailMessage,
+  trashComposioGmailMessage,
   normalizeGmailMessage,
   normalizeGmailMessageFull,
 } from "../composio";
@@ -33,12 +34,6 @@ function requireConnectedAccount(ctx: MailAccountContext): Result<string> {
   }
   return ok(ctx.connectedAccountId);
 }
-
-const NOT_SUPPORTED = (op: string): Result<void> =>
-  fail("not_supported", `Composio Gmail ${op} is not available yet (pending tool-slug verification).`, {
-    provider: "gmail",
-    transport: "composio",
-  });
 
 export const gmailComposioAdapter: MailAdapter = {
   provider: "gmail",
@@ -91,10 +86,53 @@ export const gmailComposioAdapter: MailAdapter = {
     });
   },
 
-  markRead(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("mark-read")); },
-  markUnread(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("mark-unread")); },
-  archiveMessage(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("archive")); },
-  deleteMessage(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("delete")); },
+  async markRead(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
+    const acct = requireConnectedAccount(ctx);
+    if (!acct.ok) return acct;
+    try {
+      const res = await markComposioGmailReadState(acct.data, ctx.userId, messageId, false);
+      if (!res.ok) return fail("provider_error", res.error ?? "Mark read failed", { provider: "gmail", transport: "composio" });
+      return ok(undefined);
+    } catch (e) {
+      return failFromException(e, "Mark read failed", { provider: "gmail", transport: "composio" });
+    }
+  },
+
+  async markUnread(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
+    const acct = requireConnectedAccount(ctx);
+    if (!acct.ok) return acct;
+    try {
+      const res = await markComposioGmailReadState(acct.data, ctx.userId, messageId, true);
+      if (!res.ok) return fail("provider_error", res.error ?? "Mark unread failed", { provider: "gmail", transport: "composio" });
+      return ok(undefined);
+    } catch (e) {
+      return failFromException(e, "Mark unread failed", { provider: "gmail", transport: "composio" });
+    }
+  },
+
+  async archiveMessage(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
+    const acct = requireConnectedAccount(ctx);
+    if (!acct.ok) return acct;
+    try {
+      const res = await archiveComposioGmailMessage(acct.data, ctx.userId, messageId);
+      if (!res.ok) return fail("provider_error", res.error ?? "Archive failed", { provider: "gmail", transport: "composio" });
+      return ok(undefined);
+    } catch (e) {
+      return failFromException(e, "Archive failed", { provider: "gmail", transport: "composio" });
+    }
+  },
+
+  async deleteMessage(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
+    const acct = requireConnectedAccount(ctx);
+    if (!acct.ok) return acct;
+    try {
+      const res = await trashComposioGmailMessage(acct.data, ctx.userId, messageId);
+      if (!res.ok) return fail("provider_error", res.error ?? "Move to trash failed", { provider: "gmail", transport: "composio" });
+      return ok(undefined);
+    } catch (e) {
+      return failFromException(e, "Move to trash failed", { provider: "gmail", transport: "composio" });
+    }
+  },
 
   normalizeMessage(raw: unknown, ctx: MailAccountContext): MailMessage | null {
     return normalizeGmailMessage(raw as Record<string, unknown>, ctx.mailEmail);

@@ -3,6 +3,9 @@ import type { MailAccountContext } from "./types";
 
 const mocks = vi.hoisted(() => ({
   sendComposioMail: vi.fn(),
+  markComposioGmailReadState: vi.fn(),
+  archiveComposioGmailMessage: vi.fn(),
+  trashComposioGmailMessage: vi.fn(),
   getFreshMailAccessToken: vi.fn(),
 }));
 
@@ -10,8 +13,13 @@ vi.mock("../composio", () => ({
   listComposioInbox: vi.fn(),
   getComposioMessage: vi.fn(),
   sendComposioMail: mocks.sendComposioMail,
+  markComposioGmailReadState: mocks.markComposioGmailReadState,
+  archiveComposioGmailMessage: mocks.archiveComposioGmailMessage,
+  trashComposioGmailMessage: mocks.trashComposioGmailMessage,
   normalizeGmailMessage: vi.fn(),
+  normalizeGmailMessageFull: vi.fn(),
   normalizeOutlookMessage: vi.fn(),
+  normalizeOutlookMessageFull: vi.fn(),
 }));
 
 vi.mock("../tokens", () => ({

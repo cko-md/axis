@@ -1,10 +1,26 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   resolveMailAdapter,
   adapterForAccount,
   mailErrorStatus,
 } from "./index";
 import type { MailAccountRef } from "../tokens";
+
+const mocks = vi.hoisted(() => ({
+  markComposioGmailReadState: vi.fn(),
+  archiveComposioGmailMessage: vi.fn(),
+  trashComposioGmailMessage: vi.fn(),
+}));
+
+vi.mock("../composio", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../composio")>();
+  return {
+    ...actual,
+    markComposioGmailReadState: mocks.markComposioGmailReadState,
+    archiveComposioGmailMessage: mocks.archiveComposioGmailMessage,
+    trashComposioGmailMessage: mocks.trashComposioGmailMessage,
+  };
+});
 
 describe("resolveMailAdapter()", () => {
   it("returns a gmail direct adapter", () => {
@@ -91,15 +107,20 @@ describe("mailErrorStatus()", () => {
 });
 
 describe("Composio mutation guardrails", () => {
-  it.each([
-    ["gmail" as const, "user@gmail.com"],
-    ["outlook" as const, "user@outlook.com"],
-  ])("returns not_supported for unverified %s Composio actions", async (provider, mailEmail) => {
-    const adapter = resolveMailAdapter(provider, "composio");
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses verified Gmail Composio tools for message actions", async () => {
+    mocks.markComposioGmailReadState.mockResolvedValue({ ok: true });
+    mocks.archiveComposioGmailMessage.mockResolvedValue({ ok: true });
+    mocks.trashComposioGmailMessage.mockResolvedValue({ ok: true });
+
+    const adapter = resolveMailAdapter("gmail", "composio");
     const ctx = {
       userId: "uid",
-      provider,
-      mailEmail,
+      provider: "gmail" as const,
+      mailEmail: "user@gmail.com",
       transport: "composio" as const,
       connectedAccountId: "ca_123",
     };
@@ -111,10 +132,56 @@ describe("Composio mutation guardrails", () => {
     ]);
 
     for (const result of results) {
+      expect(result.ok).toBe(true);
+    }
+    expect(mocks.markComposioGmailReadState).toHaveBeenCalledWith("ca_123", "uid", "msg_1", false);
+    expect(mocks.markComposioGmailReadState).toHaveBeenCalledWith("ca_123", "uid", "msg_1", true);
+    expect(mocks.archiveComposioGmailMessage).toHaveBeenCalledWith("ca_123", "uid", "msg_1");
+    expect(mocks.trashComposioGmailMessage).toHaveBeenCalledWith("ca_123", "uid", "msg_1");
+  });
+
+  it("returns structured provider_error when Gmail Composio action fails", async () => {
+    mocks.markComposioGmailReadState.mockResolvedValueOnce({ ok: false, error: "provider said no" });
+
+    const adapter = resolveMailAdapter("gmail", "composio");
+    const result = await adapter.markRead({
+      userId: "uid",
+      provider: "gmail",
+      mailEmail: "user@gmail.com",
+      transport: "composio",
+      connectedAccountId: "ca_123",
+    }, "msg_1");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("provider_error");
+      expect(result.error.provider).toBe("gmail");
+      expect(result.error.transport).toBe("composio");
+    }
+  });
+
+  it("keeps Outlook Composio actions disabled until live account validation exists", async () => {
+    const adapter = resolveMailAdapter("outlook", "composio");
+    const ctx = {
+      userId: "uid",
+      provider: "outlook" as const,
+      mailEmail: "user@outlook.com",
+      transport: "composio" as const,
+      connectedAccountId: "ca_456",
+    };
+
+    const results = await Promise.all([
+      adapter.markRead(ctx, "msg_1"),
+      adapter.markUnread(ctx, "msg_1"),
+      adapter.archiveMessage(ctx, "msg_1"),
+      adapter.deleteMessage(ctx, "msg_1"),
+    ]);
+
+    for (const result of results) {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("not_supported");
-        expect(result.error.provider).toBe(provider);
+        expect(result.error.provider).toBe("outlook");
         expect(result.error.transport).toBe("composio");
       }
     }
