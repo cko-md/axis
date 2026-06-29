@@ -13,18 +13,37 @@ type Recurring = { expected_amount: number; status: string };
 type Liability = { minimum_payment: number | null };
 
 export function FundCashflowModule() {
-  const { plaidConfigured, plaidLinked, cash, connectBank } = usePlaidConnection();
+  const { plaidConfigured, plaidLinked, cash, connectBank, balanceError } = usePlaidConnection();
   const [income, setIncome] = useState(0);
   const [spend, setSpend] = useState(0);
   const [upcomingBills, setUpcomingBills] = useState(0);
+  const [cashflowNotice, setCashflowNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    Promise.all([
-      fetch(`/api/fund/bank-transactions?from=${since}&limit=500`).then((r) => r.json()),
-      fetch("/api/fund/recurring").then((r) => r.json()),
-      fetch("/api/fund/liabilities").then((r) => r.json()),
-    ]).then(([txnData, recurringData, liabilityData]) => {
+    Promise.allSettled([
+      fetch(`/api/fund/bank-transactions?from=${since}&limit=500`).then((r) => {
+        if (!r.ok) throw new Error("transactions");
+        return r.json();
+      }),
+      fetch("/api/fund/recurring").then((r) => {
+        if (!r.ok) throw new Error("recurring");
+        return r.json();
+      }),
+      fetch("/api/fund/liabilities").then((r) => {
+        if (!r.ok) throw new Error("liabilities");
+        return r.json();
+      }),
+    ]).then(([txnResult, recurringResult, liabilityResult]) => {
+      const failed = [
+        txnResult.status === "rejected" ? "transactions" : null,
+        recurringResult.status === "rejected" ? "recurring" : null,
+        liabilityResult.status === "rejected" ? "liabilities" : null,
+      ].filter((item): item is string => !!item);
+
+      const txnData = txnResult.status === "fulfilled" ? txnResult.value : {};
+      const recurringData = recurringResult.status === "fulfilled" ? recurringResult.value : {};
+      const liabilityData = liabilityResult.status === "fulfilled" ? liabilityResult.value : {};
       const txns = (txnData.transactions ?? []) as BankTxn[];
       setIncome(txns.filter((t) => !t.is_transfer && t.amount > 0).reduce((s, t) => s + t.amount, 0));
       setSpend(txns.filter((t) => !t.is_transfer && t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0));
@@ -36,7 +55,8 @@ export function FundCashflowModule() {
         0,
       );
       setUpcomingBills(recurringMonthly + minPayments);
-    }).catch(() => null);
+      setCashflowNotice(failed.length ? `Partial refresh — ${failed.join(", ")} unavailable.` : null);
+    }).catch(() => setCashflowNotice("Cash flow could not refresh."));
   }, []);
 
   const safeToInvest = Math.max(cash - upcomingBills, 0);
@@ -80,6 +100,14 @@ export function FundCashflowModule() {
           <div className="bigmetric">{runwayMonths != null ? `${runwayMonths.toFixed(1)} mo` : "—"}</div>
         </Card>
       </div>
+      {balanceError && (
+        <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--clay)" }}>
+          Bank balances could not refresh — showing saved cash flow data.
+        </p>
+      )}
+      {cashflowNotice && (
+        <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--clay)" }}>{cashflowNotice}</p>
+      )}
 
       <div className="divider" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, alignItems: "start" }}>

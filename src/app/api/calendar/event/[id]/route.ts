@@ -4,6 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteGoogleEvent } from "@/lib/calendar/google";
 import { deleteOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, deleteComposioEvent } from "@/lib/calendar/composio";
+import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
+
+type CalendarDeleteError = {
+  source: "google" | "outlook";
+  transport: "direct" | "composio";
+  message: string;
+};
+type CalendarDeleteResult = { ok: boolean; error?: CalendarDeleteError };
 
 type ScheduleEventPatch = {
   title?: unknown;
@@ -11,12 +19,6 @@ type ScheduleEventPatch = {
   start_at?: unknown;
   end_at?: unknown;
   color_class?: unknown;
-};
-
-type CleanupTask = {
-  provider: "google" | "outlook";
-  transport: "direct" | "composio";
-  run: () => Promise<boolean>;
 };
 
 function captureScheduleFailure(error: unknown, op: string, eventId: string) {
@@ -97,6 +99,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 // Composio-created event (when no legacy connection exists) is actually
 // cleaned up via the Composio path instead of silently no-op'ing.
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const routeStartedAt = Date.now();
   const { id: eventId } = await params;
 
   const supabase = await createClient();
@@ -139,50 +142,79 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const composioGoogle = !legacyProviders.has("google") && composioAccounts.find((a) => a.provider === "googlecalendar");
   const composioOutlook = !legacyProviders.has("outlook") && composioAccounts.find((a) => a.provider === "outlook");
 
-  const cleanupTasks: CleanupTask[] = [];
-  let missingCleanupConnection = false;
-  if (row.gcal_event_id) {
-    if (legacyProviders.has("google")) {
-      cleanupTasks.push({ provider: "google", transport: "direct", run: () => deleteGoogleEvent(user.id, row.gcal_event_id) });
-    } else if (composioGoogle) {
-      cleanupTasks.push({
-        provider: "google",
-        transport: "composio",
-        run: () => deleteComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, row.gcal_event_id),
-      });
-    } else {
-      missingCleanupConnection = true;
+  async function deleteExternal(
+    source: "google" | "outlook",
+    transport: "direct" | "composio",
+    operation: () => Promise<boolean>,
+  ): Promise<CalendarDeleteResult> {
+    try {
+      const ok = await timedProviderOperation(
+        {
+          area: "calendar",
+          provider: source,
+          transport,
+          operation: "delete_event",
+          timeoutMs: 7_000,
+          slowMs: 1_500,
+        },
+        operation,
+      );
+      if (ok) return { ok: true };
+      return {
+        ok: false,
+        error: {
+          source,
+          transport,
+          message: `${source === "google" ? "Google Calendar" : "Outlook"} cleanup failed.`,
+        },
+      };
+    } catch {
+      return {
+        ok: false,
+        error: {
+          source,
+          transport,
+          message: `${source === "google" ? "Google Calendar" : "Outlook"} cleanup failed.`,
+        },
+      };
     }
   }
-  if (row.outlook_event_id) {
-    if (legacyProviders.has("outlook")) {
-      cleanupTasks.push({ provider: "outlook", transport: "direct", run: () => deleteOutlookEvent(user.id, row.outlook_event_id) });
-    } else if (composioOutlook) {
-      cleanupTasks.push({
-        provider: "outlook",
-        transport: "composio",
-        run: () => deleteComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, row.outlook_event_id),
-      });
+
+  let missingCleanupConnection = false;
+  let googleDeletePromise: Promise<CalendarDeleteResult> = Promise.resolve({ ok: true });
+  if (row.gcal_event_id) {
+    const gcalEventId = row.gcal_event_id;
+    if (legacyProviders.has("google")) {
+      googleDeletePromise = deleteExternal("google", "direct", () => deleteGoogleEvent(user.id, gcalEventId));
+    } else if (composioGoogle) {
+      googleDeletePromise = deleteExternal("google", "composio", () =>
+        deleteComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, gcalEventId),
+      );
     } else {
       missingCleanupConnection = true;
     }
   }
 
-  const cleanupResults = await Promise.all(
-    cleanupTasks.map(async (task) => {
-      try {
-        return { provider: task.provider, transport: task.transport, ok: await task.run() };
-      } catch {
-        return { provider: task.provider, transport: task.transport, ok: false };
-      }
-    }),
-  );
-  for (const result of cleanupResults.filter((r) => !r.ok)) {
-    Sentry.captureException(new Error("Schedule calendar event cleanup failed"), {
-      tags: { area: "schedule", op: "delete_external_event", provider: result.provider, transport: result.transport },
-      extra: { eventId },
-    });
+  let outlookDeletePromise: Promise<CalendarDeleteResult> = Promise.resolve({ ok: true });
+  if (row.outlook_event_id) {
+    const outlookEventId = row.outlook_event_id;
+    if (legacyProviders.has("outlook")) {
+      outlookDeletePromise = deleteExternal("outlook", "direct", () => deleteOutlookEvent(user.id, outlookEventId));
+    } else if (composioOutlook) {
+      outlookDeletePromise = deleteExternal("outlook", "composio", () =>
+        deleteComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, outlookEventId),
+      );
+    } else {
+      missingCleanupConnection = true;
+    }
   }
+
+  const [googleDelete, outlookDelete] = await Promise.all([googleDeletePromise, outlookDeletePromise]);
+
+  const errors = [
+    ...(googleDelete.error ? [googleDelete.error] : []),
+    ...(outlookDelete.error ? [outlookDelete.error] : []),
+  ];
 
   const { error: deleteError } = await supabase
     .from("schedule_events")
@@ -195,8 +227,28 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Could not delete event" }, { status: 500 });
   }
 
+  for (const error of errors) {
+    Sentry.captureException(new Error("Schedule calendar event cleanup failed"), {
+      tags: {
+        area: "schedule",
+        op: "delete_external_event",
+        provider: error.source,
+        transport: error.transport,
+      },
+      extra: { eventId },
+    });
+  }
+
+  const calendarCleanupFailed = missingCleanupConnection || errors.length > 0;
+  logRouteTiming("/api/calendar/event/[id]", routeStartedAt, {
+    ok: !calendarCleanupFailed,
+    partial: calendarCleanupFailed,
+  });
+
   return NextResponse.json({
     ok: true,
-    calendarCleanupFailed: missingCleanupConnection || cleanupResults.some((r) => !r.ok),
+    partial: calendarCleanupFailed,
+    errors,
+    calendarCleanupFailed,
   });
 }

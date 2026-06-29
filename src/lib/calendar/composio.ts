@@ -50,6 +50,12 @@ export type ComposioCalendarAccount = {
   connectedAccountId: string;
 };
 
+function composioCalendarError(operation: string): Error & { status: number } {
+  const err = new Error(`Composio Calendar ${operation} failed`) as Error & { status: number };
+  err.status = 502;
+  return err;
+}
+
 export async function listComposioCalendarAccounts(userId: string): Promise<ComposioCalendarAccount[]> {
   const supabase = await createClient();
   // NOTE: don't gate this on account_label being resolved. The label (the
@@ -132,7 +138,7 @@ export async function listComposioEvents(
         ? { calendarId: "primary", timeMin, timeMax, orderBy: "startTime" }
         : { filter: `start/dateTime ge '${timeMin}' and end/dateTime le '${timeMax}'`, orderby: ["start/dateTime"] },
   });
-  if (!res.successful) return [];
+  if (!res.successful) throw composioCalendarError("list_events");
   const data = res.data as Record<string, unknown>;
   const rawItems = (data.items ?? data.value ?? []) as Record<string, unknown>[];
   const normalize = toolkit === "googlecalendar" ? normalizeGcalEvent : normalizeOutlookCalEvent;
@@ -179,7 +185,7 @@ export async function createComposioEvent(
     };
   }
   const res = await executeTool({ toolSlug: CREATE_EVENT_TOOL[toolkit], connectedAccountId, userId, arguments: args });
-  if (!res.successful) return null;
+  if (!res.successful) throw composioCalendarError("create_event");
   const data = res.data as Record<string, unknown>;
   return (data.id as string) ?? null;
 }
@@ -199,7 +205,8 @@ export async function deleteComposioEvent(
         ? { calendar_id: "primary", event_id: externalEventId }
         : { event_id: externalEventId },
   });
-  return res.successful;
+  if (!res.successful) throw composioCalendarError("delete_event");
+  return true;
 }
 
 // Google Calendar only — Outlook has no confirmed free/busy tool slug, so
@@ -217,7 +224,7 @@ export async function queryFreeBusy(
     userId,
     arguments: { timeMin, timeMax, items: [{ id: "primary" }] },
   });
-  if (!res.successful) return [];
+  if (!res.successful) throw composioCalendarError("free_busy");
   const data = res.data as Record<string, unknown>;
   const calendars = data.calendars as Record<string, { busy?: Array<{ start: string; end: string }> }> | undefined;
   return calendars?.primary?.busy ?? [];
@@ -235,7 +242,7 @@ export async function findFreeSlots(
     userId,
     arguments: { items: ["primary"], time_min: timeMin, time_max: timeMax, timezone: "UTC" },
   });
-  if (!res.successful) return [];
+  if (!res.successful) throw composioCalendarError("find_free_slots");
   const data = res.data as Record<string, unknown>;
   const slots = (data.free_slots ?? data.slots ?? data.items ?? []) as Record<string, unknown>[];
   return slots

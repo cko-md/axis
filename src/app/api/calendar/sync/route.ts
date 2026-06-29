@@ -3,6 +3,36 @@ import { createClient } from "@/lib/supabase/server";
 import { createGoogleEvent } from "@/lib/calendar/google";
 import { createOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, createComposioEvent } from "@/lib/calendar/composio";
+import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
+
+type CalendarSyncError = {
+  source: "google" | "outlook";
+  transport: "direct" | "composio";
+  code: "timeout" | "network" | "provider_error";
+  message: string;
+};
+type CalendarSyncResult = { id: string | null; error?: CalendarSyncError };
+
+function statusFrom(error: unknown): number | undefined {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = (error as { status: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+  return undefined;
+}
+
+function syncError(source: "google" | "outlook", transport: "direct" | "composio", error: unknown): CalendarSyncError {
+  const status = statusFrom(error);
+  const isTimeout = error instanceof Error && (error.name === "ProviderTimeoutError" || error.name === "TimeoutError");
+  return {
+    source,
+    transport,
+    code: isTimeout ? "timeout" : status && status >= 500 ? "provider_error" : "network",
+    message: isTimeout
+      ? `${source === "google" ? "Google Calendar" : "Outlook"} sync timed out.`
+      : `${source === "google" ? "Google Calendar" : "Outlook"} sync failed.`,
+  };
+}
 
 // POST /api/calendar/sync
 // Creates the given schedule_event in all connected calendars and
@@ -10,6 +40,7 @@ import { listComposioCalendarAccounts, createComposioEvent } from "@/lib/calenda
 // direct-OAuth calendars are preferred over Composio-connected ones for
 // the same provider, to avoid creating the event twice in the same calendar.
 export async function POST(req: NextRequest) {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
@@ -35,18 +66,48 @@ export async function POST(req: NextRequest) {
   const composioGoogle = !legacyProviders.has("google") && composioAccounts.find((a) => a.provider === "googlecalendar");
   const composioOutlook = !legacyProviders.has("outlook") && composioAccounts.find((a) => a.provider === "outlook");
 
-  const [gcalId, outlookId] = await Promise.all([
+  async function syncSource(
+    source: "google" | "outlook",
+    transport: "direct" | "composio",
+    operation: () => Promise<string | null>,
+  ): Promise<CalendarSyncResult> {
+    try {
+      const id = await timedProviderOperation(
+        {
+          area: "calendar",
+          provider: source,
+          transport,
+          operation: "create_event",
+          timeoutMs: 9_000,
+          slowMs: 2_000,
+        },
+        operation,
+      );
+      return { id };
+    } catch (error) {
+      return { id: null, error: syncError(source, transport, error) };
+    }
+  }
+
+  const [googleSync, outlookSync] = await Promise.all([
     legacyProviders.has("google")
-      ? createGoogleEvent(user.id, event).catch(() => null)
+      ? syncSource("google", "direct", () => createGoogleEvent(user.id, event))
       : composioGoogle
-        ? createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event).catch(() => null)
-        : Promise.resolve(null),
+        ? syncSource("google", "composio", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
+        : Promise.resolve<CalendarSyncResult>({ id: null }),
     legacyProviders.has("outlook")
-      ? createOutlookEvent(user.id, event).catch(() => null)
+      ? syncSource("outlook", "direct", () => createOutlookEvent(user.id, event))
       : composioOutlook
-        ? createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event).catch(() => null)
-        : Promise.resolve(null),
+        ? syncSource("outlook", "composio", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
+        : Promise.resolve<CalendarSyncResult>({ id: null }),
   ]);
+
+  const gcalId = googleSync.id;
+  const outlookId = outlookSync.id;
+  const errors = [
+    ...(googleSync.error ? [googleSync.error] : []),
+    ...(outlookSync.error ? [outlookSync.error] : []),
+  ];
 
   // Write IDs back — only update columns where sync succeeded
   const patch: Record<string, string> = {};
@@ -57,5 +118,11 @@ export async function POST(req: NextRequest) {
     await supabase.from("schedule_events").update(patch).eq("id", eventId).eq("user_id", user.id);
   }
 
-  return NextResponse.json({ gcalId, outlookId });
+  logRouteTiming("/api/calendar/sync", routeStartedAt, {
+    google: !!gcalId,
+    outlook: !!outlookId,
+    partial: errors.length > 0,
+  });
+
+  return NextResponse.json({ gcalId, outlookId, partial: errors.length > 0, errors });
 }

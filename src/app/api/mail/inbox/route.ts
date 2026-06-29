@@ -3,7 +3,21 @@ import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
 import type { MailMessage } from "@/lib/mail/gmail";
-import { adapterForAccount, toMailContext } from "@/lib/mail/adapters";
+import { adapterForAccount, mailErrorStatus, toMailContext } from "@/lib/mail/adapters";
+import {
+  ProviderTimeoutError,
+  logRouteTiming,
+  recordProviderFailure,
+  timedProviderOperation,
+} from "@/lib/observability/providerTiming";
+
+type MailInboxAccountError = {
+  provider: "gmail" | "outlook";
+  accountEmail: string;
+  transport: "direct" | "composio";
+  code: string;
+  message: string;
+};
 
 // GET /api/mail/inbox
 // Optional per-account pagination: ?account=email@x.com&provider=gmail&pageToken=...&skip=0
@@ -13,6 +27,7 @@ import { adapterForAccount, toMailContext } from "@/lib/mail/adapters";
 // this route no longer branches on gmail/outlook/composio. A single account's
 // failure is captured (Sentry) and skipped, never blanking the whole inbox.
 export async function GET(req: NextRequest) {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const {
     data: { user },
@@ -35,30 +50,89 @@ export async function GET(req: NextRequest) {
   const perAccount = await Promise.all(
     accountsToFetch.map(async (acct) => {
       const adapter = adapterForAccount(acct);
-      const result = await adapter.listInbox(toMailContext(user.id, acct), { pageToken, skip });
-      if (result.ok) return result.data.messages;
-      // Visible failure: capture but don't fail the whole request.
-      Sentry.captureException(new Error(result.error.message), {
-        tags: {
-          area: "mail",
-          op: "list_inbox",
-          provider: acct.provider,
-          transport: acct.via ?? "direct",
-          code: result.error.code,
-        },
-      });
-      return [] as MailMessage[];
+      const transport = acct.via === "composio" ? "composio" : "direct";
+      const timing = {
+        area: "mail",
+        provider: acct.provider,
+        transport,
+        operation: "list_inbox",
+        timeoutMs: 8_000,
+        slowMs: 2_000,
+      };
+      const accountStartedAt = Date.now();
+
+      try {
+        const result = await timedProviderOperation(timing, () =>
+          adapter.listInbox(toMailContext(user.id, acct), { pageToken, skip }),
+        );
+        if (result.ok) return { messages: result.data.messages };
+
+        recordProviderFailure(
+          timing,
+          {
+            code: result.error.code,
+            message: result.error.message,
+            status: result.error.status ?? mailErrorStatus(result.error.code),
+          },
+          Date.now() - accountStartedAt,
+        );
+        return {
+          messages: [] as MailMessage[],
+          error: {
+            provider: acct.provider,
+            accountEmail: acct.mailEmail,
+            transport,
+            code: result.error.code,
+            message: result.error.message,
+          } satisfies MailInboxAccountError,
+        };
+      } catch (error) {
+        const isTimeout = error instanceof ProviderTimeoutError;
+        Sentry.addBreadcrumb({
+          category: "mail.partial",
+          level: "warning",
+          message: "Inbox account skipped",
+          data: {
+            area: "mail",
+            provider: acct.provider,
+            transport,
+            code: isTimeout ? "timeout" : "network",
+          },
+        });
+        return {
+          messages: [] as MailMessage[],
+          error: {
+            provider: acct.provider,
+            accountEmail: acct.mailEmail,
+            transport,
+            code: isTimeout ? "timeout" : "network",
+            message: isTimeout
+              ? "This mailbox took too long to respond."
+              : "This mailbox could not be reached.",
+          } satisfies MailInboxAccountError,
+        };
+      }
     }),
   );
 
-  const all = perAccount.flat().sort((a, b) => {
+  const errors = perAccount.flatMap((result) => (result.error ? [result.error] : []));
+  const all = perAccount.flatMap((result) => result.messages).sort((a, b) => {
     const da = new Date(a.date).getTime();
     const db = new Date(b.date).getTime();
     return db - da;
   });
 
+  logRouteTiming("/api/mail/inbox", routeStartedAt, {
+    accounts: accountsToFetch.length,
+    messages: all.length,
+    partial: errors.length > 0,
+  });
+
   return NextResponse.json({
     messages: all,
     accounts: allAccounts,
+    partial: errors.length > 0,
+    errors,
+    fetchedAt: new Date().toISOString(),
   });
 }

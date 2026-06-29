@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
 import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
+import {
+  ProviderTimeoutError,
+  logRouteTiming,
+  recordProviderFailure,
+  timedProviderOperation,
+} from "@/lib/observability/providerTiming";
 
 // GET /api/mail/message/[id]?provider=gmail|outlook&email=user@example.com
 // Provider/transport selection is delegated to the mail adapter — this route
@@ -11,6 +16,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const routeStartedAt = Date.now();
   const { id } = await params;
   const provider = req.nextUrl.searchParams.get("provider");
   const email = req.nextUrl.searchParams.get("email");
@@ -34,15 +40,64 @@ export async function GET(
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
   const adapter = adapterForAccount(account);
-  const result = await adapter.getMessage(toMailContext(user.id, account), id);
+  const transport = account.via === "composio" ? "composio" : "direct";
+  const timing = {
+    area: "mail",
+    provider,
+    transport,
+    operation: "get_message",
+    timeoutMs: 10_000,
+    slowMs: 2_500,
+  };
+  const providerStartedAt = Date.now();
+  let result: Awaited<ReturnType<typeof adapter.getMessage>>;
+  try {
+    result = await timedProviderOperation(timing, () =>
+      adapter.getMessage(toMailContext(user.id, account), id),
+    );
+  } catch (error) {
+    const isTimeout = error instanceof ProviderTimeoutError;
+    logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+      provider,
+      transport,
+      ok: false,
+      code: isTimeout ? "timeout" : "network",
+    });
+    return NextResponse.json(
+      {
+        error: isTimeout
+          ? "Message took too long to load. Try again in a moment."
+          : "Message could not be loaded. Try again in a moment.",
+        code: isTimeout ? "timeout" : "network",
+      },
+      { status: isTimeout ? 504 : 502 },
+    );
+  }
 
-  if (result.ok) return NextResponse.json(result.data);
+  if (result.ok) {
+    logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+      provider,
+      transport,
+      ok: true,
+    });
+    return NextResponse.json(result.data);
+  }
 
   const status = mailErrorStatus(result.error.code);
-  if (status >= 500) {
-    Sentry.captureException(new Error(result.error.message), {
-      tags: { area: "mail", op: "get_message", provider, transport: account.via ?? "direct", code: result.error.code },
-    });
-  }
+  recordProviderFailure(
+    timing,
+    {
+      code: result.error.code,
+      message: result.error.message,
+      status: result.error.status ?? status,
+    },
+    Date.now() - providerStartedAt,
+  );
+  logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+    provider,
+    transport,
+    ok: false,
+    code: result.error.code,
+  });
   return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
 }

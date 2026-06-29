@@ -159,6 +159,7 @@ export function ScheduleModule() {
   const [showCalPicker, setShowCalPicker] = useState(false);
   const calBtnRef = useRef<HTMLDivElement>(null);
   const [externalEvents, setExternalEvents] = useState<ScheduleEvent[]>([]);
+  const [externalNotice, setExternalNotice] = useState<string | null>(null);
 
   const refreshComposioCalStatus = useCallback(() => {
     fetch("/api/integrations/composio/status")
@@ -281,11 +282,26 @@ export function ScheduleModule() {
   useEffect(() => {
     if (!hasGoogle && !hasOutlook) {
       setExternalEvents([]);
+      setExternalNotice(null);
       return;
     }
     fetch(`/api/calendar/external?start=${range.start.toISOString()}&end=${range.end.toISOString()}`)
       .then((r) => r.json())
-      .then((data: { events?: Array<{ externalId: string; title: string; start_at: string; end_at: string; description?: string | null; location?: string | null; attendees?: string[]; all_day: boolean; source: "google" | "outlook" }> }) => {
+      .then((data: {
+        events?: Array<{
+          externalId: string;
+          title: string;
+          start_at: string;
+          end_at: string;
+          description?: string | null;
+          location?: string | null;
+          attendees?: string[];
+          all_day: boolean;
+          source: "google" | "outlook";
+        }>;
+        partial?: boolean;
+        errors?: Array<{ source: "google" | "outlook"; message: string }>;
+      }) => {
         setExternalEvents(
           (data.events ?? []).map((e) => ({
             id: `ext-${e.source}-${e.externalId}`,
@@ -300,8 +316,14 @@ export function ScheduleModule() {
             source: e.source,
           })),
         );
+        if (data.partial && data.errors?.length) {
+          const sources = [...new Set(data.errors.map((e) => e.source === "google" ? "Google" : "Outlook"))].join(" and ");
+          setExternalNotice(`${sources} calendar refresh failed — showing available events.`);
+        } else {
+          setExternalNotice(null);
+        }
       })
-      .catch(() => setExternalEvents([]));
+      .catch(() => setExternalNotice("External calendars could not refresh — showing last loaded events."));
   }, [hasGoogle, hasOutlook, range]);
 
   const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
@@ -450,7 +472,12 @@ export function ScheduleModule() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId: inserted.id, title: form.title, start_at: start.toISOString(), end_at: end.toISOString() }),
-      }).catch(() => { toast("Event saved, but calendar sync failed.", "warn", "Schedule"); });
+      })
+        .then(async (r) => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || data.partial) toast("Event saved, but calendar sync was partial.", "warn", "Schedule");
+        })
+        .catch(() => { toast("Event saved, but calendar sync failed.", "warn", "Schedule"); });
     }
 
     // Context-aware conflict check — reads local + (if connected) Google
@@ -464,7 +491,8 @@ export function ScheduleModule() {
         body: JSON.stringify({ start_at: start.toISOString(), end_at: end.toISOString(), excludeEventId: inserted.id }),
       })
         .then((r) => r.json())
-        .then((data: { conflict?: boolean; conflictingTitles?: string[]; suggestions?: Array<{ start_at: string; end_at: string }> }) => {
+        .then((data: { conflict?: boolean; conflictingTitles?: string[]; suggestions?: Array<{ start_at: string; end_at: string }>; partial?: boolean }) => {
+          if (data.partial) toast("External conflict check was unavailable.", "warn", "Schedule");
           if (!data.conflict) return;
           const withWhat = data.conflictingTitles?.length ? ` with ${data.conflictingTitles.join(", ")}` : "";
           const next = data.suggestions?.[0];
@@ -660,6 +688,12 @@ export function ScheduleModule() {
           <button type="button" className={view === "day" ? "on" : ""} onClick={() => setView("day")}>DAY</button>
         </div>
       </div>
+
+      {externalNotice && (
+        <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--clay)" }}>
+          {externalNotice}
+        </p>
+      )}
 
       {view === "month" ? (
         <div className="cal">

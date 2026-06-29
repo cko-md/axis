@@ -4,7 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_LOCATION, type GeoLocation } from "@/lib/geo/default-location";
 import { getWidgetById } from "@/lib/store/widgets";
 
-export type WidgetData = { v: string; k: string; loading?: boolean; error?: boolean; raw?: Record<string, unknown> };
+export type WidgetData = {
+  v: string;
+  k: string;
+  loading?: boolean;
+  error?: boolean;
+  stale?: boolean;
+  fallback?: boolean;
+  updatedAt?: string;
+  raw?: Record<string, unknown>;
+};
 
 /** Outcome of the last geolocation request — lets callers surface denial/
  *  unavailability to the user instead of silently sitting on the fallback. */
@@ -18,6 +27,10 @@ const FETCHERS: Record<string, string> = {
   markets: "/api/widgets/markets",
   run: "/api/widgets/training",
 };
+
+function staleHint(hint: string) {
+  return hint.endsWith(" · refresh failed") ? hint : `${hint} · refresh failed`;
+}
 
 export function useWidgetData(widgetIds: string[], locationEnabled = false) {
   const [data, setData] = useState<Record<string, WidgetData>>({});
@@ -63,16 +76,53 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
         setData((d) => ({ ...d, [id]: { v: w.value, k: w.hint } }));
         return;
       }
-      setData((d) => ({ ...d, [id]: { v: "…", k: "Loading", loading: true } }));
+      setData((d) => {
+        const previous = d[id];
+        return {
+          ...d,
+          [id]: previous
+            ? { ...previous, loading: true }
+            : { v: "…", k: "Loading", loading: true },
+        };
+      });
       try {
         const geo = geoRef.current;
         const q = new URLSearchParams({ lat: String(geo.lat), lon: String(geo.lon), name: geo.name });
         const res = await fetch(`${path}?${q}`, { signal });
-        const json = await res.json();
-        setData((d) => ({ ...d, [id]: { v: json.value, k: json.hint, raw: json.raw } }));
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((json as { error?: string }).error ?? `Widget ${id} failed`);
+        const payload = json as { value?: string; hint?: string; raw?: Record<string, unknown>; fallback?: boolean; error?: boolean };
+        setData((d) => ({
+          ...d,
+          [id]: {
+            v: payload.value ?? w.value,
+            k: payload.hint ?? w.hint,
+            raw: payload.raw,
+            fallback: !!payload.fallback,
+            error: !!payload.error,
+            stale: false,
+            loading: false,
+            updatedAt: new Date().toISOString(),
+          },
+        }));
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setData((d) => ({ ...d, [id]: { v: w.value, k: w.hint, error: true } }));
+        setData((d) => {
+          const previous = d[id];
+          return {
+            ...d,
+            [id]: {
+              v: previous?.v ?? w.value,
+              k: previous ? staleHint(previous.k) : w.hint,
+              raw: previous?.raw,
+              fallback: previous?.fallback,
+              error: true,
+              stale: !!previous,
+              loading: false,
+              updatedAt: previous?.updatedAt,
+            },
+          };
+        });
       }
     },
     // getWidgetById is a stable module-level import

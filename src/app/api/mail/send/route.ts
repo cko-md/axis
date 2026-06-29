@@ -3,6 +3,12 @@ import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts, type MailProvider } from "@/lib/mail/tokens";
 import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
+import {
+  ProviderTimeoutError,
+  logRouteTiming,
+  recordProviderFailure,
+  timedProviderOperation,
+} from "@/lib/observability/providerTiming";
 
 interface SendPayload {
   to: string;
@@ -20,6 +26,7 @@ interface SendPayload {
 // Provider/transport selection + RFC2822/threading is delegated to the mail
 // adapter. Reply (inReplyTo present) vs new message is chosen here generically.
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -49,14 +56,65 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const adapter = adapterForAccount(account);
   const ctx = toMailContext(user.id, account);
+  const transport = account.via === "composio" ? "composio" : "direct";
+  const operation = inReplyTo ? "reply" : "send";
+  const timing = {
+    area: "mail",
+    provider,
+    transport,
+    operation,
+    timeoutMs: 12_000,
+    slowMs: 3_000,
+  };
+  const providerStartedAt = Date.now();
 
-  const result = inReplyTo
-    ? await adapter.replyToMessage(ctx, { to, subject, body, inReplyTo, references, threadId })
-    : await adapter.sendMessage(ctx, { to, subject, body });
+  let result: Awaited<ReturnType<typeof adapter.sendMessage>>;
+  try {
+    result = await timedProviderOperation(timing, () =>
+      inReplyTo
+        ? adapter.replyToMessage(ctx, { to, subject, body, inReplyTo, references, threadId })
+        : adapter.sendMessage(ctx, { to, subject, body }),
+    );
+  } catch (error) {
+    const isTimeout = error instanceof ProviderTimeoutError;
+    logRouteTiming("/api/mail/send", routeStartedAt, {
+      provider,
+      transport,
+      ok: false,
+      code: isTimeout ? "timeout" : "network",
+    });
+    return NextResponse.json(
+      {
+        error: isTimeout
+          ? "Mail provider took too long to send. Check Sent before retrying."
+          : "Mail provider could not be reached. Message was not sent.",
+        code: isTimeout ? "timeout" : "network",
+      },
+      { status: isTimeout ? 504 : 502 },
+    );
+  }
 
-  if (result.ok) return NextResponse.json({ ok: true, warning: result.data.warning });
+  if (result.ok) {
+    logRouteTiming("/api/mail/send", routeStartedAt, { provider, transport, ok: true });
+    return NextResponse.json({ ok: true, warning: result.data.warning });
+  }
 
   const status = mailErrorStatus(result.error.code);
+  recordProviderFailure(
+    timing,
+    {
+      code: result.error.code,
+      message: result.error.message,
+      status: result.error.status ?? status,
+    },
+    Date.now() - providerStartedAt,
+  );
+  logRouteTiming("/api/mail/send", routeStartedAt, {
+    provider,
+    transport,
+    ok: false,
+    code: result.error.code,
+  });
   if (status >= 500) {
     Sentry.captureException(new Error(result.error.message), {
       tags: {
@@ -64,7 +122,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         route: "/api/mail/send",
         op: inReplyTo ? "reply" : "send",
         provider,
-        transport: account.via ?? "direct",
+        transport,
         code: result.error.code,
         status: String(status),
       },
