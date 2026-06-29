@@ -77,6 +77,7 @@ function normalizeGcalEvent(e: Record<string, unknown>): ExternalCalendarEvent |
   if (!id || e.status === "cancelled") return null;
   const start = e.start as { dateTime?: string; date?: string } | undefined;
   const end = e.end as { dateTime?: string; date?: string } | undefined;
+  const attendees = (e.attendees as Array<{ displayName?: string; email?: string }> | undefined) ?? [];
   const startVal = start?.dateTime ?? start?.date;
   const endVal = end?.dateTime ?? end?.date;
   if (!startVal || !endVal) return null;
@@ -86,6 +87,10 @@ function normalizeGcalEvent(e: Record<string, unknown>): ExternalCalendarEvent |
     start_at: startVal,
     end_at: endVal,
     description: (e.description as string) ?? null,
+    location: (e.location as string) ?? null,
+    attendees: attendees
+      .map((attendee) => attendee.displayName || attendee.email)
+      .filter((attendee): attendee is string => !!attendee),
     all_day: !start?.dateTime,
   };
 }
@@ -94,6 +99,8 @@ function normalizeOutlookCalEvent(e: Record<string, unknown>): ExternalCalendarE
   const id = e.id as string | undefined;
   const start = e.start as { dateTime?: string } | undefined;
   const end = e.end as { dateTime?: string } | undefined;
+  const location = e.location as { displayName?: string } | undefined;
+  const attendees = (e.attendees as Array<{ emailAddress?: { name?: string; address?: string } }> | undefined) ?? [];
   if (!id || !start?.dateTime || !end?.dateTime) return null;
   return {
     externalId: id,
@@ -101,6 +108,10 @@ function normalizeOutlookCalEvent(e: Record<string, unknown>): ExternalCalendarE
     start_at: `${start.dateTime}Z`,
     end_at: `${end.dateTime}Z`,
     description: (e.bodyPreview as string) ?? null,
+    location: location?.displayName ?? null,
+    attendees: attendees
+      .map((attendee) => attendee.emailAddress?.name || attendee.emailAddress?.address)
+      .filter((attendee): attendee is string => !!attendee),
     all_day: !!e.isAllDay,
   };
 }

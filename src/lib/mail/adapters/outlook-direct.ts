@@ -6,6 +6,7 @@ import {
   getOutlookMessage,
 } from "../outlook";
 import type { MailMessage, MailMessageFull } from "../gmail";
+import { normalizeMailDate } from "../dates";
 import { getFreshMailAccessToken } from "../tokens";
 import {
   ok,
@@ -147,7 +148,7 @@ export const outlookDirectAdapter: MailAdapter = {
       threadId: (m.conversationId as string) ?? m.id,
       from: formatSender(m),
       subject: (m.subject as string) || "(no subject)",
-      date: (m.receivedDateTime as string) ?? "",
+      date: normalizeMailDate(m.receivedDateTime),
       snippet: (m.bodyPreview as string) ?? "",
       isUnread: m.isRead === false,
       provider: "outlook",

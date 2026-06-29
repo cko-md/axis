@@ -1,13 +1,14 @@
 import crypto from "crypto";
+import { optionalEnv } from "@/lib/env";
 
 /**
  * Plaid credential and host helpers — shared across plaid routes.
  * Extracted here so that route.ts files only export valid HTTP verb handlers.
  */
 export function getPlaidCreds() {
-  const clientId = process.env.PLAID_CLIENT_ID;
-  const secret = process.env.PLAID_SECRET;
-  const env = process.env.PLAID_ENV || "sandbox";
+  const clientId = optionalEnv("PLAID_CLIENT_ID");
+  const secret = optionalEnv("PLAID_SECRET");
+  const env = optionalEnv("PLAID_ENV") || "sandbox";
   if (!clientId || !secret) return null;
   return { clientId, secret, env };
 }
