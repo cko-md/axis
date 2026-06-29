@@ -3,6 +3,7 @@
 Issue: KEV-25 - Latency: cache-first and partial-failure pass for Mail Console Schedule and Fund
 
 Date: 2026-06-28
+Follow-up: 2026-06-29
 
 ## Scope
 
@@ -47,6 +48,30 @@ This pass intentionally avoided schema changes and large cache migrations. The g
 - Replaced fake weather/AQI fallback readings with explicit unavailable states.
 - Updated Schedule external calendar reads, sync, conflict checks, and cleanup to return/display partial failure states.
 - Updated Fund market movers/news, cashflow, spending, sparklines, and Plaid balance status to preserve partial data and surface refresh failures.
+
+## 2026-06-29 Follow-up
+
+This follow-up kept the same low-risk/no-migration scope and closed remaining
+timeout/observability gaps found after PR #28:
+
+- Mail mutation actions (`mark-read`, `mark-unread`, `archive`, `delete`) now
+  use `timedProviderOperation`, route timing logs, and safe Sentry metadata.
+- Public.com brokerage read routes (`accounts`, `order-history`, `positions`)
+  and the disabled live-order scaffold now use `timedProviderFetch` instead of
+  raw provider `fetch`, with route timing and without logging upstream response
+  bodies.
+- Plaid background transaction sync and finance-daily balance reads now use
+  `timedProviderFetch`, so slow Plaid calls time out and emit provider
+  breadcrumbs/errors instead of hanging cron/webhook work.
+- The shared Fund Plaid client hook now applies client-side request timeouts for
+  status, balance, link-token, and exchange calls. Existing balances are
+  preserved on refresh failure and Link startup failures show a visible toast.
+
+Still intentionally deferred:
+
+- Persistent cache tables and cache-first migrations.
+- Background queue/retry workers.
+- A wider Public.com provider abstraction.
 
 ## Deferred Work
 
