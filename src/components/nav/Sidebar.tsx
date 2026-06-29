@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   DndContext,
@@ -19,41 +18,20 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useRef } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
 import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_NAV } from "@/lib/store/nav";
 import type { NavGroup } from "@/lib/store/nav";
-import { Modal } from "@/components/ui/Modal";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
-import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection";
+import { UrlModules } from "@/components/nav/UrlModules";
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
 const NAV_ORDER_KEY       = "axis-nav-order";
 const NAV_GROUP_ORDER_KEY = "axis-nav-group-order";
 const NAV_LABELS_KEY      = "axis-nav-labels";
 const NAV_GROUP_LABELS_KEY = "axis-nav-group-labels";
-const URL_MODULES_KEY     = "axis-url-modules";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-type UrlModule = { id: string; name: string; url: string };
-
-const STEP2CK: UrlModule = { id: "step2ck", name: "Step 2 CK Bank", url: "https://step2ck.bank/dashboard" };
-
-// ─── URL-module helpers ───────────────────────────────────────────────────────
-function loadUrlModules(): UrlModule[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem(URL_MODULES_KEY) ?? "[]"); }
-  catch { return []; }
-}
-
-function normalizeUrl(raw: string): string | null {
-  const v = raw.trim();
-  if (!v) return null;
-  const withProto = /^https?:\/\//i.test(v) ? v : `https://${v}`;
-  try { return new URL(withProto).toString(); }
-  catch { return null; }
-}
 
 // ─── Order / label helpers ────────────────────────────────────────────────────
 function loadNavOrder(): Record<string, string[]> {
@@ -220,10 +198,8 @@ function InlineRename({
       onKeyDown={(e) => {
         if (e.key === "Enter") { e.preventDefault(); commit(); }
         if (e.key === "Escape") { e.preventDefault(); onCancel(); }
-        // prevent dnd-kit from intercepting keyboard
         e.stopPropagation();
       }}
-      // stop clicks inside from bubbling to Link/button
       onClick={(e) => e.preventDefault()}
       style={{
         background: "none",
@@ -261,6 +237,7 @@ function SortableNavItem({
     useSortable({ id: item.href });
 
   const [renaming, setRenaming] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -268,9 +245,6 @@ function SortableNavItem({
     opacity: isDragging ? 0.4 : 1,
     position: "relative" as const,
   };
-
-  // We need hover state to reveal the grip
-  const [hovered, setHovered] = useState(false);
 
   return (
     <div
@@ -284,7 +258,6 @@ function SortableNavItem({
         href={item.href}
         className={`navitem${active ? " active" : ""}`}
         title={item.title ?? item.label}
-        // prevent navigation while renaming
         onClick={renaming ? (e) => e.preventDefault() : undefined}
       >
         {!collapsed && (
@@ -438,25 +411,15 @@ type Props = {
 export function Sidebar({ collapsed, onToggle }: Props) {
   const pathname = usePathname();
   const router = useRouter();
-  const { toast } = useToast();
 
   const { open: openWebViewer } = useWebViewer();
-  const [urlModules, setUrlModules] = useState<UrlModule[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
-  const [formName, setFormName] = useState("");
-  const [formUrl, setFormUrl] = useState("");
+  const spotify = useSpotify();
+
+  const [profileName, setProfileName] = useState<string | undefined>(undefined);
 
   const [nav, setNav] = useState(DEFAULT_NAV);
   const [navLabels, setNavLabels] = useState<Record<string, string>>({});
   const [groupLabels, setGroupLabels] = useState<Record<string, string>>({});
-
-  const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState({ name: "", role: "", bio: "", photo: "" });
-  const [profileSaving, setProfileSaving] = useState(false);
-  const photoInputRef = useRef<HTMLInputElement>(null);
-  const spotify = useSpotify();
-  const supabase = useMemo(() => createClient(), []);
 
   const [sunHour, setSunHour] = useState(() => {
     const d = new Date();
@@ -471,7 +434,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  // Load all persisted state on mount
+  // Load all persisted nav state on mount
   useEffect(() => {
     const order = loadNavOrder();
     const groupOrder = loadNavGroupOrder();
@@ -479,97 +442,14 @@ export function Sidebar({ collapsed, onToggle }: Props) {
     setNav(applyGroupOrder(ordered, groupOrder));
     setNavLabels(loadNavLabels());
     setGroupLabels(loadNavGroupLabels());
-    setUrlModules(loadUrlModules());
   }, []);
 
-  // ── Profile ────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setProfile(null); return; }
-      const { data } = await supabase
-        .from("profiles")
-        .select("display_name, role_title, bio, avatar_url")
-        .eq("id", user.id)
-        .maybeSingle();
-      const name = data?.display_name || user.email?.split("@")[0] || "Account";
-      const role = data?.role_title || user.email || "";
-      setProfile({ name, role });
-      setProfileForm({
-        name,
-        role,
-        bio: data?.bio ?? "",
-        photo: data?.avatar_url ?? "",
-      });
-    })();
-  }, [supabase]);
-
-  const saveProfile = async () => {
-    setProfileSaving(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await supabase.from("profiles").upsert({
-        id: user.id,
-        display_name: profileForm.name.trim(),
-        role_title: profileForm.role.trim(),
-        bio: profileForm.bio.trim(),
-        avatar_url: profileForm.photo.trim(),
-        updated_at: new Date().toISOString(),
-      });
-      setProfile({ name: profileForm.name.trim() || "Account", role: profileForm.role.trim() });
-      setProfileOpen(false);
-      toast("Profile saved", "success", "Profile");
-    } catch {
-      toast("Could not save profile", "error", "Profile");
-    } finally {
-      setProfileSaving(false);
-    }
-  };
-
-  const handlePhotoFile = async (file: File) => {
-    if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
-    // Optimistic preview via object URL while uploading
-    const preview = URL.createObjectURL(file);
-    setProfileForm((p) => ({ ...p, photo: preview }));
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
-      const json = await res.json() as { url?: string; error?: string };
-      if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
-      setProfileForm((p) => ({ ...p, photo: json.url! }));
-    } catch {
-      toast("Photo upload failed", "error", "Profile");
-      setProfileForm((p) => ({ ...p, photo: "" }));
-    } finally {
-      URL.revokeObjectURL(preview);
-    }
-  };
-
   const signOut = async () => {
+    const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
   };
-
-  // ── URL modules ────────────────────────────────────────────────────────────
-  const persistModules = (mods: UrlModule[]) => {
-    setUrlModules(mods);
-    try { localStorage.setItem(URL_MODULES_KEY, JSON.stringify(mods)); }
-    catch { /* ignore */ }
-  };
-
-  const addModule = () => {
-    const url = normalizeUrl(formUrl);
-    if (!url) { toast("Enter a valid URL", "warn", "Add Module"); return; }
-    const name = formName.trim() || new URL(url).host.replace(/^www\./, "");
-    persistModules([...urlModules, { id: `m${Date.now().toString(36)}`, name, url }]);
-    setFormName(""); setFormUrl(""); setAddOpen(false);
-    toast(`${name} added to Apps`, "success", "Add Module");
-  };
-
-  const removeModule = (id: string) => persistModules(urlModules.filter((m) => m.id !== id));
 
   // ── Item reorder ───────────────────────────────────────────────────────────
   const handleItemReorder = (section: string, fromIndex: number, toIndex: number) => {
@@ -578,7 +458,6 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         if (g.section !== section) return g;
         return { ...g, items: arrayMove(g.items, fromIndex, toIndex) };
       });
-      // Persist
       const order = loadNavOrder();
       const group = next.find((g) => g.section === section);
       if (group) order[section] = group.items.map((i) => i.href);
@@ -652,7 +531,6 @@ export function Sidebar({ collapsed, onToggle }: Props) {
                   <circle cx={mx} cy={my} r="6" fill="rgba(180,210,255,.16)" className="moon-aura" />
                   <circle cx={mx} cy={my} r="2.2" fill="#d4e8ff" />
                 </>}
-                {/* logo stars — fade in at dusk, fade out at dawn */}
                 {(() => {
                   const op = sunHour >= 20 || sunHour < 4 ? 1 :
                     sunHour >= 18 ? (sunHour - 18) / 2 :
@@ -677,9 +555,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         {!collapsed && (
           <div className="wordmark">
             AXIS
-            <sup className="tm">[{profile?.name
-              ? profile.name.trim().split(/\s+/).filter(Boolean).map((p) => p[0].toUpperCase()).join("").slice(0, 3) || "CKO"
-              : "CKO"}]</sup>
+            <sup className="tm">[{profileInitials(profileName)}]</sup>
           </div>
         )}
         <button type="button" className="toggle" onClick={onToggle} title="Collapse sidebar">
@@ -716,81 +592,10 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           </SortableContext>
         </DndContext>
 
-        {/* Apps section — static, not sortable */}
-        {!collapsed && (
-          <div className="navlabel" style={{ display: "flex", alignItems: "center" }}>
-            <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />
-            Apps
-          </div>
-        )}
-        {collapsed && <div style={{ height: 1, background: "var(--line)", margin: "12px 8px" }} />}
-
-        <button
-          type="button"
-          className="navitem"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
-          onClick={() => openWebViewer(STEP2CK.url, STEP2CK.name)}
-          title="Step 2 CK Bank"
-        >
-          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
-          <NavIcon name="app" />
-          {!collapsed && <span className="lbl">Step 2 CK Bank</span>}
-          {!collapsed && <span className="ix">↗</span>}
-        </button>
-
-        {urlModules.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            className="navitem url-module"
-            style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
-            onClick={() => openWebViewer(m.url, m.name)}
-            title={m.url}
-          >
-            {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
-            <NavIcon name="app" />
-            {!collapsed && <span className="lbl">{m.name}</span>}
-            {!collapsed && (
-              <span
-                className="ix url-module-x"
-                role="button"
-                tabIndex={0}
-                title="Remove module"
-                onClick={(e) => { e.stopPropagation(); removeModule(m.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeModule(m.id); } }}
-              >
-                ✕
-              </span>
-            )}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          className="navitem"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
-          onClick={() => setAddOpen(true)}
-          title="Add a module by URL"
-        >
-          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
-          <NavIcon name="add" />
-          {!collapsed && <span className="lbl">Add Module</span>}
-        </button>
-
-        <button
-          type="button"
-          className="navitem"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
-          onClick={() => toast("New boards are coming — drag-and-drop board builder is next.", "info", "Boards")}
-          title="New Board"
-        >
-          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
-          <NavIcon name="board" />
-          {!collapsed && <span className="lbl">New Board</span>}
-          {!collapsed && <span className="ix">✦</span>}
-        </button>
+        <UrlModules collapsed={collapsed} openWebViewer={openWebViewer} />
       </nav>
 
+      {/* Spotify strip */}
       <Link href="/listening-vault" className="spotify" title="Open Listening Vault">
         <div className="sp-art">
           <svg viewBox="0 0 24 24">
@@ -818,175 +623,10 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         </div>
       </Link>
 
+      {/* Profile section (sidefoot + modal) */}
       {!collapsed && (
-        <div className="sidefoot">
-          {profile ? (
-            <div className="profile" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => setProfileOpen(true)} title="Edit profile">
-              {profileForm.photo ? (
-                <Image src={profileForm.photo} alt={profile.name} width={32} height={32} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} unoptimized={profileForm.photo.startsWith("blob:")} />
-              ) : (
-                <div className="avatar">{profile.name[0]?.toUpperCase() ?? "A"}</div>
-              )}
-              <div className="pmeta">
-                <div className="pn">{profile.name}</div>
-                <div className="pr">{profile.role}</div>
-              </div>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); void signOut(); }}
-                title="Sign out"
-                aria-label="Sign out"
-                style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", padding: 4 }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 14, height: 14 }}>
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-                </svg>
-              </button>
-            </div>
-          ) : (
-            <Link href="/login" className="profile">
-              <div className="avatar">→</div>
-              <div className="pmeta">
-                <div className="pn">Sign in</div>
-                <div className="pr">Sync across devices</div>
-              </div>
-            </Link>
-          )}
-        </div>
+        <ProfileSection onSignOut={signOut} onProfileName={setProfileName} />
       )}
-
-      <Modal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add Module"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={addModule}>Add to Apps</Button>
-          </>
-        }
-      >
-        <p className="mb-4 text-xs text-[var(--ink-dim)]">
-          Pin any web app or tool as a near-fullscreen module. It opens in an embedded window with a one-click escape to a full browser tab.
-        </p>
-        <label className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-[var(--ink-faint)]">Name</label>
-        <input
-          value={formName}
-          onChange={(e) => setFormName(e.target.value)}
-          placeholder="e.g. UWorld, Anki, ClinicalKey"
-          className="mb-3 w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
-        />
-        <label className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-[var(--ink-faint)]">URL</label>
-        <input
-          value={formUrl}
-          onChange={(e) => setFormUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addModule()}
-          placeholder="uworld.com"
-          className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
-        />
-      </Modal>
-
-      {/* Profile modal */}
-      <Modal
-        open={profileOpen}
-        onClose={() => setProfileOpen(false)}
-        title="Profile"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setProfileOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => void saveProfile()} disabled={profileSaving}>
-              {profileSaving ? "Saving…" : "Save"}
-            </Button>
-          </>
-        }
-      >
-        {/* Avatar upload */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
-          <div
-            style={{
-              width: 72, height: 72, borderRadius: "50%", border: "2px solid var(--line)",
-              background: "var(--surface-2)", overflow: "hidden", flexShrink: 0,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 26, color: "var(--ink-faint)", cursor: "pointer",
-            }}
-            onClick={() => photoInputRef.current?.click()}
-            title="Click to change photo"
-          >
-            {profileForm.photo ? (
-              <img
-                src={profileForm.photo}
-                alt="Avatar"
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-              />
-            ) : (
-              profileForm.name?.[0]?.toUpperCase() ?? "?"
-            )}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <button
-              type="button"
-              onClick={() => photoInputRef.current?.click()}
-              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "5px 12px", fontSize: 12, color: "var(--ink)", cursor: "pointer", fontFamily: "var(--narrow)", letterSpacing: ".05em" }}
-            >
-              Upload Photo
-            </button>
-            {profileForm.photo && (
-              <button
-                type="button"
-                onClick={() => setProfileForm((p) => ({ ...p, photo: "" }))}
-                style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--ink-faint)", cursor: "pointer", textAlign: "left" }}
-              >
-                Remove
-              </button>
-            )}
-          </div>
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); e.target.value = ""; }}
-          />
-        </div>
-
-        {(["name", "role"] as const).map((field) => (
-          <div key={field} style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
-              {field === "name" ? "Display Name" : "Role / Title"}
-            </label>
-            <input
-              value={profileForm[field]}
-              onChange={(e) => setProfileForm((p) => ({ ...p, [field]: e.target.value }))}
-              placeholder={field === "name" ? "Your name" : "Resident Physician, Neurosurgery"}
-              className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
-            />
-          </div>
-        ))}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
-            Bio
-          </label>
-          <textarea
-            value={profileForm.bio}
-            onChange={(e) => setProfileForm((p) => ({ ...p, bio: e.target.value }))}
-            placeholder="A short bio or description…"
-            rows={3}
-            style={{ width: "100%", padding: "8px 12px", borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 13, resize: "vertical", outline: "none" }}
-          />
-        </div>
-        <div>
-          <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
-            Photo URL (optional override)
-          </label>
-          <input
-            value={profileForm.photo.startsWith("data:") ? "" : profileForm.photo}
-            onChange={(e) => setProfileForm((p) => ({ ...p, photo: e.target.value }))}
-            placeholder="https://…"
-            className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
-          />
-        </div>
-      </Modal>
     </aside>
   );
 }
