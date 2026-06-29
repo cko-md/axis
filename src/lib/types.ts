@@ -24,6 +24,8 @@ export type ScheduleEvent = {
   id: string;
   title: string;
   description?: string | null;
+  location?: string | null;
+  attendees?: string[];
   start_at: string;
   end_at: string;
   color_class: "a" | "b" | "c" | "or";

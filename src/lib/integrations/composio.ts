@@ -3,6 +3,8 @@
 // name + Composio's `connected_account_id` + status, mapped 1:1 to our
 // Supabase `auth.users.id` as Composio's `user_id`. Real API host (verified
 // live): backend.composio.dev — NOT api.composio.dev, which doesn't resolve.
+import { optionalEnv } from "@/lib/env";
+
 const COMPOSIO_BASE = "https://backend.composio.dev/api/v3";
 
 // Toolkits the app's connect/execute routes will broker. Extend as more
@@ -36,7 +38,7 @@ export class ComposioError extends Error {
 }
 
 function getApiKey(): string {
-  const key = process.env.COMPOSIO_API_KEY;
+  const key = optionalEnv("COMPOSIO_API_KEY");
   if (!key) throw new ComposioError("COMPOSIO_API_KEY is not configured", 503);
   return key;
 }

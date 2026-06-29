@@ -93,7 +93,6 @@ describe("getCapabilities()", () => {
 
   it("returns undefined for unknown transport", () => {
     // Transport not in the capabilities record
-    const unknownTransport = "unknown-transport" as IntegrationTransport;
-    expect(getCapabilities("mail", "gmail", unknownTransport)).toBeUndefined();
+    expect(getCapabilities("mail", "gmail", "unknown-transport" as IntegrationTransport)).toBeUndefined();
   });
 });
