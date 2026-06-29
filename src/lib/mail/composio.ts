@@ -12,6 +12,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { executeTool, ComposioError } from "@/lib/integrations/composio";
 import { extractBody, type GmailPayload, type MailMessage, type MailMessageFull } from "./gmail";
+import { normalizeMailDate } from "./dates";
 
 // Profile/email resolution for ACTIVE connections now lives in the shared
 // integrations/composio.ts (resolveProfileLabel) since Calendar and Contacts
@@ -85,7 +86,13 @@ export function normalizeGmailMessage(m: Record<string, unknown>, accountEmail: 
     threadId: (m.threadId as string) ?? id,
     from: gmailHeader(headers, "From") || (m.sender as string) || (m.from as string) || "",
     subject: gmailHeader(headers, "Subject") || (m.subject as string) || "(no subject)",
-    date: gmailHeader(headers, "Date") || (m.messageTimestamp as string) || (m.date as string) || "",
+    date: normalizeMailDate(
+      gmailHeader(headers, "Date") ||
+        m.messageTimestamp ||
+        m.internalDate ||
+        m.receivedDateTime ||
+        m.date,
+    ),
     snippet: (m.snippet as string) ?? (m.messageText as string)?.slice(0, 200) ?? "",
     isUnread: Array.isArray(m.labelIds) ? (m.labelIds as string[]).includes("UNREAD") : false,
     provider: "gmail",
@@ -103,7 +110,7 @@ export function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail
     threadId: (m.conversationId as string) ?? id,
     from: sender ? (sender.name ? `${sender.name} <${sender.address}>` : sender.address ?? "") : "",
     subject: (m.subject as string) || "(no subject)",
-    date: (m.receivedDateTime as string) ?? "",
+    date: normalizeMailDate(m.receivedDateTime ?? m.sentDateTime ?? m.createdDateTime ?? m.date),
     snippet: (m.bodyPreview as string) ?? "",
     isUnread: m.isRead === false,
     provider: "outlook",

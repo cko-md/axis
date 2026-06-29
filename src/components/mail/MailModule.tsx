@@ -9,6 +9,7 @@ import { ProviderDot, ProviderBadge } from "./ProviderBadges";
 import { AddAccountPicker } from "./AddAccountPicker";
 import { ComposeModal, type ComposeDraft } from "./ComposeModal";
 import { MessagePanel } from "./MessagePanel";
+import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -23,26 +24,35 @@ type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function priorityScore(msg: MailMessage): number {
-  const ageHours = (Date.now() - new Date(msg.date).getTime()) / 3600000;
+  const dateTime = getMailDateTime(msg.date);
+  const ageHours = dateTime === null
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, (Date.now() - dateTime) / 3600000);
   return (msg.isUnread ? 50 : 0) + Math.max(0, 100 - ageHours);
 }
 
+function comparePriorityDesc(a: MailMessage, b: MailMessage): number {
+  const diff = priorityScore(b) - priorityScore(a);
+  if (diff !== 0) return diff;
+  const dateDiff = compareMailDateDesc(a, b);
+  return dateDiff !== 0 ? dateDiff : compareMailIdentity(a, b);
+}
+
 function formatDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - d.getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return mins <= 1 ? "just now" : `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days === 1) return "yesterday";
-    if (days < 7) return `${days}d ago`;
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  } catch {
-    return "";
-  }
+  const time = getMailDateTime(dateStr);
+  if (time === null) return "Unknown";
+
+  const d = new Date(time);
+  const now = new Date();
+  const diff = Math.max(0, now.getTime() - time);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return mins <= 1 ? "just now" : `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function parseSenderName(from: string): string {
@@ -440,8 +450,8 @@ export function MailModule() {
     }
 
     list = sortMode === "priority"
-      ? [...list].sort((a, b) => priorityScore(b) - priorityScore(a))
-      : [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      ? [...list].sort(comparePriorityDesc)
+      : [...list].sort(compareMailDateDesc);
     return list;
   })();
 
