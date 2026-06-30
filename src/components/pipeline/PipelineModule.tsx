@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { useTasks } from "@/lib/hooks/useTasks";
 import {
   usePipeline,
   CONFERENCE_STATUS_LABELS,
@@ -219,6 +220,7 @@ function NextIcon({ kind }: { kind: "plus" | "check" }) {
 
 export function PipelineModule() {
   const { toast } = useToast();
+  const { addTask } = useTasks();
   const {
     stages,
     studies,
@@ -245,17 +247,21 @@ export function PipelineModule() {
   const [editingConf, setEditingConf] = useState<Conference | null>(null);
   const [confForm, setConfForm] = useState(EMPTY_CONF_FORM);
   const [draftText, setDraftText] = useState("");
+  const [studyDraftText, setStudyDraftText] = useState("");
   const [drafting, setDrafting] = useState(false);
+  const [studyDrafting, setStudyDrafting] = useState(false);
 
   const openAddStudy = (stageId: string) => {
     setEditingStudy(null);
     setStudyForm({ ...EMPTY_STUDY_FORM, stage_id: stageId });
+    setStudyDraftText("");
     setStudyModalOpen(true);
   };
 
   const openEditStudy = (s: Study) => {
     setEditingStudy(s);
     setStudyForm({ title: s.title, role: s.role, meta: s.meta, next_action: s.next_action, stage_id: s.stage_id });
+    setStudyDraftText("");
     setStudyModalOpen(true);
   };
 
@@ -286,6 +292,58 @@ export function PipelineModule() {
     if (result.error) toast(result.error, "error", "Pipeline");
     else toast("Study removed.", "info", "Pipeline");
     setStudyModalOpen(false);
+  };
+
+  const createTaskFromStudy = async () => {
+    const title = studyForm.next_action.trim() || studyForm.title.trim();
+    if (!title) {
+      toast("Add a next action first.", "warn", "Pipeline");
+      return;
+    }
+    const task = await addTask({
+      title,
+      category: "research",
+      priority: "med",
+      metadata: {
+        source_object_type: "pipeline_item",
+        source_object_id: editingStudy?.id ?? null,
+        source_route: "/pipeline",
+        source_title: studyForm.title.trim(),
+      },
+    });
+    toast(task ? "Next action added to Tasks." : "Could not create task.", task ? "success" : "error", "Pipeline");
+  };
+
+  const draftStudyPlan = async () => {
+    if (!studyForm.title.trim()) {
+      toast("Give the study a title first.", "warn", "Pipeline");
+      return;
+    }
+    setStudyDrafting(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "pipeline-draft",
+          text: studyForm.title.trim(),
+          body: JSON.stringify({
+            kind: "study-plan",
+            role: studyForm.role,
+            meta: studyForm.meta,
+            next_action: studyForm.next_action,
+            stage: stages.find((s) => s.id === studyForm.stage_id)?.name ?? "",
+          }),
+        }),
+      });
+      const d = await res.json();
+      if (d.draft) setStudyDraftText(d.draft);
+      else toast("Couldn't generate a plan right now — check your API key.", "warn", "Pipeline");
+    } catch {
+      toast("Couldn't reach the assistant.", "error", "Pipeline");
+    } finally {
+      setStudyDrafting(false);
+    }
   };
 
   const saveStage = async () => {
@@ -655,6 +713,19 @@ export function PipelineModule() {
             value={studyForm.next_action}
             onChange={(e) => setStudyForm({ ...studyForm, next_action: e.target.value })}
           />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button variant="ghost" onClick={createTaskFromStudy}>
+              Add next action to Tasks
+            </Button>
+            <Button variant="ghost" onClick={draftStudyPlan} disabled={studyDrafting}>
+              {studyDrafting ? "Drafting…" : "✦ Draft project plan"}
+            </Button>
+          </div>
+          {studyDraftText && (
+            <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 10, maxHeight: 220, overflowY: "auto", whiteSpace: "pre-wrap" }}>
+              {studyDraftText}
+            </div>
+          )}
         </div>
       </Modal>
 

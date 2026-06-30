@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
+import { createClient } from "@/lib/supabase/client";
 import { AddAccountPicker } from "@/components/mail/AddAccountPicker";
 import { AddContactsPicker } from "./AddContactsPicker";
 
@@ -100,6 +101,7 @@ const inputCls = "rounded border border-[var(--line)] bg-[var(--surface-2)] px-3
 export function PeopleModule() {
   const { toast } = useToast();
   const { people, loading, signedIn, addPerson, updatePerson, deletePerson } = usePeople();
+  const supabase = useMemo(() => createClient(), []);
   const [filter, setFilter] = useState<Filter>("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Person | null>(null);
@@ -112,6 +114,39 @@ export function PeopleModule() {
   const mailBtnRef = useRef<HTMLDivElement>(null);
   const [showContactsPicker, setShowContactsPicker] = useState(false);
   const contactsBtnRef = useRef<HTMLDivElement>(null);
+
+  const ensureFollowUpSignal = useCallback(async (person: Person) => {
+    if (!personIsDue(person)) return false;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+    const metadata = { source_object_type: "person", source_object_id: person.id, source_route: "/people" };
+    const { data: existing } = await supabase
+      .from("signals")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("source", "People")
+      .contains("metadata", metadata)
+      .maybeSingle();
+
+    const payload = {
+      user_id: user.id,
+      title: `Follow up with ${person.name}`,
+      body: person.note || person.role || null,
+      source: "People",
+      signal_type: "action",
+      route_target: "people",
+      metadata,
+      read_at: null,
+      routed_at: null,
+    };
+
+    if (existing?.id) {
+      const { error } = await supabase.from("signals").update(payload).eq("id", existing.id);
+      return !error;
+    }
+    const { error } = await supabase.from("signals").insert(payload);
+    return !error;
+  }, [supabase]);
 
   // Close mail picker on outside click
   useEffect(() => {
@@ -240,7 +275,14 @@ export function PeopleModule() {
       toast(result.error, "error", "People");
       return;
     }
-    toast(editing ? "Person updated." : "Person added.", "success", "People");
+    const routed = result.data ? await ensureFollowUpSignal(result.data) : false;
+    toast(
+      routed
+        ? "Person saved and follow-up routed to Dispatch."
+        : editing ? "Person updated." : "Person added.",
+      "success",
+      "People",
+    );
     setModalOpen(false);
   };
 

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 import { type Article, TOPICS, useLiterature } from "@/lib/hooks/useLiterature";
+import { createClient } from "@/lib/supabase/client";
 import styles from "./LiteratureModule.module.css";
 
 // ── Saved articles (offline) ──────────────────────────────────────────────────
@@ -12,6 +13,20 @@ const SAVED_LIT_KEY = "axis-lit-saved";
 type SavedArticle = {
   id: string; title: string; summary: string;
   authors: string; source: string; publishedAt: string; url: string; savedAt: string;
+  notes?: string; tags?: string[];
+};
+
+type LiteratureSavedRow = {
+  article_id: string;
+  title: string;
+  authors: string | null;
+  source: string | null;
+  summary: string | null;
+  url: string;
+  published_at: string | null;
+  created_at: string;
+  notes?: string | null;
+  tags?: string[] | null;
 };
 
 function loadSavedLit(): SavedArticle[] {
@@ -23,6 +38,36 @@ function loadSavedLit(): SavedArticle[] {
 function persistSavedLit(items: SavedArticle[]) {
   try { localStorage.setItem(SAVED_LIT_KEY, JSON.stringify(items)); }
   catch { /* ignore */ }
+}
+
+function rowToSaved(row: LiteratureSavedRow): SavedArticle {
+  return {
+    id: row.article_id,
+    title: row.title,
+    summary: row.summary ?? "",
+    authors: row.authors ?? "",
+    source: row.source ?? "",
+    publishedAt: row.published_at ?? "",
+    url: row.url,
+    savedAt: row.created_at,
+    notes: row.notes ?? "",
+    tags: row.tags ?? [],
+  };
+}
+
+function articleToSaved(a: Article): SavedArticle {
+  return {
+    id: a.id,
+    title: a.title,
+    summary: a.summary,
+    authors: a.authors,
+    source: a.source,
+    publishedAt: a.publishedAt,
+    url: a.url,
+    savedAt: new Date().toISOString(),
+    notes: "",
+    tags: [],
+  };
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -48,6 +93,7 @@ function relTime(iso: string | null): string {
 export function LiteratureModule() {
   const { toast } = useToast();
   const { open: openInApp } = useWebViewer();
+  const supabase = useMemo(() => createClient(), []);
   const {
     topics,
     customTopics,
@@ -57,6 +103,7 @@ export function LiteratureModule() {
     addCustomTopic,
     removeCustomTopic,
     feed,
+    persistence,
     loading,
     error,
     refresh,
@@ -66,19 +113,191 @@ export function LiteratureModule() {
 
   const [savedLit, setSavedLit] = useState<SavedArticle[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const [savedDetailId, setSavedDetailId] = useState<string | null>(null);
+  const [savedDraft, setSavedDraft] = useState({ notes: "", tags: "" });
+  const [savedPersisted, setSavedPersisted] = useState<"loading" | "supabase" | "local" | "error">("loading");
 
-  useEffect(() => { setSavedLit(loadSavedLit()); }, []);
+  const loadSaved = useCallback(async () => {
+    const local = loadSavedLit();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setSavedLit(local);
+      setSavedPersisted("local");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("literature_saved")
+      .select("article_id,title,authors,source,summary,url,published_at,created_at,notes,tags")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (error) {
+      setSavedLit(local);
+      setSavedPersisted("error");
+      toast("Saved papers are using this device only until Supabase literature_saved is available.", "warn", "Literature");
+      return;
+    }
+    const rows = (data ?? []) as LiteratureSavedRow[];
+    setSavedLit(rows.map(rowToSaved));
+    setSavedPersisted("supabase");
+  }, [supabase, toast]);
 
-  const toggleSaveLit = (a: Article) => {
+  useEffect(() => {
+    void loadSaved();
+  }, [loadSaved]);
+
+  const selectedSaved = useMemo(
+    () => savedLit.find((s) => s.id === savedDetailId) ?? null,
+    [savedDetailId, savedLit],
+  );
+
+  useEffect(() => {
+    if (!selectedSaved) {
+      setSavedDraft({ notes: "", tags: "" });
+      return;
+    }
+    setSavedDraft({
+      notes: selectedSaved.notes ?? "",
+      tags: (selectedSaved.tags ?? []).join(", "),
+    });
+  }, [selectedSaved]);
+
+  const persistSavedPatch = useCallback(async (id: string, patch: Partial<SavedArticle>) => {
     setSavedLit((prev) => {
-      const exists = prev.some((s) => s.id === a.id);
-      const next = exists
-        ? prev.filter((s) => s.id !== a.id)
-        : [...prev, { id: a.id, title: a.title, summary: a.summary, authors: a.authors, source: a.source, publishedAt: a.publishedAt, url: a.url, savedAt: new Date().toISOString() }];
-      persistSavedLit(next);
-      toast(exists ? "Removed from saved" : "Saved for offline reading", exists ? "info" : "success", "Literature");
+      const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
+      if (savedPersisted !== "supabase") persistSavedLit(next);
       return next;
     });
+    if (savedPersisted !== "supabase") return true;
+    const { error } = await supabase
+      .from("literature_saved")
+      .update({
+        notes: patch.notes,
+        tags: patch.tags,
+      })
+      .eq("article_id", id);
+    if (error) {
+      toast("Could not save paper notes/tags.", "error", "Literature");
+      return false;
+    }
+    return true;
+  }, [savedPersisted, supabase, toast]);
+
+  const toggleSaveLit = async (a: Article | SavedArticle) => {
+    const exists = savedLit.some((s) => s.id === a.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (exists) {
+      const next = savedLit.filter((s) => s.id !== a.id);
+      setSavedLit(next);
+      if (savedDetailId === a.id) setSavedDetailId(null);
+      if (user && savedPersisted === "supabase") {
+        const { error } = await supabase.from("literature_saved").delete().eq("user_id", user.id).eq("article_id", a.id);
+        if (error) {
+          toast("Could not remove saved paper.", "error", "Literature");
+          await loadSaved();
+          return;
+        }
+      } else {
+        persistSavedLit(next);
+      }
+      toast("Removed from saved", "info", "Literature");
+      return;
+    }
+    const saved = articleToSaved(a as Article);
+    const next = [saved, ...savedLit];
+    if (user && savedPersisted !== "error") {
+      const { error } = await supabase.from("literature_saved").upsert({
+        user_id: user.id,
+        article_id: saved.id,
+        title: saved.title,
+        authors: saved.authors,
+        source: saved.source,
+        summary: saved.summary,
+        url: saved.url,
+        published_at: saved.publishedAt || null,
+        notes: saved.notes,
+        tags: saved.tags,
+      }, { onConflict: "user_id,article_id" });
+      if (error) {
+        setSavedPersisted("error");
+        persistSavedLit(next);
+        toast("Saved locally. Apply the literature_saved migration for cross-device sync.", "warn", "Literature");
+      } else {
+        setSavedPersisted("supabase");
+      }
+    } else {
+      persistSavedLit(next);
+    }
+    setSavedLit(next);
+    setSavedDetailId(saved.id);
+    toast(user ? "Paper saved" : "Saved on this device", "success", "Literature");
+  };
+
+  const saveSelectedMeta = async () => {
+    if (!selectedSaved) return;
+    const tags = savedDraft.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const ok = await persistSavedPatch(selectedSaved.id, { notes: savedDraft.notes, tags });
+    if (ok) toast("Paper notes saved", "success", "Literature");
+  };
+
+  const createNoteFromPaper = async (paper: SavedArticle | Article) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast("Sign in to create notes from papers.", "warn", "Literature");
+      return;
+    }
+    const body = [
+      `<p><strong>${paper.title}</strong></p>`,
+      `<p>${paper.authors}</p>`,
+      `<p>${paper.source} · ${fmtDate(paper.publishedAt)}</p>`,
+      `<p>${paper.summary}</p>`,
+      "notes" in paper && paper.notes ? `<p><strong>Notes</strong><br/>${paper.notes.replace(/\n/g, "<br/>")}</p>` : "",
+      `<p><a href="${paper.url}">${paper.url}</a></p>`,
+    ].filter(Boolean).join("");
+    const { error } = await supabase.from("notes").insert({
+      user_id: user.id,
+      title: paper.title,
+      body,
+      folder: "Research",
+      tags: ["literature", ...("tags" in paper ? (paper.tags ?? []) : [])],
+    });
+    toast(error ? "Could not create note." : "Created literature note.", error ? "error" : "success", "Literature");
+  };
+
+  const addPaperToPipeline = async (paper: SavedArticle | Article) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast("Sign in to add papers to Pipeline.", "warn", "Literature");
+      return;
+    }
+    const { data: stages } = await supabase
+      .from("pipeline_stages")
+      .select("id")
+      .eq("user_id", user.id)
+      .order("sort_order", { ascending: true })
+      .limit(1);
+    let stageId = stages?.[0]?.id as string | undefined;
+    if (!stageId) {
+      const { data: stage, error: stageError } = await supabase
+        .from("pipeline_stages")
+        .insert({ user_id: user.id, name: "Ideation", swatch: "var(--ink-faint)", sort_order: 0 })
+        .select("id")
+        .single();
+      if (stageError || !stage) {
+        toast("Could not prepare Pipeline stage.", "error", "Literature");
+        return;
+      }
+      stageId = stage.id;
+    }
+    const { error } = await supabase.from("studies").insert({
+      user_id: user.id,
+      stage_id: stageId,
+      title: paper.title,
+      role: "First Author",
+      meta: `${paper.source} · ${fmtDate(paper.publishedAt)}`,
+      next_action: "Assess relevance and study design",
+      sort_order: 0,
+    });
+    toast(error ? "Could not add to Pipeline." : "Added paper to Pipeline.", error ? "error" : "success", "Literature");
   };
 
   const [addingTopic, setAddingTopic] = useState(false);
@@ -151,6 +370,16 @@ export function LiteratureModule() {
 
   return (
     <>
+      {persistence.warning && (
+        <div className="module-status module-status-beta" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="module-status-kicker">Beta persistence</div>
+            <strong>Literature preferences are device-local right now.</strong>
+            <p>{persistence.warning}</p>
+          </div>
+          <span>Saved papers still show their own sync state below.</span>
+        </div>
+      )}
         <button
           type="button"
           onClick={() => setShowSaved((v) => !v)}
@@ -158,24 +387,90 @@ export function LiteratureModule() {
         >
           {showSaved ? "★" : "☆"} SAVED{savedLit.length > 0 ? ` (${savedLit.length})` : ""}
         </button>
+      {persistence.warning && (
+        <div className="module-status module-status-beta" style={{ marginTop: 10, marginBottom: 12 }}>
+          <div>
+            <div className="module-status-kicker">Literature persistence</div>
+            <strong>Topic preferences are not fully synced.</strong>
+            <p>{persistence.warning}</p>
+          </div>
+          <span>{persistence.mode === "local" ? "Saved papers still try Supabase first when signed in." : "Retry refresh after Supabase is available."}</span>
+        </div>
+      )}
       <div className="divider" />
 
       {/* Saved panel */}
       {showSaved && (
         <div style={{ marginBottom: 24, borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", padding: 16 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: savedPersisted === "supabase" ? "var(--up)" : "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 10 }}>
+            {savedPersisted === "supabase" ? "Synced to Supabase" : savedPersisted === "loading" ? "Loading saved papers" : "Device-only saved papers"}
+          </div>
           {savedLit.length === 0 ? (
             <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: 0 }}>No saved articles yet. Click ☆ on any article to save it for offline reading.</p>
           ) : (
-            savedLit.map((s) => (
-              <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--ink)", marginBottom: 2, lineClamp: 2 }}>{s.title}</div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", letterSpacing: ".06em" }}>{s.source} · {fmtDate(s.publishedAt)}</div>
-                </div>
-                <button type="button" onClick={() => openInApp(s.url, s.title)} style={{ background: "none", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "3px 10px", fontSize: 11, color: "var(--ink-faint)", cursor: "pointer", whiteSpace: "nowrap" }}>Open →</button>
-                <button type="button" onClick={() => toggleSaveLit(s as unknown as Article)} style={{ background: "none", border: "none", fontSize: 14, cursor: "pointer", color: "var(--accent)", padding: 0 }} title="Remove">★</button>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, .8fr) minmax(280px, 1.2fr)", gap: 16 }}>
+              <div>
+                {savedLit.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSavedDetailId(s.id)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      background: selectedSaved?.id === s.id ? "var(--surface)" : "none",
+                      border: "1px solid var(--line)",
+                      borderRadius: "var(--r)",
+                      padding: 10,
+                      marginBottom: 8,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 3 }}>{s.title}</div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", letterSpacing: ".06em" }}>{s.source} · {fmtDate(s.publishedAt)}</div>
+                    {(s.tags ?? []).length > 0 && (
+                      <div className="tags" style={{ marginTop: 7 }}>
+                        {(s.tags ?? []).slice(0, 3).map((t) => <span key={t} className="pill">{t}</span>)}
+                      </div>
+                    )}
+                  </button>
+                ))}
               </div>
-            ))
+              <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 14, background: "var(--surface)" }}>
+                {selectedSaved ? (
+                  <>
+                    <div className="jrnl">{selectedSaved.source} · {fmtDate(selectedSaved.publishedAt)}</div>
+                    <h3 style={{ color: "var(--ink)", fontSize: 18, margin: "6px 0" }}>{selectedSaved.title}</h3>
+                    <div className="auth">{selectedSaved.authors || "Unknown authors"}</div>
+                    <p style={{ color: "var(--ink-dim)", lineHeight: 1.65 }}>{selectedSaved.summary || "No abstract available."}</p>
+                    <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginBottom: 5 }}>Notes</label>
+                    <textarea
+                      value={savedDraft.notes}
+                      onChange={(e) => setSavedDraft((d) => ({ ...d, notes: e.target.value }))}
+                      rows={5}
+                      style={{ width: "100%", border: "1px solid var(--line)", borderRadius: "var(--r)", background: "var(--surface-2)", color: "var(--ink)", padding: 10, fontFamily: "var(--sans)", fontSize: 13, resize: "vertical" }}
+                    />
+                    <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", margin: "10px 0 5px" }}>Tags</label>
+                    <input
+                      value={savedDraft.tags}
+                      onChange={(e) => setSavedDraft((d) => ({ ...d, tags: e.target.value }))}
+                      placeholder="methodology, dbs, review"
+                      style={{ width: "100%", border: "1px solid var(--line)", borderRadius: "var(--r)", background: "var(--surface-2)", color: "var(--ink)", padding: 10, fontSize: 13 }}
+                    />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                      <button type="button" className="savebtn" onClick={saveSelectedMeta}>Save notes/tags</button>
+                      <button type="button" className="savebtn" onClick={() => openInApp(selectedSaved.url, selectedSaved.title)}>Open source →</button>
+                      <button type="button" className="savebtn" onClick={() => createNoteFromPaper(selectedSaved)}>Create note</button>
+                      <button type="button" className="savebtn" onClick={() => addPaperToPipeline(selectedSaved)}>Add to Pipeline</button>
+                      <button type="button" className="savebtn" onClick={() => toggleSaveLit(selectedSaved)} style={{ color: "var(--down)", borderColor: "var(--down)" }}>Remove</button>
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: 0 }}>Select a saved paper to review its detail, notes, and tags.</p>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -404,13 +699,27 @@ export function LiteratureModule() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); toggleSaveLit(a); }}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); toggleSaveLit(a); }}
                   title={savedLit.some((s) => s.id === a.id) ? "Remove from saved" : "Save for offline"}
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: savedLit.some((s) => s.id === a.id) ? "var(--accent)" : "var(--ink-faint)", padding: "0 2px", lineHeight: 1 }}
                 >
                   {savedLit.some((s) => s.id === a.id) ? "★" : "☆"}
+                </button>
+                <button
+                  type="button"
+                  className="savebtn"
+                  onClick={(e) => { e.stopPropagation(); createNoteFromPaper(a); }}
+                >
+                  Note
+                </button>
+                <button
+                  type="button"
+                  className="savebtn"
+                  onClick={(e) => { e.stopPropagation(); addPaperToPipeline(a); }}
+                >
+                  Pipeline
                 </button>
                 <button
                   type="button"
