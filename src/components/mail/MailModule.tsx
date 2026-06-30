@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import type { MailMessage, MailMessageFull } from "@/lib/mail/gmail";
+import type { MailAttachment, MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 import { getCapabilities, type ProviderCapabilities } from "@/lib/integrations/registry";
 import type { IntegrationTransport } from "@/lib/integrations/types";
 import { useToast } from "@/components/ui/Toast";
@@ -121,6 +121,7 @@ function MessageRow({
   return (
     <button
       type="button"
+      data-testid="mail-row"
       onClick={onClick}
       style={{
         display: "grid",
@@ -460,6 +461,35 @@ export function MailModule() {
     }
   }, [toast]);
 
+  const routeAttachmentToLibrary = useCallback(async (msg: MailMessageFull, attachment: MailAttachment) => {
+    setCreatingSignal(true);
+    try {
+      const res = await fetch(
+        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "route-attachment-library", attachment }),
+        },
+      );
+      const data = await res.json().catch(() => ({} as { error?: string; existing?: boolean }));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Could not route attachment to Library.");
+      }
+      toast(
+        data.existing
+          ? "Library already has a routed signal for this attachment."
+          : "Attachment routed to Library.",
+        "success",
+        "Mail",
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not route attachment to Library.", "error", "Mail");
+    } finally {
+      if (mountedRef.current) setCreatingSignal(false);
+    }
+  }, [toast]);
+
   const openMessage = async (msg: MailMessage) => {
     setLoadingMsg(true);
     try {
@@ -500,7 +530,11 @@ export function MailModule() {
       prev.filter((a) => !(a.provider === acct.provider && a.mailEmail === acct.mailEmail)),
     );
     setMessages((prev) => prev.filter((m) => m.accountEmail !== acct.mailEmail));
+    setSelected((prev) => (prev?.accountEmail === acct.mailEmail ? null : prev));
     if (accountFilter === acct.mailEmail) setAccountFilter("all");
+    toast("Mailbox disconnected.", "success", "Mail");
+    refreshMailStatus();
+    void fetchInbox();
   };
 
   // Filter + sort: account → unread → text search → sort.
@@ -916,6 +950,7 @@ export function MailModule() {
             }}
             onAction={(action) => { void runMessageAction(selected, action); }}
             onCreateSignal={() => { void createSignalFromMessage(selected); }}
+            onRouteAttachmentToLibrary={(attachment) => { void routeAttachmentToLibrary(selected, attachment); }}
           />
         )}
       </div>

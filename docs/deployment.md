@@ -16,6 +16,7 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
 
 ## Vercel Preview Checklist
 
+- Preview build runs on Node.js 24.x or another supported runtime satisfying `>=22 <27`.
 - Preview build succeeds with required Supabase env present.
 - Preview build succeeds when optional provider keys are absent: `COMPOSIO_API_KEY`, `POLYGON_API_KEY`/`MASSIVE_API_KEY`, `PLAID_*`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `MAKE_*`, `UPSTASH_*`, health provider IDs, and brokerage keys.
 - Optional provider keys that are absent show setup/not-configured UI or API responses instead of crashing.

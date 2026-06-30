@@ -12,7 +12,7 @@ Next.js App Router implementation of the AXIS Signal Console prototype. Migrated
 
 ### 1. Prerequisites
 
-- Node.js 20+
+- Node.js 24.x
 - A [Supabase](https://supabase.com) project (you create this)
 - Optional: [Polygon.io](https://polygon.io) API key for live Fund quotes
 

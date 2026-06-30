@@ -22,6 +22,22 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 const THEME_KEY = "axis-theme";
 const SETTINGS_KEY = "axis-interface-settings";
 
+function readStorage(key: string): string | null {
+  try {
+    return window.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string) {
+  try {
+    window.localStorage?.setItem(key, value);
+  } catch {
+    // Safari popup/private contexts can expose a null or throwing localStorage.
+  }
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>("dark");
   const [interfaceSettings, setInterfaceSettingsState] = useState<InterfaceSettings>(DEFAULT_INTERFACE_SETTINGS);
@@ -29,10 +45,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem(THEME_KEY) as ThemeMode | null;
+    const stored = readStorage(THEME_KEY) as ThemeMode | null;
     if (stored && ["dark", "dim", "light", "slate"].includes(stored)) setThemeState(stored);
     try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
+      const raw = readStorage(SETTINGS_KEY);
       if (raw) setInterfaceSettingsState({ ...DEFAULT_INTERFACE_SETTINGS, ...JSON.parse(raw) });
     } catch {
       /* ignore */
@@ -45,14 +61,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const html = document.documentElement;
     html.classList.remove("dim", "light", "slate");
     if (theme !== "dark") html.classList.add(theme);
-    localStorage.setItem(THEME_KEY, theme);
+    writeStorage(THEME_KEY, theme);
   }, [theme, mounted]);
 
   useEffect(() => {
     if (!mounted) return;
     // theme stays a dependency: surface-tone color-mix must re-derive from the new theme's base tokens
     applyInterfaceSettings(interfaceSettings);
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(interfaceSettings));
+    writeStorage(SETTINGS_KEY, JSON.stringify(interfaceSettings));
   }, [interfaceSettings, theme, mounted]);
 
   const setTheme = (t: ThemeMode) => setThemeState(t);

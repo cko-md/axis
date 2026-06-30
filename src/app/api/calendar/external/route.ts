@@ -76,6 +76,7 @@ export async function GET(req: NextRequest) {
           provider: source,
           transport,
           operation: "list_events",
+          captureFailures: false,
           timeoutMs: 7_000,
           slowMs: 1_500,
         },
