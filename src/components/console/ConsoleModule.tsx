@@ -698,6 +698,7 @@ export function ConsoleModule() {
             const texts = widgetTexts[id];
             const value = editing ? (texts?.v ?? live?.v ?? w.value) : (live?.v ?? texts?.v ?? w.value);
             const hint = editing ? (texts?.k ?? live?.k ?? w.hint) : (live?.k ?? texts?.k ?? w.hint);
+            const statusLabel = live?.updatedAt ? "Live" : w.live === false ? "Lab" : "Setup";
             return (
               <div
                 key={`${id}-${i}`}
@@ -725,7 +726,7 @@ export function ConsoleModule() {
                   <div className="tb-v" contentEditable={editing} suppressContentEditableWarning onBlur={(e) => {
                     const next = { ...widgetTexts, [id]: { v: e.currentTarget.textContent || value, k: hint } };
                     setWidgetTexts(next);
-                  }}>{value}</div>
+                  }}>{value} {!editing && <span style={{ color: "var(--ink-faint)", fontSize: 10 }}>· {statusLabel}</span>}</div>
                   <div className="tb-k" contentEditable={editing} suppressContentEditableWarning onBlur={(e) => {
                     const next = { ...widgetTexts, [id]: { v: value, k: e.currentTarget.textContent || hint } };
                     setWidgetTexts(next);
@@ -759,8 +760,7 @@ export function ConsoleModule() {
   const tasksPct   = Math.min(tasksDone / tasksTotal, 1);
   // r3 circumference = 2π × 28 ≈ 175.9
   const r3Offset   = Math.round(175.9 * (1 - tasksPct));
-  // r1 ≈ 75% (3/4h), r2 = 100% (8/8km) — hardcoded until data sources exist
-  const overallPct = Math.round(((0.75 + 1.0 + tasksPct) / 3) * 100);
+  const overallPct = Math.round(tasksPct * 100);
 
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
@@ -768,13 +768,13 @@ export function ConsoleModule() {
         <h2 className="sec">Daily Rings<span className="rule" /><span className="count">{overallPct}%</span></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
-            <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" />
-            <circle className="rbg" cx="60" cy="60" r="40" /><circle className="rfg r2" cx="60" cy="60" r="40" />
+            <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" style={{ strokeDashoffset: 326.7 }} />
+            <circle className="rbg" cx="60" cy="60" r="40" /><circle className="rfg r2" cx="60" cy="60" r="40" style={{ strokeDashoffset: 251.3 }} />
             <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" style={{ strokeDashoffset: r3Offset }} />
           </svg>
           <div className="rings-legend">
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">3.0 / 4h</span></div>
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">8 / 8 km</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">Lab</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">Connect Strava</span></div>
             <div className="rl-row"><span className="rl-dot" style={{ background: "var(--marine)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasksDone} / {tasksTotal}</span></div>
           </div>
         </div>

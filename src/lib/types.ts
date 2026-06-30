@@ -40,6 +40,7 @@ export type WidgetCatalogItem = {
   value: string;
   hint: string;
   category?: string;
+  live?: boolean;
 };
 
 export type ConsoleWidgetConfig = {

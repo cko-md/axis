@@ -23,7 +23,7 @@ import { useRef } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
 import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_NAV } from "@/lib/store/nav";
-import type { NavGroup } from "@/lib/store/nav";
+import type { NavGroup, NavItem } from "@/lib/store/nav";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection";
 import { UrlModules } from "@/components/nav/UrlModules";
@@ -136,6 +136,25 @@ function NavIcon({ name }: { name: string }) {
   );
 }
 
+function NavStatusBadge({ status }: { status?: NavItem["status"] }) {
+  if (!status || status === "production") return null;
+  const label = status === "beta" ? "BETA" : status === "lab" ? "LAB" : "SOON";
+  const color = status === "beta" ? "var(--accent-2)" : status === "lab" ? "var(--clay)" : "var(--ink-faint)";
+  return (
+    <span
+      style={{
+        marginLeft: "auto",
+        fontSize: 8,
+        fontFamily: "var(--mono)",
+        letterSpacing: ".08em",
+        color,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 // ─── Grip handle (6-dot, 2×3 grid) ───────────────────────────────────────────
 function GripHandle(props: React.HTMLAttributes<HTMLSpanElement>) {
   return (
@@ -228,7 +247,7 @@ function SortableNavItem({
   label,
   onRename,
 }: {
-  item: { href: string; label: string; icon: string; title?: string; ix?: string };
+  item: NavItem;
   active: boolean;
   collapsed: boolean;
   label: string;
@@ -287,6 +306,7 @@ function SortableNavItem({
           )
         )}
         {!collapsed && !renaming && item.ix && <span className="ix">{item.ix}</span>}
+        {!collapsed && !renaming && !item.ix && <NavStatusBadge status={item.status} />}
       </Link>
     </div>
   );
