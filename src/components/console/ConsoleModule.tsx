@@ -35,7 +35,7 @@ import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
-import { WidgetShell } from "@/components/widgets/WidgetShell";
+import { WidgetActionMenu, WidgetShell } from "@/components/widgets";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import type { WidgetStatus } from "@/lib/widgets/types";
 
@@ -729,26 +729,32 @@ export function ConsoleModule() {
                   provider={definition?.source.provider ?? "widget"}
                   onPrimaryAction={editing ? undefined : () => setExpandedWidget(expandedWidget === id ? null : id)}
                   titleText={expandedWidget === id ? "Click to collapse" : "Click to expand"}
-                  actionSlot={editing ? (
-                    <button
-                      type="button"
-                      className="widget-shell-action"
-                      onClick={() => { setSwapIdx(i); setPickerOpen(true); }}
-                    >
-                      Swap
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="widget-shell-action"
-                      onClick={() => {
-                        refreshOne(id);
-                        toast("Widget refreshed", "success", w.label);
+                  actionSlot={
+                    <WidgetActionMenu
+                      actions={editing ? [
+                        { id: "swap", label: "Swap", kind: "configure" },
+                        { id: "hide", label: "Hide placeholder", kind: "hide", disabledReason: "Hide arrives with saved widget preferences." },
+                      ] : [
+                        ...(definition?.secondaryActions ?? []),
+                        definition?.primaryAction ?? { id: "open", label: "Open", kind: "open-drawer" },
+                        { id: "configure", label: "Configure placeholder", kind: "configure", disabledReason: "Configuration arrives with widget settings." },
+                        { id: "hide", label: "Hide placeholder", kind: "hide", disabledReason: "Hide arrives with saved widget preferences." },
+                      ]}
+                      handlers={{
+                        refresh: () => {
+                          refreshOne(id);
+                          toast("Widget refreshed", "success", w.label);
+                        },
+                        open: () => setExpandedWidget(expandedWidget === id ? null : id),
+                        configure: () => {
+                          if (editing) {
+                            setSwapIdx(i);
+                            setPickerOpen(true);
+                          }
+                        },
                       }}
-                    >
-                      Refresh
-                    </button>
-                  )}
+                    />
+                  }
                 >
                   {expandedWidget === id && !editing && <WidgetSecondLine id={id} raw={live?.raw} />}
                   {!editing && live?.error && (

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 export type WidgetStatus =
   | "fresh"
+  | "live"
   | "loading"
   | "refreshing"
   | "stale"
