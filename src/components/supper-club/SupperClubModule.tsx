@@ -77,15 +77,16 @@ export function SupperClubModule() {
     return stored && DIETS.includes(stored) ? stored : "high-protein";
   });
   const [savedIds, setSavedIds] = useState<string[]>(() => {
-    if (typeof window === "undefined") return ["r1", "r3", "r4"];
-    try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "null") ?? ["r1", "r3", "r4"]; }
-    catch { return ["r1", "r3", "r4"]; }
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "null") ?? []; }
+    catch { return []; }
   });
   const [myRecipes, setMyRecipes] = useState<Recipe[]>(() => {
     if (typeof window === "undefined") return [];
     try { return JSON.parse(localStorage.getItem(RECIPES_KEY) ?? "null") ?? []; }
     catch { return []; }
   });
+  const [storageError, setStorageError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -94,15 +95,30 @@ export function SupperClubModule() {
   const noteRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(DIET_KEY, diet);
+    try {
+      localStorage.setItem(DIET_KEY, diet);
+      setStorageError(null);
+    } catch {
+      setStorageError("Supper Club could not save your diet preference in this browser.");
+    }
   }, [diet]);
 
   useEffect(() => {
-    localStorage.setItem(SAVED_KEY, JSON.stringify(savedIds));
+    try {
+      localStorage.setItem(SAVED_KEY, JSON.stringify(savedIds));
+      setStorageError(null);
+    } catch {
+      setStorageError("Supper Club could not save recipe stars in this browser.");
+    }
   }, [savedIds]);
 
   useEffect(() => {
-    localStorage.setItem(RECIPES_KEY, JSON.stringify(myRecipes));
+    try {
+      localStorage.setItem(RECIPES_KEY, JSON.stringify(myRecipes));
+      setStorageError(null);
+    } catch {
+      setStorageError("Supper Club could not save your recipes in this browser.");
+    }
   }, [myRecipes]);
 
   const toggleSave = (id: string) => {
@@ -145,6 +161,24 @@ export function SupperClubModule() {
 
   return (
     <>
+      <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+        <div>
+          <div className="module-status-kicker">Lab persistence</div>
+          <strong>Supper Club is local-only in this lab phase.</strong>
+          <p>Diet preference, saved recipes, and added recipes are stored in this browser and are not synced to Supabase yet.</p>
+        </div>
+        <span>Suggested recipes are curated seed content; saved recipes only appear after you star or add them.</span>
+      </div>
+      {storageError && (
+        <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="module-status-kicker">Storage unavailable</div>
+            <strong>Your latest Supper Club change may not persist.</strong>
+            <p>{storageError}</p>
+          </div>
+          <span>Check browser storage permissions, then retry the action.</span>
+        </div>
+      )}
         <div className="selectbox" onClick={cycleDiet}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" />

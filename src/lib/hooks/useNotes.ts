@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
@@ -18,6 +19,7 @@ export type Note = {
 
 export type NoteFont = "sans" | "serif" | "mono";
 export const FONT_TAG_PREFIX = "__font:";
+export const ARCHIVE_TAG = "__archived";
 export const getNoteFont = (n: Note): NoteFont => {
   const tag = n.tags.find((t) => t.startsWith(FONT_TAG_PREFIX));
   return (tag?.slice(FONT_TAG_PREFIX.length) as NoteFont) ?? "sans";
@@ -50,6 +52,23 @@ export function useNotes() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const recordError = useCallback((operation: string, rawError: unknown, message: string, noteId?: string) => {
+    const err = rawError as { code?: string; status?: number } | null;
+    setSaveError(message);
+    Sentry.captureException(new Error(`Note ${operation} failed`), {
+      tags: {
+        area: "notes",
+        operation,
+        supabase_code: err?.code ?? "unknown",
+      },
+      contexts: {
+        note: { id: noteId ?? null },
+        supabase: { status: err?.status ?? null },
+      },
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -60,16 +79,26 @@ export function useNotes() {
       return;
     }
     const { data, error } = await supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
-    if (error) { setLoading(false); return; }
+    if (error) {
+      recordError("load", error, "Could not load notes — check your connection and retry.");
+      setLoading(false);
+      return;
+    }
     if (!data?.length) {
       const inserts = SEED.map((n, i) => ({ ...n, user_id: user.id, sort_order: i }));
       const { data: seeded, error: seedError } = await supabase.from("notes").insert(inserts).select();
-      if (!seedError) setNotes((seeded ?? []) as Note[]);
+      if (!seedError) {
+        setNotes((seeded ?? []) as Note[]);
+        setSaveError(null);
+      } else {
+        recordError("seed", seedError, "Could not initialize notes — check your connection and retry.");
+      }
     } else {
       setNotes(data as Note[]);
+      setSaveError(null);
     }
     setLoading(false);
-  }, [supabase]);
+  }, [recordError, supabase]);
 
   useEffect(() => {
     refresh();
@@ -86,25 +115,33 @@ export function useNotes() {
         .insert({ user_id: user.id, title, body: "", folder, tags: [] })
         .select()
         .single();
-      if (error || !data) return null;
+      if (error || !data) {
+        recordError("create", error, "Could not create note — check your connection and retry.");
+        return null;
+      }
       setNotes((prev) => [data as Note, ...prev]);
+      setSaveError(null);
       return data as Note;
     } catch (err) {
-      console.error("[useNotes] createNote", err);
+      recordError("create", err, "Could not create note — check your connection and retry.");
       return null;
     }
-  }, [supabase]);
+  }, [recordError, supabase]);
 
   const updateNote = useCallback(async (id: string, patch: Partial<Note>) => {
     try {
       const { data, error } = await supabase.from("notes").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
-      if (error || !data) return;
+      if (error || !data) {
+        recordError("update", error, "Could not save note — your latest edit is still on screen.");
+        return;
+      }
       setNotes((prev) => prev.map((n) => (n.id === id ? (data as Note) : n)));
+      setSaveError(null);
       if (patch.title !== undefined || patch.body !== undefined) reembedNote(id, (data as Note).title, (data as Note).body);
     } catch (err) {
-      console.error("[useNotes] updateNote", err);
+      recordError("update", err, "Could not save note — your latest edit is still on screen.", id);
     }
-  }, [supabase]);
+  }, [recordError, supabase]);
 
   // Debounced variant for keystroke-driven edits: local state updates immediately,
   // the Supabase write coalesces to one request per pause in typing.
@@ -127,23 +164,35 @@ export function useNotes() {
               .eq("id", id)
               .select("title, body")
               .single()
-              .then(({ data }) => {
-                if (data) reembedNote(id, data.title, data.body);
-              }, () => {});
+              .then(({ data, error }) => {
+                if (error || !data) {
+                  recordError("autosave", error, "Autosave failed — your latest edit is still on screen.", id);
+                  return;
+                }
+                setSaveError(null);
+                reembedNote(id, data.title, data.body);
+              }, (err) => {
+                recordError("autosave", err, "Autosave failed — your latest edit is still on screen.", id);
+              });
           }
         }, 600),
       );
     };
-  }, [supabase]);
+  }, [recordError, supabase]);
 
   const deleteNote = useCallback(async (id: string) => {
     try {
       const { error } = await supabase.from("notes").delete().eq("id", id);
-      if (!error) setNotes((prev) => prev.filter((n) => n.id !== id));
+      if (!error) {
+        setNotes((prev) => prev.filter((n) => n.id !== id));
+        setSaveError(null);
+      } else {
+        recordError("delete", error, "Could not delete note — check your connection and retry.", id);
+      }
     } catch (err) {
-      console.error("[useNotes] deleteNote", err);
+      recordError("delete", err, "Could not delete note — check your connection and retry.", id);
     }
-  }, [supabase]);
+  }, [recordError, supabase]);
 
   // Lock state is stored as a sentinel tag so no schema migration is needed.
   const toggleLock = useCallback(async (id: string) => {
@@ -153,19 +202,47 @@ export function useNotes() {
     const tags = locked ? note.tags.filter((t) => t !== LOCK_TAG) : [...note.tags, LOCK_TAG];
     try {
       const { error } = await supabase.from("notes").update({ tags, updated_at: new Date().toISOString() }).eq("id", id);
-      if (error) return locked;
+      if (error) {
+        recordError("lock", error, "Could not update note lock — check your connection and retry.", id);
+        return locked;
+      }
       setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, tags } : n)));
+      setSaveError(null);
       return !locked;
     } catch (err) {
-      console.error("[useNotes] toggleLock", err);
+      recordError("lock", err, "Could not update note lock — check your connection and retry.", id);
       return locked;
     }
-  }, [notes, supabase]);
+  }, [notes, recordError, supabase]);
 
-  return { notes, loading, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock };
+  const archiveNote = useCallback(async (id: string, archived = true) => {
+    const note = notes.find((n) => n.id === id);
+    if (!note) return false;
+    const tags = archived
+      ? Array.from(new Set([...note.tags, ARCHIVE_TAG]))
+      : note.tags.filter((t) => t !== ARCHIVE_TAG);
+    const { data, error } = await supabase
+      .from("notes")
+      .update({ tags, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error || !data) {
+      recordError("archive", error, "Could not archive note — check your connection and retry.", id);
+      return false;
+    }
+    setNotes((prev) => prev.map((n) => (n.id === id ? (data as Note) : n)));
+    setSaveError(null);
+    return true;
+  }, [notes, recordError, supabase]);
+
+  const clearSaveError = useCallback(() => setSaveError(null), []);
+
+  return { notes, loading, saveError, clearSaveError, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock, archiveNote };
 }
 
 export const LOCK_TAG = "__locked";
 export const isLocked = (n: Note) => n.tags.includes(LOCK_TAG);
+export const isArchived = (n: Note) => n.tags.includes(ARCHIVE_TAG);
 export const visibleTags = (n: Note) =>
-  n.tags.filter((t) => t !== LOCK_TAG && !t.startsWith(FONT_TAG_PREFIX));
+  n.tags.filter((t) => t !== LOCK_TAG && t !== ARCHIVE_TAG && !t.startsWith(FONT_TAG_PREFIX));

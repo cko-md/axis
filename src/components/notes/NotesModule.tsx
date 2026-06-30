@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   useNotes,
   isLocked,
+  isArchived,
   visibleTags,
   getNoteFont,
   fontTagsFor,
@@ -33,7 +34,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditor";
 import styles from "./NotesEditor.module.css";
 
-const DEFAULT_FOLDERS = ["All Notes", "Research", "Manuscripts", "Grants", "Clinical", "Personal"];
+const ARCHIVE_FOLDER = "Archive";
+const DEFAULT_FOLDERS = ["All Notes", "Research", "Manuscripts", "Grants", "Clinical", "Personal", ARCHIVE_FOLDER];
 const FOLDER_ORDER_KEY = "axis-notes-folder-order";
 const CUSTOM_FOLDERS_KEY = "axis-notes-custom-folders";
 
@@ -185,7 +187,19 @@ function preview(html: string): string {
 }
 
 export function NotesModule() {
-  const { notes, loading, refresh: refreshNotes, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock } = useNotes();
+  const {
+    notes,
+    loading,
+    saveError,
+    clearSaveError,
+    refresh: refreshNotes,
+    createNote,
+    updateNote,
+    updateNoteDebounced,
+    deleteNote,
+    toggleLock,
+    archiveNote,
+  } = useNotes();
   const { addTask } = useTasks();
   const { toast } = useToast();
 
@@ -439,16 +453,22 @@ export function NotesModule() {
   const noteFont: NoteFont = selected ? getNoteFont(selected) : "sans";
 
   const filtered = useMemo(() => {
-    if (activeFolder === "All Notes") return notes;
-    return notes.filter((n) => n.folder === activeFolder);
+    if (activeFolder === ARCHIVE_FOLDER) return notes.filter(isArchived);
+    const activeNotes = notes.filter((n) => !isArchived(n));
+    if (activeFolder === "All Notes") return activeNotes;
+    return activeNotes.filter((n) => n.folder === activeFolder);
   }, [notes, activeFolder]);
 
   const folderCounts = useMemo(() => {
     const c: Record<string, number> = {};
     notes.forEach((n) => {
+      if (isArchived(n)) {
+        c[ARCHIVE_FOLDER] = (c[ARCHIVE_FOLDER] ?? 0) + 1;
+        return;
+      }
       c[n.folder] = (c[n.folder] ?? 0) + 1;
     });
-    c["All Notes"] = notes.length;
+    c["All Notes"] = notes.filter((n) => !isArchived(n)).length;
     return c;
   }, [notes]);
 
@@ -459,6 +479,7 @@ export function NotesModule() {
   const openNote = (n: Note) => {
     setSelectedId(n.id);
     setConfirmDelete(false);
+    clearSaveError();
     setSuggestion(null);
   };
 
@@ -474,6 +495,7 @@ export function NotesModule() {
   const handleBodyChange = (html: string) => {
     if (!selected || locked) return;
     setSaving(true);
+    clearSaveError();
     updateNoteDebounced(selected.id, { body: html });
     window.clearTimeout((handleBodyChange as unknown as { _t?: number })._t);
     (handleBodyChange as unknown as { _t?: number })._t = window.setTimeout(() => setSaving(false), 900);
@@ -482,6 +504,7 @@ export function NotesModule() {
   const handleTitleChange = (title: string) => {
     if (!selected || locked) return;
     setSaving(true);
+    clearSaveError();
     updateNoteDebounced(selected.id, { title });
     window.clearTimeout((handleTitleChange as unknown as { _t?: number })._t);
     (handleTitleChange as unknown as { _t?: number })._t = window.setTimeout(() => setSaving(false), 900);
@@ -843,6 +866,18 @@ export function NotesModule() {
         }}
       />
 
+      {saveError && (
+        <div className="rec-panel" style={{ borderColor: "var(--down)", marginTop: 10 }}>
+          <div className="rec-panel-head">
+            <span>Save failed</span>
+            <button type="button" className="savebtn" style={{ padding: "2px 8px", fontSize: 10 }} onClick={clearSaveError}>
+              Dismiss
+            </button>
+          </div>
+          <div className="rec-panel-summary">{saveError}</div>
+        </div>
+      )}
+
       {/* Study aids + YouTube import + live transcription toolbar */}
       {!locked && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
@@ -1121,6 +1156,25 @@ export function NotesModule() {
         onBlur={() => setConfirmDelete(false)}
       >
         {confirmDelete ? "Click again to delete" : "Delete note"}
+      </button>
+      <button
+        type="button"
+        className="savebtn"
+        style={{ marginTop: 12, marginLeft: 8 }}
+        onClick={() => {
+          if (locked) {
+            toast("Unlock the note before archiving", "warn", "Notes");
+            return;
+          }
+          const archived = isArchived(selected);
+          archiveNote(selected.id, !archived).then((ok) => {
+            if (!ok) return;
+            toast(archived ? "Note restored" : "Note archived", "success", "Notes");
+            if (!archived) setSelectedId(null);
+          });
+        }}
+      >
+        {isArchived(selected) ? "Restore note" : "Archive note"}
       </button>
 
       <div className="chips" style={{ marginTop: 12, alignItems: "center", flexWrap: "wrap", gap: 6 }}>

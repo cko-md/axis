@@ -2,9 +2,11 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
+import { ALL_NAV_ITEMS } from "@/lib/store/nav";
 
 const CommandPalette = dynamic(
   () => import("@/components/nav/CommandPalette").then((m) => ({ default: m.CommandPalette })),
@@ -34,10 +36,12 @@ const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
 };
 
 export function AppShell({ section, page, children }: Props) {
+  const pathname = usePathname();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isNight, setIsNight] = useState(false);
   const autoCollapsedRef = useRef(false);
+  const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
 
   useEffect(() => {
     const check = () => {
@@ -109,7 +113,19 @@ export function AppShell({ section, page, children }: Props) {
         <Sidebar collapsed={sidebarMode === "icons"} />
         <div className="main-scroll">
           <Topbar section={section} page={page} onOpenPalette={() => setPaletteOpen(true)} />
-          <main id="main-content" className="view-pad">{children}</main>
+          <main id="main-content" className="view-pad">
+            {navStatus && navStatus.status && navStatus.status !== "production" && (
+              <section className={`module-status module-status-${navStatus.status}`} aria-label={`${navStatus.label} ${navStatus.status} status`}>
+                <div>
+                  <div className="module-status-kicker">{navStatus.status === "lab" ? "Lab module" : "Beta module"}</div>
+                  <strong>{navStatus.label} is intentionally marked non-production.</strong>
+                  {navStatus.statusReason && <p>{navStatus.statusReason}</p>}
+                </div>
+                {navStatus.statusAction && <span>{navStatus.statusAction}</span>}
+              </section>
+            )}
+            {children}
+          </main>
         </div>
         {/* Single sidebar toggle — rendered inside .app-shell so it can read the
             --sb-w grid variable and ride the sidebar's right edge as it resizes

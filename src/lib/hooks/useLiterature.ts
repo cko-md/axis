@@ -23,6 +23,11 @@ export type FeedState = {
   fallback: boolean;
 };
 
+export type LiteraturePersistence = {
+  mode: "supabase" | "local" | "unknown";
+  warning: string | null;
+};
+
 export const DEFAULT_TOPICS: { key: string; label: string }[] = [
   { key: "neuroscience", label: "Neuroscience" },
   { key: "dbs", label: "DBS / Functional" },
@@ -84,6 +89,10 @@ export function useLiterature() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [persistence, setPersistence] = useState<LiteraturePersistence>({
+    mode: "unknown",
+    warning: null,
+  });
 
   const supabase = useRef(createClient());
   const userId = useRef<string | null>(null);
@@ -106,17 +115,27 @@ export function useLiterature() {
         const { data: auth } = await supabase.current.auth.getUser();
         const uid = auth.user?.id ?? null;
         userId.current = uid;
-        if (!uid) return;
+        if (!uid) {
+          setPersistence({
+            mode: "local",
+            warning: "Topic preferences are stored on this device while signed out.",
+          });
+          return;
+        }
         const { data, error: e } = await supabase.current
           .from("literature_prefs")
           .select("topics,last_query")
           .eq("user_id", uid)
           .maybeSingle();
         if (e) {
-          // Table likely not applied yet — degrade to localStorage silently.
           prefsTable.current = false;
+          setPersistence({
+            mode: "local",
+            warning: "Topic preferences could not reach Supabase, so this beta module is using device-local settings.",
+          });
           return;
         }
+        setPersistence({ mode: "supabase", warning: null });
         if (!cancelled && data?.topics?.length) {
           const allKeys = new Set([...BUILT_IN_KEYS, ...readCustomTopics().map((t) => t.key)]);
           const valid = (data.topics as string[]).filter((t) => allKeys.has(t));
@@ -128,6 +147,10 @@ export function useLiterature() {
         if (!cancelled && typeof data?.last_query === "string") setQuery(data.last_query);
       } catch {
         prefsTable.current = false;
+        setPersistence({
+          mode: "local",
+          warning: "Topic preferences could not reach Supabase, so this beta module is using device-local settings.",
+        });
       }
     })();
     return () => {
@@ -143,7 +166,15 @@ export function useLiterature() {
         .from("literature_prefs")
         .upsert({ user_id: uid, topics: next, updated_at: new Date().toISOString() })
         .then(({ error: e }) => {
-          if (e) prefsTable.current = false;
+          if (e) {
+            prefsTable.current = false;
+            setPersistence({
+              mode: "local",
+              warning: "Topic preference changes did not save to Supabase and are device-local for now.",
+            });
+          } else {
+            setPersistence({ mode: "supabase", warning: null });
+          }
         });
     }
   }, []);
@@ -204,12 +235,13 @@ export function useLiterature() {
 
   // ── Fetch the feed for the current topics / query.
   const fetchFeed = useCallback(
-    async (opts?: { silent?: boolean; nocache?: boolean }) => {
+    async (opts?: { silent?: boolean; nocache?: boolean; queryOverride?: string }) => {
       if (!opts?.silent) setLoading(true);
       setError(false);
       try {
         const params = new URLSearchParams();
-        if (query.trim()) params.set("q", query.trim());
+        const activeQuery = opts?.queryOverride ?? query;
+        if (activeQuery.trim()) params.set("q", activeQuery.trim());
         else params.set("topic", topics.join(","));
         if (opts?.nocache) params.set("nocache", "1");
         const res = await fetch(`/api/literature?${params.toString()}`);
@@ -250,17 +282,27 @@ export function useLiterature() {
       if (uid && prefsTable.current) {
         void supabase.current
           .from("literature_prefs")
-          .upsert({ user_id: uid, last_query: q, updated_at: new Date().toISOString() });
+          .upsert({ user_id: uid, last_query: q, updated_at: new Date().toISOString() })
+          .then(({ error: e }) => {
+            if (e) {
+              prefsTable.current = false;
+              setPersistence({
+                mode: "local",
+                warning: "Search preference did not save to Supabase and is device-local for now.",
+              });
+            } else {
+              setPersistence({ mode: "supabase", warning: null });
+            }
+          });
       }
-      // fetch immediately with the new query rather than waiting for state batch
-      setTimeout(() => void fetchFeed({ nocache: false }), 0);
+      void fetchFeed({ nocache: false, queryOverride: q });
     },
     [fetchFeed],
   );
 
   const clearSearch = useCallback(() => {
     setQuery("");
-    setTimeout(() => void fetchFeed(), 0);
+    void fetchFeed({ queryOverride: "" });
   }, [fetchFeed]);
 
   return {
@@ -273,6 +315,7 @@ export function useLiterature() {
     addCustomTopic,
     removeCustomTopic,
     feed,
+    persistence,
     loading,
     error,
     refresh: () => fetchFeed({ nocache: true }),
