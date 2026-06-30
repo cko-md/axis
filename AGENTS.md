@@ -53,11 +53,11 @@ For every issue, the agent must:
 11. **Run available checks** (`npx tsc --noEmit`, `npm run lint`; tests if/when they exist).
 12. **Provide a PR title and description, then push/open the PR after local checks pass.** Sentry review is not a human pre-push blocker.
 13. **Provide Vercel preview validation steps.**
-14. **Provide Supabase/Tembo validation steps.**
-15. **Provide Sentry validation steps for post-preview review.**
+14. **Automate Supabase/Tembo validation.** If the issue adds or changes migrations, apply/verify them against the configured Supabase target before production merge using the available CLI/API/connector. If credentials or tooling are unavailable, block production merge unless the PR clearly records the missing automation, the exact migration command/check to run, and the human validation owner.
+15. **Automate post-preview Sentry review.** After the Vercel preview is ready, query Sentry for new errors/regressions in the preview window/release/environment using the available CLI/API/connector. If Sentry credentials or tooling are unavailable, block production merge unless the PR clearly records the missing automation, the exact Sentry query/check to run, and the human validation owner.
 16. **Provide a manual test checklist** (happy path, error path, refresh/persistence, RLS where relevant, related-module regression).
 
-**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Agents should push branches and open PRs after local checks; Sentry review happens after the Vercel preview exists and can be reviewed afterward. Merge only after the Vercel preview, Supabase/Tembo, and Sentry checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
+**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Agents should push branches and open PRs after local checks. Merge only after the Vercel preview, automated Supabase/Tembo validation, automated post-preview Sentry review, and manual workflow checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
 
 End the session with the response format in §12.
 
@@ -144,6 +144,7 @@ See `docs/architecture/integration-adapters.md` for the contract and the full ma
 - **Migrations must be non-destructive** unless destruction is explicitly approved in the issue.
 - **Document Supabase and Tembo impact** in the PR. Do not assume Tembo's role — inspect and state whether it is primary Postgres, analytics Postgres, a queue/cache, or unused; route nothing to it on assumption.
 - **Do not assume a migration has been applied in production.** Migration numbering in this repo is currently inconsistent (audit finding A4); state explicitly whether your migration is applied and confirm ordering.
+- **Automate migration application/verification whenever migrations change.** Use the configured Supabase CLI/API/connector to apply or verify pending migrations for the target environment before production merge. Do not merge migrations to production on "documented steps" alone unless credentials/tooling are unavailable; in that case, mark the production gate blocked and record the exact command/check plus owner in the PR.
 - **UI should degrade gracefully when optional schema is absent only when that is explicitly intended.** Silent fallback to `localStorage` instead of Supabase is a known anti-pattern here (audit finding A3) — do not introduce new instances; signed-in writes must hit Supabase or show a visible error.
 
 ---
@@ -155,7 +156,8 @@ See `docs/architecture/integration-adapters.md` for the contract and the full ma
 - **Never log** tokens, secrets, full email bodies, OAuth payloads, or any private user content. Redact/hash addresses where an identifier is needed.
 - **Provider errors should include** provider, operation, HTTP status code, transport, normalized error code, and safe correlation metadata — nothing sensitive.
 - **Do not capture expected 4xx (e.g. not-found) as errors** — use breadcrumbs/info; reserve `captureException` for 5xx-class and unexpected failures.
-- **PR notes must include Vercel preview validation** (preview deploy succeeded; happy + error paths exercised on the preview URL; no new Sentry error for the happy path). Push/open the PR after local checks; complete Sentry review post-preview before production merge.
+- **Automate post-preview Sentry review before production merge.** Query Sentry for new issues/regressions in the preview deploy window/release/environment and record the result in the PR or final handoff. If Sentry access is unavailable, do not silently proceed; mark the production gate blocked and include the exact query/check plus owner.
+- **PR notes must include Vercel preview validation** (preview deploy succeeded; happy + error paths exercised on the preview URL; no new Sentry error for the happy path). Push/open the PR after local checks; complete automated Sentry review post-preview before production merge.
 
 ---
 
