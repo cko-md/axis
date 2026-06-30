@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
@@ -19,7 +20,15 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
-import { useTasks, doneTodayTasks, type Task, type TaskCategory } from "@/lib/hooks/useTasks";
+import {
+  useTasks,
+  doneTodayTasks,
+  isTaskOverdue,
+  isTaskStale,
+  taskRankReason,
+  type Task,
+  type TaskCategory,
+} from "@/lib/hooks/useTasks";
 import { usePeople, personIsDue, personFootLabel } from "@/lib/hooks/usePeople";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
@@ -192,22 +201,83 @@ function deadlineForInput(deadline: string | null) {
   return deadline.slice(0, 10);
 }
 
+function safeInternalHref(value: unknown) {
+  if (typeof value !== "string") return null;
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
+function taskSourceLink(task: Task) {
+  const metadata = task.metadata ?? {};
+  const route = safeInternalHref(metadata.source_route);
+  const type = typeof metadata.source_object_type === "string" ? metadata.source_object_type : null;
+  const sourceId = typeof metadata.source_object_id === "string" ? metadata.source_object_id : null;
+  const signalId = typeof metadata.source_signal_id === "string" ? metadata.source_signal_id : null;
+  const noteId = typeof metadata.source_note_id === "string" ? metadata.source_note_id : null;
+
+  if (route) return { href: route, label: "Open source" };
+  if (signalId || type === "signal") return { href: "/dispatch", label: "Open in Dispatch" };
+  if (noteId || type === "note") return { href: "/notes", label: "Open in Notes" };
+  if (type === "mail_message" || sourceId || metadata.mail_provider) return { href: "/mail", label: "Open in Mail" };
+  return null;
+}
+
+function defaultFocusStart(task: Task) {
+  if (task.deadline) {
+    const deadline = new Date(task.deadline);
+    if (!Number.isNaN(deadline.getTime())) {
+      deadline.setHours(9, 0, 0, 0);
+      return deadline;
+    }
+  }
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  start.setHours(start.getHours() + 1);
+  return start;
+}
+
+function effortToMinutes(effort: string | null) {
+  if (!effort) return 60;
+  const lower = effort.toLowerCase();
+  const hourMatch = lower.match(/(\d+(?:\.\d+)?)\s*h/);
+  if (hourMatch) return Math.max(15, Math.round(Number(hourMatch[1]) * 60));
+  const minuteMatch = lower.match(/(\d+)\s*m/);
+  if (minuteMatch) return Math.max(15, Number(minuteMatch[1]));
+  if (lower.includes("15")) return 15;
+  if (lower.includes("30")) return 30;
+  if (lower.includes("2")) return 120;
+  return 60;
+}
+
+function normalizeTaskCategory(value: unknown): TaskCategory | null {
+  if (value === "research" || value === "clinical" || value === "life" || value === "personal") return value;
+  return null;
+}
+
 function TaskDetailModal({
   task,
   open,
   saving,
+  scheduling,
+  suggesting,
   onClose,
   onSave,
   onToggle,
   onDelete,
+  onSchedule,
+  onSuggest,
 }: {
   task: Task | null;
   open: boolean;
   saving: "save" | "toggle" | "delete" | null;
+  scheduling: boolean;
+  suggesting: boolean;
   onClose: () => void;
   onSave: (patch: Pick<Task, "title" | "priority" | "category"> & { effort: string | null; deadline: string | null }) => Promise<void>;
   onToggle: () => Promise<void>;
   onDelete: () => Promise<void>;
+  onSchedule: () => Promise<void>;
+  onSuggest: () => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<Task["priority"]>("med");
@@ -232,6 +302,10 @@ function TaskDetailModal({
     ? new Date(task.completed_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : null;
   const canSave = title.trim().length > 0 && !saving;
+  const sourceLink = taskSourceLink(task);
+  const rankReason = taskRankReason(task);
+  const overdue = isTaskOverdue(task);
+  const stale = isTaskStale(task);
 
   return (
     <Modal
@@ -248,6 +322,9 @@ function TaskDetailModal({
             onClick={() => void onToggle()}
           >
             {task.status === "done" ? "Reopen" : "Complete"}
+          </Button>
+          <Button type="button" variant="secondary" loading={scheduling} onClick={() => void onSchedule()}>
+            Schedule
           </Button>
           <Button
             type="button"
@@ -325,8 +402,26 @@ function TaskDetailModal({
         </div>
         <div className="task-meta">
           <span className={`pill ${task.priority}`}>{task.status.toUpperCase()}</span>
+          {overdue && <span className="pill hi">OVERDUE</span>}
+          {stale && <span className="pill lo">STALE</span>}
           <span>Created {new Date(task.created_at).toLocaleDateString()}</span>
           {completedLabel && <span>Completed {completedLabel}</span>}
+        </div>
+        <div style={{ display: "grid", gap: 8, border: "1px solid var(--line)", borderRadius: 6, padding: 10, background: "var(--surface-2)" }}>
+          <div className="task-meta">Rank: {rankReason.explanation}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {sourceLink && (
+              <a
+                href={sourceLink.href}
+                style={{ color: "var(--accent)", fontSize: 12, textDecoration: "none", alignSelf: "center" }}
+              >
+                {sourceLink.label}
+              </a>
+            )}
+            <Button type="button" variant="ghost" loading={suggesting} onClick={() => void onSuggest()}>
+              Suggest priority
+            </Button>
+          </div>
         </div>
         <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
           {confirmDelete ? (
@@ -371,6 +466,8 @@ export function AgendaModule() {
   const [rebuildingNight, setRebuildingNight] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskAction, setTaskAction] = useState<"save" | "toggle" | "delete" | null>(null);
+  const [schedulingTask, setSchedulingTask] = useState(false);
+  const [suggestingTask, setSuggestingTask] = useState(false);
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -580,6 +677,93 @@ export function AgendaModule() {
       if (updated) toast("Task updated.", "success", "Agenda");
     } finally {
       setTaskAction(null);
+    }
+  }, [clearTaskError, toast, updateTask]);
+
+  const handleScheduleTask = useCallback(async (task: Task) => {
+    clearTaskError();
+    setSchedulingTask(true);
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        toast("Sign in to schedule tasks.", "error", "Agenda");
+        return;
+      }
+      const start = defaultFocusStart(task);
+      const end = new Date(start.getTime() + effortToMinutes(task.effort) * 60_000);
+      const { data, error } = await supabase
+        .from("schedule_events")
+        .insert({
+          user_id: user.id,
+          title: `Focus: ${task.title}`,
+          description: "Created from Agenda task.",
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+          color_class: task.priority === "hi" ? "b" : "a",
+        })
+        .select("id")
+        .single();
+      if (error || !data) {
+        Sentry.captureException(new Error("Agenda task scheduling failed"), {
+          tags: { area: "agenda", operation: "schedule_task", supabase_code: error?.code ?? "unknown" },
+          extra: { task_id: task.id },
+        });
+        toast("Could not schedule task — check your connection and retry.", "error", "Agenda");
+        return;
+      }
+      await updateTask(task.id, {
+        metadata: {
+          ...(task.metadata ?? {}),
+          scheduled_event_id: data.id,
+          scheduled_at: new Date().toISOString(),
+        },
+      });
+      toast("Focus block added to Schedule.", "success", "Agenda");
+    } finally {
+      setSchedulingTask(false);
+    }
+  }, [clearTaskError, supabase, toast, updateTask]);
+
+  const handleSuggestTask = useCallback(async (task: Task) => {
+    clearTaskError();
+    setSuggestingTask(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "triage",
+          text: task.title,
+          body: JSON.stringify({
+            effort: task.effort,
+            deadline: task.deadline,
+          }),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as Partial<Pick<Task, "title" | "priority" | "category">> & { effort?: string; error?: string };
+      const category = normalizeTaskCategory(data.category);
+      if (!res.ok || !data.priority || !category) {
+        toast(data.error ?? "AI suggestion unavailable — try again.", "error", "Agenda");
+        return;
+      }
+      const updated = await updateTask(task.id, {
+        priority: data.priority,
+        category,
+        effort: data.effort ?? task.effort,
+        metadata: {
+          ...(task.metadata ?? {}),
+          ai_suggested_at: new Date().toISOString(),
+        },
+      });
+      if (updated) toast("AI suggestion applied.", "success", "Agenda");
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: { area: "agenda", operation: "suggest_task" },
+        extra: { task_id: task.id },
+      });
+      toast("AI suggestion failed — check your connection and retry.", "error", "Agenda");
+    } finally {
+      setSuggestingTask(false);
     }
   }, [clearTaskError, toast, updateTask]);
 
@@ -901,10 +1085,14 @@ export function AgendaModule() {
         task={selectedTask}
         open={!!selectedTask}
         saving={taskAction}
+        scheduling={schedulingTask}
+        suggesting={suggestingTask}
         onClose={() => setSelectedTaskId(null)}
         onSave={(patch) => selectedTask ? handleSaveTask(selectedTask.id, patch) : Promise.resolve()}
         onToggle={() => selectedTask ? handleToggleTask(selectedTask.id) : Promise.resolve()}
         onDelete={() => selectedTask ? handleDeleteTask(selectedTask.id) : Promise.resolve()}
+        onSchedule={() => selectedTask ? handleScheduleTask(selectedTask) : Promise.resolve()}
+        onSuggest={() => selectedTask ? handleSuggestTask(selectedTask) : Promise.resolve()}
       />
     </>
   );
