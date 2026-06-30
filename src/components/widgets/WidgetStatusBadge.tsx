@@ -2,6 +2,7 @@ import type { WidgetStatus } from "@/lib/widgets/types";
 
 const STATUS_LABELS: Record<WidgetStatus, string> = {
   fresh: "Fresh",
+  live: "Live",
   loading: "Loading",
   refreshing: "Refreshing",
   stale: "Stale",
