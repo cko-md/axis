@@ -5,7 +5,7 @@ import {
   listOutlookInbox,
   getOutlookMessage,
 } from "../outlook";
-import type { MailMessage, MailMessageFull } from "../gmail";
+import type { MailAttachment, MailMessage, MailMessageFull } from "../gmail";
 import { normalizeMailDate } from "../dates";
 import { getFreshMailAccessToken } from "../tokens";
 import {
@@ -161,10 +161,20 @@ export const outlookDirectAdapter: MailAdapter = {
     if (!base) return null;
     const m = raw as Record<string, unknown>;
     const bodyObj = m.body as { content?: string; contentType?: string } | undefined;
+    const attachments = ((m.attachments as Array<Record<string, unknown>> | undefined) ?? [])
+      .filter((att) => typeof att.id === "string" && typeof att.name === "string")
+      .map((att): MailAttachment => ({
+        id: att.id as string,
+        filename: att.name as string,
+        mimeType: (att.contentType as string | undefined) ?? "application/octet-stream",
+        sizeBytes: typeof att.size === "number" ? att.size : null,
+        inline: !!att.isInline,
+      }));
     return {
       ...base,
       body: bodyObj?.content ?? (m.bodyPreview as string) ?? "",
       bodyIsHtml: (bodyObj?.contentType ?? "").toLowerCase() === "html",
+      attachments,
     };
   },
 };

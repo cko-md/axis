@@ -16,14 +16,24 @@ export interface MailMessage {
 export interface MailMessageFull extends MailMessage {
   body: string;
   bodyIsHtml: boolean;
+  attachments?: MailAttachment[];
+}
+
+export interface MailAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number | null;
+  inline?: boolean;
 }
 
 // Exported so the Composio Gmail adapter can reuse the exact same body/header
 // normalization (Composio's Gmail tools return the native API payload shape).
 export interface GmailPayload {
   mimeType?: string;
+  filename?: string;
   headers?: Array<{ name: string; value: string }>;
-  body?: { data?: string };
+  body?: { data?: string; attachmentId?: string; size?: number };
   parts?: GmailPayload[];
 }
 
@@ -70,6 +80,26 @@ export function extractBody(payload: GmailPayload): { content: string; isHtml: b
   }
 
   return { content: "", isHtml: false };
+}
+
+export function extractGmailAttachments(payload: GmailPayload): MailAttachment[] {
+  const attachments: MailAttachment[] = [];
+  const walk = (part: GmailPayload) => {
+    const filename = part.filename?.trim();
+    const attachmentId = part.body?.attachmentId;
+    if (filename && attachmentId) {
+      attachments.push({
+        id: attachmentId,
+        filename,
+        mimeType: part.mimeType ?? "application/octet-stream",
+        sizeBytes: typeof part.body?.size === "number" ? part.body.size : null,
+        inline: /^image\//i.test(part.mimeType ?? "") && !filename.toLowerCase().endsWith(".pdf"),
+      });
+    }
+    for (const child of part.parts ?? []) walk(child);
+  };
+  walk(payload);
+  return attachments;
 }
 
 export async function listGmailInbox(
@@ -135,6 +165,7 @@ export async function getGmailMessage(
   const d = await res.json();
   const headers: Array<{ name: string; value: string }> = d.payload?.headers ?? [];
   const { content, isHtml } = extractBody(d.payload ?? {});
+  const attachments = extractGmailAttachments(d.payload ?? {});
 
   return {
     id: d.id as string,
@@ -148,5 +179,6 @@ export async function getGmailMessage(
     accountEmail: mailEmail,
     body: content,
     bodyIsHtml: isHtml,
+    attachments,
   };
 }

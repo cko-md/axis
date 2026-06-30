@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import DOMPurify from "isomorphic-dompurify";
-import type { MailMessageFull } from "@/lib/mail/gmail";
+import type { MailAttachment, MailMessageFull } from "@/lib/mail/gmail";
 import type { MailProvider } from "@/lib/mail/tokens";
 import type { ProviderCapabilities } from "@/lib/integrations/registry";
 import { ProviderBadge } from "./ProviderBadges";
@@ -14,10 +14,31 @@ type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 // attacker-controlled — sanitize before ever touching innerHTML. Scripts,
 // event handlers, iframes, objects, and forms are stripped; safe formatting
 // tags (links, tables, images) pass through.
-function sanitizeMailHtml(html: string): string {
+function sanitizeMailHtml(html: string, allowExternalContent: boolean): string {
   const sanitized = DOMPurify.sanitize(html, {
-    FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "link", "meta", "base"],
-    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur", "srcdoc", "formaction"],
+    FORBID_TAGS: [
+      "script",
+      "style",
+      "iframe",
+      "object",
+      "embed",
+      "form",
+      "link",
+      "meta",
+      "base",
+      ...(allowExternalContent ? [] : ["img", "picture", "source"]),
+    ],
+    FORBID_ATTR: [
+      "onerror",
+      "onload",
+      "onclick",
+      "onmouseover",
+      "onfocus",
+      "onblur",
+      "srcdoc",
+      "formaction",
+      ...(allowExternalContent ? [] : ["src", "srcset", "background"]),
+    ],
     ADD_ATTR: ["target", "rel", "referrerpolicy", "loading", "decoding", "srcset", "sizes"],
     ALLOW_DATA_ATTR: false,
   });
@@ -27,6 +48,23 @@ function sanitizeMailHtml(html: string): string {
       .trim();
     return `<a${safeAttrs ? ` ${safeAttrs}` : ""} target="_blank" rel="noopener noreferrer">`;
   });
+}
+
+function formatBytes(sizeBytes?: number | null): string {
+  if (!sizeBytes || sizeBytes <= 0) return "Unknown size";
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function attachmentKind(attachment: MailAttachment): string {
+  const type = attachment.mimeType.toLowerCase();
+  if (type.includes("pdf")) return "PDF";
+  if (type.startsWith("image/")) return "Image";
+  if (type.includes("spreadsheet") || type.includes("excel")) return "Sheet";
+  if (type.includes("presentation") || type.includes("powerpoint")) return "Deck";
+  if (type.includes("word") || type.includes("document")) return "Doc";
+  return "File";
 }
 
 function stripHtml(html: string): string {
@@ -61,6 +99,7 @@ export function MessagePanel({
   onReply,
   onAction,
   onCreateSignal,
+  onRouteAttachmentToLibrary,
 }: {
   message: MailMessageFull;
   capabilities?: ProviderCapabilities;
@@ -70,16 +109,19 @@ export function MessagePanel({
   onReply?: (draft: ComposeDraft) => void;
   onAction?: (action: MailMessageAction) => void;
   onCreateSignal?: () => void;
+  onRouteAttachmentToLibrary?: (attachment: MailAttachment) => void;
 }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
+  const [showExternalContent, setShowExternalContent] = useState(false);
   const readAction: MailMessageAction = message.isUnread ? "mark-read" : "mark-unread";
   const readLabel = message.isUnread ? "Mark read" : "Mark unread";
   const unavailableTitle = "Not available for this mailbox connection yet.";
+  const attachments = message.attachments ?? [];
 
   const sanitizedBody = useMemo(
-    () => (message.bodyIsHtml ? sanitizeMailHtml(message.body) : message.body),
-    [message.body, message.bodyIsHtml],
+    () => (message.bodyIsHtml ? sanitizeMailHtml(message.body, showExternalContent) : message.body),
+    [message.body, message.bodyIsHtml, showExternalContent],
   );
   const plainBody = message.body || message.snippet || "No message body available.";
   const hasHtmlBody = message.bodyIsHtml && sanitizedBody.trim().length > 0;
@@ -146,6 +188,23 @@ export function MessagePanel({
           ← Back
         </button>
         <span style={{ flex: 1 }} />
+        {message.bodyIsHtml && (
+          <button
+            type="button"
+            onClick={() => setShowExternalContent((value) => !value)}
+            style={{
+              background: showExternalContent ? "var(--accent-subtle)" : "var(--glass)",
+              border: "1px solid var(--line)",
+              borderRadius: 6,
+              color: "var(--ink)",
+              fontSize: "12px",
+              padding: "5px 10px",
+              cursor: "pointer",
+            }}
+          >
+            {showExternalContent ? "Hide images" : "Show images"}
+          </button>
+        )}
         <ProviderBadge provider={message.provider} />
         {onCreateSignal && (
           <button
@@ -298,6 +357,78 @@ export function MessagePanel({
         <div style={{ fontSize: "12px", color: "var(--ink-dim)", marginTop: 2 }}>
           {new Date(message.date).toLocaleString()}
         </div>
+        {attachments.length > 0 && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 8,
+              marginTop: 12,
+            }}
+          >
+            {attachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                style={{
+                  border: "1px solid var(--line)",
+                  borderRadius: 8,
+                  background: "var(--glass)",
+                  padding: 10,
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span
+                    style={{
+                      border: "1px solid var(--line)",
+                      borderRadius: 5,
+                      color: "var(--ink)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "3px 5px",
+                    }}
+                  >
+                    {attachmentKind(attachment)}
+                  </span>
+                  <span
+                    title={attachment.filename}
+                    style={{
+                      color: "var(--ink)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {attachment.filename}
+                  </span>
+                </div>
+                <div style={{ color: "var(--ink-dim)", fontSize: 11, marginTop: 5 }}>
+                  {attachment.mimeType} · {formatBytes(attachment.sizeBytes)}
+                </div>
+                {onRouteAttachmentToLibrary && (
+                  <button
+                    type="button"
+                    onClick={() => onRouteAttachmentToLibrary(attachment)}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--line)",
+                      borderRadius: 6,
+                      color: "var(--ink)",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      marginTop: 8,
+                      padding: "4px 8px",
+                    }}
+                  >
+                    Route to Library
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Body */}
@@ -314,6 +445,7 @@ export function MessagePanel({
           .mail-message-body img {
             max-width: 100%;
             height: auto;
+            border-radius: 6px;
           }
           .mail-message-body table {
             max-width: 100%;
@@ -328,6 +460,14 @@ export function MessagePanel({
           .mail-message-body pre {
             white-space: pre-wrap;
             overflow-x: auto;
+          }
+          .mail-external-note {
+            border: 1px dashed #d0d7de;
+            border-radius: 8px;
+            color: #57606a;
+            font-size: 12px;
+            margin-bottom: 12px;
+            padding: 10px 12px;
           }
         `}</style>
         {hasHtmlBody ? (
@@ -344,8 +484,14 @@ export function MessagePanel({
               overflowX: "auto",
               padding: 16,
             }}
-            dangerouslySetInnerHTML={{ __html: sanitizedBody }}
-          />
+          >
+            {!showExternalContent && (
+              <div className="mail-external-note">
+                External images and embedded media are hidden until you choose Show images.
+              </div>
+            )}
+            <div dangerouslySetInnerHTML={{ __html: sanitizedBody }} />
+          </div>
         ) : (
           <pre
             style={{

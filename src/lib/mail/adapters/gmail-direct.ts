@@ -8,6 +8,7 @@ import {
   getGmailMessage,
   getHeader,
   extractBody,
+  extractGmailAttachments,
   type GmailPayload,
   type MailMessage,
   type MailMessageFull,
@@ -173,6 +174,6 @@ export const gmailDirectAdapter: MailAdapter = {
     if (!base) return null;
     const payload = (raw as Record<string, unknown>).payload as GmailPayload | undefined;
     const { content, isHtml } = payload ? extractBody(payload) : { content: "", isHtml: false };
-    return { ...base, body: content, bodyIsHtml: isHtml };
+    return { ...base, body: content, bodyIsHtml: isHtml, attachments: payload ? extractGmailAttachments(payload) : [] };
   },
 };

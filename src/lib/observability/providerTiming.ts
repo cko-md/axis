@@ -7,6 +7,7 @@ type ProviderTimingOptions = {
   provider: string;
   operation: string;
   transport?: string;
+  captureFailures?: boolean;
   timeoutMs?: number;
   slowMs?: number;
   tags?: Record<string, SafeValue>;
@@ -100,7 +101,7 @@ export function recordProviderFailure(
   });
   logTiming("provider", data);
 
-  if (!shouldCapture(failure)) return;
+  if (opts.captureFailures === false || !shouldCapture(failure)) return;
   Sentry.captureException(new Error(failure.message ?? `${opts.provider} ${opts.operation} failed`), {
     tags: {
       area: opts.area,

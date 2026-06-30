@@ -1,5 +1,5 @@
 import { getFreshMailAccessToken } from "./tokens";
-import type { MailMessage, MailMessageFull } from "./gmail";
+import type { MailAttachment, MailMessage, MailMessageFull } from "./gmail";
 import { normalizeMailDate } from "./dates";
 
 interface OutlookEmailAddress {
@@ -16,6 +16,13 @@ interface OutlookMessage {
   bodyPreview?: string;
   isRead: boolean;
   body?: { contentType: string; content: string };
+  attachments?: Array<{
+    id?: string;
+    name?: string;
+    contentType?: string;
+    size?: number;
+    isInline?: boolean;
+  }>;
 }
 
 function formatSender(msg: OutlookMessage): string {
@@ -70,7 +77,7 @@ export async function getOutlookMessage(
   if (!token) return null;
 
   const res = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=id,conversationId,from,subject,receivedDateTime,body,bodyPreview,isRead`,
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=id,conversationId,from,subject,receivedDateTime,body,bodyPreview,isRead&$expand=attachments($select=id,name,contentType,size,isInline)`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!res.ok) return null;
@@ -78,6 +85,15 @@ export async function getOutlookMessage(
 
   const bodyContent = msg.body?.content ?? msg.bodyPreview ?? "";
   const isHtml = msg.body?.contentType?.toLowerCase() === "html";
+  const attachments: MailAttachment[] = (msg.attachments ?? [])
+    .filter((att) => att.id && att.name)
+    .map((att) => ({
+      id: att.id!,
+      filename: att.name!,
+      mimeType: att.contentType ?? "application/octet-stream",
+      sizeBytes: typeof att.size === "number" ? att.size : null,
+      inline: !!att.isInline,
+    }));
 
   return {
     id: msg.id,
@@ -91,5 +107,6 @@ export async function getOutlookMessage(
     accountEmail: mailEmail,
     body: bodyContent,
     bodyIsHtml: isHtml,
+    attachments,
   };
 }

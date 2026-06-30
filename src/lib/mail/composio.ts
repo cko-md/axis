@@ -11,7 +11,7 @@
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
 import { createClient } from "@/lib/supabase/server";
 import { executeTool, ComposioError } from "@/lib/integrations/composio";
-import { extractBody, type GmailPayload, type MailMessage, type MailMessageFull } from "./gmail";
+import { extractBody, extractGmailAttachments, type GmailPayload, type MailAttachment, type MailMessage, type MailMessageFull } from "./gmail";
 import { normalizeMailDate } from "./dates";
 
 // Profile/email resolution for ACTIVE connections now lives in the shared
@@ -150,6 +150,45 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
   return { body: text ?? "", bodyIsHtml: false };
 }
 
+function numberField(source: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function extractGenericAttachments(m: Record<string, unknown>): MailAttachment[] {
+  const raw = m.attachments ?? m.attachment ?? m.files ?? m.fileAttachments;
+  const list = Array.isArray(raw) ? raw : [];
+
+  return list.flatMap((item, index) => {
+    const attachment = asRecord(item);
+    if (!attachment) return [];
+
+    const filename = stringField(attachment, ["filename", "fileName", "name", "displayName"]);
+    if (!filename) return [];
+
+    const id =
+      stringField(attachment, ["id", "attachmentId", "attachment_id", "contentId"]) ??
+      `${filename}:${index}`;
+
+    return [{
+      id,
+      filename,
+      mimeType:
+        stringField(attachment, ["mimeType", "mime_type", "contentType", "content_type"]) ??
+        "application/octet-stream",
+      sizeBytes: numberField(attachment, ["size", "sizeBytes", "size_bytes"]),
+      inline: attachment.isInline === true || attachment.inline === true,
+    }];
+  });
+}
+
 // Normalizes a single Gmail-toolkit message into the same MailMessage shape
 // gmail.ts produces, trying both the raw Gmail API resource shape (payload/
 // headers/labelIds — Composio's Gmail tools are documented to stay close to
@@ -215,14 +254,14 @@ export function normalizeGmailMessageFull(m: Record<string, unknown>, accountEma
     body = extracted.body;
     bodyIsHtml = extracted.bodyIsHtml;
   }
-  return { ...base, body, bodyIsHtml };
+  return { ...base, body, bodyIsHtml, attachments: payload ? extractGmailAttachments(payload) : extractGenericAttachments(m) };
 }
 
 export function normalizeOutlookMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
   const base = normalizeOutlookMessage(m, accountEmail);
   if (!base) return null;
   const { body, bodyIsHtml } = extractProviderBody(m);
-  return { ...base, body, bodyIsHtml };
+  return { ...base, body, bodyIsHtml, attachments: extractGenericAttachments(m) };
 }
 
 /**

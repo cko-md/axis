@@ -2,6 +2,10 @@
 
 AXIS validates environment variables in `src/lib/env.ts`. `REQUIRED_ENV_NAMES` is the boot-time contract; `OPTIONAL_PROVIDER_ENV` groups every provider or workflow key that can be absent from a preview build. Supabase browser auth is the only boot-time requirement. Provider keys are optional unless a user enters the feature that needs them; missing optional keys must return a visible configured/not-configured state instead of crashing the app or build.
 
+## Runtime
+
+AXIS defaults to Node.js 24 locally, in GitHub Actions, and on Vercel. The package engine allows supported runtimes from Node 22 through Node 26 (`>=22 <27`) so preview builds and developer installs can run on the currently available Vercel/Node lines while avoiding Node 20 EOL. Use `.nvmrc` as the default runtime pin.
+
 ## Required
 
 | Variable | Runtime | Purpose |

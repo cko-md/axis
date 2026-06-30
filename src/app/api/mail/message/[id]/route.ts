@@ -9,6 +9,7 @@ import {
   recordProviderFailure,
   timedProviderOperation,
 } from "@/lib/observability/providerTiming";
+import type { MailAttachment } from "@/lib/mail/gmail";
 
 // GET /api/mail/message/[id]?provider=gmail|outlook&email=user@example.com
 // Provider/transport selection is delegated to the mail adapter — this route
@@ -119,9 +120,15 @@ export async function POST(
     return NextResponse.json({ error: "email param is required" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => ({})) as { action?: string };
-  if (body.action !== "create-signal") {
+  const body = await req.json().catch(() => ({})) as {
+    action?: string;
+    attachment?: Partial<MailAttachment>;
+  };
+  if (body.action !== "create-signal" && body.action !== "route-attachment-library") {
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+  }
+  if (body.action === "route-attachment-library" && !body.attachment?.id) {
+    return NextResponse.json({ error: "attachment.id is required" }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -140,7 +147,7 @@ export async function POST(
     area: "mail",
     provider,
     transport,
-    operation: "create_signal_from_message",
+    operation: body.action,
     timeoutMs: 10_000,
     slowMs: 2_500,
   };
@@ -154,7 +161,7 @@ export async function POST(
     const isTimeout = error instanceof ProviderTimeoutError;
     captureRouteError(error, {
       route: "/api/mail/message/[id]",
-      operation: "create_signal_from_message",
+      operation: body.action,
       area: "mail",
       provider,
       transport,
@@ -183,7 +190,7 @@ export async function POST(
     if (status >= 500) {
       captureRouteError(new Error(result.error.message), {
         route: "/api/mail/message/[id]",
-        operation: "create_signal_from_message",
+        operation: body.action,
         area: "mail",
         provider,
         transport,
@@ -201,14 +208,20 @@ export async function POST(
   }
 
   const message = result.data;
+  const attachment = body.action === "route-attachment-library" ? body.attachment : undefined;
   const sourceObject = {
-    source_object_type: "mail_message",
-    source_object_id: id,
+    source_object_type: attachment ? "mail_attachment" : "mail_message",
+    source_object_id: attachment ? `${id}:${attachment.id}` : id,
     source_route: "/mail",
     mail_provider: provider,
     mail_transport: transport,
     mail_account_email: email,
     mail_thread_id: message.threadId ?? null,
+    mail_message_id: id,
+    attachment_id: attachment?.id ?? null,
+    attachment_filename: attachment?.filename ?? null,
+    attachment_mime_type: attachment?.mimeType ?? null,
+    attachment_size_bytes: attachment?.sizeBytes ?? null,
   };
 
   const { data: existing, error: existingError } = await supabase
@@ -216,8 +229,8 @@ export async function POST(
     .select("*")
     .eq("user_id", user.id)
     .contains("metadata", {
-      source_object_type: "mail_message",
-      source_object_id: id,
+      source_object_type: sourceObject.source_object_type,
+      source_object_id: sourceObject.source_object_id,
       mail_provider: provider,
       mail_account_email: email,
     })
@@ -242,11 +255,15 @@ export async function POST(
     .from("signals")
     .insert({
       user_id: user.id,
-      title: message.subject || "Mail signal",
-      body: `From: ${message.from}\nDate: ${message.date}\n\n${message.snippet || "No preview available."}`,
+      title: attachment?.filename
+        ? `Save attachment: ${attachment.filename}`
+        : message.subject || "Mail signal",
+      body: attachment?.filename
+        ? `From: ${message.from}\nSubject: ${message.subject || "(no subject)"}\nAttachment: ${attachment.filename}\nType: ${attachment.mimeType ?? "unknown"}\n\nRoute this mail attachment into Library when the provider download is available.`
+        : `From: ${message.from}\nDate: ${message.date}\n\n${message.snippet || "No preview available."}`,
       source: "Mail",
       signal_type: "action",
-      route_target: "agenda",
+      route_target: attachment ? "library" : "agenda",
       metadata: sourceObject,
     })
     .select()
@@ -267,7 +284,7 @@ export async function POST(
     provider,
     transport,
     ok: true,
-    operation: "create_signal_from_message",
+    operation: body.action,
   });
   return NextResponse.json({ signal, existing: false });
 }
