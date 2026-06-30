@@ -191,6 +191,7 @@ export function ControlRoomModule() {
   const [contactsStatus, setContactsStatus] = useState<ContactsStatus | null>(null);
   const [composioConnections, setComposioConnections] = useState<ComposioConnection[] | null>(null);
   const [statusErrors, setStatusErrors] = useState<Partial<Record<StatusSource, string>>>({});
+  const [lastStatusRefresh, setLastStatusRefresh] = useState<string | null>(null);
 
   const setStatusError = useCallback((source: StatusSource, message: string | null) => {
     setStatusErrors((prev) => {
@@ -393,6 +394,7 @@ export function ControlRoomModule() {
         refreshMailStatus(),
         refreshContactsStatus(),
       ]);
+      if (alive) setLastStatusRefresh(new Date().toISOString());
     })();
     return () => {
       alive = false;
@@ -1096,6 +1098,7 @@ export function ControlRoomModule() {
           </h2>
           <p className={styles.note} style={{ marginBottom: 4 }}>
             Live status is read from existing server routes and connection rows. Credentials and environment values stay server-side.
+            {lastStatusRefresh ? ` Last checked ${relTime(lastStatusRefresh)}.` : ""}
           </p>
           {providerRows.map((c) => (
             <div key={c.name} className={styles.svcRow}>
