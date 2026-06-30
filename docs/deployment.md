@@ -27,6 +27,7 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
   - Composio connect/status flows return `NOT_CONFIGURED` or a stored status when `COMPOSIO_API_KEY` is absent.
 - Changed workflow is exercised on the preview URL, not only localhost.
 - Authenticated Playwright smoke checks run with `npm run test:e2e:auth` using either `E2E_AUTH_STATE` or `E2E_USER_EMAIL` + `E2E_USER_PASSWORD`.
+- For local Supabase-backed auth-state setup, see `docs/local-e2e.md`.
 - Error path is exercised when safe to do so and produces visible UI feedback.
 - No secrets or private content appear in Vercel logs.
 - `NEXT_PUBLIC_APP_URL` points to the intended preview/production origin where required for OAuth/CORS.

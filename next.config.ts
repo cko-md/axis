@@ -14,7 +14,9 @@ const CSP = [
   "media-src 'self' https: blob: data:",
   [
     "connect-src 'self'",
+    "http://127.0.0.1:54321 ws://127.0.0.1:54321",
     "https://*.supabase.co wss://*.supabase.co",
+    "https://api.pwnedpasswords.com",
     "https://api.anthropic.com",
     "https://generativelanguage.googleapis.com",
     "https://api.polygon.io",
@@ -35,6 +37,7 @@ const CSP = [
   // youtube.com/-nocookie for the Vault's Video Lounge embed player (mirrors the
   // Spotify pattern — direct official embed iframe instead of page-scraping proxy)
   "frame-src 'self' https://cdn.plaid.com https://open.spotify.com https://www.youtube.com https://www.youtube-nocookie.com blob:",
+  "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
