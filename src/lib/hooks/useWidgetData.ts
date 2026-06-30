@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LOCATION, type GeoLocation } from "@/lib/geo/default-location";
 import { getWidgetById } from "@/lib/store/widgets";
+import { createClient } from "@/lib/supabase/client";
+import { getWidgetDefinition } from "@/lib/widgets/registry";
+import type { WidgetDataSource, WidgetStatus } from "@/lib/widgets/types";
 
 export type WidgetData = {
   v: string;
@@ -28,12 +31,78 @@ const FETCHERS: Record<string, string> = {
   run: "/api/widgets/training",
 };
 
+type WidgetCacheRow = {
+  widget_id: string;
+  status: WidgetStatus;
+  value: string | null;
+  hint: string | null;
+  raw: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  fetched_at: string;
+  expires_at: string | null;
+};
+
+type BatchWidget = {
+  id: string;
+  status: WidgetStatus;
+  value: string;
+  hint: string;
+  raw?: Record<string, unknown>;
+  fallback?: boolean;
+  fetchedAt: string;
+  source: WidgetDataSource;
+};
+
+type BatchResponse = {
+  fetchedAt: string;
+  widgets: Record<string, BatchWidget>;
+  errors: Record<string, { code: string; message: string; retryable: boolean; status?: number }>;
+};
+
 function staleHint(hint: string) {
   return hint.endsWith(" · refresh failed") ? hint : `${hint} · refresh failed`;
 }
 
+function isStale(expiresAt: string | null) {
+  if (!expiresAt) return true;
+  return new Date(expiresAt).getTime() <= Date.now();
+}
+
+function cacheRowToWidgetData(row: WidgetCacheRow): WidgetData {
+  const fallback = getWidgetById(row.widget_id);
+  return {
+    v: row.value ?? fallback.value,
+    k: row.hint ?? fallback.hint,
+    raw: row.raw ?? undefined,
+    error: row.status === "error" || Boolean(row.error),
+    stale: isStale(row.expires_at) || row.status === "stale",
+    fallback: row.status === "setup_required" || row.status === "lab" || row.status === "disconnected",
+    loading: false,
+    updatedAt: row.fetched_at,
+  };
+}
+
+function batchWidgetToData(widget: BatchWidget): WidgetData {
+  return {
+    v: widget.value,
+    k: widget.hint,
+    raw: widget.raw,
+    fallback: Boolean(widget.fallback),
+    error: widget.status === "error",
+    stale: widget.status === "stale",
+    loading: false,
+    updatedAt: widget.fetchedAt,
+  };
+}
+
+function uniqueWidgetIds(ids: string[]) {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
 export function useWidgetData(widgetIds: string[], locationEnabled = false) {
   const [data, setData] = useState<Record<string, WidgetData>>({});
+  const supabase = useMemo(() => createClient(), []);
+  const widgetKey = widgetIds.join("|");
   const geoRef = useRef<GeoLocation>(DEFAULT_LOCATION);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   // Bumped whenever geolocation resolves so the fetch effect below re-runs
@@ -68,70 +137,133 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
     );
   }, [locationEnabled]);
 
-  const refreshOne = useCallback(
-    async (id: string, signal?: AbortSignal) => {
-      const w = getWidgetById(id);
-      const path = FETCHERS[id];
-      if (!path) {
-        setData((d) => ({ ...d, [id]: { v: w.value, k: w.hint } }));
-        return;
-      }
-      setData((d) => {
-        const previous = d[id];
-        return {
-          ...d,
-          [id]: previous
-            ? { ...previous, loading: true }
-            : { v: "…", k: "Loading", loading: true },
-        };
+  useEffect(() => {
+    let cancelled = false;
+    const ids = uniqueWidgetIds(widgetIds);
+    if (ids.length === 0) return;
+
+    supabase
+      .from("widget_cache")
+      .select("widget_id,status,value,hint,raw,error,fetched_at,expires_at")
+      .in("widget_id", ids)
+      .then(({ data: rows }) => {
+        if (cancelled || !rows?.length) return;
+        setData((current) => {
+          const next = { ...current };
+          for (const row of rows as WidgetCacheRow[]) {
+            next[row.widget_id] = cacheRowToWidgetData(row);
+          }
+          return next;
+        });
       });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, widgetKey, widgetIds]);
+
+  const refreshBatch = useCallback(
+    async (ids: string[], signal?: AbortSignal) => {
+      const requestedIds = uniqueWidgetIds(ids);
+      if (requestedIds.length === 0) return;
+      const batchIds = requestedIds.filter((id) => {
+        const definition = getWidgetDefinition(id);
+        return Boolean(definition?.source.endpoint ?? FETCHERS[id]);
+      });
+      const localIds = requestedIds.filter((id) => !batchIds.includes(id));
+      setData((d) => {
+        const next = { ...d };
+        for (const id of localIds) {
+          const fallback = getWidgetById(id);
+          next[id] = { v: fallback.value, k: fallback.hint, loading: false };
+        }
+        for (const id of batchIds) {
+          const previous = d[id];
+          next[id] = previous
+            ? { ...previous, loading: true }
+            : { v: "…", k: "Loading", loading: true };
+        }
+        return next;
+      });
+      if (batchIds.length === 0) return;
       try {
         const geo = geoRef.current;
-        const q = new URLSearchParams({ lat: String(geo.lat), lon: String(geo.lon), name: geo.name });
-        const res = await fetch(`${path}?${q}`, { signal });
+        const res = await fetch("/api/widgets/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            widgetIds: batchIds,
+            location: { lat: geo.lat, lon: geo.lon, name: geo.name },
+          }),
+          signal,
+        });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((json as { error?: string }).error ?? `Widget ${id} failed`);
-        const payload = json as { value?: string; hint?: string; raw?: Record<string, unknown>; fallback?: boolean; error?: boolean };
-        setData((d) => ({
-          ...d,
-          [id]: {
-            v: payload.value ?? w.value,
-            k: payload.hint ?? w.hint,
-            raw: payload.raw,
-            fallback: !!payload.fallback,
-            error: !!payload.error,
-            stale: false,
-            loading: false,
-            updatedAt: new Date().toISOString(),
-          },
-        }));
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
+        if (!res.ok) throw new Error((json as { error?: string }).error ?? "Widget batch failed");
+        const payload = json as BatchResponse;
         setData((d) => {
-          const previous = d[id];
-          return {
-            ...d,
-            [id]: {
-              v: previous?.v ?? w.value,
-              k: previous ? staleHint(previous.k) : w.hint,
+          const next = { ...d };
+          for (const [id, widget] of Object.entries(payload.widgets ?? {})) {
+            next[id] = batchWidgetToData(widget);
+          }
+          for (const id of batchIds) {
+            if (payload.widgets?.[id]) continue;
+            if (!payload.errors?.[id]) continue;
+            const previous = d[id];
+            const fallback = getWidgetById(id);
+            next[id] = {
+              v: previous?.v ?? fallback.value,
+              k: previous ? staleHint(previous.k) : staleHint(fallback.hint),
               raw: previous?.raw,
               fallback: previous?.fallback,
               error: true,
-              stale: !!previous,
+              stale: Boolean(previous),
               loading: false,
               updatedAt: previous?.updatedAt,
-            },
-          };
+            };
+          }
+          return next;
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setData((d) => {
+          const next = { ...d };
+          for (const id of batchIds) {
+            const previous = d[id];
+            const fallback = getWidgetById(id);
+            next[id] = {
+              v: previous?.v ?? fallback.value,
+              k: previous ? staleHint(previous.k) : staleHint(fallback.hint),
+              raw: previous?.raw,
+              fallback: previous?.fallback,
+              error: true,
+              stale: Boolean(previous),
+              loading: false,
+              updatedAt: previous?.updatedAt,
+            };
+          }
+          return next;
         });
       }
     },
-    // getWidgetById is a stable module-level import
     [],
   );
 
+  const refreshOne = useCallback(
+    async (id: string, signal?: AbortSignal) => {
+      const definition = getWidgetDefinition(id);
+      if (!definition && !FETCHERS[id]) {
+        const w = getWidgetById(id);
+        setData((d) => ({ ...d, [id]: { v: w.value, k: w.hint } }));
+        return;
+      }
+      return refreshBatch([id], signal);
+    },
+    [refreshBatch],
+  );
+
   const refreshAll = useCallback((signal?: AbortSignal) => {
-    return Promise.all(widgetIds.map((id) => refreshOne(id, signal)));
-  }, [widgetIds, refreshOne]);
+    return refreshBatch(widgetIds, signal);
+  }, [widgetIds, refreshBatch]);
 
   useEffect(() => {
     const controller = new AbortController();

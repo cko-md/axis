@@ -216,6 +216,42 @@ export async function POST(req: Request) {
     if (result.error) errors[result.id] = result.error;
   }
 
+  const cacheRows = Object.values(widgets).map((widget) => {
+    const definition = getWidgetDefinition(widget.id);
+    const staleAfterSeconds = definition?.freshness.staleAfterSeconds ?? 15 * 60;
+    const expiresAt = staleAfterSeconds > 0
+      ? new Date(new Date(widget.fetchedAt).getTime() + staleAfterSeconds * 1000).toISOString()
+      : null;
+    return {
+      user_id: user.id,
+      widget_id: widget.id,
+      cache_key: widget.source.cacheKey,
+      status: widget.status,
+      value: widget.value,
+      hint: widget.hint,
+      raw: widget.raw ?? {},
+      error: null,
+      fetched_at: widget.fetchedAt,
+      expires_at: expiresAt,
+      updated_at: fetchedAt,
+    };
+  });
+
+  if (cacheRows.length > 0) {
+    const { error: cacheError } = await supabase
+      .from("widget_cache")
+      .upsert(cacheRows, { onConflict: "user_id,widget_id,cache_key" });
+    if (cacheError) {
+      captureRouteError(cacheError, {
+        route,
+        operation: "write_cache",
+        area: "widgets",
+        provider: "supabase",
+        code: cacheError.code,
+      });
+    }
+  }
+
   logRouteTiming(route, startedAt, {
     requested: widgetIds.length,
     succeeded: Object.keys(widgets).length,
