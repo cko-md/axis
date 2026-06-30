@@ -1,5 +1,5 @@
 import { getFreshMailAccessToken } from "./tokens";
-import type { MailAttachment, MailMessage, MailMessageFull } from "./gmail";
+import type { MailAttachment, MailAttachmentFile, MailMessage, MailMessageFull } from "./gmail";
 import { normalizeMailDate } from "./dates";
 
 interface OutlookEmailAddress {
@@ -108,5 +108,40 @@ export async function getOutlookMessage(
     body: bodyContent,
     bodyIsHtml: isHtml,
     attachments,
+  };
+}
+
+export async function getOutlookAttachment(
+  userId: string,
+  mailEmail: string,
+  messageId: string,
+  attachment: MailAttachment,
+): Promise<MailAttachmentFile | null> {
+  const token = await getFreshMailAccessToken(userId, "outlook", mailEmail);
+  if (!token) return null;
+
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}?$select=id,name,contentType,size,isInline,contentBytes`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+
+  const data = await res.json().catch(() => null) as {
+    id?: string;
+    name?: string;
+    contentType?: string;
+    size?: number;
+    isInline?: boolean;
+    contentBytes?: string;
+  } | null;
+  if (!data?.contentBytes) return null;
+
+  return {
+    id: data.id ?? attachment.id,
+    filename: data.name ?? attachment.filename,
+    mimeType: data.contentType ?? attachment.mimeType,
+    sizeBytes: typeof data.size === "number" ? data.size : attachment.sizeBytes,
+    inline: data.isInline ?? attachment.inline,
+    bytes: Buffer.from(data.contentBytes, "base64"),
   };
 }

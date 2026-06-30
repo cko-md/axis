@@ -27,6 +27,10 @@ export interface MailAttachment {
   inline?: boolean;
 }
 
+export interface MailAttachmentFile extends MailAttachment {
+  bytes: Buffer;
+}
+
 // Exported so the Composio Gmail adapter can reuse the exact same body/header
 // normalization (Composio's Gmail tools return the native API payload shape).
 export interface GmailPayload {
@@ -100,6 +104,27 @@ export function extractGmailAttachments(payload: GmailPayload): MailAttachment[]
   };
   walk(payload);
   return attachments;
+}
+
+export async function getGmailAttachment(
+  userId: string,
+  mailEmail: string,
+  messageId: string,
+  attachment: MailAttachment,
+): Promise<MailAttachmentFile | null> {
+  const token = await getFreshMailAccessToken(userId, "gmail", mailEmail);
+  if (!token) return null;
+
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+
+  const data = await res.json().catch(() => null) as { data?: string } | null;
+  if (!data?.data) return null;
+  const base64 = data.data.replace(/-/g, "+").replace(/_/g, "/");
+  return { ...attachment, bytes: Buffer.from(base64, "base64") };
 }
 
 export async function listGmailInbox(

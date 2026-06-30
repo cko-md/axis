@@ -16,7 +16,7 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
 
 ## Vercel Preview Checklist
 
-- Preview build runs on Node.js 24.x or another supported runtime satisfying `>=22 <27`.
+- Preview build runs on Node.js 24.x.
 - Preview build succeeds with required Supabase env present.
 - Preview build succeeds when optional provider keys are absent: `COMPOSIO_API_KEY`, `POLYGON_API_KEY`/`MASSIVE_API_KEY`, `PLAID_*`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `MAKE_*`, `UPSTASH_*`, health provider IDs, and brokerage keys.
 - Optional provider keys that are absent show setup/not-configured UI or API responses instead of crashing.
@@ -26,6 +26,7 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
   - `GET /api/plaid/status` reports connected/not-connected or a visible status error.
   - Composio connect/status flows return `NOT_CONFIGURED` or a stored status when `COMPOSIO_API_KEY` is absent.
 - Changed workflow is exercised on the preview URL, not only localhost.
+- Authenticated Playwright smoke checks run with `npm run test:e2e:auth` using either `E2E_AUTH_STATE` or `E2E_USER_EMAIL` + `E2E_USER_PASSWORD`.
 - Error path is exercised when safe to do so and produces visible UI feedback.
 - No secrets or private content appear in Vercel logs.
 - `NEXT_PUBLIC_APP_URL` points to the intended preview/production origin where required for OAuth/CORS.

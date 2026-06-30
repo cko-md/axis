@@ -3,7 +3,7 @@
 // `MailMessage`/`MailMessageFull` types and the SAME `Result<T>` structured
 // errors, so API routes call generic methods and never branch on provider.
 
-import type { MailMessage, MailMessageFull } from "../gmail";
+import type { MailAttachmentFile, MailMessage, MailMessageFull } from "../gmail";
 import type { MailProvider, MailAccountRef } from "../tokens";
 import type { IntegrationTransport, Result } from "../../integrations/types";
 
@@ -83,6 +83,7 @@ export interface MailAdapter {
   markUnread(ctx: MailAccountContext, messageId: string): Promise<Result<void>>;
   archiveMessage(ctx: MailAccountContext, messageId: string): Promise<Result<void>>;
   deleteMessage(ctx: MailAccountContext, messageId: string): Promise<Result<void>>;
+  getAttachment(ctx: MailAccountContext, messageId: string, attachmentId: string): Promise<Result<MailAttachmentFile>>;
 
   normalizeMessage(raw: unknown, ctx: MailAccountContext): MailMessage | null;
   normalizeMessageFull(raw: unknown, ctx: MailAccountContext): MailMessageFull | null;

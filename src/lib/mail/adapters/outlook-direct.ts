@@ -3,6 +3,7 @@
 
 import {
   listOutlookInbox,
+  getOutlookAttachment,
   getOutlookMessage,
 } from "../outlook";
 import type { MailAttachment, MailMessage, MailMessageFull } from "../gmail";
@@ -138,6 +139,22 @@ export const outlookDirectAdapter: MailAdapter = {
     // DELETE moves the message to Deleted Items (recoverable).
     const res = await graphCall(ctx, `/messages/${encodeURIComponent(messageId)}`, { method: "DELETE" });
     return res.ok ? ok(undefined) : res;
+  },
+
+  async getAttachment(ctx: MailAccountContext, messageId: string, attachmentId: string) {
+    const message = await this.getMessage(ctx, messageId);
+    if (!message.ok) return message;
+    const attachment = (message.data.attachments ?? []).find((item) => item.id === attachmentId);
+    if (!attachment) {
+      return fail("not_found", "Attachment could not be found on this message.", { provider: "outlook", transport: "direct", status: 404 });
+    }
+    try {
+      const file = await getOutlookAttachment(ctx.userId, ctx.mailEmail, messageId, attachment);
+      if (!file) return fail("provider_error", "Outlook attachment could not be downloaded.", { provider: "outlook", transport: "direct" });
+      return ok(file);
+    } catch (e) {
+      return failFromException(e, "Outlook attachment download failed", { provider: "outlook", transport: "direct" });
+    }
   },
 
   normalizeMessage(raw: unknown, ctx: MailAccountContext): MailMessage | null {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
 
 // Vercel cron: runs daily at 06:00 UTC (configured in vercel.json)
@@ -96,7 +97,10 @@ export async function GET(req: NextRequest) {
     supabase_health: results.supabase_health,
     all_ok: !!(results.supabase_health as { ok: boolean }).ok,
   };
-  const { error: healthInsertError } = await supabase.from("health_check_runs").insert(runSummary);
+  const admin = createAdminClient();
+  const { error: healthInsertError } = admin
+    ? await admin.from("health_check_runs").insert(runSummary)
+    : { error: new Error("SUPABASE_SERVICE_ROLE_KEY not configured") };
   if (healthInsertError) {
     console.error("[cron] health_check_runs insert failed:", healthInsertError.message);
   }

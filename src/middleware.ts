@@ -48,9 +48,39 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error?.code === "refresh_token_not_found" || error?.code === "invalid_refresh_token") {
+      request.cookies
+        .getAll()
+        .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
+        .forEach((cookie) => {
+          supabaseResponse.cookies.set(cookie.name, "", {
+            path: "/",
+            maxAge: 0,
+            sameSite: "lax",
+          });
+        });
+    }
+    user = data.user;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code === "refresh_token_not_found" || code === "invalid_refresh_token") {
+      request.cookies
+        .getAll()
+        .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
+        .forEach((cookie) => {
+          supabaseResponse.cookies.set(cookie.name, "", {
+            path: "/",
+            maxAge: 0,
+            sameSite: "lax",
+          });
+        });
+    } else {
+      throw error;
+    }
+  }
 
   // API routes never redirect to the login page.
   // Financial, AI, and data-mutation routes require a session — returning 401

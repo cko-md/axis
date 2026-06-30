@@ -11,6 +11,16 @@ import {
 } from "@/lib/observability/providerTiming";
 import type { MailAttachment } from "@/lib/mail/gmail";
 
+const LIBRARY_BUCKET = "library-files";
+
+function safeFilename(name: string): string {
+  return name
+    .replace(/[^\w.\- ()]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160) || "attachment";
+}
+
 // GET /api/mail/message/[id]?provider=gmail|outlook&email=user@example.com
 // Provider/transport selection is delegated to the mail adapter — this route
 // works identically for direct-OAuth and Composio accounts.
@@ -207,8 +217,83 @@ export async function POST(
     return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
   }
 
-  const message = result.data;
   const attachment = body.action === "route-attachment-library" ? body.attachment : undefined;
+  if (attachment?.id) {
+    const attachmentResult = await adapter.getAttachment(toMailContext(user.id, account), id, attachment.id);
+    if (attachmentResult.ok) {
+      const file = attachmentResult.data;
+      const displayName = safeFilename(file.filename);
+      const storagePath = `${user.id}/mail-attachments/${crypto.randomUUID()}-${displayName}`;
+      const { error: uploadError } = await supabase.storage
+        .from(LIBRARY_BUCKET)
+        .upload(storagePath, file.bytes, {
+          contentType: file.mimeType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        captureRouteError(uploadError, {
+          route: "/api/mail/message/[id]",
+          operation: "save_attachment_to_library_storage",
+          area: "mail",
+          provider: "supabase",
+          status: 500,
+        });
+        return NextResponse.json({ error: "Attachment downloaded, but Library storage failed." }, { status: 500 });
+      }
+
+      const { data: libraryFile, error: insertError } = await supabase
+        .from("library_files")
+        .insert({
+          user_id: user.id,
+          storage_path: storagePath,
+          display_name: displayName,
+          mime_type: file.mimeType,
+          size_bytes: file.sizeBytes ?? file.bytes.byteLength,
+          collection: 0,
+        })
+        .select()
+        .single();
+
+      if (insertError || !libraryFile) {
+        await supabase.storage.from(LIBRARY_BUCKET).remove([storagePath]);
+        captureRouteError(insertError, {
+          route: "/api/mail/message/[id]",
+          operation: "save_attachment_to_library_metadata",
+          area: "mail",
+          provider: "supabase",
+          status: 500,
+        });
+        return NextResponse.json({ error: "Attachment downloaded, but Library metadata failed." }, { status: 500 });
+      }
+
+      logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+        provider,
+        transport,
+        ok: true,
+        operation: "save_attachment_to_library",
+      });
+      return NextResponse.json({ libraryFile, saved: true });
+    }
+
+    if (mailErrorStatus(attachmentResult.error.code) !== 501) {
+      const status = mailErrorStatus(attachmentResult.error.code);
+      if (status >= 500) {
+        captureRouteError(new Error(attachmentResult.error.message), {
+          route: "/api/mail/message/[id]",
+          operation: "download_mail_attachment",
+          area: "mail",
+          provider,
+          transport,
+          status,
+          code: attachmentResult.error.code,
+        });
+      }
+      return NextResponse.json({ error: attachmentResult.error.message, code: attachmentResult.error.code }, { status });
+    }
+  }
+
+  const message = result.data;
   const sourceObject = {
     source_object_type: attachment ? "mail_attachment" : "mail_message",
     source_object_id: attachment ? `${id}:${attachment.id}` : id,

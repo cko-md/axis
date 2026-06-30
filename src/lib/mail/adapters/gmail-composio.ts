@@ -134,6 +134,13 @@ export const gmailComposioAdapter: MailAdapter = {
     }
   },
 
+  getAttachment(): Promise<Result<never>> {
+    return Promise.resolve(fail("not_supported", "Composio Gmail attachment download is not available yet; reconnect this mailbox directly to save attachments into Library.", {
+      provider: "gmail",
+      transport: "composio",
+    }));
+  },
+
   normalizeMessage(raw: unknown, ctx: MailAccountContext): MailMessage | null {
     return normalizeGmailMessage(raw as Record<string, unknown>, ctx.mailEmail);
   },

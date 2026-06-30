@@ -1,54 +1,5 @@
 import type { NextConfig } from "next";
-// @ts-expect-error — next-pwa ships CJS without bundled types
-import withPWAInit from "next-pwa";
 import { withSentryConfig } from "@sentry/nextjs";
-
-const withPWA = withPWAInit({
-  dest: "public",
-  disable: process.env.NODE_ENV === "development",
-  register: true,
-  skipWaiting: true,
-  runtimeCaching: [
-    // app shell static assets — cache first
-    {
-      urlPattern: /^https:\/\/[^/]+\/_next\/static\/.*/i,
-      handler: "CacheFirst",
-      options: {
-        cacheName: "static-assets",
-        expiration: { maxEntries: 200, maxAgeSeconds: 604800 },
-      },
-    },
-    // google fonts — cache first, long TTL
-    {
-      urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
-      handler: "CacheFirst",
-      options: {
-        cacheName: "google-fonts",
-        expiration: { maxEntries: 20, maxAgeSeconds: 2592000 },
-      },
-    },
-    // internal API routes — network first with cache fallback
-    {
-      urlPattern: /^https:\/\/[^/]+\/api\/.*/i,
-      handler: "NetworkFirst",
-      options: {
-        cacheName: "api-cache",
-        networkTimeoutSeconds: 10,
-        expiration: { maxEntries: 100, maxAgeSeconds: 86400 },
-      },
-    },
-    // pages — network first
-    {
-      urlPattern: /^https:\/\/[^/]+\/((?!api\/).)*$/i,
-      handler: "NetworkFirst",
-      options: {
-        cacheName: "pages-cache",
-        networkTimeoutSeconds: 10,
-        expiration: { maxEntries: 50, maxAgeSeconds: 86400 },
-      },
-    },
-  ],
-});
 
 const CSP = [
   "default-src 'self'",
@@ -114,15 +65,8 @@ const nextConfig: NextConfig = {
       ...(config.ignoreWarnings ?? []),
       /A Node\.js API is used \(process\.version[\s\S]*Edge Runtime/,
     ];
-    // next-pwa's custom webpack() hook (added below by withPWA) makes Next
-    // disable its build worker and compile client/server/edge in one process
-    // instead of isolated worker threads (see next.config.ts comment at the
-    // bottom — useBuildWorker is forced off whenever config.webpack is set).
-    // Next's default output.hashFunction is the WASM-backed 'xxhash64', which
-    // has documented "Cannot read properties of undefined (reading 'length')"
-    // crashes in WasmHash._updateWithBuffer when its shared instance pool is
-    // stressed — exactly the failure this app hit intermittently with PWA
-    // enabled. Forcing a native (non-WASM) digest sidesteps that pool entirely.
+    // Keep a native (non-WASM) digest to avoid intermittent wasm-hash crashes
+    // observed in single-process webpack builds.
     config.output.hashFunction = "sha256";
     return config;
   },
@@ -177,7 +121,7 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSentryConfig(withPWA(nextConfig), {
+export default withSentryConfig(nextConfig, {
   org: "kevin-ogonuwe",
   project: "javascript-nextjs",
 
