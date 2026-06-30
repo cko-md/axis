@@ -35,6 +35,9 @@ import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
+import { WidgetShell } from "@/components/widgets/WidgetShell";
+import { getWidgetDefinition } from "@/lib/widgets/registry";
+import type { WidgetStatus } from "@/lib/widgets/types";
 
 /* ── widget icons ──────────────────────────────────────────────── */
 
@@ -94,6 +97,18 @@ function WidgetSecondLine({ id, raw }: { id: string; raw?: Record<string, unknow
     return <div className="tb-raw">{String(raw.km)} km this week · {Number(raw.streak) > 0 ? `${raw.streak}-day streak` : "no active streak"}</div>;
   }
   return null;
+}
+
+function widgetRuntimeStatus(id: string, live: { loading?: boolean; error?: boolean; stale?: boolean; updatedAt?: string } | undefined, catalogLive?: boolean): WidgetStatus {
+  const definition = getWidgetDefinition(id);
+  if (live?.loading && live.updatedAt) return "refreshing";
+  if (live?.loading) return "loading";
+  if (live?.error && live.stale) return "stale";
+  if (live?.error) return "error";
+  if (live?.stale) return "stale";
+  if (live?.updatedAt) return "fresh";
+  if (definition?.statusDefault) return definition.statusDefault;
+  return catalogLive === false ? "lab" : "setup_required";
 }
 
 /* ── art gallery card ──────────────────────────────────────────── */
@@ -694,11 +709,57 @@ export function ConsoleModule() {
         <div className="tidbits">
           {widgetIds.map((id, i) => {
             const w = getWidgetById(id);
+            const definition = getWidgetDefinition(id);
             const live = liveData[id];
             const texts = widgetTexts[id];
             const value = editing ? (texts?.v ?? live?.v ?? w.value) : (live?.v ?? texts?.v ?? w.value);
             const hint = editing ? (texts?.k ?? live?.k ?? w.hint) : (live?.k ?? texts?.k ?? w.hint);
-            const statusLabel = live?.updatedAt ? "Live" : w.live === false ? "Lab" : "Setup";
+            const status = widgetRuntimeStatus(id, live, w.live);
+            const shellIcon = definition?.icon ?? <WidgetIcon id={id} />;
+            if (id === "weather") {
+              return (
+                <WidgetShell
+                  key={`${id}-${i}`}
+                  title={definition?.label ?? w.label}
+                  icon={shellIcon}
+                  value={value}
+                  hint={expandedWidget === id ? `${hint} · tap to collapse` : hint}
+                  status={status}
+                  updatedAt={live?.updatedAt}
+                  provider={definition?.source.provider ?? "widget"}
+                  onPrimaryAction={editing ? undefined : () => setExpandedWidget(expandedWidget === id ? null : id)}
+                  titleText={expandedWidget === id ? "Click to collapse" : "Click to expand"}
+                  actionSlot={editing ? (
+                    <button
+                      type="button"
+                      className="widget-shell-action"
+                      onClick={() => { setSwapIdx(i); setPickerOpen(true); }}
+                    >
+                      Swap
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="widget-shell-action"
+                      onClick={() => {
+                        refreshOne(id);
+                        toast("Widget refreshed", "success", w.label);
+                      }}
+                    >
+                      Refresh
+                    </button>
+                  )}
+                >
+                  {expandedWidget === id && !editing && <WidgetSecondLine id={id} raw={live?.raw} />}
+                  {!editing && live?.error && (
+                    <div className="tb-raw" style={{ color: "var(--clay)" }}>
+                      {live.stale ? "Showing last update" : "Refresh failed"}
+                    </div>
+                  )}
+                </WidgetShell>
+              );
+            }
+            const statusLabel = status === "fresh" ? "Fresh" : status === "loading" || status === "refreshing" ? "Refreshing" : status === "stale" ? "Stale" : status === "error" ? "Error" : status === "lab" ? "Lab" : status === "disconnected" ? "Disconnected" : status === "empty" ? "Empty" : "Setup";
             return (
               <div
                 key={`${id}-${i}`}
