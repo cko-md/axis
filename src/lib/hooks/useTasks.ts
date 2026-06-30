@@ -8,6 +8,13 @@ import { useRealtimeRefresh } from "./useRealtimeRefresh";
 export type TaskCategory = "research" | "clinical" | "life" | "personal";
 export type TaskPriority = "hi" | "med" | "lo";
 export type TaskStatus = "open" | "done" | "overdue";
+export type TaskRankReason = {
+  score: number;
+  priorityWeight: number;
+  deadlineLabel: string;
+  stale: boolean;
+  explanation: string;
+};
 
 export type Task = {
   id: string;
@@ -42,6 +49,7 @@ export type TaskUpdate = Partial<Pick<
 >>;
 
 const DONE_HIDE_MS = 18 * 60 * 60 * 1000; // 18 hours
+const STALE_OPEN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function useTasks() {
   const supabase = useMemo(() => createClient(), []);
@@ -185,7 +193,7 @@ export function useTasks() {
 export function rankTasks(tasks: Task[]) {
   const NO_DEADLINE = Date.UTC(2100, 0, 1);
   const score = (t: Task) => {
-    const pri = t.priority === "hi" ? 3 : t.priority === "med" ? 2 : 1;
+    const pri = taskPriorityWeight(t);
     const dl = t.deadline ? new Date(t.deadline).getTime() : NO_DEADLINE;
     return pri * NO_DEADLINE - dl;
   };
@@ -203,6 +211,47 @@ export function rankTasks(tasks: Task[]) {
       if (a.status !== "done" && b.status === "done") return -1;
       return score(b) - score(a);
     });
+}
+
+export function taskPriorityWeight(task: Task) {
+  if (task.priority === "hi") return 3;
+  if (task.priority === "med") return 2;
+  return 1;
+}
+
+export function isTaskOverdue(task: Task, now = Date.now()) {
+  return task.status !== "done" && !!task.deadline && new Date(task.deadline).getTime() < now;
+}
+
+export function isTaskStale(task: Task, now = Date.now()) {
+  if (task.status === "done") return false;
+  const updated = new Date(task.updated_at ?? task.created_at).getTime();
+  return Number.isFinite(updated) && now - updated > STALE_OPEN_MS;
+}
+
+export function taskRankReason(task: Task, now = Date.now()): TaskRankReason {
+  const priorityWeight = taskPriorityWeight(task);
+  const deadlineMs = task.deadline ? new Date(task.deadline).getTime() : null;
+  const overdue = isTaskOverdue(task, now);
+  const stale = isTaskStale(task, now);
+  const deadlineLabel = !deadlineMs
+    ? "No deadline"
+    : overdue
+      ? "Past due"
+      : `Due ${new Date(deadlineMs).toLocaleDateString()}`;
+  const score = priorityWeight * 100 + (deadlineMs ? Math.max(0, Math.ceil((deadlineMs - now) / 86_400_000)) * -1 : 0) + (stale ? -10 : 0);
+  const parts = [
+    `${task.priority.toUpperCase()} priority`,
+    deadlineLabel.toLowerCase(),
+    stale ? "stale open loop" : "recently touched",
+  ];
+  return {
+    score,
+    priorityWeight,
+    deadlineLabel,
+    stale,
+    explanation: parts.join(" · "),
+  };
 }
 
 /** Done tasks completed today (for Agenda History / stat segment). */
