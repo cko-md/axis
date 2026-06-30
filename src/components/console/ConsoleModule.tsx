@@ -2,6 +2,7 @@
 
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { motion, useReducedMotion } from "motion/react";
 import {
   DndContext,
   DragOverlay,
@@ -303,10 +304,12 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const { sizes, toggle } = useContext(BlockSizeContext);
   const size = sizes[id] ?? "full";
+  const reduceMotion = useReducedMotion();
   return (
-    <div
+    <motion.div
       ref={setNodeRef}
       className={`block-wrap${size !== "full" ? ` block-${size}` : ""}`}
+      layout={!reduceMotion && !isDragging ? "position" : false}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -338,7 +341,7 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
         </div>
       </div>
       {children}
-    </div>
+    </motion.div>
   );
 }
 
@@ -729,6 +732,11 @@ export function ConsoleModule() {
                     status={status}
                     updatedAt={live?.updatedAt}
                     provider={definition?.source.provider ?? "widget"}
+                    loading={live?.loading}
+                    stale={live?.stale}
+                    error={live?.error}
+                    lab={status === "lab"}
+                    disconnected={status === "disconnected"}
                     onPrimaryAction={editing ? undefined : () => setDetailWidgetId(id)}
                     titleText={drawerOpen ? "Details open" : "Open widget details"}
                     actionSlot={
