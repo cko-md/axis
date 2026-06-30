@@ -27,6 +27,8 @@ export type Objective = {
   key_results: KeyResult[];
 };
 
+export type ObjectiveUpdate = Partial<Pick<Objective, "title" | "descriptor" | "sort_order">>;
+
 export type Habit = {
   id: string;
   user_id: string;
@@ -143,6 +145,20 @@ export function useObjectives() {
     return { data: obj };
   }, [supabase, objectives.length]);
 
+  const updateObjective = useCallback(async (id: string, patch: ObjectiveUpdate) => {
+    const { data, error } = await supabase
+      .from("objectives")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) return { error: error.message };
+    setObjectives((prev) =>
+      prev.map((o) => (o.id === id ? { ...(data as Omit<Objective, "key_results">), key_results: o.key_results } : o)),
+    );
+    return { data: data as Omit<Objective, "key_results"> };
+  }, [supabase]);
+
   const deleteObjective = useCallback(async (id: string) => {
     const { error } = await supabase.from("objectives").delete().eq("id", id);
     if (error) return { error: error.message };
@@ -244,6 +260,7 @@ export function useObjectives() {
     signedIn,
     refresh,
     addObjective,
+    updateObjective,
     deleteObjective,
     addKeyResult,
     updateKeyResult,

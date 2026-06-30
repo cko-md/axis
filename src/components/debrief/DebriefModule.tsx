@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNotes } from "@/lib/hooks/useNotes";
 import type { Note } from "@/lib/hooks/useNotes";
 import { useTasks } from "@/lib/hooks/useTasks";
+import { useObjectives } from "@/lib/hooks/useObjectives";
 import { useToast } from "@/components/ui/Toast";
+import { createClient } from "@/lib/supabase/client";
 
 const DEBRIEF_FOLDER = "Debrief";
 const REMINDER_KEY   = "debrief-reminder";
@@ -12,6 +14,56 @@ const DEFAULT_DAY    = 0;  // Sunday
 const DEFAULT_HOUR   = 19; // 7 PM
 
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+type ReviewType = "daily" | "weekly";
+
+type DebriefEntry = {
+  id: string;
+  user_id: string;
+  review_date: string;
+  review_type: ReviewType;
+  wins: string;
+  challenges: string;
+  focus: string;
+  summary: string;
+  completed_task_ids: string[];
+  missed_task_ids: string[];
+  calendar_event_ids: string[];
+  objective_ids: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+type ScheduleEvent = {
+  id: string;
+  title: string;
+  description: string | null;
+  start_at: string;
+  end_at: string;
+};
+
+type ExternalEvent = {
+  id?: string;
+  externalId?: string;
+  title?: string;
+  summary?: string;
+  start?: string;
+  start_at?: string;
+  end?: string;
+  end_at?: string;
+  source?: string;
+};
+
+function localIsoDay(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dayBounds(date: string) {
+  const start = new Date(`${date}T00:00:00`);
+  const end = new Date(`${date}T23:59:59.999`);
+  return { start, end };
+}
 
 function nextOccurrence(dayOfWeek: number, hour = 19): Date {
   const now   = new Date();
@@ -179,11 +231,25 @@ function PastReflectionRow({ note }: { note: Note }) {
 /* ---------- main component ---------- */
 
 export function DebriefModule() {
+  const supabase = useMemo(() => createClient(), []);
   const { notes, createNote, updateNote } = useNotes();
   const { tasks, loading, addTask, toggleDone, deleteTask } = useTasks();
+  const { objectives } = useObjectives();
   const { toast }                  = useToast();
 
   const [signedIn,      setSignedIn]      = useState(false);
+  const [reviewDate,    setReviewDate]    = useState(localIsoDay());
+  const [dailyEntry,    setDailyEntry]    = useState<DebriefEntry | null>(null);
+  const [dailyWins,     setDailyWins]     = useState("");
+  const [dailyChallenges, setDailyChallenges] = useState("");
+  const [dailyFocus,    setDailyFocus]    = useState("");
+  const [dailySummary,  setDailySummary]  = useState("");
+  const [dailySaving,   setDailySaving]   = useState(false);
+  const [dailyLoading,  setDailyLoading]  = useState(false);
+  const [events,        setEvents]        = useState<ScheduleEvent[]>([]);
+  const [externalEvents, setExternalEvents] = useState<ExternalEvent[]>([]);
+  const [eventError,    setEventError]    = useState<string | null>(null);
+  const [nextAction,    setNextAction]    = useState("");
   const [wins,          setWins]          = useState("");
   const [challenges,    setChallenges]    = useState("");
   const [focus,         setFocus]         = useState("");
@@ -197,10 +263,96 @@ export function DebriefModule() {
   const [summarizing,   setSummarizing]   = useState(false);
 
   useEffect(() => {
-    import("@/lib/supabase/client").then(({ createClient }) => {
-      createClient().auth.getUser().then(({ data }) => setSignedIn(!!data.user));
-    });
-  }, []);
+    supabase.auth.getUser().then(({ data }) => setSignedIn(!!data.user));
+  }, [supabase]);
+
+  const selectedBounds = useMemo(() => dayBounds(reviewDate), [reviewDate]);
+
+  const completedToday = useMemo(
+    () => tasks.filter((t) => {
+      const doneAt = t.completed_at ?? (t.status === "done" ? t.updated_at : null);
+      if (!doneAt) return false;
+      const time = new Date(doneAt).getTime();
+      return time >= selectedBounds.start.getTime() && time <= selectedBounds.end.getTime();
+    }),
+    [selectedBounds, tasks],
+  );
+
+  const missedToday = useMemo(
+    () => tasks.filter((t) => {
+      if (t.status === "done") return false;
+      if (t.status === "overdue") return true;
+      if (!t.deadline) return false;
+      const deadline = new Date(`${t.deadline}T23:59:59`).getTime();
+      return deadline <= selectedBounds.end.getTime();
+    }),
+    [selectedBounds, tasks],
+  );
+
+  const dueObjectives = useMemo(
+    () => objectives.filter((objective) => objective.key_results.some((kr) => kr.current_value < kr.target_value)).slice(0, 4),
+    [objectives],
+  );
+
+  const loadDailyReview = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setSignedIn(!!user);
+    if (!user) return;
+    setDailyLoading(true);
+    setEventError(null);
+    const [{ data: entry, error: entryError }, { data: localEvents, error: eventsError }] = await Promise.all([
+      supabase
+        .from("debrief_entries")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("review_date", reviewDate)
+        .eq("review_type", "daily")
+        .maybeSingle(),
+      supabase
+        .from("schedule_events")
+        .select("id,title,description,start_at,end_at")
+        .eq("user_id", user.id)
+        .gte("start_at", selectedBounds.start.toISOString())
+        .lte("start_at", selectedBounds.end.toISOString())
+        .order("start_at", { ascending: true }),
+    ]);
+    if (entryError) {
+      toast("Could not load today's debrief.", "error", "Debrief");
+    }
+    if (eventsError) {
+      setEventError("Local calendar events could not be loaded.");
+    }
+    const row = entry as DebriefEntry | null;
+    setDailyEntry(row);
+    setDailyWins(row?.wins ?? "");
+    setDailyChallenges(row?.challenges ?? "");
+    setDailyFocus(row?.focus ?? "");
+    setDailySummary(row?.summary ?? "");
+    setEvents((localEvents ?? []) as ScheduleEvent[]);
+    try {
+      const params = new URLSearchParams({
+        start: selectedBounds.start.toISOString(),
+        end: selectedBounds.end.toISOString(),
+      });
+      const res = await fetch(`/api/calendar/external?${params.toString()}`);
+      if (res.ok) {
+        const data = (await res.json()) as { events?: ExternalEvent[] };
+        setExternalEvents(data.events ?? []);
+      } else {
+        setExternalEvents([]);
+        setEventError("Connected calendar events could not be refreshed.");
+      }
+    } catch {
+      setExternalEvents([]);
+      setEventError("Connected calendar events could not be refreshed.");
+    } finally {
+      setDailyLoading(false);
+    }
+  }, [reviewDate, selectedBounds.end, selectedBounds.start, supabase, toast]);
+
+  useEffect(() => {
+    void loadDailyReview();
+  }, [loadDailyReview]);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const fortAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
@@ -246,6 +398,122 @@ export function DebriefModule() {
       setAiSummary(data.summary ?? "No summary generated.");
     } catch {
       setAiSummary("Unable to generate summary — check your connection.");
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  const allCalendarEvents = useMemo(
+    () => [
+      ...events.map((event) => ({
+        id: event.id,
+        title: event.title,
+        start: event.start_at,
+        source: "axis",
+      })),
+      ...externalEvents.map((event) => ({
+        id: event.id ?? event.externalId ?? `${event.source ?? "calendar"}-${event.start_at ?? event.start ?? event.title ?? "event"}`,
+        title: event.title ?? event.summary ?? "Calendar event",
+        start: event.start_at ?? event.start ?? "",
+        source: event.source ?? "calendar",
+      })),
+    ].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+    [events, externalEvents],
+  );
+
+  const dailyHasContent = dailyWins.trim() || dailyChallenges.trim() || dailyFocus.trim() || dailySummary.trim();
+
+  const saveDailyReview = async () => {
+    if (!dailyHasContent) {
+      toast("Write a reflection first.", "warn", "Debrief");
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast("Sign in to save debriefs.", "warn", "Debrief");
+      return;
+    }
+    setDailySaving(true);
+    const payload = {
+      user_id: user.id,
+      review_date: reviewDate,
+      review_type: "daily" as const,
+      wins: dailyWins.trim(),
+      challenges: dailyChallenges.trim(),
+      focus: dailyFocus.trim(),
+      summary: dailySummary.trim(),
+      completed_task_ids: completedToday.map((task) => task.id),
+      missed_task_ids: missedToday.map((task) => task.id),
+      calendar_event_ids: events.map((event) => event.id),
+      objective_ids: dueObjectives.map((objective) => objective.id),
+      metadata: {
+        external_calendar_events: externalEvents.map((event) => ({
+          id: event.id ?? event.externalId ?? null,
+          title: event.title ?? event.summary ?? "Calendar event",
+          source: event.source ?? "calendar",
+          start: event.start_at ?? event.start ?? null,
+        })),
+      },
+    };
+    const { data, error } = await supabase
+      .from("debrief_entries")
+      .upsert(payload, { onConflict: "user_id,review_date,review_type" })
+      .select()
+      .single();
+    setDailySaving(false);
+    if (error || !data) {
+      toast("Could not save daily debrief.", "error", "Debrief");
+      return;
+    }
+    setDailyEntry(data as DebriefEntry);
+    toast("Daily debrief saved.", "success", "Debrief");
+  };
+
+  const createTaskFromReview = async () => {
+    const title = nextAction.trim() || dailyFocus.trim();
+    if (!title) {
+      toast("Add a next action or focus first.", "warn", "Debrief");
+      return;
+    }
+    const task = await addTask({
+      title,
+      category: "personal",
+      priority: "med",
+      metadata: {
+        source_object_type: "debrief",
+        source_object_id: dailyEntry?.id ?? null,
+        source_route: "/debrief",
+        review_date: reviewDate,
+      },
+    });
+    if (!task) {
+      toast("Could not create task.", "error", "Debrief");
+      return;
+    }
+    setNextAction("");
+    toast("Next action added to Tasks.", "success", "Debrief");
+  };
+
+  const generateDailySummary = async () => {
+    const text = [
+      `Completed tasks: ${completedToday.map((task) => task.title).join("; ") || "none"}`,
+      `Missed/overdue tasks: ${missedToday.map((task) => task.title).join("; ") || "none"}`,
+      `Calendar: ${allCalendarEvents.map((event) => event.title).join("; ") || "none"}`,
+      `Wins: ${dailyWins}`,
+      `Challenges: ${dailyChallenges}`,
+      `Focus: ${dailyFocus}`,
+    ].join("\n");
+    setSummarizing(true);
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "debrief_summary", text: text.slice(0, 6000) }),
+      });
+      const data = (await res.json()) as { summary?: string };
+      setDailySummary(data.summary ?? "No summary generated.");
+    } catch {
+      toast("Could not generate summary.", "error", "Debrief");
     } finally {
       setSummarizing(false);
     }
@@ -302,6 +570,121 @@ export function DebriefModule() {
   return (
     <>
       <div className="divider" />
+      <div className="card tick" style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+          <div>
+            <div className="seclabel">Daily Debrief</div>
+            <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>
+              {dailyEntry ? `Saved ${new Date(dailyEntry.updated_at).toLocaleString()}` : "Open today, review the facts, save the reflection."}
+            </div>
+          </div>
+          <input
+            type="date"
+            value={reviewDate}
+            onChange={(e) => setReviewDate(e.target.value || localIsoDay())}
+            style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", color: "var(--ink)", padding: "7px 10px", fontSize: 12 }}
+          />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
+          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 12, background: "var(--surface-2)" }}>
+            <div className="seclabel">Completed tasks</div>
+            <div className="tasklist" style={{ marginTop: 8 }}>
+              {completedToday.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>No completed tasks on this date.</p>
+              ) : completedToday.map((task) => (
+                <div key={task.id} className="task">
+                  <div className="check done" />
+                  <div className="task-main">
+                    <div className="task-title" style={{ textDecoration: "line-through", color: "var(--ink-faint)" }}>{task.title}</div>
+                    <div className="task-meta">{task.category}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 12, background: "var(--surface-2)" }}>
+            <div className="seclabel">Missed / overdue</div>
+            <div className="tasklist" style={{ marginTop: 8 }}>
+              {missedToday.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>No missed tasks.</p>
+              ) : missedToday.slice(0, 6).map((task) => (
+                <div key={task.id} className="task">
+                  <button type="button" className="check" aria-label={`Mark ${task.title} done`} onClick={() => toggleDone(task.id)} />
+                  <div className="task-main">
+                    <div className="task-title">{task.title}</div>
+                    <div className="task-meta">{task.deadline ?? "no deadline"} · {task.status}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 12, background: "var(--surface-2)" }}>
+            <div className="seclabel">Calendar</div>
+            <div className="tasklist" style={{ marginTop: 8 }}>
+              {dailyLoading ? (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>Loading calendar…</p>
+              ) : allCalendarEvents.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>{eventError ?? "No events on this date."}</p>
+              ) : allCalendarEvents.slice(0, 6).map((event) => (
+                <div key={`${event.source}-${event.id}`} className="task">
+                  <div className="task-main">
+                    <div className="task-title">{event.title}</div>
+                    <div className="task-meta">{event.start ? new Date(event.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "all day"} · {event.source}</div>
+                  </div>
+                </div>
+              ))}
+              {eventError && allCalendarEvents.length > 0 && (
+                <p style={{ margin: "6px 0 0", fontSize: 11, color: "var(--down)" }}>{eventError}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 760 }}>
+          <PromptField
+            label="What went well today?"
+            placeholder="Completed work, useful meetings, progress signals…"
+            value={dailyWins}
+            onChange={setDailyWins}
+          />
+          <PromptField
+            label="What slipped or created friction?"
+            placeholder="Missed work, blockers, context switches, energy drains…"
+            value={dailyChallenges}
+            onChange={setDailyChallenges}
+          />
+          <PromptField
+            label="Next focus"
+            placeholder="One concrete next action or decision for tomorrow…"
+            value={dailyFocus}
+            onChange={setDailyFocus}
+          />
+          <PromptField
+            label="Summary"
+            placeholder="Optional AI or personal summary…"
+            value={dailySummary}
+            onChange={setDailySummary}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", maxWidth: 760 }}>
+          <button type="button" className="sig-go" onClick={saveDailyReview} disabled={dailySaving || !dailyHasContent} style={{ opacity: !dailyHasContent ? 0.45 : 1 }}>
+            {dailySaving ? "Saving…" : dailyEntry ? "Update daily debrief" : "Save daily debrief"}
+          </button>
+          <button type="button" className="savebtn" onClick={generateDailySummary} disabled={summarizing}>
+            {summarizing ? "Summarizing…" : "✦ Summarize"}
+          </button>
+          <input
+            value={nextAction}
+            onChange={(e) => setNextAction(e.target.value)}
+            placeholder="Next action → task"
+            style={{ flex: 1, minWidth: 180, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", color: "var(--ink)", padding: "8px 10px", fontSize: 12 }}
+          />
+          <button type="button" className="savebtn" onClick={createTaskFromReview}>Add Task</button>
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
         <div className="card tick">
           <h2 className="sec">Wins<span className="rule" /><span className="count">this week</span></h2>

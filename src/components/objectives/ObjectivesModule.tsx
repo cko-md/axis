@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { useTasks } from "@/lib/hooks/useTasks";
+import { useNotes } from "@/lib/hooks/useNotes";
 import {
   useObjectives,
   habitHeat,
   habitPct,
   habitStreak,
   todayIso,
+  type Objective,
   type KeyResult,
 } from "@/lib/hooks/useObjectives";
 
@@ -32,12 +35,15 @@ const inputCls = "rounded border border-[var(--line)] bg-[var(--surface-2)] px-3
 
 export function ObjectivesModule() {
   const { toast } = useToast();
+  const { tasks, addTask } = useTasks();
+  const { createNote, updateNote } = useNotes();
   const {
     objectives,
     habits,
     loading,
     signedIn,
     addObjective,
+    updateObjective,
     deleteObjective,
     addKeyResult,
     updateKeyResult,
@@ -53,8 +59,13 @@ export function ObjectivesModule() {
 
   const [objModalOpen, setObjModalOpen] = useState(false);
   const [objForm, setObjForm] = useState({ title: "", descriptor: "" });
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailForm, setDetailForm] = useState({ title: "", descriptor: "" });
   const [krModalFor, setKrModalFor] = useState<string | null>(null);
   const [krForm, setKrForm] = useState({ title: "", target: "5" });
+  const [nextAction, setNextAction] = useState("");
+  const [aiSuggestion, setAiSuggestion] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
   const [habitModalOpen, setHabitModalOpen] = useState(false);
   const [habitForm, setHabitForm] = useState({ icon: "✦", name: "" });
   const [pendingDeleteObjective, setPendingDeleteObjective] = useState<string | null>(null);
@@ -71,6 +82,40 @@ export function ObjectivesModule() {
       setResults([]);
     }
     setScanning(false);
+  };
+
+  const objectiveProgress = (objective: Objective) => {
+    const krCount = objective.key_results.length;
+    return krCount
+      ? Math.round(
+          (objective.key_results.reduce(
+            (s, kr) => s + Math.min(1, kr.target_value > 0 ? kr.current_value / kr.target_value : 0),
+            0,
+          ) /
+            krCount) *
+            100,
+        )
+      : 0;
+  };
+
+  const selectedObjective = useMemo(
+    () => objectives.find((o) => o.id === detailId) ?? null,
+    [detailId, objectives],
+  );
+
+  const linkedTasks = useMemo(() => {
+    if (!selectedObjective) return [];
+    return tasks.filter((task) => {
+      const metadata = task.metadata ?? {};
+      return metadata.objective_id === selectedObjective.id || metadata.source_object_id === selectedObjective.id;
+    });
+  }, [selectedObjective, tasks]);
+
+  const openDetail = (objective: Objective) => {
+    setDetailId(objective.id);
+    setDetailForm({ title: objective.title, descriptor: objective.descriptor });
+    setNextAction("");
+    setAiSuggestion("");
   };
 
   const saveObjective = async () => {
@@ -90,6 +135,24 @@ export function ObjectivesModule() {
     toast("Objective added.", "success", "Objectives");
     setObjModalOpen(false);
     setObjForm({ title: "", descriptor: "" });
+    if (result.data) openDetail(result.data);
+  };
+
+  const saveObjectiveDetail = async () => {
+    if (!selectedObjective) return;
+    if (!detailForm.title.trim()) {
+      toast("Give the objective a title.", "warn", "Objectives");
+      return;
+    }
+    const result = await updateObjective(selectedObjective.id, {
+      title: detailForm.title.trim(),
+      descriptor: detailForm.descriptor.trim(),
+    });
+    if (result.error) {
+      toast(result.error, "error", "Objectives");
+      return;
+    }
+    toast("Objective updated.", "success", "Objectives");
   };
 
   const saveKeyResult = async () => {
@@ -114,6 +177,88 @@ export function ObjectivesModule() {
     if (next === kr.current_value) return;
     const result = await updateKeyResult(kr.id, { current_value: next });
     if (result.error) toast(result.error, "error", "Objectives");
+  };
+
+  const createNextActionTask = async () => {
+    if (!selectedObjective) return;
+    const title = nextAction.trim() || aiSuggestion.trim();
+    if (!title) {
+      toast("Add a next action first.", "warn", "Objectives");
+      return;
+    }
+    const task = await addTask({
+      title,
+      category: "personal",
+      priority: "med",
+      metadata: {
+        source_object_type: "objective",
+        source_object_id: selectedObjective.id,
+        objective_id: selectedObjective.id,
+        source_route: "/objectives",
+      },
+    });
+    if (!task) {
+      toast("Could not create task.", "error", "Objectives");
+      return;
+    }
+    setNextAction("");
+    toast("Next action added to Tasks.", "success", "Objectives");
+  };
+
+  const suggestNextAction = async () => {
+    if (!selectedObjective || suggesting) return;
+    setSuggesting(true);
+    setAiSuggestion("");
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "pipeline-draft",
+          text: selectedObjective.title,
+          body: JSON.stringify({
+            kind: "objective-next-action",
+            descriptor: selectedObjective.descriptor,
+            progress: objectiveProgress(selectedObjective),
+            key_results: selectedObjective.key_results.map((kr) => ({
+              title: kr.title,
+              current: kr.current_value,
+              target: kr.target_value,
+            })),
+            open_tasks: linkedTasks.filter((task) => task.status !== "done").map((task) => task.title),
+          }),
+        }),
+      });
+      const data = (await res.json()) as { draft?: string };
+      const suggestion = data.draft?.trim() || `Define the next concrete action for "${selectedObjective.title}".`;
+      setAiSuggestion(suggestion);
+      setNextAction((current) => current || suggestion.split("\n")[0].replace(/^[-*]\s*/, ""));
+    } catch {
+      toast("Could not reach the assistant.", "error", "Objectives");
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const createDebriefReview = async () => {
+    if (!selectedObjective) return;
+    const note = await createNote(`Objective review — ${selectedObjective.title}`, "Debrief");
+    if (!note) {
+      toast("Could not create Debrief review.", "error", "Objectives");
+      return;
+    }
+    const body = [
+      `<p><strong>${selectedObjective.title}</strong></p>`,
+      selectedObjective.descriptor ? `<p>${selectedObjective.descriptor}</p>` : "",
+      `<p>Progress: ${objectiveProgress(selectedObjective)}%</p>`,
+      "<p><strong>Key results</strong></p>",
+      `<ul>${selectedObjective.key_results.map((kr) => `<li>${kr.title}: ${kr.current_value} / ${kr.target_value}</li>`).join("")}</ul>`,
+      linkedTasks.length ? "<p><strong>Linked tasks</strong></p>" : "",
+      linkedTasks.length ? `<ul>${linkedTasks.map((task) => `<li>${task.title} — ${task.status}</li>`).join("")}</ul>` : "",
+      "<p><strong>Review</strong></p><p></p>",
+    ].filter(Boolean).join("");
+    await updateNote(note.id, { body });
+    toast("Objective review created in Debrief notes.", "success", "Objectives");
   };
 
   const saveHabit = async () => {
@@ -166,18 +311,9 @@ export function ObjectivesModule() {
         <div>
           {objectives.map((o) => {
             const krCount = o.key_results.length;
-            const rollup = krCount
-              ? Math.round(
-                  (o.key_results.reduce(
-                    (s, kr) => s + Math.min(1, kr.target_value > 0 ? kr.current_value / kr.target_value : 0),
-                    0,
-                  ) /
-                    krCount) *
-                    100,
-                )
-              : 0;
+            const rollup = objectiveProgress(o);
             return (
-            <div className="goal" key={o.id}>
+            <div className="goal" key={o.id} role="button" tabIndex={0} onClick={() => openDetail(o)} onKeyDown={(e) => e.key === "Enter" && openDetail(o)} style={{ cursor: "pointer" }}>
               <div className="go" style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                 <span style={{ flex: 1 }}>{o.title}</span>
                 {krCount > 0 && (
@@ -191,7 +327,14 @@ export function ObjectivesModule() {
                     {rollup}%
                   </span>
                 )}
-                <Button variant="ghost" onClick={() => setPendingDeleteObjective(o.id)} aria-label="Remove objective">
+                <Button
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingDeleteObjective(o.id);
+                  }}
+                  aria-label="Remove objective"
+                >
                   ✕
                 </Button>
               </div>
@@ -209,13 +352,14 @@ export function ObjectivesModule() {
                   </div>
                   <div className="krv" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {kr.current_value} / {kr.target_value}
-                    <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, -1)} aria-label="Decrement">−</button>
-                    <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, 1)} aria-label="Increment">+</button>
+                    <button type="button" className="feed-manage" onClick={(e) => { e.stopPropagation(); stepKeyResult(kr, -1); }} aria-label="Decrement">−</button>
+                    <button type="button" className="feed-manage" onClick={(e) => { e.stopPropagation(); stepKeyResult(kr, 1); }} aria-label="Increment">+</button>
                     <button
                       type="button"
                       className="feed-manage"
                       aria-label="Remove key result"
-                      onClick={async () => {
+                      onClick={async (e) => {
+                        e.stopPropagation();
                         const result = await deleteKeyResult(kr.id);
                         if (result.error) toast(result.error, "error", "Objectives");
                       }}
@@ -229,7 +373,10 @@ export function ObjectivesModule() {
                 type="button"
                 className="feed-manage"
                 style={{ marginTop: 8 }}
-                onClick={() => setKrModalFor(o.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setKrModalFor(o.id);
+                }}
               >
                 + Key result
               </button>
@@ -388,6 +535,95 @@ export function ObjectivesModule() {
             onChange={(e) => setObjForm({ ...objForm, descriptor: e.target.value })}
           />
         </div>
+      </Modal>
+
+      <Modal
+        open={!!selectedObjective}
+        onClose={() => setDetailId(null)}
+        title="Objective detail"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => selectedObjective && setKrModalFor(selectedObjective.id)}>+ Key result</Button>
+            <Button variant="ghost" onClick={createDebriefReview}>Create Debrief review</Button>
+            <Button variant="primary" onClick={saveObjectiveDetail}>Save objective</Button>
+          </>
+        }
+      >
+        {selectedObjective && (
+          <div className="flex flex-col gap-3">
+            <input
+              className={inputCls}
+              aria-label="Objective title"
+              value={detailForm.title}
+              onChange={(e) => setDetailForm({ ...detailForm, title: e.target.value })}
+            />
+            <input
+              className={inputCls}
+              aria-label="Objective descriptor"
+              value={detailForm.descriptor}
+              onChange={(e) => setDetailForm({ ...detailForm, descriptor: e.target.value })}
+            />
+            <div>
+              <div className="seclabel">Progress</div>
+              <div className="track" style={{ marginTop: 8 }}>
+                <div style={{ width: `${objectiveProgress(selectedObjective)}%` }} />
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-faint)", marginTop: 6 }}>
+                {objectiveProgress(selectedObjective)}% across {selectedObjective.key_results.length} key result{selectedObjective.key_results.length === 1 ? "" : "s"}
+              </div>
+            </div>
+            <div className="tasklist">
+              {selectedObjective.key_results.map((kr) => (
+                <div key={kr.id} className="task" style={{ alignItems: "center" }}>
+                  <div className="task-main">
+                    <div className="task-title">{kr.title}</div>
+                    <div className="task-meta">{kr.current_value} / {kr.target_value}</div>
+                  </div>
+                  <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, -1)}>−</button>
+                  <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, 1)}>+</button>
+                </div>
+              ))}
+              {selectedObjective.key_results.length === 0 && (
+                <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: 0 }}>No key results yet.</p>
+              )}
+            </div>
+            <div className="divider" style={{ margin: "6px 0" }} />
+            <div>
+              <div className="seclabel">Linked tasks</div>
+              <div className="tasklist" style={{ marginTop: 8 }}>
+                {linkedTasks.length === 0 ? (
+                  <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: 0 }}>No linked tasks yet. Add the next action below.</p>
+                ) : linkedTasks.map((task) => (
+                  <div key={task.id} className="task">
+                    <div className={task.status === "done" ? "check done" : "check"} />
+                    <div className="task-main">
+                      <div className="task-title">{task.title}</div>
+                      <div className="task-meta">{task.status} · {task.category}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                className={inputCls}
+                style={{ flex: 1, minWidth: 220 }}
+                placeholder="Next action"
+                value={nextAction}
+                onChange={(e) => setNextAction(e.target.value)}
+              />
+              <Button variant="ghost" onClick={suggestNextAction} disabled={suggesting}>
+                {suggesting ? "Thinking…" : "✦ Suggest"}
+              </Button>
+              <Button variant="primary" onClick={createNextActionTask}>Add Task</Button>
+            </div>
+            {aiSuggestion && (
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 10, whiteSpace: "pre-wrap" }}>
+                {aiSuggestion}
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       <Modal
