@@ -50,7 +50,7 @@ For every issue, the agent must:
 8. **Identify integration/provider impact** (direct OAuth vs Composio; both paths).
 9. **Identify Sentry observability needs** (what failures to capture, with what safe metadata).
 10. **Implement** the vertical slice.
-11. **Run available checks** (`npx tsc --noEmit`, `npm run lint`; tests if/when they exist).
+11. **Run available checks** (`npx tsc --noEmit`, `npm run lint`, `npm run test`; e2e checks when relevant and feasible).
 12. **Provide a PR title and description, then push/open the PR after local checks pass.** Sentry review is not a human pre-push blocker.
 13. **Provide Vercel preview validation steps.**
 14. **Automate Supabase/Tembo validation.** If the issue adds or changes migrations, apply/verify them against the configured Supabase target before production merge using the available CLI/API/connector. If credentials or tooling are unavailable, block production merge unless the PR clearly records the missing automation, the exact migration command/check to run, and the human validation owner.
@@ -71,15 +71,17 @@ End the session with the response format in §12.
 
 | Purpose | Command | Notes |
 |---|---|---|
-| Install | `npm install` | Node 20+ |
+| Install | `npm install` | Node 24.x |
 | Dev server | `npm run dev` | `next dev` → http://localhost:3000 |
 | Build | `npm run build` | `next build` |
 | Start (prod) | `npm run start` | `next start` |
-| Lint | `npm run lint` | `next lint` (ESLint flat config) |
+| Lint | `npm run lint` | `eslint .` |
 | Typecheck | **No npm script.** Use `npx tsc --noEmit` | `tsconfig` has `strict: true`; CI (`.github/workflows/daily-health.yml`) runs `npx tsc --noEmit` + `npm audit`. |
-| Test | **Missing.** No test runner or `test` script is configured. | Do not invent one; if an issue needs tests, add the runner as part of that issue's scope. |
+| Unit tests | `npm run test` | `vitest run` |
+| Public e2e tests | `npm run test:e2e` | `playwright test --project=public` |
+| Authenticated e2e tests | `npm run test:e2e:auth` | `AXIS_E2E_AUTH=1 playwright test --project=authenticated` |
 
-Treat `npx tsc --noEmit` (clean) and `npm run lint` (no new errors) as the minimum gate for every PR.
+Treat `npx tsc --noEmit` (clean), `npm run lint` (no new errors), and `npm run test` (passing) as the minimum gate for every PR. Run e2e checks when the issue affects browser workflows, auth, navigation, or full user paths.
 
 ---
 
