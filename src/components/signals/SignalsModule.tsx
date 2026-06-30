@@ -6,6 +6,12 @@ import { SkeletonCard } from "@/components/ui/Skeleton";
 import {
   classifySignal,
   classifySignals,
+  isSignalArchived,
+  isSignalSnoozed,
+  isSignalVisible,
+  signalArchivedAt,
+  signalDismissedAt,
+  signalSnoozedUntil,
   useSignals,
   type Signal,
   type SignalType,
@@ -27,7 +33,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import styles from "./SignalsModule.module.css";
 
-const CHIPS = ["All", "Action", "Awaiting", "FYI", "Routed", "Unread"] as const;
+const CHIPS = ["All", "Action", "Awaiting", "FYI", "Routed", "Unread", "Snoozed", "Archived"] as const;
 type Chip = (typeof CHIPS)[number];
 
 const GROUPS: { key: SignalType | "routed"; label: string }[] = [
@@ -87,6 +93,16 @@ function linkedNoteTitle(signal: Signal) {
     : null;
 }
 
+function snoozeUntil(hours: number) {
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+function metadataWithout(signal: Signal, keys: string[]) {
+  const next = { ...(signal.metadata ?? {}) };
+  for (const key of keys) delete next[key];
+  return next;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -143,17 +159,21 @@ function pillClass(type: SignalType) {
 function applyChip(signals: Signal[], chip: Chip) {
   switch (chip) {
     case "All":
-      return signals;
+      return signals.filter((s) => isSignalVisible(s));
     case "Routed":
-      return signals.filter((s) => s.routed_at);
+      return signals.filter((s) => s.routed_at && isSignalVisible(s));
     case "Unread":
-      return signals.filter((s) => !s.read_at);
+      return signals.filter((s) => !s.read_at && isSignalVisible(s));
     case "Action":
-      return signals.filter((s) => s.signal_type === "action" && !s.routed_at);
+      return signals.filter((s) => s.signal_type === "action" && !s.routed_at && isSignalVisible(s));
     case "Awaiting":
-      return signals.filter((s) => s.signal_type === "awaiting" && !s.routed_at);
+      return signals.filter((s) => s.signal_type === "awaiting" && !s.routed_at && isSignalVisible(s));
     case "FYI":
-      return signals.filter((s) => s.signal_type === "fyi" && !s.routed_at);
+      return signals.filter((s) => s.signal_type === "fyi" && !s.routed_at && isSignalVisible(s));
+    case "Snoozed":
+      return signals.filter((s) => !isSignalArchived(s) && isSignalSnoozed(s));
+    case "Archived":
+      return signals.filter((s) => isSignalArchived(s));
     default:
       return signals;
   }
@@ -188,7 +208,7 @@ export function SignalsModule() {
     if (!grouping) return null;
     const buckets: Record<string, Signal[]> = { action: [], awaiting: [], fyi: [], routed: [] };
     for (const s of filtered) {
-      if (s.routed_at) buckets.routed.push(s);
+      if (s.routed_at || isSignalArchived(s) || isSignalSnoozed(s)) buckets.routed.push(s);
       else buckets[s.signal_type].push(s);
     }
     return buckets;
@@ -218,6 +238,62 @@ export function SignalsModule() {
     setSelected(null);
     setSuggestion(null);
     setRouteError(null);
+  };
+
+  const dismissSignal = async (s: Signal) => {
+    const at = new Date().toISOString();
+    const updated = await updateSignal(s.id, {
+      read_at: s.read_at ?? at,
+      metadata: { ...(s.metadata ?? {}), dismissed_at: at, archived_at: at },
+    });
+    if (!updated) {
+      toast("Could not dismiss signal.", "error", "Dispatch");
+      return;
+    }
+    toast("Signal dismissed.", "success", "Dispatch");
+    closeDetail();
+  };
+
+  const archiveSignal = async (s: Signal) => {
+    const at = new Date().toISOString();
+    const updated = await updateSignal(s.id, {
+      read_at: s.read_at ?? at,
+      metadata: { ...(s.metadata ?? {}), archived_at: at },
+    });
+    if (!updated) {
+      toast("Could not archive signal.", "error", "Dispatch");
+      return;
+    }
+    toast("Signal archived.", "success", "Dispatch");
+    closeDetail();
+  };
+
+  const snoozeSignal = async (s: Signal, hours: number) => {
+    const until = snoozeUntil(hours);
+    const updated = await updateSignal(s.id, {
+      read_at: s.read_at ?? new Date().toISOString(),
+      metadata: {
+        ...metadataWithout(s, ["archived_at", "dismissed_at"]),
+        snoozed_until: until,
+      },
+    });
+    if (!updated) {
+      toast("Could not snooze signal.", "error", "Dispatch");
+      return;
+    }
+    toast(`Signal snoozed until ${new Date(until).toLocaleString()}.`, "success", "Dispatch");
+    closeDetail();
+  };
+
+  const restoreSignal = async (s: Signal) => {
+    const updated = await updateSignal(s.id, {
+      metadata: metadataWithout(s, ["archived_at", "dismissed_at", "snoozed_until"]),
+    });
+    if (!updated) {
+      toast("Could not restore signal.", "error", "Dispatch");
+      return;
+    }
+    toast("Signal restored.", "success", "Dispatch");
   };
 
   // AI triage a single signal: classify, store on signal, surface suggestion + matching user route.
@@ -333,7 +409,7 @@ export function SignalsModule() {
   // to the AI's own suggested destination. Nothing is left merely "classified
   // but unrouted" — triage means route, so the inbox clears in one pass.
   const triageAll = async () => {
-    const pending = signals.filter((s) => !s.routed_at);
+    const pending = signals.filter((s) => !s.routed_at && isSignalVisible(s));
     if (pending.length === 0) {
       toast("Nothing to triage — all signals routed", "info", "AI Triage");
       return;
@@ -436,7 +512,7 @@ export function SignalsModule() {
   );
 
   const renderRow = (s: Signal) => (
-    <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>
+    <div key={s.id} className={s.routed_at || isSignalArchived(s) || isSignalSnoozed(s) ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>
       <div
         className={s.read_at ? "check done" : "check"}
         onClick={(e) => {
@@ -472,7 +548,7 @@ export function SignalsModule() {
         <div className="task-meta" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           <span className={`pill ${pillClass(s.signal_type)}`}>{s.signal_type.toUpperCase()}</span>
           <span>
-            {s.source} · {s.route_target ? `routed → ${destLabel(s.route_target)}` : "unrouted"}
+            {s.source} · {isSignalArchived(s) ? "archived" : isSignalSnoozed(s) ? `snoozed until ${new Date(signalSnoozedUntil(s) ?? "").toLocaleString()}` : s.route_target ? `routed → ${destLabel(s.route_target)}` : "unrouted"}
           </span>
           {!s.routed_at && s.metadata?.ai_destination && (
             <span className={styles.aiBadge}>AI → {destLabel(s.metadata.ai_destination)}</span>
@@ -554,6 +630,9 @@ export function SignalsModule() {
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginBottom: 14 }}>
               {live.source} · {live.signal_type} · {new Date(live.created_at).toLocaleString()}
               {live.routed_at && ` · routed → ${destLabel(live.route_target ?? "")}`}
+              {signalArchivedAt(live) && ` · archived ${new Date(signalArchivedAt(live) ?? "").toLocaleString()}`}
+              {signalDismissedAt(live) && ` · dismissed`}
+              {signalSnoozedUntil(live) && ` · snoozed until ${new Date(signalSnoozedUntil(live) ?? "").toLocaleString()}`}
             </div>
 
             {live.routed_at && (
@@ -603,6 +682,26 @@ export function SignalsModule() {
                 {routeError}
               </div>
             )}
+
+            <div className={styles.manageActions}>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => snoozeSignal(live, 4)}>
+                Snooze 4h
+              </button>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => snoozeSignal(live, 24)}>
+                Snooze 1d
+              </button>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => archiveSignal(live)}>
+                Archive
+              </button>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => dismissSignal(live)}>
+                Dismiss
+              </button>
+              {(isSignalArchived(live) || isSignalSnoozed(live)) && (
+                <button type="button" className="aibtn" disabled={!!routingDestination} onClick={() => restoreSignal(live)}>
+                  Restore
+                </button>
+              )}
+            </div>
 
             {suggestion && (
               <div className={styles.suggest}>

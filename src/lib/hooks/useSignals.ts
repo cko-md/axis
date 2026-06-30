@@ -15,6 +15,12 @@ export type SignalAIMeta = {
   ai_at?: string;
   routed_via?: "ai" | "manual" | "rule";
   routed_task_id?: string;
+  routed_task_title?: string;
+  routed_note_id?: string;
+  routed_note_title?: string;
+  archived_at?: string;
+  dismissed_at?: string;
+  snoozed_until?: string;
 };
 
 export type Signal = {
@@ -183,4 +189,33 @@ export function filterSignals(signals: Signal[], chip: string) {
   const map: Record<string, SignalType> = { Action: "action", Awaiting: "awaiting", FYI: "fyi" };
   const type = map[chip];
   return type ? signals.filter((s) => s.signal_type === type) : signals;
+}
+
+export function signalArchivedAt(signal: Signal): string | null {
+  return typeof signal.metadata?.archived_at === "string" ? signal.metadata.archived_at : null;
+}
+
+export function signalDismissedAt(signal: Signal): string | null {
+  return typeof signal.metadata?.dismissed_at === "string" ? signal.metadata.dismissed_at : null;
+}
+
+export function signalSnoozedUntil(signal: Signal): string | null {
+  return typeof signal.metadata?.snoozed_until === "string" ? signal.metadata.snoozed_until : null;
+}
+
+export function isSignalArchived(signal: Signal): boolean {
+  return Boolean(signalArchivedAt(signal));
+}
+
+export function isSignalSnoozed(signal: Signal, now = Date.now()): boolean {
+  const until = signalSnoozedUntil(signal);
+  return Boolean(until && new Date(until).getTime() > now);
+}
+
+export function isSignalVisible(signal: Signal, now = Date.now()): boolean {
+  return !isSignalArchived(signal) && !isSignalSnoozed(signal, now);
+}
+
+export function isSignalActionable(signal: Signal, now = Date.now()): boolean {
+  return signal.signal_type === "action" && !signal.routed_at && isSignalVisible(signal, now);
 }

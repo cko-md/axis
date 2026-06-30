@@ -30,7 +30,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
-import { useSignals } from "@/lib/hooks/useSignals";
+import { isSignalActionable, isSignalVisible, useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
@@ -389,9 +389,9 @@ export function ConsoleModule() {
   const { people } = usePeople();
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
 
-  const unread = useMemo(() => signals.filter((s) => !s.read_at).length, [signals]);
+  const unread = useMemo(() => signals.filter((s) => !s.read_at && isSignalVisible(s)).length, [signals]);
   const actionable = useMemo(
-    () => signals.filter((s) => s.signal_type === "action" && !s.routed_at),
+    () => signals.filter((s) => isSignalActionable(s)),
     [signals],
   );
   const duePeople = useMemo(() => {
