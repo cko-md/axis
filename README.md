@@ -1,147 +1,199 @@
-# AXIS[CKO] — Live App (Phase 1–2)
+# AXIS[CKO] - Personal Operating System
 
-Next.js App Router implementation of the AXIS Signal Console prototype. Migrated from the `axis.html` monolith with Supabase persistence and a server-side Polygon (Massive) proxy.
+AXIS is a private Next.js dashboard for running a personal operating system: command center, dispatch, schedule, agenda, mail, notes, objectives, research, people, finances, health, media, and settings in one cohesive App Router app.
+
+The app is integrations-heavy. Supabase is the persistence and auth layer; Vercel hosts preview and production; Sentry captures client/server/edge errors; Composio and direct OAuth power provider workflows; Make handles automation/webhooks; Polygon/Massive, Plaid/Public.com, Spotify, Strava, and AI providers back specific modules where configured. Optional provider keys must degrade gracefully to setup, disconnected, or not-configured states.
 
 ## Stack
 
-- **Next.js 15** (App Router, TypeScript, Tailwind CSS v4)
-- **Supabase** — Auth, Postgres, RLS
-- **Polygon.io** — Market data via `/api/massive/*` proxy (no browser CORS)
+- **Next.js 15** App Router, TypeScript, React 19, Tailwind CSS v4
+- **Supabase** Auth, Postgres, Storage, RLS
+- **Sentry** Next.js client/server/edge observability
+- **Vercel** preview and production deployments
+- **Composio** integration sessions and tool execution, alongside direct OAuth where implemented
+- **AI providers** through the app AI router and module-specific actions
+- **Polygon/Massive** market data proxy via `/api/massive/*`
+- **Plaid / Public.com** partial finance integrations with configured/unconfigured states
+- **Spotify / Strava** media and training integrations
+- **TipTap**, dnd-kit, Upstash rate limiting, WebAuthn/passkeys, Zod
 
-## Quick start
+Tembo role is unspecified in inspected repo config. Do not route data to Tembo or claim a Tembo role unless future configuration proves it.
 
-### 1. Prerequisites
+## Quick Start
+
+### Prerequisites
 
 - Node.js 24.x
-- A [Supabase](https://supabase.com) project (you create this)
-- Optional: [Polygon.io](https://polygon.io) API key for live Fund quotes
+- A Supabase project
+- Optional provider credentials for the integrations you want to exercise locally
 
-### 2. Install & configure
+### Install And Configure
 
 ```bash
 cd ~/Projects/axis
 cp .env.local.example .env.local
-# Edit .env.local with your Supabase URL + anon key
 npm install
 ```
 
-### 3. Run database migrations
+Edit `.env.local` with the required Supabase values and any optional provider keys. Never expose server-only provider keys with a `NEXT_PUBLIC_` prefix.
 
-In the Supabase Dashboard → **SQL Editor**, paste and run, in order:
+### Database Migrations
 
-```
-supabase/migrations/001_initial.sql
-supabase/migrations/002_productivity.sql
-```
+This repo currently has many migrations in `supabase/migrations`, including numeric, decimal-like, and timestamped filenames. Do not run only `001_initial.sql` and `002_productivity.sql`; that instruction is stale.
 
-Or with Supabase CLI linked to your project:
+For a linked Supabase project, use the Supabase CLI or configured connector to inspect and apply the complete migration set:
 
 ```bash
 supabase db push
 ```
 
-### 4. Dev server
+Before production schema work, confirm migration ordering and applied state. The current migration ordering remains a production-readiness risk; see `docs/audits/axis-current-state-2026-06-30.md`.
+
+### Dev Server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) — redirects to `/console`.
+Open [http://localhost:3000](http://localhost:3000). Signed-in users are routed into the AXIS dashboard.
 
-## Environment variables
+## Environment Variables
 
 | Variable | Required | Description |
-|----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes (auth) | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes (auth) | Supabase anon/publishable key |
-| `POLYGON_API_KEY` or `MASSIVE_API_KEY` | No | Server-side Polygon key for live quotes |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL for browser/server auth and data access. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon/publishable key. |
+| `NEXT_PUBLIC_SENTRY_DSN` | No locally | Enables Sentry capture when configured. |
+| `SENTRY_AUTH_TOKEN` | Build/CI only | Allows Sentry source-map upload in Vercel/CI. |
+| `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Optional | Server-side market data key for Fund and market widgets. |
 
-See `docs/env.md` for the full required/optional list. On **Vercel**, add required Supabase variables for Preview and Production. Optional provider keys should degrade to setup/not-configured states when absent. Never prefix server-only provider keys with `NEXT_PUBLIC_`.
+See `docs/env.md` for the full required/optional list. Optional provider keys should show visible setup or not-configured states when absent, not crash the app or present fake live data.
 
-## Deployment gate
+## Surfaced Modules
 
-Agents push branches and open PRs after local checks pass. Vercel preview validation and Sentry review happen after the PR is open; Sentry is not a human pre-push blocker, but it remains required evidence before production merge. See `docs/deployment.md`.
+Status comes from `src/lib/store/nav.ts`.
 
-## Routes
+| Section | Route | Module | Status | Notes |
+|---|---|---|---|---|
+| Daily | `/command` | Command | production | Canonical console route. `/console` still exists as a legacy duplicate. |
+| Daily | `/dispatch` | Dispatch | production | Canonical signals route. `/signals` still exists as a legacy duplicate. |
+| Daily | `/schedule` | Schedule | production | Week/month/day scheduling surface. |
+| Daily | `/agenda` | Agenda | production | Ranked tasks and routine planning. |
+| Daily | `/mail` | Mail | production | Gmail/Outlook through direct OAuth and Composio adapters; provider parity needs live validation. |
+| Daily | `/notes` | Notes | production | TipTap-backed notes and artifacts. |
+| Plan | `/objectives` | Objectives | beta | Usable goal tracking; needs deeper review/error/persistence validation. |
+| Plan | `/debrief` | Debrief | beta | Reflection capture is usable; reminder and AI summary flows need validation. |
+| Research | `/pipeline` | Pipeline | beta | Study/conference tracking persists; workflow hardening remains. |
+| Research | `/literature` | Literature | beta | Live source search works; saved/custom topic persistence has beta caveats. |
+| Life | `/people` | People | beta | CRM records persist; contacts matching/provider parity need validation. |
+| Life | `/briefing` | Briefing | beta | Feed reading is usable; source discovery and saved items need hardening. |
+| Capital | `/fund` | Fund | beta | Provider-heavy finance module with partial Plaid/Public.com coverage. |
+| Labs | `/vitality` | Vitality | lab | Mixes Strava, local-only, and coming-soon health workflows. |
+| Labs | `/atelier` | Atelier | lab | Creative discovery and moodboard workflow. |
+| Labs | `/listening-vault` | Listening Vault | lab | Spotify-dependent music room. |
+| Labs | `/library` | Library | lab | Uploads exist; broader workflow needs storage/RLS/error validation. |
+| Labs | `/supper-club` | Supper Club | lab | Local-only exploratory recipe curation. |
+| System | `/control-room` | Control Room | production | Settings and integrations hub. |
 
-| Path | Module |
-|------|--------|
-| `/console` | Console widgets (weather, daylight, agenda, AQI) |
-| `/fund` | Portfolio, watchlist, chart, ticker search |
-| `/schedule` | Week view with CRUD events |
-| `/login` | Supabase email/password auth |
-| `/api/massive/*` | Polygon proxy (quote, history, search, snapshot, status) |
+## Route Inventory
 
-## What's implemented vs stubbed
+### Page Routes
 
-### Implemented
+| Route | Purpose |
+|---|---|
+| `/` | Entry/redirect route. |
+| `/login` | Supabase auth, MFA, passkeys. |
+| `/command`, `/console` | Command console; `/command` is canonical. |
+| `/dispatch`, `/signals` | Dispatch/signals; `/dispatch` is canonical. |
+| `/schedule` | Schedule module. |
+| `/agenda` | Agenda module. |
+| `/mail` | Mail module. |
+| `/notes` | Notes module. |
+| `/objectives` | Objectives module. |
+| `/debrief` | Debrief module. |
+| `/pipeline` | Pipeline module. |
+| `/literature` | Literature module. |
+| `/people` | People module. |
+| `/briefing` | Briefing module. |
+| `/fund` | Fund overview. |
+| `/fund/investing`, `/fund/watchlist`, `/fund/market` | Fund investing/watchlist/market views. |
+| `/fund/spending`, `/fund/cashflow`, `/fund/net-worth` | Fund cash-flow and net-worth views. |
+| `/fund/forecasting`, `/fund/advisor`, `/fund/position/[symbol]` | Fund forecasting, advisor, and position detail views. |
+| `/vitality` | Vitality module. |
+| `/atelier` | Atelier module. |
+| `/listening-vault` | Listening Vault module. |
+| `/library` | Library module. |
+| `/supper-club` | Supper Club module. |
+| `/control-room` | Control Room module. |
+| `/oauth-done` | OAuth popup completion route. |
+| `/privacy`, `/terms` | Legal pages. |
 
-- App shell: sidebar (live profile + sign out), topbar, theme switcher (Dark / Dim / Light / Slate)
-- Command palette — ⌘K / Ctrl-K or click the topbar search
-- Design tokens from prototype in `src/app/globals.css`; Interface Studio (accent, density, type, companion)
-- Supabase Auth + middleware session refresh; API routes return 401 JSON instead of redirecting
-- RLS policies on all tables
-- Console widget grid with customize/swap → `console_widgets`; capture box → Signals
-- Real weather / AQI / daylight widgets via Open-Meteo; markets via Polygon snapshot
-- Signals inbox with AI-stub triage → Agenda tasks
-- Agenda: categorized tasks, priority filter, drag-sortable morning routine (synced to `user_preferences`)
-- Notes: folders + debounced autosave to Supabase
-- Fund: holdings/watchlist CRUD (add with shares/cost, remove, persisted), live quotes, ticker search
-- Schedule: week/month/day views, add with validation, delete with confirmation
-- Spotify: OAuth, sidebar miniplayer (play/pause/next), Listening Vault embed loads pasted links
-- Modals + toasts (no `prompt()` / `alert()`)
-- `prefers-reduced-motion` and `:focus-visible` rings
+### API Route Groups
 
-### Stubbed / future
+| Group | Routes |
+|---|---|
+| Mail | `/api/mail/*` |
+| Calendar | `/api/calendar/*` |
+| Contacts / People | `/api/contacts/*`, `/api/people/*` |
+| Integrations | `/api/integrations/composio/*` |
+| Widgets | `/api/widgets/*` |
+| Fund / markets | `/api/fund/*`, `/api/massive/*`, `/api/plaid/*`, `/api/brokerage/*` |
+| AI / search | `/api/ai`, `/api/signals-ai`, `/api/embeddings`, `/api/search/*`, scan routes |
+| Briefing / feeds | `/api/briefing/*`, `/api/feeds/*` |
+| Auth | `/api/auth/*` |
+| Spotify / Strava / health | `/api/spotify/*`, `/api/strava`, `/api/health/*/connect` |
+| Cron | `/api/cron/daily`, `/api/cron/finance-daily`, `/api/cron/feed-digest`, `/api/cron/intelligence-sweep` |
+| Misc | Proxy, OG image, gallery, literature, notes media, avatar, Tavily, webhooks |
 
-- Google Calendar sync; Vitality → Schedule push
-- Mail, People, Library, Objectives, Pipeline, Literature, Briefing, Atelier, Supper Club, Debrief (static prototypes, no persistence)
-- Plaid / Public.com banking + brokerage (Fund cash-flow tab is static)
-- Apple/Google Photos sync (local upload works)
-- AI capture parsing, digests, routine rebuild
+Only `/api/cron/daily` and `/api/cron/finance-daily` are scheduled in `vercel.json` today.
 
-## Adding your Polygon API key later
+## Production / Beta / Lab / Future
 
-1. Sign up at [polygon.io](https://polygon.io) and create an API key.
-2. Add to `.env.local`:
-   ```
-   POLYGON_API_KEY=your_key_here
-   ```
-3. Restart `npm run dev` (or redeploy on Vercel).
-4. On **Fund**, click **Refresh quotes** — live badges appear when quotes succeed.
-
-Check status: `GET /api/massive/status`
-
-## Project structure
-
-```
-src/
-├── app/
-│   ├── console/ fund/ schedule/ login/
-│   └── api/massive/{quote,history,search,snapshot,status}/
-├── components/
-│   ├── console/ fund/ schedule/
-│   ├── nav/ theme/ layout/ ui/
-├── lib/
-│   ├── supabase/ massive/ store/ types/
-└── middleware.ts
-supabase/migrations/001_initial.sql
-```
+| Status | Modules |
+|---|---|
+| Production | Command, Dispatch, Schedule, Agenda, Mail, Notes, Control Room |
+| Beta | Objectives, Debrief, Pipeline, Literature, People, Briefing, Fund |
+| Lab | Vitality, Atelier, Listening Vault, Library, Supper Club |
+| Future / blocked | Widget platform hardening, cache-first widget reads, migration-order cleanup, live provider validation, and additional adapter coverage are tracked as follow-up issues rather than claimed as complete here. |
 
 ## Scripts
 
-```bash
-npm run dev      # development
-npm run build    # production build
-npm run start    # production server
-npm run lint     # ESLint
+| Purpose | Command |
+|---|---|
+| Development | `npm run dev` |
+| Production build | `npm run build` |
+| Production server | `npm run start` |
+| Lint | `npm run lint` |
+| Unit tests | `npm run test` |
+| Public e2e tests | `npm run test:e2e` |
+| Authenticated e2e tests | `npm run test:e2e:auth` |
+| Typecheck | `npx tsc --noEmit` |
+
+## Deployment Gate
+
+Agents push branches and open PRs after local checks pass. Vercel preview validation and Sentry review happen after the PR is open; Sentry is not a human pre-push blocker, but it remains required evidence before production merge. Supabase/Tembo validation is required for schema work; this repo does not currently specify Tembo's role.
+
+Merging to `main` triggers the Vercel production deployment. Run `npm run build` locally before merging runtime behavior changes.
+
+## Project Structure
+
+```text
+src/
+  app/                  App Router pages and route handlers
+  components/           Module UI plus shared layout/nav/theme/ui components
+  lib/                  Provider logic, hooks, stores, Supabase, integrations
+supabase/migrations/    SQL migrations; ordering must be validated before schema work
+docs/                   Audits, architecture notes, deployment/env docs
 ```
 
-## Next phases (roadmap)
+## Current Truth Sources
 
-- **Phase 3:** Agenda, Signals, Notes, real weather/AQI, calendar sync
-- **Phase 4:** Vitality, Research pipeline, Control Room settings, AI gateway
+- `docs/audits/axis-current-state-2026-06-30.md`
+- `src/lib/store/nav.ts`
+- `package.json`
+- `docs/architecture/integration-adapters.md`
+- `docs/audits/axis-platform-audit.md`
 
 ## License
 
-Private — AXIS[CKO] personal operating system.
+Private - AXIS[CKO] personal operating system.
