@@ -120,6 +120,49 @@ function signalNoteBody(signal: Signal) {
   ].join("");
 }
 
+type SourceLink = {
+  label: string;
+  href: string;
+  external: boolean;
+  detail?: string;
+};
+
+function safeMetadataHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (value.startsWith("/")) return value;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" || url.protocol === "http:") return url.toString();
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function sourceLinkFor(signal: Signal): SourceLink | null {
+  const metadataHref = safeMetadataHref(signal.metadata?.source_route) ?? safeMetadataHref(signal.metadata?.source_url);
+  const external = Boolean(metadataHref && !metadataHref.startsWith("/"));
+  const type = typeof signal.metadata?.source_object_type === "string" ? signal.metadata.source_object_type : signal.source;
+  const id = typeof signal.metadata?.source_object_id === "string" ? signal.metadata.source_object_id : null;
+  if (metadataHref) {
+    return {
+      label: `Open ${type}`,
+      href: metadataHref,
+      external,
+      detail: id ? `${type} · ${id}` : type,
+    };
+  }
+
+  const source = signal.source.toLowerCase();
+  if (source.includes("mail")) return { label: "Open Mail", href: "/mail", external: false, detail: "Mail source" };
+  if (source.includes("calendar")) return { label: "Open Schedule", href: "/schedule", external: false, detail: "Calendar source" };
+  if (source.includes("task") || source.includes("agenda")) return { label: "Open Agenda", href: "/agenda", external: false, detail: "Task source" };
+  if (source.includes("note")) return { label: "Open Notes", href: "/notes", external: false, detail: "Note source" };
+  if (source.includes("github") || source.includes("pipeline")) return { label: "Open Pipeline", href: "/pipeline", external: false, detail: "Pipeline source" };
+  if (source.includes("fund") || source.includes("polygon") || source.includes("market")) return { label: "Open Fund", href: "/fund", external: false, detail: "Fund source" };
+  return null;
+}
+
 function routeFailureMessage(destination: RouteDestination) {
   if (destination === "agenda") return "Could not complete task conversion. Signal was not routed.";
   if (destination === "notes") return "Could not complete note conversion. Signal was not routed.";
@@ -216,6 +259,7 @@ export function SignalsModule() {
 
   // Live count of the always-selected signal (keeps detail panel in sync after edits).
   const live = selected ? signals.find((s) => s.id === selected.id) ?? selected : null;
+  const sourceLink = live ? sourceLinkFor(live) : null;
 
   const openDetail = (s: Signal) => {
     setSelected(s);
@@ -634,6 +678,23 @@ export function SignalsModule() {
               {signalDismissedAt(live) && ` · dismissed`}
               {signalSnoozedUntil(live) && ` · snoozed until ${new Date(signalSnoozedUntil(live) ?? "").toLocaleString()}`}
             </div>
+
+            {sourceLink && (
+              <div className={styles.linkedArtifact}>
+                <div>
+                  <span>Source object</span>
+                  <strong>{sourceLink.detail ?? live.source}</strong>
+                </div>
+                <a
+                  className="savebtn"
+                  href={sourceLink.href}
+                  target={sourceLink.external ? "_blank" : undefined}
+                  rel={sourceLink.external ? "noreferrer" : undefined}
+                >
+                  {sourceLink.label}
+                </a>
+              </div>
+            )}
 
             {live.routed_at && (
               <div className={styles.routeStatus}>

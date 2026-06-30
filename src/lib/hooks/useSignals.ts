@@ -21,6 +21,10 @@ export type SignalAIMeta = {
   archived_at?: string;
   dismissed_at?: string;
   snoozed_until?: string;
+  source_object_type?: string;
+  source_object_id?: string;
+  source_route?: string;
+  source_url?: string;
 };
 
 export type Signal = {
