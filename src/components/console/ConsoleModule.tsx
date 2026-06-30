@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   DndContext,
@@ -35,7 +35,7 @@ import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
-import { WidgetActionMenu, WidgetShell } from "@/components/widgets";
+import { WidgetActionMenu, WidgetDetailDrawer, WidgetShell } from "@/components/widgets";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import type { WidgetStatus } from "@/lib/widgets/types";
 
@@ -356,6 +356,7 @@ export function ConsoleModule() {
   const [arcEvents, setArcEvents] = useState<Array<{ id: string; title: string; start_at: string; end_at: string | null }>>([]);
   const [editing, setEditing] = useState(false);
   const [expandedWidget, setExpandedWidget] = useState<string | null>(null);
+  const [detailWidgetId, setDetailWidgetId] = useState<string | null>(null);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -717,52 +718,84 @@ export function ConsoleModule() {
             const status = widgetRuntimeStatus(id, live, w.live);
             const shellIcon = definition?.icon ?? <WidgetIcon id={id} />;
             if (id === "weather") {
+              const drawerOpen = detailWidgetId === id;
               return (
-                <WidgetShell
-                  key={`${id}-${i}`}
-                  title={definition?.label ?? w.label}
-                  icon={shellIcon}
-                  value={value}
-                  hint={expandedWidget === id ? `${hint} · tap to collapse` : hint}
-                  status={status}
-                  updatedAt={live?.updatedAt}
-                  provider={definition?.source.provider ?? "widget"}
-                  onPrimaryAction={editing ? undefined : () => setExpandedWidget(expandedWidget === id ? null : id)}
-                  titleText={expandedWidget === id ? "Click to collapse" : "Click to expand"}
-                  actionSlot={
-                    <WidgetActionMenu
-                      actions={editing ? [
-                        { id: "swap", label: "Swap", kind: "configure" },
-                        { id: "hide", label: "Hide placeholder", kind: "hide", disabledReason: "Hide arrives with saved widget preferences." },
-                      ] : [
-                        ...(definition?.secondaryActions ?? []),
-                        definition?.primaryAction ?? { id: "open", label: "Open", kind: "open-drawer" },
-                        { id: "configure", label: "Configure placeholder", kind: "configure", disabledReason: "Configuration arrives with widget settings." },
-                        { id: "hide", label: "Hide placeholder", kind: "hide", disabledReason: "Hide arrives with saved widget preferences." },
-                      ]}
-                      handlers={{
-                        refresh: () => {
+                <Fragment key={`${id}-${i}`}>
+                  <WidgetShell
+                    title={definition?.label ?? w.label}
+                    icon={shellIcon}
+                    value={value}
+                    hint={drawerOpen ? `${hint} · details open` : hint}
+                    status={status}
+                    updatedAt={live?.updatedAt}
+                    provider={definition?.source.provider ?? "widget"}
+                    onPrimaryAction={editing ? undefined : () => setDetailWidgetId(id)}
+                    titleText={drawerOpen ? "Details open" : "Open widget details"}
+                    actionSlot={
+                      <WidgetActionMenu
+                        actions={editing ? [
+                          { id: "swap", label: "Swap", kind: "configure" },
+                          { id: "hide", label: "Hide placeholder", kind: "hide", disabledReason: "Hide arrives with saved widget preferences." },
+                        ] : [
+                          ...(definition?.secondaryActions ?? []),
+                          definition?.primaryAction ?? { id: "open", label: "Open", kind: "open-drawer" },
+                          { id: "configure", label: "Configure placeholder", kind: "configure", disabledReason: "Configuration arrives with widget settings." },
+                          { id: "hide", label: "Hide placeholder", kind: "hide", disabledReason: "Hide arrives with saved widget preferences." },
+                        ]}
+                        handlers={{
+                          refresh: () => {
+                            refreshOne(id);
+                            toast("Widget refreshed", "success", w.label);
+                          },
+                          open: () => setDetailWidgetId(id),
+                          configure: () => {
+                            if (editing) {
+                              setSwapIdx(i);
+                              setPickerOpen(true);
+                            }
+                          },
+                        }}
+                      />
+                    }
+                  >
+                    {!editing && live?.error && (
+                      <div className="tb-raw" style={{ color: "var(--clay)" }}>
+                        {live.stale ? "Showing last update" : "Refresh failed"}
+                      </div>
+                    )}
+                  </WidgetShell>
+                  <WidgetDetailDrawer
+                    open={drawerOpen}
+                    onClose={() => setDetailWidgetId(null)}
+                    title={definition?.detail.title ?? definition?.label ?? w.label}
+                    subtitle={hint}
+                    status={status}
+                    source={definition?.source.provider ?? "widget"}
+                    updatedAt={live?.updatedAt}
+                    primaryActionSlot={
+                      <button
+                        type="button"
+                        className="feed-manage"
+                        onClick={() => {
                           refreshOne(id);
                           toast("Widget refreshed", "success", w.label);
-                        },
-                        open: () => setExpandedWidget(expandedWidget === id ? null : id),
-                        configure: () => {
-                          if (editing) {
-                            setSwapIdx(i);
-                            setPickerOpen(true);
-                          }
-                        },
-                      }}
-                    />
-                  }
-                >
-                  {expandedWidget === id && !editing && <WidgetSecondLine id={id} raw={live?.raw} />}
-                  {!editing && live?.error && (
-                    <div className="tb-raw" style={{ color: "var(--clay)" }}>
-                      {live.stale ? "Showing last update" : "Refresh failed"}
+                        }}
+                      >
+                        Refresh
+                      </button>
+                    }
+                  >
+                    <div className="widget-detail-current">
+                      <span>Current value</span>
+                      <strong>{value}</strong>
                     </div>
-                  )}
-                </WidgetShell>
+                    {live?.error ? (
+                      <div className="widget-detail-error">
+                        {live.stale ? "The drawer is showing the last known widget state." : "The latest widget refresh failed."}
+                      </div>
+                    ) : null}
+                  </WidgetDetailDrawer>
+                </Fragment>
               );
             }
             const statusLabel = status === "fresh" ? "Fresh" : status === "loading" || status === "refreshing" ? "Refreshing" : status === "stale" ? "Stale" : status === "error" ? "Error" : status === "lab" ? "Lab" : status === "disconnected" ? "Disconnected" : status === "empty" ? "Empty" : "Setup";
