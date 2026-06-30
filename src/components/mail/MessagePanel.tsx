@@ -56,16 +56,20 @@ export function MessagePanel({
   message,
   capabilities,
   busyAction,
+  creatingSignal,
   onClose,
   onReply,
   onAction,
+  onCreateSignal,
 }: {
   message: MailMessageFull;
   capabilities?: ProviderCapabilities;
   busyAction?: MailMessageAction | null;
+  creatingSignal?: boolean;
   onClose: () => void;
   onReply?: (draft: ComposeDraft) => void;
   onAction?: (action: MailMessageAction) => void;
+  onCreateSignal?: () => void;
 }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
@@ -143,6 +147,25 @@ export function MessagePanel({
         </button>
         <span style={{ flex: 1 }} />
         <ProviderBadge provider={message.provider} />
+        {onCreateSignal && (
+          <button
+            type="button"
+            onClick={onCreateSignal}
+            disabled={creatingSignal}
+            style={{
+              background: "var(--glass)",
+              border: "1px solid var(--line)",
+              borderRadius: 6,
+              color: "var(--ink)",
+              fontSize: "12px",
+              padding: "5px 10px",
+              cursor: creatingSignal ? "default" : "pointer",
+              opacity: creatingSignal ? 0.6 : 1,
+            }}
+          >
+            {creatingSignal ? "Routing..." : "Send to Dispatch"}
+          </button>
+        )}
         {onAction && (
           <>
             <button

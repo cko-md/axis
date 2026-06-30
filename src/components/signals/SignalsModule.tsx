@@ -6,6 +6,12 @@ import { SkeletonCard } from "@/components/ui/Skeleton";
 import {
   classifySignal,
   classifySignals,
+  isSignalArchived,
+  isSignalSnoozed,
+  isSignalVisible,
+  signalArchivedAt,
+  signalDismissedAt,
+  signalSnoozedUntil,
   useSignals,
   type Signal,
   type SignalType,
@@ -27,7 +33,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import styles from "./SignalsModule.module.css";
 
-const CHIPS = ["All", "Action", "Awaiting", "FYI", "Routed", "Unread"] as const;
+const CHIPS = ["All", "Action", "Awaiting", "FYI", "Routed", "Unread", "Snoozed", "Archived"] as const;
 type Chip = (typeof CHIPS)[number];
 
 const GROUPS: { key: SignalType | "routed"; label: string }[] = [
@@ -81,19 +87,97 @@ function linkedTaskTitle(signal: Signal) {
     : null;
 }
 
+function linkedNoteTitle(signal: Signal) {
+  return typeof signal.metadata?.routed_note_title === "string"
+    ? signal.metadata.routed_note_title
+    : null;
+}
+
+function snoozeUntil(hours: number) {
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+function metadataWithout(signal: Signal, keys: string[]) {
+  const next = { ...(signal.metadata ?? {}) };
+  for (const key of keys) delete next[key];
+  return next;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function signalNoteBody(signal: Signal) {
+  const body = signal.body?.trim() || "No additional detail.";
+  return [
+    `<p>${escapeHtml(body).replace(/\n/g, "<br />")}</p>`,
+    `<hr />`,
+    `<p><strong>Source:</strong> ${escapeHtml(signal.source)}</p>`,
+    `<p><strong>Signal:</strong> ${escapeHtml(signal.title)}</p>`,
+  ].join("");
+}
+
+type SourceLink = {
+  label: string;
+  href: string;
+  external: boolean;
+  detail?: string;
+};
+
+function safeMetadataHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (value.startsWith("/")) return value;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" || url.protocol === "http:") return url.toString();
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function sourceLinkFor(signal: Signal): SourceLink | null {
+  const metadataHref = safeMetadataHref(signal.metadata?.source_route) ?? safeMetadataHref(signal.metadata?.source_url);
+  const external = Boolean(metadataHref && !metadataHref.startsWith("/"));
+  const type = typeof signal.metadata?.source_object_type === "string" ? signal.metadata.source_object_type : signal.source;
+  const id = typeof signal.metadata?.source_object_id === "string" ? signal.metadata.source_object_id : null;
+  if (metadataHref) {
+    return {
+      label: `Open ${type}`,
+      href: metadataHref,
+      external,
+      detail: id ? `${type} · ${id}` : type,
+    };
+  }
+
+  const source = signal.source.toLowerCase();
+  if (source.includes("mail")) return { label: "Open Mail", href: "/mail", external: false, detail: "Mail source" };
+  if (source.includes("calendar")) return { label: "Open Schedule", href: "/schedule", external: false, detail: "Calendar source" };
+  if (source.includes("task") || source.includes("agenda")) return { label: "Open Agenda", href: "/agenda", external: false, detail: "Task source" };
+  if (source.includes("note")) return { label: "Open Notes", href: "/notes", external: false, detail: "Note source" };
+  if (source.includes("github") || source.includes("pipeline")) return { label: "Open Pipeline", href: "/pipeline", external: false, detail: "Pipeline source" };
+  if (source.includes("fund") || source.includes("polygon") || source.includes("market")) return { label: "Open Fund", href: "/fund", external: false, detail: "Fund source" };
+  return null;
+}
+
 function routeFailureMessage(destination: RouteDestination) {
   if (destination === "agenda") return "Could not complete task conversion. Signal was not routed.";
+  if (destination === "notes") return "Could not complete note conversion. Signal was not routed.";
   return `Could not route to ${destLabel(destination)}. Signal was not routed.`;
 }
 
 function captureDispatchFailure(
   error: unknown,
   context: {
-    op: "route_signal" | "triage_signal";
-    signal: Pick<Signal, "id" | "signal_type" | "source">;
-    phase: "detail" | "batch";
+    op: "route_signal" | "triage_signal" | "manage_signal" | "scan_platform";
+    signal?: Pick<Signal, "id" | "signal_type" | "source">;
+    phase: "detail" | "batch" | "toolbar";
     destination?: RouteDestination;
     via?: RouteVia;
+    action?: "dismiss" | "archive" | "snooze" | "restore";
   },
 ) {
   Sentry.captureException(asError(error, "Dispatch action failed"), {
@@ -103,10 +187,11 @@ function captureDispatchFailure(
       phase: context.phase,
       destination: context.destination ?? "none",
       via: context.via ?? "none",
-      signal_type: context.signal.signal_type,
-      source: context.signal.source.slice(0, 40),
+      action: context.action ?? "none",
+      signal_type: context.signal?.signal_type ?? "none",
+      source: context.signal?.source.slice(0, 40) ?? "none",
     },
-    extra: { signal_id: context.signal.id },
+    extra: context.signal ? { signal_id: context.signal.id } : undefined,
   });
 }
 
@@ -119,17 +204,21 @@ function pillClass(type: SignalType) {
 function applyChip(signals: Signal[], chip: Chip) {
   switch (chip) {
     case "All":
-      return signals;
+      return signals.filter((s) => isSignalVisible(s));
     case "Routed":
-      return signals.filter((s) => s.routed_at);
+      return signals.filter((s) => s.routed_at && isSignalVisible(s));
     case "Unread":
-      return signals.filter((s) => !s.read_at);
+      return signals.filter((s) => !s.read_at && isSignalVisible(s));
     case "Action":
-      return signals.filter((s) => s.signal_type === "action" && !s.routed_at);
+      return signals.filter((s) => s.signal_type === "action" && !s.routed_at && isSignalVisible(s));
     case "Awaiting":
-      return signals.filter((s) => s.signal_type === "awaiting" && !s.routed_at);
+      return signals.filter((s) => s.signal_type === "awaiting" && !s.routed_at && isSignalVisible(s));
     case "FYI":
-      return signals.filter((s) => s.signal_type === "fyi" && !s.routed_at);
+      return signals.filter((s) => s.signal_type === "fyi" && !s.routed_at && isSignalVisible(s));
+    case "Snoozed":
+      return signals.filter((s) => !isSignalArchived(s) && isSignalSnoozed(s));
+    case "Archived":
+      return signals.filter((s) => isSignalArchived(s));
     default:
       return signals;
   }
@@ -164,7 +253,7 @@ export function SignalsModule() {
     if (!grouping) return null;
     const buckets: Record<string, Signal[]> = { action: [], awaiting: [], fyi: [], routed: [] };
     for (const s of filtered) {
-      if (s.routed_at) buckets.routed.push(s);
+      if (s.routed_at || isSignalArchived(s) || isSignalSnoozed(s)) buckets.routed.push(s);
       else buckets[s.signal_type].push(s);
     }
     return buckets;
@@ -172,6 +261,7 @@ export function SignalsModule() {
 
   // Live count of the always-selected signal (keeps detail panel in sync after edits).
   const live = selected ? signals.find((s) => s.id === selected.id) ?? selected : null;
+  const sourceLink = live ? sourceLinkFor(live) : null;
 
   const openDetail = (s: Signal) => {
     setSelected(s);
@@ -194,6 +284,66 @@ export function SignalsModule() {
     setSelected(null);
     setSuggestion(null);
     setRouteError(null);
+  };
+
+  const dismissSignal = async (s: Signal) => {
+    const at = new Date().toISOString();
+    const updated = await updateSignal(s.id, {
+      read_at: s.read_at ?? at,
+      metadata: { ...(s.metadata ?? {}), dismissed_at: at, archived_at: at },
+    });
+    if (!updated) {
+      captureDispatchFailure(new Error("Signal dismiss update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "dismiss" });
+      toast("Could not dismiss signal.", "error", "Dispatch");
+      return;
+    }
+    toast("Signal dismissed.", "success", "Dispatch");
+    closeDetail();
+  };
+
+  const archiveSignal = async (s: Signal) => {
+    const at = new Date().toISOString();
+    const updated = await updateSignal(s.id, {
+      read_at: s.read_at ?? at,
+      metadata: { ...(s.metadata ?? {}), archived_at: at },
+    });
+    if (!updated) {
+      captureDispatchFailure(new Error("Signal archive update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "archive" });
+      toast("Could not archive signal.", "error", "Dispatch");
+      return;
+    }
+    toast("Signal archived.", "success", "Dispatch");
+    closeDetail();
+  };
+
+  const snoozeSignal = async (s: Signal, hours: number) => {
+    const until = snoozeUntil(hours);
+    const updated = await updateSignal(s.id, {
+      read_at: s.read_at ?? new Date().toISOString(),
+      metadata: {
+        ...metadataWithout(s, ["archived_at", "dismissed_at"]),
+        snoozed_until: until,
+      },
+    });
+    if (!updated) {
+      captureDispatchFailure(new Error("Signal snooze update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "snooze" });
+      toast("Could not snooze signal.", "error", "Dispatch");
+      return;
+    }
+    toast(`Signal snoozed until ${new Date(until).toLocaleString()}.`, "success", "Dispatch");
+    closeDetail();
+  };
+
+  const restoreSignal = async (s: Signal) => {
+    const updated = await updateSignal(s.id, {
+      metadata: metadataWithout(s, ["archived_at", "dismissed_at", "snoozed_until"]),
+    });
+    if (!updated) {
+      captureDispatchFailure(new Error("Signal restore update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "restore" });
+      toast("Could not restore signal.", "error", "Dispatch");
+      return;
+    }
+    toast("Signal restored.", "success", "Dispatch");
   };
 
   // AI triage a single signal: classify, store on signal, surface suggestion + matching user route.
@@ -243,7 +393,10 @@ export function SignalsModule() {
     } else if (destination === "notes") {
       const note = await createNote(s.title, "All Notes");
       if (!note) throw new Error("Note creation failed");
-      await updateNote(note.id, { body: s.body ?? "" });
+      await updateNote(note.id, {
+        body: signalNoteBody(s),
+        tags: ["dispatch", `signal:${s.id}`],
+      });
       return { noteId: note.id, noteTitle: note.title };
     } else if (destination === "people") {
       const triaged = await triageSignalToPerson(s);
@@ -271,7 +424,15 @@ export function SignalsModule() {
       const artifacts = await materializeDestination(s, target, priority);
       const routed = await routeTo(s.id, target, via, artifactMetadata(artifacts));
       if (!routed) throw new Error("Signal route update failed");
-      toast(target === "agenda" ? "Task created and signal routed." : `Routed → ${destLabel(target)}`, "success", "Signals");
+      toast(
+        target === "agenda"
+          ? "Task created and signal routed."
+          : target === "notes"
+            ? "Note created and signal routed."
+            : `Routed → ${destLabel(target)}`,
+        "success",
+        "Signals",
+      );
       closeDetail();
     } catch (error) {
       const message = routeFailureMessage(target);
@@ -298,7 +459,7 @@ export function SignalsModule() {
   // to the AI's own suggested destination. Nothing is left merely "classified
   // but unrouted" — triage means route, so the inbox clears in one pass.
   const triageAll = async () => {
-    const pending = signals.filter((s) => !s.routed_at);
+    const pending = signals.filter((s) => !s.routed_at && isSignalVisible(s));
     if (pending.length === 0) {
       toast("Nothing to triage — all signals routed", "info", "AI Triage");
       return;
@@ -379,7 +540,8 @@ export function SignalsModule() {
       const captured = data.created ?? 0;
       if (captured > 0) await refreshSignals();
       toast(captured > 0 ? `${captured} new signal${captured === 1 ? "" : "s"} surfaced` : "Platform looks clear", "success", "Dispatch");
-    } catch {
+    } catch (error) {
+      captureDispatchFailure(error, { op: "scan_platform", phase: "toolbar" });
       toast("Scan failed — check connection", "error", "Dispatch");
     } finally {
       setScanning(false);
@@ -401,7 +563,7 @@ export function SignalsModule() {
   );
 
   const renderRow = (s: Signal) => (
-    <div key={s.id} className={s.routed_at ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>
+    <div key={s.id} className={s.routed_at || isSignalArchived(s) || isSignalSnoozed(s) ? "task routed" : s.read_at ? "task done" : "task"} onClick={() => editingId !== s.id && openDetail(s)} style={{ cursor: "pointer" }}>
       <div
         className={s.read_at ? "check done" : "check"}
         onClick={(e) => {
@@ -437,7 +599,7 @@ export function SignalsModule() {
         <div className="task-meta" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           <span className={`pill ${pillClass(s.signal_type)}`}>{s.signal_type.toUpperCase()}</span>
           <span>
-            {s.source} · {s.route_target ? `routed → ${destLabel(s.route_target)}` : "unrouted"}
+            {s.source} · {isSignalArchived(s) ? "archived" : isSignalSnoozed(s) ? `snoozed until ${new Date(signalSnoozedUntil(s) ?? "").toLocaleString()}` : s.route_target ? `routed → ${destLabel(s.route_target)}` : "unrouted"}
           </span>
           {!s.routed_at && s.metadata?.ai_destination && (
             <span className={styles.aiBadge}>AI → {destLabel(s.metadata.ai_destination)}</span>
@@ -519,7 +681,27 @@ export function SignalsModule() {
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginBottom: 14 }}>
               {live.source} · {live.signal_type} · {new Date(live.created_at).toLocaleString()}
               {live.routed_at && ` · routed → ${destLabel(live.route_target ?? "")}`}
+              {signalArchivedAt(live) && ` · archived ${new Date(signalArchivedAt(live) ?? "").toLocaleString()}`}
+              {signalDismissedAt(live) && ` · dismissed`}
+              {signalSnoozedUntil(live) && ` · snoozed until ${new Date(signalSnoozedUntil(live) ?? "").toLocaleString()}`}
             </div>
+
+            {sourceLink && (
+              <div className={styles.linkedArtifact}>
+                <div>
+                  <span>Source object</span>
+                  <strong>{sourceLink.detail ?? live.source}</strong>
+                </div>
+                <a
+                  className="savebtn"
+                  href={sourceLink.href}
+                  target={sourceLink.external ? "_blank" : undefined}
+                  rel={sourceLink.external ? "noreferrer" : undefined}
+                >
+                  {sourceLink.label}
+                </a>
+              </div>
+            )}
 
             {live.routed_at && (
               <div className={styles.routeStatus}>
@@ -540,6 +722,18 @@ export function SignalsModule() {
               </div>
             )}
 
+            {live.routed_at && typeof live.metadata?.routed_note_id === "string" && (
+              <div className={styles.linkedArtifact}>
+                <div>
+                  <span>Created note</span>
+                  <strong>{linkedNoteTitle(live) ?? live.title}</strong>
+                </div>
+                <a className="savebtn" href="/notes">
+                  Open Notes
+                </a>
+              </div>
+            )}
+
             <div className={styles.detailAction}>
               <Button
                 variant="primary"
@@ -556,6 +750,26 @@ export function SignalsModule() {
                 {routeError}
               </div>
             )}
+
+            <div className={styles.manageActions}>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => snoozeSignal(live, 4)}>
+                Snooze 4h
+              </button>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => snoozeSignal(live, 24)}>
+                Snooze 1d
+              </button>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => archiveSignal(live)}>
+                Archive
+              </button>
+              <button type="button" className="savebtn" disabled={!!routingDestination} onClick={() => dismissSignal(live)}>
+                Dismiss
+              </button>
+              {(isSignalArchived(live) || isSignalSnoozed(live)) && (
+                <button type="button" className="aibtn" disabled={!!routingDestination} onClick={() => restoreSignal(live)}>
+                  Restore
+                </button>
+              )}
+            </div>
 
             {suggestion && (
               <div className={styles.suggest}>

@@ -235,6 +235,7 @@ export function MailModule() {
   const [showAddPicker, setShowAddPicker] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null>(null);
   const [busyAction, setBusyAction] = useState<MailMessageAction | null>(null);
+  const [creatingSignal, setCreatingSignal] = useState(false);
   const mountedRef = useRef(true);
   const messagesRef = useRef<MailMessage[]>([]);
   const addBtnRef = useRef<HTMLDivElement>(null);
@@ -435,6 +436,29 @@ export function MailModule() {
       if (mountedRef.current) setBusyAction(null);
     }
   }, [messageCapabilities, removeLocalMessage, toast, updateLocalMessage]);
+
+  const createSignalFromMessage = useCallback(async (msg: MailMessageFull) => {
+    setCreatingSignal(true);
+    try {
+      const res = await fetch(
+        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create-signal" }),
+        },
+      );
+      const data = await res.json().catch(() => ({} as { error?: string; existing?: boolean }));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Could not create Dispatch signal.");
+      }
+      toast(data.existing ? "Dispatch already has a signal for this message." : "Message sent to Dispatch.", "success", "Mail");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not create Dispatch signal.", "error", "Mail");
+    } finally {
+      if (mountedRef.current) setCreatingSignal(false);
+    }
+  }, [toast]);
 
   const openMessage = async (msg: MailMessage) => {
     setLoadingMsg(true);
@@ -878,6 +902,7 @@ export function MailModule() {
             message={selected}
             capabilities={messageCapabilities(selected)}
             busyAction={busyAction}
+            creatingSignal={creatingSignal}
             onClose={() => setSelected(null)}
             onReply={(draft) => {
               const account = accounts.find(
@@ -890,6 +915,7 @@ export function MailModule() {
               });
             }}
             onAction={(action) => { void runMessageAction(selected, action); }}
+            onCreateSignal={() => { void createSignalFromMessage(selected); }}
           />
         )}
       </div>
