@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
 import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import {
   ProviderTimeoutError,
   logRouteTiming,
@@ -100,4 +101,173 @@ export async function GET(
     code: result.error.code,
   });
   return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const routeStartedAt = Date.now();
+  const { id } = await params;
+  const provider = req.nextUrl.searchParams.get("provider");
+  const email = req.nextUrl.searchParams.get("email");
+
+  if (provider !== "gmail" && provider !== "outlook") {
+    return NextResponse.json({ error: "provider must be gmail or outlook" }, { status: 400 });
+  }
+  if (!email) {
+    return NextResponse.json({ error: "email param is required" }, { status: 400 });
+  }
+
+  const body = await req.json().catch(() => ({})) as { action?: string };
+  if (body.action !== "create-signal") {
+    return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+
+  const accounts = await listMailAccounts(user.id);
+  const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
+  if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
+
+  const adapter = adapterForAccount(account);
+  const transport = account.via === "composio" ? "composio" : "direct";
+  const timing = {
+    area: "mail",
+    provider,
+    transport,
+    operation: "create_signal_from_message",
+    timeoutMs: 10_000,
+    slowMs: 2_500,
+  };
+
+  let result: Awaited<ReturnType<typeof adapter.getMessage>>;
+  try {
+    result = await timedProviderOperation(timing, () =>
+      adapter.getMessage(toMailContext(user.id, account), id),
+    );
+  } catch (error) {
+    const isTimeout = error instanceof ProviderTimeoutError;
+    captureRouteError(error, {
+      route: "/api/mail/message/[id]",
+      operation: "create_signal_from_message",
+      area: "mail",
+      provider,
+      transport,
+      status: isTimeout ? 504 : 502,
+      code: isTimeout ? "timeout" : "network",
+    });
+    logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+      provider,
+      transport,
+      ok: false,
+      code: isTimeout ? "timeout" : "network",
+    });
+    return NextResponse.json(
+      {
+        error: isTimeout
+          ? "Message took too long to route. Try again in a moment."
+          : "Message could not be routed. Try again in a moment.",
+        code: isTimeout ? "timeout" : "network",
+      },
+      { status: isTimeout ? 504 : 502 },
+    );
+  }
+
+  if (!result.ok) {
+    const status = mailErrorStatus(result.error.code);
+    if (status >= 500) {
+      captureRouteError(new Error(result.error.message), {
+        route: "/api/mail/message/[id]",
+        operation: "create_signal_from_message",
+        area: "mail",
+        provider,
+        transport,
+        status,
+        code: result.error.code,
+      });
+    }
+    logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+      provider,
+      transport,
+      ok: false,
+      code: result.error.code,
+    });
+    return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
+  }
+
+  const message = result.data;
+  const sourceObject = {
+    source_object_type: "mail_message",
+    source_object_id: id,
+    source_route: "/mail",
+    mail_provider: provider,
+    mail_transport: transport,
+    mail_account_email: email,
+    mail_thread_id: message.threadId ?? null,
+  };
+
+  const { data: existing, error: existingError } = await supabase
+    .from("signals")
+    .select("*")
+    .eq("user_id", user.id)
+    .contains("metadata", {
+      source_object_type: "mail_message",
+      source_object_id: id,
+      mail_provider: provider,
+      mail_account_email: email,
+    })
+    .maybeSingle();
+
+  if (existingError) {
+    captureRouteError(existingError, {
+      route: "/api/mail/message/[id]",
+      operation: "lookup_existing_signal",
+      area: "mail",
+      provider: "supabase",
+      status: 500,
+    });
+    return NextResponse.json({ error: "Could not check existing Dispatch signal." }, { status: 500 });
+  }
+
+  if (existing) {
+    return NextResponse.json({ signal: existing, existing: true });
+  }
+
+  const { data: signal, error: insertError } = await supabase
+    .from("signals")
+    .insert({
+      user_id: user.id,
+      title: message.subject || "Mail signal",
+      body: `From: ${message.from}\nDate: ${message.date}\n\n${message.snippet || "No preview available."}`,
+      source: "Mail",
+      signal_type: "action",
+      route_target: "agenda",
+      metadata: sourceObject,
+    })
+    .select()
+    .single();
+
+  if (insertError || !signal) {
+    captureRouteError(insertError, {
+      route: "/api/mail/message/[id]",
+      operation: "insert_signal",
+      area: "mail",
+      provider: "supabase",
+      status: 500,
+    });
+    return NextResponse.json({ error: "Could not create Dispatch signal." }, { status: 500 });
+  }
+
+  logRouteTiming("/api/mail/message/[id]", routeStartedAt, {
+    provider,
+    transport,
+    ok: true,
+    operation: "create_signal_from_message",
+  });
+  return NextResponse.json({ signal, existing: false });
 }
