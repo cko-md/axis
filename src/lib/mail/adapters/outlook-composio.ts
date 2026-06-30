@@ -90,6 +90,12 @@ export const outlookComposioAdapter: MailAdapter = {
   markUnread(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("mark-unread")); },
   archiveMessage(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("archive")); },
   deleteMessage(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("delete")); },
+  getAttachment(): Promise<Result<never>> {
+    return Promise.resolve(fail("not_supported", "Composio Outlook attachment download is not available yet; reconnect this mailbox directly to save attachments into Library.", {
+      provider: "outlook",
+      transport: "composio",
+    }));
+  },
 
   normalizeMessage(raw: unknown, ctx: MailAccountContext): MailMessage | null {
     return normalizeOutlookMessage(raw as Record<string, unknown>, ctx.mailEmail);

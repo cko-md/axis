@@ -4,7 +4,7 @@ AXIS validates environment variables in `src/lib/env.ts`. `REQUIRED_ENV_NAMES` i
 
 ## Runtime
 
-AXIS defaults to Node.js 24 locally, in GitHub Actions, and on Vercel. The package engine allows supported runtimes from Node 22 through Node 26 (`>=22 <27`) so preview builds and developer installs can run on the currently available Vercel/Node lines while avoiding Node 20 EOL. Use `.nvmrc` as the default runtime pin.
+AXIS pins Node.js 24.x locally, in GitHub Actions, and on Vercel. Use `.nvmrc` as the default runtime pin; Node 26 currently emits noisy `module.register()` deprecation warnings through the frontend toolchain and is intentionally outside the package engine range.
 
 ## Required
 

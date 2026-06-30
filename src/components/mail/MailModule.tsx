@@ -449,7 +449,7 @@ export function MailModule() {
           body: JSON.stringify({ action: "create-signal" }),
         },
       );
-      const data = await res.json().catch(() => ({} as { error?: string; existing?: boolean }));
+      const data = await res.json().catch(() => ({} as { error?: string; existing?: boolean; saved?: boolean }));
       if (!res.ok) {
         throw new Error(typeof data.error === "string" ? data.error : "Could not create Dispatch signal.");
       }
@@ -477,7 +477,9 @@ export function MailModule() {
         throw new Error(typeof data.error === "string" ? data.error : "Could not route attachment to Library.");
       }
       toast(
-        data.existing
+        data.saved
+          ? "Attachment saved to Library."
+          : data.existing
           ? "Library already has a routed signal for this attachment."
           : "Attachment routed to Library.",
         "success",

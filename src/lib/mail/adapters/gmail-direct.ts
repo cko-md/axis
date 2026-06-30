@@ -6,10 +6,12 @@
 import {
   listGmailInbox,
   getGmailMessage,
+  getGmailAttachment,
   getHeader,
   extractBody,
   extractGmailAttachments,
   type GmailPayload,
+  type MailAttachment,
   type MailMessage,
   type MailMessageFull,
 } from "../gmail";
@@ -150,6 +152,22 @@ export const gmailDirectAdapter: MailAdapter = {
     // Trash (recoverable) rather than permanent delete.
     const res = await gmailCall(ctx, `/messages/${encodeURIComponent(messageId)}/trash`, { method: "POST" });
     return res.ok ? ok(undefined) : res;
+  },
+
+  async getAttachment(ctx: MailAccountContext, messageId: string, attachmentId: string) {
+    const message = await this.getMessage(ctx, messageId);
+    if (!message.ok) return message;
+    const attachment = (message.data.attachments ?? []).find((item) => item.id === attachmentId);
+    if (!attachment) {
+      return fail("not_found", "Attachment could not be found on this message.", { provider: "gmail", transport: "direct", status: 404 });
+    }
+    try {
+      const file = await getGmailAttachment(ctx.userId, ctx.mailEmail, messageId, attachment as MailAttachment);
+      if (!file) return fail("provider_error", "Gmail attachment could not be downloaded.", { provider: "gmail", transport: "direct" });
+      return ok(file);
+    } catch (e) {
+      return failFromException(e, "Gmail attachment download failed", { provider: "gmail", transport: "direct" });
+    }
   },
 
   normalizeMessage(raw: unknown, ctx: MailAccountContext): MailMessage | null {
