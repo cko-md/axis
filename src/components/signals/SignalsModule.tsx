@@ -51,7 +51,14 @@ const safeDestination = (d: string): RouteDestination =>
   (VALID_DESTINATIONS as string[]).includes(d) ? (d as RouteDestination) : "agenda";
 
 type RouteVia = "ai" | "manual" | "rule";
-type RouteArtifacts = { taskId?: string; noteId?: string; personId?: string };
+type RouteArtifacts = {
+  taskId?: string;
+  taskTitle?: string;
+  noteId?: string;
+  noteTitle?: string;
+  personId?: string;
+  personName?: string;
+};
 
 function asError(error: unknown, fallback: string) {
   return error instanceof Error ? error : new Error(fallback);
@@ -60,9 +67,18 @@ function asError(error: unknown, fallback: string) {
 function artifactMetadata(artifacts: RouteArtifacts): Record<string, unknown> {
   const metadata: Record<string, unknown> = {};
   if (artifacts.taskId) metadata.routed_task_id = artifacts.taskId;
+  if (artifacts.taskTitle) metadata.routed_task_title = artifacts.taskTitle;
   if (artifacts.noteId) metadata.routed_note_id = artifacts.noteId;
+  if (artifacts.noteTitle) metadata.routed_note_title = artifacts.noteTitle;
   if (artifacts.personId) metadata.routed_person_id = artifacts.personId;
+  if (artifacts.personName) metadata.routed_person_name = artifacts.personName;
   return metadata;
+}
+
+function linkedTaskTitle(signal: Signal) {
+  return typeof signal.metadata?.routed_task_title === "string"
+    ? signal.metadata.routed_task_title
+    : null;
 }
 
 function routeFailureMessage(destination: RouteDestination) {
@@ -223,12 +239,12 @@ export function SignalsModule() {
         },
       });
       if (!task) throw new Error("Task creation failed");
-      return { taskId: task.id };
+      return { taskId: task.id, taskTitle: task.title };
     } else if (destination === "notes") {
       const note = await createNote(s.title, "All Notes");
       if (!note) throw new Error("Note creation failed");
       await updateNote(note.id, { body: s.body ?? "" });
-      return { noteId: note.id };
+      return { noteId: note.id, noteTitle: note.title };
     } else if (destination === "people") {
       const triaged = await triageSignalToPerson(s);
       const target = normalizeName(triaged.name);
@@ -237,7 +253,7 @@ export function SignalsModule() {
         ? await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) })
         : await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
       if ("error" in result && result.error) throw new Error(result.error);
-      return { personId: result.data?.id };
+      return { personId: result.data?.id, personName: result.data?.name ?? triaged.name };
     }
     return {};
   };
@@ -509,6 +525,18 @@ export function SignalsModule() {
               <div className={styles.routeStatus}>
                 <span>{live.route_target ? `Routed to ${destLabel(live.route_target)}` : "Routed"}</span>
                 {typeof live.metadata?.routed_task_id === "string" && <span>Task linked</span>}
+              </div>
+            )}
+
+            {live.routed_at && typeof live.metadata?.routed_task_id === "string" && (
+              <div className={styles.linkedArtifact}>
+                <div>
+                  <span>Created task</span>
+                  <strong>{linkedTaskTitle(live) ?? live.title}</strong>
+                </div>
+                <a className="savebtn" href="/agenda">
+                  Open Agenda
+                </a>
               </div>
             )}
 
