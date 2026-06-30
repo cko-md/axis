@@ -81,8 +81,32 @@ function linkedTaskTitle(signal: Signal) {
     : null;
 }
 
+function linkedNoteTitle(signal: Signal) {
+  return typeof signal.metadata?.routed_note_title === "string"
+    ? signal.metadata.routed_note_title
+    : null;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function signalNoteBody(signal: Signal) {
+  const body = signal.body?.trim() || "No additional detail.";
+  return [
+    `<p>${escapeHtml(body).replace(/\n/g, "<br />")}</p>`,
+    `<hr />`,
+    `<p><strong>Source:</strong> ${escapeHtml(signal.source)}</p>`,
+    `<p><strong>Signal:</strong> ${escapeHtml(signal.title)}</p>`,
+  ].join("");
+}
+
 function routeFailureMessage(destination: RouteDestination) {
   if (destination === "agenda") return "Could not complete task conversion. Signal was not routed.";
+  if (destination === "notes") return "Could not complete note conversion. Signal was not routed.";
   return `Could not route to ${destLabel(destination)}. Signal was not routed.`;
 }
 
@@ -243,7 +267,10 @@ export function SignalsModule() {
     } else if (destination === "notes") {
       const note = await createNote(s.title, "All Notes");
       if (!note) throw new Error("Note creation failed");
-      await updateNote(note.id, { body: s.body ?? "" });
+      await updateNote(note.id, {
+        body: signalNoteBody(s),
+        tags: ["dispatch", `signal:${s.id}`],
+      });
       return { noteId: note.id, noteTitle: note.title };
     } else if (destination === "people") {
       const triaged = await triageSignalToPerson(s);
@@ -271,7 +298,15 @@ export function SignalsModule() {
       const artifacts = await materializeDestination(s, target, priority);
       const routed = await routeTo(s.id, target, via, artifactMetadata(artifacts));
       if (!routed) throw new Error("Signal route update failed");
-      toast(target === "agenda" ? "Task created and signal routed." : `Routed → ${destLabel(target)}`, "success", "Signals");
+      toast(
+        target === "agenda"
+          ? "Task created and signal routed."
+          : target === "notes"
+            ? "Note created and signal routed."
+            : `Routed → ${destLabel(target)}`,
+        "success",
+        "Signals",
+      );
       closeDetail();
     } catch (error) {
       const message = routeFailureMessage(target);
@@ -536,6 +571,18 @@ export function SignalsModule() {
                 </div>
                 <a className="savebtn" href="/agenda">
                   Open Agenda
+                </a>
+              </div>
+            )}
+
+            {live.routed_at && typeof live.metadata?.routed_note_id === "string" && (
+              <div className={styles.linkedArtifact}>
+                <div>
+                  <span>Created note</span>
+                  <strong>{linkedNoteTitle(live) ?? live.title}</strong>
+                </div>
+                <a className="savebtn" href="/notes">
+                  Open Notes
                 </a>
               </div>
             )}
