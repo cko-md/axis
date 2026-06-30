@@ -172,11 +172,12 @@ function routeFailureMessage(destination: RouteDestination) {
 function captureDispatchFailure(
   error: unknown,
   context: {
-    op: "route_signal" | "triage_signal";
-    signal: Pick<Signal, "id" | "signal_type" | "source">;
-    phase: "detail" | "batch";
+    op: "route_signal" | "triage_signal" | "manage_signal" | "scan_platform";
+    signal?: Pick<Signal, "id" | "signal_type" | "source">;
+    phase: "detail" | "batch" | "toolbar";
     destination?: RouteDestination;
     via?: RouteVia;
+    action?: "dismiss" | "archive" | "snooze" | "restore";
   },
 ) {
   Sentry.captureException(asError(error, "Dispatch action failed"), {
@@ -186,10 +187,11 @@ function captureDispatchFailure(
       phase: context.phase,
       destination: context.destination ?? "none",
       via: context.via ?? "none",
-      signal_type: context.signal.signal_type,
-      source: context.signal.source.slice(0, 40),
+      action: context.action ?? "none",
+      signal_type: context.signal?.signal_type ?? "none",
+      source: context.signal?.source.slice(0, 40) ?? "none",
     },
-    extra: { signal_id: context.signal.id },
+    extra: context.signal ? { signal_id: context.signal.id } : undefined,
   });
 }
 
@@ -291,6 +293,7 @@ export function SignalsModule() {
       metadata: { ...(s.metadata ?? {}), dismissed_at: at, archived_at: at },
     });
     if (!updated) {
+      captureDispatchFailure(new Error("Signal dismiss update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "dismiss" });
       toast("Could not dismiss signal.", "error", "Dispatch");
       return;
     }
@@ -305,6 +308,7 @@ export function SignalsModule() {
       metadata: { ...(s.metadata ?? {}), archived_at: at },
     });
     if (!updated) {
+      captureDispatchFailure(new Error("Signal archive update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "archive" });
       toast("Could not archive signal.", "error", "Dispatch");
       return;
     }
@@ -322,6 +326,7 @@ export function SignalsModule() {
       },
     });
     if (!updated) {
+      captureDispatchFailure(new Error("Signal snooze update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "snooze" });
       toast("Could not snooze signal.", "error", "Dispatch");
       return;
     }
@@ -334,6 +339,7 @@ export function SignalsModule() {
       metadata: metadataWithout(s, ["archived_at", "dismissed_at", "snoozed_until"]),
     });
     if (!updated) {
+      captureDispatchFailure(new Error("Signal restore update failed"), { op: "manage_signal", signal: s, phase: "detail", action: "restore" });
       toast("Could not restore signal.", "error", "Dispatch");
       return;
     }
@@ -534,7 +540,8 @@ export function SignalsModule() {
       const captured = data.created ?? 0;
       if (captured > 0) await refreshSignals();
       toast(captured > 0 ? `${captured} new signal${captured === 1 ? "" : "s"} surfaced` : "Platform looks clear", "success", "Dispatch");
-    } catch {
+    } catch (error) {
+      captureDispatchFailure(error, { op: "scan_platform", phase: "toolbar" });
       toast("Scan failed — check connection", "error", "Dispatch");
     } finally {
       setScanning(false);
