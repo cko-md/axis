@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { motion, useReducedMotion } from "motion/react";
 import type { WidgetStatus } from "@/lib/widgets/types";
 import { WidgetStatusBadge } from "@/components/widgets/WidgetStatusBadge";
 
@@ -46,6 +47,7 @@ export function WidgetDetailDrawer({
   const drawerRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const updated = formatUpdatedAt(updatedAt);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (!open) return;
@@ -94,19 +96,25 @@ export function WidgetDetailDrawer({
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div
+    <motion.div
       className="widget-drawer-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={reduceMotion ? undefined : { opacity: 1 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
     >
-      <aside
+      <motion.aside
         ref={drawerRef}
         className="widget-detail-drawer"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        initial={reduceMotion ? false : { opacity: 0.88, x: 22 }}
+        animate={reduceMotion ? undefined : { opacity: 1, x: 0 }}
+        transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
       >
         <header className="widget-detail-header">
           <div className="widget-detail-heading">
@@ -125,8 +133,8 @@ export function WidgetDetailDrawer({
         {primaryActionSlot ? <div className="widget-detail-primary">{primaryActionSlot}</div> : null}
         <div className="widget-detail-body">{children}</div>
         {footerSlot ? <footer className="widget-detail-footer">{footerSlot}</footer> : null}
-      </aside>
-    </div>,
+      </motion.aside>
+    </motion.div>,
     document.body,
   );
 }

@@ -1274,7 +1274,7 @@ html.light .card::after {
   -webkit-backdrop-filter: var(--blur);
   padding: 12px 14px;
   box-shadow: 0 1px 0 var(--edge) inset;
-  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, opacity .16s ease;
 }
 
 .widget-shell-interactive {
@@ -1285,6 +1285,30 @@ html.light .card::after {
 .widget-shell-interactive:focus-visible {
   border-color: color-mix(in srgb, var(--gold) 42%, var(--line));
   background: var(--glass-2);
+}
+
+.widget-shell[data-status="refreshing"],
+.widget-shell[data-status="loading"] {
+  border-color: color-mix(in srgb, var(--marine) 36%, var(--line));
+}
+
+.widget-shell[data-status="stale"],
+.widget-shell[data-stale="true"] {
+  background: color-mix(in srgb, var(--gold) 6%, var(--glass));
+}
+
+.widget-shell[data-status="error"],
+.widget-shell[data-error="true"] {
+  border-color: color-mix(in srgb, var(--clay) 40%, var(--line));
+  box-shadow: 0 1px 0 var(--edge) inset, 0 0 0 1px color-mix(in srgb, var(--clay) 14%, transparent);
+}
+
+.widget-shell[data-status="lab"],
+.widget-shell[data-status="disabled"],
+.widget-shell[data-status="disconnected"],
+.widget-shell[data-lab="true"],
+.widget-shell[data-disconnected="true"] {
+  opacity: .78;
 }
 
 .widget-shell:focus-visible {
@@ -1301,6 +1325,7 @@ html.light .card::after {
   place-items: center;
   background: color-mix(in srgb, var(--gold) 12%, transparent);
   color: var(--gold-2);
+  transform-origin: 50% 50%;
 }
 
 .widget-shell-icon svg {
@@ -1546,7 +1571,6 @@ html.light .card::after {
   background: rgba(0, 0, 0, .42);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  animation: widget-drawer-backdrop-in .16s ease;
 }
 
 .widget-detail-drawer {
@@ -1559,7 +1583,6 @@ html.light .card::after {
   display: flex;
   flex-direction: column;
   padding: 18px;
-  animation: widget-detail-drawer-in .2s cubic-bezier(.2,.8,.2,1);
 }
 
 .widget-detail-header {
@@ -1698,6 +1721,11 @@ html.light .card::after {
   .widget-drawer-backdrop,
   .widget-detail-drawer {
     animation: none;
+  }
+
+  .widget-shell,
+  .widget-status-badge {
+    transition: none;
   }
 }
 

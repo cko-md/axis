@@ -1,6 +1,7 @@
 "use client";
 
 import type { KeyboardEvent, ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import type { WidgetStatus } from "@/lib/widgets/types";
 import { WidgetStatusBadge } from "@/components/widgets/WidgetStatusBadge";
 
@@ -41,6 +42,11 @@ export function WidgetShell({
   updatedAt,
   source,
   provider,
+  loading,
+  stale,
+  error,
+  lab,
+  disconnected,
   onPrimaryAction,
   titleText,
   actionSlot,
@@ -49,6 +55,9 @@ export function WidgetShell({
 }: Props) {
   const interactive = Boolean(onPrimaryAction);
   const updated = formatUpdatedAt(updatedAt);
+  const reduceMotion = useReducedMotion();
+  const motionEnabled = !reduceMotion;
+  const stateKey = `${status}-${updatedAt ?? "never"}-${typeof value === "string" ? value : "node"}`;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!interactive) return;
@@ -58,7 +67,7 @@ export function WidgetShell({
   };
 
   return (
-    <div
+    <motion.div
       className={`widget-shell${interactive ? " widget-shell-interactive" : ""}`}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
@@ -67,14 +76,39 @@ export function WidgetShell({
       title={titleText}
       aria-label={interactive ? `${title}: ${typeof value === "string" ? value : "open details"}` : undefined}
       data-status={status}
+      data-loading={loading ? "true" : undefined}
+      data-stale={stale ? "true" : undefined}
+      data-error={error ? "true" : undefined}
+      data-lab={lab ? "true" : undefined}
+      data-disconnected={disconnected ? "true" : undefined}
+      layout={motionEnabled ? "position" : false}
+      initial={motionEnabled ? { opacity: 0, y: 4 } : false}
+      animate={motionEnabled ? { opacity: 1, y: 0 } : undefined}
+      whileHover={motionEnabled && interactive ? { y: -1 } : undefined}
+      whileTap={motionEnabled && interactive ? { scale: 0.995 } : undefined}
+      transition={{ duration: 0.16, ease: "easeOut" }}
     >
-      <div className="widget-shell-icon">{icon}</div>
+      <motion.div
+        className="widget-shell-icon"
+        animate={motionEnabled && (status === "loading" || status === "refreshing") ? { rotate: 360 } : { rotate: 0 }}
+        transition={{ duration: 1.2, ease: "linear", repeat: motionEnabled && (status === "loading" || status === "refreshing") ? Infinity : 0 }}
+      >
+        {icon}
+      </motion.div>
       <div className="widget-shell-body">
         <div className="widget-shell-topline">
           <span className="widget-shell-title">{title}</span>
           <WidgetStatusBadge status={status} />
         </div>
-        <div className="widget-shell-value">{value}</div>
+        <motion.div
+          key={stateKey}
+          className="widget-shell-value"
+          initial={motionEnabled ? { opacity: 0.72, y: status === "fresh" || status === "live" ? 3 : 0 } : false}
+          animate={motionEnabled ? { opacity: 1, y: 0 } : undefined}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+        >
+          {value}
+        </motion.div>
         {hint ? <div className="widget-shell-hint">{hint}</div> : null}
         {children}
         <div className="widget-shell-meta">
@@ -84,6 +118,6 @@ export function WidgetShell({
       </div>
       {miniVisualizationSlot ? <div className="widget-shell-mini">{miniVisualizationSlot}</div> : null}
       {actionSlot ? <div className="widget-shell-actions" onClick={(event) => event.stopPropagation()}>{actionSlot}</div> : null}
-    </div>
+    </motion.div>
   );
 }
