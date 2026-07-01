@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   widgetCacheRowMatchesDefinition,
   widgetCacheRowToData,
+  widgetRefreshFailureData,
   type WidgetCacheRow,
   type WidgetData,
 } from "@/lib/widgets/cache";
@@ -44,10 +45,6 @@ type BatchResponse = {
   widgets: Record<string, BatchWidget>;
   errors: Record<string, { code: string; message: string; retryable: boolean; status?: number }>;
 };
-
-function staleHint(hint: string) {
-  return hint.endsWith(" · refresh failed") ? hint : `${hint} · refresh failed`;
-}
 
 function batchWidgetToData(widget: BatchWidget): WidgetData {
   return {
@@ -176,18 +173,7 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
           for (const id of batchIds) {
             if (payload.widgets?.[id]) continue;
             if (!payload.errors?.[id]) continue;
-            const previous = d[id];
-            const fallback = getWidgetById(id);
-            next[id] = {
-              v: previous?.v ?? fallback.value,
-              k: previous ? staleHint(previous.k) : staleHint(fallback.hint),
-              raw: previous?.raw,
-              fallback: previous?.fallback,
-              error: true,
-              stale: Boolean(previous),
-              loading: false,
-              updatedAt: previous?.updatedAt,
-            };
+            next[id] = widgetRefreshFailureData(id, d[id]);
           }
           return next;
         });
@@ -196,18 +182,7 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
         setData((d) => {
           const next = { ...d };
           for (const id of batchIds) {
-            const previous = d[id];
-            const fallback = getWidgetById(id);
-            next[id] = {
-              v: previous?.v ?? fallback.value,
-              k: previous ? staleHint(previous.k) : staleHint(fallback.hint),
-              raw: previous?.raw,
-              fallback: previous?.fallback,
-              error: true,
-              stale: Boolean(previous),
-              loading: false,
-              updatedAt: previous?.updatedAt,
-            };
+            next[id] = widgetRefreshFailureData(id, d[id]);
           }
           return next;
         });
