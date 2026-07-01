@@ -20,7 +20,7 @@ type Props = {
   className?: string;
 };
 
-const ACTION_KIND_LABELS: Record<WidgetAction["kind"], string> = {
+export const WIDGET_ACTION_KIND_LABELS: Record<WidgetAction["kind"], string> = {
   refresh: "Refresh",
   navigate: "Open",
   "open-drawer": "Open",
@@ -29,8 +29,8 @@ const ACTION_KIND_LABELS: Record<WidgetAction["kind"], string> = {
   hide: "Hide",
 };
 
-function actionFallbackLabel(action: WidgetAction) {
-  return action.label || ACTION_KIND_LABELS[action.kind];
+export function widgetActionLabel(action: WidgetAction) {
+  return action.label || WIDGET_ACTION_KIND_LABELS[action.kind];
 }
 
 export function WidgetActionMenu({
@@ -105,11 +105,13 @@ export function WidgetActionMenu({
               type="button"
               role="menuitem"
               className="widget-action-item"
+              aria-label={widgetActionLabel(action)}
+              aria-disabled={Boolean(action.disabledReason)}
               disabled={Boolean(action.disabledReason)}
               title={action.disabledReason}
               onClick={() => execute(action)}
             >
-              <span>{actionFallbackLabel(action)}</span>
+              <span>{widgetActionLabel(action)}</span>
               {action.href ? <span className="widget-action-route">{action.href}</span> : null}
             </button>
           ))}
