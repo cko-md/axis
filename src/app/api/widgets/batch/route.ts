@@ -6,6 +6,11 @@ import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
 import { createClient } from "@/lib/supabase/server";
 import {
+  shouldCaptureWidgetEndpointStatus,
+  widgetEndpointErrorCode,
+  widgetProviderFailureTags,
+} from "@/lib/widgets/observability";
+import {
   dedupeWidgetIds,
   maxWidgetsPerBatch,
   safeWidgetBatchError,
@@ -96,13 +101,20 @@ async function fetchWidget(
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
+      const code = widgetEndpointErrorCode(res.status);
       const error = safeWidgetBatchError(
-        res.status === 401 ? "UNAUTHORIZED" : "WIDGET_ENDPOINT_FAILED",
+        code,
         res.status === 401 ? "Unauthorized" : "Widget endpoint failed",
         res.status >= 500,
         res.status,
       );
-      if (res.status >= 500) {
+      const safeTags = widgetProviderFailureTags({
+        widget: id,
+        provider: definition.source.provider,
+        status: res.status,
+        code,
+      });
+      if (shouldCaptureWidgetEndpointStatus(res.status)) {
         captureRouteError(new Error(`${definition.id} widget endpoint failed`), {
           route,
           operation: "fetch_widget",
@@ -110,14 +122,14 @@ async function fetchWidget(
           provider: definition.source.provider,
           status: res.status,
           code: error.code,
-          tags: { widget: id },
+          tags: safeTags,
         });
       } else {
         Sentry.addBreadcrumb({
           category: "widget.batch",
           level: "warning",
           message: "Widget endpoint returned non-ok",
-          data: { widget: id, provider: definition.source.provider, status: res.status },
+          data: safeTags,
         });
       }
       return { id, error };
@@ -152,7 +164,12 @@ async function fetchWidget(
       provider: definition.source.provider,
       status: batchError.status,
       code: batchError.code,
-      tags: { widget: id },
+      tags: widgetProviderFailureTags({
+        widget: id,
+        provider: definition.source.provider,
+        status: batchError.status,
+        code: batchError.code,
+      }),
     });
     return { id, error: batchError };
   }
