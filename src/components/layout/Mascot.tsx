@@ -190,17 +190,69 @@ function PopoutShell({ children, className, onClose, title, sub, icon, controls 
   icon:      React.ReactNode;
   controls?: React.ReactNode;
 }) {
+  const titleId = useId();
+  const popoutRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => closeRef.current?.focus());
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !popoutRef.current) return;
+      const focusable = Array.from(
+        popoutRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocusRef.current?.focus?.();
+    };
+  }, []);
+
   return (
-    <div className={`cp-popout${className ? " " + className : ""}`}>
+    <div
+      className={`cp-popout${className ? " " + className : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      ref={popoutRef}
+    >
       <div className="cp-head">
         <div className="cp-ident">
           {icon}
-          <span>{title}</span>
+          <span id={titleId}>{title}</span>
           <span className="cp-sub">{sub}</span>
         </div>
         <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
           {controls}
-          <button type="button" className="cp-x" onClick={onClose}>✕</button>
+          <button type="button" className="cp-x" onClick={onClose} aria-label={`Close ${title}`} ref={closeRef}>✕</button>
         </div>
       </div>
       {children}
@@ -322,7 +374,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
 
   return (
     <div className="cp-char">
-      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Axiom">✕</button>
+      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Axiom" aria-label="Dismiss Axiom">✕</button>
       <div
         className={`cp-fig cp-fig-mono${open ? " is-open" : ""}`}
         onClick={() => setOpen((o) => !o)}
@@ -392,7 +444,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
               className="cp-input"
               disabled={loading}
             />
-            <button type="button" onClick={() => void send()} className="cp-send" disabled={loading || !input.trim()}>
+            <button type="button" onClick={() => void send()} className="cp-send" disabled={loading || !input.trim()} aria-label="Send to Axiom">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" /></svg>
             </button>
           </div>
@@ -445,7 +497,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
 
   return (
     <div className="cp-char">
-      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Codex">✕</button>
+      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Codex" aria-label="Dismiss Codex">✕</button>
       <div
         className={`cp-fig cp-fig-cdx${open ? " is-open" : ""}`}
         onClick={() => setOpen((o) => !o)}
@@ -465,7 +517,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
           icon={<CodexSVG size={18} />}
           onClose={() => setOpen(false)}
           controls={
-            <button type="button" onClick={() => void loadCards()} className="cp-refresh" disabled={loading} title="Refresh">
+            <button type="button" onClick={() => void loadCards()} className="cp-refresh" disabled={loading} title="Refresh" aria-label="Refresh Codex cards">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 12, height: 12 }}>
                 <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 4v4h4" />
               </svg>
@@ -481,7 +533,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
             ) : (
               visible.map((card) => (
                 <div key={card.id} className="cp-card">
-                  <button type="button" className="cp-card-x" onClick={() => setDismissed((p) => new Set([...p, card.id]))}>✕</button>
+                  <button type="button" className="cp-card-x" onClick={() => setDismissed((p) => new Set([...p, card.id]))} aria-label={`Dismiss ${card.title}`}>✕</button>
                   <div className="cp-card-title">{card.title}</div>
                   <div className="cp-card-body">{card.body}</div>
                   {card.actionLabel && card.actionPath && (
@@ -543,7 +595,7 @@ function NovaChar({ onHide }: { onHide: () => void }) {
 
   return (
     <div className="cp-char">
-      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Nova">✕</button>
+      <button type="button" className="cp-dismiss" onClick={onHide} title="Dismiss Nova" aria-label="Dismiss Nova">✕</button>
       <div
         className={`cp-fig cp-fig-nova${open ? " is-open" : ""}`}
         onClick={() => setOpen((o) => !o)}
@@ -574,7 +626,7 @@ function NovaChar({ onHide }: { onHide: () => void }) {
               className="cp-input"
               disabled={loading}
             />
-            <button type="button" onClick={() => void ask()} className="cp-send" disabled={loading || !query.trim()}>
+            <button type="button" onClick={() => void ask()} className="cp-send" disabled={loading || !query.trim()} aria-label="Send to Nova">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" /></svg>
             </button>
           </div>
@@ -587,7 +639,7 @@ function NovaChar({ onHide }: { onHide: () => void }) {
 // ── Restore button ─────────────────────────────────────────────────────────────
 function RestoreButton({ name, onRestore }: { name: string; onRestore: () => void }) {
   return (
-    <button type="button" className="mascot-restore on" title={`Summon ${name}`} onClick={onRestore}>
+    <button type="button" className="mascot-restore on" title={`Summon ${name}`} aria-label={`Summon ${name}`} onClick={onRestore}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
         <path d="M12 3 L19 9 L17 21 L7 21 L5 9 Z" /><circle cx="12" cy="13" r="2.4" />
       </svg>
