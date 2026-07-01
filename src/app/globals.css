@@ -41,6 +41,17 @@
   --up: #7fa86a;
   --down: #c2603f;
 
+  /* ── semantic states ── */
+  --status-live: #7fa86a;
+  --status-loading: #6f9bc7;
+  --status-stale: #c9a463;
+  --status-error: #c2603f;
+  --status-lab: #d98a5f;
+  --status-disconnected: #857e74;
+  --status-local: #a89880;
+  --chart-axis: rgba(214, 204, 186, 0.2);
+  --chart-grid: rgba(180, 170, 150, 0.07);
+
   /* ── accent aliases — set dynamically by Interface Studio ── */
   --accent: #c9a463;
   --accent-bright: #e0c388;
@@ -98,6 +109,15 @@ html.dim {
   --ink: #f0e8d8;
   --ink-2: #d8ccb8;
   --ink-dim: #a89880;
+  --status-live: #8fb36a;
+  --status-loading: #d0a54a;
+  --status-stale: #e8c068;
+  --status-error: #d98a5f;
+  --status-lab: #c78d4a;
+  --status-disconnected: #8c7f63;
+  --status-local: #b59a6a;
+  --chart-axis: rgba(224, 208, 176, 0.24);
+  --chart-grid: rgba(215, 200, 168, 0.08);
 }
 
 /* slate — the ultramarine room: cool ground, marine pops, gold stays */
@@ -117,6 +137,15 @@ html.slate {
   --ink-2: #c3cbd9;
   --ink-dim: #8590a3;
   --ink-faint: #566175;
+  --status-live: #7fa86a;
+  --status-loading: #6f9bc7;
+  --status-stale: #c9a463;
+  --status-error: #d98a5f;
+  --status-lab: #8bb4e6;
+  --status-disconnected: #5c6a82;
+  --status-local: #8590a3;
+  --chart-axis: rgba(190, 206, 232, 0.22);
+  --chart-grid: rgba(150, 170, 205, 0.08);
 }
 
 /* light — gallery chrome: white-silver room, graphite ink, chromatic edges */
@@ -146,6 +175,15 @@ html.light {
   --clay-2: #bd6d4c;
   --up: #4f7b59;
   --down: #9a4f35;
+  --status-live: #4f7b59;
+  --status-loading: #4f7daf;
+  --status-stale: #9b7b32;
+  --status-error: #9a4f35;
+  --status-lab: #7b8da3;
+  --status-disconnected: #657484;
+  --status-local: #5d6875;
+  --chart-axis: rgba(31, 42, 56, 0.24);
+  --chart-grid: rgba(58, 76, 100, 0.08);
   --blur: saturate(165%) blur(30px);
   --glow: 0 0 16px color-mix(in srgb, #8fa2ba 36%, transparent);
   --glow-soft: 0 0 30px color-mix(in srgb, #8fa2ba 18%, transparent);
@@ -988,11 +1026,11 @@ html.dim .topbar {
 }
 
 .module-status-beta .module-status-kicker {
-  color: var(--accent-2);
+  color: var(--status-loading);
 }
 
 .module-status-lab .module-status-kicker {
-  color: var(--clay);
+  color: var(--status-lab);
 }
 
 @media (max-width: 760px) {
@@ -1291,18 +1329,18 @@ html.light .card::after {
 
 .widget-shell[data-status="refreshing"],
 .widget-shell[data-status="loading"] {
-  border-color: color-mix(in srgb, var(--marine) 36%, var(--line));
+  border-color: color-mix(in srgb, var(--status-loading) 40%, var(--line));
 }
 
 .widget-shell[data-status="stale"],
 .widget-shell[data-stale="true"] {
-  background: color-mix(in srgb, var(--gold) 6%, var(--glass));
+  background: color-mix(in srgb, var(--status-stale) 7%, var(--glass));
 }
 
 .widget-shell[data-status="error"],
 .widget-shell[data-error="true"] {
-  border-color: color-mix(in srgb, var(--clay) 40%, var(--line));
-  box-shadow: 0 1px 0 var(--edge) inset, 0 0 0 1px color-mix(in srgb, var(--clay) 14%, transparent);
+  border-color: color-mix(in srgb, var(--status-error) 42%, var(--line));
+  box-shadow: 0 1px 0 var(--edge) inset, 0 0 0 1px color-mix(in srgb, var(--status-error) 15%, transparent);
 }
 
 .widget-shell[data-status="lab"],
@@ -1746,33 +1784,37 @@ html.light .card::after {
 
 .widget-status-fresh,
 .widget-status-live {
-  color: var(--up);
-  border-color: color-mix(in srgb, var(--up) 36%, transparent);
+  color: var(--status-live);
+  border-color: color-mix(in srgb, var(--status-live) 36%, transparent);
 }
 
 .widget-status-loading,
 .widget-status-refreshing {
-  color: var(--marine-2);
-  border-color: color-mix(in srgb, var(--marine) 42%, transparent);
+  color: var(--status-loading);
+  border-color: color-mix(in srgb, var(--status-loading) 42%, transparent);
 }
 
 .widget-status-stale,
 .widget-status-setup_required {
-  color: var(--gold-2);
-  border-color: color-mix(in srgb, var(--gold) 42%, transparent);
+  color: var(--status-stale);
+  border-color: color-mix(in srgb, var(--status-stale) 42%, transparent);
 }
 
 .widget-status-error {
-  color: var(--clay);
-  border-color: color-mix(in srgb, var(--clay) 42%, transparent);
+  color: var(--status-error);
+  border-color: color-mix(in srgb, var(--status-error) 42%, transparent);
 }
 
 .widget-status-lab,
+.widget-status-empty {
+  color: var(--status-lab);
+  border-color: color-mix(in srgb, var(--status-lab) 34%, transparent);
+}
+
 .widget-status-disabled,
-.widget-status-empty,
 .widget-status-disconnected {
-  color: var(--ink-faint);
-  border-color: var(--line);
+  color: var(--status-disconnected);
+  border-color: color-mix(in srgb, var(--status-disconnected) 34%, transparent);
 }
 
 .today-grid {
