@@ -6,7 +6,7 @@
 
 ## Current Module Status
 
-The most current surfaced module status source is `src/lib/store/nav.ts`. README is stale and should not be treated as the current product map.
+The most current surfaced module status source is `src/lib/store/nav.ts`. The current README has been updated to mirror this production/beta/lab map; if future drift appears, prefer `src/lib/store/nav.ts` and implementation reality.
 
 | Section | Route | Module | Nav status | Current-state note |
 |---|---|---|---|---|
@@ -91,7 +91,7 @@ The most current surfaced module status source is `src/lib/store/nav.ts`. README
 
 ## Current Commands And Tests
 
-`package.json` is the command source of truth. AGENTS.md is stale here.
+`package.json` is the command source of truth. Current `AGENTS.md` now matches the Node 24.x baseline and available test scripts.
 
 | Purpose | Command | Current package.json value / note |
 |---|---|---|
@@ -111,25 +111,46 @@ The most current surfaced module status source is `src/lib/store/nav.ts`. README
 
 | Risk | Evidence | Production impact |
 |---|---|---|
-| README is materially stale | README still frames AXIS as "Live App (Phase 1-2)" and labels many surfaced modules as static/future. | Future agents and collaborators may implement against false product state. |
-| AGENTS command/test drift | AGENTS says Node 20+ and claims no test script exists; package.json requires Node 24.x and has Vitest/Playwright scripts. | Agents may skip available checks or use the wrong runtime baseline. |
-| Widget/Console architecture remains a priority | Uploaded audit and current docs identify widget metadata/cache/interaction gaps. | Console can feel like decorative cards instead of a trustworthy operating system surface. |
+| README drift is currently corrected | README now describes AXIS as the personal operating system, lists current routes from `src/lib/store/nav.ts`, includes Node 24.x/package scripts, and warns about migration ordering. | Keep README aligned during future module/status changes. |
+| AGENTS command/test drift is currently corrected | AGENTS now documents Node 24.x, `npm run test`, Playwright scripts, and direct `npx tsc --noEmit`. | Keep `AGENTS.md` aligned whenever package scripts or delivery gates change. |
+| Widget/Console architecture is partially implemented and remains a priority | `src/lib/widgets/{registry,types}.ts`, `/api/widgets/batch`, `useWidgetData`, and `widget_cache` exist; older docs still describe some of this as future work. | Future agents must inspect current widget code before running WID issues; remaining work is validation, polish, and cache/error behavior hardening, not greenfield scaffolding. |
 | Migration ordering remains mixed | `supabase/migrations` contains numeric, decimal-like (`0281`, `0301`-`0304`), and timestamped filenames. | Fresh database replay and applied-order reasoning remain risky until validated. |
+| Widget cache migration comment is stale | `202606302157_widget_cache.sql` says runtime code will not read the table until WID-DATA-3, but `src/lib/hooks/useWidgetData.ts` already reads `widget_cache`. | Do not edit applied migrations casually; document this drift and validate applied state before schema work. |
 | Cron schedule drift | `vercel.json` schedules only `/api/cron/daily` and `/api/cron/finance-daily`; additional cron routes exist. | Expected feed/intelligence jobs may not run unless manually triggered or separately scheduled. |
+| Production deployment path needs confirmation | `README.md` says merging to `main` triggers production deployment, while `.github/workflows/deploy.yml` also runs `npx vercel deploy --prod` on pushes to `main`. | Treat production deploy as main-driven, but confirm whether Vercel Git integration, GitHub Actions, or both are active before merging. |
 | Provider parity requires live validation | Mail adapter docs report implementation across direct/Composio, while Outlook Composio caveats and broader provider workflows still need active-account validation. | A path can typecheck and render locally while failing for a real connected account. |
 | Cache-first architecture is incomplete | Prior audit and uploaded report call out Console/Mail provider fan-out and widget cache gaps. | First paint and provider failure behavior may be slow or brittle. |
 | Some lab/local workflows are surfaced | Supper Club and parts of Vitality/Literature/Debrief have local-only or lab caveats. | Users may over-trust state unless UI and docs keep labels honest. |
 | Sentry/Vercel evidence is a production gate | Delivery workflow requires preview validation and post-preview Sentry review. | Local checks alone are insufficient before merge to production. |
 
+## Theme And Rendering Truth Pass
+
+Sources inspected: `src/app/layout.tsx`, `src/app/globals.css`, `src/components/layout/AppShell.tsx`, `src/components/layout/Mascot.tsx`, `src/components/theme/ThemeProvider.tsx`, `src/components/theme/InterfaceStudioDrawer.tsx`, and `src/lib/theme/interface-settings.ts`.
+
+| Surface | Current implementation | Follow-up needed |
+|---|---|---|
+| Theme modes | `globals.css` defines dark default plus `html.dim`, `html.slate`, and `html.light`. Current light mode is still described in CSS as warm "museum gallery"/parchment rather than the requested whiter silver/chrome gallery theme. | THEME-1 should rework light tokens into the silver/chrome direction and QA contrast across modules. |
+| Theme persistence | `ThemeProvider` stores `axis-theme` in `localStorage` and applies the theme after mount. It uses `suppressHydrationWarning`; there is still a possible first-paint dark/default flash. | THEME-6 should decide whether interface settings remain local-only, sync to Supabase/user preferences, or show an explicit local-only persistence state. |
+| Interface settings persistence | `axis-interface-settings` is localStorage-backed. Settings include accent, surface tone, radius, display/body faces, density, companion form, presence visibility, location services, and notification preferences. | Add visible persistence/error/local-only clarity in Interface Studio before treating personalization as account-level. |
+| Interface Studio UX | Drawer has mode/accent/surface/radius/font/density/presence/location/notification/reset controls. It has reset confirmation and live CSS variable application. | Add richer preview cards, keyboard/focus trapping, escape handling, clearer saved/local state, and mobile drawer QA. |
+| Font customization | `layout.tsx` loads Archivo, Archivo Narrow, Fraunces, JetBrains Mono, Playfair Display, Space Grotesk, Inter, IBM Plex Sans, and Bebas Neue. Interface Studio exposes finite display/body choices; no arbitrary user URLs. | Validate layout shifts and bundle impact, then add preview cards for chosen pairings. |
+| Density and radius | `body[data-density]` changes card padding, grid gap, view padding, and spacing tokens. Radius is applied through `--r` and `--rl`. | Audit compact/cozy text fit and module-specific fixed controls across representative routes. |
+| Accent presets | Accent presets include gold, marine, clay, bone, sage, and chrome; the pasted cross-theme matrix mentions gold, marine, clay, and chrome. | Align docs/QA matrix with implemented presets and decide whether bone/sage are supported production presets. |
+| App shell atmosphere | `AppShell` renders depthfield, wash, aurora layers, haze, fall, vignette, night stars, grain, responsive sidebar states, status banners for beta/lab modules, command palette, dynamic Mascot, and Interface Studio. | RENDER-1 should profile animation/transparency cost, scroll/focus behavior, and mobile performance. |
+| Reduced motion | `globals.css` includes multiple `prefers-reduced-motion: reduce` blocks for global atmosphere, widget drawer, presence forms, and vault/media room effects. | Validate with browser reduced-motion setting; some transitions remain and need an explicit policy. |
+| Presence forms | `Mascot.tsx` implements Axiom, Codex, and Nova as SVG/interactive companions. Visibility and form are driven by interface settings. Axiom stores focus in `localStorage` and calls `/api/ai`; companion prompts include module context. | PRESENCE issues should audit privacy copy, offline/provider failure UX, local-only focus persistence, accessibility labels/focus, and mobile behavior. |
+| Module status rendering | Non-production nav items surface beta/lab banners in `AppShell` with reasons/actions from `src/lib/store/nav.ts`. | Keep nav labels honest and extend status vocabulary where disconnected/local-only/provider-unconfigured states are needed inside modules. |
+
 ## Documentation Drift List
 
 | File | Drift | Required follow-up |
 |---|---|---|
-| `README.md` | Stale Phase 1-2 framing; stale route table; stale "implemented vs stubbed" section; stale migration instructions naming only `001` and `002`; incomplete stack. | DOC-2 should rewrite README around the current personal operating system, current nav modules, current scripts, and migration caveats. |
-| `AGENTS.md` | Stale Node version and test documentation; says tests are missing even though package.json includes `test`, `test:e2e`, and `test:e2e:auth`. | DOC-3 should update only the command/status drift while preserving delivery, privacy, security, and final-response rules. |
+| `README.md` | Current in this checkout for product framing, nav status, route inventory, scripts, Tembo statement, and migration caveats. | Keep it aligned as DOC/phase issues change implementation reality. |
+| `AGENTS.md` | Current in this checkout for Node 24.x and the available package scripts/checks. | Keep delivery, privacy, security, and final-response rules intact when future command drift is corrected. |
 | `docs/audits/axis-platform-audit.md` | Useful but dated 2026-06-27 and predates package/test drift fixes and later migrations. Some migration-file examples are no longer exact. | Keep as historical audit; use this current-state doc for 2026-06-30 repo truth. |
-| `docs/linear/axis-mvp-issues.md` | Mail production plan has older issue ordering; integration adapter docs now mark mail adapter foundation implemented. | Future issue plan should reconcile the mail-first plan with the uploaded audit's widget/console priority. |
+| `docs/linear/axis-mvp-issues.md` | Mail production plan has older issue ordering; integration adapter docs now mark mail adapter foundation implemented, and widget cache/batch work exists in code. | Future issue plan should reconcile the mail-first plan, phase-based pasted plan, and already-landed widget/cache implementation. |
 | `docs/architecture/integration-adapters.md` | More current for Mail adapters than older audit text; still documents live-validation caveats. | Treat as source of truth for Mail adapter architecture until Calendar/Contacts adapters are added. |
+| `supabase/migrations/202606302157_widget_cache.sql` | Header comment says runtime code will not read the table until WID-DATA-3, but runtime code now reads/writes `widget_cache`. | Leave applied migration content alone unless migration state confirms it is safe; track comment drift in future schema audit. |
 
 ## Tembo Role Statement
 
@@ -137,13 +158,13 @@ Tembo role is unspecified in inspected repo config. `AGENTS.md` and docs require
 
 ## Next 10 Recommended Codex Issues
 
-1. DOC-2 - Update README route/module/status tables.
-2. DOC-3 - Update AGENTS command/status drift.
-3. WID-1 - Add a first-class widget registry and semantic `WidgetShell` contract without changing widget data behavior.
-4. WID-DATA-1 - Design and migrate a Supabase `widget_cache` table with RLS, after migration-order validation.
-5. WID-DATA-2 - Add a batched widget read/revalidate API with partial-failure responses and safe Sentry metadata.
-6. CONSOLE-1 - Extract Console widget grid/rendering from `ConsoleModule` while preserving behavior.
-7. CONSOLE-7 - Audit lab/static/live labels in Console widgets and remove editable live values.
-8. MAIL-VALIDATE-1 - Run live provider validation for direct Gmail, direct Outlook, Composio Gmail, and Composio Outlook list/detail/actions.
-9. OBS-CRON-1 - Reconcile cron routes with `vercel.json` schedules and document manual vs scheduled jobs.
-10. DATA-1 - Validate Supabase migration replay/order on a fresh target and document applied migration state before any schema work.
+1. DOC-2 - Review README against this corrected audit and either close as already aligned or patch only newly found drift.
+2. DOC-3 - Review AGENTS against `package.json`/workflow reality and either close as already aligned or patch only newly found drift.
+3. DOC-4 - Regenerate the phase-based Codex issue plan from implementation reality, including already-landed widget registry/cache/batch pieces.
+4. DOC-5 - Add the requested design/rendering audit addendum for themes, Interface Studio, fonts, density, presence, app shell, mobile, and reduced motion.
+5. DATA-1 - Validate Supabase migration replay/order on a fresh target and document applied migration state before any schema work.
+6. WID-VALIDATE-1 - Validate existing widget registry, `/api/widgets/batch`, `widget_cache`, and `useWidgetData` behavior before planning additional widget architecture changes.
+7. CONSOLE-1 - Extract Console widget grid/rendering from `ConsoleModule` while preserving behavior.
+8. CONSOLE-7 - Audit lab/static/live labels in Console widgets and remove editable live values.
+9. MAIL-VALIDATE-1 - Run live provider validation for direct Gmail, direct Outlook, Composio Gmail, and Composio Outlook list/detail/actions.
+10. OBS-CRON-1 - Reconcile cron routes with `vercel.json` schedules and document manual vs scheduled jobs.
