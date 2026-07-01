@@ -33,6 +33,10 @@ export function widgetActionLabel(action: WidgetAction) {
   return action.label || WIDGET_ACTION_KIND_LABELS[action.kind];
 }
 
+export function widgetActionConfirmLabel(action: WidgetAction) {
+  return `Confirm ${widgetActionLabel(action)}`;
+}
+
 export function nextEnabledActionIndex(actions: WidgetAction[], currentIndex: number, direction: 1 | -1) {
   const enabledActions = actions.map((action, index) => ({ action, index })).filter(({ action }) => !action.disabledReason);
   if (enabledActions.length === 0) return -1;
@@ -51,6 +55,7 @@ export function WidgetActionMenu({
   className = "",
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [pendingConfirmId, setPendingConfirmId] = useState<string | null>(null);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -73,10 +78,17 @@ export function WidgetActionMenu({
     return () => window.cancelAnimationFrame(frame);
   }, [actions, open]);
 
-  const close = () => setOpen(false);
+  const close = () => {
+    setPendingConfirmId(null);
+    setOpen(false);
+  };
 
   const execute = (action: WidgetAction) => {
     if (action.disabledReason) return;
+    if (action.destructive && pendingConfirmId !== action.id) {
+      setPendingConfirmId(action.id);
+      return;
+    }
     if (action.kind === "refresh") handlers?.refresh?.();
     if (action.kind === "open-drawer") handlers?.open?.();
     if (action.kind === "configure") handlers?.configure?.();
@@ -95,6 +107,10 @@ export function WidgetActionMenu({
     event.stopPropagation();
     if (event.key === "Escape") {
       event.preventDefault();
+      if (pendingConfirmId) {
+        setPendingConfirmId(null);
+        return;
+      }
       close();
       rootRef.current?.querySelector<HTMLButtonElement>(".widget-action-trigger")?.focus();
       return;
@@ -147,14 +163,20 @@ export function WidgetActionMenu({
               }}
               type="button"
               role="menuitem"
-              className="widget-action-item"
-              aria-label={widgetActionLabel(action)}
+              className={`widget-action-item${action.destructive ? " widget-action-item-destructive" : ""}${pendingConfirmId === action.id ? " widget-action-item-confirming" : ""}`}
+              aria-label={pendingConfirmId === action.id ? widgetActionConfirmLabel(action) : widgetActionLabel(action)}
               aria-disabled={Boolean(action.disabledReason)}
+              aria-describedby={action.destructive && pendingConfirmId !== action.id ? `${menuId}-${action.id}-confirm` : undefined}
               disabled={Boolean(action.disabledReason)}
               title={action.disabledReason}
               onClick={() => execute(action)}
             >
-              <span>{widgetActionLabel(action)}</span>
+              <span>{pendingConfirmId === action.id ? widgetActionConfirmLabel(action) : widgetActionLabel(action)}</span>
+              {action.destructive && pendingConfirmId !== action.id ? (
+                <span id={`${menuId}-${action.id}-confirm`} className="widget-action-confirm-hint">
+                  Requires confirmation
+                </span>
+              ) : null}
               {action.href ? <span className="widget-action-route">{action.href}</span> : null}
             </button>
           ))}
