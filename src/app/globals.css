@@ -3487,6 +3487,55 @@ a:focus-visible,
   .depthfield .wash {
     animation: none;
   }
+  body::before {
+    opacity: .35;
+    mask-image: none;
+  }
+  .depthfield .aurora,
+  .depthfield .aurora2 {
+    opacity: .42;
+    transform: none;
+    will-change: auto;
+  }
+  .depthfield .wash {
+    opacity: .72;
+    transform: none;
+    will-change: auto;
+  }
+  .stars,
+  .stars::before,
+  .stars::after {
+    display: none;
+  }
+  .grain {
+    opacity: .025;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  html.light {
+    --blur: none;
+  }
+  .grain {
+    display: none;
+  }
+  .sidebar,
+  .topbar,
+  .drawer,
+  .reader,
+  .goal,
+  .overlay,
+  .overlay-backdrop,
+  .widget-drawer-backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .depthfield .aurora,
+  .depthfield .aurora2 {
+    opacity: .28;
+    filter: none;
+  }
 }
 
 /* ── responsive ───────────────────────────────────────────────── */
