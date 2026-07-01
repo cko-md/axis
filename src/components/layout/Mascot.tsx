@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
 
@@ -28,6 +29,28 @@ function buildContext(pathname: string): string {
   const t = h < 6 ? "early morning" : h < 12 ? "morning" : h < 17 ? "afternoon" : h < 21 ? "evening" : "night";
   const mod = Object.entries(MODULE_CONTEXTS).find(([p]) => pathname.startsWith(p))?.[1] ?? "the home screen";
   return `It's ${t}. Current module: ${mod}.`;
+}
+
+function routeFamily(pathname: string): string {
+  return Object.keys(MODULE_CONTEXTS).find((path) => pathname.startsWith(path)) ?? "home";
+}
+
+function captureCompanionError(
+  companion: "axiom" | "codex" | "nova",
+  operation: "brief" | "chat" | "cards" | "ask",
+  pathname: string,
+  error: unknown,
+  status?: number,
+) {
+  Sentry.captureException(error instanceof Error ? error : new Error("Companion request failed"), {
+    tags: {
+      feature: "companion",
+      companion,
+      operation,
+      route: routeFamily(pathname),
+      status: status ? String(status) : "unknown",
+    },
+  });
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -260,6 +283,20 @@ function PopoutShell({ children, className, onClose, title, sub, icon, controls 
   );
 }
 
+function CompanionPrivacyNote({ mode }: { mode: "chat" | "cards" | "oracle" }) {
+  const label = mode === "cards"
+    ? "Module context is sent for cards"
+    : mode === "oracle"
+      ? "Question sent to AXIS AI"
+      : "Prompt and recent thread sent to AXIS AI";
+  return (
+    <div className="cp-privacy">
+      <span />
+      {label}
+    </div>
+  );
+}
+
 // ── Axiom — strategic advisor with persistent focus tracking ──────────────────
 function AxiomChar({ onHide }: { onHide: () => void }) {
   const pathname = usePathname();
@@ -310,15 +347,21 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
         }),
         signal: controller.signal,
       });
+      if (!res.ok) {
+        captureCompanionError("axiom", "brief", pathname, new Error("Axiom brief request failed"), res.status);
+        setMessages([{ role: "assistant", content: "Briefing service is unavailable. Try again shortly." }]);
+        return;
+      }
       const data = await res.json() as { response?: string };
       setMessages([{ role: "assistant", content: data.response ?? "Situation nominal. Set a focus for a targeted brief." }]);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
+      captureCompanionError("axiom", "brief", pathname, err);
       setMessages([{ role: "assistant", content: "Offline. Reconnect to receive briefing." }]);
     } finally {
       if (briefAbortRef.current === controller) setLoading(false);
     }
-  }, [context, focus]);
+  }, [context, focus, pathname]);
 
   useEffect(() => {
     if (open && !briefedRef.current) {
@@ -359,10 +402,16 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
         body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: messages.slice(-8), persona: "axiom" }) }),
         signal: controller.signal,
       });
+      if (!res.ok) {
+        captureCompanionError("axiom", "chat", pathname, new Error("Axiom chat request failed"), res.status);
+        setMessages((p) => [...p, { role: "assistant", content: "Connection reached AXIS, but the companion service returned an error." }]);
+        return;
+      }
       const data = await res.json() as { response?: string };
       setMessages((p) => [...p, { role: "assistant", content: data.response ?? "…" }]);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
+      captureCompanionError("axiom", "chat", pathname, err);
       setMessages((p) => [...p, { role: "assistant", content: "Connection lost." }]);
     } finally {
       if (sendAbortRef.current === controller) {
@@ -370,7 +419,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
         setTimeout(() => inputRef.current?.focus(), 50);
       }
     }
-  }, [input, loading, context, messages]);
+  }, [input, loading, context, messages, pathname]);
 
   return (
     <div className="cp-char">
@@ -396,7 +445,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
         >
           {/* Persistent focus track — survives sessions */}
           <div className="ax-focus">
-            <div className="ax-focus-label">ACTIVE FOCUS</div>
+            <div className="ax-focus-label">ACTIVE FOCUS <span>LOCAL ONLY</span></div>
             {editingFocus ? (
               <input
                 ref={focusInputRef}
@@ -415,6 +464,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
               </button>
             )}
           </div>
+          <CompanionPrivacyNote mode="chat" />
 
           <div className="cp-msgs">
             {loading && messages.length === 0 ? (
@@ -473,14 +523,20 @@ function CodexChar({ onHide }: { onHide: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "deck-insights", text: context, body: JSON.stringify({ context }) }),
       });
+      if (!res.ok) {
+        captureCompanionError("codex", "cards", pathname, new Error("Codex cards request failed"), res.status);
+        setCards([{ id: "e", title: "Unavailable", body: "Context cards are unavailable right now. Try refresh shortly." }]);
+        return;
+      }
       const data = await res.json() as { cards?: Card[] };
       setCards((data.cards ?? []).map((c, i) => ({ ...c, id: c.id ?? String(i) })));
-    } catch {
+    } catch (err) {
+      captureCompanionError("codex", "cards", pathname, err);
       setCards([{ id: "e", title: "Offline", body: "Couldn't reach the AI. Check your connection." }]);
     } finally {
       setLoading(false);
     }
-  }, [context]);
+  }, [context, pathname]);
 
   useEffect(() => {
     if (open && cards.length === 0) void loadCards();
@@ -525,6 +581,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
           }
         >
           <div className="cp-context-tag">{context.split(". ").pop()}</div>
+          <CompanionPrivacyNote mode="cards" />
           <div className="cp-cards">
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => <div key={i} className="cp-card cp-skel" />)
@@ -583,15 +640,21 @@ function NovaChar({ onHide }: { onHide: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: [], persona: "nova" }) }),
       });
+      if (!res.ok) {
+        captureCompanionError("nova", "ask", pathname, new Error("Nova request failed"), res.status);
+        setResponse("Nova is unavailable right now. Try again shortly.");
+        return;
+      }
       const data = await res.json() as { response?: string };
       setResponse(data.response ?? "…");
       setQuery("");
-    } catch {
+    } catch (err) {
+      captureCompanionError("nova", "ask", pathname, err);
       setResponse("Connection lost — try again.");
     } finally {
       setLoading(false);
     }
-  }, [query, loading, context]);
+  }, [query, loading, context, pathname]);
 
   return (
     <div className="cp-char">
@@ -615,6 +678,7 @@ function NovaChar({ onHide }: { onHide: () => void }) {
           icon={<NovaSVG size={18} />}
           onClose={() => { setOpen(false); setResponse(null); }}
         >
+          <CompanionPrivacyNote mode="oracle" />
           {response && <div className="cp-nova-resp">{response}</div>}
           <div className="cp-input-bar" style={response ? { borderTop: "1px solid var(--line)" } : undefined}>
             <input
