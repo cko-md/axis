@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import type { WidgetDefinition } from "@/lib/widgets/types";
 
 const Icon = ({ children }: { children: ReactNode }) => (
