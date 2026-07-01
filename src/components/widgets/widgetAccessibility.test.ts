@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nextEnabledActionIndex,
+  widgetActionConfirmLabel,
 } from "@/components/widgets/WidgetActionMenu";
 import {
   widgetShellAriaLabel,
@@ -28,5 +29,10 @@ describe("widget accessibility helpers", () => {
 
   it("returns -1 when every action is disabled", () => {
     expect(nextEnabledActionIndex(actions.map((action) => ({ ...action, disabledReason: "Disabled" })), -1, 1)).toEqual(-1);
+  });
+
+  it("builds explicit confirmation labels for destructive actions", () => {
+    expect(widgetActionConfirmLabel({ id: "hide", label: "Hide", kind: "hide", destructive: true })).toEqual("Confirm Hide");
+    expect(widgetActionConfirmLabel({ id: "hide", label: "", kind: "hide", destructive: true })).toEqual("Confirm Hide");
   });
 });
