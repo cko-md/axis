@@ -119,37 +119,37 @@ html.slate {
   --ink-faint: #566175;
 }
 
-/* light — museum gallery: architectural paper, north-facing skylight */
+/* light — gallery chrome: white-silver room, graphite ink, chromatic edges */
 html.light {
-  --accent-subtle: rgba(120, 80, 20, 0.10);
-  --bg: #f4f0e8;
-  --surface: #ede8de;
-  --surface-2: #dcd6c6;   /* widened delta vs --surface for visible card depth */
-  --surface-3: #ccc6b6;
-  --line: rgba(30, 24, 16, 0.28);   /* was 0.18 — borders now visible on parchment */
-  --line-strong: rgba(30, 24, 16, 0.44);
-  --edge: rgba(255, 255, 255, 0.72);
-  --metal-edge: rgba(255, 255, 255, 0.72);
-  --glass: rgba(20, 16, 10, 0.12);   /* was 0.06 — glass panels now visible */
-  --glass-2: rgba(20, 16, 10, 0.18);
-  --grid: rgba(30, 24, 16, 0.06);
-  --ink: #1a1612;
-  --ink-2: #302b24;
-  --ink-dim: #4e4439;   /* darkened 15% from #5c5146 for contrast on parchment */
-  --ink-faint: #5c5248;   /* darkened 15% from #6e6358 — still WCAG AA compliant */
-  --gold: #b8922e;
-  --gold-2: #d4aa52;
-  --gold-deep: #7a5e1e;
-  --marine: #2e4f80;
-  --marine-2: #3e68a2;
-  --clay: #9a4826;
-  --clay-2: #b05e38;
-  --up: #4e7a3c;
-  --down: #9a4826;
-  --blur: saturate(160%) blur(32px);
-  --glow: 0 0 14px color-mix(in srgb, var(--gold) 30%, transparent);
-  --glow-soft: 0 0 24px color-mix(in srgb, var(--gold) 16%, transparent);
-  --on-accent: #fffaf0;
+  --accent-subtle: rgba(89, 111, 139, 0.12);
+  --bg: #f8fafc;
+  --surface: #f1f4f8;
+  --surface-2: #e6ebf1;
+  --surface-3: #d7dee8;
+  --line: rgba(31, 42, 56, 0.18);
+  --line-strong: rgba(31, 42, 56, 0.34);
+  --edge: rgba(255, 255, 255, 0.88);
+  --metal-edge: rgba(118, 135, 158, 0.34);
+  --glass: rgba(31, 42, 56, 0.075);
+  --glass-2: rgba(31, 42, 56, 0.12);
+  --grid: rgba(58, 76, 100, 0.052);
+  --ink: #111820;
+  --ink-2: #26313e;
+  --ink-dim: #445363;
+  --ink-faint: #657484;
+  --gold: #9b7b32;
+  --gold-2: #c2a454;
+  --gold-deep: #6f561f;
+  --marine: #315d92;
+  --marine-2: #4f7daf;
+  --clay: #9a4f35;
+  --clay-2: #bd6d4c;
+  --up: #4f7b59;
+  --down: #9a4f35;
+  --blur: saturate(165%) blur(30px);
+  --glow: 0 0 16px color-mix(in srgb, #8fa2ba 36%, transparent);
+  --glow-soft: 0 0 30px color-mix(in srgb, #8fa2ba 18%, transparent);
+  --on-accent: #fbfcff;
 }
 
 /* ── base ─────────────────────────────────────────────────────── */
@@ -392,53 +392,51 @@ body::before {
   animation: twinkle2 5.7s ease-in-out infinite 1.8s;
 }
 
-/* light mode: gallery track lighting — vivid amber cone from upper-right,
-   north-facing skylight overhead, warm vignette at edges.
-   Must be high-opacity to read against the warm parchment ground. */
+/* light mode: gallery chrome — cold skylight, brushed-metal glints, subtle spectral edge */
 html.light .depthfield .wash {
   background:
-    radial-gradient(60% 54% at 94% -2%, rgba(186, 144, 44, 0.45), transparent 54%),
-    radial-gradient(52% 48% at -2% 108%, rgba(148, 116, 48, 0.22), transparent 52%),
-    linear-gradient(168deg, rgba(220, 196, 140, 0.22), transparent 36%);
+    radial-gradient(62% 54% at 88% -6%, rgba(118, 145, 178, 0.28), transparent 58%),
+    radial-gradient(52% 48% at -2% 108%, rgba(184, 199, 216, 0.2), transparent 54%),
+    linear-gradient(168deg, rgba(255, 255, 255, 0.46), transparent 38%);
   opacity: 1;
   animation: none;
 }
 
 html.light .depthfield .aurora {
   background:
-    radial-gradient(56% 48% at 94% -4%, rgba(196, 158, 58, 0.5), transparent 50%),
-    radial-gradient(46% 42% at 6% 112%, rgba(168, 134, 54, 0.28), transparent 48%),
-    radial-gradient(36% 32% at 54% 56%, rgba(194, 96, 63, 0.12), transparent 60%);
-  filter: blur(44px);
-  opacity: 1;
+    radial-gradient(56% 48% at 92% -6%, rgba(120, 150, 190, 0.32), transparent 54%),
+    radial-gradient(46% 42% at 8% 112%, rgba(158, 174, 196, 0.22), transparent 50%),
+    radial-gradient(34% 30% at 56% 58%, rgba(155, 123, 50, 0.08), transparent 62%);
+  filter: blur(42px);
+  opacity: .96;
   animation: none;
 }
 
 html.light .depthfield .aurora2 {
   background:
-    radial-gradient(48% 42% at 28% 14%, rgba(201, 164, 99, 0.14), transparent 56%),
-    radial-gradient(42% 38% at 90% 80%, rgba(185, 150, 78, 0.16), transparent 54%);
-  filter: blur(28px);
-  opacity: 1;
+    radial-gradient(48% 42% at 28% 14%, rgba(255, 255, 255, 0.36), transparent 56%),
+    radial-gradient(42% 38% at 90% 80%, rgba(78, 125, 175, 0.12), transparent 56%);
+  filter: blur(26px);
+  opacity: .9;
   animation: none;
 }
 
-/* architectural skylight — subtle warm diffusion at centre-top on cream ground */
+/* cold architectural skylight on white/silver ground */
 html.light .depthfield .haze {
   background:
-    radial-gradient(130% 72% at 50% -8%, rgba(201, 164, 99, 0.12), transparent 58%),
-    radial-gradient(80% 58% at 50% 0%, rgba(194, 96, 63, 0.06), transparent 66%);
+    radial-gradient(130% 72% at 50% -8%, rgba(255, 255, 255, 0.5), transparent 58%),
+    radial-gradient(80% 58% at 50% 0%, rgba(118, 145, 178, 0.12), transparent 66%);
 }
 
-/* gallery wall vignette — warm shadow at edges on parchment */
+/* polished wall vignette — graphite edge, not parchment warmth */
 html.light .depthfield .vig {
-  background: radial-gradient(118% 112% at 50% 28%, transparent 42%, rgba(100, 80, 48, 0.14) 80%, rgba(80, 60, 30, 0.28) 100%);
-  box-shadow: inset 0 0 200px 28px rgba(80, 60, 30, 0.18);
+  background: radial-gradient(118% 112% at 50% 28%, transparent 42%, rgba(86, 104, 126, 0.1) 80%, rgba(38, 50, 64, 0.18) 100%);
+  box-shadow: inset 0 0 190px 24px rgba(66, 82, 100, 0.12);
 }
 
-/* cornice glint — track lighting catches the top edge */
+/* chrome cornice glint */
 html.light .depthfield .fall {
-  background: linear-gradient(180deg, rgba(192, 152, 54, 0.24), transparent 28%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(137, 158, 184, 0.1) 22%, transparent 34%);
 }
 
 .grain {
@@ -501,8 +499,8 @@ body {
 
 html.light body {
   background-image:
-    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(201, 164, 99, .08) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(194, 96, 63, .05) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(127, 150, 178, .12) 0%, transparent 62%),
+    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(255, 255, 255, .42) 0%, transparent 62%);
 }
 
 /* ── app shell ────────────────────────────────────────────────── */
@@ -563,8 +561,9 @@ html.light body {
 }
 
 html.light .sidebar {
-  background: linear-gradient(180deg, rgba(237, 232, 222, 0.92), rgba(228, 222, 210, 0.96));
-  border-right-color: rgba(30, 24, 16, 0.2);
+  background: linear-gradient(180deg, rgba(246, 248, 251, 0.9), rgba(226, 232, 240, 0.94));
+  border-right-color: rgba(56, 70, 88, 0.2);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.72) inset;
 }
 
 html.dim .sidebar {
@@ -733,8 +732,8 @@ html.light .navlabel {
 }
 
 html.light .avatar {
-  background: conic-gradient(from 210deg, #c8c0b0, #ddd5c5, #c8c0b0);
-  border-color: rgba(90, 76, 55, 0.3);
+  background: conic-gradient(from 210deg, #c9d2dd, #f9fbfd, #b7c2d0, #e8edf3, #c9d2dd);
+  border-color: rgba(60, 76, 96, 0.28);
 }
 
 .pmeta .pn {
@@ -790,9 +789,11 @@ html.light .avatar {
 }
 
 html.light .topbar {
-  background: rgba(225, 220, 210, 0.82);
-  border-color: rgba(90, 76, 55, 0.25);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  background: linear-gradient(180deg, rgba(250, 252, 255, 0.82), rgba(229, 235, 243, 0.72));
+  border-color: rgba(62, 78, 98, 0.22);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 14px 34px -24px rgba(26, 40, 56, 0.36);
 }
 
 html.dim .topbar {
@@ -1061,8 +1062,7 @@ h1.hero em {
   color: var(--gold);
 }
 
-/* light mode: richer gold on parchment — `--gold` is already deeper (#b8922e),
-   but the display text needs the accent variant for visual punch */
+/* light mode: graphite chrome keeps accent precise, not amber-heavy */
 html.light .hero-title em,
 html.light h1.hero em {
   color: var(--gold-deep);
@@ -1076,7 +1076,7 @@ html.light h1.hero em {
   font-weight: 300;
 }
 
-/* light mode: sub text on parchment cards must be ink-2, not ink-dim */
+/* light mode: sub text on bright chrome needs graphite contrast */
 html.light .sub {
   color: var(--ink-2);
 }
@@ -1150,19 +1150,21 @@ h2.sec .count {
 }
 
 html.light .card {
-  background: linear-gradient(168deg, rgba(244, 240, 232, 0.92), rgba(236, 231, 222, 0.78) 55%);
-  backdrop-filter: saturate(140%) blur(28px);
-  -webkit-backdrop-filter: saturate(140%) blur(28px);
+  background: linear-gradient(168deg, rgba(255, 255, 255, 0.9), rgba(231, 237, 245, 0.76) 58%);
+  backdrop-filter: saturate(150%) blur(26px);
+  -webkit-backdrop-filter: saturate(150%) blur(26px);
   color: var(--ink);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.7) inset,
-    0 2px 0 rgba(255, 255, 255, 0.35) inset,
-    0 6px 20px -8px rgba(30, 22, 10, 0.14),
-    0 20px 48px -28px rgba(20, 14, 6, 0.18);
+    0 1px 0 rgba(255, 255, 255, 0.94) inset,
+    0 2px 0 rgba(255, 255, 255, 0.54) inset,
+    0 8px 22px -12px rgba(35, 50, 68, 0.18),
+    0 26px 56px -36px rgba(18, 30, 44, 0.24);
 }
 
 html.light .card::after {
-  background: linear-gradient(158deg, rgba(255, 255, 255, 0.72), transparent 22%);
+  background:
+    linear-gradient(158deg, rgba(255, 255, 255, 0.82), transparent 24%),
+    linear-gradient(320deg, rgba(78, 125, 175, 0.07), transparent 42%);
 }
 
 /* corner ticks — precision-instrument detail, gold hairline */
@@ -3006,7 +3008,7 @@ table.tbl tr:last-child td{border-bottom:0}
 .or-go{background:color-mix(in srgb,var(--gold) 12%,transparent);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);color:var(--gold-2);font-family:var(--narrow);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:5px 9px;border-radius:2px;cursor:pointer;white-space:nowrap}.or-go:hover{background:color-mix(in srgb,var(--gold) 22%,transparent)}
 .person{background:var(--glass);border:1px solid var(--line);border-radius:var(--rl);padding:15px;transition:.16s}.person:hover{border-color:var(--line-strong)}
 .person .ph{display:flex;align-items:center;gap:11px;margin-bottom:11px}.pav{width:36px;height:36px;border-radius:var(--rl);background:conic-gradient(from 200deg,#1c2129,#2a3140,#1c2129);border:1px solid var(--line-strong);display:grid;place-items:center;font-family:var(--disp);color:var(--gold);font-size:17px;flex:none}
-html.light .pav{background:conic-gradient(from 200deg,#ddd6c8,#efe9dd,#ddd6c8)}
+html.light .pav{background:conic-gradient(from 200deg,#c8d2de,#f8fbff,#b8c3d0,#e7edf4,#c8d2de)}
 .person .pnm{font-weight:400;font-size:13px;color:var(--ink)}.person .prl{font-family:var(--mono);font-size:9px;color:var(--ink-faint);margin-top:2px}
 .person .pnote{font-size:11.5px;color:var(--ink-dim);line-height:1.5;margin-bottom:11px}
 .person .pfoot{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--ink-faint);padding-top:10px;border-top:1px solid var(--line)}.person .pfoot .due{color:var(--clay-2)}
@@ -3069,10 +3071,10 @@ html.light .pav{background:conic-gradient(from 200deg,#ddd6c8,#efe9dd,#ddd6c8)}
 /* ── interface studio drawer ── */
 .overlay-backdrop{position:fixed;inset:0;z-index:61;background:rgba(5,6,8,.6);backdrop-filter:blur(5px);display:none;animation:fade .25s ease}
 .overlay-backdrop.on{display:block}
-html.light .overlay-backdrop{background:rgba(40,32,18,.3)}
+html.light .overlay-backdrop{background:rgba(28,38,50,.26)}
 .drawer{position:fixed;z-index:62;top:0;right:0;height:100vh;width:min(340px,92vw);background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-left:1px solid var(--line-strong);box-shadow:-30px 0 70px rgba(0,0,0,.5);transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
 .drawer.on{transform:none}
-html.light .drawer{box-shadow:-24px 0 60px rgba(60,48,28,.25)}
+html.light .drawer{box-shadow:-24px 0 60px rgba(32,46,62,.22)}
 .dr-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
 .dr-title{font-family:var(--disp);font-size:22px;letter-spacing:.02em;color:var(--ink)}
 .dr-head .x,.drawer .x{cursor:pointer;color:var(--ink-faint);padding:4px 6px;background:none;border:none;font-size:13px;line-height:1}.dr-head .x:hover,.drawer .x:hover{color:var(--clay-2)}
@@ -3317,7 +3319,7 @@ body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
   margin-top:18px;background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--vault-chrome) 2%,transparent) 0 1px,transparent 1px 5px),repeating-linear-gradient(0deg,color-mix(in srgb,var(--vault-chrome) 1%,transparent) 0 1px,transparent 1px 9px),linear-gradient(160deg,var(--vault-metal),var(--vault-metal-2) 45%,var(--vault-metal-3) 100%);border:1px solid var(--vault-edge);border-radius:12px;padding:6px;box-shadow:0 1px 0 var(--vault-inset-hi) inset,0 30px 60px -34px var(--vault-shadow),0 0 40px color-mix(in srgb,var(--vault-chrome) 4%,transparent)}
 html.dim .vault-room{--vault-metal:#241f14;--vault-metal-2:#1a160d;--vault-metal-3:#1f1a10;--vault-chrome:#d8b56a;--vault-edge:rgba(216,181,106,.22);--vault-ink:#e8d2a0;--vault-ink-dim:#b59a6a;--vault-ink-faint:#8c7f63;--vault-inset-hi:rgba(216,181,106,.12);--vault-stage:#1a160d}
 html.slate .vault-room{--vault-metal:#1a2a3d;--vault-metal-2:#101622;--vault-metal-3:#16202f;--vault-chrome:#b8cdec;--vault-edge:rgba(184,205,236,.2);--vault-ink:#dbe6f5;--vault-ink-dim:#8590a3;--vault-ink-faint:#5c6a82;--vault-inset-hi:rgba(184,205,236,.1);--vault-stage:#0d121c}
-html.light .vault-room{--vault-metal:#d2cec4;--vault-metal-2:#c2bdb2;--vault-metal-3:#cac6bc;--vault-chrome:#ffffff;--vault-edge:var(--line-strong);--vault-ink:#2a2e36;--vault-ink-dim:#4e4439;--vault-ink-faint:#4e4439;--vault-shadow:rgba(60,48,28,.30);--vault-inset-hi:rgba(255,255,255,.9);--vault-stage:#1e1c18}
+html.light .vault-room{--vault-metal:#d9e1eb;--vault-metal-2:#c8d2de;--vault-metal-3:#eef3f8;--vault-chrome:#ffffff;--vault-edge:var(--line-strong);--vault-ink:#17202a;--vault-ink-dim:#445363;--vault-ink-faint:#657484;--vault-shadow:rgba(32,46,62,.26);--vault-inset-hi:rgba(255,255,255,.92);--vault-stage:#18202a}
 .vr-frame{border:1px solid color-mix(in srgb,var(--vault-chrome) 10%,transparent);border-radius:8px;padding:28px 28px 26px;background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--vault-chrome) 2%,transparent) 0 1px,transparent 1px 4px)}
 /* brushed metal divider — follows --vault-chrome per theme */
 .vr-silver-strip{height:1.5px;background:linear-gradient(90deg,transparent,var(--vault-chrome) 18%,color-mix(in srgb,var(--vault-chrome) 78%,#fff) 50%,var(--vault-chrome) 82%,transparent);border-radius:1px;margin:0 0 24px;opacity:.5}
