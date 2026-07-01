@@ -654,12 +654,11 @@ export function ConsoleModule() {
   const tasksPct   = Math.min(tasksDone / tasksTotal, 1);
   // r3 circumference = 2π × 28 ≈ 175.9
   const r3Offset   = Math.round(175.9 * (1 - tasksPct));
-  const overallPct = Math.round(tasksPct * 100);
 
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
       <Card tick>
-        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">{overallPct}%</span></h2>
+        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">Tasks live · labs disconnected</span></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
             <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" style={{ strokeDashoffset: 326.7 }} />
@@ -667,8 +666,8 @@ export function ConsoleModule() {
             <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" style={{ strokeDashoffset: r3Offset }} />
           </svg>
           <div className="rings-legend">
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">Lab</span></div>
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">Connect Strava</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">Lab · no source</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">Disconnected · Strava</span></div>
             <div className="rl-row"><span className="rl-dot" style={{ background: "var(--marine)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasksDone} / {tasksTotal}</span></div>
           </div>
         </div>
@@ -728,7 +727,7 @@ export function ConsoleModule() {
   const weeklyDevotionalSection = (
     <DraggableBlock key="weekly-devotional" id="weekly-devotional">
       <Card tick className="devo">
-        <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional · Day 4/7</div>
+        <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional · Static local · Day 4/7</div>
         <div className="verse">&ldquo;Whatever you do, work heartily, as for the Lord and not for men.&rdquo;</div>
         <div className="ref">COLOSSIANS 3:23 · ESV</div>
       </Card>
@@ -740,7 +739,7 @@ export function ConsoleModule() {
   const stoicMaximSection = (
     <DraggableBlock key="stoic-maxim" id="stoic-maxim">
       <Card tick className="quote-card">
-        <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Daily Reflection</div>
+        <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Daily Reflection · Static local</div>
         <div className="qtext">&ldquo;{todayQuote.text}&rdquo;</div>
         <div className="qauth">
           — {todayQuote.author}
@@ -760,9 +759,9 @@ export function ConsoleModule() {
     <DraggableBlock key="markets-body" id="markets-body">
       <Card>
         <h2 className="sec">
-          Markets &amp; Body<span className="rule" />
+          Markets<span className="rule" />
           <span className="count">
-            {liveData.markets?.error ? "Stale" : liveData.markets ? "Live" : "Cached"}
+            {liveData.markets?.error ? "Stale" : liveData.markets?.updatedAt ? "Live" : "Setup required"}
           </span>
         </h2>
         <div style={{ marginTop: 12 }}>
@@ -890,7 +889,7 @@ export function ConsoleModule() {
           {routineLabel}
           <span className="rule" />
           <span className="count" style={{ color: routineColor }}>
-            {checkedItems.size}/{routineItems.length}
+            Local heuristic · {checkedItems.size}/{routineItems.length}
           </span>
         </h2>
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
