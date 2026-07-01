@@ -1663,6 +1663,11 @@ html.light .card::after {
   line-height: 1.4;
 }
 
+.widget-detail-description {
+  margin-top: 6px;
+  color: var(--ink-faint);
+}
+
 .widget-detail-updated {
   margin-top: 8px;
   color: var(--ink-faint);
@@ -1700,6 +1705,57 @@ html.light .card::after {
   min-height: 0;
   overflow: auto;
   padding: 16px 0;
+}
+
+.widget-detail-sections {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.widget-detail-section {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--surface-2) 76%, transparent);
+  padding: 12px;
+}
+
+.widget-detail-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.widget-detail-section-heading h3 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.widget-detail-section-heading strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.widget-detail-section p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.widget-detail-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .widget-detail-current {
