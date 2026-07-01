@@ -57,7 +57,7 @@ For every issue, the agent must:
 15. **Automate post-preview Sentry review.** After the Vercel preview is ready, query Sentry for new errors/regressions in the preview window/release/environment using the available CLI/API/connector. If Sentry credentials or tooling are unavailable, block production merge unless the PR clearly records the missing automation, the exact Sentry query/check to run, and the human validation owner.
 16. **Provide a manual test checklist** (happy path, error path, refresh/persistence, RLS where relevant, related-module regression).
 
-**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Agents should push branches and open PRs after local checks. Merge only after the Vercel preview, automated Supabase/Tembo validation, automated post-preview Sentry review, and manual workflow checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
+**Production deploy:** merging the PR into `main` is the production trigger. This repo also contains `.github/workflows/deploy.yml`, which runs `npx vercel deploy --prod` on pushes to `main`; confirm whether Vercel Git integration, the GitHub Actions workflow, or both are active before approving a production merge. Agents should push branches and open PRs after local checks. Merge only after the Vercel preview, automated Supabase/Tembo validation, automated post-preview Sentry review, and manual workflow checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
 
 End the session with the response format in §12.
 
@@ -96,7 +96,7 @@ Treat `npx tsc --noEmit` (clean), `npm run lint` (no new errors), and `npm run t
 | `src/lib/mail` | Mail provider logic: `gmail.ts`/`outlook.ts` (direct OAuth), `composio.ts` (Composio), `tokens.ts` (`listMailAccounts` unified account list), and `adapters/` (the `MailAdapter` contract — see §7 and `docs/architecture/integration-adapters.md`). |
 | `src/lib/integrations` | `composio.ts` (Composio client, `executeTool`, toolkits), `make.ts`, `tavily.ts`, and the cross-domain `types.ts` (`Result<T>`, `IntegrationError`) + `registry.ts` (provider capabilities). |
 | `src/lib/hooks` | Client data hooks (`usePeople`, `useTasks`, `useSignals`, `useNotes`, `useObjectives`, `usePipeline`, `useWidgetData`, etc.) — most do full Supabase CRUD + realtime refresh. |
-| `src/lib/store` | Static config: `nav.ts` (navigation map), `widgets.ts`, `fund-defaults.ts`. |
+| `src/lib/store` | Static config: `nav.ts` (navigation map), `widgets.ts`, `fund-defaults.ts`. Widget runtime metadata also exists in `src/lib/widgets/{registry,types}.ts`; inspect both store and registry files before changing widget behavior. |
 | `supabase/migrations` | SQL migrations (~50 tables). **Numbering is currently inconsistent** (duplicate prefixes, unnumbered files) — see `docs/audits/axis-platform-audit.md` finding A4; do not assume ordering or that a migration is applied in prod. |
 | `docs` | `audits/axis-platform-audit.md` (platform audit), `linear/axis-mvp-issues.md` (the issue plan + module order), `architecture/integration-adapters.md` (adapter design + Mail test matrix), `DESIGN_HANDOFF.md`, `agent-handoff/`. |
 
