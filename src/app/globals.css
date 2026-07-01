@@ -1707,13 +1707,13 @@ html.light .card::after {
   padding: 16px 0;
 }
 
-.widget-detail-sections {
+.detail-panel-sections {
   display: grid;
   gap: 10px;
   margin-bottom: 14px;
 }
 
-.widget-detail-section {
+.detail-panel-section {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
@@ -1722,14 +1722,14 @@ html.light .card::after {
   padding: 12px;
 }
 
-.widget-detail-section-heading {
+.detail-panel-section-heading {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
 }
 
-.widget-detail-section-heading h3 {
+.detail-panel-section-heading h3 {
   margin: 0;
   font-family: var(--mono);
   font-size: 10px;
@@ -1739,20 +1739,20 @@ html.light .card::after {
   letter-spacing: .08em;
 }
 
-.widget-detail-section-heading strong {
+.detail-panel-section-heading strong {
   color: var(--ink);
   font-size: 14px;
   font-weight: 600;
 }
 
-.widget-detail-section p {
+.detail-panel-section p {
   margin: 0;
   color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.widget-detail-section-actions {
+.detail-panel-section-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
