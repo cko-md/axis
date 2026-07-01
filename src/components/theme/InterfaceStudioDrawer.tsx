@@ -60,6 +60,12 @@ const BODY_FACE_OPTIONS: { value: BodyFace; label: string; sample: string; note:
   },
 ];
 
+const SURFACE_TONE_OPTIONS: { value: SurfaceTone; label: string; note: string }[] = [
+  { value: "deep", label: "Deep", note: "Receded panels" },
+  { value: "mid", label: "Mid", note: "Balanced default" },
+  { value: "lifted", label: "Lifted", note: "Brighter slabs" },
+];
+
 function DensityPicker({ value, onChange }: { value: Density; onChange: (d: Density) => void }) {
   return (
     <div style={{ display: "flex", gap: 7 }}>
@@ -112,6 +118,54 @@ function DensityPicker({ value, onChange }: { value: Density; onChange: (d: Dens
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function SurfaceTonePicker({ value, onChange }: { value: SurfaceTone; onChange: (tone: SurfaceTone) => void }) {
+  return (
+    <div className="tone-cards">
+      {SURFACE_TONE_OPTIONS.map((tone) => {
+        const active = value === tone.value;
+        return (
+          <button
+            key={tone.value}
+            type="button"
+            className={active ? `tone-card tone-${tone.value} on` : `tone-card tone-${tone.value}`}
+            onClick={() => onChange(tone.value)}
+            aria-pressed={active}
+          >
+            <span className="tone-stack" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
+            <b>{tone.label}</b>
+            <small>{tone.note}</small>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RadiusPreview({ value }: { value: number }) {
+  const radius = `${value}px`;
+  const largeRadius = `${Math.max(value + 4, 4)}px`;
+  return (
+    <div className="radius-preview" style={{ borderRadius: largeRadius }}>
+      <div className="radius-preview-card" style={{ borderRadius: largeRadius }}>
+        <span style={{ borderRadius: radius }} />
+        <div>
+          <b>{value}px</b>
+          <small>{Math.max(value + 4, 4)}px large</small>
+        </div>
+      </div>
+      <div className="radius-preview-row" aria-hidden>
+        <i style={{ borderRadius: radius }} />
+        <i style={{ borderRadius: radius }} />
+        <i style={{ borderRadius: radius }} />
+      </div>
     </div>
   );
 }
@@ -278,23 +332,20 @@ export function InterfaceStudioDrawer() {
           </div>
 
           <div className="dr-sec">Surface Tone</div>
-          <Seg<SurfaceTone>
-            options={[
-              { label: "Deep", value: "deep" },
-              { label: "Mid", value: "mid" },
-              { label: "Lifted", value: "lifted" },
-            ]}
+          <SurfaceTonePicker
             value={interfaceSettings.surfaceTone}
             onChange={(surfaceTone) => setInterfaceSettings((s) => ({ ...s, surfaceTone }))}
           />
 
           <div className="dr-sec">Corner Radius</div>
+          <RadiusPreview value={interfaceSettings.cornerRadius} />
           <input
             type="range"
             min={0}
             max={16}
             value={interfaceSettings.cornerRadius}
             className="dr-range"
+            aria-label="Corner radius"
             onChange={(e) => setInterfaceSettings((s) => ({ ...s, cornerRadius: Number(e.target.value) }))}
           />
 
