@@ -33,6 +33,16 @@ export function widgetActionLabel(action: WidgetAction) {
   return action.label || WIDGET_ACTION_KIND_LABELS[action.kind];
 }
 
+export function nextEnabledActionIndex(actions: WidgetAction[], currentIndex: number, direction: 1 | -1) {
+  const enabledActions = actions.map((action, index) => ({ action, index })).filter(({ action }) => !action.disabledReason);
+  if (enabledActions.length === 0) return -1;
+  const currentEnabledIndex = enabledActions.findIndex(({ index }) => index === currentIndex);
+  const nextIndex = currentEnabledIndex === -1
+    ? direction === 1 ? 0 : enabledActions.length - 1
+    : (currentEnabledIndex + direction + enabledActions.length) % enabledActions.length;
+  return enabledActions[nextIndex]?.index ?? -1;
+}
+
 export function WidgetActionMenu({
   actions,
   handlers,
@@ -43,6 +53,7 @@ export function WidgetActionMenu({
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -52,6 +63,15 @@ export function WidgetActionMenu({
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      const firstEnabled = nextEnabledActionIndex(actions, -1, 1);
+      itemRefs.current[firstEnabled]?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [actions, open]);
 
   const close = () => setOpen(false);
 
@@ -76,6 +96,26 @@ export function WidgetActionMenu({
     if (event.key === "Escape") {
       event.preventDefault();
       close();
+      rootRef.current?.querySelector<HTMLButtonElement>(".widget-action-trigger")?.focus();
+      return;
+    }
+    if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      setOpen(true);
+      return;
+    }
+    if (!open) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const currentIndex = itemRefs.current.findIndex((node) => node === document.activeElement);
+      const nextIndex = nextEnabledActionIndex(actions, currentIndex, event.key === "ArrowDown" ? 1 : -1);
+      itemRefs.current[nextIndex]?.focus();
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const nextIndex = nextEnabledActionIndex(actions, event.key === "Home" ? -1 : actions.length, event.key === "Home" ? 1 : -1);
+      itemRefs.current[nextIndex]?.focus();
     }
   };
 
@@ -98,10 +138,13 @@ export function WidgetActionMenu({
         <span aria-hidden="true">...</span>
       </button>
       {open ? (
-        <div id={menuId} className="widget-action-popover" role="menu">
-          {actions.map((action) => (
+        <div id={menuId} className="widget-action-popover" role="menu" aria-orientation="vertical">
+          {actions.map((action, index) => (
             <button
               key={action.id}
+              ref={(node) => {
+                itemRefs.current[index] = node;
+              }}
               type="button"
               role="menuitem"
               className="widget-action-item"

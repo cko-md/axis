@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent, ReactNode } from "react";
+import { useId, type KeyboardEvent, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { WidgetStatus } from "@/lib/widgets/types";
 import { WidgetStatusBadge } from "@/components/widgets/WidgetStatusBadge";
@@ -34,6 +34,10 @@ function formatUpdatedAt(updatedAt?: string) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+export function widgetShellAriaLabel(title: string, value: ReactNode) {
+  return `${title}: ${typeof value === "string" ? value : "open details"}`;
+}
+
 export function WidgetShell({
   title,
   icon,
@@ -54,6 +58,8 @@ export function WidgetShell({
   miniVisualizationSlot,
   children,
 }: Props) {
+  const hintId = useId();
+  const metaId = useId();
   const interactive = Boolean(onPrimaryAction);
   const updated = formatUpdatedAt(updatedAt);
   const reduceMotion = useReducedMotion();
@@ -61,6 +67,10 @@ export function WidgetShell({
   const motionEnabled = motionMode === "standard";
   const spinIcon = shouldSpinWidgetIcon(status, motionMode);
   const stateKey = `${status}-${updatedAt ?? "never"}-${typeof value === "string" ? value : "node"}`;
+  const describedBy = [
+    hint ? hintId : null,
+    provider || source || updated ? metaId : null,
+  ].filter(Boolean).join(" ") || undefined;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!interactive) return;
@@ -72,12 +82,15 @@ export function WidgetShell({
   return (
     <motion.div
       className={`widget-shell${interactive ? " widget-shell-interactive" : ""}`}
-      role={interactive ? "button" : undefined}
+      role={interactive ? "button" : "group"}
       tabIndex={interactive ? 0 : undefined}
       onClick={onPrimaryAction}
       onKeyDown={handleKeyDown}
       title={titleText}
-      aria-label={interactive ? `${title}: ${typeof value === "string" ? value : "open details"}` : undefined}
+      aria-label={widgetShellAriaLabel(title, value)}
+      aria-describedby={describedBy}
+      aria-busy={loading ? "true" : undefined}
+      aria-invalid={error ? "true" : undefined}
       data-status={status}
       data-loading={loading ? "true" : undefined}
       data-stale={stale ? "true" : undefined}
@@ -113,9 +126,9 @@ export function WidgetShell({
         >
           {value}
         </motion.div>
-        {hint ? <div className="widget-shell-hint">{hint}</div> : null}
+        {hint ? <div id={hintId} className="widget-shell-hint">{hint}</div> : null}
         {children}
-        <div className="widget-shell-meta">
+        <div id={metaId} className="widget-shell-meta">
           {provider ? <span>{provider}</span> : source ? <span>{source}</span> : null}
           {updated ? <span>Updated {updated}</span> : null}
         </div>
