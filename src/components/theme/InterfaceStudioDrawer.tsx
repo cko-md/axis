@@ -202,7 +202,7 @@ function FontFacePicker<T extends DisplayFace | BodyFace>({
 }
 
 export function InterfaceStudioDrawer() {
-  const { theme, setTheme, interfaceSettings, setInterfaceSettings, interfaceStudioOpen, closeInterfaceStudio } = useTheme();
+  const { theme, setTheme, interfaceSettings, setInterfaceSettings, interfacePersistence, interfaceStudioOpen, closeInterfaceStudio } = useTheme();
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -275,6 +275,15 @@ export function InterfaceStudioDrawer() {
       : interfaceSettings.companion === "deck"
         ? "Codex"
         : "Nova";
+  const persistenceLabel = interfacePersistence === "synced"
+    ? "Synced"
+    : interfacePersistence === "syncing"
+      ? "Syncing"
+      : interfacePersistence === "error"
+        ? "Sync error"
+        : interfacePersistence === "loading"
+          ? "Checking sync"
+          : "Local only";
 
   return (
     <>
@@ -283,7 +292,7 @@ export function InterfaceStudioDrawer() {
         <div className="dr-head">
           <div>
             <div className="dr-title">Interface Studio</div>
-            <div className="dr-persist">Local only</div>
+            <div className={`dr-persist ${interfacePersistence}`}>{persistenceLabel}</div>
           </div>
           <button type="button" className="x" onClick={closeInterfaceStudio} aria-label="Close" ref={closeButtonRef}>
             ✕
