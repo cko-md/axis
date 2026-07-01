@@ -6,15 +6,9 @@ import { motion, useReducedMotion } from "motion/react";
 import type { WidgetStatus } from "@/lib/widgets/types";
 import { WidgetStatusBadge } from "@/components/widgets/WidgetStatusBadge";
 import { WIDGET_MOTION, widgetMotionMode } from "@/components/widgets/widgetMotion";
+import { DetailPanelSections, detailPanelSectionTitleId, type DetailPanelSectionConfig } from "@/components/ui/DetailPanel";
 
-export type WidgetDetailSection = {
-  id: string;
-  title: string;
-  value?: ReactNode;
-  description?: ReactNode;
-  actionSlot?: ReactNode;
-  children?: ReactNode;
-};
+export type WidgetDetailSection = DetailPanelSectionConfig;
 
 type Props = {
   open: boolean;
@@ -44,8 +38,7 @@ export function formatWidgetDetailUpdatedAt(updatedAt?: string) {
 }
 
 export function widgetDetailSectionTitleId(sectionId: string) {
-  const normalized = sectionId.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return `widget-detail-section-${normalized || "section"}`;
+  return detailPanelSectionTitleId(sectionId, "widget-detail-section");
 }
 
 export function WidgetDetailDrawer({
@@ -162,24 +155,7 @@ export function WidgetDetailDrawer({
         </header>
         {primaryActionSlot ? <div className="widget-detail-primary">{primaryActionSlot}</div> : null}
         <div className="widget-detail-body">
-          {sections?.length ? (
-            <div className="widget-detail-sections">
-              {sections.map((section) => {
-                const sectionTitleId = widgetDetailSectionTitleId(section.id);
-                return (
-                <section key={section.id} className="widget-detail-section" aria-labelledby={sectionTitleId}>
-                  <div className="widget-detail-section-heading">
-                    <h3 id={sectionTitleId}>{section.title}</h3>
-                    {section.value ? <strong>{section.value}</strong> : null}
-                  </div>
-                  {section.description ? <p>{section.description}</p> : null}
-                  {section.children}
-                  {section.actionSlot ? <div className="widget-detail-section-actions">{section.actionSlot}</div> : null}
-                </section>
-                );
-              })}
-            </div>
-          ) : null}
+          {sections?.length ? <DetailPanelSections sections={sections} /> : null}
           {children}
         </div>
         {footerSlot ? <footer className="widget-detail-footer">{footerSlot}</footer> : null}
