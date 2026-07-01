@@ -48,3 +48,21 @@ export function widgetCacheRowToData(row: WidgetCacheRow, now = Date.now()): Wid
     updatedAt: row.fetched_at,
   };
 }
+
+export function widgetStaleHint(hint: string) {
+  return hint.endsWith(" · refresh failed") ? hint : `${hint} · refresh failed`;
+}
+
+export function widgetRefreshFailureData(widgetId: string, previous?: WidgetData): WidgetData {
+  const fallback = getWidgetById(widgetId);
+  return {
+    v: previous?.v ?? fallback.value,
+    k: previous ? widgetStaleHint(previous.k) : widgetStaleHint(fallback.hint),
+    raw: previous?.raw,
+    fallback: previous?.fallback,
+    error: true,
+    stale: Boolean(previous),
+    loading: false,
+    updatedAt: previous?.updatedAt,
+  };
+}

@@ -3,6 +3,8 @@ import {
   isWidgetCacheStale,
   widgetCacheRowMatchesDefinition,
   widgetCacheRowToData,
+  widgetRefreshFailureData,
+  widgetStaleHint,
   type WidgetCacheRow,
 } from "@/lib/widgets/cache";
 
@@ -52,6 +54,38 @@ describe("widget cache normalization", () => {
 
     expect(widgetCacheRowToData({ ...baseRow, status: "error", error: { code: "X" } }, now)).toMatchObject({
       error: true,
+    });
+  });
+
+  it("appends refresh-failed copy only once", () => {
+    expect(widgetStaleHint("Home")).toEqual("Home · refresh failed");
+    expect(widgetStaleHint("Home · refresh failed")).toEqual("Home · refresh failed");
+  });
+
+  it("preserves previous widget values on refresh failure", () => {
+    expect(widgetRefreshFailureData("weather", {
+      v: "72°F",
+      k: "Home",
+      raw: { temp: 72 },
+      updatedAt: "2026-07-01T11:59:00Z",
+    })).toMatchObject({
+      v: "72°F",
+      k: "Home · refresh failed",
+      raw: { temp: 72 },
+      error: true,
+      stale: true,
+      loading: false,
+      updatedAt: "2026-07-01T11:59:00Z",
+    });
+  });
+
+  it("falls back to the catalog value when refresh fails without cache", () => {
+    expect(widgetRefreshFailureData("weather")).toMatchObject({
+      v: expect.any(String),
+      k: expect.stringContaining("refresh failed"),
+      error: true,
+      stale: false,
+      loading: false,
     });
   });
 });
