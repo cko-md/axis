@@ -1,5 +1,5 @@
 -- WID-DATA-1: Supabase-backed cache for widget runtime states.
--- Additive only. This table is not read by runtime code until WID-DATA-3.
+-- Additive only. Runtime reads/writes are handled by the widget batch/cache flow.
 
 create table if not exists public.widget_cache (
   user_id uuid not null references auth.users (id) on delete cascade,
