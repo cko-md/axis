@@ -5,11 +5,19 @@ import { DEFAULT_LOCATION } from "@/lib/geo/default-location";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
 import { createClient } from "@/lib/supabase/server";
+import {
+  dedupeWidgetIds,
+  maxWidgetsPerBatch,
+  safeWidgetBatchError,
+  statusForWidgetPayload,
+  type BatchWidgetError,
+  type WidgetPayload,
+  widgetProviderTimeoutMs,
+} from "@/lib/widgets/batch";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import type { WidgetDataSource, WidgetStatus } from "@/lib/widgets/types";
 
 const route = "/api/widgets/batch";
-const maxWidgetsPerBatch = 24;
 
 const batchSchema = z.object({
   widgetIds: z.array(z.string().min(1).max(64)).min(1).max(maxWidgetsPerBatch),
@@ -19,15 +27,6 @@ const batchSchema = z.object({
     name: z.string().min(1).max(120).optional(),
   }).optional(),
 });
-
-type WidgetPayload = {
-  value?: string;
-  hint?: string;
-  raw?: Record<string, unknown>;
-  fallback?: boolean;
-  error?: boolean;
-  partial?: boolean;
-};
 
 type BatchWidget = {
   id: string;
@@ -40,43 +39,14 @@ type BatchWidget = {
   source: WidgetDataSource;
 };
 
-type BatchWidgetError = {
-  code: string;
-  message: string;
-  retryable: boolean;
-  status?: number;
-};
-
 type FetchWidgetResult = {
   id: string;
   widget?: BatchWidget;
   error?: BatchWidgetError;
 };
 
-function dedupe(ids: string[]) {
-  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, maxWidgetsPerBatch);
-}
-
 function endpointFor(source: WidgetDataSource) {
   return source.endpoint;
-}
-
-function statusForPayload(payload: WidgetPayload, defaultStatus: WidgetStatus): WidgetStatus {
-  if (payload.error) return "error";
-  if (payload.partial) return "stale";
-  if (payload.fallback) return defaultStatus;
-  return "fresh";
-}
-
-function providerTimeoutMs(provider: WidgetDataSource["provider"]) {
-  if (provider === "open-meteo") return 4_500;
-  if (provider === "polygon" || provider === "massive" || provider === "strava") return 5_500;
-  if (provider === "supabase") return 3_000;
-  return 2_000;
-}
-
-function safeError(code: string, message: string, retryable: boolean, status?: number): BatchWidgetError {
-  return { code, message, retryable, ...(status !== undefined ? { status } : {}) };
 }
 
 function queryForWidget(req: Request, source: WidgetDataSource, location: z.infer<typeof batchSchema>["location"]) {
@@ -99,7 +69,7 @@ async function fetchWidget(
   if (!definition) {
     return {
       id,
-      error: safeError("UNKNOWN_WIDGET", "Widget is not registered", false, 400),
+      error: safeWidgetBatchError("UNKNOWN_WIDGET", "Widget is not registered", false, 400),
     };
   }
 
@@ -122,11 +92,11 @@ async function fetchWidget(
     const url = queryForWidget(req, definition.source, location);
     const res = await fetch(url, {
       headers: { cookie: req.headers.get("cookie") ?? "" },
-      signal: AbortSignal.timeout(providerTimeoutMs(definition.source.provider)),
+      signal: AbortSignal.timeout(widgetProviderTimeoutMs(definition.source.provider)),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const error = safeError(
+      const error = safeWidgetBatchError(
         res.status === 401 ? "UNAUTHORIZED" : "WIDGET_ENDPOINT_FAILED",
         res.status === 401 ? "Unauthorized" : "Widget endpoint failed",
         res.status >= 500,
@@ -158,7 +128,7 @@ async function fetchWidget(
       id,
       widget: {
         id,
-        status: statusForPayload(payload, definition.statusDefault),
+        status: statusForWidgetPayload(payload, definition.statusDefault),
         value: payload.value ?? definition.label,
         hint: payload.hint ?? "",
         raw: payload.raw,
@@ -169,7 +139,7 @@ async function fetchWidget(
     };
   } catch (error) {
     const timeout = error instanceof Error && error.name === "TimeoutError";
-    const batchError = safeError(
+    const batchError = safeWidgetBatchError(
       timeout ? "PROVIDER_TIMEOUT" : "WIDGET_FETCH_FAILED",
       timeout ? "Widget provider timed out" : "Widget fetch failed",
       true,
@@ -206,7 +176,7 @@ export async function POST(req: Request) {
   }
 
   const fetchedAt = new Date().toISOString();
-  const widgetIds = dedupe(parsed.data.widgetIds);
+  const widgetIds = dedupeWidgetIds(parsed.data.widgetIds);
   const results = await Promise.all(widgetIds.map((id) => fetchWidget(req, id, parsed.data.location, fetchedAt)));
   const widgets: Record<string, BatchWidget> = {};
   const errors: Record<string, BatchWidgetError> = {};
