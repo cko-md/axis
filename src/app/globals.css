@@ -3357,6 +3357,21 @@ body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
 .cp-popout-nova{width:280px;border-top:2px solid rgba(22,184,243,.5)}
 .cp-nova-resp{padding:12px 14px;font-size:13px;line-height:1.6;color:var(--ink);border-bottom:1px solid var(--line);max-height:160px;overflow-y:auto}
 
+@media (max-width: 560px){
+  .cp-char{right:max(14px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));align-items:flex-end}
+  .mascot-restore{right:max(14px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom))}
+  .cp-popout{position:fixed;right:max(10px,env(safe-area-inset-right));bottom:calc(max(72px,env(safe-area-inset-bottom) + 72px));width:calc(100vw - 20px);max-width:420px;max-height:calc(100dvh - 108px);transform-origin:bottom right}
+  .cp-popout-axiom,.cp-popout-codex,.cp-popout-nova{width:calc(100vw - 20px)}
+  .cp-msgs,.cp-cards{max-height:calc(100dvh - 250px)}
+  .cp-nova-resp{max-height:calc(100dvh - 210px)}
+}
+
+@media (prefers-reduced-motion: reduce){
+  .cp-fig,.cp-popout,.cp-msg,.cp-card,.cp-skel,.cp-dots span,.cp-refresh,.cp-input,.cp-send,.cp-dismiss,.mascot-restore{animation:none!important;transition:none!important}
+  .cp-fig:hover,.cp-fig.is-open{transform:none}
+  .cp-skel{background:var(--surface-2)}
+}
+
 
 /* austere companion forms */
 .mono-core{transform-origin:42px 50px;transform-box:fill-box;animation:monobreath 4.6s ease-in-out infinite}
