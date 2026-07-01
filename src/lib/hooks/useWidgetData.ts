@@ -4,19 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LOCATION, type GeoLocation } from "@/lib/geo/default-location";
 import { getWidgetById } from "@/lib/store/widgets";
 import { createClient } from "@/lib/supabase/client";
+import {
+  widgetCacheRowMatchesDefinition,
+  widgetCacheRowToData,
+  type WidgetCacheRow,
+  type WidgetData,
+} from "@/lib/widgets/cache";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import type { WidgetDataSource, WidgetStatus } from "@/lib/widgets/types";
 
-export type WidgetData = {
-  v: string;
-  k: string;
-  loading?: boolean;
-  error?: boolean;
-  stale?: boolean;
-  fallback?: boolean;
-  updatedAt?: string;
-  raw?: Record<string, unknown>;
-};
+export type { WidgetData } from "@/lib/widgets/cache";
 
 /** Outcome of the last geolocation request — lets callers surface denial/
  *  unavailability to the user instead of silently sitting on the fallback. */
@@ -29,17 +26,6 @@ const FETCHERS: Record<string, string> = {
   air: "/api/widgets/air-quality",
   markets: "/api/widgets/markets",
   run: "/api/widgets/training",
-};
-
-type WidgetCacheRow = {
-  widget_id: string;
-  status: WidgetStatus;
-  value: string | null;
-  hint: string | null;
-  raw: Record<string, unknown> | null;
-  error: Record<string, unknown> | null;
-  fetched_at: string;
-  expires_at: string | null;
 };
 
 type BatchWidget = {
@@ -61,25 +47,6 @@ type BatchResponse = {
 
 function staleHint(hint: string) {
   return hint.endsWith(" · refresh failed") ? hint : `${hint} · refresh failed`;
-}
-
-function isStale(expiresAt: string | null) {
-  if (!expiresAt) return true;
-  return new Date(expiresAt).getTime() <= Date.now();
-}
-
-function cacheRowToWidgetData(row: WidgetCacheRow): WidgetData {
-  const fallback = getWidgetById(row.widget_id);
-  return {
-    v: row.value ?? fallback.value,
-    k: row.hint ?? fallback.hint,
-    raw: row.raw ?? undefined,
-    error: row.status === "error" || Boolean(row.error),
-    stale: isStale(row.expires_at) || row.status === "stale",
-    fallback: row.status === "setup_required" || row.status === "lab" || row.status === "disconnected",
-    loading: false,
-    updatedAt: row.fetched_at,
-  };
 }
 
 function batchWidgetToData(widget: BatchWidget): WidgetData {
@@ -144,14 +111,15 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
 
     supabase
       .from("widget_cache")
-      .select("widget_id,status,value,hint,raw,error,fetched_at,expires_at")
+      .select("widget_id,cache_key,status,value,hint,raw,error,fetched_at,expires_at")
       .in("widget_id", ids)
       .then(({ data: rows }) => {
         if (cancelled || !rows?.length) return;
         setData((current) => {
           const next = { ...current };
           for (const row of rows as WidgetCacheRow[]) {
-            next[row.widget_id] = cacheRowToWidgetData(row);
+            if (!widgetCacheRowMatchesDefinition(row)) continue;
+            next[row.widget_id] = widgetCacheRowToData(row);
           }
           return next;
         });
