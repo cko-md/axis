@@ -136,7 +136,7 @@ Status comes from `src/lib/store/nav.ts`.
 | Calendar | `/api/calendar/*` |
 | Contacts / People | `/api/contacts/*`, `/api/people/*` |
 | Integrations | `/api/integrations/composio/*` |
-| Widgets | `/api/widgets/*` |
+| Widgets | `/api/widgets/*`, including `/api/widgets/batch` for batched widget refreshes |
 | Fund / markets | `/api/fund/*`, `/api/massive/*`, `/api/plaid/*`, `/api/brokerage/*` |
 | AI / search | `/api/ai`, `/api/signals-ai`, `/api/embeddings`, `/api/search/*`, scan routes |
 | Briefing / feeds | `/api/briefing/*`, `/api/feeds/*` |
@@ -154,7 +154,7 @@ Only `/api/cron/daily` and `/api/cron/finance-daily` are scheduled in `vercel.js
 | Production | Command, Dispatch, Schedule, Agenda, Mail, Notes, Control Room |
 | Beta | Objectives, Debrief, Pipeline, Literature, People, Briefing, Fund |
 | Lab | Vitality, Atelier, Listening Vault, Library, Supper Club |
-| Future / blocked | Widget platform hardening, cache-first widget reads, migration-order cleanup, live provider validation, and additional adapter coverage are tracked as follow-up issues rather than claimed as complete here. |
+| Future / blocked | Widget platform validation/polish, cache-first widget behavior hardening, migration-order cleanup, live provider validation, and additional adapter coverage are tracked as follow-up issues rather than claimed as complete here. |
 
 ## Scripts
 
@@ -173,7 +173,7 @@ Only `/api/cron/daily` and `/api/cron/finance-daily` are scheduled in `vercel.js
 
 Agents push branches and open PRs after local checks pass. Vercel preview validation and Sentry review happen after the PR is open; Sentry is not a human pre-push blocker, but it remains required evidence before production merge. Supabase/Tembo validation is required for schema work; this repo does not currently specify Tembo's role.
 
-Merging to `main` triggers the Vercel production deployment. Run `npm run build` locally before merging runtime behavior changes.
+Merging to `main` is the production trigger. This repo also contains `.github/workflows/deploy.yml`, which runs `npx vercel deploy --prod` on pushes to `main`; confirm whether Vercel Git integration, the GitHub Actions workflow, or both are active before approving a production merge. Run `npm run build` locally before merging runtime behavior changes.
 
 ## Project Structure
 
@@ -181,7 +181,7 @@ Merging to `main` triggers the Vercel production deployment. Run `npm run build`
 src/
   app/                  App Router pages and route handlers
   components/           Module UI plus shared layout/nav/theme/ui components
-  lib/                  Provider logic, hooks, stores, Supabase, integrations
+  lib/                  Provider logic, hooks, stores, Supabase, integrations, widget registry
 supabase/migrations/    SQL migrations; ordering must be validated before schema work
 docs/                   Audits, architecture notes, deployment/env docs
 ```
