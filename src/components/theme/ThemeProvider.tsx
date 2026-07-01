@@ -78,8 +78,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-  const openInterfaceStudio = () => setInterfaceStudioOpen(true);
-  const closeInterfaceStudio = () => setInterfaceStudioOpen(false);
+  const openInterfaceStudio = useCallback(() => setInterfaceStudioOpen(true), []);
+  const closeInterfaceStudio = useCallback(() => setInterfaceStudioOpen(false), []);
 
   return (
     <ThemeContext.Provider

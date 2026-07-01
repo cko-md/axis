@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { ACCENT_PRESETS, DEFAULT_INTERFACE_SETTINGS, type AccentPreset, type BodyFace, type Companion, type Density, type DisplayFace, type NotifFeatures, type NotifType, type Presence, type SurfaceTone } from "@/lib/theme/interface-settings";
 import { Seg } from "@/components/ui/Seg";
@@ -69,6 +70,47 @@ function DensityPicker({ value, onChange }: { value: Density; onChange: (d: Dens
 
 export function InterfaceStudioDrawer() {
   const { theme, setTheme, interfaceSettings, setInterfaceSettings, interfaceStudioOpen, closeInterfaceStudio } = useTheme();
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!interfaceStudioOpen) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeInterfaceStudio();
+        return;
+      }
+      if (event.key !== "Tab" || !drawerRef.current) return;
+      const focusable = Array.from(
+        drawerRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocusRef.current?.focus?.();
+    };
+  }, [closeInterfaceStudio, interfaceStudioOpen]);
+
   if (!interfaceStudioOpen) return null;
 
   const resetToDefaults = () => {
@@ -90,18 +132,55 @@ export function InterfaceStudioDrawer() {
     key: k,
     ...ACCENT_PRESETS[k],
   }));
+  const activeAccent = ACCENT_PRESETS[interfaceSettings.accent] ?? ACCENT_PRESETS.gold;
+  const displayLabel = interfaceSettings.displayFace === "instrument" ? "Instrument" : interfaceSettings.displayFace === "playfair" ? "Editorial" : "Grotesk";
+  const bodyLabel = interfaceSettings.bodyFace === "archivo" ? "Archivo" : interfaceSettings.bodyFace === "inter" ? "Inter" : "Plex";
+  const presenceLabel = interfaceSettings.presence === "hide"
+    ? "Hidden"
+    : interfaceSettings.companion === "monolith"
+      ? "Axiom"
+      : interfaceSettings.companion === "deck"
+        ? "Codex"
+        : "Nova";
 
   return (
     <>
       <div className="overlay-backdrop on" onClick={closeInterfaceStudio} aria-hidden />
-      <div className="drawer on" role="dialog" aria-label="Interface Studio">
+      <div className="drawer on" role="dialog" aria-modal="true" aria-label="Interface Studio" ref={drawerRef}>
         <div className="dr-head">
-          <div className="dr-title">Interface Studio</div>
-          <button type="button" className="x" onClick={closeInterfaceStudio} aria-label="Close">
+          <div>
+            <div className="dr-title">Interface Studio</div>
+            <div className="dr-persist">Local only</div>
+          </div>
+          <button type="button" className="x" onClick={closeInterfaceStudio} aria-label="Close" ref={closeButtonRef}>
             ✕
           </button>
         </div>
         <div className="dr-body">
+          <div className="dr-preview" aria-label="Interface preview">
+            <div className="dr-preview-main">
+              <span style={{ background: `linear-gradient(135deg, ${activeAccent.accent}, ${activeAccent.accent2})` }} />
+              <div>
+                <strong>{theme}</strong>
+                <small>{activeAccent.label}</small>
+              </div>
+            </div>
+            <div className="dr-preview-grid">
+              <div>
+                <b>Type</b>
+                <small>{displayLabel} / {bodyLabel}</small>
+              </div>
+              <div>
+                <b>Density</b>
+                <small>{interfaceSettings.density}</small>
+              </div>
+              <div>
+                <b>Presence</b>
+                <small>{presenceLabel}</small>
+              </div>
+            </div>
+          </div>
+
           <div className="dr-sec">Mode</div>
           <Seg options={modes} value={theme} onChange={setTheme} />
 
