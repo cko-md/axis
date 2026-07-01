@@ -4,6 +4,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { WidgetStatus } from "@/lib/widgets/types";
 import { WidgetStatusBadge } from "@/components/widgets/WidgetStatusBadge";
+import { shouldSpinWidgetIcon, WIDGET_MOTION, widgetMotionMode } from "@/components/widgets/widgetMotion";
 
 type Props = {
   title: string;
@@ -56,7 +57,9 @@ export function WidgetShell({
   const interactive = Boolean(onPrimaryAction);
   const updated = formatUpdatedAt(updatedAt);
   const reduceMotion = useReducedMotion();
-  const motionEnabled = !reduceMotion;
+  const motionMode = widgetMotionMode(reduceMotion);
+  const motionEnabled = motionMode === "standard";
+  const spinIcon = shouldSpinWidgetIcon(status, motionMode);
   const stateKey = `${status}-${updatedAt ?? "never"}-${typeof value === "string" ? value : "node"}`;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -81,17 +84,18 @@ export function WidgetShell({
       data-error={error ? "true" : undefined}
       data-lab={lab ? "true" : undefined}
       data-disconnected={disconnected ? "true" : undefined}
+      data-motion={motionMode}
       layout={motionEnabled ? "position" : false}
       initial={motionEnabled ? { opacity: 0, y: 4 } : false}
       animate={motionEnabled ? { opacity: 1, y: 0 } : undefined}
       whileHover={motionEnabled && interactive ? { y: -1 } : undefined}
       whileTap={motionEnabled && interactive ? { scale: 0.995 } : undefined}
-      transition={{ duration: 0.16, ease: "easeOut" }}
+      transition={WIDGET_MOTION.shellEntry}
     >
       <motion.div
         className="widget-shell-icon"
-        animate={motionEnabled && (status === "loading" || status === "refreshing") ? { rotate: 360 } : { rotate: 0 }}
-        transition={{ duration: 1.2, ease: "linear", repeat: motionEnabled && (status === "loading" || status === "refreshing") ? Infinity : 0 }}
+        animate={spinIcon ? { rotate: 360 } : { rotate: 0 }}
+        transition={{ ...WIDGET_MOTION.iconRefresh, repeat: spinIcon ? Infinity : 0 }}
       >
         {icon}
       </motion.div>
@@ -105,7 +109,7 @@ export function WidgetShell({
           className="widget-shell-value"
           initial={motionEnabled ? { opacity: 0.72, y: status === "fresh" || status === "live" ? 3 : 0 } : false}
           animate={motionEnabled ? { opacity: 1, y: 0 } : undefined}
-          transition={{ duration: 0.2, ease: "easeOut" }}
+          transition={WIDGET_MOTION.valueEntry}
         >
           {value}
         </motion.div>

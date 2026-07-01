@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import type { WidgetStatus } from "@/lib/widgets/types";
+import { shouldAnimateWidgetStatus, WIDGET_MOTION, widgetMotionMode } from "@/components/widgets/widgetMotion";
 
 export const WIDGET_STATUS_LABELS: Record<WidgetStatus, string> = {
   fresh: "Fresh",
@@ -28,17 +29,20 @@ export function widgetStatusLabel(status: WidgetStatus) {
 
 export function WidgetStatusBadge({ status, className = "" }: Props) {
   const reduceMotion = useReducedMotion();
-  const shouldPulse = !reduceMotion && (status === "refreshing" || status === "loading" || status === "error");
+  const motionMode = widgetMotionMode(reduceMotion);
+  const shouldPulse = shouldAnimateWidgetStatus(status, motionMode);
+  const transition = status === "error" ? WIDGET_MOTION.statusErrorPulse : WIDGET_MOTION.statusPulse;
 
   return (
     <motion.span
       key={status}
       className={`widget-status-badge widget-status-${status} ${className}`.trim()}
       data-status={status}
+      data-motion={motionMode}
       aria-label={`Widget status: ${WIDGET_STATUS_LABELS[status]}`}
-      initial={reduceMotion ? false : { opacity: 0.72 }}
+      initial={motionMode === "reduced" ? false : { opacity: 0.72 }}
       animate={shouldPulse ? { opacity: [0.78, 1, 0.78] } : { opacity: 1 }}
-      transition={{ duration: status === "error" ? 1.3 : 1, repeat: shouldPulse ? Infinity : 0, ease: "easeInOut" }}
+      transition={{ ...transition, repeat: shouldPulse ? Infinity : 0 }}
     >
       {WIDGET_STATUS_LABELS[status]}
     </motion.span>

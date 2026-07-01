@@ -1820,7 +1820,10 @@ html.light .card::after {
   }
 
   .widget-shell,
-  .widget-status-badge {
+  .widget-status-badge,
+  .widget-action-trigger,
+  .widget-action-item,
+  .widget-detail-close {
     transition: none;
   }
 }
