@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import { getWidgetById } from "@/lib/store/widgets";
 import type { WidgetData } from "@/lib/hooks/useWidgetData";
 import { WidgetActionMenu, WidgetDetailDrawer, WidgetShell } from "@/components/widgets";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import type { WidgetStatus } from "@/lib/widgets/types";
 
@@ -230,9 +231,9 @@ export function WidgetGrid({
                     <strong>{value}</strong>
                   </div>
                   {live?.error ? (
-                    <div className="widget-detail-error">
+                    <StatusCallout kind={live.stale ? "stale" : "error"} className="widget-detail-error">
                       {live.stale ? "The drawer is showing the last known widget state." : "The latest widget refresh failed."}
-                    </div>
+                    </StatusCallout>
                   ) : null}
                 </WidgetDetailDrawer>
               </Fragment>

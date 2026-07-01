@@ -1782,11 +1782,72 @@ html.light .card::after {
 
 .widget-detail-error {
   margin-top: 12px;
-  border: 1px solid color-mix(in srgb, var(--clay) 42%, transparent);
+}
+
+.status-callout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
   border-radius: var(--r);
-  color: var(--clay);
+  background: var(--glass);
+  color: var(--ink-muted);
   padding: 10px 12px;
   font-size: 12px;
+}
+
+.status-callout-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.status-callout-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.status-callout strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.status-callout-message {
+  line-height: 1.45;
+}
+
+.status-callout-action {
+  flex: none;
+}
+
+.status-callout-error {
+  border-color: color-mix(in srgb, var(--clay) 42%, transparent);
+  color: var(--clay);
+  background: color-mix(in srgb, var(--clay) 8%, var(--glass));
+}
+
+.status-callout-stale,
+.status-callout-setup_required {
+  border-color: color-mix(in srgb, var(--gold) 36%, transparent);
+  color: var(--gold-2);
+  background: color-mix(in srgb, var(--gold) 7%, var(--glass));
+}
+
+.status-callout-success {
+  border-color: color-mix(in srgb, var(--up) 34%, transparent);
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 7%, var(--glass));
+}
+
+.status-callout-disconnected,
+.status-callout-empty,
+.status-callout-info,
+.status-callout-loading {
+  border-color: var(--line);
 }
 
 .widget-detail-footer {
