@@ -40,6 +40,7 @@ export function AppShell({ section, page, children }: Props) {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isNight, setIsNight] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const autoCollapsedRef = useRef(false);
   const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
 
@@ -51,6 +52,14 @@ export function AppShell({ section, page, children }: Props) {
     check();
     const id = setInterval(check, 60000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduceMotion(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
@@ -106,7 +115,7 @@ export function AppShell({ section, page, children }: Props) {
       <div className="depthfield" aria-hidden>
         <div className="wash" /><div className="aurora" /><div className="aurora2" />
         <div className="haze" /><div className="fall" /><div className="vig" />
-        {isNight && <div className="stars" />}
+        {isNight && !reduceMotion && <div className="stars" />}
       </div>
       <div className="grain" aria-hidden />
       <div className={`app-shell mode-${sidebarMode}`}>
