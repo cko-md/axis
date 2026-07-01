@@ -12,6 +12,54 @@ const DENSITY_OPTIONS: { value: Density; label: string; rows: number[]; gap: num
   { value: "compact", label: "Compact", rows: [1, 0.65, 0.45], gap: 4,  pad: 7  },
 ];
 
+const DISPLAY_FACE_OPTIONS: { value: DisplayFace; label: string; sample: string; note: string; style: string }[] = [
+  {
+    value: "instrument",
+    label: "Instrument",
+    sample: "AXIS",
+    note: "Architectural default",
+    style: 'var(--font-serif), "Fraunces", Georgia, serif',
+  },
+  {
+    value: "playfair",
+    label: "Editorial",
+    sample: "Signal",
+    note: "Reading-forward serif",
+    style: 'var(--font-playfair), "Playfair Display", Georgia, serif',
+  },
+  {
+    value: "grotesk",
+    label: "Grotesk",
+    sample: "Command",
+    note: "Technical display",
+    style: 'var(--font-grotesk), "Space Grotesk", var(--font-narrow), sans-serif',
+  },
+];
+
+const BODY_FACE_OPTIONS: { value: BodyFace; label: string; sample: string; note: string; style: string }[] = [
+  {
+    value: "archivo",
+    label: "Archivo",
+    sample: "A precise dashboard body for dense daily scanning.",
+    note: "Default system voice",
+    style: 'var(--font-sans), "Archivo", -apple-system, sans-serif',
+  },
+  {
+    value: "inter",
+    label: "Inter",
+    sample: "A neutral body face tuned for product interfaces.",
+    note: "Modern utility",
+    style: 'var(--font-inter), "Inter", -apple-system, sans-serif',
+  },
+  {
+    value: "plex",
+    label: "Plex",
+    sample: "A slightly engineered rhythm for notes and data.",
+    note: "Analytical tone",
+    style: 'var(--font-plex), "IBM Plex Sans", -apple-system, sans-serif',
+  },
+];
+
 function DensityPicker({ value, onChange }: { value: Density; onChange: (d: Density) => void }) {
   return (
     <div style={{ display: "flex", gap: 7 }}>
@@ -61,6 +109,37 @@ function DensityPicker({ value, onChange }: { value: Density; onChange: (d: Dens
             }}>
               {opt.label}
             </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FontFacePicker<T extends DisplayFace | BodyFace>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: string; sample: string; note: string; style: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="font-cards">
+      {options.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={active ? "font-card on" : "font-card"}
+            onClick={() => onChange(option.value)}
+            aria-pressed={active}
+          >
+            <span className="font-card-k">{option.label}</span>
+            <strong style={{ fontFamily: option.style }}>{option.sample}</strong>
+            <small>{option.note}</small>
           </button>
         );
       })}
@@ -220,23 +299,15 @@ export function InterfaceStudioDrawer() {
           />
 
           <div className="dr-sec">Display Face</div>
-          <Seg<DisplayFace>
-            options={[
-              { label: "Instrument", value: "instrument" },
-              { label: "Playfair", value: "playfair" },
-              { label: "Grotesk", value: "grotesk" },
-            ]}
+          <FontFacePicker<DisplayFace>
+            options={DISPLAY_FACE_OPTIONS}
             value={interfaceSettings.displayFace}
             onChange={(displayFace) => setInterfaceSettings((s) => ({ ...s, displayFace }))}
           />
 
           <div className="dr-sec">Body Face</div>
-          <Seg<BodyFace>
-            options={[
-              { label: "Archivo", value: "archivo" },
-              { label: "Inter", value: "inter" },
-              { label: "Plex", value: "plex" },
-            ]}
+          <FontFacePicker<BodyFace>
+            options={BODY_FACE_OPTIONS}
             value={interfaceSettings.bodyFace}
             onChange={(bodyFace) => setInterfaceSettings((s) => ({ ...s, bodyFace }))}
           />

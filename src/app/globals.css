@@ -3109,6 +3109,14 @@ html.light .pav{background:conic-gradient(from 200deg,#c8d2de,#f8fbff,#b8c3d0,#e
 .dr-range{width:100%;accent-color:var(--accent)}
 .swatches{display:flex;gap:9px;flex-wrap:wrap}
 .swatches button{width:32px;height:32px;border-radius:var(--r);border:2px solid transparent;cursor:pointer;transition:.15s}.swatches button:hover{transform:scale(1.08)}.swatches button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg),0 0 0 4px currentColor}
+.font-cards{display:grid;grid-template-columns:1fr;gap:8px}
+.font-card{width:100%;text-align:left;border:1px solid var(--line);border-radius:var(--rl);background:var(--glass);box-shadow:0 1px 0 var(--edge) inset;padding:10px 11px;cursor:pointer;color:var(--ink-dim);transition:border-color .14s,background .14s,color .14s,box-shadow .14s}
+.font-card:hover{border-color:var(--line-strong);background:var(--glass-2);color:var(--ink)}
+.font-card.on{border-color:color-mix(in srgb,var(--accent) 70%,var(--line));background:color-mix(in srgb,var(--accent) 10%,var(--glass));box-shadow:0 1px 0 var(--edge) inset,0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
+.font-card-k{display:block;font-family:var(--narrow);font-weight:600;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px}
+.font-card.on .font-card-k{color:var(--accent)}
+.font-card strong{display:block;font-size:22px;line-height:1.04;font-weight:500;color:var(--ink);letter-spacing:0;overflow-wrap:anywhere}
+.font-card small{display:block;margin-top:6px;font-family:var(--mono);font-size:8.5px;line-height:1.35;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
 
 /* ── interface studio drawer ── */
 .overlay-backdrop{position:fixed;inset:0;z-index:61;background:rgba(5,6,8,.6);backdrop-filter:blur(5px);display:none;animation:fade .25s ease}
