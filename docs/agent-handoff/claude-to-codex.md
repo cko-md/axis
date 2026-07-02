@@ -62,15 +62,22 @@ MAIL-3 rebuilds `MessagePanel` into a document-style reader (serif title, sender
 
 - DISP-1 routing reliability + visible failures: PR #102, branch `claude/phase-4-disp-1-routing-reliability` (stacked on MAIL-5). Closed remaining silent-failure gaps: signals/routes read errors surface via `loadError` + StatusCallout with Retry (a failed read no longer falls into the demo-seed insert path); capture failures restore the draft; delete (signal + route) confirm-gated with result toasts; route update/enable/delete result-driven; mark-read/rename failures toast; new Sentry ops `capture_signal`/`delete_signal`; `useSignalRoutes.test.ts` covers routeMatches/findMatchingRoute. Local gates: tsc/lint/test (28 files, 218 tests) passed; build deferred to Vercel preview. DISP specs live in `docs/linear/axis-mvp-issues.md` (DISP-1..4; there is no DISP-5 in the repo plan).
 
+- DISP-2 console widgets navigable: PR #103, branch `claude/phase-4-disp-2-widget-drilldowns` (stacked on DISP-1). The six dead Console tiles (sleep/hrv/heartrate/vo2max/hydration → navigate `/vitality`; location → open-drawer like weather/air) now click through to a real destination. New pure `resolveWidgetTileActivation` + a `widget-grid-model.test.ts` "no dead tiles" guard over the whole registry. tsc/lint/test (28 files, 220 tests) passed.
+
+- DISP-3 retire duplicate routes: PR #104, branch `claude/phase-4-disp-3-retire-duplicate-routes` (stacked on DISP-2). `/console`→`/command` and `/signals`→`/dispatch` via `permanentRedirect` (308); repointed middleware/home/auth-callback/login/404 landing refs straight at canonical routes. tsc/lint/test (28 files, 220 tests) passed.
+
+- DISP-4 command palette + quick-search coverage: PR #105, branch `claude/phase-4-disp-4-command-palette-coverage` (stacked on DISP-3). Fixed palette `--surface-1` (undefined) background bug; added missing New Task command; extracted `command-palette-model.ts` + coverage guard test (every nav route + core creates reachable); quick-search route now records/report `partial` failed sources with a safe Sentry warning and SearchWidget surfaces "some sources unavailable". Known deferred: per-record deep-open from search results belongs to per-module detail issues. tsc/lint/test (29 files, 224 tests) passed.
+
+DISP-1..4 are the full Dispatch/Command project (no DISP-5). Next project: AGENDA-1..5.
+
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after DISP-1 and continue the full phase-based hardening plan sequentially:
+Resume from the next uncompleted issue after DISP-4 and continue the full phase-based hardening plan sequentially:
 
-1. DISP-2 through DISP-4 (specs in `docs/linear/axis-mvp-issues.md`; the repo plan has no DISP-5).
-2. AGENDA-1 through AGENDA-5.
-3. CAL-1 through CAL-5.
-4. NOTES-1 through NOTES-5.
-5. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
+1. AGENDA-1 through AGENDA-5.
+2. CAL-1 through CAL-5.
+3. NOTES-1 through NOTES-5.
+4. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 
