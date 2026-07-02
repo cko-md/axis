@@ -6,7 +6,7 @@ import type { WidgetData } from "@/lib/hooks/useWidgetData";
 import { WidgetActionMenu, WidgetDetailDrawer, WidgetShell } from "@/components/widgets";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
-import type { WidgetStatus } from "@/lib/widgets/types";
+import { widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
 
 type WidgetTexts = Record<string, { v: string; k: string }>;
 
@@ -85,29 +85,6 @@ function WidgetSecondLine({ id, raw }: { id: string; raw?: Record<string, unknow
     return <div className="tb-raw">{String(raw.km)} km this week · {Number(raw.streak) > 0 ? `${raw.streak}-day streak` : "no active streak"}</div>;
   }
   return null;
-}
-
-function widgetRuntimeStatus(id: string, live: { loading?: boolean; error?: boolean; stale?: boolean; updatedAt?: string } | undefined, catalogLive?: boolean): WidgetStatus {
-  const definition = getWidgetDefinition(id);
-  if (live?.loading && live.updatedAt) return "refreshing";
-  if (live?.loading) return "loading";
-  if (live?.error && live.stale) return "stale";
-  if (live?.error) return "error";
-  if (live?.stale) return "stale";
-  if (live?.updatedAt) return "fresh";
-  if (definition?.statusDefault) return definition.statusDefault;
-  return catalogLive === false ? "lab" : "setup_required";
-}
-
-function statusLabel(status: WidgetStatus) {
-  if (status === "fresh") return "Fresh";
-  if (status === "loading" || status === "refreshing") return "Refreshing";
-  if (status === "stale") return "Stale";
-  if (status === "error") return "Error";
-  if (status === "lab") return "Lab";
-  if (status === "disconnected") return "Disconnected";
-  if (status === "empty") return "Empty";
-  return "Setup";
 }
 
 export function WidgetGrid({
@@ -239,7 +216,7 @@ export function WidgetGrid({
               </Fragment>
             );
           }
-          const label = statusLabel(status);
+          const label = widgetLegacyStatusLabel(status);
           return (
             <div
               key={`${id}-${i}`}
