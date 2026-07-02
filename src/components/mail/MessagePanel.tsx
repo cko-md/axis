@@ -188,6 +188,14 @@ export function MessagePanel({
     <div className="mail-doc" role="region" aria-label={`Message: ${subject}`}>
       <style>{`
         .mail-doc {
+          /* HTML email is authored against a light canvas, so the paper
+             palette is intentionally fixed across all four themes. Chrome
+             around it always follows the theme tokens. */
+          --mail-paper: #fbfaf7;
+          --mail-paper-ink: #1c1a16;
+          --mail-paper-link: #1d4ed8;
+          --mail-paper-line: #d5cfc2;
+          --mail-paper-dim: #5c574d;
           position: absolute;
           inset: 0;
           background: var(--bg);
@@ -286,6 +294,7 @@ export function MessagePanel({
           color: var(--ink);
           margin: 0 0 18px;
           overflow-wrap: anywhere;
+          text-wrap: balance;
         }
         .mail-doc-identity {
           display: flex;
@@ -359,7 +368,7 @@ export function MessagePanel({
           overflow: hidden;
         }
         .mail-doc-page.paper {
-          background: #fbfaf7;
+          background: var(--mail-paper);
           box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 12px 34px rgba(0, 0, 0, 0.22);
         }
         .mail-doc-page.plain {
@@ -368,18 +377,22 @@ export function MessagePanel({
         .mail-message-body {
           overflow-wrap: anywhere;
           word-break: normal;
-          color: #1c1a16;
+          color: var(--mail-paper-ink);
+          /* Neutral client stack: unstyled HTML mail should read like classic
+             email on paper, not inherit the app's display face. */
+          font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
           line-height: 1.6;
           padding: clamp(18px, 4vw, 40px);
         }
-        .mail-message-body a { color: #1d4ed8; text-decoration: underline; }
+        .mail-message-body a { color: var(--mail-paper-link); text-decoration: underline; }
         .mail-message-body img { max-width: 100%; height: auto; border-radius: 6px; }
         .mail-message-body table { max-width: 100%; border-collapse: collapse; }
+        .mail-message-body h1, .mail-message-body h2, .mail-message-body h3 { line-height: 1.3; }
         .mail-message-body blockquote {
-          border-left: 3px solid #d5cfc2;
+          border-left: 3px solid var(--mail-paper-line);
           margin-left: 0;
           padding-left: 12px;
-          color: #5c574d;
+          color: var(--mail-paper-dim);
         }
         .mail-message-body pre { white-space: pre-wrap; overflow-x: auto; }
         .mail-doc-plainbody {
@@ -392,9 +405,9 @@ export function MessagePanel({
           overflow-wrap: anywhere;
         }
         .mail-external-note {
-          border: 1px dashed #d5cfc2;
+          border: 1px dashed var(--mail-paper-line);
           border-radius: 8px;
-          color: #5c574d;
+          color: var(--mail-paper-dim);
           font-size: 12px;
           margin: 0 0 14px;
           padding: 10px 12px;
@@ -406,6 +419,16 @@ export function MessagePanel({
           font-size: 12px;
           color: var(--ink);
           flex-shrink: 0;
+        }
+        /* Light theme: the paper page sits on a light ground, so the heavy
+           dark-theme shadow reads as a smudge — soften it and lean on the
+           stronger line instead. Same for the action menu. */
+        html.light .mail-doc-page.paper {
+          border-color: var(--line-strong);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 10px 26px rgba(0, 0, 0, 0.1);
+        }
+        html.light .mail-doc-menu {
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
         }
         @media (max-width: 760px) {
           .mail-doc-secondary { display: none; }

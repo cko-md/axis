@@ -32,7 +32,7 @@ export function AddAccountPicker({
     textAlign: "left",
   };
   const hoverProps = {
-    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; },
+    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "var(--glass-2)"; },
     onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = "none"; },
   };
   const connect = (toolkit: "gmail" | "outlook") => {
@@ -49,7 +49,7 @@ export function AddAccountPicker({
         top: "100%",
         right: 0,
         zIndex: 20,
-        background: "var(--surface, #181818)",
+        background: "var(--surface-2)",
         border: "1px solid var(--line)",
         borderRadius: 8,
         padding: "6px",
