@@ -52,18 +52,21 @@ MAIL-1 checks already run locally and passed: `npx tsc --noEmit`, `npm run lint`
 
 MAIL-2 replaces text-only Mail loading states with structured status/inbox/message skeletons and adds a persistent message-detail error panel with Retry/Back that preserves safe provider/account/message context. MAIL-2 checks already run locally and passed: `npx tsc --noEmit`, `npm run lint`, `npm run test` (25 files, 189 tests), and `npm run build`.
 
+- Phase 4 MAIL-3 premium message document viewer: PR #99, branch `claude/phase-4-mail-3-premium-document-viewer` (stacked on MAIL-2).
+
+MAIL-3 rebuilds `MessagePanel` into a document-style reader (serif title, sender identity block with tone-stable avatar initials, explicit timestamp, centered 820px article, light paper page for HTML mail / themed page for plain text, Aa text-size cycle persisted as a device display pref, token-based chrome with Reply as primary action) and extracts sanitize/format/sender helpers into `src/lib/mail/reader.ts` with unit tests; detail skeleton and error panel mirror the layout. Purely presentational above `MailMessageFull` — provider parity and capability gating unchanged. Local gates passed: `npx tsc --noEmit`, `npm run lint`, `npm run test` (26 files, 204 tests). `npm run build` was not run locally this session — verify via the Vercel preview build before merge.
+
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after MAIL-2 and continue the full phase-based hardening plan sequentially:
+Resume from the next uncompleted issue after MAIL-3 and continue the full phase-based hardening plan sequentially:
 
-1. MAIL-3: Premium message document viewer.
-2. MAIL-4: Mobile action menu and keyboard pass.
-3. MAIL-5: Theme and typography QA for mail reader.
-4. DISP-1 through DISP-5.
-5. AGENDA-1 through AGENDA-5.
-6. CAL-1 through CAL-5.
-7. NOTES-1 through NOTES-5.
-8. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
+1. MAIL-4: Mobile action menu and keyboard pass.
+2. MAIL-5: Theme and typography QA for mail reader.
+3. DISP-1 through DISP-5.
+4. AGENDA-1 through AGENDA-5.
+5. CAL-1 through CAL-5.
+6. NOTES-1 through NOTES-5.
+7. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 
