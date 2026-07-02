@@ -12,6 +12,7 @@ import { AddAccountPicker } from "./AddAccountPicker";
 import { ComposeModal, type ComposeDraft } from "./ComposeModal";
 import { MessagePanel } from "./MessagePanel";
 import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
+import { parseSenderParts } from "@/lib/mail/reader";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -77,12 +78,6 @@ function formatDate(dateStr: string): string {
   if (days === 1) return "yesterday";
   if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function parseSenderName(from: string): string {
-  const match = from.match(/^([^<]+)</);
-  if (match) return match[1].trim();
-  return from.replace(/<[^>]+>/, "").trim() || from;
 }
 
 function abbreviateEmail(email: string, maxLen = 12): string {
@@ -170,31 +165,56 @@ function MessageDetailSkeleton() {
       style={{
         position: "absolute",
         inset: 0,
-        background: "var(--surface, #0f0f0f)",
+        background: "var(--bg)",
         display: "flex",
         flexDirection: "column",
         zIndex: 10,
       }}
     >
-      <div style={{ display: "flex", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", gap: 10, padding: "10px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
         <Skeleton width={64} height={22} />
         <span style={{ flex: 1 }} />
-        <Skeleton width={76} height={24} borderRadius={6} />
-        <Skeleton width={58} height={24} borderRadius={6} />
-        <Skeleton width={70} height={24} borderRadius={6} />
+        <Skeleton width={76} height={24} borderRadius={3} />
+        <Skeleton width={58} height={24} borderRadius={3} />
+        <Skeleton width={70} height={24} borderRadius={3} />
       </div>
-      <div style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 8 }}>
-        <Skeleton width="62%" height={18} />
-        <Skeleton width="38%" height={12} />
-        <Skeleton width="26%" height={12} />
-      </div>
-      <div style={{ flex: 1, padding: 16 }}>
-        <div style={{ background: "#fff", borderRadius: 8, minHeight: "100%", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-          <Skeleton width="88%" height={14} />
-          <Skeleton width="96%" height={14} />
-          <Skeleton width="74%" height={14} />
-          <Skeleton width="91%" height={14} />
-          <Skeleton width="52%" height={14} />
+      <div style={{ flex: 1, overflow: "hidden", padding: "26px 20px" }}>
+        <div style={{ maxWidth: 820, margin: "0 auto" }}>
+          <Skeleton width="68%" height={26} style={{ marginBottom: 20 }} />
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "flex-start",
+              paddingBottom: 18,
+              marginBottom: 20,
+              borderBottom: "1px solid var(--line)",
+            }}
+          >
+            <Skeleton width={40} height={40} borderRadius={999} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+              <Skeleton width="34%" height={13} />
+              <Skeleton width="26%" height={11} />
+            </div>
+            <Skeleton width={140} height={11} />
+          </div>
+          <div
+            style={{
+              border: "1px solid var(--line)",
+              borderRadius: 7,
+              background: "var(--surface-2)",
+              padding: 28,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <Skeleton width="88%" height={14} />
+            <Skeleton width="96%" height={14} />
+            <Skeleton width="74%" height={14} />
+            <Skeleton width="91%" height={14} />
+            <Skeleton width="52%" height={14} />
+          </div>
         </div>
       </div>
     </div>
@@ -217,13 +237,13 @@ function MessageDetailErrorPanel({
       style={{
         position: "absolute",
         inset: 0,
-        background: "var(--surface, #0f0f0f)",
+        background: "var(--bg)",
         display: "flex",
         flexDirection: "column",
         zIndex: 10,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
         <button
           type="button"
           onClick={onBack}
@@ -239,7 +259,7 @@ function MessageDetailErrorPanel({
           {detail.message.subject || "(no subject)"}
         </div>
         <div style={{ color: "var(--ink-dim)", fontSize: 12 }}>
-          {parseSenderName(detail.message.from) || "Unknown sender"} · {detail.message.accountEmail}
+          {parseSenderParts(detail.message.from).name || "Unknown sender"} · {detail.message.accountEmail}
         </div>
       </div>
       <div style={{ padding: 16, maxWidth: 720 }}>
@@ -327,7 +347,7 @@ function MessageRow({
             textOverflow: "ellipsis",
           }}
         >
-          {parseSenderName(msg.from) || "Unknown"}
+          {parseSenderParts(msg.from).name || "Unknown"}
         </span>
         <span
           style={{
