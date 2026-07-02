@@ -83,6 +83,7 @@ export function useSignalRoutes() {
   const supabase = useMemo(() => createClient(), []);
   const [routes, setRoutes] = useState<SignalRoute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -95,11 +96,18 @@ export function useSignalRoutes() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("signal_routes")
       .select("*")
       .eq("user_id", user.id)
       .order("sort_order", { ascending: true });
+    if (error) {
+      // Missing rules silently degrade triage to AI-only routing — surface it.
+      setLoadError("Could not load routing rules.");
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     setRoutes((data ?? []) as SignalRoute[]);
     setLoading(false);
   }, [supabase]);
@@ -145,13 +153,17 @@ export function useSignalRoutes() {
       .eq("id", id)
       .select()
       .single();
-    if (!error && data) setRoutes((prev) => prev.map((r) => (r.id === id ? (data as SignalRoute) : r)));
+    if (error || !data) return null;
+    setRoutes((prev) => prev.map((r) => (r.id === id ? (data as SignalRoute) : r)));
+    return data as SignalRoute;
   }, [supabase]);
 
   const deleteRoute = useCallback(async (id: string) => {
-    await supabase.from("signal_routes").delete().eq("id", id);
+    const { error } = await supabase.from("signal_routes").delete().eq("id", id);
+    if (error) return false;
     setRoutes((prev) => prev.filter((r) => r.id !== id));
+    return true;
   }, [supabase]);
 
-  return { routes, loading, refresh, addRoute, updateRoute, deleteRoute };
+  return { routes, loading, loadError, refresh, addRoute, updateRoute, deleteRoute };
 }

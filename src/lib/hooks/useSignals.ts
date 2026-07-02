@@ -102,6 +102,7 @@ export function useSignals() {
   const supabase = useMemo(() => createClient(), []);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -112,7 +113,15 @@ export function useSignals() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase.from("signals").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("signals").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+    if (error) {
+      // A failed read must never fall through to the seed path (it would
+      // re-insert demo rows) or silently blank the list — surface it instead.
+      setLoadError("Could not load signals.");
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     if (!data?.length) {
       const inserts = SEED.map((s) => ({ ...s, user_id: user.id }));
       const { data: seeded } = await supabase.from("signals").insert(inserts).select();
@@ -181,10 +190,12 @@ export function useSignals() {
 
   const deleteSignal = useCallback(async (id: string) => {
     const { error } = await supabase.from("signals").delete().eq("id", id);
-    if (!error) setSignals((prev) => prev.filter((s) => s.id !== id));
+    if (error) return false;
+    setSignals((prev) => prev.filter((s) => s.id !== id));
+    return true;
   }, [supabase]);
 
-  return { signals, loading, refresh, capture, updateSignal, deleteSignal, markRead, routeTo, applyClassification };
+  return { signals, loading, loadError, refresh, capture, updateSignal, deleteSignal, markRead, routeTo, applyClassification };
 }
 
 export function filterSignals(signals: Signal[], chip: string) {

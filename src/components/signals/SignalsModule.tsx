@@ -29,6 +29,7 @@ import { triageSignalToTask, useTasks, type TaskCategory, type TaskPriority } fr
 import { useNotes } from "@/lib/hooks/useNotes";
 import { normalizeName, triageSignalToPerson, usePeople } from "@/lib/hooks/usePeople";
 import { Modal } from "@/components/ui/Modal";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import styles from "./SignalsModule.module.css";
@@ -172,7 +173,7 @@ function routeFailureMessage(destination: RouteDestination) {
 function captureDispatchFailure(
   error: unknown,
   context: {
-    op: "route_signal" | "triage_signal" | "manage_signal" | "scan_platform";
+    op: "route_signal" | "triage_signal" | "manage_signal" | "scan_platform" | "capture_signal" | "delete_signal";
     signal?: Pick<Signal, "id" | "signal_type" | "source">;
     phase: "detail" | "batch" | "toolbar";
     destination?: RouteDestination;
@@ -225,8 +226,8 @@ function applyChip(signals: Signal[], chip: Chip) {
 }
 
 export function SignalsModule() {
-  const { signals, loading, capture, markRead, routeTo, updateSignal, deleteSignal, applyClassification, refresh: refreshSignals } = useSignals();
-  const { routes, addRoute, updateRoute, deleteRoute } = useSignalRoutes();
+  const { signals, loading, loadError, capture, markRead, routeTo, updateSignal, deleteSignal, applyClassification, refresh: refreshSignals } = useSignals();
+  const { routes, loadError: routesLoadError, addRoute, updateRoute, deleteRoute } = useSignalRoutes();
   const { addTask } = useTasks();
   const { createNote, updateNote } = useNotes();
   const { people, addPerson, updatePerson } = usePeople();
@@ -553,7 +554,14 @@ export function SignalsModule() {
     if (!text) return;
     setDraft("");
     const created = await capture(text, "action", "capture");
-    if (created) toast("Signal captured", "success", "Signals");
+    if (created) {
+      toast("Signal captured", "success", "Signals");
+      return;
+    }
+    // Never silently drop typed input — restore the draft so nothing is lost.
+    setDraft(text);
+    captureDispatchFailure(new Error("Signal capture insert failed"), { op: "capture_signal", phase: "toolbar" });
+    toast("Could not capture signal. Your text was restored.", "error", "Dispatch");
   };
 
   if (loading) return (
@@ -568,7 +576,9 @@ export function SignalsModule() {
         className={s.read_at ? "check done" : "check"}
         onClick={(e) => {
           e.stopPropagation();
-          markRead(s.id);
+          void markRead(s.id).then((updated) => {
+            if (!updated) toast("Could not mark signal read.", "error", "Dispatch");
+          });
         }}
       />
       <div className="task-main">
@@ -579,7 +589,11 @@ export function SignalsModule() {
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => setEditTitle(e.target.value)}
             onBlur={() => {
-              if (editTitle.trim() && editTitle !== s.title) updateSignal(s.id, { title: editTitle.trim() });
+              if (editTitle.trim() && editTitle !== s.title) {
+                void updateSignal(s.id, { title: editTitle.trim() }).then((updated) => {
+                  if (!updated) toast("Could not rename signal.", "error", "Dispatch");
+                });
+              }
               setEditingId(null);
             }}
             onKeyDown={(e) => {
@@ -608,7 +622,18 @@ export function SignalsModule() {
       </div>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); deleteSignal(s.id); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!window.confirm("Delete this signal permanently?")) return;
+          void deleteSignal(s.id).then((deleted) => {
+            if (deleted) {
+              toast("Signal deleted.", "success", "Dispatch");
+            } else {
+              captureDispatchFailure(new Error("Signal delete failed"), { op: "delete_signal", signal: s, phase: "detail" });
+              toast("Could not delete signal.", "error", "Dispatch");
+            }
+          });
+        }}
         title="Delete signal"
         style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0 }}
       >
@@ -649,6 +674,22 @@ export function SignalsModule() {
           </button>
         ))}
       </div>
+
+      {loadError && (
+        <div style={{ margin: "0 0 12px" }}>
+          <StatusCallout
+            kind="error"
+            title="Signals could not be loaded"
+            actionSlot={
+              <button type="button" className="savebtn" onClick={() => { void refreshSignals(); }}>
+                Retry
+              </button>
+            }
+          >
+            {loadError} {signals.length > 0 ? "Showing the last loaded signals." : ""}
+          </StatusCallout>
+        </div>
+      )}
 
       <div className="card">
         {filtered.length === 0 ? (
@@ -838,6 +879,7 @@ export function SignalsModule() {
         open={routesOpen}
         onClose={() => setRoutesOpen(false)}
         routes={routes}
+        loadError={routesLoadError}
         addRoute={addRoute}
         updateRoute={updateRoute}
         deleteRoute={deleteRoute}
@@ -852,6 +894,7 @@ type RoutesModalProps = {
   open: boolean;
   onClose: () => void;
   routes: SignalRoute[];
+  loadError: string | null;
   addRoute: ReturnType<typeof useSignalRoutes>["addRoute"];
   updateRoute: ReturnType<typeof useSignalRoutes>["updateRoute"];
   deleteRoute: ReturnType<typeof useSignalRoutes>["deleteRoute"];
@@ -871,7 +914,7 @@ const TYPE_OPTS: { id: "" | SignalType; label: string }[] = [
   { id: "fyi", label: "FYI" },
 ];
 
-function RoutesModal({ open, onClose, routes, addRoute, updateRoute, deleteRoute }: RoutesModalProps) {
+function RoutesModal({ open, onClose, routes, loadError, addRoute, updateRoute, deleteRoute }: RoutesModalProps) {
   const { toast } = useToast();
   const [editing, setEditing] = useState<SignalRoute | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -928,11 +971,13 @@ function RoutesModal({ open, onClose, routes, addRoute, updateRoute, deleteRoute
       auto_route: autoRoute,
     };
     if (editing) {
-      await updateRoute(editing.id, input);
-      toast("Route updated", "success", "Routes");
+      const updated = await updateRoute(editing.id, input);
+      toast(updated ? "Route updated" : "Could not update route", updated ? "success" : "error", "Routes");
+      if (!updated) return; // keep the form open so edits aren't lost
     } else {
       const r = await addRoute(input);
       toast(r ? "Route created" : "Could not create route", r ? "success" : "error", "Routes");
+      if (!r) return;
     }
     resetForm();
   };
@@ -977,6 +1022,12 @@ function RoutesModal({ open, onClose, routes, addRoute, updateRoute, deleteRoute
         Match a signal by keyword, type, or source and send it to a destination at a chosen priority. Enable{" "}
         <em>auto-route</em> to apply during AI triage all.
       </p>
+
+      {loadError && (
+        <StatusCallout kind="error" title="Routing rules unavailable">
+          {loadError} Rule-based routing is paused until they load — AI triage will use its own suggestions.
+        </StatusCallout>
+      )}
 
       {showForm && (
         <div style={{ borderBottom: "1px solid var(--line)", paddingBottom: 14, marginBottom: 14 }}>
@@ -1051,7 +1102,15 @@ function RoutesModal({ open, onClose, routes, addRoute, updateRoute, deleteRoute
               <div className={styles.routeMeta}>{summarise(r)}</div>
             </div>
             <div className={styles.routeActions}>
-              <button type="button" className={styles.iconBtn} onClick={() => updateRoute(r.id, { enabled: !r.enabled })}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => {
+                  void updateRoute(r.id, { enabled: !r.enabled }).then((updated) => {
+                    if (!updated) toast("Could not update route", "error", "Routes");
+                  });
+                }}
+              >
                 {r.enabled ? "Disable" : "Enable"}
               </button>
               <button type="button" className={styles.iconBtn} onClick={() => startEdit(r)}>
@@ -1061,8 +1120,10 @@ function RoutesModal({ open, onClose, routes, addRoute, updateRoute, deleteRoute
                 type="button"
                 className={`${styles.iconBtn} ${styles.danger}`}
                 onClick={() => {
-                  deleteRoute(r.id);
-                  toast("Route deleted", "success", "Routes");
+                  if (!window.confirm(`Delete the route “${r.label}”?`)) return;
+                  void deleteRoute(r.id).then((deleted) => {
+                    toast(deleted ? "Route deleted" : "Could not delete route", deleted ? "success" : "error", "Routes");
+                  });
                 }}
               >
                 Delete
