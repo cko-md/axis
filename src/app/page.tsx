@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default async function HomePage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (user) redirect("/console");
+  if (user) redirect("/command");
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--ink)" }}>

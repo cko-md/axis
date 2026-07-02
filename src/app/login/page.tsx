@@ -53,7 +53,7 @@ function LoginForm() {
 
   function getRedirectUrl() {
     const redirect = searchParams.get('redirect');
-    return redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/console';
+    return redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/command';
   }
 
   function handleMFASuccess() {

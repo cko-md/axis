@@ -1,10 +1,8 @@
-import { AppShell } from "@/components/layout/AppShell";
-import { SignalsModule } from "@/components/signals/SignalsModule";
+import { permanentRedirect } from "next/navigation";
 
+// `/signals` is a legacy duplicate of the canonical `/dispatch` route (both
+// rendered the same SignalsModule). Retired to a single canonical route so the
+// module never mounts under two URLs. 308 permanent redirect (DISP-3).
 export default function SignalsPage() {
-  return (
-    <AppShell section="Daily" page="Signals">
-      <SignalsModule />
-    </AppShell>
-  );
+  permanentRedirect("/dispatch");
 }

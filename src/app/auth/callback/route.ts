@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const redirect = searchParams.get("redirect") ?? "/console";
+  const redirect = searchParams.get("redirect") ?? "/command";
   // Only allow same-origin paths — prevents open redirects
-  const next = redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/console";
+  const next = redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/command";
 
   if (code) {
     const supabase = await createClient();
