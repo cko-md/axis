@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { taskRingProgress, widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
+import {
+  CONSOLE_SECTION_DRILL_INS,
+  taskRingProgress,
+  widgetLegacyStatusLabel,
+  widgetRuntimeStatus,
+} from "@/components/console/widget-grid-model";
 
 describe("WidgetGrid model", () => {
   it("prioritizes runtime loading/error/stale states over defaults", () => {
@@ -37,5 +42,13 @@ describe("WidgetGrid model", () => {
       label: "1 / 2",
       strokeDashoffset: 88,
     });
+  });
+
+  it("declares routes for data-backed Console drill-in sections", () => {
+    expect(CONSOLE_SECTION_DRILL_INS["dispatch-block"]).toEqual({ href: "/dispatch", label: "Open Dispatch" });
+    expect(CONSOLE_SECTION_DRILL_INS["todays-arc"]).toEqual({ href: "/schedule", label: "Open Schedule" });
+    expect(CONSOLE_SECTION_DRILL_INS["focus-ranked"]).toEqual({ href: "/agenda", label: "Open Agenda" });
+    expect(CONSOLE_SECTION_DRILL_INS["people-spotlight"]).toEqual({ href: "/people", label: "Open People" });
+    expect(CONSOLE_SECTION_DRILL_INS["markets-body"]).toEqual({ href: "/fund/market", label: "Open Markets" });
   });
 });

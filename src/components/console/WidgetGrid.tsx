@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { useRouter } from "next/navigation";
 import { getWidgetById } from "@/lib/store/widgets";
 import type { WidgetData } from "@/lib/hooks/useWidgetData";
 import { WidgetActionMenu, WidgetDetailDrawer, WidgetShell } from "@/components/widgets";
@@ -105,6 +106,8 @@ export function WidgetGrid({
   onRefreshAll,
   onToast,
 }: Props) {
+  const router = useRouter();
+
   return (
     <div style={{ paddingTop: 4 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginBottom: "var(--space-2)" }}>
@@ -130,7 +133,8 @@ export function WidgetGrid({
           const hint = editing ? (texts?.k ?? live?.k ?? w.hint) : (live?.k ?? texts?.k ?? w.hint);
           const status = widgetRuntimeStatus(id, live, w.live);
           const shellIcon = definition?.icon ?? <WidgetIcon id={id} />;
-          if (id === "weather") {
+          const primaryAction = definition?.primaryAction;
+          if (primaryAction?.kind === "open-drawer") {
             const drawerOpen = detailWidgetId === id;
             return (
               <Fragment key={`${id}-${i}`}>
@@ -217,13 +221,32 @@ export function WidgetGrid({
             );
           }
           const label = widgetLegacyStatusLabel(status);
+          const routeHref = primaryAction?.kind === "navigate" ? primaryAction.href : undefined;
+          const handlePrimaryAction = () => {
+            if (editing) return;
+            if (routeHref) {
+              router.push(routeHref);
+              return;
+            }
+            onExpandedWidgetChange(expandedWidget === id ? null : id);
+          };
           return (
             <div
               key={`${id}-${i}`}
               className="tb"
               style={{ position: "relative", cursor: editing ? "default" : "pointer" }}
-              onClick={() => !editing && onExpandedWidgetChange(expandedWidget === id ? null : id)}
-              title={expandedWidget === id ? "Click to collapse" : "Click to expand · double-click refreshes"}
+              role={editing ? undefined : "button"}
+              tabIndex={editing ? undefined : 0}
+              aria-label={routeHref ? primaryAction?.label : expandedWidget === id ? `Collapse ${w.label}` : `Expand ${w.label}`}
+              onClick={handlePrimaryAction}
+              onKeyDown={(e) => {
+                if (editing) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handlePrimaryAction();
+                }
+              }}
+              title={routeHref ? primaryAction?.label : expandedWidget === id ? "Click to collapse" : "Click to expand · double-click refreshes"}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 onRefreshOne(id);

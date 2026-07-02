@@ -49,3 +49,14 @@ export function taskRingProgress(tasks: Array<{ status: string }>) {
     strokeDashoffset: Math.round(TASK_RING_CIRCUMFERENCE * (1 - ratio)),
   };
 }
+
+export const CONSOLE_SECTION_DRILL_INS = {
+  "dispatch-block": { href: "/dispatch", label: "Open Dispatch" },
+  "todays-arc": { href: "/schedule", label: "Open Schedule" },
+  "focus-ranked": { href: "/agenda", label: "Open Agenda" },
+  "people-spotlight": { href: "/people", label: "Open People" },
+  "markets-body": { href: "/fund/market", label: "Open Markets" },
+  "daily-rings": { href: "/agenda", label: "Open Agenda" },
+} as const;
+
+export type ConsoleDrillInSection = keyof typeof CONSOLE_SECTION_DRILL_INS;

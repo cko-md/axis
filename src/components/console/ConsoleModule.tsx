@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import {
   DndContext,
@@ -32,7 +33,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ConsoleCaptureBar } from "@/components/console/ConsoleCaptureBar";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
-import { taskRingProgress } from "@/components/console/widget-grid-model";
+import { CONSOLE_SECTION_DRILL_INS, taskRingProgress, type ConsoleDrillInSection } from "@/components/console/widget-grid-model";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { isSignalActionable, isSignalVisible, useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
@@ -270,6 +271,21 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
       </div>
       {children}
     </motion.div>
+  );
+}
+
+function SectionDrillIn({ section }: { section: ConsoleDrillInSection }) {
+  const drillIn = CONSOLE_SECTION_DRILL_INS[section];
+
+  return (
+    <Link
+      href={drillIn.href}
+      className="feed-manage"
+      aria-label={drillIn.label}
+      style={{ marginLeft: 6, textDecoration: "none" }}
+    >
+      Open
+    </Link>
   );
 }
 
@@ -656,7 +672,7 @@ export function ConsoleModule() {
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
       <Card tick>
-        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">Tasks live · labs/disconnected</span></h2>
+        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">Tasks live · labs/disconnected</span><SectionDrillIn section="daily-rings" /></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
             <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" style={{ strokeDashoffset: 326.7 }} />
@@ -678,7 +694,7 @@ export function ConsoleModule() {
   const todaysArcSection = (
     <DraggableBlock key="todays-arc" id="todays-arc">
       <Card tick>
-        <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">{arcEvents.length || "Schedule"}</span></h2>
+        <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">{arcEvents.length || "Schedule"}</span><SectionDrillIn section="todays-arc" /></h2>
         {arcEvents.length === 0 ? (
           <p style={{ marginTop: 12, color: "var(--ink-faint)", fontSize: 12 }}>No events scheduled for today. Add events on the Schedule page.</p>
         ) : (
@@ -699,7 +715,7 @@ export function ConsoleModule() {
   const focusRankedSection = (
     <DraggableBlock key="focus-ranked" id="focus-ranked">
       <Card>
-        <h2 className="sec">Focus · Ranked<span className="rule" /><span className="count">Top {topTasks.length || 3}</span></h2>
+        <h2 className="sec">Focus · Ranked<span className="rule" /><span className="count">Top {topTasks.length || 3}</span><SectionDrillIn section="focus-ranked" /></h2>
         <div style={{ marginTop: 14 }}>
           {topTasks.length === 0 ? (
             <p style={{ color: "var(--ink-faint)", fontSize: 12 }}>Add tasks in Agenda to populate ranked focus.</p>
@@ -761,6 +777,7 @@ export function ConsoleModule() {
           <span className="count">
             {liveData.markets?.error ? "Stale" : liveData.markets?.updatedAt ? "Live" : "Setup required"}
           </span>
+          <SectionDrillIn section="markets-body" />
         </h2>
         <div style={{ marginTop: 12 }}>
           <div className="metricrow"><span className="metric-k">Markets</span><span className="metric-v">{liveData.markets?.v ?? "—"}</span></div>
@@ -782,6 +799,7 @@ export function ConsoleModule() {
           <span className="count" style={{ color: unread > 0 ? "var(--clay)" : "var(--up)" }}>
             {unread > 0 ? `${unread} unread` : "Clear"}
           </span>
+          <SectionDrillIn section="dispatch-block" />
           {actionable.length > 3 && (
             <button
               type="button"
@@ -925,6 +943,7 @@ export function ConsoleModule() {
           <span className="count" style={{ color: duePeople.length > 0 ? "var(--clay)" : "var(--up)" }}>
             {duePeople.length > 0 ? `${duePeople.length} due` : "All good"}
           </span>
+          <SectionDrillIn section="people-spotlight" />
         </h2>
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
           {duePeople.length === 0 ? (
