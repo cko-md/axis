@@ -51,7 +51,7 @@ MAIL-1 checks already run locally and passed: `npx tsc --noEmit`, `npm run lint`
 
 ## 6. Where Claude should resume
 
-Resume from the next Phase 4 issue after MAIL-1:
+Resume from the next uncompleted issue after MAIL-1 and continue the full phase-based hardening plan sequentially:
 
 1. MAIL-2: Inbox/message skeletons and detail error retry state.
 2. MAIL-3: Premium message document viewer.
@@ -61,6 +61,7 @@ Resume from the next Phase 4 issue after MAIL-1:
 6. AGENDA-1 through AGENDA-5.
 7. CAL-1 through CAL-5.
 8. NOTES-1 through NOTES-5.
+9. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 
@@ -75,15 +76,18 @@ High-priority reminders for Phase 4:
 ## 7. Copy-paste Claude continuation prompt
 
 ```txt
-Read AGENTS.md, docs/agent-handoff/claude-to-codex.md, docs/architecture/integration-adapters.md, and the Phase 4 section of the pasted project plan if available.
+Read AGENTS.md, docs/agent-handoff/claude-to-codex.md, docs/architecture/integration-adapters.md, and the full initial phase-based hardening plan/pasted project plan if available.
 
 Current stack status:
 - Phase 0–3 are pushed as draft PRs #62–#96.
-- MAIL-1 is complete and pushed as draft PR #97 on branch codex/phase-4-mail-1-provider-parity-validation, commit c775921.
+- MAIL-1 is complete and pushed as draft PR #97 on branch codex/phase-4-mail-1-provider-parity-validation, latest commit b03c95a.
 - MAIL-1 local gates passed: npx tsc --noEmit, npm run lint, npm run test, npm run build.
 
-Continue with the next Phase 4 issue only:
-MAIL-2: Inbox/message skeletons and detail error retry state.
+Continue through the whole phase-based hardening plan sequentially, one Codex/Claude-sized issue at a time:
+- Start with the next uncompleted issue: MAIL-2, Inbox/message skeletons and detail error retry state.
+- After MAIL-2, continue MAIL-3, MAIL-4, MAIL-5, then DISP-1..5, AGENDA-1..5, CAL-1..5, NOTES-1..5.
+- After Phase 4, continue Phase 5 and every later phase from the initial plan in order.
+- Do not skip ahead unless the plan explicitly says an issue is complete or blocked.
 
 Follow AXIS rules exactly:
 - one Linear issue → one branch → one PR
@@ -92,16 +96,16 @@ Follow AXIS rules exactly:
 - do not log or expose email bodies, tokens, OAuth payloads, or private content
 - provider/network/DB failures must be visible to the user and observable through safe Sentry metadata
 - no schema changes unless a migration and RLS review are included
+- hold production merge/deploy until explicit user approval and the preview/Supabase/Sentry/manual gates pass
 
-Implement MAIL-2 end to end:
-- inspect current MailModule, MessagePanel, mail API routes, adapter contract, and existing tests first
-- improve inbox/message loading skeletons
-- add a detail error retry state that preserves account/provider/transport context
-- ensure partial account failures remain visible and do not blank the whole inbox
+For each issue:
+- inspect the relevant files and current behavior before editing
+- implement the complete vertical slice for that issue
 - add focused tests where practical
 - run npx tsc --noEmit, npm run lint, npm run test, and npm run build
-- push the branch and open a draft PR stacked on PR #97’s branch unless instructed otherwise
-- include Vercel preview validation steps and Sentry validation requirements in the PR
+- push the branch and open a draft PR stacked on the previous issue branch unless instructed otherwise
+- include Vercel preview validation steps, Supabase/Tembo impact, Sentry validation requirements, and a manual checklist in the PR
+- then proceed to the next issue in the plan
 
 End with the required agent final response format from AGENTS.md.
 ```
