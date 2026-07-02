@@ -60,11 +60,13 @@ MAIL-3 rebuilds `MessagePanel` into a document-style reader (serif title, sender
 
 - Phase 4 MAIL-5 theme/typography QA: PR #101, branch `claude/phase-4-mail-5-theme-typography-qa` (stacked on MAIL-4). Fixed two Light-theme bugs in `AddAccountPicker` (hardcoded `#181818` panel bg, white hover); paper palette centralized as `--mail-paper-*`; light-theme shadow/border refinements; neutral email font stack for HTML bodies; new `theme-qa.test.ts` enforces a raw-color allowlist across all mail components. Local gates: tsc/lint/test (27 files, 212 tests) passed; build deferred to Vercel preview.
 
+- DISP-1 routing reliability + visible failures: PR #102, branch `claude/phase-4-disp-1-routing-reliability` (stacked on MAIL-5). Closed remaining silent-failure gaps: signals/routes read errors surface via `loadError` + StatusCallout with Retry (a failed read no longer falls into the demo-seed insert path); capture failures restore the draft; delete (signal + route) confirm-gated with result toasts; route update/enable/delete result-driven; mark-read/rename failures toast; new Sentry ops `capture_signal`/`delete_signal`; `useSignalRoutes.test.ts` covers routeMatches/findMatchingRoute. Local gates: tsc/lint/test (28 files, 218 tests) passed; build deferred to Vercel preview. DISP specs live in `docs/linear/axis-mvp-issues.md` (DISP-1..4; there is no DISP-5 in the repo plan).
+
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after MAIL-5 and continue the full phase-based hardening plan sequentially:
+Resume from the next uncompleted issue after DISP-1 and continue the full phase-based hardening plan sequentially:
 
-1. DISP-1 through DISP-5.
+1. DISP-2 through DISP-4 (specs in `docs/linear/axis-mvp-issues.md`; the repo plan has no DISP-5).
 2. AGENDA-1 through AGENDA-5.
 3. CAL-1 through CAL-5.
 4. NOTES-1 through NOTES-5.
