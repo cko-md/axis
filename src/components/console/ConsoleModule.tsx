@@ -1204,7 +1204,7 @@ export function ConsoleModule() {
           onDragEnd={handleDragEnd}
         >
           <SortableContext items={sectionOrder} strategy={rectSortingStrategy}>
-            <div className="console-grid">
+            <div className="console-grid" data-testid="console-grid">
               {sectionOrder.map((id) => sectionMap[id])}
             </div>
           </SortableContext>
