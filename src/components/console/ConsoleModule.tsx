@@ -32,6 +32,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ConsoleCaptureBar } from "@/components/console/ConsoleCaptureBar";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
+import { taskRingProgress } from "@/components/console/widget-grid-model";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { isSignalActionable, isSignalVisible, useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
@@ -650,26 +651,22 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
-  const tasksDone  = tasks.filter((t) => t.status === "done").length;
-  const tasksTotal = Math.max(tasks.length, 8);
-  const tasksPct   = Math.min(tasksDone / tasksTotal, 1);
-  // r3 circumference = 2π × 28 ≈ 175.9
-  const r3Offset   = Math.round(175.9 * (1 - tasksPct));
+  const taskRing = taskRingProgress(tasks);
 
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
       <Card tick>
-        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">Tasks live · labs disconnected</span></h2>
+        <h2 className="sec">Daily Rings<span className="rule" /><span className="count">Tasks live · labs/disconnected</span></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
             <circle className="rbg" cx="60" cy="60" r="52" /><circle className="rfg r1" cx="60" cy="60" r="52" style={{ strokeDashoffset: 326.7 }} />
             <circle className="rbg" cx="60" cy="60" r="40" /><circle className="rfg r2" cx="60" cy="60" r="40" style={{ strokeDashoffset: 251.3 }} />
-            <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" style={{ strokeDashoffset: r3Offset }} />
+            <circle className="rbg" cx="60" cy="60" r="28" /><circle className="rfg r3" cx="60" cy="60" r="28" style={{ strokeDashoffset: taskRing.strokeDashoffset }} />
           </svg>
           <div className="rings-legend">
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">Lab · no source</span></div>
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">Disconnected · Strava</span></div>
-            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--marine)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{tasksDone} / {tasksTotal}</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--accent)" }} /><span className="rl-name">Deep work</span><span className="rl-v">Lab · no persisted source</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--up)" }} /><span className="rl-name">Movement</span><span className="rl-v">Disconnected · connect Strava</span></div>
+            <div className="rl-row"><span className="rl-dot" style={{ background: "var(--marine)" }} /><span className="rl-name">Tasks</span><span className="rl-v">{taskRing.label}</span></div>
           </div>
         </div>
       </Card>
@@ -728,7 +725,7 @@ export function ConsoleModule() {
   const weeklyDevotionalSection = (
     <DraggableBlock key="weekly-devotional" id="weekly-devotional">
       <Card tick className="devo">
-        <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional · Static local · Day 4/7</div>
+        <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional · Static local reference</div>
         <div className="verse">&ldquo;Whatever you do, work heartily, as for the Lord and not for men.&rdquo;</div>
         <div className="ref">COLOSSIANS 3:23 · ESV</div>
       </Card>

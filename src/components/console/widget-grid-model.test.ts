@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
+import { taskRingProgress, widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
 
 describe("WidgetGrid model", () => {
   it("prioritizes runtime loading/error/stale states over defaults", () => {
@@ -21,5 +21,21 @@ describe("WidgetGrid model", () => {
     expect(widgetLegacyStatusLabel("fresh")).toEqual("Fresh");
     expect(widgetLegacyStatusLabel("refreshing")).toEqual("Refreshing");
     expect(widgetLegacyStatusLabel("setup_required")).toEqual("Setup");
+  });
+
+  it("uses actual task counts for the task progress ring", () => {
+    expect(taskRingProgress([])).toMatchObject({
+      done: 0,
+      total: 0,
+      label: "No tasks",
+      strokeDashoffset: 176,
+    });
+
+    expect(taskRingProgress([{ status: "done" }, { status: "open" }])).toMatchObject({
+      done: 1,
+      total: 2,
+      label: "1 / 2",
+      strokeDashoffset: 88,
+    });
   });
 });

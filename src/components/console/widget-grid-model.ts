@@ -1,6 +1,8 @@
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import type { WidgetStatus } from "@/lib/widgets/types";
 
+const TASK_RING_CIRCUMFERENCE = 175.9;
+
 type WidgetRuntimeFlags = {
   loading?: boolean;
   error?: boolean;
@@ -33,4 +35,17 @@ export function widgetLegacyStatusLabel(status: WidgetStatus) {
   if (status === "disconnected") return "Disconnected";
   if (status === "empty") return "Empty";
   return "Setup";
+}
+
+export function taskRingProgress(tasks: Array<{ status: string }>) {
+  const done = tasks.filter((task) => task.status === "done").length;
+  const total = tasks.length;
+  const ratio = total > 0 ? Math.min(done / total, 1) : 0;
+
+  return {
+    done,
+    total,
+    label: total > 0 ? `${done} / ${total}` : "No tasks",
+    strokeDashoffset: Math.round(TASK_RING_CIRCUMFERENCE * (1 - ratio)),
+  };
 }
