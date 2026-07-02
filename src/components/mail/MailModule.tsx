@@ -5,6 +5,8 @@ import type { MailAttachment, MailMessage, MailMessageFull } from "@/lib/mail/gm
 import { getCapabilities, type ProviderCapabilities } from "@/lib/integrations/registry";
 import type { IntegrationTransport } from "@/lib/integrations/types";
 import { useToast } from "@/components/ui/Toast";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { ProviderDot, ProviderBadge } from "./ProviderBadges";
 import { AddAccountPicker } from "./AddAccountPicker";
 import { ComposeModal, type ComposeDraft } from "./ComposeModal";
@@ -37,6 +39,11 @@ type MailInboxResponse = {
 type SortMode = "date" | "priority";
 type AccountFilter = "all" | string; // "all" or a specific mailEmail
 type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
+type MessageDetailError = {
+  message: MailMessage;
+  error: string;
+  code?: string;
+};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -108,6 +115,156 @@ function supportsAction(caps: ProviderCapabilities | undefined, action: MailMess
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
+
+function InboxSkeleton({ rows = 7 }: { rows?: number }) {
+  return (
+    <div role="status" aria-label="Loading inbox" style={{ borderTop: "1px solid var(--line)" }}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <div
+          key={index}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "8px 1fr auto",
+            gap: "0 10px",
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--line)",
+          }}
+        >
+          <Skeleton width={7} height={7} borderRadius={999} style={{ marginTop: 5 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 0 }}>
+            <Skeleton width={index % 2 === 0 ? "44%" : "56%"} height={13} />
+            <Skeleton width={index % 3 === 0 ? "72%" : "84%"} height={12} />
+            <Skeleton width="92%" height={12} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
+            <Skeleton width={48} height={11} />
+            <Skeleton width={54} height={18} borderRadius={999} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MailStatusSkeleton() {
+  return (
+    <>
+      <div className="divider" />
+      <div style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <Skeleton width={72} height={18} />
+          <Skeleton width={92} height={22} borderRadius={999} />
+          <Skeleton width={108} height={22} borderRadius={999} />
+        </div>
+        <InboxSkeleton rows={5} />
+      </div>
+    </>
+  );
+}
+
+function MessageDetailSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading message"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "var(--surface, #0f0f0f)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 10,
+      }}
+    >
+      <div style={{ display: "flex", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <Skeleton width={64} height={22} />
+        <span style={{ flex: 1 }} />
+        <Skeleton width={76} height={24} borderRadius={6} />
+        <Skeleton width={58} height={24} borderRadius={6} />
+        <Skeleton width={70} height={24} borderRadius={6} />
+      </div>
+      <div style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 8 }}>
+        <Skeleton width="62%" height={18} />
+        <Skeleton width="38%" height={12} />
+        <Skeleton width="26%" height={12} />
+      </div>
+      <div style={{ flex: 1, padding: 16 }}>
+        <div style={{ background: "#fff", borderRadius: 8, minHeight: "100%", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton width="88%" height={14} />
+          <Skeleton width="96%" height={14} />
+          <Skeleton width="74%" height={14} />
+          <Skeleton width="91%" height={14} />
+          <Skeleton width="52%" height={14} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageDetailErrorPanel({
+  detail,
+  retrying,
+  onBack,
+  onRetry,
+}: {
+  detail: MessageDetailError;
+  retrying: boolean;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "var(--surface, #0f0f0f)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 10,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <button
+          type="button"
+          onClick={onBack}
+          style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", padding: "4px 0", fontSize: 13 }}
+        >
+          ← Back
+        </button>
+        <span style={{ flex: 1 }} />
+        <ProviderBadge provider={detail.message.provider} />
+      </div>
+      <div style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
+        <div style={{ color: "var(--ink)", fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
+          {detail.message.subject || "(no subject)"}
+        </div>
+        <div style={{ color: "var(--ink-dim)", fontSize: 12 }}>
+          {parseSenderName(detail.message.from) || "Unknown sender"} · {detail.message.accountEmail}
+        </div>
+      </div>
+      <div style={{ padding: 16, maxWidth: 720 }}>
+        <StatusCallout
+          kind="error"
+          title="Message could not be loaded"
+          actionSlot={
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retrying}
+              className="feed-manage"
+              style={{ opacity: retrying ? 0.6 : 1 }}
+            >
+              {retrying ? "Retrying..." : "Retry"}
+            </button>
+          }
+        >
+          {detail.error}
+          {detail.code ? <span style={{ display: "block", marginTop: 6, color: "var(--ink-faint)" }}>Code: {detail.code}</span> : null}
+        </StatusCallout>
+      </div>
+    </div>
+  );
+}
 
 function MessageRow({
   msg,
@@ -229,6 +386,7 @@ export function MailModule() {
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [selected, setSelected] = useState<MailMessageFull | null>(null);
   const [loadingMsg, setLoadingMsg] = useState(false);
+  const [detailError, setDetailError] = useState<MessageDetailError | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("date");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
   const [query, setQuery] = useState("");
@@ -358,6 +516,7 @@ export function MailModule() {
   const removeLocalMessage = useCallback((msg: Pick<MailMessage, "id" | "provider" | "accountEmail">) => {
     setMessages((prev) => prev.filter((item) => !sameMessage(item, msg)));
     setSelected((prev) => (prev && sameMessage(prev, msg) ? null : prev));
+    setDetailError((prev) => (prev && sameMessage(prev.message, msg) ? null : prev));
   }, []);
 
   const runMessageAction = useCallback(async (
@@ -492,13 +651,15 @@ export function MailModule() {
     }
   }, [toast]);
 
-  const openMessage = async (msg: MailMessage) => {
+  const openMessage = useCallback(async (msg: MailMessage) => {
+    setDetailError(null);
+    setSelected(null);
     setLoadingMsg(true);
     try {
       const res = await fetch(
         `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
       );
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({} as { error?: string; code?: string }));
       if (res.ok && mountedRef.current) {
         const fullMessage = data as MailMessageFull;
         setSelected(fullMessage);
@@ -506,14 +667,20 @@ export function MailModule() {
           void runMessageAction(fullMessage, "mark-read", { automatic: true });
         }
       } else if (mountedRef.current) {
-        toast(data.error ?? "Couldn't open that message.", "error", "Mail");
+        const error = typeof data.error === "string" ? data.error : "Couldn't open that message.";
+        setDetailError({ message: msg, error, code: typeof data.code === "string" ? data.code : undefined });
+        toast(error, "error", "Mail");
       }
     } catch {
-      if (mountedRef.current) toast("Network error loading message.", "error", "Mail");
+      if (mountedRef.current) {
+        const error = "Network error loading message.";
+        setDetailError({ message: msg, error, code: "network" });
+        toast(error, "error", "Mail");
+      }
     } finally {
       if (mountedRef.current) setLoadingMsg(false);
     }
-  };
+  }, [runMessageAction, toast]);
 
   const disconnect = async (acct: MailAccount) => {
     // Composio-connected accounts disconnect through Composio (toolkit == provider);
@@ -533,6 +700,7 @@ export function MailModule() {
     );
     setMessages((prev) => prev.filter((m) => m.accountEmail !== acct.mailEmail));
     setSelected((prev) => (prev?.accountEmail === acct.mailEmail ? null : prev));
+    setDetailError((prev) => (prev?.message.accountEmail === acct.mailEmail ? null : prev));
     if (accountFilter === acct.mailEmail) setAccountFilter("all");
     toast("Mailbox disconnected.", "success", "Mail");
     refreshMailStatus();
@@ -601,14 +769,7 @@ export function MailModule() {
   }
 
   if (!statusLoaded) {
-    return (
-      <>
-        <div className="divider" />
-        <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
-          Loading…
-        </div>
-      </>
-    );
+    return <MailStatusSkeleton />;
   }
 
   return (
@@ -892,9 +1053,7 @@ export function MailModule() {
         {/* Message list */}
         <div style={{ flex: 1, overflow: "auto" }}>
           {loading && visibleMessages.length === 0 ? (
-            <div style={{ padding: 32, textAlign: "center", color: "var(--ink-dim)", fontSize: "13px" }}>
-              Loading…
-            </div>
+            <InboxSkeleton rows={8} />
           ) : inboxNotice && messages.length === 0 ? (
             <div style={{ padding: 32, textAlign: "center", color: "var(--clay)", fontSize: "13px" }}>
               {inboxNotice}
@@ -916,22 +1075,14 @@ export function MailModule() {
         </div>
 
         {/* Message detail overlay */}
-        {loadingMsg && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "var(--surface, #0f0f0f)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 10,
-              fontSize: "13px",
-              color: "var(--ink-dim)",
-            }}
-          >
-            Loading message…
-          </div>
+        {loadingMsg && <MessageDetailSkeleton />}
+        {detailError && !loadingMsg && (
+          <MessageDetailErrorPanel
+            detail={detailError}
+            retrying={loadingMsg}
+            onBack={() => setDetailError(null)}
+            onRetry={() => { void openMessage(detailError.message); }}
+          />
         )}
         {selected && !loadingMsg && (
           <MessagePanel
