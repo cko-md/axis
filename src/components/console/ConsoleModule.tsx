@@ -255,19 +255,22 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
         <button
           type="button"
           onClick={() => toggle(id)}
-          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", fontSize: 13, lineHeight: 1, padding: "2px 3px", borderRadius: "var(--r)" }}
+          className="console-block-control"
+          aria-label={`Resize ${id.replace(/-/g, " ")} block. Current size: ${BLOCK_SIZE_LABEL[size]}.`}
           title={`${BLOCK_SIZE_LABEL[size]} — click to resize`}
         >
           {BLOCK_SIZE_GLYPH[size]}
         </button>
-        <div
+        <button
+          type="button"
           {...attributes}
           {...listeners}
-          className="block-drag-handle"
-          title="Drag anywhere on this handle to move the block"
+          className="block-drag-handle console-block-control"
+          aria-label={`Move ${id.replace(/-/g, " ")} block`}
+          title="Drag or use keyboard arrows to move the block"
         >
           <span className="block-drag-grip">⠿</span>
-        </div>
+        </button>
       </div>
       {children}
     </motion.div>
@@ -280,9 +283,8 @@ function SectionDrillIn({ section }: { section: ConsoleDrillInSection }) {
   return (
     <Link
       href={drillIn.href}
-      className="feed-manage"
+      className="feed-manage console-drill-in"
       aria-label={drillIn.label}
-      style={{ marginLeft: 6, textDecoration: "none" }}
     >
       Open
     </Link>
@@ -1095,15 +1097,85 @@ export function ConsoleModule() {
           margin-top: var(--space-3);
           align-items: start;
         }
+        .console-grid h2.sec {
+          flex-wrap: wrap;
+          gap: 6px;
+          min-width: 0;
+        }
+        .console-grid h2.sec .rule {
+          min-width: 24px;
+        }
+        .console-grid h2.sec .count {
+          min-width: 0;
+          white-space: normal;
+          text-align: right;
+        }
+        .console-drill-in {
+          margin-left: 0;
+          text-decoration: none;
+          flex-shrink: 0;
+        }
+        .console-block-control {
+          min-width: 28px;
+          min-height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: none;
+          border: 0;
+          border-radius: var(--r);
+          color: var(--ink-faint);
+          cursor: grab;
+          line-height: 1;
+          padding: 0;
+          touch-action: none;
+        }
+        .console-block-control:first-child {
+          cursor: pointer;
+          font-size: 13px;
+        }
+        .block-controls .block-drag-handle.console-block-control {
+          opacity: 1;
+        }
+        .console-block-control:focus-visible,
+        .console-drill-in:focus-visible,
+        .console-grid .tb:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 3px;
+        }
+        .block-wrap:focus-within .block-controls {
+          opacity: 1;
+        }
         @media (max-width: 900px) {
           .console-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .console-grid > .block-wrap.block-sm { grid-column: span 1; }
           .console-grid > .block-wrap.block-md,
           .console-grid > .block-wrap:not(.block-sm):not(.block-md) { grid-column: 1 / -1; }
+          .console-grid h2.sec .rule {
+            flex-basis: 24px;
+          }
         }
         @media (max-width: 680px) {
           .console-grid { grid-template-columns: 1fr; }
           .console-grid > .block-wrap { grid-column: 1 / -1 !important; }
+          .console-grid h2.sec {
+            align-items: flex-start;
+          }
+          .console-grid h2.sec .count {
+            flex-basis: 100%;
+            order: 3;
+            text-align: left;
+          }
+          .console-drill-in {
+            margin-left: auto;
+          }
+          .block-controls {
+            opacity: 1;
+          }
+          .console-block-control {
+            min-width: 36px;
+            min-height: 36px;
+          }
         }
       `}</style>
       <div className="eyebrow">{formatDateLong()}</div>
