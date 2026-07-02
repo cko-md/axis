@@ -7,7 +7,7 @@ import type { WidgetData } from "@/lib/hooks/useWidgetData";
 import { WidgetActionMenu, WidgetDetailDrawer, WidgetShell } from "@/components/widgets";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
-import { widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
+import { resolveWidgetTileActivation, widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
 
 type WidgetTexts = Record<string, { v: string; k: string }>;
 
@@ -221,7 +221,8 @@ export function WidgetGrid({
             );
           }
           const label = widgetLegacyStatusLabel(status);
-          const routeHref = primaryAction?.kind === "navigate" ? primaryAction.href : undefined;
+          const activation = resolveWidgetTileActivation(id);
+          const routeHref = activation?.kind === "navigate" ? activation.href : undefined;
           const handlePrimaryAction = () => {
             if (editing) return;
             if (routeHref) {
@@ -237,7 +238,7 @@ export function WidgetGrid({
               style={{ position: "relative", cursor: editing ? "default" : "pointer" }}
               role={editing ? undefined : "button"}
               tabIndex={editing ? undefined : 0}
-              aria-label={routeHref ? primaryAction?.label : expandedWidget === id ? `Collapse ${w.label}` : `Expand ${w.label}`}
+              aria-label={routeHref ? activation?.label : expandedWidget === id ? `Collapse ${w.label}` : `Expand ${w.label}`}
               onClick={handlePrimaryAction}
               onKeyDown={(e) => {
                 if (editing) return;
@@ -246,7 +247,7 @@ export function WidgetGrid({
                   handlePrimaryAction();
                 }
               }}
-              title={routeHref ? primaryAction?.label : expandedWidget === id ? "Click to collapse" : "Click to expand · double-click refreshes"}
+              title={routeHref ? activation?.label : expandedWidget === id ? "Click to collapse" : "Click to expand · double-click refreshes"}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 onRefreshOne(id);

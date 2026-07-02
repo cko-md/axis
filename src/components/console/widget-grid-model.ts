@@ -50,6 +50,27 @@ export function taskRingProgress(tasks: Array<{ status: string }>) {
   };
 }
 
+export type WidgetTileActivation =
+  | { kind: "navigate"; href: string; label: string }
+  | { kind: "open-drawer"; label: string };
+
+// How a Console widget tile responds to click / keyboard activation. Every
+// registry widget MUST resolve to a real activation — a tile that can neither
+// navigate to its module nor open a detail drawer is a "dead tile" (DISP-2).
+// Returns null only for unknown ids or a mis-wired primary action, which the
+// widget-grid-model guard test forbids for the shipped registry.
+export function resolveWidgetTileActivation(id: string): WidgetTileActivation | null {
+  const action = getWidgetDefinition(id)?.primaryAction;
+  if (!action) return null;
+  if (action.kind === "navigate" && action.href) {
+    return { kind: "navigate", href: action.href, label: action.label };
+  }
+  if (action.kind === "open-drawer") {
+    return { kind: "open-drawer", label: action.label };
+  }
+  return null;
+}
+
 export const CONSOLE_SECTION_DRILL_INS = {
   "dispatch-block": { href: "/dispatch", label: "Open Dispatch" },
   "todays-arc": { href: "/schedule", label: "Open Schedule" },
