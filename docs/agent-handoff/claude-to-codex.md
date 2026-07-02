@@ -56,17 +56,19 @@ MAIL-2 replaces text-only Mail loading states with structured status/inbox/messa
 
 MAIL-3 rebuilds `MessagePanel` into a document-style reader (serif title, sender identity block with tone-stable avatar initials, explicit timestamp, centered 820px article, light paper page for HTML mail / themed page for plain text, Aa text-size cycle persisted as a device display pref, token-based chrome with Reply as primary action) and extracts sanitize/format/sender helpers into `src/lib/mail/reader.ts` with unit tests; detail skeleton and error panel mirror the layout. Purely presentational above `MailMessageFull` — provider parity and capability gating unchanged. Local gates passed: `npx tsc --noEmit`, `npm run lint`, `npm run test` (26 files, 204 tests). `npm run build` was not run locally this session — verify via the Vercel preview build before merge.
 
+- Phase 4 MAIL-4 mobile action menu + keyboard pass: PR #100, branch `claude/phase-4-mail-4-mobile-actions-keyboard` (stacked on MAIL-3). Secondary reader actions collapse into a "⋯ Actions" menu ≤760px driven by the same descriptor list as the desktop buttons; keyboard shortcuts (j/k/arrows, Enter/o, Esc, /) with pure mapping helpers `mailShortcutForKey`/`isEditableTarget` in `src/lib/mail/reader.ts` + tests. Local gates: tsc/lint/test (26 files, 206 tests) passed; build deferred to Vercel preview.
+
+- Phase 4 MAIL-5 theme/typography QA: PR #101, branch `claude/phase-4-mail-5-theme-typography-qa` (stacked on MAIL-4). Fixed two Light-theme bugs in `AddAccountPicker` (hardcoded `#181818` panel bg, white hover); paper palette centralized as `--mail-paper-*`; light-theme shadow/border refinements; neutral email font stack for HTML bodies; new `theme-qa.test.ts` enforces a raw-color allowlist across all mail components. Local gates: tsc/lint/test (27 files, 212 tests) passed; build deferred to Vercel preview.
+
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after MAIL-3 and continue the full phase-based hardening plan sequentially:
+Resume from the next uncompleted issue after MAIL-5 and continue the full phase-based hardening plan sequentially:
 
-1. MAIL-4: Mobile action menu and keyboard pass.
-2. MAIL-5: Theme and typography QA for mail reader.
-3. DISP-1 through DISP-5.
-4. AGENDA-1 through AGENDA-5.
-5. CAL-1 through CAL-5.
-6. NOTES-1 through NOTES-5.
-7. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
+1. DISP-1 through DISP-5.
+2. AGENDA-1 through AGENDA-5.
+3. CAL-1 through CAL-5.
+4. NOTES-1 through NOTES-5.
+5. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 
