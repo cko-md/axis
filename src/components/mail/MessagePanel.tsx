@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MailAttachment, MailMessageFull } from "@/lib/mail/gmail";
 import type { MailProvider } from "@/lib/mail/tokens";
 import type { ProviderCapabilities } from "@/lib/integrations/registry";
@@ -58,6 +58,8 @@ export function MessagePanel({
   const [summarizing, setSummarizing] = useState(false);
   const [showExternalContent, setShowExternalContent] = useState(false);
   const [scale, setScale] = useState<ReaderScale>("comfortable");
+  const [showActionMenu, setShowActionMenu] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
   const readAction: MailMessageAction = message.isUnread ? "mark-read" : "mark-unread";
   const readLabel = message.isUnread ? "Mark read" : "Mark unread";
   const unavailableTitle = "Not available for this mailbox connection yet.";
@@ -66,6 +68,19 @@ export function MessagePanel({
   useEffect(() => {
     setScale(loadReaderScale());
   }, []);
+
+  // Close the mobile action menu on outside click (same pattern as the
+  // AddAccountPicker in MailModule).
+  useEffect(() => {
+    if (!showActionMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setShowActionMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showActionMenu]);
 
   const cycleScale = () => {
     setScale((current) => {
@@ -89,6 +104,52 @@ export function MessagePanel({
   const timestamp = formatMessageTimestamp(message.date);
   const scaleConfig = READER_SCALES[scale];
 
+  // One descriptor list drives both the desktop inline buttons and the mobile
+  // overflow menu, so capability gating and busy states can never drift apart.
+  const secondaryActions: Array<{
+    key: string;
+    label: string;
+    onClick: () => void;
+    disabled: boolean;
+    title?: string;
+    danger?: boolean;
+  }> = [
+    ...(onCreateSignal
+      ? [{
+          key: "dispatch",
+          label: creatingSignal ? "Routing..." : "Send to Dispatch",
+          onClick: onCreateSignal,
+          disabled: !!creatingSignal,
+        }]
+      : []),
+    ...(onAction
+      ? [
+          {
+            key: "read",
+            label: busyAction === readAction ? "Saving..." : readLabel,
+            onClick: () => onAction(readAction),
+            disabled: !capabilities?.markRead || !!busyAction,
+            title: capabilities?.markRead ? readLabel : unavailableTitle,
+          },
+          {
+            key: "archive",
+            label: busyAction === "archive" ? "Archiving..." : "Archive",
+            onClick: () => onAction("archive"),
+            disabled: !capabilities?.archive || !!busyAction,
+            title: capabilities?.archive ? "Archive" : unavailableTitle,
+          },
+          {
+            key: "delete",
+            label: busyAction === "delete" ? "Deleting..." : "Delete",
+            onClick: () => onAction("delete"),
+            disabled: !capabilities?.delete || !!busyAction,
+            title: capabilities?.delete ? "Move to trash" : unavailableTitle,
+            danger: true,
+          },
+        ]
+      : []),
+  ];
+
   const summarize = async () => {
     setSummarizing(true);
     try {
@@ -110,6 +171,18 @@ export function MessagePanel({
       setSummarizing(false);
     }
   };
+
+  const allSecondary = [
+    ...secondaryActions,
+    {
+      key: "triage",
+      label: summarizing ? "Triaging…" : "AI Triage",
+      onClick: () => { void summarize(); },
+      disabled: summarizing,
+      title: undefined as string | undefined,
+      danger: false,
+    },
+  ];
 
   return (
     <div className="mail-doc" role="region" aria-label={`Message: ${subject}`}>
@@ -165,6 +238,36 @@ export function MessagePanel({
         }
         .mail-doc-btn.danger { color: var(--status-error); }
         .mail-doc-btn.active { background: var(--accent-subtle); border-color: var(--accent); }
+        .mail-doc-secondary { display: contents; }
+        .mail-doc-more { position: relative; display: none; }
+        .mail-doc-menu {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 6px);
+          background: var(--surface-2);
+          border: 1px solid var(--line-strong);
+          border-radius: var(--rl, 7px);
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+          min-width: 200px;
+          z-index: 30;
+          padding: 4px;
+          display: flex;
+          flex-direction: column;
+        }
+        .mail-doc-menu button {
+          background: none;
+          border: none;
+          text-align: left;
+          color: var(--ink);
+          font-family: var(--sans);
+          font-size: 13px;
+          padding: 9px 10px;
+          border-radius: var(--r, 3px);
+          cursor: pointer;
+        }
+        .mail-doc-menu button:hover:not(:disabled) { background: var(--glass-2); }
+        .mail-doc-menu button:disabled { opacity: 0.5; cursor: default; }
+        .mail-doc-menu button.danger { color: var(--status-error); }
         .mail-doc-scroll {
           flex: 1;
           overflow: auto;
@@ -304,6 +407,13 @@ export function MessagePanel({
           color: var(--ink);
           flex-shrink: 0;
         }
+        @media (max-width: 760px) {
+          .mail-doc-secondary { display: none; }
+          .mail-doc-more { display: block; }
+          .mail-doc-title { font-size: 21px; }
+          .mail-doc-scroll { padding: 18px 12px 44px; }
+          .mail-doc-timestamp { white-space: normal; text-align: right; max-width: 110px; }
+        }
       `}</style>
 
       {/* Chrome: navigation + reading controls + actions */}
@@ -331,50 +441,52 @@ export function MessagePanel({
           </button>
         )}
         <ProviderBadge provider={message.provider} />
-        {onCreateSignal && (
+        <div className="mail-doc-secondary">
+          {allSecondary.map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              onClick={action.onClick}
+              disabled={action.disabled}
+              title={action.title}
+              className={`mail-doc-btn${action.danger ? " danger" : ""}`}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+        <div className="mail-doc-more" ref={actionMenuRef}>
           <button
             type="button"
-            onClick={onCreateSignal}
-            disabled={creatingSignal}
             className="mail-doc-btn"
+            aria-haspopup="menu"
+            aria-expanded={showActionMenu}
+            aria-label="Message actions"
+            onClick={() => setShowActionMenu((v) => !v)}
           >
-            {creatingSignal ? "Routing..." : "Send to Dispatch"}
+            ⋯ Actions
           </button>
-        )}
-        {onAction && (
-          <>
-            <button
-              type="button"
-              onClick={() => onAction(readAction)}
-              disabled={!capabilities?.markRead || !!busyAction}
-              title={capabilities?.markRead ? readLabel : unavailableTitle}
-              className="mail-doc-btn"
-            >
-              {busyAction === readAction ? "Saving..." : readLabel}
-            </button>
-            <button
-              type="button"
-              onClick={() => onAction("archive")}
-              disabled={!capabilities?.archive || !!busyAction}
-              title={capabilities?.archive ? "Archive" : unavailableTitle}
-              className="mail-doc-btn"
-            >
-              {busyAction === "archive" ? "Archiving..." : "Archive"}
-            </button>
-            <button
-              type="button"
-              onClick={() => onAction("delete")}
-              disabled={!capabilities?.delete || !!busyAction}
-              title={capabilities?.delete ? "Move to trash" : unavailableTitle}
-              className="mail-doc-btn danger"
-            >
-              {busyAction === "delete" ? "Deleting..." : "Delete"}
-            </button>
-          </>
-        )}
-        <button type="button" onClick={summarize} disabled={summarizing} className="mail-doc-btn">
-          {summarizing ? "Triaging…" : "AI Triage"}
-        </button>
+          {showActionMenu && (
+            <div className="mail-doc-menu" role="menu">
+              {allSecondary.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowActionMenu(false);
+                    action.onClick();
+                  }}
+                  disabled={action.disabled}
+                  title={action.title}
+                  className={action.danger ? "danger" : undefined}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {onReply && (
           <button
             type="button"

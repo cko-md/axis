@@ -173,6 +173,37 @@ export function loadReaderScale(): ReaderScale {
   }
 }
 
+// Keyboard shortcuts for the mail list + reader. Pure key → intent mapping so
+// the component handler stays a thin dispatcher and the map is unit-testable.
+export type MailShortcut = "next" | "prev" | "open" | "close" | "search";
+
+export function mailShortcutForKey(key: string): MailShortcut | null {
+  switch (key) {
+    case "j":
+    case "ArrowDown":
+      return "next";
+    case "k":
+    case "ArrowUp":
+      return "prev";
+    case "Enter":
+    case "o":
+      return "open";
+    case "Escape":
+      return "close";
+    case "/":
+      return "search";
+    default:
+      return null;
+  }
+}
+
+// Shortcuts must never fire while the user is typing in a field.
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
 export function saveReaderScale(scale: ReaderScale): void {
   if (typeof window === "undefined") return;
   try {

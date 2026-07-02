@@ -12,7 +12,7 @@ import { AddAccountPicker } from "./AddAccountPicker";
 import { ComposeModal, type ComposeDraft } from "./ComposeModal";
 import { MessagePanel } from "./MessagePanel";
 import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
-import { parseSenderParts } from "@/lib/mail/reader";
+import { isEditableTarget, mailShortcutForKey, parseSenderParts } from "@/lib/mail/reader";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -289,16 +289,19 @@ function MessageDetailErrorPanel({
 function MessageRow({
   msg,
   selected,
+  rowIndex,
   onClick,
 }: {
   msg: MailMessage;
   selected: boolean;
+  rowIndex?: number;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       data-testid="mail-row"
+      data-row-idx={rowIndex}
       onClick={onClick}
       style={{
         display: "grid",
@@ -415,9 +418,16 @@ export function MailModule() {
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null>(null);
   const [busyAction, setBusyAction] = useState<MailMessageAction | null>(null);
   const [creatingSignal, setCreatingSignal] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  const [cursorActive, setCursorActive] = useState(false);
   const mountedRef = useRef(true);
   const messagesRef = useRef<MailMessage[]>([]);
   const addBtnRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const visibleRef = useRef<MailMessage[]>([]);
+  const cursorRef = useRef(0);
+  cursorRef.current = cursor;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -702,6 +712,73 @@ export function MailModule() {
     }
   }, [runMessageAction, toast]);
 
+  // Keyboard pass: j/k or arrows move the inbox cursor (and step between
+  // messages while reading), Enter/o opens, Esc closes, / focuses search.
+  // Never fires while typing or while a modal/picker is open.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target) || composeDraft || showAddPicker) return;
+      const shortcut = mailShortcutForKey(e.key);
+      if (!shortcut || e.metaKey || e.ctrlKey || e.altKey) return;
+      const list = visibleRef.current;
+      const detailOpen = !!selected || !!detailError || loadingMsg;
+
+      if (shortcut === "close") {
+        if (detailOpen) {
+          e.preventDefault();
+          setSelected(null);
+          setDetailError(null);
+        }
+        return;
+      }
+      if (shortcut === "search") {
+        if (!detailOpen) {
+          e.preventDefault();
+          searchRef.current?.focus();
+        }
+        return;
+      }
+      if (!list.length) return;
+
+      if (detailOpen) {
+        if (loadingMsg || (shortcut !== "next" && shortcut !== "prev")) return;
+        const anchor = selected ?? detailError?.message;
+        if (!anchor) return;
+        const idx = list.findIndex((m) => sameMessage(m, anchor));
+        const nextIdx = (idx === -1 ? 0 : idx) + (shortcut === "next" ? 1 : -1);
+        if (nextIdx >= 0 && nextIdx < list.length) {
+          e.preventDefault();
+          setCursor(nextIdx);
+          void openMessage(list[nextIdx]);
+        }
+        return;
+      }
+
+      if (shortcut === "next" || shortcut === "prev") {
+        e.preventDefault();
+        setCursorActive(true);
+        setCursor((current) => {
+          const max = list.length - 1;
+          const clamped = Math.min(current, max);
+          return shortcut === "next" ? Math.min(clamped + 1, max) : Math.max(clamped - 1, 0);
+        });
+      } else if (shortcut === "open") {
+        e.preventDefault();
+        const msg = list[Math.min(cursorRef.current, list.length - 1)];
+        if (msg) void openMessage(msg);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected, detailError, loadingMsg, composeDraft, showAddPicker, openMessage]);
+
+  // Keep the cursor row in view as it moves.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector(`[data-row-idx="${cursor}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
   const disconnect = async (acct: MailAccount) => {
     // Composio-connected accounts disconnect through Composio (toolkit == provider);
     // any remaining legacy direct-OAuth accounts use the token-table disconnect.
@@ -751,6 +828,8 @@ export function MailModule() {
   })();
 
   const unreadCount = visibleMessages.filter((m) => m.isUnread).length;
+  visibleRef.current = visibleMessages;
+  const cursorIdx = visibleMessages.length ? Math.min(cursor, visibleMessages.length - 1) : 0;
 
   // Setup state — no accounts yet
   if (statusLoaded && !isConnected) {
@@ -919,9 +998,11 @@ export function MailModule() {
 
           {/* Search */}
           <input
+            ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search mail…"
+            onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
+            placeholder="Search mail… ( / )"
             style={{
               flex: "1 1 140px",
               minWidth: 110,
@@ -1071,7 +1152,7 @@ export function MailModule() {
         )}
 
         {/* Message list */}
-        <div style={{ flex: 1, overflow: "auto" }}>
+        <div ref={listRef} style={{ flex: 1, overflow: "auto" }}>
           {loading && visibleMessages.length === 0 ? (
             <InboxSkeleton rows={8} />
           ) : inboxNotice && messages.length === 0 ? (
@@ -1083,12 +1164,13 @@ export function MailModule() {
               Inbox is empty.
             </div>
           ) : (
-            visibleMessages.map((msg) => (
+            visibleMessages.map((msg, idx) => (
               <MessageRow
                 key={`${msg.provider}:${msg.accountEmail}:${msg.id}`}
                 msg={msg}
-                selected={selected?.id === msg.id}
-                onClick={() => openMessage(msg)}
+                selected={selected?.id === msg.id || (cursorActive && idx === cursorIdx)}
+                rowIndex={idx}
+                onClick={() => { setCursor(idx); void openMessage(msg); }}
               />
             ))
           )}

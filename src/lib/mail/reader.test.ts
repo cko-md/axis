@@ -5,6 +5,7 @@ import {
   formatAttachmentSize,
   formatMessageTimestamp,
   isReaderScale,
+  mailShortcutForKey,
   nextReaderScale,
   parseSenderParts,
   READER_SCALES,
@@ -119,6 +120,25 @@ describe("formatMessageTimestamp", () => {
   it("falls back safely on unparseable dates", () => {
     expect(formatMessageTimestamp("not-a-date")).toBe("Unknown date");
     expect(formatMessageTimestamp("")).toBe("Unknown date");
+  });
+});
+
+describe("mailShortcutForKey", () => {
+  it("maps vim-style and arrow navigation", () => {
+    expect(mailShortcutForKey("j")).toBe("next");
+    expect(mailShortcutForKey("ArrowDown")).toBe("next");
+    expect(mailShortcutForKey("k")).toBe("prev");
+    expect(mailShortcutForKey("ArrowUp")).toBe("prev");
+    expect(mailShortcutForKey("Enter")).toBe("open");
+    expect(mailShortcutForKey("o")).toBe("open");
+    expect(mailShortcutForKey("Escape")).toBe("close");
+    expect(mailShortcutForKey("/")).toBe("search");
+  });
+
+  it("ignores unmapped keys", () => {
+    expect(mailShortcutForKey("a")).toBeNull();
+    expect(mailShortcutForKey("Tab")).toBeNull();
+    expect(mailShortcutForKey("J")).toBeNull();
   });
 });
 
