@@ -43,25 +43,27 @@ Codex completed and pushed the Phase 0–3 stack plus the first Phase 4 Mail val
 - Phase 1 theme/presence/render stack: PRs #68–#77.
 - Phase 2 widget shell/UX stack: PRs #78–#85.
 - Phase 3 widget data + Console/Command stack: PRs #86–#96.
-- Phase 4 MAIL-1 provider parity validation: PR #97, branch `codex/phase-4-mail-1-provider-parity-validation`, commit `c775921`.
+- Phase 4 MAIL-1 provider parity validation: PR #97, branch `codex/phase-4-mail-1-provider-parity-validation`, latest commit `10d587f`.
+- Phase 4 MAIL-2 inbox/message skeletons and detail retry state: PR #98, branch `codex/phase-4-mail-2-skeletons-detail-retry`, commit `65f9514`.
 
 MAIL-1 adds a provider parity matrix for direct Gmail, direct Outlook, Composio Gmail, and Composio Outlook; extends provider capabilities with `attachmentDownload`; relabels Mail attachment affordances as `Save to Library` only when direct byte download is supported and `Route via Dispatch` for Composio; and updates `docs/architecture/integration-adapters.md`.
 
 MAIL-1 checks already run locally and passed: `npx tsc --noEmit`, `npm run lint`, `npm run test` (25 files, 189 tests), and `npm run build`.
 
+MAIL-2 replaces text-only Mail loading states with structured status/inbox/message skeletons and adds a persistent message-detail error panel with Retry/Back that preserves safe provider/account/message context. MAIL-2 checks already run locally and passed: `npx tsc --noEmit`, `npm run lint`, `npm run test` (25 files, 189 tests), and `npm run build`.
+
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after MAIL-1 and continue the full phase-based hardening plan sequentially:
+Resume from the next uncompleted issue after MAIL-2 and continue the full phase-based hardening plan sequentially:
 
-1. MAIL-2: Inbox/message skeletons and detail error retry state.
-2. MAIL-3: Premium message document viewer.
-3. MAIL-4: Mobile action menu and keyboard pass.
-4. MAIL-5: Theme and typography QA for mail reader.
-5. DISP-1 through DISP-5.
-6. AGENDA-1 through AGENDA-5.
-7. CAL-1 through CAL-5.
-8. NOTES-1 through NOTES-5.
-9. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
+1. MAIL-3: Premium message document viewer.
+2. MAIL-4: Mobile action menu and keyboard pass.
+3. MAIL-5: Theme and typography QA for mail reader.
+4. DISP-1 through DISP-5.
+5. AGENDA-1 through AGENDA-5.
+6. CAL-1 through CAL-5.
+7. NOTES-1 through NOTES-5.
+8. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 
@@ -80,12 +82,13 @@ Read AGENTS.md, docs/agent-handoff/claude-to-codex.md, docs/architecture/integra
 
 Current stack status:
 - Phase 0–3 are pushed as draft PRs #62–#96.
-- MAIL-1 is complete and pushed as draft PR #97 on branch codex/phase-4-mail-1-provider-parity-validation, latest commit b03c95a.
-- MAIL-1 local gates passed: npx tsc --noEmit, npm run lint, npm run test, npm run build.
+- MAIL-1 is complete and pushed as draft PR #97 on branch codex/phase-4-mail-1-provider-parity-validation, latest commit 10d587f.
+- MAIL-2 is complete and pushed as draft PR #98 on branch codex/phase-4-mail-2-skeletons-detail-retry, commit 65f9514.
+- MAIL-1 and MAIL-2 local gates passed: npx tsc --noEmit, npm run lint, npm run test, npm run build.
 
 Continue through the whole phase-based hardening plan sequentially, one Codex/Claude-sized issue at a time:
-- Start with the next uncompleted issue: MAIL-2, Inbox/message skeletons and detail error retry state.
-- After MAIL-2, continue MAIL-3, MAIL-4, MAIL-5, then DISP-1..5, AGENDA-1..5, CAL-1..5, NOTES-1..5.
+- Start with the next uncompleted issue: MAIL-3, Premium message document viewer.
+- After MAIL-3, continue MAIL-4, MAIL-5, then DISP-1..5, AGENDA-1..5, CAL-1..5, NOTES-1..5.
 - After Phase 4, continue Phase 5 and every later phase from the initial plan in order.
 - Do not skip ahead unless the plan explicitly says an issue is complete or blocked.
 
