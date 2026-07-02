@@ -29,6 +29,7 @@ import { formatDateLong } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { ConsoleCaptureBar } from "@/components/console/ConsoleCaptureBar";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
@@ -1092,28 +1093,13 @@ export function ConsoleModule() {
       <div className="eyebrow">{formatDateLong()}</div>
       <HeroLine tasks={tasks} />
 
-      <div className="capture" style={{ marginTop: "var(--section-gap)" }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-        <input
-          placeholder="Capture a thought, task, paper, or expense…"
-          value={captureText}
-          onChange={(e) => setCaptureText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleCapture()}
-        />
-        {(["task", "note", "paper"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            className={`capt-pill${captMode === m ? " on" : ""}`}
-            onClick={() => setCaptMode(captMode === m ? null : m)}
-          >
-            {m.toUpperCase()}
-          </button>
-        ))}
-        <button type="button" className="capt-go" onClick={handleCapture}>Capture</button>
-      </div>
+      <ConsoleCaptureBar
+        value={captureText}
+        mode={captMode}
+        onValueChange={setCaptureText}
+        onModeChange={setCaptMode}
+        onCapture={handleCapture}
+      />
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: "var(--section-gap)" }}>
         <span style={{ marginRight: "auto", fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-faint)", letterSpacing: ".06em" }}>
