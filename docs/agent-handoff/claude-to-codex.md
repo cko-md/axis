@@ -1,6 +1,6 @@
-# Agent Handoff: Claude Code → Codex (and other coding agents)
+# Agent Handoff: Claude Code ↔ Codex (and other coding agents)
 
-> Onboarding note for adding Codex (and any other coding agent) to AXIS alongside Claude Code.
+> Onboarding and active handoff note for AXIS work shared between Claude Code, Codex, and other coding agents.
 > The durable, agent-neutral rules live in [`AGENTS.md`](../../AGENTS.md) at the repo root. This document is the orientation layer on top of it.
 
 ---
@@ -35,31 +35,73 @@ To parallelize and de-risk delivery. Multiple agents (Codex, Claude Code, GitHub
 - **Tembo** — role is **not yet documented**. Do not assume it is primary Postgres / analytics / queue / cache / unused. Inspect config and document findings; route nothing to it on assumption.
 - **Sentry** — capture actionable failures with safe metadata only (provider, operation, status, transport, normalized code); never log tokens/bodies/OAuth payloads; review Sentry after the Vercel preview is available, not as a human pre-push gate; confirm the happy path produces no new Sentry error before production merge.
 
-## 5. Current module priority order
+## 5. Current stacked PR state
 
-Follow `AGENTS.md` §11 / `docs/linear/axis-mvp-issues.md`:
+Codex completed and pushed the Phase 0–3 stack plus the first Phase 4 Mail validation slice. These are draft PRs stacked one issue per branch; do not squash unrelated phases together while reviewing.
 
-1. Integration adapter foundation → 2. Mail: Composio Gmail detail → 3. Mail: Composio Outlook detail → 4. Mail visible error state → 5. Mail reply/send parity → 6. Mail archive/delete/mark-read → 7. Mail pagination/load-more → 8. Mail cache-first → 9. Latency pass → 10. Env/Sentry/Vercel gate → 11. Dispatch → 12. Agenda → 13. Schedule/Calendar → 14. Control Room → 15. Console/Command → 16. Navigation/IA → 17. Notes → 18. People → 19. Literature → 20. Pipeline → 21. Objectives → 22. Debrief → 23. Briefing → 24. Fund → 25. Vitality → 26. Library → 27. Atelier → 28. Listening Vault → 29. Supper Club → 30. AI layer → 31. Final production readiness.
+- Phase 0 docs/data truth stack: PRs #62–#67.
+- Phase 1 theme/presence/render stack: PRs #68–#77.
+- Phase 2 widget shell/UX stack: PRs #78–#85.
+- Phase 3 widget data + Console/Command stack: PRs #86–#96.
+- Phase 4 MAIL-1 provider parity validation: PR #97, branch `codex/phase-4-mail-1-provider-parity-validation`, commit `c775921`.
 
-## 6. First recommended Codex task
+MAIL-1 adds a provider parity matrix for direct Gmail, direct Outlook, Composio Gmail, and Composio Outlook; extends provider capabilities with `attachmentDownload`; relabels Mail attachment affordances as `Save to Library` only when direct byte download is supported and `Route via Dispatch` for Composio; and updates `docs/architecture/integration-adapters.md`.
 
-**"Mail: Composio Gmail messages open into readable detail."**
+MAIL-1 checks already run locally and passed: `npx tsc --noEmit`, `npm run lint`, `npm run test` (25 files, 189 tests), and `npm run build`.
 
-This is the highest-value entry point: the adapter foundation is **already merged to production**, and this issue completes the most visible broken workflow (Composio Gmail inbox rows that don't open into a readable message). The `MailAdapter.getMessage` path exists but its Composio single-message tool slug (`GET_TOOL` in `src/lib/mail/composio.ts`) is best-effort and **must be verified against a live connected account**. Verify against the full Mail matrix in `docs/architecture/integration-adapters.md` (direct Gmail, direct Outlook, Composio Gmail, Composio Outlook × list/detail/send/actions/error states).
+## 6. Where Claude should resume
 
-## 7. Copy-paste Codex starter prompt
+Resume from the next Phase 4 issue after MAIL-1:
+
+1. MAIL-2: Inbox/message skeletons and detail error retry state.
+2. MAIL-3: Premium message document viewer.
+3. MAIL-4: Mobile action menu and keyboard pass.
+4. MAIL-5: Theme and typography QA for mail reader.
+5. DISP-1 through DISP-5.
+6. AGENDA-1 through AGENDA-5.
+7. CAL-1 through CAL-5.
+8. NOTES-1 through NOTES-5.
+
+Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
+
+High-priority reminders for Phase 4:
+
+- Mail work must validate both direct OAuth and Composio paths where provider accounts are available.
+- Never log email bodies, tokens, raw OAuth payloads, or private content.
+- If a provider/tooling secret is unavailable, implement visible degradation and record exact human validation steps instead of faking success.
+- Preserve the adapter-driven route shape; route handlers should not reintroduce provider/transport branching.
+- Every Daily module must satisfy list → detail → action → persistence → feedback → error state before it is treated as complete.
+
+## 7. Copy-paste Claude continuation prompt
 
 ```txt
-Read AGENTS.md, README.md, docs/linear/axis-mvp-issues.md, and the relevant Mail files.
+Read AGENTS.md, docs/agent-handoff/claude-to-codex.md, docs/architecture/integration-adapters.md, and the Phase 4 section of the pasted project plan if available.
 
-Execute only the Linear issue:
-“Mail: Composio Gmail messages open into readable detail.”
+Current stack status:
+- Phase 0–3 are pushed as draft PRs #62–#96.
+- MAIL-1 is complete and pushed as draft PR #97 on branch codex/phase-4-mail-1-provider-parity-validation, commit c775921.
+- MAIL-1 local gates passed: npx tsc --noEmit, npm run lint, npm run test, npm run build.
 
-Follow the delivery system:
-Linear issue → branch → implementation → PR → Vercel preview validation → Supabase/Tembo validation → post-preview Sentry check.
+Continue with the next Phase 4 issue only:
+MAIL-2: Inbox/message skeletons and detail error retry state.
 
-Do not work on unrelated modules.
-Do not refactor broadly.
-Do not expose secrets.
+Follow AXIS rules exactly:
+- one Linear issue → one branch → one PR
+- build complete vertical slices, not visual prototypes
+- preserve direct Gmail, direct Outlook, Composio Gmail, and Composio Outlook parity
+- do not log or expose email bodies, tokens, OAuth payloads, or private content
+- provider/network/DB failures must be visible to the user and observable through safe Sentry metadata
+- no schema changes unless a migration and RLS review are included
+
+Implement MAIL-2 end to end:
+- inspect current MailModule, MessagePanel, mail API routes, adapter contract, and existing tests first
+- improve inbox/message loading skeletons
+- add a detail error retry state that preserves account/provider/transport context
+- ensure partial account failures remain visible and do not blank the whole inbox
+- add focused tests where practical
+- run npx tsc --noEmit, npm run lint, npm run test, and npm run build
+- push the branch and open a draft PR stacked on PR #97’s branch unless instructed otherwise
+- include Vercel preview validation steps and Sentry validation requirements in the PR
+
 End with the required agent final response format from AGENTS.md.
 ```
