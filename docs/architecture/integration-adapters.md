@@ -57,6 +57,7 @@ Existing modules are **reused, not removed** (legacy direct OAuth stays):
 | `markUnread(ctx, id)` | `Result<void>` | |
 | `archiveMessage(ctx, id)` | `Result<void>` | |
 | `deleteMessage(ctx, id)` | `Result<void>` | |
+| `getAttachment(ctx, id, attachmentId)` | `Result<MailAttachmentFile>` | direct providers download bytes for Library; Composio returns structured `not_supported` until safe attachment tools are verified |
 | `normalizeMessage(raw, ctx)` | `MailMessage \| null` | pure; raw provider → shared shape |
 | `normalizeMessageFull(raw, ctx)` | `MailMessageFull \| null` | pure; adds body |
 
@@ -110,9 +111,9 @@ Rewired routes: `api/mail/inbox`, `api/mail/message/[id]`, `api/mail/send`. None
 
 `src/lib/integrations/registry.ts` declares, per `(domain, provider, transport)`, what's supported. Today:
 
-- **Gmail/Outlook direct** — full (list/read/send/reply/markRead/archive/delete).
-- **Gmail Composio** — full for the current Mail contract. `markRead`/`markUnread` use `GMAIL_ADD_LABEL_TO_EMAIL` to remove/add `UNREAD`, `archive` removes `INBOX`, and `delete` uses `GMAIL_MOVE_TO_TRASH` (recoverable trash, matching the direct Gmail adapter).
-- **Outlook Composio** — list/read/send/reply. `markRead`/`archive`/`delete` remain **unsupported** until an active Composio Outlook account is available for live validation; the adapter returns a structured `not_supported` error and the UI disables the affordances.
+- **Gmail/Outlook direct** — full (list/read/send/reply/markRead/archive/delete/attachmentDownload).
+- **Gmail Composio** — full for list/read/send/reply/actions. `markRead`/`markUnread` use `GMAIL_ADD_LABEL_TO_EMAIL` to remove/add `UNREAD`, `archive` removes `INBOX`, and `delete` uses `GMAIL_MOVE_TO_TRASH` (recoverable trash, matching the direct Gmail adapter). Attachment download remains **unsupported** until a safe Composio attachment byte-download path is verified; the UI routes those attachments via Dispatch/Library instead of implying direct save.
+- **Outlook Composio** — list/read/send/reply. `markRead`/`archive`/`delete` and attachment download remain **unsupported** until an active Composio Outlook account is available for live validation; the adapter returns a structured `not_supported` error and the UI disables or relabels the affordances.
 
 UI/Control Room should read `getCapabilities(domain, provider, transport)` to decide which affordances to show.
 
@@ -148,14 +149,15 @@ Run against local dev and again on the Vercel preview.
    - Body HTML renders sanitized; plain-text renders readably.
 7. **Send — happy path:** Compose → send a test message from a Composio account and (if connected) a direct account → success toast; message arrives in the real mailbox.
 8. **Reply:** open a message → Reply → send → arrives; subject is `Re: …` (not doubled).
-9. **Error path (no silent failures):**
+9. **Attachments:** for direct Gmail/Outlook, route an attachment to Library and confirm the file is saved. For Composio Gmail/Outlook, confirm the attachment affordance is labeled as Dispatch routing, not direct download.
+10. **Error path (no silent failures):**
    - Temporarily break a Composio slug (e.g. edit `GET_TOOL` to an invalid value) → opening a Composio message returns a visible error (HTTP 502), not an infinite spinner; restore the slug.
    - Disconnect an account mid-session and refresh → that account's rows disappear; remaining accounts still list (one account failing never blanks the inbox).
-10. **Persistence:** refresh `/mail` → accounts + inbox reload; re-opening a message still works.
-11. **Vercel preview:** repeat steps 4–10 on the preview deploy URL.
-12. **Sentry:** confirm the happy paths create **no** new Sentry error; confirm the forced error in step 9 produces a Sentry event tagged `area:mail`, `op`, `provider`, `transport`, `code` with no token/body PII.
-13. **Regression — related modules:** Control Room integrations still connect/disconnect; Dispatch/Agenda unaffected.
-14. **Build:** `npx tsc --noEmit` passes; `npm run lint` shows no new errors.
+11. **Persistence:** refresh `/mail` → accounts + inbox reload; re-opening a message still works.
+12. **Vercel preview:** repeat steps 4–11 on the preview deploy URL.
+13. **Sentry:** confirm the happy paths create **no** new Sentry error; confirm the forced error in step 10 produces a Sentry event tagged `area:mail`, `op`, `provider`, `transport`, `code` with no token/body PII.
+14. **Regression — related modules:** Control Room integrations still connect/disconnect; Dispatch/Agenda unaffected.
+15. **Build:** `npx tsc --noEmit` passes; `npm run lint` shows no new errors.
 
 ---
 

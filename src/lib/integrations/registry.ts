@@ -17,6 +17,7 @@ export interface ProviderCapabilities {
   markRead: boolean;
   archive: boolean;
   delete: boolean;
+  attachmentDownload: boolean;
 }
 
 export interface ProviderDescriptor {
@@ -45,6 +46,7 @@ const FULL: ProviderCapabilities = {
   markRead: true,
   archive: true,
   delete: true,
+  attachmentDownload: true,
 };
 
 const COMPOSIO_GMAIL: ProviderCapabilities = {
@@ -55,6 +57,7 @@ const COMPOSIO_GMAIL: ProviderCapabilities = {
   markRead: true,
   archive: true,
   delete: true,
+  attachmentDownload: false,
 };
 
 // Composio Outlook list/read/send/reply are wired, but per-message mutations
@@ -67,6 +70,7 @@ const COMPOSIO_OUTLOOK: ProviderCapabilities = {
   markRead: false,
   archive: false,
   delete: false,
+  attachmentDownload: false,
 };
 
 export const INTEGRATION_REGISTRY: ProviderDescriptor[] = [

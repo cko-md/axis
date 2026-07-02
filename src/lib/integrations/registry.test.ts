@@ -74,6 +74,7 @@ describe("getCapabilities()", () => {
     expect(cap!.send).toBe(true);
     expect(cap!.markRead).toBe(true);
     expect(cap!.delete).toBe(true);
+    expect(cap!.attachmentDownload).toBe(true);
   });
 
   it("returns verified action capabilities for gmail composio", () => {
@@ -84,6 +85,7 @@ describe("getCapabilities()", () => {
     expect(cap!.markRead).toBe(true);
     expect(cap!.archive).toBe(true);
     expect(cap!.delete).toBe(true);
+    expect(cap!.attachmentDownload).toBe(false);
   });
 
   it("keeps unverified Outlook composio action capabilities disabled", () => {
@@ -94,6 +96,7 @@ describe("getCapabilities()", () => {
     expect(cap!.markRead).toBe(false);
     expect(cap!.archive).toBe(false);
     expect(cap!.delete).toBe(false);
+    expect(cap!.attachmentDownload).toBe(false);
   });
 
   it("returns undefined for unknown provider", () => {

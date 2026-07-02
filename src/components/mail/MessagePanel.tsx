@@ -411,6 +411,11 @@ export function MessagePanel({
                   <button
                     type="button"
                     onClick={() => onRouteAttachmentToLibrary(attachment)}
+                    title={
+                      capabilities?.attachmentDownload
+                        ? "Download this attachment and save it to Library."
+                        : "Direct attachment download is not available for this connection yet; create a Dispatch signal for Library routing."
+                    }
                     style={{
                       background: "transparent",
                       border: "1px solid var(--line)",
@@ -422,7 +427,7 @@ export function MessagePanel({
                       padding: "4px 8px",
                     }}
                   >
-                    Route to Library
+                    {capabilities?.attachmentDownload ? "Save to Library" : "Route via Dispatch"}
                   </button>
                 )}
               </div>
