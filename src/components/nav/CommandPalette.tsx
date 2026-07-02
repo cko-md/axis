@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ALL_NAV_ITEMS } from "@/lib/store/nav";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { buildPaletteCommandSpecs, filterPaletteCommandSpecs, type PaletteGroup } from "@/components/nav/command-palette-model";
 
 type Command = {
   id: string;
   label: string;
   hint: string;
-  group: "navigate" | "action" | "create";
+  group: PaletteGroup;
   icon?: string;
   run: () => void;
 };
@@ -53,71 +53,24 @@ export function CommandPalette({ open, onClose }: Props) {
   }, [open]);
 
   const commands = useMemo<Command[]>(
-    () => [
-      // ── Create ──────────────────────────────────────────────────────────────
-      {
-        id: "create-note",
-        label: "New Note",
-        hint: "Create · notes",
-        group: "create",
-        icon: "✦",
-        run: () => router.push("/notes"),
-      },
-      {
-        id: "create-event",
-        label: "New Event",
-        hint: "Create · schedule",
-        group: "create",
-        icon: "✦",
-        run: () => router.push("/schedule"),
-      },
-      {
-        id: "create-signal",
-        label: "New Signal",
-        hint: "Create · dispatch",
-        group: "create",
-        icon: "✦",
-        run: () => router.push("/dispatch"),
-      },
-      // ── Actions ─────────────────────────────────────────────────────────────
-      {
-        id: "action-interface-studio",
-        label: "Interface Studio",
-        hint: "Action · theme & appearance",
-        group: "action",
-        icon: "◈",
-        run: openInterfaceStudio,
-      },
-      {
-        id: "action-vitality",
-        label: "Log Workout",
-        hint: "Action · vitality",
-        group: "action",
-        icon: "◈",
-        run: () => router.push("/vitality"),
-      },
-      // ── Navigation ──────────────────────────────────────────────────────────
-      ...ALL_NAV_ITEMS.map((item) => ({
-        id: item.href,
-        label: item.label,
-        hint: `Navigate · ${item.section}`,
-        group: "navigate" as const,
-        run: () => router.push(item.href),
-      })),
-    ],
+    () =>
+      buildPaletteCommandSpecs().map((spec) => {
+        const target = spec.target;
+        return {
+          id: spec.id,
+          label: spec.label,
+          hint: spec.hint,
+          group: spec.group,
+          icon: spec.icon,
+          run: target.kind === "interface-studio"
+            ? openInterfaceStudio
+            : () => router.push(target.href),
+        };
+      }),
     [router, openInterfaceStudio],
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return commands;
-    return commands.filter(
-      (c) =>
-        c.label.toLowerCase().includes(q) ||
-        c.hint.toLowerCase().includes(q) ||
-        c.group.toLowerCase().includes(q),
-    );
-  }, [commands, query]);
+  const filtered = useMemo(() => filterPaletteCommandSpecs(commands, query), [commands, query]);
 
   const runCommand = useCallback(
     (cmd: Command) => {
@@ -202,7 +155,7 @@ export function CommandPalette({ open, onClose }: Props) {
         style={{
           width: "100%",
           maxWidth: 560,
-          background: "var(--surface-1)",
+          background: "var(--surface)",
           border: "1px solid var(--line-strong)",
           borderRadius: 12,
           overflow: "hidden",

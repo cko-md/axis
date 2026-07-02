@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 
 export type QuickResult = {
@@ -47,27 +48,48 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   ]);
 
   const results: QuickResult[] = [];
+  const failedSources: string[] = [];
 
-  if (notesRes.status === "fulfilled") {
+  // A per-table failure (rejected promise or a Supabase error payload) must not
+  // silently vanish — record it so a partial search is observable, and report
+  // it to the client so the UI can say the results are incomplete.
+  const noteError = notesRes.status === "fulfilled" ? notesRes.value.error : notesRes.reason;
+  if (!noteError && notesRes.status === "fulfilled") {
     for (const n of notesRes.value.data ?? []) {
       results.push({ type: "note", id: n.id, title: n.title || "Untitled", subtitle: n.folder });
     }
-  }
-  if (tasksRes.status === "fulfilled") {
+  } else if (noteError) failedSources.push("notes");
+
+  const taskError = tasksRes.status === "fulfilled" ? tasksRes.value.error : tasksRes.reason;
+  if (!taskError && tasksRes.status === "fulfilled") {
     for (const t of tasksRes.value.data ?? []) {
       results.push({ type: "task", id: t.id, title: t.title, subtitle: `${t.priority ?? ""} · ${t.status}` });
     }
-  }
-  if (peopleRes.status === "fulfilled") {
+  } else if (taskError) failedSources.push("tasks");
+
+  const peopleError = peopleRes.status === "fulfilled" ? peopleRes.value.error : peopleRes.reason;
+  if (!peopleError && peopleRes.status === "fulfilled") {
     for (const p of peopleRes.value.data ?? []) {
       results.push({ type: "person", id: p.id, title: p.name, subtitle: p.role });
     }
-  }
-  if (signalsRes.status === "fulfilled") {
+  } else if (peopleError) failedSources.push("people");
+
+  const signalError = signalsRes.status === "fulfilled" ? signalsRes.value.error : signalsRes.reason;
+  if (!signalError && signalsRes.status === "fulfilled") {
     for (const s of signalsRes.value.data ?? []) {
       results.push({ type: "signal", id: s.id, title: s.title, subtitle: s.signal_type });
     }
+  } else if (signalError) failedSources.push("signals");
+
+  if (failedSources.length > 0) {
+    // Safe metadata only — table names + query length, never the query text or
+    // any row content.
+    Sentry.captureMessage("Quick search partial failure", {
+      level: "warning",
+      tags: { area: "search", op: "quick" },
+      extra: { failedSources, queryLength: q.length },
+    });
   }
 
-  return NextResponse.json({ results });
+  return NextResponse.json({ results, partial: failedSources.length > 0 });
 }

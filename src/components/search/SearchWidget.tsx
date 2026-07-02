@@ -38,6 +38,7 @@ export function SearchWidget() {
   const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [quickResults, setQuickResults] = useState<QuickResult[]>([]);
+  const [quickPartial, setQuickPartial] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const semanticDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
@@ -48,6 +49,7 @@ export function SearchWidget() {
     setAnswer("");
     setSemanticResults([]);
     setQuickResults([]);
+    setQuickPartial(false);
   }, []);
 
   useEffect(() => {
@@ -95,10 +97,12 @@ export function SearchWidget() {
         ]);
 
         if (quickRes.status === "fulfilled" && quickRes.value.ok) {
-          const data = (await quickRes.value.json()) as { results?: QuickResult[] };
+          const data = (await quickRes.value.json()) as { results?: QuickResult[]; partial?: boolean };
           setQuickResults(data.results ?? []);
+          setQuickPartial(Boolean(data.partial));
         } else {
           setQuickResults([]);
+          setQuickPartial(false);
         }
 
         if (
@@ -248,10 +252,15 @@ export function SearchWidget() {
         )}
 
         {/* Quick keyword matches */}
-        {quickResults.length > 0 && (
+        {(quickResults.length > 0 || quickPartial) && (
           <div style={{ borderTop: "1px solid var(--line)" }}>
             <div style={{ padding: "7px 14px 3px", fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--font-mono, monospace)", letterSpacing: ".1em" }}>
               ◻ MATCHES
+              {quickPartial && (
+                <span style={{ marginLeft: 8, color: "var(--status-error)", textTransform: "none", letterSpacing: 0 }}>
+                  some sources unavailable
+                </span>
+              )}
             </div>
             {quickResults.map((r) => (
               <button
