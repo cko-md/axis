@@ -1116,34 +1116,6 @@ export function NotesModule() {
           >
             {liveTranscribing ? "● Stop transcribing" : "🎙 Live Transcribe"}
           </button>
-          <span style={{ width: 1, height: 16, background: "var(--line)", margin: "0 4px" }} />
-          <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase", marginRight: 2 }}>
-            Route
-          </span>
-          <button
-            type="button"
-            className="aibtn"
-            disabled={!!routingTo}
-            onClick={() => selected && routeNoteToTask(selected)}
-          >
-            {routingTo === "task" ? "Sending…" : "Agenda"}
-          </button>
-          <button
-            type="button"
-            className="aibtn"
-            disabled={!!routingTo}
-            onClick={() => selected && routeNoteToSignal(selected)}
-          >
-            {routingTo === "signal" ? "Sending…" : "Dispatch"}
-          </button>
-          <button
-            type="button"
-            className="aibtn"
-            disabled={!!routingTo}
-            onClick={() => selected && routeNoteToPipeline(selected)}
-          >
-            {routingTo === "pipeline" ? "Sending…" : "Pipeline"}
-          </button>
         </div>
       )}
 
