@@ -38,6 +38,7 @@ export function NetWorthChart({
 }) {
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
 
   useEffect(() => {
     if (!signedIn) {
@@ -46,18 +47,22 @@ export function NetWorthChart({
     }
     let alive = true;
     (async () => {
+      if (alive) setHistoryError(false);
       // Capture today's point (idempotent per day) only once there's something to record.
       if (netWorth > 0) {
-        await fetch("/api/fund/networth", {
+        const writeRes = await fetch("/api/fund/networth", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cash, invested, liabilities }),
-        }).catch(() => {});
+        }).catch(() => null);
+        if (alive && !writeRes?.ok) setHistoryError(true);
       }
       const res = await fetch("/api/fund/networth").catch(() => null);
       if (res?.ok && alive) {
         const data = await res.json();
         setSnaps(Array.isArray(data.snapshots) ? data.snapshots : []);
+      } else if (alive) {
+        setHistoryError(true);
       }
       if (alive) setLoaded(true);
     })();
@@ -103,6 +108,8 @@ export function NetWorthChart({
 
   const caption = !signedIn
     ? "Illustrative trend"
+    : historyError
+      ? "Net worth history could not refresh"
     : !loaded
       ? "Loading history…"
       : hasRealSeries
