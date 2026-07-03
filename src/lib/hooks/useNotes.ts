@@ -159,7 +159,7 @@ export function useNotes() {
       .from("notes")
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", id)
-      .select("title, body")
+      .select()
       .single()
       .then(({ data, error }) => {
         if (error || !data) {
@@ -172,7 +172,9 @@ export function useNotes() {
         setSaveError(null);
         setSaveStatus("saved");
         setLastSavedAt(new Date().toISOString());
-        reembedNote(id, data.title, data.body);
+        const savedNote = data as Note;
+        setNotes((prev) => prev.map((n) => (n.id === id ? savedNote : n)));
+        reembedNote(id, savedNote.title, savedNote.body);
       }, (err) => {
         lastFailedSaveRef.current = { id, patch };
         setSaveStatus("error");
