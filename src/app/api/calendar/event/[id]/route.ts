@@ -5,6 +5,7 @@ import { deleteGoogleEvent } from "@/lib/calendar/google";
 import { deleteOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, deleteComposioEvent } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
+import { resolveCleanupTransport, validateEventPatch, type ScheduleEventPatchInput } from "@/lib/calendar/event-detail";
 
 type CalendarDeleteError = {
   source: "google" | "outlook";
@@ -13,25 +14,11 @@ type CalendarDeleteError = {
 };
 type CalendarDeleteResult = { ok: boolean; error?: CalendarDeleteError };
 
-type ScheduleEventPatch = {
-  title?: unknown;
-  description?: unknown;
-  start_at?: unknown;
-  end_at?: unknown;
-  color_class?: unknown;
-};
-
 function captureScheduleFailure(error: unknown, op: string, eventId: string) {
   Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { area: "schedule", op },
     extra: { eventId },
   });
-}
-
-function parseIso(value: unknown): Date | null {
-  if (typeof value !== "string") return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 // PATCH /api/calendar/event/[id]
@@ -45,36 +32,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  let body: ScheduleEventPatch;
+  let body: ScheduleEventPatchInput;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  const description = typeof body.description === "string" && body.description.trim().length
-    ? body.description.trim()
-    : null;
-  const start = parseIso(body.start_at);
-  const end = parseIso(body.end_at);
-  const color = body.color_class;
-
-  if (!title) return NextResponse.json({ error: "Title is required" }, { status: 422 });
-  if (!start || !end) return NextResponse.json({ error: "Start and end times are required" }, { status: 422 });
-  if (end <= start) return NextResponse.json({ error: "End time must be after start time" }, { status: 422 });
-  if (color !== "a" && color !== "b" && color !== "c") {
-    return NextResponse.json({ error: "Invalid event color" }, { status: 422 });
-  }
+  const validated = validateEventPatch(body);
+  if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: validated.status });
+  const { title, description, start_at, end_at, color_class } = validated.patch;
 
   const { data, error } = await supabase
     .from("schedule_events")
     .update({
       title,
       description,
-      start_at: start.toISOString(),
-      end_at: end.toISOString(),
-      color_class: color,
+      start_at,
+      end_at,
+      color_class,
       updated_at: new Date().toISOString(),
     })
     .eq("id", eventId)
@@ -139,8 +115,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "Could not load calendar connections" }, { status: 500 });
     }
   }
-  const composioGoogle = !legacyProviders.has("google") && composioAccounts.find((a) => a.provider === "googlecalendar");
-  const composioOutlook = !legacyProviders.has("outlook") && composioAccounts.find((a) => a.provider === "outlook");
+  const googleTransport = resolveCleanupTransport("google", legacyProviders, composioAccounts);
+  const outlookTransport = resolveCleanupTransport("outlook", legacyProviders, composioAccounts);
 
   async function deleteExternal(
     source: "google" | "outlook",
@@ -184,11 +160,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   let googleDeletePromise: Promise<CalendarDeleteResult> = Promise.resolve({ ok: true });
   if (row.gcal_event_id) {
     const gcalEventId = row.gcal_event_id;
-    if (legacyProviders.has("google")) {
+    if (googleTransport.transport === "direct") {
       googleDeletePromise = deleteExternal("google", "direct", () => deleteGoogleEvent(user.id, gcalEventId));
-    } else if (composioGoogle) {
+    } else if (googleTransport.transport === "composio") {
+      const connectedAccountId = googleTransport.connectedAccountId;
       googleDeletePromise = deleteExternal("google", "composio", () =>
-        deleteComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, gcalEventId),
+        deleteComposioEvent("googlecalendar", connectedAccountId, user.id, gcalEventId),
       );
     } else {
       missingCleanupConnection = true;
@@ -198,11 +175,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   let outlookDeletePromise: Promise<CalendarDeleteResult> = Promise.resolve({ ok: true });
   if (row.outlook_event_id) {
     const outlookEventId = row.outlook_event_id;
-    if (legacyProviders.has("outlook")) {
+    if (outlookTransport.transport === "direct") {
       outlookDeletePromise = deleteExternal("outlook", "direct", () => deleteOutlookEvent(user.id, outlookEventId));
-    } else if (composioOutlook) {
+    } else if (outlookTransport.transport === "composio") {
+      const connectedAccountId = outlookTransport.connectedAccountId;
       outlookDeletePromise = deleteExternal("outlook", "composio", () =>
-        deleteComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, outlookEventId),
+        deleteComposioEvent("outlook", connectedAccountId, user.id, outlookEventId),
       );
     } else {
       missingCleanupConnection = true;
