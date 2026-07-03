@@ -108,9 +108,10 @@ export function FundSpendingModule() {
     });
     if (!res.ok) {
       toast("Couldn't save change.", "error", "Spending");
-      return;
+      return false;
     }
     setTxns((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    return true;
   }
 
   async function splitTransaction(t: BankTxn) {
@@ -124,7 +125,6 @@ export function FundSpendingModule() {
 
     const sign = t.amount < 0 ? -1 : 1;
     const remaining = t.amount - sign * splitAmount;
-    await patchTxn(t.id, { amount: remaining });
     const { data: child, error } = await supabase
       .from("fund_bank_transactions")
       .insert({
@@ -144,6 +144,14 @@ export function FundSpendingModule() {
       toast(error.message, "error", "Spending");
       return;
     }
+
+    const parentUpdated = await patchTxn(t.id, { amount: remaining });
+    if (!parentUpdated) {
+      await supabase.from("fund_bank_transactions").delete().eq("id", child.id).eq("user_id", user.id);
+      toast("Split was not saved because the original transaction could not be updated.", "error", "Spending");
+      return;
+    }
+
     setTxns((prev) => [...prev, child as BankTxn]);
     toast("Transaction split.", "success", "Spending");
   }
