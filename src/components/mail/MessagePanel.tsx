@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MailAttachment, MailMessageFull } from "@/lib/mail/gmail";
 import type { MailProvider } from "@/lib/mail/tokens";
 import type { ProviderCapabilities } from "@/lib/integrations/registry";
+import { callAiAction } from "@/lib/ai/callAction";
 import {
   attachmentKind,
   formatAttachmentSize,
@@ -154,19 +155,15 @@ export function MessagePanel({
     setSummarizing(true);
     try {
       const body = message.bodyIsHtml ? stripMailHtml(message.body) : message.body;
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "triage", title: message.subject, body: body.slice(0, 4000) }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSummary(
-          data?.title
-            ? `${data.title} · ${data.category ?? ""} · Priority: ${data.priority ?? "med"}`
-            : "Could not summarize.",
-        );
-      }
+      // Previously posted `{ action: "triage" }` with no `mode`/`text`, which the
+      // /api/ai route ignored — triage silently did nothing. The typed action
+      // (AI-2) sends the canonical `{ mode: "triage", text: subject, body }` body.
+      const result = await callAiAction("triage", { text: message.subject, body: body.slice(0, 4000) });
+      setSummary(
+        result.ok
+          ? `${result.data.title} · ${result.data.category} · Priority: ${result.data.priority}`
+          : "Could not summarize this message.",
+      );
     } finally {
       setSummarizing(false);
     }

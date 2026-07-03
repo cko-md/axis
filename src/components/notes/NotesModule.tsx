@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditorLazy";
 import { formatAutosaveLabel } from "@/lib/notes/save-status";
 import { filterNotesByKeyword, orderNotesBySemanticIds } from "@/lib/notes/search";
+import { callAiAction } from "@/lib/ai/callAction";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
@@ -211,23 +212,6 @@ function textToNoteHtml(text: string): string {
 async function readJsonResponse<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return (await res.json()) as T;
-}
-
-function normalizeRouteSuggestion(data: Partial<RouteSuggestion>): RouteSuggestion | null {
-  if (
-    data.destination !== "research" &&
-    data.destination !== "literature" &&
-    data.destination !== "task"
-  ) {
-    return null;
-  }
-  if (!data.label || !data.reason) return null;
-  return {
-    destination: data.destination,
-    label: data.label,
-    reason: data.reason,
-    tags: Array.isArray(data.tags) ? data.tags.filter((tag): tag is string => typeof tag === "string") : [],
-  };
 }
 
 export function NotesModule() {
@@ -625,82 +609,59 @@ export function NotesModule() {
     if (!selected) return;
     setRouting(true);
     setSuggestion(null);
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "route", text: selected.title, body: selected.body }),
-      });
-      const data = await readJsonResponse<Partial<RouteSuggestion>>(res);
-      const normalized = normalizeRouteSuggestion(data);
-      if (!normalized) throw new Error("Invalid route suggestion");
-      setSuggestion(normalized);
-    } catch {
+    // Typed AI action (AI-2/3): validated input + typed output, no ad-hoc wire shape.
+    const result = await callAiAction("route", { text: selected.title, body: selected.body });
+    if (result.ok) {
+      setSuggestion(result.data);
+    } else if (result.error !== "aborted") {
       toast("Could not reach the router", "error", "Notes");
-    } finally {
-      setRouting(false);
     }
+    setRouting(false);
   };
 
   const handleAiSummarize = async () => {
     if (!selected || aiLoading) return;
     setAiLoading("summarize");
     setAiPanel(null);
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "notes-summarize", text: selected.body, title: selected.title }),
-      });
-      const { summary } = await readJsonResponse<{ summary?: string }>(res);
-      if (!summary) throw new Error("Empty summary");
-      setAiPanel({ mode: "summarize", content: summary });
-    } catch {
+    const result = await callAiAction("noteSummarize", { text: selected.body, title: selected.title });
+    if (result.ok) {
+      if (result.data.summary) setAiPanel({ mode: "summarize", content: result.data.summary });
+      else toast("Could not summarize — check your API key", "error", "Notes AI");
+    } else if (result.error !== "aborted") {
       toast("Could not summarize — check your API key", "error", "Notes AI");
-    } finally {
-      setAiLoading(null);
     }
+    setAiLoading(null);
   };
 
   const handleAiRewrite = async () => {
     if (!selected || aiLoading) return;
     setAiLoading("rewrite");
     setAiPanel(null);
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "notes-rewrite", text: selected.body }),
-      });
-      const { rewritten } = await readJsonResponse<{ rewritten?: string }>(res);
-      if (!rewritten) throw new Error("Empty rewrite");
-      setAiPanel({ mode: "rewrite", content: rewritten });
-    } catch {
+    const result = await callAiAction("noteRewrite", { text: selected.body });
+    if (result.ok) {
+      if (result.data.rewritten) setAiPanel({ mode: "rewrite", content: result.data.rewritten });
+      else toast("Could not rewrite — check your API key", "error", "Notes AI");
+    } else if (result.error !== "aborted") {
       toast("Could not rewrite — check your API key", "error", "Notes AI");
-    } finally {
-      setAiLoading(null);
     }
+    setAiLoading(null);
   };
 
   const handleAiTitle = async () => {
     if (!selected || aiLoading) return;
     setAiLoading("title");
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "notes-title", text: selected.body }),
-      });
-      const { title: suggested } = await readJsonResponse<{ title?: string }>(res);
-      if (suggested) {
-        handleTitleChange(suggested);
-        toast(`Title: "${suggested}"`, "success", "Notes AI");
+    const result = await callAiAction("noteTitle", { text: selected.body });
+    if (result.ok) {
+      if (result.data.title) {
+        handleTitleChange(result.data.title);
+        toast(`Title: "${result.data.title}"`, "success", "Notes AI");
+      } else {
+        toast("Could not generate title — check your API key", "error", "Notes AI");
       }
-    } catch {
+    } else if (result.error !== "aborted") {
       toast("Could not generate title — check your API key", "error", "Notes AI");
-    } finally {
-      setAiLoading(null);
     }
+    setAiLoading(null);
   };
 
   // Best-effort persistence — note_artifacts may not exist yet if the

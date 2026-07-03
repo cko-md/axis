@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+import {
+  AI_ACTION_DEFS,
+  buildAiRequestBody,
+  isSensitiveAiAction,
+  type AiActionName,
+} from "@/lib/ai/actions";
+
+describe("AI action registry", () => {
+  it("maps every action to a non-empty server mode", () => {
+    for (const [name, def] of Object.entries(AI_ACTION_DEFS)) {
+      expect(def.mode, `${name} has an empty mode`).toMatch(/\S/);
+    }
+  });
+
+  it("has unique server modes", () => {
+    const modes = Object.values(AI_ACTION_DEFS).map((d) => d.mode);
+    expect(new Set(modes).size).toBe(modes.length);
+  });
+});
+
+describe("buildAiRequestBody", () => {
+  it("produces the canonical { mode, ...input } body the route expects", () => {
+    // This is the exact contract the old Mail call violated (it sent
+    // `{ action: "triage" }` with no `mode`/`text`).
+    expect(buildAiRequestBody("triage", { text: "IRB", body: "Sign the IRB amendment" })).toEqual({
+      mode: "triage",
+      text: "IRB",
+      body: "Sign the IRB amendment",
+    });
+    expect(buildAiRequestBody("noteRewrite", { text: "make this clearer" })).toEqual({
+      mode: "notes-rewrite",
+      text: "make this clearer",
+    });
+  });
+
+  it("throws (does not send) on invalid input", () => {
+    // empty text is rejected before any network call
+    expect(() => buildAiRequestBody("triage", { text: "" })).toThrow(/Invalid input for AI action "triage"/);
+  });
+
+  it("strips unknown keys so drift can't leak into the payload", () => {
+    const body = buildAiRequestBody("debriefSummary", { text: "wins and challenges", extra: "x" } as never);
+    expect(body).toEqual({ mode: "debrief_summary", text: "wins and challenges" });
+  });
+});
+
+describe("isSensitiveAiAction", () => {
+  it("flags content-bearing actions as privacy-sensitive (AI-4 groundwork)", () => {
+    const names: AiActionName[] = ["triage", "route", "noteSummarize", "noteRewrite", "noteTitle", "debriefSummary"];
+    for (const n of names) expect(isSensitiveAiAction(n)).toBe(true);
+  });
+});
