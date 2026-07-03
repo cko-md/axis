@@ -72,6 +72,12 @@ export async function getFreshContactsAccessToken(userId: string): Promise<strin
   const refreshed = await refreshGoogleOAuth(tokens.refreshToken);
   if (!refreshed) return null;
 
-  await saveContactsTokens(userId, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, tokens.email);
+  await saveContactsTokens(
+    userId,
+    refreshed.accessToken,
+    refreshed.refreshToken ?? tokens.refreshToken,
+    refreshed.expiresIn,
+    tokens.email,
+  );
   return refreshed.accessToken;
 }

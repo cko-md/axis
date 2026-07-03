@@ -16,6 +16,7 @@ const DEFAULT_EXPIRES_IN_SECONDS = 3600;
 export interface RefreshedToken {
   accessToken: string;
   expiresIn: number;
+  refreshToken?: string;
 }
 
 /** Refreshes a Google OAuth access token using a stored refresh token. */
@@ -32,7 +33,11 @@ export async function refreshGoogleOAuth(refreshToken: string): Promise<Refreshe
   });
   if (!res.ok) return null;
   const json = await res.json();
-  return { accessToken: json.access_token as string, expiresIn: (json.expires_in as number) ?? DEFAULT_EXPIRES_IN_SECONDS };
+  return {
+    accessToken: json.access_token as string,
+    expiresIn: (json.expires_in as number) ?? DEFAULT_EXPIRES_IN_SECONDS,
+    refreshToken: typeof json.refresh_token === "string" && json.refresh_token.trim() ? json.refresh_token : undefined,
+  };
 }
 
 /** Refreshes a Microsoft OAuth access token using a stored refresh token. */
@@ -50,5 +55,9 @@ export async function refreshMicrosoftOAuth(refreshToken: string, scope: string)
   });
   if (!res.ok) return null;
   const json = await res.json();
-  return { accessToken: json.access_token as string, expiresIn: (json.expires_in as number) ?? DEFAULT_EXPIRES_IN_SECONDS };
+  return {
+    accessToken: json.access_token as string,
+    expiresIn: (json.expires_in as number) ?? DEFAULT_EXPIRES_IN_SECONDS,
+    refreshToken: typeof json.refresh_token === "string" && json.refresh_token.trim() ? json.refresh_token : undefined,
+  };
 }
