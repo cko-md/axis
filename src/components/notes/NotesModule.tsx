@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditorLazy";
+import { formatAutosaveLabel } from "@/lib/notes/save-status";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
@@ -186,11 +187,33 @@ function preview(html: string): string {
   return text || "Empty note";
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function textToNoteHtml(text: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return paragraphs
+    .map((part) => `<p>${escapeHtml(part).replace(/\n/g, "<br/>")}</p>`)
+    .join("");
+}
+
 export function NotesModule() {
   const {
     notes,
     loading,
     saveError,
+    saveStatus,
+    lastSavedAt,
+    retryFailedSave,
     clearSaveError,
     refresh: refreshNotes,
     createNote,
@@ -281,7 +304,7 @@ export function NotesModule() {
 
   const [draft, setDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const saving = saveStatus === "saving";
   const [newTag, setNewTag] = useState("");
 
   const [routing, setRouting] = useState(false);
@@ -312,6 +335,7 @@ export function NotesModule() {
   const [liveTranscribing, setLiveTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const liveTranscriptionBodyRef = useRef("");
 
   // ── meeting recorder ──────────────────────────────────────────
   type RecState = "idle" | "recording" | "processing" | "done" | "denied" | "unsupported";
@@ -438,15 +462,17 @@ export function NotesModule() {
 
   const insertSummaryIntoNote = () => {
     if (!selected || !recSummary) return;
-    const mdBlock = `\n\n---\n${recSummary}\n`;
-    // append as plain text into the note body (HTML)
-    const newBody = (selected.body ?? "") + `<p></p><p>${mdBlock.replace(/\n/g, "<br/>")}</p>`;
+    const newBody = `${selected.body ?? ""}<p></p>${textToNoteHtml(`---\n${recSummary}`)}`;
     handleBodyChange(newBody);
     toast("Summary inserted into note", "success", "Notes");
     setRecState("idle");
   };
 
   const selected = useMemo(() => notes.find((n) => n.id === selectedId) ?? null, [notes, selectedId]);
+  useEffect(() => {
+    liveTranscriptionBodyRef.current = selected?.body ?? "";
+  }, [selected?.body]);
+
   // keep ref in sync so stopRecording (which has no dep on selected) can read the title
   useEffect(() => { selectedTitleRef.current = selected?.title ?? ""; }, [selected]);
   const locked = selected ? isLocked(selected) : false;
@@ -494,20 +520,14 @@ export function NotesModule() {
 
   const handleBodyChange = (html: string) => {
     if (!selected || locked) return;
-    setSaving(true);
     clearSaveError();
     updateNoteDebounced(selected.id, { body: html });
-    window.clearTimeout((handleBodyChange as unknown as { _t?: number })._t);
-    (handleBodyChange as unknown as { _t?: number })._t = window.setTimeout(() => setSaving(false), 900);
   };
 
   const handleTitleChange = (title: string) => {
     if (!selected || locked) return;
-    setSaving(true);
     clearSaveError();
     updateNoteDebounced(selected.id, { title });
-    window.clearTimeout((handleTitleChange as unknown as { _t?: number })._t);
-    (handleTitleChange as unknown as { _t?: number })._t = window.setTimeout(() => setSaving(false), 900);
   };
 
   const handleFontChange = (font: NoteFont) => {
@@ -678,6 +698,7 @@ export function NotesModule() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
+      liveTranscriptionBodyRef.current = selected.body ?? "";
       const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
@@ -702,7 +723,8 @@ export function NotesModule() {
           const data = await res.json();
           const transcript = (data?.transcript ?? "").trim();
           if (transcript) {
-            const appended = `${selected.body ?? ""}<p>${transcript}</p>`;
+            const appended = `${liveTranscriptionBodyRef.current}${textToNoteHtml(transcript)}`;
+            liveTranscriptionBodyRef.current = appended;
             updateNoteDebounced(selected.id, { body: appended });
           }
         } catch {
@@ -840,6 +862,7 @@ export function NotesModule() {
         content={selected.body}
         onChange={handleBodyChange}
         saving={saving}
+        saveLabel={locked ? undefined : formatAutosaveLabel(saveStatus, lastSavedAt)}
         editable={!locked}
         onRoute={handleRoute}
         routing={routing}
@@ -870,9 +893,16 @@ export function NotesModule() {
         <div className="rec-panel" style={{ borderColor: "var(--down)", marginTop: 10 }}>
           <div className="rec-panel-head">
             <span>Save failed</span>
-            <button type="button" className="savebtn" style={{ padding: "2px 8px", fontSize: 10 }} onClick={clearSaveError}>
-              Dismiss
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              {saveStatus === "error" && (
+                <button type="button" className="savebtn" style={{ padding: "2px 8px", fontSize: 10 }} onClick={retryFailedSave}>
+                  Retry
+                </button>
+              )}
+              <button type="button" className="savebtn" style={{ padding: "2px 8px", fontSize: 10 }} onClick={clearSaveError}>
+                Dismiss
+              </button>
+            </div>
           </div>
           <div className="rec-panel-summary">{saveError}</div>
         </div>
@@ -1085,14 +1115,11 @@ export function NotesModule() {
               onClick={() => {
                 if (!selected || locked) return;
                 if (aiPanel.mode === "rewrite") {
-                  const html = aiPanel.content
-                    .split("\n\n")
-                    .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
-                    .join("");
+                  const html = textToNoteHtml(aiPanel.content);
                   handleBodyChange(html);
                   toast("Note rewritten", "success", "Notes AI");
                 } else {
-                  const appended = (selected.body ?? "") + `<p></p><p>${aiPanel.content.replace(/\n/g, "<br/>")}</p>`;
+                  const appended = `${selected.body ?? ""}<p></p>${textToNoteHtml(aiPanel.content)}`;
                   handleBodyChange(appended);
                   toast("Summary inserted into note", "success", "Notes AI");
                 }

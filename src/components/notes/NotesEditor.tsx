@@ -81,6 +81,7 @@ type Props = {
   content: string;
   onChange: (html: string) => void;
   saving?: boolean;
+  saveLabel?: string;
   onRoute?: () => void;
   routing?: boolean;
   editable?: boolean;
@@ -94,6 +95,7 @@ export function NotesEditor({
   content,
   onChange,
   saving,
+  saveLabel,
   onRoute,
   routing,
   editable = true,
@@ -471,7 +473,7 @@ export function NotesEditor({
       <div className={styles.meta}>
         {editable ? (
           <span className={`${styles.saveDot} ${saving ? styles.saving : ""}`}>
-            {saving ? "Saving…" : "Saved"}
+            {saveLabel ?? (saving ? "Saving…" : "Saved")}
           </span>
         ) : (
           <span className={styles.saveDot} style={{ color: "var(--ink-faint)" }}>

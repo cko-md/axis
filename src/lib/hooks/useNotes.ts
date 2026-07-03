@@ -1,9 +1,10 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
+import type { AutosaveStatus } from "@/lib/notes/save-status";
 
 export type Note = {
   id: string;
@@ -53,6 +54,12 @@ export function useNotes() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Autosave lifecycle for the currently-edited note (body/title debounced
+  // writes). Drives a truthful "Saving…/Saved HH:MM/Save failed" indicator
+  // and a Retry that re-sends the exact patch that failed.
+  const [saveStatus, setSaveStatus] = useState<AutosaveStatus>("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const lastFailedSaveRef = useRef<{ id: string; patch: Partial<Note> } | null>(null);
 
   const recordError = useCallback((operation: string, rawError: unknown, message: string, noteId?: string) => {
     const err = rawError as { code?: string; status?: number } | null;
@@ -143,6 +150,36 @@ export function useNotes() {
     }
   }, [recordError, supabase]);
 
+  // Shared write path for a debounced/retried autosave patch. Sets the save
+  // lifecycle to "saving" → "saved" (with a confirmed timestamp) or "error"
+  // (remembering the patch so Retry can re-send exactly what failed).
+  const flushNoteSave = useCallback((id: string, patch: Partial<Note>) => {
+    setSaveStatus("saving");
+    supabase
+      .from("notes")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("title, body")
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          lastFailedSaveRef.current = { id, patch };
+          setSaveStatus("error");
+          recordError("autosave", error, "Autosave failed — your latest edit is still on screen.", id);
+          return;
+        }
+        lastFailedSaveRef.current = null;
+        setSaveError(null);
+        setSaveStatus("saved");
+        setLastSavedAt(new Date().toISOString());
+        reembedNote(id, data.title, data.body);
+      }, (err) => {
+        lastFailedSaveRef.current = { id, patch };
+        setSaveStatus("error");
+        recordError("autosave", err, "Autosave failed — your latest edit is still on screen.", id);
+      });
+  }, [recordError, supabase]);
+
   // Debounced variant for keystroke-driven edits: local state updates immediately,
   // the Supabase write coalesces to one request per pause in typing.
   const updateNoteDebounced = useMemo(() => {
@@ -151,34 +188,26 @@ export function useNotes() {
     return (id: string, patch: Partial<Note>) => {
       setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
       pending.set(id, { ...pending.get(id), ...patch });
+      setSaveStatus("saving");
       clearTimeout(timers.get(id));
       timers.set(
         id,
         setTimeout(() => {
           const p = pending.get(id);
           pending.delete(id);
-          if (p) {
-            supabase
-              .from("notes")
-              .update({ ...p, updated_at: new Date().toISOString() })
-              .eq("id", id)
-              .select("title, body")
-              .single()
-              .then(({ data, error }) => {
-                if (error || !data) {
-                  recordError("autosave", error, "Autosave failed — your latest edit is still on screen.", id);
-                  return;
-                }
-                setSaveError(null);
-                reembedNote(id, data.title, data.body);
-              }, (err) => {
-                recordError("autosave", err, "Autosave failed — your latest edit is still on screen.", id);
-              });
-          }
+          if (p) flushNoteSave(id, p);
         }, 600),
       );
     };
-  }, [recordError, supabase]);
+  }, [flushNoteSave]);
+
+  // Re-send the exact patch whose autosave last failed (no retyping needed).
+  const retryFailedSave = useCallback(() => {
+    const failed = lastFailedSaveRef.current;
+    if (!failed) return;
+    setSaveError(null);
+    flushNoteSave(failed.id, failed.patch);
+  }, [flushNoteSave]);
 
   const deleteNote = useCallback(async (id: string) => {
     try {
@@ -238,7 +267,7 @@ export function useNotes() {
 
   const clearSaveError = useCallback(() => setSaveError(null), []);
 
-  return { notes, loading, saveError, clearSaveError, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock, archiveNote };
+  return { notes, loading, saveError, saveStatus, lastSavedAt, retryFailedSave, clearSaveError, refresh, createNote, updateNote, updateNoteDebounced, deleteNote, toggleLock, archiveNote };
 }
 
 export const LOCK_TAG = "__locked";
