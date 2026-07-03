@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
         { status: 503 },
       );
     }
-    Sentry.captureException(err instanceof Error ? err : new Error("Semantic search embedding failed"), {
+    Sentry.captureException(new Error("Semantic search embedding failed"), {
       tags: { area: "notes", op: "semantic_search_embed", provider: "gemini" },
     });
     return NextResponse.json({ error: "Semantic search failed.", code: "semantic_error" }, { status: 502 });

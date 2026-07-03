@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
   let embedding: number[];
   try {
     embedding = await embedText(text);
-  } catch (error) {
-    Sentry.captureException(error instanceof Error ? error : new Error("Note embedding failed"), {
+  } catch {
+    Sentry.captureException(new Error("Note embedding generation failed"), {
       tags: { area: "notes", op: "embedding_generate", provider: "gemini" },
       contexts: { note: { id: noteId } },
     });
