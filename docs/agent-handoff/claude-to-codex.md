@@ -78,11 +78,22 @@ DISP-1..4 are the full Dispatch/Command project (no DISP-5).
 
 CAL-1..5 (#106–#110) are the full "PROJECT 2 — Calendar + Agenda Slice" from `docs/linear/axis-mvp-issues.md`. All local gates (tsc/lint/test) passed on every PR; final count 248 tests (was 218 after DISP-4). `npm run build` was not run locally this session (user-directed token-minimization) — verify via Vercel preview build before any merge.
 
-**Known plan discrepancy — flag before continuing:** the original continuation prompt named `AGENDA-1..5` and `NOTES-1..5` as upcoming projects; neither exists in `docs/linear/axis-mvp-issues.md` (only `## PROJECT 2 — Calendar + Agenda Slice` covers Agenda, via CAL-4; there is no Notes project at all in this doc — Notes work isn't specced here). The doc's own "suggested execution order" comment (line ~60) also references a *different*, earlier MAIL-1/2/3 numbering (Composio Gmail/Outlook detail + adapter foundation) than the Phase-4-hardening MAIL-1/2/3 this session actually built (provider parity validation / skeletons / document viewer) — the backlog has two overlapping ID schemes from different planning eras. Do not assume MAIL-6..10, DATA-*, INT-*, or PROD-* map cleanly onto work already done. The next **unambiguous** projects in the doc are: `## PROJECT 5 — Latency + Observability` (OBS-1..5), `## PROJECT 7 — UX / Design System`, `## PROJECT 9 — AI Workflow Layer`, `## PROJECT 10 — Integration Health + Control Room`. Confirm which one before proceeding rather than guessing at the ambiguous MAIL/DATA/INT numbering.
+**Authoritative plan = the pasted master phase plan (below), NOT `docs/linear/axis-mvp-issues.md`.** The repo doc uses an older, overlapping ID scheme; the user has since supplied the canonical phase-based hardening program. Map of that plan to what's actually shipped:
+
+- **Phase 0** (DOC-1..5): done — Codex docs stack, PRs #62–#67.
+- **Phase 1** (THEME/PRESENCE/RENDER): done — Codex, PRs #68–#77.
+- **Phase 2** (WID/UX primitives): done — Codex, PRs #78–#85.
+- **Phase 3** (WID-DATA + CONSOLE): done — Codex, PRs #86–#96.
+- **Phase 4 — Daily modules:**
+  - MAIL-1..5 (provider parity, skeletons, document viewer, mobile/keyboard, theme QA): done — PRs #97–#101.
+  - CAL-1..5 (event detail, provider parity/update, conflict+provider failure states, Agenda/Today drill-in data, rendering/Sentry): done — PRs #106–#110. (CAL-4 delivered the master plan's "Agenda consumes real data + Today's Arc drill-in".)
+  - DISP + AGENDA: the master plan's DISP-1..5 (signal detail, route-to UX, widget drill-in, duplicate/error states, badge QA) and AGENDA-1..5 (task detail drawer, source links, schedule-focus-block, empty/error polish, density pass) are **largely already satisfied** by pre-existing code + the adjacent Dispatch/Command work shipped as PRs #102–#105 (routing reliability, console navigability, route retirement, palette). Treat these as substantially covered; if a specific master-plan DISP/AGENDA acceptance line is found unmet, file it as a targeted follow-up rather than re-running the whole block.
+  - **NOTES-1..5: NOT started — the clean remaining Phase-4 gap. This is the current work.**
+- **Phases 5–8** (beta modules, life/capital, lab modules, control-room/nav/AI/prod): not started.
 
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after CAL-5. Neither `AGENDA-1..5` nor `NOTES-1..5` exist in the plan (see the discrepancy note above) — pick the next real project from `docs/linear/axis-mvp-issues.md` (OBS-1..5 / UX-* / AI-* / IHC-* are the unambiguous candidates) before continuing: through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
+Resume at **NOTES-1..5** (the master plan's last Phase-4 Daily-module project, not yet started), then proceed to Phase 5 (Objectives/Debrief/Pipeline/Literature) and onward. Legacy note below (pre-master-plan sequencing, kept for provenance): through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 

@@ -31,7 +31,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { NotesEditor } from "./NotesEditor";
+import { NotesEditor } from "./NotesEditorLazy";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
