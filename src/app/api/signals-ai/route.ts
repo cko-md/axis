@@ -4,6 +4,7 @@ import { aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 import { getGeminiApiKey, optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { normalizeSignalsAIRequest } from "@/lib/signals/aiRequest";
 
 // Destinations a signal can be routed into. Kept in sync with the client ROUTES list.
 const DESTINATIONS = ["agenda", "schedule", "notes", "pipeline", "fund", "literature", "library", "people"] as const;
@@ -85,16 +86,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
   }
 
-  const payload = (await req.json()) as {
-    mode?: string;
-    // single
-    title?: string;
-    body?: string | null;
-    source?: string | null;
-    id?: string;
-    // batch
-    signals?: ClassifyInput[];
-  };
+  let rawPayload: unknown;
+  try {
+    rawPayload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const normalized = normalizeSignalsAIRequest(rawPayload);
+  if (!normalized.ok) {
+    return NextResponse.json({ error: normalized.error }, { status: normalized.status });
+  }
 
   const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const hasGemini = !!getGeminiApiKey();
@@ -110,20 +111,12 @@ export async function POST(req: NextRequest) {
   };
 
   // Batch mode: classify many signals at once. Cap at 50 to bound AI spend.
-  if (payload.mode === "batch" && Array.isArray(payload.signals)) {
-    if (payload.signals.length > 50) {
-      return NextResponse.json({ error: "Batch size exceeds limit of 50" }, { status: 400 });
-    }
-    const results = await Promise.all(payload.signals.map((s) => classifyOne(s)));
+  if (normalized.request.mode === "batch") {
+    const results = await Promise.all(normalized.request.signals.map((s) => classifyOne(s)));
     return NextResponse.json({ results });
   }
 
   // Single signal.
-  const result = await classifyOne({
-    id: payload.id,
-    title: payload.title ?? "",
-    body: payload.body ?? null,
-    source: payload.source ?? null,
-  });
+  const result = await classifyOne(normalized.request.input);
   return NextResponse.json(result);
 }
