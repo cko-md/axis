@@ -141,6 +141,18 @@
   caret-color: var(--gold);
 }
 
+/* NOTES-5: let the editor body track the global density setting, matching how
+   .card/.grid respond in globals.css, so the reading/writing surface feels
+   consistent with the rest of the app at compact/cozy densities. */
+:global(body[data-density="compact"]) .editor :global(.ProseMirror) {
+  font-size: 13px;
+  line-height: 1.65;
+}
+:global(body[data-density="cozy"]) .editor :global(.ProseMirror) {
+  font-size: 15px;
+  line-height: 1.85;
+}
+
 .editor :global(.ProseMirror p) {
   margin: 0 0 0.85em;
 }
