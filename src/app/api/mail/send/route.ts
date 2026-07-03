@@ -47,7 +47,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Ownership: the account must belong to this user.
-  const accounts = await listMailAccounts(user.id);
+  let accounts;
+  try {
+    accounts = await listMailAccounts(user.id);
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { area: "mail", route: "/api/mail/send", op: "list_accounts" },
+    });
+    return NextResponse.json(
+      { error: "Mail accounts could not be loaded. Message was not sent.", code: "account_status_unavailable" },
+      { status: 503 },
+    );
+  }
   const account = accounts.find((a) => {
     const transport = a.via === "composio" ? "composio" : "direct";
     return a.provider === provider && a.mailEmail === mailEmail && (!via || transport === via);

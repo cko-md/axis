@@ -39,7 +39,24 @@ export async function GET(req: NextRequest) {
   const pageToken = req.nextUrl.searchParams.get("pageToken") ?? undefined;
   const skip = parseInt(req.nextUrl.searchParams.get("skip") ?? "0", 10);
 
-  const allAccounts = await listMailAccounts(user.id);
+  let allAccounts;
+  try {
+    allAccounts = await listMailAccounts(user.id);
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { area: "mail", route: "/api/mail/inbox", op: "list_accounts" },
+    });
+    logRouteTiming("/api/mail/inbox", routeStartedAt, {
+      accounts: 0,
+      messages: 0,
+      partial: true,
+      code: "account_status_unavailable",
+    });
+    return NextResponse.json(
+      { error: "Mail accounts could not be loaded. Try refreshing.", code: "account_status_unavailable" },
+      { status: 503 },
+    );
+  }
 
   // If a specific account is requested, only fetch that one.
   const accountsToFetch =

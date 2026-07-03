@@ -55,16 +55,56 @@ export async function GET(req: NextRequest) {
   const end = searchParams.get("end");
   if (!start || !end) return NextResponse.json({ error: "start and end are required" }, { status: 400 });
 
-  const { data: connections } = await supabase
+  const { data: connections, error: connectionsError } = await supabase
     .from("calendar_connections")
     .select("provider")
     .eq("user_id", user.id);
+  if (connectionsError) {
+    Sentry.captureException(connectionsError, {
+      tags: { area: "schedule", route: "/api/calendar/external", op: "list_direct_accounts" },
+    });
+    return NextResponse.json(
+      {
+        events: [],
+        partial: true,
+        errors: [{
+          source: "google",
+          transport: "direct",
+          code: "network",
+          message: "Calendar accounts could not be loaded.",
+        }],
+        fetchedAt: new Date().toISOString(),
+      },
+      { status: 503 },
+    );
+  }
 
   const providers = new Set((connections ?? []).map((c) => c.provider));
   const displaySource = (toolkit: "googlecalendar" | "outlook") => (toolkit === "googlecalendar" ? "google" : "outlook");
-  const composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
-    (a) => !providers.has(displaySource(a.provider)),
-  );
+  let composioAccounts;
+  try {
+    composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
+      (a) => !providers.has(displaySource(a.provider)),
+    );
+  } catch (composioError) {
+    Sentry.captureException(composioError, {
+      tags: { area: "schedule", route: "/api/calendar/external", op: "list_composio_accounts" },
+    });
+    return NextResponse.json(
+      {
+        events: [],
+        partial: true,
+        errors: [{
+          source: "google",
+          transport: "composio",
+          code: "network",
+          message: "Calendar accounts could not be fully loaded.",
+        }],
+        fetchedAt: new Date().toISOString(),
+      },
+      { status: 503 },
+    );
+  }
 
   async function loadSource<T>(
     source: CalendarSource,

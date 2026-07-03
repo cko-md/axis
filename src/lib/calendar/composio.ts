@@ -63,12 +63,13 @@ export async function listComposioCalendarAccounts(userId: string): Promise<Comp
   // poll-on-read — requiring it here meant a freshly-connected, ACTIVE calendar
   // returned zero events until that label round-trip landed, so connecting
   // "succeeded" but the schedule stayed empty. List events as soon as ACTIVE.
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("composio_connections")
     .select("toolkit, connected_account_id, account_label")
     .eq("user_id", userId)
     .eq("status", "ACTIVE")
     .in("toolkit", ["googlecalendar", "outlook"]);
+  if (error) throw error;
 
   return (data ?? []).map((row) => ({
     provider: row.toolkit as CalendarToolkit,

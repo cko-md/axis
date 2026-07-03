@@ -52,12 +52,13 @@ export async function listComposioMailAccounts(userId: string): Promise<Composio
   // cosmetic (filled lazily by the status route) and requiring it left a
   // freshly-connected, ACTIVE inbox showing no mail until that round-trip
   // landed. List as soon as ACTIVE; fall back to a generic label.
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("composio_connections")
     .select("toolkit, connected_account_id, account_label")
     .eq("user_id", userId)
     .eq("status", "ACTIVE")
     .in("toolkit", ["gmail", "outlook"]);
+  if (error) throw error;
 
   return (data ?? []).map((row) => ({
     provider: row.toolkit as "gmail" | "outlook",
