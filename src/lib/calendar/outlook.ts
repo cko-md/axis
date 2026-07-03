@@ -85,6 +85,33 @@ export async function createOutlookEvent(
   return json.id as string;
 }
 
+export async function updateOutlookEvent(
+  userId: string,
+  outlookEventId: string,
+  event: { title: string; start_at: string; end_at: string; description?: string },
+): Promise<boolean> {
+  const token = await getFreshAccessToken(userId, "outlook");
+  if (!token) return false;
+
+  const res = await timedProviderFetch(
+    `${BASE}/${encodeURIComponent(outlookEventId)}`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: event.title,
+        body: { contentType: "text", content: event.description ?? "" },
+        start: { dateTime: event.start_at, timeZone: "UTC" },
+        end: { dateTime: event.end_at, timeZone: "UTC" },
+      }),
+    },
+    { area: "calendar", provider: "outlook", operation: "update_event", timeoutMs: 8_000, slowMs: 2_000 },
+  );
+
+  if (!res.ok && res.status !== 404) throw outlookCalendarError("update_event", res.status);
+  return res.ok;
+}
+
 export async function deleteOutlookEvent(userId: string, outlookEventId: string): Promise<boolean> {
   const token = await getFreshAccessToken(userId, "outlook");
   if (!token) return false;

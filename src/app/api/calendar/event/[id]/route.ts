@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { deleteGoogleEvent } from "@/lib/calendar/google";
-import { deleteOutlookEvent } from "@/lib/calendar/outlook";
+import { deleteGoogleEvent, updateGoogleEvent } from "@/lib/calendar/google";
+import { deleteOutlookEvent, updateOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, deleteComposioEvent } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 import { resolveCleanupTransport, validateEventPatch, type ScheduleEventPatchInput } from "@/lib/calendar/event-detail";
@@ -14,6 +14,8 @@ type CalendarDeleteError = {
 };
 type CalendarDeleteResult = { ok: boolean; error?: CalendarDeleteError };
 
+type CalendarSyncOutcome = { ok: boolean; error?: CalendarDeleteError };
+
 function captureScheduleFailure(error: unknown, op: string, eventId: string) {
   Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { area: "schedule", op },
@@ -22,10 +24,16 @@ function captureScheduleFailure(error: unknown, op: string, eventId: string) {
 }
 
 // PATCH /api/calendar/event/[id]
-// Updates an owned local schedule_event. External calendar update parity is
-// intentionally out of scope for CAL-1/KEV-29; this route only persists the
-// Supabase source of truth and leaves sync work to the follow-up parity issue.
+// Updates an owned local schedule_event, then best-effort propagates the
+// change to any connected external calendar the event was previously synced
+// to (CAL-2). Direct-OAuth Google/Outlook support update natively. Composio
+// has no verified update tool slug (only LIST/CREATE/DELETE were confirmed
+// live against Composio's tool catalog — see composio.ts's header notes), so
+// a Composio-synced event is left unchanged externally and the response
+// reports it as `notSupported` rather than guessing at an unverified call.
+// Local persistence always succeeds/fails independently of external sync.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const routeStartedAt = Date.now();
   const { id: eventId } = await params;
 
   const supabase = await createClient();
@@ -55,7 +63,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     })
     .eq("id", eventId)
     .eq("user_id", user.id)
-    .select("id, title, description, start_at, end_at, color_class, all_day")
+    .select("id, title, description, start_at, end_at, color_class, all_day, gcal_event_id, outlook_event_id")
     .maybeSingle();
 
   if (error) {
@@ -64,7 +72,77 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   if (!data) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
-  return NextResponse.json({ event: data });
+  const { gcal_event_id, outlook_event_id, ...event } = data;
+
+  if (!gcal_event_id && !outlook_event_id) {
+    return NextResponse.json({ event, partial: false, errors: [], notSupported: [] });
+  }
+
+  const { data: connections } = await supabase
+    .from("calendar_connections")
+    .select("provider")
+    .eq("user_id", user.id);
+  const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
+
+  async function updateExternal(
+    source: "google" | "outlook",
+    operation: () => Promise<boolean>,
+  ): Promise<CalendarSyncOutcome> {
+    try {
+      const ok = await timedProviderOperation(
+        { area: "calendar", provider: source, transport: "direct", operation: "update_event", timeoutMs: 8_000, slowMs: 2_000 },
+        operation,
+      );
+      if (ok) return { ok: true };
+      return { ok: false, error: { source, transport: "direct", message: `${source === "google" ? "Google Calendar" : "Outlook"} update failed.` } };
+    } catch {
+      return { ok: false, error: { source, transport: "direct", message: `${source === "google" ? "Google Calendar" : "Outlook"} update failed.` } };
+    }
+  }
+
+  const notSupported: Array<"google" | "outlook"> = [];
+  const syncInput = { title, start_at, end_at, description: description ?? undefined };
+
+  function planExternalUpdate(
+    source: "google" | "outlook",
+    externalId: string | null,
+    hasLegacy: boolean,
+    operation: () => Promise<boolean>,
+  ): Promise<CalendarSyncOutcome> {
+    if (!externalId) return Promise.resolve({ ok: true });
+    if (!hasLegacy) {
+      notSupported.push(source);
+      return Promise.resolve({ ok: true });
+    }
+    return updateExternal(source, operation);
+  }
+
+  const [googleResult, outlookResult] = await Promise.all([
+    planExternalUpdate("google", gcal_event_id, legacyProviders.has("google"), () =>
+      updateGoogleEvent(user.id, gcal_event_id as string, syncInput),
+    ),
+    planExternalUpdate("outlook", outlook_event_id, legacyProviders.has("outlook"), () =>
+      updateOutlookEvent(user.id, outlook_event_id as string, syncInput),
+    ),
+  ]);
+  const errors = [
+    ...(googleResult.error ? [googleResult.error] : []),
+    ...(outlookResult.error ? [outlookResult.error] : []),
+  ];
+
+  for (const err of errors) {
+    Sentry.captureException(new Error("Schedule calendar event update sync failed"), {
+      tags: { area: "schedule", op: "update_external_event", provider: err.source, transport: err.transport },
+      extra: { eventId },
+    });
+  }
+
+  logRouteTiming("/api/calendar/event/[id]", routeStartedAt, {
+    ok: errors.length === 0,
+    partial: errors.length > 0 || notSupported.length > 0,
+  });
+
+  return NextResponse.json({ event, partial: errors.length > 0, errors, notSupported });
 }
 
 // DELETE /api/calendar/event/[id]

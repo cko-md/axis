@@ -536,7 +536,12 @@ export function ScheduleModule() {
           color_class: editForm.color,
         }),
       });
-      const payload = (await response.json().catch(() => ({}))) as { event?: ScheduleEvent; error?: string };
+      const payload = (await response.json().catch(() => ({}))) as {
+        event?: ScheduleEvent;
+        error?: string;
+        partial?: boolean;
+        notSupported?: Array<"google" | "outlook">;
+      };
       if (!response.ok || !payload.event) {
         throw new Error(payload.error || "Could not update event.");
       }
@@ -549,7 +554,14 @@ export function ScheduleModule() {
       setSelectedEvent(updated);
       setEditForm(eventToEditForm(updated));
       setDetailMode("view");
-      toast("Event updated.", "success", "Schedule");
+      if (payload.partial) {
+        toast("Event updated locally, but syncing the change to your calendar failed.", "warn", "Schedule");
+      } else if (payload.notSupported?.length) {
+        const providers = payload.notSupported.map((p) => (p === "google" ? "Google Calendar" : "Outlook")).join(" and ");
+        toast(`Event updated locally. ${providers} sync via Composio doesn't support edits yet — update it there manually.`, "warn", "Schedule");
+      } else {
+        toast("Event updated.", "success", "Schedule");
+      }
       load();
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not update event.", "error", "Schedule");

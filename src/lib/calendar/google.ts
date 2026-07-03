@@ -96,6 +96,33 @@ export async function createGoogleEvent(
   return json.id as string;
 }
 
+export async function updateGoogleEvent(
+  userId: string,
+  gcalEventId: string,
+  event: { title: string; start_at: string; end_at: string; description?: string },
+): Promise<boolean> {
+  const token = await getFreshAccessToken(userId, "google");
+  if (!token) return false;
+
+  const res = await timedProviderFetch(
+    `${BASE}/${encodeURIComponent(gcalEventId)}`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: event.title,
+        description: event.description ?? "",
+        start: { dateTime: event.start_at, timeZone: "UTC" },
+        end: { dateTime: event.end_at, timeZone: "UTC" },
+      }),
+    },
+    { area: "calendar", provider: "google", operation: "update_event", timeoutMs: 8_000, slowMs: 2_000 },
+  );
+
+  if (!res.ok && res.status !== 404) throw googleCalendarError("update_event", res.status);
+  return res.ok;
+}
+
 export async function deleteGoogleEvent(userId: string, gcalEventId: string): Promise<boolean> {
   const token = await getFreshAccessToken(userId, "google");
   if (!token) return false;
