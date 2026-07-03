@@ -108,7 +108,9 @@ export function PeopleModule() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [contacts, setContacts] = useState<GoogleContact[]>([]);
   const [contactsLoaded, setContactsLoaded] = useState(false);
+  const [contactsError, setContactsError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const matchedOnceRef = useRef(false);
   const [showMailPicker, setShowMailPicker] = useState(false);
   const mailBtnRef = useRef<HTMLDivElement>(null);
@@ -172,15 +174,22 @@ export function PeopleModule() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showContactsPicker]);
 
-  const fetchContacts = () => {
+  const fetchContacts = useCallback(() => {
+    setContactsError(null);
     fetch("/api/contacts/list")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error("contacts_unavailable");
+        return r.json() as Promise<GoogleContact[]>;
+      })
       .then((data: GoogleContact[] | null) => {
         if (data) setContacts(data);
         setContactsLoaded(true);
       })
-      .catch(() => setContactsLoaded(true));
-  };
+      .catch(() => {
+        setContactsError("Google Contacts could not be loaded.");
+        setContactsLoaded(true);
+      });
+  }, []);
 
   // After connecting Google Contacts via Composio, the connection is often still
   // INITIATED on the first read — a one-shot fetch returns nothing and the CRM
@@ -192,10 +201,17 @@ export function PeopleModule() {
       tries += 1;
       await fetch("/api/integrations/composio/status", { cache: "no-store" }).catch(() => {});
       const data = await fetch("/api/contacts/list")
-        .then((r) => (r.ok ? (r.json() as Promise<GoogleContact[]>) : null))
-        .catch(() => null);
+        .then((r) => {
+          if (!r.ok) throw new Error("contacts_unavailable");
+          return r.json() as Promise<GoogleContact[]>;
+        })
+        .catch(() => {
+          setContactsError("Google Contacts could not be loaded.");
+          return null;
+        });
       if (data && data.length > 0) {
         setContacts(data);
+        setContactsError(null);
         setContactsLoaded(true);
         return;
       }
@@ -206,8 +222,15 @@ export function PeopleModule() {
   }, []);
 
   useEffect(() => {
+    if (loading) return;
+    if (!signedIn) {
+      setContacts([]);
+      setContactsLoaded(false);
+      setContactsError(null);
+      return;
+    }
     fetchContacts();
-  }, []);
+  }, [fetchContacts, loading, signedIn]);
 
   // Dedupe/auto-tag suggestions for newly-synced contacts — runs once per
   // session against the CRM as it stood when contacts finished loading, not
@@ -215,14 +238,18 @@ export function PeopleModule() {
   useEffect(() => {
     if (matchedOnceRef.current || loading || !contactsLoaded || contacts.length === 0) return;
     matchedOnceRef.current = true;
+    setSuggestionsError(null);
     fetch("/api/people/match-contacts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contacts }),
     })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error("match_unavailable");
+        return r.json() as Promise<{ suggestions?: ContactSuggestion[] }>;
+      })
       .then((data: { suggestions?: ContactSuggestion[] } | null) => setSuggestions(data?.suggestions ?? []))
-      .catch(() => {});
+      .catch(() => setSuggestionsError("Contact match suggestions are unavailable."));
   }, [loading, contactsLoaded, contacts]);
 
   const mergeContact = async (s: Extract<ContactSuggestion, { type: "merge" }>) => {
@@ -288,6 +315,8 @@ export function PeopleModule() {
 
   const remove = async () => {
     if (!editing) return;
+    const confirmed = window.confirm(`Remove ${editing.name} from People?`);
+    if (!confirmed) return;
     const result = await deletePerson(editing.id);
     if (result.error) toast(result.error, "error", "People");
     else toast("Person removed.", "info", "People");
@@ -440,6 +469,7 @@ export function PeopleModule() {
           >
             Google Contacts
           </div>
+          {suggestionsError && <p style={{ fontSize: 12, color: "var(--clay)", margin: "0 0 10px" }}>{suggestionsError}</p>}
           <div className="people-grid">
             {contacts.map((c) => {
               const suggestion = suggestions.find((s) => s.contactId === c.id);
@@ -470,6 +500,9 @@ export function PeopleModule() {
             })}
           </div>
         </>
+      )}
+      {signedIn && contactsLoaded && contactsError && (
+        <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 12 }}>{contactsError}</p>
       )}
 
       <Modal

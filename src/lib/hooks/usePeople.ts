@@ -115,10 +115,13 @@ export function usePeople() {
   }, [supabase]);
 
   const updatePerson = useCallback(async (id: string, patch: Partial<Person>) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Sign in to update people." };
     const { data, error } = await supabase
       .from("people")
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", id)
+      .eq("user_id", user.id)
       .select()
       .single();
     if (error) return { error: error.message };
@@ -127,7 +130,9 @@ export function usePeople() {
   }, [supabase]);
 
   const deletePerson = useCallback(async (id: string) => {
-    const { error } = await supabase.from("people").delete().eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Sign in to remove people." };
+    const { error } = await supabase.from("people").delete().eq("id", id).eq("user_id", user.id);
     if (error) return { error: error.message };
     setPeople((prev) => prev.filter((p) => p.id !== id));
     return {};
