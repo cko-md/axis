@@ -124,7 +124,7 @@ export function FundAdvisorModule() {
                 </div>
                 {m.citation.assumptions && <div><b style={{ color: "var(--ink-dim)" }}>Assumptions:</b> {m.citation.assumptions}</div>}
                 <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                  <span style={{ color: m.citation.confidence === "high" ? "var(--good, #6b9)" : m.citation.confidence === "low" ? "var(--clay)" : "var(--gold)" }}>
+                  <span style={{ color: m.citation.confidence === "high" ? "var(--up)" : m.citation.confidence === "low" ? "var(--clay)" : "var(--gold)" }}>
                     Confidence: {m.citation.confidence}
                   </span>
                   {m.citation.requires_review && <span style={{ color: "var(--clay)" }}>⚠ Worth double-checking</span>}

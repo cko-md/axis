@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNotes } from "@/lib/hooks/useNotes";
 import type { Note } from "@/lib/hooks/useNotes";
@@ -74,6 +75,16 @@ function nextOccurrence(dayOfWeek: number, hour = 19): Date {
   next.setDate(now.getDate() + daysUntil);
   next.setHours(hour, 0, 0, 0);
   return next;
+}
+
+async function readAiSummary(res: Response): Promise<string> {
+  if (!res.ok) {
+    throw new Error(`AI summary request failed: ${res.status}`);
+  }
+  const data = (await res.json()) as { summary?: string };
+  const summary = data.summary?.trim();
+  if (!summary) throw new Error("AI summary response was empty");
+  return summary;
 }
 
 const DEMO_WINS = ["AANS abstract submitted", "Cohort 2 chart review (80%)", "4 zone-2 runs · 38 km"];
@@ -394,9 +405,11 @@ export function DebriefModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "debrief_summary", text: combined.slice(0, 6000) }),
       });
-      const data = (await res.json()) as { summary?: string };
-      setAiSummary(data.summary ?? "No summary generated.");
-    } catch {
+      setAiSummary(await readAiSummary(res));
+    } catch (error) {
+      Sentry.captureException(error instanceof Error ? error : new Error("Weekly debrief summary failed"), {
+        tags: { area: "debrief", op: "weekly_summary" },
+      });
       setAiSummary("Unable to generate summary — check your connection.");
     } finally {
       setSummarizing(false);
@@ -510,10 +523,12 @@ export function DebriefModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "debrief_summary", text: text.slice(0, 6000) }),
       });
-      const data = (await res.json()) as { summary?: string };
-      setDailySummary(data.summary ?? "No summary generated.");
-    } catch {
-      toast("Could not generate summary.", "error", "Debrief");
+      setDailySummary(await readAiSummary(res));
+    } catch (error) {
+      Sentry.captureException(error instanceof Error ? error : new Error("Daily debrief summary failed"), {
+        tags: { area: "debrief", op: "daily_summary" },
+      });
+      toast("AI summary is unavailable right now — try again later.", "error", "Debrief");
     } finally {
       setSummarizing(false);
     }

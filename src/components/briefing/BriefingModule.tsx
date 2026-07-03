@@ -588,7 +588,7 @@ export function BriefingModule() {
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); toggleSave(s, isVideoStory(s) ? "watch" : "read"); }}
-                style={{ position: "absolute", top: 7, right: 7, background: "rgba(7,8,11,.55)", border: "none", borderRadius: 3, width: 24, height: 24, display: "grid", placeItems: "center", cursor: "pointer", color: saved.some((x) => x.url === s.url) ? "#c9a463" : "rgba(193,196,199,.7)", fontSize: 12 }}
+                style={{ position: "absolute", top: 7, right: 7, background: "rgba(7,8,11,.55)", border: "none", borderRadius: 3, width: 24, height: 24, display: "grid", placeItems: "center", cursor: "pointer", color: saved.some((x) => x.url === s.url) ? "var(--gold)" : "rgba(193,196,199,.7)", fontSize: 12 }}
                 title={saved.some((x) => x.url === s.url) ? "Remove from saved" : "Save for later"}
               >
                 {saved.some((x) => x.url === s.url) ? "★" : "☆"}
