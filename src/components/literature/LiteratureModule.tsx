@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
@@ -68,6 +69,19 @@ function articleToSaved(a: Article): SavedArticle {
     notes: "",
     tags: [],
   };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function textToHtml(value: string): string {
+  return escapeHtml(value).replace(/\n/g, "<br/>");
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -162,23 +176,36 @@ export function LiteratureModule() {
   }, [selectedSaved]);
 
   const persistSavedPatch = useCallback(async (id: string, patch: Partial<SavedArticle>) => {
-    setSavedLit((prev) => {
-      const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
-      if (savedPersisted !== "supabase") persistSavedLit(next);
-      return next;
-    });
-    if (savedPersisted !== "supabase") return true;
+    if (savedPersisted !== "supabase") {
+      setSavedLit((prev) => {
+        const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
+        persistSavedLit(next);
+        return next;
+      });
+      return true;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast("Sign in to save paper notes/tags.", "warn", "Literature");
+      return false;
+    }
     const { error } = await supabase
       .from("literature_saved")
       .update({
         notes: patch.notes,
         tags: patch.tags,
       })
+      .eq("user_id", user.id)
       .eq("article_id", id);
     if (error) {
+      Sentry.captureException(error, {
+        tags: { area: "literature", op: "save_paper_meta", supabase_code: error.code ?? "unknown" },
+        contexts: { literature: { article_id: id } },
+      });
       toast("Could not save paper notes/tags.", "error", "Literature");
       return false;
     }
+    setSavedLit((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     return true;
   }, [savedPersisted, supabase, toast]);
 
@@ -246,12 +273,12 @@ export function LiteratureModule() {
       return;
     }
     const body = [
-      `<p><strong>${paper.title}</strong></p>`,
-      `<p>${paper.authors}</p>`,
-      `<p>${paper.source} · ${fmtDate(paper.publishedAt)}</p>`,
-      `<p>${paper.summary}</p>`,
-      "notes" in paper && paper.notes ? `<p><strong>Notes</strong><br/>${paper.notes.replace(/\n/g, "<br/>")}</p>` : "",
-      `<p><a href="${paper.url}">${paper.url}</a></p>`,
+      `<p><strong>${escapeHtml(paper.title)}</strong></p>`,
+      `<p>${escapeHtml(paper.authors)}</p>`,
+      `<p>${escapeHtml(paper.source)} · ${escapeHtml(fmtDate(paper.publishedAt))}</p>`,
+      `<p>${textToHtml(paper.summary)}</p>`,
+      "notes" in paper && paper.notes ? `<p><strong>Notes</strong><br/>${textToHtml(paper.notes)}</p>` : "",
+      `<p><a href="${escapeHtml(paper.url)}">${escapeHtml(paper.url)}</a></p>`,
     ].filter(Boolean).join("");
     const { error } = await supabase.from("notes").insert({
       user_id: user.id,
@@ -260,6 +287,12 @@ export function LiteratureModule() {
       folder: "Research",
       tags: ["literature", ...("tags" in paper ? (paper.tags ?? []) : [])],
     });
+    if (error) {
+      Sentry.captureException(error, {
+        tags: { area: "literature", op: "create_note_from_paper", supabase_code: error.code ?? "unknown" },
+        contexts: { literature: { article_id: paper.id } },
+      });
+    }
     toast(error ? "Could not create note." : "Created literature note.", error ? "error" : "success", "Literature");
   };
 
@@ -269,13 +302,20 @@ export function LiteratureModule() {
       toast("Sign in to add papers to Pipeline.", "warn", "Literature");
       return;
     }
-    const { data: stages } = await supabase
+    const { data: stageRows, error: stagesError } = await supabase
       .from("pipeline_stages")
       .select("id")
       .eq("user_id", user.id)
       .order("sort_order", { ascending: true })
       .limit(1);
-    let stageId = stages?.[0]?.id as string | undefined;
+    if (stagesError) {
+      Sentry.captureException(stagesError, {
+        tags: { area: "literature", op: "pipeline_stage_lookup", supabase_code: stagesError.code ?? "unknown" },
+      });
+      toast("Could not reach Pipeline — check your connection and retry.", "error", "Literature");
+      return;
+    }
+    let stageId = stageRows?.[0]?.id as string | undefined;
     if (!stageId) {
       const { data: stage, error: stageError } = await supabase
         .from("pipeline_stages")
@@ -283,6 +323,9 @@ export function LiteratureModule() {
         .select("id")
         .single();
       if (stageError || !stage) {
+        Sentry.captureException(stageError ?? new Error("Pipeline stage insert returned no row"), {
+          tags: { area: "literature", op: "pipeline_stage_insert", supabase_code: stageError?.code ?? "unknown" },
+        });
         toast("Could not prepare Pipeline stage.", "error", "Literature");
         return;
       }
@@ -297,6 +340,12 @@ export function LiteratureModule() {
       next_action: "Assess relevance and study design",
       sort_order: 0,
     });
+    if (error) {
+      Sentry.captureException(error, {
+        tags: { area: "literature", op: "add_paper_to_pipeline", supabase_code: error.code ?? "unknown" },
+        contexts: { literature: { article_id: paper.id } },
+      });
+    }
     toast(error ? "Could not add to Pipeline." : "Added paper to Pipeline.", error ? "error" : "success", "Literature");
   };
 
