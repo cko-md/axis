@@ -311,7 +311,9 @@ export async function listComposioInbox(
         ? { max_results: 20, include_payload: true, label_ids: ["INBOX"] }
         : { top: 20, folder: "Inbox", orderby: ["receivedDateTime desc"] },
   });
-  if (!res.successful) return [];
+  if (!res.successful) {
+    throw new ComposioError(res.error ?? `${toolkit} inbox list failed`, 502);
+  }
 
   const data = res.data as Record<string, unknown>;
   const rawMessages = (data.messages ?? data.value ?? []) as Record<string, unknown>[];

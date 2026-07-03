@@ -13,6 +13,13 @@ type CalendarSyncError = {
   message: string;
 };
 type CalendarSyncResult = { id: string | null; error?: CalendarSyncError };
+type ScheduleEventRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  start_at: string;
+  end_at: string;
+};
 
 function statusFrom(error: unknown): number | undefined {
   if (error && typeof error === "object" && "status" in error) {
@@ -46,17 +53,48 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  let body: { eventId?: unknown; title?: unknown; start_at?: unknown; end_at?: unknown; description?: unknown };
+  let body: { eventId?: unknown };
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { eventId, title, start_at, end_at, description } = body;
-  if (typeof eventId !== "string" || typeof title !== "string" || typeof start_at !== "string" || typeof end_at !== "string") {
-    return NextResponse.json({ error: "eventId, title, start_at, end_at are required" }, { status: 400 });
+  const { eventId } = body;
+  if (typeof eventId !== "string") {
+    return NextResponse.json({ error: "eventId is required" }, { status: 400 });
   }
 
-  const event = { title, start_at, end_at, description: typeof description === "string" ? description : undefined };
+  const { data: scheduleEvent, error: eventError } = await supabase
+    .from("schedule_events")
+    .select("id,title,description,start_at,end_at")
+    .eq("id", eventId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const ownedEvent = scheduleEvent as ScheduleEventRow | null;
+
+  if (eventError) {
+    Sentry.captureException(eventError, {
+      tags: { area: "schedule", op: "load_event_for_calendar_sync" },
+      extra: { eventId },
+    });
+    return NextResponse.json({ error: "Could not load this schedule event." }, { status: 500 });
+  }
+  if (!ownedEvent) {
+    return NextResponse.json({ error: "Schedule event not found" }, { status: 404 });
+  }
+
+  const startTime = Date.parse(ownedEvent.start_at);
+  const endTime = Date.parse(ownedEvent.end_at);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
+    return NextResponse.json({ error: "Schedule event has an invalid time range." }, { status: 400 });
+  }
+
+  const event = {
+    title: ownedEvent.title,
+    start_at: ownedEvent.start_at,
+    end_at: ownedEvent.end_at,
+    description: ownedEvent.description ?? undefined,
+  };
 
   const { data: connections } = await supabase
     .from("calendar_connections")
