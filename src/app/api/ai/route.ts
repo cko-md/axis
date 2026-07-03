@@ -4,6 +4,7 @@ import { aiGenerate, aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 import { getGeminiApiKey, optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { normalizePayload, parseJsonBody } from "@/lib/ai/request";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
@@ -248,7 +249,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
   }
 
-  const { mode, text, body, title } = (await req.json()) as { mode: string; text: string; body?: string; title?: string };
+  let rawPayload: unknown;
+  try {
+    rawPayload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const normalized = normalizePayload(rawPayload);
+  if (!normalized.ok) {
+    return NextResponse.json({ error: normalized.error }, { status: normalized.status });
+  }
+  const { mode, text, body, title } = normalized.payload;
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
@@ -270,11 +281,11 @@ export async function POST(req: NextRequest) {
     if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
     if (mode === "literature-relevance") {
-      const ctx = body ? JSON.parse(body) as { summary?: string; topics?: string[] } : {};
+      const ctx = parseJsonBody<{ summary?: string; topics?: string[] }>(body, {});
       return NextResponse.json(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []));
     }
     if (mode === "regimen") {
-      const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string } : {};
+      const ctx = parseJsonBody<{ kind?: string; duration_min?: number; intensity?: string }>(body, {});
       return NextResponse.json(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"));
     }
     if (mode === "regimenPlan") {
@@ -302,7 +313,7 @@ export async function POST(req: NextRequest) {
   try {
     // ── companion ──────────────────────────────────────────────────────────────
     if (mode === "companion") {
-      const ctx = body ? JSON.parse(body) as { context?: string; history?: Array<{ role: string; content: string }>; persona?: string } : {};
+      const ctx = parseJsonBody<{ context?: string; history?: Array<{ role: string; content: string }>; persona?: string }>(body, {});
       const rawContext = String(ctx.context ?? "").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 1500);
       const context = rawContext ? `<context>${rawContext}</context>` : "";
       const history = (ctx.history ?? []).slice(-10).map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
@@ -328,7 +339,7 @@ export async function POST(req: NextRequest) {
 
     // ── deck-insights ──────────────────────────────────────────────────────────
     if (mode === "deck-insights") {
-      const ctx = body ? JSON.parse(body) as { context?: string } : {};
+      const ctx = parseJsonBody<{ context?: string }>(body, {});
       const context = String(ctx.context ?? "General module").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 500);
       const raw = await aiGenerate({
         mode,
@@ -344,7 +355,7 @@ export async function POST(req: NextRequest) {
 
     // ── regimen ────────────────────────────────────────────────────────────────
     if (mode === "regimen") {
-      const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string; notes?: string } : {};
+      const ctx = parseJsonBody<{ kind?: string; duration_min?: number; intensity?: string; notes?: string }>(body, {});
       const result = await aiJSON<RegimenResult>({
         mode,
         anthropic,
@@ -362,7 +373,7 @@ export async function POST(req: NextRequest) {
 
     // ── regimenPlan ────────────────────────────────────────────────────────────
     if (mode === "regimenPlan") {
-      const ctx = body ? JSON.parse(body) as { discipline?: string; weeksPerPlan?: number; daysPerWeek?: number; currentLevel?: string; goal?: string; stravaContext?: string } : {};
+      const ctx = parseJsonBody<{ discipline?: string; weeksPerPlan?: number; daysPerWeek?: number; currentLevel?: string; goal?: string; stravaContext?: string }>(body, {});
       const stravaSection = ctx.stravaContext
         ? `\n\nIMPORTANT — adapt the plan based on the athlete data below.\n<strava_data>${String(ctx.stravaContext ?? "").replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 2000)}</strava_data>`
         : "";
@@ -561,7 +572,7 @@ export async function POST(req: NextRequest) {
     // as the providerPref query above) so the explanation is grounded in what
     // this specific user actually follows, not a generic persona.
     if (mode === "literature-relevance") {
-      const ctx = body ? JSON.parse(body) as { summary?: string; authors?: string; source?: string; topics?: string[] } : {};
+      const ctx = parseJsonBody<{ summary?: string; authors?: string; source?: string; topics?: string[] }>(body, {});
 
       // Prefer topics passed by the client (already loaded in useLiterature's
       // state); fall back to a server-side lookup so the feature still works
@@ -599,7 +610,7 @@ export async function POST(req: NextRequest) {
 
     // ── pipeline-draft ─────────────────────────────────────────────────────────
     if (mode === "pipeline-draft") {
-      const ctx = body ? JSON.parse(body) as { kind?: "study" | "conference"; role?: string; meta?: string } : {};
+      const ctx = parseJsonBody<{ kind?: "study" | "conference"; role?: string; meta?: string }>(body, {});
       const result = await aiJSON<PipelineDraftResult>({
         mode,
         anthropic,
@@ -672,11 +683,11 @@ export async function POST(req: NextRequest) {
     if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
     if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
     if (mode === "literature-relevance") {
-      const ctx = body ? JSON.parse(body) as { summary?: string; topics?: string[] } : {};
+      const ctx = parseJsonBody<{ summary?: string; topics?: string[] }>(body, {});
       return NextResponse.json(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []));
     }
     if (mode === "regimen") {
-      const ctx = body ? JSON.parse(body) as { kind?: string; duration_min?: number; intensity?: string } : {};
+      const ctx = parseJsonBody<{ kind?: string; duration_min?: number; intensity?: string }>(body, {});
       return NextResponse.json(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"));
     }
     if (mode === "regimenPlan") {
