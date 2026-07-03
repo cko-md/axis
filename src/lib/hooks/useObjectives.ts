@@ -1,8 +1,10 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
+import type { KeyResultProgressEntry } from "@/lib/objectives/progress";
 
 export type KeyResult = {
   id: string;
@@ -188,7 +190,13 @@ export function useObjectives() {
     return { data: data as KeyResult };
   }, [supabase, objectives]);
 
-  const updateKeyResult = useCallback(async (id: string, patch: Partial<KeyResult>) => {
+  const updateKeyResult = useCallback(async (id: string, patch: Partial<KeyResult>, source = "manual") => {
+    // Capture the pre-update value so a current_value change can be logged to
+    // key_result_progress (OBJ-2 history + source explanation).
+    const previous = objectives
+      .flatMap((o) => o.key_results)
+      .find((kr) => kr.id === id)?.current_value;
+
     const { data, error } = await supabase
       .from("key_results")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -196,13 +204,47 @@ export function useObjectives() {
       .select()
       .single();
     if (error) return { error: error.message };
+    const updated = data as KeyResult;
     setObjectives((prev) =>
       prev.map((o) => ({
         ...o,
-        key_results: o.key_results.map((kr) => (kr.id === id ? (data as KeyResult) : kr)),
+        key_results: o.key_results.map((kr) => (kr.id === id ? updated : kr)),
       })),
     );
-    return { data: data as KeyResult };
+
+    // Log the change (append-only, non-blocking). Only when the value actually
+    // moved — title/sort edits don't create history noise.
+    if (patch.current_value !== undefined && previous !== undefined && updated.current_value !== previous) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { data: updated, historyError: "Sign in to log progress history." };
+      const { error: historyError } = await supabase.from("key_result_progress").insert({
+        user_id: user.id,
+        key_result_id: id,
+        previous_value: previous,
+        new_value: updated.current_value,
+        delta: updated.current_value - previous,
+        source,
+      });
+      if (historyError) {
+        Sentry.captureException(historyError, {
+          tags: { area: "objectives", op: "log_key_result_progress", supabase_code: historyError.code ?? "unknown" },
+          contexts: { objective: { key_result_id: id } },
+        });
+        return { data: updated, historyError: "Progress changed, but history could not be logged." };
+      }
+    }
+    return { data: updated };
+  }, [supabase, objectives]);
+
+  const fetchKeyResultHistory = useCallback(async (keyResultId: string): Promise<KeyResultProgressEntry[]> => {
+    const { data, error } = await supabase
+      .from("key_result_progress")
+      .select("id, key_result_id, previous_value, new_value, delta, source, created_at")
+      .eq("key_result_id", keyResultId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) return [];
+    return (data ?? []) as KeyResultProgressEntry[];
   }, [supabase]);
 
   const deleteKeyResult = useCallback(async (id: string) => {
@@ -265,6 +307,7 @@ export function useObjectives() {
     addKeyResult,
     updateKeyResult,
     deleteKeyResult,
+    fetchKeyResultHistory,
     addHabit,
     deleteHabit,
     toggleHabitToday,

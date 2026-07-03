@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatProgressEntry, formatProgressTime, netProgress, type KeyResultProgressEntry } from "@/lib/objectives/progress";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -48,6 +49,7 @@ export function ObjectivesModule() {
     addKeyResult,
     updateKeyResult,
     deleteKeyResult,
+    fetchKeyResultHistory,
     addHabit,
     deleteHabit,
     toggleHabitToday,
@@ -63,6 +65,9 @@ export function ObjectivesModule() {
   const [detailForm, setDetailForm] = useState({ title: "", descriptor: "" });
   const [krModalFor, setKrModalFor] = useState<string | null>(null);
   const [krForm, setKrForm] = useState({ title: "", target: "5" });
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [history, setHistory] = useState<KeyResultProgressEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [nextAction, setNextAction] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState("");
   const [suggesting, setSuggesting] = useState(false);
@@ -172,11 +177,35 @@ export function ObjectivesModule() {
     setKrForm({ title: "", target: "5" });
   };
 
+  const loadHistory = async (krId: string) => {
+    setHistoryLoading(true);
+    try {
+      setHistory(await fetchKeyResultHistory(krId));
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const toggleHistory = async (krId: string) => {
+    if (historyFor === krId) {
+      setHistoryFor(null);
+      return;
+    }
+    setHistoryFor(krId);
+    await loadHistory(krId);
+  };
+
   const stepKeyResult = async (kr: KeyResult, delta: number) => {
     const next = Math.min(Math.max(kr.current_value + delta, 0), kr.target_value);
     if (next === kr.current_value) return;
-    const result = await updateKeyResult(kr.id, { current_value: next });
-    if (result.error) toast(result.error, "error", "Objectives");
+    const result = await updateKeyResult(kr.id, { current_value: next }, "manual");
+    if (result.error) {
+      toast(result.error, "error", "Objectives");
+      return;
+    }
+    if (result.historyError) toast(result.historyError, "warn", "Objectives");
+    // Keep an open history panel in sync with the change just made.
+    if (historyFor === kr.id) void loadHistory(kr.id);
   };
 
   const createNextActionTask = async () => {
@@ -574,13 +603,50 @@ export function ObjectivesModule() {
             </div>
             <div className="tasklist">
               {selectedObjective.key_results.map((kr) => (
-                <div key={kr.id} className="task" style={{ alignItems: "center" }}>
-                  <div className="task-main">
-                    <div className="task-title">{kr.title}</div>
-                    <div className="task-meta">{kr.current_value} / {kr.target_value}</div>
+                <div key={kr.id}>
+                  <div className="task" style={{ alignItems: "center" }}>
+                    <div className="task-main">
+                      <div className="task-title">{kr.title}</div>
+                      <div className="task-meta">{kr.current_value} / {kr.target_value}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="feed-manage"
+                      aria-expanded={historyFor === kr.id}
+                      title="Progress history"
+                      onClick={() => toggleHistory(kr.id)}
+                    >
+                      {historyFor === kr.id ? "Hide" : "History"}
+                    </button>
+                    <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, -1)}>−</button>
+                    <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, 1)}>+</button>
                   </div>
-                  <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, -1)}>−</button>
-                  <button type="button" className="feed-manage" onClick={() => stepKeyResult(kr, 1)}>+</button>
+                  {historyFor === kr.id && (
+                    <div style={{ padding: "6px 8px 10px 8px", borderLeft: "2px solid var(--line)", margin: "2px 0 8px 4px" }}>
+                      {historyLoading ? (
+                        <p style={{ color: "var(--ink-faint)", fontSize: 12, margin: 0 }}>Loading history…</p>
+                      ) : history.length === 0 ? (
+                        <p style={{ color: "var(--ink-faint)", fontSize: 12, margin: 0 }}>
+                          No changes logged yet — use − / + to record progress.
+                        </p>
+                      ) : (
+                        <>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", marginBottom: 6, letterSpacing: ".06em", textTransform: "uppercase" }}>
+                            Progress log · net {netProgress(history) >= 0 ? "+" : "−"}{Math.abs(netProgress(history))}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {history.map((entry) => (
+                              <div key={entry.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                                <span style={{ color: entry.delta >= 0 ? "var(--up)" : "var(--clay)" }}>{formatProgressEntry(entry)}</span>
+                                <span style={{ color: "var(--ink-faint)" }}>{entry.new_value} / {kr.target_value}</span>
+                                <span style={{ color: "var(--ink-faint)", fontVariantNumeric: "tabular-nums" }}>{formatProgressTime(entry.created_at)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               {selectedObjective.key_results.length === 0 && (
