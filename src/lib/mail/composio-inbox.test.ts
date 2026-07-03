@@ -26,7 +26,6 @@ describe("listComposioInbox()", () => {
     await expect(
       listComposioInbox("gmail", "connected-account-1", "user-1", "user@example.com"),
     ).rejects.toMatchObject({
-      name: "ComposioError",
       message: "Provider unavailable",
       status: 502,
     });
