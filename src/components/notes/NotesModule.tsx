@@ -208,6 +208,28 @@ function textToNoteHtml(text: string): string {
     .join("");
 }
 
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as T;
+}
+
+function normalizeRouteSuggestion(data: Partial<RouteSuggestion>): RouteSuggestion | null {
+  if (
+    data.destination !== "research" &&
+    data.destination !== "literature" &&
+    data.destination !== "task"
+  ) {
+    return null;
+  }
+  if (!data.label || !data.reason) return null;
+  return {
+    destination: data.destination,
+    label: data.label,
+    reason: data.reason,
+    tags: Array.isArray(data.tags) ? data.tags.filter((tag): tag is string => typeof tag === "string") : [],
+  };
+}
+
 export function NotesModule() {
   const {
     notes,
@@ -399,11 +421,11 @@ export function NotesModule() {
           title: selectedTitleRef.current,
         }),
       });
-      const data = (await res.json()) as { summary: string };
+      const data = await readJsonResponse<{ summary?: string }>(res);
       setRecSummary(data.summary ?? "");
       setRecState("done");
     } catch {
-      setRecSummary("");
+      setRecSummary("Could not generate a meeting summary. The transcript is still available.");
       setRecState("done");
     }
   }, []);
@@ -609,8 +631,10 @@ export function NotesModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "route", text: selected.title, body: selected.body }),
       });
-      const data = (await res.json()) as RouteSuggestion;
-      setSuggestion(data);
+      const data = await readJsonResponse<Partial<RouteSuggestion>>(res);
+      const normalized = normalizeRouteSuggestion(data);
+      if (!normalized) throw new Error("Invalid route suggestion");
+      setSuggestion(normalized);
     } catch {
       toast("Could not reach the router", "error", "Notes");
     } finally {
@@ -628,7 +652,8 @@ export function NotesModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "notes-summarize", text: selected.body, title: selected.title }),
       });
-      const { summary } = (await res.json()) as { summary: string };
+      const { summary } = await readJsonResponse<{ summary?: string }>(res);
+      if (!summary) throw new Error("Empty summary");
       setAiPanel({ mode: "summarize", content: summary });
     } catch {
       toast("Could not summarize — check your API key", "error", "Notes AI");
@@ -647,7 +672,8 @@ export function NotesModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "notes-rewrite", text: selected.body }),
       });
-      const { rewritten } = (await res.json()) as { rewritten: string };
+      const { rewritten } = await readJsonResponse<{ rewritten?: string }>(res);
+      if (!rewritten) throw new Error("Empty rewrite");
       setAiPanel({ mode: "rewrite", content: rewritten });
     } catch {
       toast("Could not rewrite — check your API key", "error", "Notes AI");
@@ -665,7 +691,7 @@ export function NotesModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "notes-title", text: selected.body }),
       });
-      const { title: suggested } = (await res.json()) as { title: string };
+      const { title: suggested } = await readJsonResponse<{ title?: string }>(res);
       if (suggested) {
         handleTitleChange(suggested);
         toast(`Title: "${suggested}"`, "success", "Notes AI");
