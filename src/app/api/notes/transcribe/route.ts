@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { getGeminiApiKey } from "@/lib/env";
 
@@ -86,9 +87,11 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      Sentry.captureException(new Error("Notes transcription provider failed"), {
+        tags: { area: "notes", op: "transcribe_audio", provider: "gemini", status: String(res.status) },
+      });
       return NextResponse.json(
-        { error: `Transcription failed (${res.status}).`, detail: detail.slice(0, 200) },
+        { error: `Transcription failed (${res.status}).` },
         { status: 502 },
       );
     }
@@ -98,7 +101,10 @@ export async function POST(req: NextRequest) {
     };
     const transcript = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
     return NextResponse.json({ transcript });
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error instanceof Error ? error : new Error("Notes transcription request failed"), {
+      tags: { area: "notes", op: "transcribe_audio", provider: "gemini" },
+    });
     return NextResponse.json({ error: "Transcription request failed. Try again." }, { status: 502 });
   }
 }
