@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { aiGenerate } from "@/lib/ai/router";
 import { notifyViaMake } from "@/lib/fund/notifyViaMake";
+import { cleanFinanceLabel, safeMoney, shapeRecurringForNarration } from "@/lib/fund/financeNarratorContext";
 
 const CADENCE_DAYS: Record<string, number> = { weekly: 7, biweekly: 14, monthly: 30, quarterly: 91, annual: 365 };
 
@@ -35,24 +36,25 @@ export async function checkBudgetThresholds(admin: SupabaseClient, userId: strin
 
   const spendByCategory = new Map<string, number>();
   for (const t of txns ?? []) {
-    const cat = t.custom_category ?? t.plaid_category ?? "uncategorized";
-    spendByCategory.set(cat, (spendByCategory.get(cat) ?? 0) + Math.abs(Number(t.amount)));
+    const cat = cleanFinanceLabel(t.custom_category ?? t.plaid_category, "uncategorized");
+    spendByCategory.set(cat, (spendByCategory.get(cat) ?? 0) + Math.abs(safeMoney(t.amount)));
   }
 
   for (const b of budgets ?? []) {
-    const limit = Number(b.monthly_limit);
+    const category = cleanFinanceLabel(b.category, "uncategorized");
+    const limit = safeMoney(b.monthly_limit);
     if (limit <= 0) continue;
-    const spent = spendByCategory.get(b.category) ?? 0;
+    const spent = spendByCategory.get(category) ?? 0;
     if (spent / limit < 0.9) continue;
 
     await notifyViaMake(admin, {
-      idempotencyKey: `budget_alert:${userId}:${b.category}:${monthKey}`,
+      idempotencyKey: `budget_alert:${userId}:${category}:${monthKey}`,
       kind: "budget_alert",
       userId,
       to: userEmail,
-      subject: `Budget alert: ${b.category} is at ${Math.round((spent / limit) * 100)}%`,
-      bodyText: `You've spent $${spent.toFixed(2)} of your $${limit.toFixed(2)} ${b.category} budget this month.`,
-      meta: { category: b.category, spent, limit },
+      subject: `Budget alert: ${category} is at ${Math.round((spent / limit) * 100)}%`,
+      bodyText: `You've spent $${spent.toFixed(2)} of your $${limit.toFixed(2)} ${category} budget this month.`,
+      meta: { category, spent, limit },
     });
   }
 }
@@ -89,15 +91,17 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
   const merchantHistory = new Map<string, number[]>();
   for (const t of history ?? []) {
     if (!t.merchant_name || t.posted_date === today) continue;
-    const arr = merchantHistory.get(t.merchant_name) ?? [];
-    arr.push(Math.abs(Number(t.amount)));
-    merchantHistory.set(t.merchant_name, arr);
+    const merchant = cleanFinanceLabel(t.merchant_name, "Unknown merchant");
+    const arr = merchantHistory.get(merchant) ?? [];
+    arr.push(Math.abs(safeMoney(t.amount)));
+    merchantHistory.set(merchant, arr);
   }
 
   for (const t of todays) {
     if (!t.merchant_name) continue;
-    const amount = Math.abs(Number(t.amount));
-    const priorAmounts = merchantHistory.get(t.merchant_name) ?? [];
+    const merchant = cleanFinanceLabel(t.merchant_name, "Unknown merchant");
+    const amount = Math.abs(safeMoney(t.amount));
+    const priorAmounts = merchantHistory.get(merchant) ?? [];
     const isNewMerchant = priorAmounts.length === 0;
     const avg = priorAmounts.length ? priorAmounts.reduce((s, a) => s + a, 0) / priorAmounts.length : 0;
 
@@ -114,20 +118,20 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
         kind: "anomaly_alert",
         userId,
         to: userEmail,
-        subject: `Unusual transaction: ${t.merchant_name}`,
-        bodyText: `Flagged ${reason} at ${t.merchant_name} on ${t.posted_date}.`,
-        meta: { transaction_id: t.id, merchant: t.merchant_name, amount, reason },
+        subject: `Unusual transaction: ${merchant}`,
+        bodyText: `Flagged ${reason} at ${merchant} on ${t.posted_date}.`,
+        meta: { transaction_id: t.id, merchant, amount, reason },
       });
     }
 
-    let body = `Flagged a transaction at ${t.merchant_name} for $${amount.toFixed(2)} on ${t.posted_date} — ${reason}.`;
+    let body = `Flagged a transaction at ${merchant} for $${amount.toFixed(2)} on ${t.posted_date} — ${reason}.`;
     if (anthropic) {
       try {
         const { text } = await aiGenerate({
           mode: "anomaly-explain",
           anthropic,
           system: NARRATOR_GUARDRAIL,
-          userMessage: `Data: merchant=${t.merchant_name}, amount=$${amount.toFixed(2)}, date=${t.posted_date}, is_new_merchant=${isNewMerchant}, trailing_average=$${avg.toFixed(2)}. Briefly explain why this transaction was flagged and suggest the user check it's legitimate.`,
+          userMessage: `Data: merchant=${merchant}, amount=$${amount.toFixed(2)}, date=${t.posted_date}, is_new_merchant=${isNewMerchant}, trailing_average=$${avg.toFixed(2)}. Briefly explain why this transaction was flagged and suggest the user check it's legitimate.`,
           maxTokens: 200,
         });
         if (text.trim()) body = text.trim();
@@ -139,9 +143,9 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
     await admin.from("ai_insights").insert({
       user_id: userId,
       kind: "anomaly",
-      title: `Unusual transaction: ${t.merchant_name}`,
+      title: `Unusual transaction: ${merchant}`,
       body,
-      data_used: { transaction_id: t.id, merchant: t.merchant_name, amount, is_new_merchant: isNewMerchant, trailing_average: avg },
+      data_used: { transaction_id: t.id, merchant, amount, is_new_merchant: isNewMerchant, trailing_average: avg },
       assumptions: isNewMerchant
         ? "Flagged because no prior transaction exists for this merchant in the last 90 days."
         : "Flagged because the amount exceeds 2x the merchant's 90-day trailing average.",
@@ -189,8 +193,8 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
     .gte("posted_date", since);
   const spendByCategory = new Map<string, number>();
   for (const t of txns ?? []) {
-    const cat = t.custom_category ?? t.plaid_category ?? "uncategorized";
-    spendByCategory.set(cat, (spendByCategory.get(cat) ?? 0) + Math.abs(Number(t.amount)));
+    const cat = cleanFinanceLabel(t.custom_category ?? t.plaid_category, "uncategorized");
+    spendByCategory.set(cat, (spendByCategory.get(cat) ?? 0) + Math.abs(safeMoney(t.amount)));
   }
   const topCategories = [...spendByCategory.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
 
@@ -206,7 +210,7 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
     period_start: weekAgo.captured_on,
     period_end: today.captured_on,
     top_spend_categories: topCategories.map(([category, total]) => ({ category, total })),
-    new_recurring_charges: newRecurring ?? [],
+    new_recurring_charges: shapeRecurringForNarration(newRecurring),
   };
 
   let body = `Net worth ${netWorthChange >= 0 ? "rose" : "fell"} $${Math.abs(netWorthChange).toFixed(0)} this week, now $${today.net_worth.toFixed(0)}. Top spend: ${topCategories.map(([c, t]) => `${c} ($${t.toFixed(0)})`).join(", ") || "none recorded"}.`;
@@ -281,8 +285,9 @@ export async function writeSubscriptionAudit(admin: SupabaseClient, userId: stri
   });
   if (stale.length === 0) return;
 
-  const dataPayload = { stale_subscriptions: stale };
-  let body = `${stale.length} recurring charge${stale.length > 1 ? "s" : ""} haven't shown up in a while: ${stale.map((s) => s.merchant_name).join(", ")}. They might be cancelled but still billing, or just renamed on your statement — worth a check.`;
+  const shapedStale = shapeRecurringForNarration(stale);
+  const dataPayload = { stale_subscriptions: shapedStale };
+  let body = `${shapedStale.length} recurring charge${shapedStale.length > 1 ? "s" : ""} haven't shown up in a while: ${shapedStale.map((s) => s.merchant_name).join(", ")}. They might be cancelled but still billing, or just renamed on your statement — worth a check.`;
   if (anthropic) {
     try {
       const { text } = await aiGenerate({
