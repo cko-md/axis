@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { embedText } from "@/lib/ai/embed";
 
@@ -20,7 +21,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing query param q" }, { status: 400 });
   }
 
-  const embedding = await embedText(q);
+  let embedding: number[];
+  try {
+    embedding = await embedText(q);
+  } catch (err) {
+    // Embeddings provider not configured (no GEMINI_API_KEY) → semantic search
+    // is unavailable, not broken. Signal it distinctly so the UI can say so and
+    // fall back to keyword search instead of showing a generic error.
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("GEMINI_API_KEY is not set")) {
+      return NextResponse.json(
+        { error: "Semantic search is not configured.", code: "semantic_unavailable" },
+        { status: 503 },
+      );
+    }
+    Sentry.captureException(err instanceof Error ? err : new Error("Semantic search embedding failed"), {
+      tags: { area: "notes", op: "semantic_search_embed", provider: "gemini" },
+    });
+    return NextResponse.json({ error: "Semantic search failed.", code: "semantic_error" }, { status: 502 });
+  }
 
   const { data, error } = await supabase.rpc("search_note_embeddings", {
     p_embedding: embedding as unknown as string,
@@ -28,16 +47,26 @@ export async function GET(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    Sentry.captureException(error, {
+      tags: { area: "notes", op: "semantic_search_rpc", supabase_code: error.code ?? "unknown" },
+    });
+    return NextResponse.json({ error: "Semantic search failed.", code: "semantic_error" }, { status: 500 });
   }
 
   const matches = (data as Array<{ note_id: string; similarity: number }>) ?? [];
   if (matches.length === 0) return NextResponse.json({ results: [] });
 
-  const { data: noteRows } = await supabase
+  const { data: noteRows, error: notesError } = await supabase
     .from("notes")
     .select("id, title")
+    .eq("user_id", user.id)
     .in("id", matches.map((m) => m.note_id));
+  if (notesError) {
+    Sentry.captureException(notesError, {
+      tags: { area: "notes", op: "semantic_search_notes", supabase_code: notesError.code ?? "unknown" },
+    });
+    return NextResponse.json({ error: "Semantic search failed.", code: "semantic_error" }, { status: 500 });
+  }
   const titleById = new Map((noteRows ?? []).map((n) => [n.id, n.title as string]));
 
   // Defensive: drop any match that doesn't resolve to a real note (e.g. a

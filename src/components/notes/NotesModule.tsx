@@ -33,6 +33,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditorLazy";
 import { formatAutosaveLabel } from "@/lib/notes/save-status";
+import { filterNotesByKeyword, orderNotesBySemanticIds } from "@/lib/notes/search";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
@@ -305,6 +306,19 @@ export function NotesModule() {
   const [draft, setDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const saving = saveStatus === "saving";
+
+  // In-Notes search (NOTES-3). Keyword filtering is instant/client-side;
+  // semantic search is an explicit action with its own lifecycle so its
+  // loading/empty/error/unavailable states never block keyword search.
+  const [query, setQuery] = useState("");
+  const [semantic, setSemantic] = useState<
+    | { status: "idle" }
+    | { status: "loading"; query: string }
+    | { status: "ready"; query: string; ids: string[] }
+    | { status: "empty"; query: string }
+    | { status: "error"; query: string; message: string }
+    | { status: "unavailable"; query: string }
+  >({ status: "idle" });
   const [newTag, setNewTag] = useState("");
 
   const [routing, setRouting] = useState(false);
@@ -478,12 +492,25 @@ export function NotesModule() {
   const locked = selected ? isLocked(selected) : false;
   const noteFont: NoteFont = selected ? getNoteFont(selected) : "sans";
 
-  const filtered = useMemo(() => {
+  const folderFiltered = useMemo(() => {
     if (activeFolder === ARCHIVE_FOLDER) return notes.filter(isArchived);
     const activeNotes = notes.filter((n) => !isArchived(n));
     if (activeFolder === "All Notes") return activeNotes;
     return activeNotes.filter((n) => n.folder === activeFolder);
   }, [notes, activeFolder]);
+
+  // A search query supersedes the folder view: keyword search spans every
+  // non-archived note (title + body text), and semantic search — when it has
+  // resolved — reorders those to the API's similarity ranking.
+  const trimmedQuery = query.trim();
+  const filtered = useMemo(() => {
+    if (!trimmedQuery) return folderFiltered;
+    const searchable = notes.filter((n) => !isArchived(n));
+    if (semantic.status === "ready" && semantic.query === trimmedQuery) {
+      return orderNotesBySemanticIds(searchable, semantic.ids);
+    }
+    return filterNotesByKeyword(searchable, trimmedQuery);
+  }, [trimmedQuery, folderFiltered, notes, semantic]);
 
   const folderCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -529,6 +556,34 @@ export function NotesModule() {
     clearSaveError();
     updateNoteDebounced(selected.id, { title });
   };
+
+  const clearSearch = () => {
+    setQuery("");
+    setSemantic({ status: "idle" });
+  };
+
+  const runSemanticSearch = useCallback(async () => {
+    const q = query.trim();
+    if (!q) return;
+    setSemantic({ status: "loading", query: q });
+    try {
+      const res = await fetch(`/api/search/semantic?q=${encodeURIComponent(q)}`);
+      if (res.status === 503) {
+        setSemantic({ status: "unavailable", query: q });
+        return;
+      }
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setSemantic({ status: "error", query: q, message: body.error ?? "Semantic search failed." });
+        return;
+      }
+      const data = (await res.json()) as { results?: Array<{ note_id: string }> };
+      const ids = (data.results ?? []).map((r) => r.note_id);
+      setSemantic(ids.length ? { status: "ready", query: q, ids } : { status: "empty", query: q });
+    } catch {
+      setSemantic({ status: "error", query: q, message: "Network error running semantic search." });
+    }
+  }, [query]);
 
   const handleFontChange = (font: NoteFont) => {
     if (!selected || locked) return;
@@ -1313,7 +1368,7 @@ export function NotesModule() {
 
         {/* ── Note list ── */}
         <div>
-          <div className="capture" style={{ margin: "0 0 12px", padding: "9px 13px" }}>
+          <div className="capture" style={{ margin: "0 0 8px", padding: "9px 13px" }}>
             <input
               placeholder="New note…"
               style={{ padding: "3px 0", fontSize: 13 }}
@@ -1322,9 +1377,66 @@ export function NotesModule() {
               onKeyDown={(e) => e.key === "Enter" && handleNew()}
             />
           </div>
+
+          {/* Search (NOTES-3): keyword filter is instant; ⏎ / button runs semantic. */}
+          <div style={{ margin: "0 0 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                placeholder="Search notes…"
+                aria-label="Search notes"
+                style={{
+                  flex: 1, padding: "6px 10px", fontSize: 12.5, borderRadius: 6,
+                  border: "1px solid var(--line)", background: "var(--surface-2)", color: "var(--ink)", outline: "none",
+                }}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (semantic.status !== "idle") setSemantic({ status: "idle" });
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") void runSemanticSearch(); if (e.key === "Escape") clearSearch(); }}
+              />
+              {trimmedQuery && (
+                <button
+                  type="button"
+                  className="savebtn"
+                  style={{ padding: "5px 9px", fontSize: 11 }}
+                  onClick={() => void runSemanticSearch()}
+                  disabled={semantic.status === "loading"}
+                  title="Semantic search (meaning, not just keywords)"
+                >
+                  {semantic.status === "loading" ? "…" : "✦ Semantic"}
+                </button>
+              )}
+              {trimmedQuery && (
+                <button type="button" className="savebtn" style={{ padding: "5px 9px", fontSize: 11 }} onClick={clearSearch} title="Clear search">
+                  ×
+                </button>
+              )}
+            </div>
+            {semantic.status === "ready" && semantic.query === trimmedQuery && (
+              <span style={{ fontSize: 10.5, color: "var(--marine-2)", fontFamily: "var(--mono)" }}>
+                ✦ Semantic matches · {semantic.ids.length}
+              </span>
+            )}
+            {semantic.status === "empty" && semantic.query === trimmedQuery && (
+              <span style={{ fontSize: 10.5, color: "var(--ink-faint)" }}>No semantic matches — showing keyword results.</span>
+            )}
+            {semantic.status === "unavailable" && (
+              <span style={{ fontSize: 10.5, color: "var(--ink-faint)" }}>Semantic search isn’t configured — keyword search still works.</span>
+            )}
+            {semantic.status === "error" && (
+              <span style={{ fontSize: 10.5, color: "var(--clay)", display: "flex", gap: 8, alignItems: "center" }}>
+                {semantic.message}
+                <button type="button" className="savebtn" style={{ padding: "1px 7px", fontSize: 10 }} onClick={() => void runSemanticSearch()}>Retry</button>
+              </span>
+            )}
+          </div>
+
           {filtered.length === 0 && (
             <p style={{ color: "var(--ink-faint)", fontSize: 12.5, padding: "4px 2px" }}>
-              No notes in {activeFolder}. Type above to create one.
+              {trimmedQuery
+                ? `No notes match “${trimmedQuery}”.`
+                : `No notes in ${activeFolder}. Type above to create one.`}
             </p>
           )}
           {filtered.map((n) => {
