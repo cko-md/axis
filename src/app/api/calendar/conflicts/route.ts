@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listComposioCalendarAccounts, queryFreeBusy, findFreeSlots } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
@@ -52,8 +53,11 @@ export async function POST(req: NextRequest) {
           slowMs: 1_500,
         },
         () => queryFreeBusy(googleAccount.connectedAccountId, user.id, start_at, end_at),
-      ).catch(() => {
+      ).catch((error) => {
         externalError = "Google Calendar free/busy could not be checked.";
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
+          tags: { area: "schedule", op: "check_conflicts", provider: "google", transport: "composio" },
+        });
         return [];
       })
     : [];
@@ -83,8 +87,11 @@ export async function POST(req: NextRequest) {
         windowStart.toISOString(),
         windowEnd.toISOString(),
       ),
-    ).catch(() => {
+    ).catch((error) => {
       externalError = externalError ?? "Google Calendar free slots could not be checked.";
+      Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { area: "schedule", op: "find_free_slots", provider: "google", transport: "composio" },
+      });
       return [];
     });
     suggestions = slots.slice(0, 3).map((s) => ({ start_at: s.start, end_at: s.end }));

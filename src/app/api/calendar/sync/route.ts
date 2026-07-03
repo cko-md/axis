@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { createGoogleEvent } from "@/lib/calendar/google";
 import { createOutlookEvent } from "@/lib/calendar/outlook";
@@ -108,6 +109,18 @@ export async function POST(req: NextRequest) {
     ...(googleSync.error ? [googleSync.error] : []),
     ...(outlookSync.error ? [outlookSync.error] : []),
   ];
+
+  // Reserve Sentry for 5xx-class/unexpected failures — expected outcomes
+  // (timeout, network hiccup) are still worth a tagged event here since a
+  // silently-unsynced event is exactly the kind of thing a human should see,
+  // but they're not app bugs, so this stays a single event per failure, not
+  // an escalating alert.
+  for (const err of errors) {
+    Sentry.captureException(new Error("Schedule calendar event create sync failed"), {
+      tags: { area: "schedule", op: "sync_event", provider: err.source, transport: err.transport, code: err.code },
+      extra: { eventId },
+    });
+  }
 
   // Write IDs back — only update columns where sync succeeded
   const patch: Record<string, string> = {};

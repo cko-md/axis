@@ -119,6 +119,12 @@ export async function GET(req: NextRequest) {
     ...composioLists.flatMap((result) => (result.error ? [result.error] : [])),
   ];
 
+  for (const err of errors) {
+    Sentry.captureException(new Error("Schedule external calendar list failed"), {
+      tags: { area: "schedule", op: "list_external_events", provider: err.source, transport: err.transport, code: err.code },
+    });
+  }
+
   const fetchedAt = new Date().toISOString();
 
   // CAL-3: write-through to calendar_event_cache so the next Schedule load

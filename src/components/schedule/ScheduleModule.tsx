@@ -327,9 +327,10 @@ export function ScheduleModule() {
   // Pull real events from connected Google/Outlook calendars (read-only — never
   // written to schedule_events) so connecting a provider surfaces actual content,
   // not just a connected badge. Re-fetches whenever a provider connects/disconnects
-  // (legacy direct-OAuth or Composio). Revalidates in the background over
-  // whatever the cache-first effect above already painted.
-  useEffect(() => {
+  // (legacy direct-OAuth or Composio), and is re-callable from the notice's
+  // Retry button (CAL-5). Revalidates in the background over whatever the
+  // cache-first effect above already painted.
+  const fetchExternalEvents = useCallback(() => {
     if (!hasGoogle && !hasOutlook) {
       setExternalEvents([]);
       setExternalNotice(null);
@@ -385,6 +386,10 @@ export function ScheduleModule() {
       })
       .catch(() => setExternalNotice("External calendars could not refresh — showing last loaded events."));
   }, [hasGoogle, hasOutlook, range]);
+
+  useEffect(() => {
+    fetchExternalEvents();
+  }, [fetchExternalEvents]);
 
   const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
 
@@ -762,8 +767,15 @@ export function ScheduleModule() {
       </div>
 
       {externalNotice && (
-        <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--clay)" }}>
+        <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--clay)", display: "flex", alignItems: "center", gap: 8 }}>
           {externalNotice}
+          <button
+            type="button"
+            onClick={fetchExternalEvents}
+            style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" }}
+          >
+            Retry
+          </button>
         </p>
       )}
       {(hasGoogle || hasOutlook) && externalFetchedAt && (
