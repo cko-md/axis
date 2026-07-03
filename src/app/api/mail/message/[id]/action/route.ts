@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
 import { adapterForAccount, mailErrorStatus, toMailContext } from "@/lib/mail/adapters";
@@ -51,7 +52,18 @@ export async function POST(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const accounts = await listMailAccounts(user.id);
+  let accounts;
+  try {
+    accounts = await listMailAccounts(user.id);
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { area: "mail", route: "/api/mail/message/[id]/action", op: "list_accounts" },
+    });
+    return NextResponse.json(
+      { error: "Mail accounts could not be loaded. Message was not updated.", code: "account_status_unavailable" },
+      { status: 503 },
+    );
+  }
   const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 

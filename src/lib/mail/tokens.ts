@@ -96,10 +96,11 @@ export type MailAccountRef = {
 
 export async function listMailAccounts(userId: string): Promise<MailAccountRef[]> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("mail_connections")
     .select("provider, mail_email")
     .eq("user_id", userId);
+  if (error) throw error;
 
   const oauthAccounts: MailAccountRef[] = (data ?? []).map((row) => ({
     provider: row.provider as MailProvider,

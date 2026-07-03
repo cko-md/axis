@@ -12,6 +12,13 @@ import { AddCalendarPicker } from "./AddCalendarPicker";
 import { formatCalendarFreshness } from "@/lib/calendar/freshness";
 
 type ComposioCalState = { active: boolean; email: string | null };
+type CalendarStatusResponse = {
+  google: boolean;
+  googleEmail: string | null;
+  outlook: boolean;
+  outlookEmail: string | null;
+  error?: string;
+};
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -180,7 +187,7 @@ export function ScheduleModule() {
   });
   const [savingDetail, setSavingDetail] = useState(false);
   const [deletingDetail, setDeletingDetail] = useState(false);
-  const [calStatus, setCalStatus] = useState<{ google: boolean; googleEmail: string | null; outlook: boolean; outlookEmail: string | null } | null>(null);
+  const [calStatus, setCalStatus] = useState<CalendarStatusResponse | null>(null);
   const [composioCal, setComposioCal] = useState<{ google: ComposioCalState; outlook: ComposioCalState }>({
     google: { active: false, email: null },
     outlook: { active: false, email: null },
@@ -297,11 +304,19 @@ export function ScheduleModule() {
   useEffect(() => {
     load();
     fetch("/api/calendar/status")
-      .then((r) => r.json())
+      .then(async (r) => {
+        const s = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
+        if (!r.ok) throw new Error(s.error ?? "Calendar status could not be refreshed.");
+        return s as CalendarStatusResponse;
+      })
       .then((s) => setCalStatus(s))
-      .catch(() => {});
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Calendar status could not be refreshed.";
+        setExternalNotice(message);
+        toast(message, "error", "Schedule");
+      });
     refreshComposioCalStatus();
-  }, [load, refreshComposioCalStatus]);
+  }, [load, refreshComposioCalStatus, toast]);
 
   const hasGoogle = !!calStatus?.google || composioCal.google.active;
   const hasOutlook = !!calStatus?.outlook || composioCal.outlook.active;
@@ -805,7 +820,21 @@ export function ScheduleModule() {
               onClose={() => setShowCalPicker(false)}
               onConnected={(provider) => {
                 toast(`${provider === "google" ? "Google" : "Outlook"} Calendar connected`, "success", "Schedule");
-                fetch("/api/calendar/status").then((r) => r.json()).then((s) => setCalStatus(s)).catch(() => {});
+                fetch("/api/calendar/status")
+                  .then(async (r) => {
+                    const s = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
+                    if (!r.ok) throw new Error(s.error ?? "Calendar status could not be refreshed.");
+                    return s as CalendarStatusResponse;
+                  })
+                  .then((s) => {
+                    setCalStatus(s);
+                    setExternalNotice(null);
+                  })
+                  .catch((error) => {
+                    const message = error instanceof Error ? error.message : "Calendar status could not be refreshed.";
+                    setExternalNotice(message);
+                    toast(message, "error", "Schedule");
+                  });
                 refreshComposioCalStatus();
               }}
             />

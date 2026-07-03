@@ -60,14 +60,23 @@ export async function GET(req: NextRequest) {
     .from("calendar_connections")
     .select("provider")
     .eq("user_id", user.id);
-
   if (connectionsError) {
     Sentry.captureException(connectionsError, {
-      tags: { area: "schedule", op: "load_calendar_connections", route: "/api/calendar/external" },
+      tags: { area: "schedule", route: "/api/calendar/external", op: "list_direct_accounts" },
     });
     return NextResponse.json(
-      { error: "Calendar connections could not be loaded. Try again in a moment.", code: "connection_lookup_failed" },
-      { status: 500 },
+      {
+        events: [],
+        partial: true,
+        errors: [{
+          source: "google",
+          transport: "direct",
+          code: "network",
+          message: "Calendar accounts could not be loaded.",
+        }],
+        fetchedAt: new Date().toISOString(),
+      },
+      { status: 503 },
     );
   }
 
@@ -78,13 +87,23 @@ export async function GET(req: NextRequest) {
     composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
       (a) => !providers.has(displaySource(a.provider)),
     );
-  } catch (error) {
-    Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
-      tags: { area: "schedule", op: "list_composio_calendar_accounts", route: "/api/calendar/external" },
+  } catch (composioError) {
+    Sentry.captureException(composioError instanceof Error ? composioError : new Error(String(composioError)), {
+      tags: { area: "schedule", route: "/api/calendar/external", op: "list_composio_accounts" },
     });
     return NextResponse.json(
-      { error: "Connected calendar accounts could not be refreshed. Try again in a moment.", code: "connection_lookup_failed" },
-      { status: 502 },
+      {
+        events: [],
+        partial: true,
+        errors: [{
+          source: "google",
+          transport: "composio",
+          code: "network",
+          message: "Calendar accounts could not be fully loaded.",
+        }],
+        fetchedAt: new Date().toISOString(),
+      },
+      { status: 503 },
     );
   }
 

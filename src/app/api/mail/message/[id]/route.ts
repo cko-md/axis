@@ -47,7 +47,23 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
   // Ownership: the account must belong to this user (and tells us the transport).
-  const accounts = await listMailAccounts(user.id);
+  let accounts;
+  try {
+    accounts = await listMailAccounts(user.id);
+  } catch (error) {
+    captureRouteError(error, {
+      route: "/api/mail/message/[id]",
+      operation: "list_accounts",
+      area: "mail",
+      provider,
+      status: 503,
+      code: "account_status_unavailable",
+    });
+    return NextResponse.json(
+      { error: "Mail accounts could not be loaded. Message was not opened.", code: "account_status_unavailable" },
+      { status: 503 },
+    );
+  }
   const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
@@ -147,7 +163,23 @@ export async function POST(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const accounts = await listMailAccounts(user.id);
+  let accounts;
+  try {
+    accounts = await listMailAccounts(user.id);
+  } catch (error) {
+    captureRouteError(error, {
+      route: "/api/mail/message/[id]",
+      operation: "list_accounts",
+      area: "mail",
+      provider,
+      status: 503,
+      code: "account_status_unavailable",
+    });
+    return NextResponse.json(
+      { error: "Mail accounts could not be loaded. Message was not routed.", code: "account_status_unavailable" },
+      { status: 503 },
+    );
+  }
   const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 

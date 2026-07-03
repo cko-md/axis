@@ -36,6 +36,10 @@ type MailInboxResponse = {
   fetchedAt?: string;
   error?: string;
 };
+type MailStatusResponse = {
+  accounts?: MailAccount[];
+  error?: string;
+};
 
 type SortMode = "date" | "priority";
 type AccountFilter = "all" | string; // "all" or a specific mailEmail
@@ -452,20 +456,27 @@ export function MailModule() {
 
   useEffect(() => {
     fetch("/api/mail/status")
-      .then((r) => r.json())
-      .then((s: { accounts: MailAccount[] }) => {
+      .then(async (r) => {
+        const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
+        if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
+        return s;
+      })
+      .then((s) => {
         if (mountedRef.current) {
           setAccounts(s.accounts ?? []);
           setStatusLoaded(true);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (mountedRef.current) {
+          const message = error instanceof Error ? error.message : "Mail status could not be refreshed.";
           setAccounts([]);
           setStatusLoaded(true);
+          setInboxNotice(message);
+          toast(message, "error", "Mail");
         }
       });
-  }, []);
+  }, [toast]);
 
   const fetchInbox = useCallback(async () => {
     setLoading(true);
@@ -502,12 +513,24 @@ export function MailModule() {
 
   const refreshMailStatus = useCallback(() => {
     fetch("/api/mail/status")
-      .then((r) => r.json())
-      .then((s: { accounts: MailAccount[] }) => {
-        if (mountedRef.current) setAccounts(s.accounts ?? []);
+      .then(async (r) => {
+        const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
+        if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
+        return s;
       })
-      .catch(() => {});
-  }, []);
+      .then((s) => {
+        if (mountedRef.current) {
+          setAccounts(s.accounts ?? []);
+          setInboxNotice(null);
+        }
+      })
+      .catch((error) => {
+        if (!mountedRef.current) return;
+        const message = error instanceof Error ? error.message : "Mail status could not be refreshed.";
+        setInboxNotice(message);
+        toast(message, "error", "Mail");
+      });
+  }, [toast]);
 
   const isConnected = statusLoaded && accounts.length > 0;
 
@@ -524,13 +547,25 @@ export function MailModule() {
       window.history.replaceState({}, "", "/mail");
       // Re-fetch status to pick up the new account
       fetch("/api/mail/status")
-        .then((r) => r.json())
-        .then((s: { accounts: MailAccount[] }) => {
-          if (mountedRef.current) setAccounts(s.accounts ?? []);
+        .then(async (r) => {
+          const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
+          if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
+          return s;
         })
-        .catch(() => {});
+        .then((s) => {
+          if (mountedRef.current) {
+            setAccounts(s.accounts ?? []);
+            setInboxNotice(null);
+          }
+        })
+        .catch((error) => {
+          if (!mountedRef.current) return;
+          const message = error instanceof Error ? error.message : "Mail status could not be refreshed.";
+          setInboxNotice(message);
+          toast(message, "error", "Mail");
+        });
     }
-  }, []);
+  }, [toast]);
 
   const messageCapabilities = useCallback((msg: Pick<MailMessage, "provider" | "accountEmail">) => {
     const account = accounts.find((acct) => acct.provider === msg.provider && acct.mailEmail === msg.accountEmail);
