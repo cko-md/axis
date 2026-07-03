@@ -82,8 +82,7 @@ async function geminiGenerate(params: {
   });
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Gemini ${res.status}: ${body.slice(0, 120)}`);
+    throw new Error(`Gemini ${res.status}`);
   }
 
   const data = (await res.json()) as {
@@ -146,7 +145,7 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
     } catch (err) {
       // Fall through to Haiku — surface the real cause so a misconfigured/
       // failing Gemini call isn't masked by the generic "no AI client" throw.
-      console.error(`[ai/router] Gemini failed (mode=${mode}):`, err instanceof Error ? err.message : err);
+      console.error(`[ai/router] Gemini failed (mode=${mode}):`, err instanceof Error ? err.message : "unknown");
     }
   }
 

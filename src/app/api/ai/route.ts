@@ -646,7 +646,7 @@ export async function POST(req: NextRequest) {
     // never a raw 500. Without this, failures (missing/wrong API key, malformed
     // model output, upstream errors) are invisible and surface only as the
     // generic fallback strings, making them near-impossible to diagnose.
-    console.error(`[ai/route] mode=${mode} failed:`, err);
+    console.error(`[ai/route] mode=${mode} failed:`, err instanceof Error ? err.message : "unknown");
     // A 429 from the model provider means the API key is valid but out of
     // quota — tell the user that specifically so they fix billing rather than
     // retrying into the same wall.

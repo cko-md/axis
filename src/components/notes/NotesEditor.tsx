@@ -6,6 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import Underline from "@tiptap/extension-underline";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -136,6 +137,7 @@ export function NotesEditor({
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      Underline,
       CodeBlockLowlight.configure({ lowlight }),
       Table.configure({ resizable: true }),
       TableRow,
