@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { optionalEnv } from "@/lib/env";
+import { buildSignalsScanTaskContext } from "@/lib/ai/platformScanContext";
 
 type SignalType = "action" | "awaiting" | "fyi";
 const VALID_SIGNAL_TYPES: SignalType[] = ["action", "awaiting", "fyi"];
@@ -19,18 +20,19 @@ export async function scanPlatformForUser(
   userId: string,
   supabase: SupabaseClient,
 ): Promise<{ created: number }> {
-  const [{ data: tasks }, { data: signals }, { data: profile }] = await Promise.all([
+  const [tasksResult, signalsResult, profileResult] = await Promise.all([
     supabase.from("tasks").select("title, priority, category, status, deadline").eq("user_id", userId).neq("status", "done").limit(15),
     supabase.from("signals").select("title").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
     supabase.from("profiles").select("ai_provider").eq("id", userId).maybeSingle(),
   ]);
+  if (tasksResult.error || signalsResult.error || profileResult.error) {
+    return { created: 0 };
+  }
 
-  const existingTitles = (signals ?? []).map((s) => s.title as string);
-  const taskCtx = (tasks ?? [])
-    .map((t) => `[${String(t.priority).toUpperCase()}] ${t.title} (${t.category}, ${t.status}${t.deadline ? `, due ${t.deadline}` : ""})`)
-    .join("\n");
+  const existingTitles = (signalsResult.data ?? []).map((s) => s.title as string);
+  const taskCtx = buildSignalsScanTaskContext(tasksResult.data);
 
-  const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
+  const providerPref = ((profileResult.data as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
   const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
