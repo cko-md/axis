@@ -55,16 +55,37 @@ export async function GET(req: NextRequest) {
   const end = searchParams.get("end");
   if (!start || !end) return NextResponse.json({ error: "start and end are required" }, { status: 400 });
 
-  const { data: connections } = await supabase
+  const { data: connections, error: connectionsError } = await supabase
     .from("calendar_connections")
     .select("provider")
     .eq("user_id", user.id);
 
+  if (connectionsError) {
+    Sentry.captureException(connectionsError, {
+      tags: { area: "schedule", op: "load_calendar_connections", route: "/api/calendar/external" },
+    });
+    return NextResponse.json(
+      { error: "Calendar connections could not be loaded. Try again in a moment.", code: "connection_lookup_failed" },
+      { status: 500 },
+    );
+  }
+
   const providers = new Set((connections ?? []).map((c) => c.provider));
   const displaySource = (toolkit: "googlecalendar" | "outlook") => (toolkit === "googlecalendar" ? "google" : "outlook");
-  const composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
-    (a) => !providers.has(displaySource(a.provider)),
-  );
+  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
+  try {
+    composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
+      (a) => !providers.has(displaySource(a.provider)),
+    );
+  } catch (error) {
+    Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { area: "schedule", op: "list_composio_calendar_accounts", route: "/api/calendar/external" },
+    });
+    return NextResponse.json(
+      { error: "Connected calendar accounts could not be refreshed. Try again in a moment.", code: "connection_lookup_failed" },
+      { status: 502 },
+    );
+  }
 
   async function loadSource<T>(
     source: CalendarSource,

@@ -96,12 +96,36 @@ export async function POST(req: NextRequest) {
     description: ownedEvent.description ?? undefined,
   };
 
-  const { data: connections } = await supabase
+  const { data: connections, error: connectionsError } = await supabase
     .from("calendar_connections")
     .select("provider")
     .eq("user_id", user.id);
+  if (connectionsError) {
+    Sentry.captureException(connectionsError, {
+      tags: { area: "schedule", op: "load_calendar_connections", route: "/api/calendar/sync" },
+      extra: { eventId },
+    });
+    return NextResponse.json(
+      { error: "Calendar connections could not be loaded. Try again in a moment.", code: "connection_lookup_failed" },
+      { status: 500 },
+    );
+  }
+
   const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
-  const composioAccounts = await listComposioCalendarAccounts(user.id);
+  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>>;
+  try {
+    composioAccounts = await listComposioCalendarAccounts(user.id);
+  } catch (error) {
+    Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { area: "schedule", op: "list_composio_calendar_accounts", route: "/api/calendar/sync" },
+      extra: { eventId },
+    });
+    return NextResponse.json(
+      { error: "Connected calendar accounts could not be refreshed. Try again in a moment.", code: "connection_lookup_failed" },
+      { status: 502 },
+    );
+  }
+
   const composioGoogle = !legacyProviders.has("google") && composioAccounts.find((a) => a.provider === "googlecalendar");
   const composioOutlook = !legacyProviders.has("outlook") && composioAccounts.find((a) => a.provider === "outlook");
 
