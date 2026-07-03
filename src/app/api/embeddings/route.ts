@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { embedText } from "@/lib/ai/embed";
+import { normalizeEmbeddingPayload } from "@/lib/ai/embeddingRequest";
 
 export const runtime = "nodejs";
 
@@ -15,18 +16,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as {
-    noteId?: string;
-    text?: string;
-  };
-  const { noteId, text } = body;
-
-  if (!noteId || !text) {
-    return NextResponse.json(
-      { error: "Missing noteId or text" },
-      { status: 400 },
-    );
+  let rawPayload: unknown;
+  try {
+    rawPayload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  const normalized = normalizeEmbeddingPayload(rawPayload);
+  if (!normalized.ok) {
+    return NextResponse.json({ error: normalized.error }, { status: normalized.status });
+  }
+  const { noteId, text } = normalized.payload;
 
   const { data: note, error: noteError } = await supabase
     .from("notes")
