@@ -68,16 +68,21 @@ MAIL-3 rebuilds `MessagePanel` into a document-style reader (serif title, sender
 
 - DISP-4 command palette + quick-search coverage: PR #105, branch `claude/phase-4-disp-4-command-palette-coverage` (stacked on DISP-3). Fixed palette `--surface-1` (undefined) background bug; added missing New Task command; extracted `command-palette-model.ts` + coverage guard test (every nav route + core creates reachable); quick-search route now records/report `partial` failed sources with a safe Sentry warning and SearchWidget surfaces "some sources unavailable". Known deferred: per-record deep-open from search results belongs to per-module detail issues. tsc/lint/test (29 files, 224 tests) passed.
 
-DISP-1..4 are the full Dispatch/Command project (no DISP-5). Next project: AGENDA-1..5.
+DISP-1..4 are the full Dispatch/Command project (no DISP-5).
+
+- CAL-1 event detail hardening: PR #106, branch `claude/phase-4-cal-1-event-detail` (stacked on DISP-4). Acceptance was already met on `main`; extracted the untested PATCH validation + delete-cleanup transport precedence into pure `src/lib/calendar/event-detail.ts` (`validateEventPatch`, `resolveCleanupTransport`) with 15 new tests. Behavior-preserving refactor.
+- CAL-2 create/update parity: PR #107 (stacked on CAL-1). Added `updateGoogleEvent`/`updateOutlookEvent` (direct-OAuth) and wired PATCH to propagate edits to connected external calendars via `resolveCleanupTransport`. Composio has no verified update tool slug (only LIST/CREATE/DELETE confirmed live) — reports `notSupported` rather than guessing at a slug, UI toasts the limitation.
+- CAL-3 cache-first + sync-state: PR #108 (stacked on CAL-2). New migration `calendar_event_cache` (owner RLS, mirrors `widget_cache`) — **applied to the live Supabase project** via MCP, verified via `get_advisors`. `/api/calendar/external` write-throughs per source; `ScheduleModule` reads cache-first before the live round-trip; partial-failure no longer wipes a source's events. New `src/lib/calendar/freshness.ts` (tested) surfaces "Showing cached… / synced Nm ago".
+- CAL-4 Agenda real data: PR #109 (stacked on CAL-3). New "Today" section in `/agenda` merges today's owned + cached-external events, ranked open tasks (`rankTasks`), and due People follow-ups — pure `src/components/agenda/today-ranking.ts` (tested). Also fixed a real placeholder-ranking bug: `TaskBlock`'s "top 3" was raw insertion order, now ranked.
+- CAL-5 Sentry instrumentation: PR #110 (stacked on CAL-4). `sync`/`external`/`conflicts` routes had **zero** Sentry capture despite real provider failures — now tagged `area:schedule` with op/provider/transport/code, matching `event/[id]`'s existing pattern. Added a Retry button to the external-calendar failure notice in Schedule.
+
+CAL-1..5 (#106–#110) are the full "PROJECT 2 — Calendar + Agenda Slice" from `docs/linear/axis-mvp-issues.md`. All local gates (tsc/lint/test) passed on every PR; final count 248 tests (was 218 after DISP-4). `npm run build` was not run locally this session (user-directed token-minimization) — verify via Vercel preview build before any merge.
+
+**Known plan discrepancy — flag before continuing:** the original continuation prompt named `AGENDA-1..5` and `NOTES-1..5` as upcoming projects; neither exists in `docs/linear/axis-mvp-issues.md` (only `## PROJECT 2 — Calendar + Agenda Slice` covers Agenda, via CAL-4; there is no Notes project at all in this doc — Notes work isn't specced here). The doc's own "suggested execution order" comment (line ~60) also references a *different*, earlier MAIL-1/2/3 numbering (Composio Gmail/Outlook detail + adapter foundation) than the Phase-4-hardening MAIL-1/2/3 this session actually built (provider parity validation / skeletons / document viewer) — the backlog has two overlapping ID schemes from different planning eras. Do not assume MAIL-6..10, DATA-*, INT-*, or PROD-* map cleanly onto work already done. The next **unambiguous** projects in the doc are: `## PROJECT 5 — Latency + Observability` (OBS-1..5), `## PROJECT 7 — UX / Design System`, `## PROJECT 9 — AI Workflow Layer`, `## PROJECT 10 — Integration Health + Control Room`. Confirm which one before proceeding rather than guessing at the ambiguous MAIL/DATA/INT numbering.
 
 ## 6. Where Claude should resume
 
-Resume from the next uncompleted issue after DISP-4 and continue the full phase-based hardening plan sequentially:
-
-1. AGENDA-1 through AGENDA-5.
-2. CAL-1 through CAL-5.
-3. NOTES-1 through NOTES-5.
-4. Then continue through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
+Resume from the next uncompleted issue after CAL-5. Neither `AGENDA-1..5` nor `NOTES-1..5` exist in the plan (see the discrepancy note above) — pick the next real project from `docs/linear/axis-mvp-issues.md` (OBS-1..5 / UX-* / AI-* / IHC-* are the unambiguous candidates) before continuing: through Phase 5 and every later phase from the initial project plan, in order, until the full AXIS hardening plan is complete.
 
 Keep using one Linear issue → one branch → one PR. Branch from the current stack tip unless the user asks you to rebase onto another base. Do not merge or deploy production until preview validation, Supabase/Tembo validation, Sentry review, and manual workflow checks pass.
 
