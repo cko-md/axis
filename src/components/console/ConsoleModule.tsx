@@ -34,6 +34,7 @@ import { ConsoleCaptureBar } from "@/components/console/ConsoleCaptureBar";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
 import { CONSOLE_SECTION_DRILL_INS, taskRingProgress, type ConsoleDrillInSection } from "@/components/console/widget-grid-model";
+import { callAiAction } from "@/lib/ai/callAction";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { isSignalActionable, isSignalVisible, useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
@@ -513,38 +514,32 @@ export function ConsoleModule() {
     // Always create a signal in the inbox
     await capture(text);
 
-    // Call AI for classification
-    fetch("/api/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "capture", text }),
-    })
-      .then((r) => r.ok ? r.json() : null)
-      .then(async (d: { label: string; action: string; priority: "hi" | "med" | "lo" } | null) => {
-        const priority = d?.priority ?? "med";
+    // Classify via the typed AI action (AI-3): validated input, typed output.
+    void callAiAction("capture", { text }).then(async (result) => {
+      const d = result.ok ? result.data : null;
+      const priority = d?.priority ?? "med";
 
-        // Save to tasks table if captMode is "task"
-        if (captMode === "task") {
-          await addTask({ title: text, category: "personal", priority });
-          toast(d?.label ? `Task · ${d.label} · ${d.action}` : "Task saved", "success", "Capture");
-          return;
-        }
+      // Save to tasks table if captMode is "task"
+      if (captMode === "task") {
+        await addTask({ title: text, category: "personal", priority });
+        toast(d ? `Task · ${d.label} · ${d.action}` : "Task saved", "success", "Capture");
+        return;
+      }
 
-        // Save to notes table if captMode is "note"
-        if (captMode === "note") {
-          await createNote(text, "Inbox");
-          toast(d?.label ? `Note · ${d.label}` : "Note saved", "success", "Capture");
-          return;
-        }
+      // Save to notes table if captMode is "note"
+      if (captMode === "note") {
+        await createNote(text, "Inbox");
+        toast(d ? `Note · ${d.label}` : "Note saved", "success", "Capture");
+        return;
+      }
 
-        // Default: show AI classification toast
-        if (d?.label && d?.action) {
-          toast(`${d.label} · ${d.action}`, "info", "AI");
-        } else {
-          toast("Captured to Signals inbox", "success", "Console");
-        }
-      })
-      .catch(() => toast("Captured to Signals inbox", "success", "Console"));
+      // Default: show AI classification toast
+      if (d) {
+        toast(`${d.label} · ${d.action}`, "info", "AI");
+      } else {
+        toast("Captured to Signals inbox", "success", "Console");
+      }
+    });
   };
 
   const handleTriage = async (s: { id: string; title: string; body: string | null; source: string }) => {

@@ -65,6 +65,12 @@ export const AI_ACTION_DEFS = {
     input: z.object({ text: z.string().min(1) }),
     output: z.object({ summary: z.string() }),
   },
+  capture: {
+    mode: "capture",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1) }),
+    output: z.object({ label: z.string(), action: z.string(), priority }),
+  },
 } as const;
 
 export type AiActionName = keyof typeof AI_ACTION_DEFS;
