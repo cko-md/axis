@@ -136,6 +136,13 @@ export async function getFreshMailAccessToken(
 
   if (!refreshed) return null;
 
-  await saveMailTokens(userId, provider, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, mailEmail);
+  await saveMailTokens(
+    userId,
+    provider,
+    refreshed.accessToken,
+    refreshed.refreshToken ?? tokens.refreshToken,
+    refreshed.expiresIn,
+    mailEmail,
+  );
   return refreshed.accessToken;
 }

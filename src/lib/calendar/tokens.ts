@@ -92,6 +92,13 @@ export async function getFreshAccessToken(
 
   if (!refreshed) return null;
 
-  await saveTokens(userId, provider, refreshed.accessToken, tokens.refreshToken, refreshed.expiresIn, tokens.calendarEmail ?? undefined);
+  await saveTokens(
+    userId,
+    provider,
+    refreshed.accessToken,
+    refreshed.refreshToken ?? tokens.refreshToken,
+    refreshed.expiresIn,
+    tokens.calendarEmail ?? undefined,
+  );
   return refreshed.accessToken;
 }
