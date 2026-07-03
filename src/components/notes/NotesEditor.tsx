@@ -64,6 +64,15 @@ const FONT_FAMILY: Record<NoteFont, string> = {
   mono: "var(--mono)",
 };
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 type NotesEditorAiProps = {
   onSummarize?: () => void;
   onRewrite?: () => void;
@@ -232,11 +241,11 @@ export function NotesEditor({
         const reader = new FileReader();
         reader.onload = (ev) => {
           const src = ev.target?.result as string;
-          editor.chain().focus().insertContent(`<p><img src="${src}" alt="${file.name}" style="max-width:100%;border-radius:6px" /></p>`).run();
+          editor.chain().focus().insertContent(`<p><img src="${src}" alt="${escapeHtml(file.name)}" style="max-width:100%;border-radius:6px" /></p>`).run();
         };
         reader.readAsDataURL(file);
       } else {
-        editor.chain().focus().insertContent(`<p>[📎 ${file.name}]</p>`).run();
+        editor.chain().focus().insertContent(`<p>[📎 ${escapeHtml(file.name)}]</p>`).run();
       }
     },
     [editor],
