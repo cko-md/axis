@@ -6,6 +6,11 @@ import { useToast } from "@/components/ui/Toast";
 import { Card } from "@/components/ui/Card";
 import type { TransactionRow } from "@/lib/store/fund-defaults";
 
+type OrderRouteResponse = {
+  routed?: boolean;
+  message?: string;
+};
+
 interface Props {
   /** Pre-fill the symbol (e.g. from the selected chart ticker). */
   defaultSymbol?: string;
@@ -46,16 +51,27 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
 
     // 1. Route through brokerage proxy (degrades to local-log without keys)
     let routeMsg = "";
+    let routed = false;
     try {
       const res = await fetch("/api/brokerage/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol: sym, side, quantity: qty }),
       });
-      const data = await res.json().catch(() => ({}));
-      routeMsg = data?.message ?? "";
+      const data = (await res.json().catch(() => ({}))) as OrderRouteResponse;
+      if (!res.ok) {
+        routeMsg = data?.message ?? "Brokerage route unavailable; captured to ledger only.";
+      } else {
+        routed = data?.routed === true;
+        routeMsg = data?.message ?? "";
+      }
     } catch {
-      // network issue — still record the intent locally below
+      routeMsg = "Network issue reaching brokerage; captured to ledger only.";
+    }
+
+    if (brokerageConfigured && !routed && !window.confirm("Live brokerage execution is not enabled. Capture this order intent to your ledger only?")) {
+      setBusy(false);
+      return;
     }
 
     // 2. Persist to the ledger
@@ -66,7 +82,7 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
       shares: qty,
       price: px,
       amount,
-      source: brokerageConfigured ? "public" : "manual",
+      source: routed ? "public" : "manual",
       executed_at: new Date().toISOString(),
     };
 
@@ -101,8 +117,9 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
     }
 
     onLogged?.(txn);
+    const verb = routed ? (side === "buy" ? "Bought" : "Sold") : `${side === "buy" ? "Buy" : "Sell"} intent captured`;
     toast(
-      `${side === "buy" ? "Bought" : "Sold"} ${qty} ${sym} @ $${px.toFixed(2)}. ${routeMsg || "Logged to ledger."}`,
+      `${verb} ${qty} ${sym} @ $${px.toFixed(2)}. ${routeMsg || "Logged to ledger."}`,
       "success",
       "Order Ticket",
     );
@@ -174,7 +191,7 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 9, lineHeight: 1.5 }}>
           {brokerageConfigured
-            ? "Routes through Public.com; every fill is captured to your ledger."
+            ? "Public credentials detected. Live routing must be enabled server-side; otherwise orders are captured to your ledger only."
             : "No brokerage connected — captures to your ledger only. Add APP_PUBLIC_API_KEY to route live."}
         </div>
       </Card>
