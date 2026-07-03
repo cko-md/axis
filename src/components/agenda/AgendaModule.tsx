@@ -19,9 +19,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   useTasks,
+  rankTasks,
   doneTodayTasks,
   isTaskOverdue,
   isTaskStale,
@@ -33,6 +35,8 @@ import { usePeople, personIsDue, personFootLabel } from "@/lib/hooks/usePeople";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { buildTodayRanking, type TodayItem } from "@/components/agenda/today-ranking";
+import type { ScheduleEvent } from "@/lib/types";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
@@ -128,7 +132,10 @@ const TaskBlock = memo(function TaskBlock({
 }) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(false);
-  const catTasks = tasks.filter((t) => t.category === category || (category === "clinical" && t.category === "life"));
+  // Rank by priority×deadline (rankTasks) instead of raw insertion order —
+  // otherwise "top 3" is whichever 3 happened to be created first, not the 3
+  // that actually matter most today (CAL-4: remove placeholder ranking).
+  const catTasks = rankTasks(tasks.filter((t) => t.category === category || (category === "clinical" && t.category === "life")));
   const visibleTasks = expanded ? catTasks : catTasks.slice(0, 3);
   const tasklistId = `tasklist-${category}`;
 
@@ -191,6 +198,59 @@ const TaskBlock = memo(function TaskBlock({
             }
           }}
         />
+      </div>
+    </div>
+  );
+});
+
+const TODAY_ROW_ICON: Record<TodayItem["kind"], string> = { event: "◷", task: "○", "follow-up": "◉" };
+
+// One row for the merged Today ranking (CAL-4). Complete/route actions vary
+// by item kind: a task completes in place, an event/follow-up routes to its
+// owning module (Schedule/People) since editing those lives there.
+const TodayRow = memo(function TodayRow({
+  item,
+  onToggleTask,
+  onOpenTask,
+  onNavigate,
+}: {
+  item: TodayItem;
+  onToggleTask: (id: string) => void | Promise<void>;
+  onOpenTask: (id: string) => void;
+  onNavigate: (href: string) => void;
+}) {
+  const isTask = item.kind === "task";
+  return (
+    <div className={isTask && item.source.status === "done" ? "task done" : "task"}>
+      {isTask ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={item.source.status === "done"}
+          aria-label={`Mark "${item.title}" complete`}
+          className={item.source.status === "done" ? "check done" : "check"}
+          onClick={() => onToggleTask(item.id)}
+          style={{ background: "none", padding: 0 }}
+        />
+      ) : (
+        <span aria-hidden="true" style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-faint)", width: 16, textAlign: "center", flexShrink: 0 }}>
+          {TODAY_ROW_ICON[item.kind]}
+        </span>
+      )}
+      <div className="task-main">
+        <button
+          type="button"
+          style={TASK_OPEN_STYLE}
+          onClick={() => (isTask ? onOpenTask(item.id) : onNavigate(item.kind === "event" ? "/schedule" : "/people"))}
+          aria-label={item.kind === "event" ? `Open "${item.title}" in Schedule` : item.kind === "follow-up" ? `Open "${item.title}" in People` : `Open details for "${item.title}"`}
+        >
+          <div className="task-title">{item.title}</div>
+          <div className="task-meta">
+            {item.kind === "event" && <span>{item.time || "All day"}</span>}
+            {item.kind === "task" && <span className={`pill ${item.priority}`}>{item.priority.toUpperCase()}</span>}
+            {item.kind === "follow-up" && <span>{item.footLabel}</span>}
+          </div>
+        </button>
       </div>
     </div>
   );
@@ -450,7 +510,11 @@ export function AgendaModule() {
     return da.localeCompare(db);
   });
   const { toast } = useToast();
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const [todayEvents, setTodayEvents] = useState<ScheduleEvent[]>([]);
+  const [todayEventsLoading, setTodayEventsLoading] = useState(true);
+  const [todayEventsError, setTodayEventsError] = useState<string | null>(null);
   const [routine, setRoutine] = useState<RoutineStep[]>(DEFAULT_ROUTINE);
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [tuneOpen, setTuneOpen] = useState(false);
@@ -522,6 +586,79 @@ export function AgendaModule() {
       localStorage.removeItem(`axis-night-routine-checks-${last}`);
     }
   }, [loadRoutine]);
+
+  // CAL-4: today's owned schedule_events (live) + last-known external events
+  // from calendar_event_cache (CAL-3's cache-first table) — real data for the
+  // merged Today ranking, not a placeholder. A live external re-fetch isn't
+  // triggered from here; Schedule keeps that cache warm on its own visits.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setTodayEventsLoading(true);
+      setTodayEventsError(null);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        if (!cancelled) { setTodayEvents([]); setTodayEventsLoading(false); }
+        return;
+      }
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setDate(end.getDate() + 1);
+
+      const [ownedRes, cacheRes] = await Promise.all([
+        supabase
+          .from("schedule_events")
+          .select("id, title, description, start_at, end_at, color_class, all_day")
+          .eq("user_id", user.id)
+          .gte("start_at", start.toISOString())
+          .lt("start_at", end.toISOString()),
+        supabase.from("calendar_event_cache").select("source, events"),
+      ]);
+      if (cancelled) return;
+
+      if (ownedRes.error) {
+        setTodayEventsError("Could not load today's events.");
+        setTodayEventsLoading(false);
+        return;
+      }
+
+      const owned: ScheduleEvent[] = (ownedRes.data ?? []).map((e) => ({
+        id: e.id,
+        title: e.title,
+        description: e.description,
+        start_at: e.start_at,
+        end_at: e.end_at,
+        color_class: (e.color_class as "a" | "b" | "c") || "a",
+        all_day: e.all_day,
+      }));
+
+      type CachedExternalEvent = {
+        externalId: string; title: string; start_at: string; end_at: string;
+        description?: string | null; location?: string | null; attendees?: string[]; all_day: boolean;
+      };
+      const external: ScheduleEvent[] = [];
+      for (const row of (cacheRes.data ?? []) as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[] }>) {
+        for (const e of row.events ?? []) {
+          if (new Date(e.start_at).toDateString() !== start.toDateString()) continue;
+          external.push({
+            id: `ext-${row.source}-${e.externalId}`,
+            title: e.title,
+            description: e.description ?? null,
+            location: e.location ?? null,
+            attendees: e.attendees ?? [],
+            start_at: e.start_at,
+            end_at: e.end_at,
+            color_class: "or",
+            all_day: e.all_day,
+            source: row.source,
+          });
+        }
+      }
+
+      setTodayEvents([...owned, ...external]);
+      setTodayEventsLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [supabase]);
 
   const saveNightRoutine = useCallback(async (steps: RoutineStep[]) => {
     setNightRoutine(steps);
@@ -605,6 +742,10 @@ export function AgendaModule() {
 
   const activePool = statFilter === "overdue" ? overdue : statFilter === "done" ? doneToday : open;
   const filtered = filterPri === "all" ? activePool : activePool.filter((t) => t.priority === filterPri);
+  const todayItems = useMemo(
+    () => buildTodayRanking(todayEvents, tasks, dueContacts, new Date(), 8),
+    [todayEvents, tasks, dueContacts],
+  );
 
   const rebuildRoutine = useCallback(
     async (type: "morning" | "night") => {
@@ -783,6 +924,31 @@ export function AgendaModule() {
   return (
     <>
       <div className="divider" />
+      <h2 className="sec" style={{ marginBottom: 14 }}>
+        Today<span className="rule" />
+        {!todayEventsLoading && !todayEventsError && <span className="count">{todayItems.length}</span>}
+      </h2>
+      <div className="card" style={{ marginBottom: 16 }}>
+        {todayEventsLoading ? (
+          <div className="empty-state" style={{ padding: "12px 0" }}>Loading today…</div>
+        ) : todayEventsError ? (
+          <div className="empty-state" style={{ padding: "12px 0", color: "var(--clay)" }}>{todayEventsError}</div>
+        ) : todayItems.length === 0 ? (
+          <div className="empty-state" style={{ padding: "12px 0" }}>Nothing on deck — add a task, schedule an event, or check People.</div>
+        ) : (
+          <div className="tasklist">
+            {todayItems.map((item) => (
+              <TodayRow
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                onToggleTask={handleToggleTask}
+                onOpenTask={setSelectedTaskId}
+                onNavigate={(href) => router.push(href)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <div className="stat-strip">
         <div
           className={`card stat tick${statFilter === null ? " on" : ""}`}
