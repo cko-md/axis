@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTasks } from "@/lib/hooks/useTasks";
 import {
@@ -323,6 +324,7 @@ export function NotesModule() {
 
   const [routing, setRouting] = useState(false);
   const [suggestion, setSuggestion] = useState<RouteSuggestion | null>(null);
+  const [routingTo, setRoutingTo] = useState<null | "task" | "signal" | "pipeline">(null);
 
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiPanel, setAiPanel] = useState<{ mode: string; content: string } | null>(null);
@@ -804,6 +806,106 @@ export function NotesModule() {
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
   }, []);
 
+  // NOTES-4: explicit "send this note to another module" actions that create a
+  // real, persisted artifact with source-back traceability (source_note_id +
+  // source_route so Agenda/Dispatch can link back to the origin note). Distinct
+  // from the AI folder-filing suggestion above, which only re-files the note.
+  const noteSourceMetadata = (note: Note) => ({
+    source_note_id: note.id,
+    source_object_type: "note" as const,
+    source_object_id: note.id,
+    source_route: "/notes",
+    created_via: "note_route" as const,
+  });
+
+  const routeNoteToTask = async (note: Note) => {
+    setRoutingTo("task");
+    try {
+      const result = await addTask({
+        title: note.title || "Untitled note",
+        category: "personal",
+        priority: "med",
+        metadata: noteSourceMetadata(note),
+      });
+      toast(result ? "Task created in Agenda." : "Could not create task — sign in and try again.", result ? "success" : "error", "Notes");
+    } finally {
+      setRoutingTo(null);
+    }
+  };
+
+  const routeNoteToSignal = async (note: Note) => {
+    setRoutingTo("signal");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast("Sign in to route notes to Dispatch.", "error", "Notes");
+        return;
+      }
+      const { error } = await supabase.from("signals").insert({
+        user_id: user.id,
+        title: note.title || "Untitled note",
+        body: preview(note.body).slice(0, 500) || null,
+        signal_type: "action",
+        source: "Notes",
+        metadata: noteSourceMetadata(note),
+      });
+      if (error) {
+        Sentry.captureException(error, { tags: { area: "notes", op: "route_to_signal", supabase_code: error.code ?? "unknown" } });
+        toast("Could not send to Dispatch — check your connection and retry.", "error", "Notes");
+        return;
+      }
+      toast("Sent to Dispatch.", "success", "Notes");
+    } finally {
+      setRoutingTo(null);
+    }
+  };
+
+  const routeNoteToPipeline = async (note: Note) => {
+    setRoutingTo("pipeline");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast("Sign in to route notes to Pipeline.", "error", "Notes");
+        return;
+      }
+      // Studies live on a board stage — target the user's first stage. If the
+      // board hasn't been scaffolded yet, tell the user to open Pipeline once.
+      const { data: stage, error: stageError } = await supabase
+        .from("pipeline_stages")
+        .select("id")
+        .eq("user_id", user.id)
+        .order("sort_order", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (stageError) {
+        Sentry.captureException(stageError, { tags: { area: "notes", op: "route_to_pipeline_stage", supabase_code: stageError.code ?? "unknown" } });
+        toast("Could not reach Pipeline — check your connection and retry.", "error", "Notes");
+        return;
+      }
+      if (!stage) {
+        toast("Open Pipeline once to set up your board, then route again.", "warn", "Notes");
+        return;
+      }
+      const { error } = await supabase.from("studies").insert({
+        user_id: user.id,
+        stage_id: stage.id,
+        title: note.title || "Untitled note",
+        role: "First Author",
+        meta: "From Notes",
+        next_action: preview(note.body).slice(0, 200),
+        sort_order: 0,
+      });
+      if (error) {
+        Sentry.captureException(error, { tags: { area: "notes", op: "route_to_pipeline", supabase_code: error.code ?? "unknown" } });
+        toast("Could not send to Pipeline — check your connection and retry.", "error", "Notes");
+        return;
+      }
+      toast("Sent to Pipeline.", "success", "Notes");
+    } finally {
+      setRoutingTo(null);
+    }
+  };
+
   const acceptRoute = async () => {
     if (!selected || !suggestion) return;
     const folderMap: Record<RouteSuggestion["destination"], string> = {
@@ -944,6 +1046,23 @@ export function NotesModule() {
         }}
       />
 
+      {!locked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10.5, fontFamily: "var(--mono)", color: "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+            Send to
+          </span>
+          <button type="button" className="savebtn" style={{ padding: "4px 10px", fontSize: 11 }} disabled={routingTo !== null} onClick={() => void routeNoteToTask(selected)}>
+            {routingTo === "task" ? "Sending…" : "Agenda task"}
+          </button>
+          <button type="button" className="savebtn" style={{ padding: "4px 10px", fontSize: 11 }} disabled={routingTo !== null} onClick={() => void routeNoteToSignal(selected)}>
+            {routingTo === "signal" ? "Sending…" : "Dispatch"}
+          </button>
+          <button type="button" className="savebtn" style={{ padding: "4px 10px", fontSize: 11 }} disabled={routingTo !== null} onClick={() => void routeNoteToPipeline(selected)}>
+            {routingTo === "pipeline" ? "Sending…" : "Pipeline"}
+          </button>
+        </div>
+      )}
+
       {saveError && (
         <div className="rec-panel" style={{ borderColor: "var(--down)", marginTop: 10 }}>
           <div className="rec-panel-head">
@@ -996,6 +1115,34 @@ export function NotesModule() {
             style={liveTranscribing ? { color: "var(--clay-2)", borderColor: "var(--clay-2)" } : undefined}
           >
             {liveTranscribing ? "● Stop transcribing" : "🎙 Live Transcribe"}
+          </button>
+          <span style={{ width: 1, height: 16, background: "var(--line)", margin: "0 4px" }} />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase", marginRight: 2 }}>
+            Route
+          </span>
+          <button
+            type="button"
+            className="aibtn"
+            disabled={!!routingTo}
+            onClick={() => selected && routeNoteToTask(selected)}
+          >
+            {routingTo === "task" ? "Sending…" : "Agenda"}
+          </button>
+          <button
+            type="button"
+            className="aibtn"
+            disabled={!!routingTo}
+            onClick={() => selected && routeNoteToSignal(selected)}
+          >
+            {routingTo === "signal" ? "Sending…" : "Dispatch"}
+          </button>
+          <button
+            type="button"
+            className="aibtn"
+            disabled={!!routingTo}
+            onClick={() => selected && routeNoteToPipeline(selected)}
+          >
+            {routingTo === "pipeline" ? "Sending…" : "Pipeline"}
           </button>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { embedText } from "@/lib/ai/embed";
 
@@ -27,7 +28,33 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const embedding = await embedText(text);
+  const { data: note, error: noteError } = await supabase
+    .from("notes")
+    .select("id")
+    .eq("id", noteId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (noteError) {
+    Sentry.captureException(noteError, {
+      tags: { area: "notes", op: "embedding_note_lookup", supabase_code: noteError.code ?? "unknown" },
+      contexts: { note: { id: noteId } },
+    });
+    return NextResponse.json({ error: "Could not prepare note embedding." }, { status: 500 });
+  }
+  if (!note) {
+    return NextResponse.json({ error: "Note not found" }, { status: 404 });
+  }
+
+  let embedding: number[];
+  try {
+    embedding = await embedText(text);
+  } catch (error) {
+    Sentry.captureException(error instanceof Error ? error : new Error("Note embedding failed"), {
+      tags: { area: "notes", op: "embedding_generate", provider: "gemini" },
+      contexts: { note: { id: noteId } },
+    });
+    return NextResponse.json({ error: "Could not generate note embedding." }, { status: 502 });
+  }
 
   const { error: upsertError } = await supabase
     .from("note_embeddings")
@@ -42,10 +69,11 @@ export async function POST(req: NextRequest) {
     );
 
   if (upsertError) {
-    return NextResponse.json(
-      { error: upsertError.message },
-      { status: 500 },
-    );
+    Sentry.captureException(upsertError, {
+      tags: { area: "notes", op: "embedding_upsert", supabase_code: upsertError.code ?? "unknown" },
+      contexts: { note: { id: noteId } },
+    });
+    return NextResponse.json({ error: "Could not save note embedding." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
