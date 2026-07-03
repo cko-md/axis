@@ -6,7 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmtUsd } from "@/lib/store/fund-defaults";
-import { useFundData } from "@/components/fund/FundDataProvider";
+import { useFundData, type Liability } from "@/components/fund/FundDataProvider";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
 
@@ -14,35 +14,58 @@ export function FundLiabilities() {
   const { toast } = useToast();
   // FUND-1: liabilities come from the shared layout store; mutations call
   // refreshLiabilities() so Cashflow/Net Worth/Overview stay consistent.
-  const { liabilities, refreshLiabilities: load } = useFundData();
+  const {
+    liabilities,
+    liabilitiesLoading,
+    liabilitiesError,
+    refreshLiabilities: load,
+  } = useFundData();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState(KINDS[0]);
   const [balance, setBalance] = useState("");
   const [minimumPayment, setMinimumPayment] = useState("");
   const [dueDate, setDueDate] = useState("");
-
   async function add() {
     const balanceNum = Number(balance);
-    if (!name.trim() || !Number.isFinite(balanceNum) || balanceNum < 0) return;
+    const minimumPaymentNum = minimumPayment ? Number(minimumPayment) : null;
+    if (!name.trim() || !Number.isFinite(balanceNum) || balanceNum < 0) {
+      toast("Enter a name and valid balance.", "warn", "Cash Flow");
+      return;
+    }
+    if (minimumPaymentNum !== null && (!Number.isFinite(minimumPaymentNum) || minimumPaymentNum < 0)) {
+      toast("Enter a valid minimum payment.", "warn", "Cash Flow");
+      return;
+    }
     const res = await fetch("/api/fund/liabilities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name, kind, balance: balanceNum,
-        minimum_payment: minimumPayment ? Number(minimumPayment) : null,
+        minimum_payment: minimumPaymentNum,
         due_date: dueDate || null,
       }),
     });
-    if (!res.ok) { toast("Couldn't save liability.", "error", "Cash Flow"); return; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error ?? "Couldn't save liability.", "error", "Cash Flow");
+      return;
+    }
     await load();
     setOpen(false);
     setName(""); setBalance(""); setMinimumPayment(""); setDueDate("");
   }
 
-  async function remove(id: string) {
-    await fetch(`/api/fund/liabilities/${id}`, { method: "DELETE" });
+  async function remove(liability: Liability) {
+    if (!window.confirm(`Remove ${liability.name} from liabilities?`)) return;
+    const res = await fetch(`/api/fund/liabilities/${liability.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error ?? "Couldn't remove liability.", "error", "Cash Flow");
+      return;
+    }
     await load();
+    toast("Liability removed.", "info", "Cash Flow");
   }
 
   const total = liabilities.reduce((s, l) => s + Number(l.balance), 0);
@@ -51,7 +74,9 @@ export function FundLiabilities() {
     <Card>
       <h2 className="sec">Liabilities<span className="rule" /><span className="count">{fmtUsd(total)}</span></h2>
       <div style={{ marginTop: 10 }}>
-        {liabilities.length === 0 ? (
+        {liabilitiesLoading && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
+        {liabilitiesError && <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6 }}>Liabilities could not refresh.</p>}
+        {!liabilitiesLoading && liabilities.length === 0 ? (
           <div className="empty-state"><strong>No liabilities tracked</strong><p>Add credit cards or loans to see real net worth.</p></div>
         ) : (
           liabilities.map((l) => (
@@ -62,7 +87,7 @@ export function FundLiabilities() {
               </span>
               <span className="metric-v">
                 {fmtUsd(l.balance)}
-                <button type="button" onClick={() => remove(l.id)} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer" }}>×</button>
+                <button type="button" onClick={() => remove(l)} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer" }}>×</button>
               </span>
             </div>
           ))

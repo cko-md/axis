@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
+const MAX_MONEY = 1_000_000_000_000;
+
+function parseMoney(value: unknown, field: string, options?: { nullable?: boolean }) {
+  if (options?.nullable && (value === null || value === "" || value === undefined)) return { value: null };
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_MONEY) return { error: `INVALID_${field.toUpperCase()}` };
+  return { value: parsed };
+}
+
+function parseDueDate(value: unknown) {
+  if (value === null || value === "" || value === undefined) return { value: null };
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return { value };
+  return { error: "INVALID_DUE_DATE" };
+}
 
 export async function GET() {
   const supabase = await createClient();
@@ -26,8 +40,12 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const name = String(body.name ?? "").trim();
   const kind = KINDS.includes(body.kind) ? body.kind : "credit_card";
-  const balance = Number(body.balance);
-  if (!name || !Number.isFinite(balance) || balance < 0) {
+  const balance = parseMoney(body.balance, "balance");
+  const apr = parseMoney(body.apr, "apr", { nullable: true });
+  const minimumPayment = parseMoney(body.minimum_payment, "minimum_payment", { nullable: true });
+  const dueDate = parseDueDate(body.due_date);
+  const firstError = balance.error ?? apr.error ?? minimumPayment.error ?? dueDate.error;
+  if (!name || firstError) {
     return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
   }
 
@@ -37,10 +55,10 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       name,
       kind,
-      balance,
-      apr: body.apr != null ? Number(body.apr) : null,
-      minimum_payment: body.minimum_payment != null ? Number(body.minimum_payment) : null,
-      due_date: body.due_date ?? null,
+      balance: balance.value,
+      apr: apr.value,
+      minimum_payment: minimumPayment.value,
+      due_date: dueDate.value,
       source: "manual",
     })
     .select()

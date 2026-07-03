@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { useToast } from "@/components/ui/Toast";
 
 type Recurring = {
   id: string;
@@ -13,25 +14,39 @@ type Recurring = {
 };
 
 export function FundRecurringList() {
+  const { toast } = useToast();
   const [recurring, setRecurring] = useState<Recurring[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/fund/recurring");
-    const data = await res.json().catch(() => ({}));
-    setRecurring((data.recurring ?? []).filter((r: Recurring) => r.status === "active"));
-    setLoaded(true);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/fund/recurring");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "recurring_unavailable");
+      setRecurring((data.recurring ?? []).filter((r: Recurring) => r.status === "active"));
+    } catch {
+      setNotice("Recurring charges could not refresh.");
+    } finally {
+      setLoaded(true);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
   async function setStatus(id: string, status: "cancelled" | "active") {
-    await fetch(`/api/fund/recurring/${id}`, {
+    const res = await fetch(`/api/fund/recurring/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    if (!res.ok) {
+      toast("Could not update recurring charge.", "error", "Cash Flow");
+      return;
+    }
     setRecurring((prev) => prev.filter((r) => r.id !== id));
+    toast("Recurring charge dismissed.", "info", "Cash Flow");
   }
 
   const monthlyTotal = recurring.reduce((s, r) => s + Number(r.expected_amount), 0);
@@ -41,6 +56,7 @@ export function FundRecurringList() {
       <h2 className="sec">Recurring<span className="rule" /><span className="count">${monthlyTotal.toFixed(0)}/mo</span></h2>
       <div style={{ marginTop: 10 }}>
         {!loaded && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
+        {notice && <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6 }}>{notice}</p>}
         {loaded && recurring.length === 0 && (
           <p style={{ fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
             No recurring charges detected yet — the finance-daily job finds these once you have a few months of synced transactions.
