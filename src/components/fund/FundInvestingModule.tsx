@@ -60,6 +60,9 @@ export function FundInvestingModule() {
   }
 
   async function removeHolding(id: string) {
+    const row = rows.find((r) => r.id === id);
+    const label = row ? `${row.symbol} (${row.source})` : "this holding";
+    if (!window.confirm(`Remove ${label} from holdings?`)) return;
     const res = await fetch(`/api/fund/holdings/${id}`, { method: "DELETE" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
