@@ -110,18 +110,18 @@ export function useBriefing() {
   const addSavedItem = useCallback(async (item: { title: string; url: string; type: "read" | "watch" }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      if (!user) return { error: "Sign in to save stories." };
       const { data, error } = await supabase
         .from("briefing_saved_items")
         .insert({ user_id: user.id, title: item.title, url: item.url, type: item.type })
         .select()
         .single();
-      if (error || !data) return null;
+      if (error || !data) return { error: error?.message ?? "Failed to save story." };
       setSavedItems((prev) => [data as BriefingSavedItem, ...prev]);
-      return data as BriefingSavedItem;
+      return { data: data as BriefingSavedItem };
     } catch (err) {
       console.error("[useBriefing] addSavedItem", err);
-      return null;
+      return { error: "Failed to save story." };
     }
   }, [supabase]);
 
@@ -142,18 +142,18 @@ export function useBriefing() {
   const addFeed = useCallback(async (feed: { name: string; url: string }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      if (!user) return { error: "Sign in to save feeds." };
       const { data, error } = await supabase
         .from("briefing_feeds")
         .upsert({ user_id: user.id, name: feed.name, url: feed.url }, { onConflict: "user_id,url" })
         .select()
         .single();
-      if (error || !data) return null;
+      if (error || !data) return { error: error?.message ?? "Failed to save feed." };
       setFeeds((prev) => [...prev.filter((f) => f.url !== feed.url), data as BriefingFeed]);
-      return data as BriefingFeed;
+      return { data: data as BriefingFeed };
     } catch (err) {
       console.error("[useBriefing] addFeed", err);
-      return null;
+      return { error: "Failed to save feed." };
     }
   }, [supabase]);
 

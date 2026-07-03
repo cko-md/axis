@@ -314,10 +314,18 @@ export function BriefingModule() {
   const toggleSave = async (s: Story, type: "read" | "watch" = "read") => {
     const already = saved.some((x) => x.url === s.url);
     if (already) {
-      await removeSavedItem(s.url);
+      const result = await removeSavedItem(s.url);
+      if (result.error) {
+        toast(result.error, "error", "Briefing");
+        return;
+      }
       toast("Removed from saved", "success", "Briefing");
     } else {
-      await addSavedItem({ title: s.shortTitle, url: s.url, type });
+      const result = await addSavedItem({ title: s.shortTitle, url: s.url, type });
+      if (result.error) {
+        toast(result.error, "error", "Briefing");
+        return;
+      }
       toast(`Saved for ${type === "watch" ? "later" : "reading"}`, "success", "Briefing");
     }
   };
@@ -348,8 +356,31 @@ export function BriefingModule() {
   };
 
   const saveFeed = async (feed: {name: string; url: string}) => {
-    await addFeed(feed);
+    const result = await addFeed(feed);
+    if (result.error) {
+      toast(result.error, "error", "Briefing");
+      return;
+    }
     toast(`${feed.name} added to sources.`, "success", "Briefing");
+  };
+
+  const deleteSavedItem = async (item: { title: string; url: string }) => {
+    const result = await removeSavedItem(item.url);
+    if (result.error) {
+      toast(result.error, "error", "Briefing");
+      return;
+    }
+    toast(`${item.title} removed from saved.`, "info", "Briefing");
+  };
+
+  const deleteFeed = async (feed: { name: string; url: string }) => {
+    if (!window.confirm(`Remove ${feed.name} from Briefing sources?`)) return;
+    const result = await removeFeed(feed.url);
+    if (result.error) {
+      toast(result.error, "error", "Briefing");
+      return;
+    }
+    toast(`${feed.name} removed from sources.`, "info", "Briefing");
   };
 
   const allStories = [
@@ -486,7 +517,7 @@ export function BriefingModule() {
                     <div style={{ fontSize: 12, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
                   </div>
                   <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => openInApp(item.url, item.title)}>Open →</button>
-                  <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => removeSavedItem(item.url)}>✕</button>
+                  <button type="button" className="feed-manage" style={{ fontSize: 10.5 }} onClick={() => void deleteSavedItem(item)}>✕</button>
                 </div>
               ))}
             </div>
@@ -556,7 +587,7 @@ export function BriefingModule() {
                       <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500, marginBottom: 2 }}>{f.name}</div>
                       <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.url}</div>
                     </div>
-                    <button type="button" className="feed-manage" style={{ fontSize: 10.5, flexShrink: 0 }} onClick={() => removeFeed(f.url)}>Remove</button>
+                    <button type="button" className="feed-manage" style={{ fontSize: 10.5, flexShrink: 0 }} onClick={() => void deleteFeed(f)}>Remove</button>
                   </div>
                 ))}
               </div>
