@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { AddCalendarPicker } from "./AddCalendarPicker";
+import { formatCalendarFreshness } from "@/lib/calendar/freshness";
 
 type ComposioCalState = { active: boolean; email: string | null };
 
@@ -160,6 +161,8 @@ export function ScheduleModule() {
   const calBtnRef = useRef<HTMLDivElement>(null);
   const [externalEvents, setExternalEvents] = useState<ScheduleEvent[]>([]);
   const [externalNotice, setExternalNotice] = useState<string | null>(null);
+  const [externalFetchedAt, setExternalFetchedAt] = useState<string | null>(null);
+  const [externalFromCache, setExternalFromCache] = useState(false);
 
   const refreshComposioCalStatus = useCallback(() => {
     fetch("/api/integrations/composio/status")
@@ -275,14 +278,63 @@ export function ScheduleModule() {
   const hasGoogle = !!calStatus?.google || composioCal.google.active;
   const hasOutlook = !!calStatus?.outlook || composioCal.outlook.active;
 
+  // CAL-3 cache-first paint: read the last-known external events straight from
+  // calendar_event_cache (RLS-scoped to this user) so the Schedule shows real
+  // content immediately, before the live /api/calendar/external round-trip
+  // resolves. Read-once per connection state change — the live fetch below
+  // (and its cache write-through server-side) is what keeps it current.
+  useEffect(() => {
+    if (!hasGoogle && !hasOutlook) return;
+    let cancelled = false;
+    supabase
+      .from("calendar_event_cache")
+      .select("source, events, fetched_at")
+      .then(({ data: rows }) => {
+        if (cancelled || !rows?.length) return;
+        type CachedExternalEvent = {
+          externalId: string; title: string; start_at: string; end_at: string;
+          description?: string | null; location?: string | null; attendees?: string[]; all_day: boolean;
+        };
+        const cached: ScheduleEvent[] = [];
+        let newestFetchedAt: string | null = null;
+        for (const row of rows as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[]; fetched_at: string }>) {
+          if ((row.source === "google" && !hasGoogle) || (row.source === "outlook" && !hasOutlook)) continue;
+          for (const e of row.events ?? []) {
+            cached.push({
+              id: `ext-${row.source}-${e.externalId}`,
+              title: e.title,
+              description: e.description ?? null,
+              location: e.location ?? null,
+              attendees: e.attendees ?? [],
+              start_at: e.start_at,
+              end_at: e.end_at,
+              color_class: "or" as const,
+              all_day: e.all_day,
+              source: row.source,
+            });
+          }
+          if (!newestFetchedAt || row.fetched_at > newestFetchedAt) newestFetchedAt = row.fetched_at;
+        }
+        if (cached.length > 0) {
+          setExternalEvents(cached);
+          setExternalFetchedAt(newestFetchedAt);
+          setExternalFromCache(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [supabase, hasGoogle, hasOutlook]);
+
   // Pull real events from connected Google/Outlook calendars (read-only — never
   // written to schedule_events) so connecting a provider surfaces actual content,
   // not just a connected badge. Re-fetches whenever a provider connects/disconnects
-  // (legacy direct-OAuth or Composio).
+  // (legacy direct-OAuth or Composio). Revalidates in the background over
+  // whatever the cache-first effect above already painted.
   useEffect(() => {
     if (!hasGoogle && !hasOutlook) {
       setExternalEvents([]);
       setExternalNotice(null);
+      setExternalFetchedAt(null);
+      setExternalFromCache(false);
       return;
     }
     fetch(`/api/calendar/external?start=${range.start.toISOString()}&end=${range.end.toISOString()}`)
@@ -302,20 +354,28 @@ export function ScheduleModule() {
         partial?: boolean;
         errors?: Array<{ source: "google" | "outlook"; message: string }>;
       }) => {
-        setExternalEvents(
-          (data.events ?? []).map((e) => ({
-            id: `ext-${e.source}-${e.externalId}`,
-            title: e.title,
-            description: e.description ?? null,
-            location: e.location ?? null,
-            attendees: e.attendees ?? [],
-            start_at: e.start_at,
-            end_at: e.end_at,
-            color_class: "or" as const,
-            all_day: e.all_day,
-            source: e.source,
-          })),
-        );
+        const fresh = (data.events ?? []).map((e) => ({
+          id: `ext-${e.source}-${e.externalId}`,
+          title: e.title,
+          description: e.description ?? null,
+          location: e.location ?? null,
+          attendees: e.attendees ?? [],
+          start_at: e.start_at,
+          end_at: e.end_at,
+          color_class: "or" as const,
+          all_day: e.all_day,
+          source: e.source,
+        }));
+        const failedSources = new Set<string>((data.errors ?? []).map((e) => e.source));
+        // A source that failed to revalidate keeps its last-known (cached)
+        // events instead of being wiped to empty — matches the server's
+        // write-through behavior of never overwriting cache on error.
+        setExternalEvents((prev) => [
+          ...fresh,
+          ...prev.filter((e) => e.source && failedSources.has(e.source) && !fresh.some((f) => f.source === e.source && f.id === e.id)),
+        ]);
+        setExternalFetchedAt(new Date().toISOString());
+        setExternalFromCache(false);
         if (data.partial && data.errors?.length) {
           const sources = [...new Set(data.errors.map((e) => e.source === "google" ? "Google" : "Outlook"))].join(" and ");
           setExternalNotice(`${sources} calendar refresh failed — showing available events.`);
@@ -702,8 +762,13 @@ export function ScheduleModule() {
       </div>
 
       {externalNotice && (
-        <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--clay)" }}>
+        <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--clay)" }}>
           {externalNotice}
+        </p>
+      )}
+      {(hasGoogle || hasOutlook) && externalFetchedAt && (
+        <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--ink-faint)" }}>
+          {formatCalendarFreshness(externalFetchedAt, externalFromCache)}
         </p>
       )}
 

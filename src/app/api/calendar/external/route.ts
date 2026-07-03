@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listGoogleEvents, type ExternalCalendarEvent } from "@/lib/calendar/google";
 import { listOutlookEvents } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, listComposioEvents } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
+import { resolveCleanupTransport } from "@/lib/calendar/event-detail";
 
 type CalendarSource = "google" | "outlook";
 type ExternalCalendarError = {
@@ -117,6 +119,77 @@ export async function GET(req: NextRequest) {
     ...composioLists.flatMap((result) => (result.error ? [result.error] : [])),
   ];
 
+  const fetchedAt = new Date().toISOString();
+
+  // CAL-3: write-through to calendar_event_cache so the next Schedule load
+  // can render instantly from cache and revalidate this route in the
+  // background, instead of blocking first paint on live provider calls.
+  // Reuses the same legacy-over-Composio transport precedence CAL-1/CAL-2
+  // already established for delete/update, since "which transport supplied
+  // this data" is the same question.
+  const composioResultBySource = new Map<CalendarSource, ExternalCalendarResult<ExternalCalendarEvent>>();
+  composioAccounts.forEach((account, i) => composioResultBySource.set(displaySource(account.provider), composioLists[i]));
+
+  const googleTransport = resolveCleanupTransport("google", providers, composioAccounts);
+  const outlookTransport = resolveCleanupTransport("outlook", providers, composioAccounts);
+
+  function outcomeFor(source: CalendarSource, transport: "direct" | "composio" | "none") {
+    if (transport === "direct") return source === "google" ? google : outlook;
+    if (transport === "composio") return composioResultBySource.get(source) ?? null;
+    return null;
+  }
+
+  const cacheRows: Array<{
+    user_id: string; source: CalendarSource; transport: "direct" | "composio";
+    range_start: string; range_end: string; events: unknown[]; error: null;
+    fetched_at: string; updated_at: string;
+  }> = [];
+  const errorOnlyUpdates: Array<{ source: CalendarSource; error: ExternalCalendarError }> = [];
+
+  for (const [source, resolved] of [["google", googleTransport], ["outlook", outlookTransport]] as const) {
+    if (resolved.transport === "none") continue;
+    const outcome = outcomeFor(source, resolved.transport);
+    if (!outcome) continue;
+    if (outcome.error) {
+      errorOnlyUpdates.push({ source, error: outcome.error });
+    } else {
+      cacheRows.push({
+        user_id: user.id,
+        source,
+        transport: resolved.transport,
+        range_start: start,
+        range_end: end,
+        events: outcome.events,
+        error: null,
+        fetched_at: fetchedAt,
+        updated_at: fetchedAt,
+      });
+    }
+  }
+
+  try {
+    if (cacheRows.length > 0) {
+      const { error: cacheError } = await supabase
+        .from("calendar_event_cache")
+        .upsert(cacheRows, { onConflict: "user_id,source" });
+      if (cacheError) throw cacheError;
+    }
+    // Errored sources keep their last-known events (no overwrite) — only the
+    // error/freshness metadata updates, and only if a cache row already
+    // exists (nothing to attach an error-only row to on a first-ever fetch).
+    for (const update of errorOnlyUpdates) {
+      await supabase
+        .from("calendar_event_cache")
+        .update({ error: update.error, updated_at: fetchedAt })
+        .eq("user_id", user.id)
+        .eq("source", update.source);
+    }
+  } catch (cacheError) {
+    Sentry.captureException(cacheError instanceof Error ? cacheError : new Error(String(cacheError)), {
+      tags: { area: "schedule", op: "write_calendar_event_cache" },
+    });
+  }
+
   logRouteTiming("/api/calendar/external", routeStartedAt, {
     events: events.length,
     partial: errors.length > 0,
@@ -126,6 +199,6 @@ export async function GET(req: NextRequest) {
     events,
     partial: errors.length > 0,
     errors,
-    fetchedAt: new Date().toISOString(),
+    fetchedAt,
   });
 }
