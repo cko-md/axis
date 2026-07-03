@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { optionalEnv } from "@/lib/env";
+import { buildObjectivesScanContext } from "@/lib/ai/platformScanContext";
 
 export type ObjectiveSuggestion = {
   target: string;
@@ -24,17 +25,20 @@ export async function scanForObjectives(
   userId: string,
   supabase: SupabaseClient,
 ): Promise<ObjectiveSuggestion[]> {
-  const [{ data: tasks }, { data: notes }, { data: signals }] = await Promise.all([
+  const [tasksResult, notesResult, signalsResult] = await Promise.all([
     supabase.from("tasks").select("title, priority, deadline, status").eq("user_id", userId).neq("status", "done").limit(30),
     supabase.from("notes").select("title, body").eq("user_id", userId).order("updated_at", { ascending: false }).limit(20),
     supabase.from("signals").select("title, signal_type").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
   ]);
+  if (tasksResult.error || notesResult.error || signalsResult.error) {
+    return [];
+  }
 
-  const lines = [
-    tasks?.length ? `TASKS:\n${tasks.map((t) => `- ${t.title} [${t.priority}]${t.deadline ? ` due ${t.deadline}` : ""}`).join("\n")}` : "",
-    notes?.length ? `NOTES:\n${notes.map((n) => `- ${n.title}: ${((n.body as string) ?? "").slice(0, 200)}`).join("\n")}` : "",
-    signals?.length ? `SIGNALS:\n${signals.map((s) => `- ${s.title} [${s.signal_type}]`).join("\n")}` : "",
-  ].filter(Boolean).join("\n\n");
+  const lines = buildObjectivesScanContext({
+    tasks: tasksResult.data,
+    notes: notesResult.data,
+    signals: signalsResult.data,
+  });
 
   if (!lines) return [];
 
