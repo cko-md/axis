@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { embedText } from "@/lib/ai/embed";
+import { normalizeSemanticQuery } from "@/lib/ai/embeddingRequest";
 
 export const runtime = "nodejs";
 
@@ -16,10 +17,11 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim();
-  if (!q) {
-    return NextResponse.json({ error: "Missing query param q" }, { status: 400 });
+  const normalizedQuery = normalizeSemanticQuery(searchParams.get("q"));
+  if (!normalizedQuery.ok) {
+    return NextResponse.json({ error: normalizedQuery.error }, { status: normalizedQuery.status });
   }
+  const q = normalizedQuery.query;
 
   let embedding: number[];
   try {
