@@ -128,7 +128,25 @@ export async function POST(req: NextRequest) {
   if (outlookId) patch.outlook_event_id = outlookId;
 
   if (Object.keys(patch).length) {
-    await supabase.from("schedule_events").update(patch).eq("id", eventId).eq("user_id", user.id);
+    const { error: persistError } = await supabase
+      .from("schedule_events")
+      .update(patch)
+      .eq("id", eventId)
+      .eq("user_id", user.id);
+    if (persistError) {
+      Sentry.captureException(persistError, {
+        tags: { area: "schedule", op: "persist_external_event_ids" },
+        extra: { eventId, providers: Object.keys(patch) },
+      });
+      errors.push({
+        source: gcalId ? "google" : "outlook",
+        transport: gcalId
+          ? (legacyProviders.has("google") ? "direct" : "composio")
+          : (legacyProviders.has("outlook") ? "direct" : "composio"),
+        code: "network",
+        message: "Calendar sync succeeded, but AXIS could not save the external event link.",
+      });
+    }
   }
 
   logRouteTiming("/api/calendar/sync", routeStartedAt, {

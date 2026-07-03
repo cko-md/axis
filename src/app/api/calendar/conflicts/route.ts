@@ -36,7 +36,13 @@ export async function POST(req: NextRequest) {
     .lt("start_at", end_at)
     .gt("end_at", start_at);
   if (typeof excludeEventId === "string") localQuery = localQuery.neq("id", excludeEventId);
-  const { data: localOverlaps } = await localQuery;
+  const { data: localOverlaps, error: localError } = await localQuery;
+  if (localError) {
+    Sentry.captureException(localError, {
+      tags: { area: "schedule", op: "check_local_conflicts" },
+    });
+    return NextResponse.json({ error: "Could not check local calendar conflicts" }, { status: 500 });
+  }
 
   const composioAccounts = await listComposioCalendarAccounts(user.id);
   const googleAccount = composioAccounts.find((a) => a.provider === "googlecalendar");

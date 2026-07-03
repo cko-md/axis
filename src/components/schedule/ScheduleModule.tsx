@@ -77,6 +77,20 @@ function eventToEditForm(event: ScheduleEvent): EventEditForm {
   };
 }
 
+function eventOverlapsRange(event: Pick<ScheduleEvent, "start_at" | "end_at">, range: { start: Date; end: Date }): boolean {
+  const start = new Date(event.start_at);
+  const end = new Date(event.end_at);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+  return start < range.end && end > range.start;
+}
+
+function cachedRangeCoversView(row: { range_start: string; range_end: string }, range: { start: Date; end: Date }): boolean {
+  const start = new Date(row.range_start);
+  const end = new Date(row.range_end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+  return start <= range.start && end >= range.end;
+}
+
 function sourceLabel(source?: string): string {
   if (source === "google") return "Google Calendar";
   if (source === "outlook") return "Outlook";
@@ -288,19 +302,20 @@ export function ScheduleModule() {
     let cancelled = false;
     supabase
       .from("calendar_event_cache")
-      .select("source, events, fetched_at")
+      .select("source, events, fetched_at, range_start, range_end")
       .then(({ data: rows }) => {
-        if (cancelled || !rows?.length) return;
+        if (cancelled) return;
         type CachedExternalEvent = {
           externalId: string; title: string; start_at: string; end_at: string;
           description?: string | null; location?: string | null; attendees?: string[]; all_day: boolean;
         };
         const cached: ScheduleEvent[] = [];
         let newestFetchedAt: string | null = null;
-        for (const row of rows as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[]; fetched_at: string }>) {
+        for (const row of rows as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[]; fetched_at: string; range_start: string; range_end: string }>) {
           if ((row.source === "google" && !hasGoogle) || (row.source === "outlook" && !hasOutlook)) continue;
+          if (!cachedRangeCoversView(row, range)) continue;
           for (const e of row.events ?? []) {
-            cached.push({
+            const cachedEvent = {
               id: `ext-${row.source}-${e.externalId}`,
               title: e.title,
               description: e.description ?? null,
@@ -311,18 +326,22 @@ export function ScheduleModule() {
               color_class: "or" as const,
               all_day: e.all_day,
               source: row.source,
-            });
+            };
+            if (eventOverlapsRange(cachedEvent, range)) cached.push(cachedEvent);
           }
           if (!newestFetchedAt || row.fetched_at > newestFetchedAt) newestFetchedAt = row.fetched_at;
         }
+        setExternalEvents(cached);
         if (cached.length > 0) {
-          setExternalEvents(cached);
           setExternalFetchedAt(newestFetchedAt);
           setExternalFromCache(true);
+        } else {
+          setExternalFetchedAt(null);
+          setExternalFromCache(false);
         }
       });
     return () => { cancelled = true; };
-  }, [supabase, hasGoogle, hasOutlook]);
+  }, [supabase, hasGoogle, hasOutlook, range]);
 
   // Pull real events from connected Google/Outlook calendars (read-only — never
   // written to schedule_events) so connecting a provider surfaces actual content,
@@ -355,25 +374,32 @@ export function ScheduleModule() {
         partial?: boolean;
         errors?: Array<{ source: "google" | "outlook"; message: string }>;
       }) => {
-        const fresh = (data.events ?? []).map((e) => ({
-          id: `ext-${e.source}-${e.externalId}`,
-          title: e.title,
-          description: e.description ?? null,
-          location: e.location ?? null,
-          attendees: e.attendees ?? [],
-          start_at: e.start_at,
-          end_at: e.end_at,
-          color_class: "or" as const,
-          all_day: e.all_day,
-          source: e.source,
-        }));
+        const fresh = (data.events ?? [])
+          .map((e) => ({
+            id: `ext-${e.source}-${e.externalId}`,
+            title: e.title,
+            description: e.description ?? null,
+            location: e.location ?? null,
+            attendees: e.attendees ?? [],
+            start_at: e.start_at,
+            end_at: e.end_at,
+            color_class: "or" as const,
+            all_day: e.all_day,
+            source: e.source,
+          }))
+          .filter((event) => eventOverlapsRange(event, range));
         const failedSources = new Set<string>((data.errors ?? []).map((e) => e.source));
         // A source that failed to revalidate keeps its last-known (cached)
         // events instead of being wiped to empty — matches the server's
         // write-through behavior of never overwriting cache on error.
         setExternalEvents((prev) => [
           ...fresh,
-          ...prev.filter((e) => e.source && failedSources.has(e.source) && !fresh.some((f) => f.source === e.source && f.id === e.id)),
+          ...prev.filter((e) =>
+            e.source
+            && failedSources.has(e.source)
+            && eventOverlapsRange(e, range)
+            && !fresh.some((f) => f.source === e.source && f.id === e.id),
+          ),
         ]);
         setExternalFetchedAt(new Date().toISOString());
         setExternalFromCache(false);
@@ -384,7 +410,10 @@ export function ScheduleModule() {
           setExternalNotice(null);
         }
       })
-      .catch(() => setExternalNotice("External calendars could not refresh — showing last loaded events."));
+      .catch(() => {
+        setExternalEvents((prev) => prev.filter((event) => eventOverlapsRange(event, range)));
+        setExternalNotice("External calendars could not refresh — showing last loaded events.");
+      });
   }, [hasGoogle, hasOutlook, range]);
 
   useEffect(() => {
