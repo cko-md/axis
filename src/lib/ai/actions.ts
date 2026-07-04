@@ -105,6 +105,30 @@ export const AI_ACTION_DEFS = {
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
     output: z.object({}).passthrough(),
   },
+  musicRecs: {
+    mode: "music-recs",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1) }),
+    output: z.object({
+      recs: z.array(z.object({
+        artist: z.string(),
+        track: z.string(),
+        reason: z.string(),
+        genre: z.string(),
+      })),
+    }),
+  },
+  mealParse: {
+    mode: "meal-parse",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1) }),
+    output: z.object({
+      emoji: z.string(),
+      title: z.string(),
+      timing: z.string(),
+      macros: z.string(),
+    }),
+  },
 } as const;
 
 export type AiActionName = keyof typeof AI_ACTION_DEFS;

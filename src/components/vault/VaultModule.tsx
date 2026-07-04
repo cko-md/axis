@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
+import { callAiAction } from "@/lib/ai/callAction";
 import styles from "./vault.module.css";
 
 const DEFAULT_EMBED = "https://open.spotify.com/embed/playlist/37i9dQZF1DWZeKCadgRdKQ?utm_source=axis";
@@ -422,22 +423,21 @@ function RecommendationsSection({ connected, spotify, toast }: { connected: bool
 
   const refreshRecs = async () => {
     setLoading(true);
+    // Previously misused mode:"capture" (which returns {label,action,priority},
+    // not a rec array) so Refresh silently no-op'd. Now uses the dedicated
+    // typed music-recs action.
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "capture", text: "Give me 3 diverse music recommendations in JSON array format. Each item: { artist, track, reason (why based on Afrobeats, R&B, Jazz taste), genre }. Vary tempos and moods." }),
+      const result = await callAiAction("musicRecs", {
+        text: "Give me 3 diverse music recommendations based on a taste for Afrobeats, R&B, and late-night jazz. Vary tempos and moods.",
       });
-      const d = await res.json();
-      const match = (d.action || "").match(/\[[\s\S]*\]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]);
+      if (result.ok && result.data.recs.length) {
         const colors = ["linear-gradient(135deg,#2e1808,#180e04)", "linear-gradient(135deg,#0e1e2e,#060e18)", "linear-gradient(135deg,#1e1e1e,#0a0a0a)"];
-        setRecs(parsed.map((r: Rec, i: number) => ({ ...r, id: `ai${i}`, g: colors[i % colors.length] })));
+        setRecs(result.data.recs.map((r, i) => ({ ...r, id: `ai${i}`, g: colors[i % colors.length] })));
         setAiInsight("Refreshed from your taste profile — Afrobeats, R&B, and late-night jazz nodes are dominant.");
+      } else if (!result.ok) {
+        toast("Couldn't refresh recommendations — check the AI key in Control Room.", "error", "Vault");
       }
-    } catch { /* use existing recs */ }
-    finally { setLoading(false); }
+    } finally { setLoading(false); }
   };
 
   return (

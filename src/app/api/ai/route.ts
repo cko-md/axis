@@ -293,6 +293,8 @@ export async function POST(req: NextRequest) {
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
     if (mode === "debrief_summary") return NextResponse.json({ summary: "Summary unavailable — API key required." });
     if (mode === "pipeline-draft") return NextResponse.json({ draft: "" } as PipelineDraftResult);
+    if (mode === "music-recs") return NextResponse.json({ recs: [] });
+    if (mode === "meal-parse") return NextResponse.json({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" });
     return NextResponse.json(heuristicCapture(text));
   }
 
@@ -340,6 +342,37 @@ export async function POST(req: NextRequest) {
       });
       const cards = JSON.parse(raw.text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()) as Array<{ title: string; body: string; actionLabel?: string; actionPath?: string }>;
       return NextResponse.json({ cards: cards.map((c, i) => ({ ...c, id: String(i) })) });
+    }
+
+    // ── music-recs ───────────────────────────────────────────────────────────
+    if (mode === "music-recs") {
+      const result = await aiJSON<{ recs: Array<{ artist: string; track: string; reason: string; genre: string }> }>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'You are a music recommender. Return ONLY a JSON object with key "recs": an array of exactly 3 objects, each { artist (string), track (string), reason (string, ≤140 chars — why it fits the stated taste), genre (string) }. Vary tempo and mood. No markdown, no preamble.',
+        userMessage: text,
+        maxTokens: 500,
+      });
+      return NextResponse.json({ recs: (result.recs ?? []).slice(0, 6) });
+    }
+
+    // ── meal-parse ───────────────────────────────────────────────────────────
+    if (mode === "meal-parse") {
+      const result = await aiJSON<{ emoji?: string; title?: string; timing?: string; macros?: string }>({
+        mode,
+        anthropic,
+        providerPref,
+        system: 'Parse a meal-log entry into structured data. Return ONLY a JSON object: { emoji (one food emoji), title (concise meal name), timing (meal type + time like "Lunch · 13:00", or "Logged" if unknown), macros (compact like "P 35 · 480 kcal", or "—" if unknown) }. No markdown, no preamble.',
+        userMessage: text,
+        maxTokens: 150,
+      });
+      return NextResponse.json({
+        emoji: result.emoji || "🍽️",
+        title: result.title || "",
+        timing: result.timing || "Logged",
+        macros: result.macros || "—",
+      });
     }
 
     // ── regimen ────────────────────────────────────────────────────────────────
@@ -660,6 +693,8 @@ export async function POST(req: NextRequest) {
       });
     }
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
+    if (mode === "music-recs") return NextResponse.json({ recs: [] });
+    if (mode === "meal-parse") return NextResponse.json({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" });
     if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
     if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
     if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));

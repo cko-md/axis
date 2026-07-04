@@ -18,6 +18,7 @@ import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { callAiAction } from "@/lib/ai/callAction";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
@@ -708,12 +709,13 @@ function MeditationTab({ rawSessions, addSession }: { rawSessions: MeditationSes
     const hour = new Date().getHours();
     const timeCtx = hour < 9 ? "morning" : hour < 13 ? "late morning" : hour < 17 ? "afternoon" : "evening";
     const prompt = `I'm planning a meditation session ${timeCtx}. Suggest the single best meditation type and duration for right now (2 sentences max). Types available: focused breath, body scan, loving-kindness, open monitoring, yoga nidra, box breathing.`;
-    try {
-      const res = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "capture", text: prompt }) });
-      const d = await res.json();
-      setAiSuggestion(d.action || d.label || "Try a 10-minute focused breath session to anchor your morning.");
-    } catch { setAiSuggestion("Try a 10-minute focused breath session — ideal for any time of day."); }
-    finally { setAiLoading(false); }
+    const result = await callAiAction("capture", { text: prompt });
+    setAiSuggestion(
+      result.ok
+        ? result.data.action || result.data.label
+        : "Try a 10-minute focused breath session — ideal for any time of day.",
+    );
+    setAiLoading(false);
   };
 
   const saveSession = async () => {
@@ -1216,32 +1218,19 @@ export function VitalityModule() {
     const text = mealInput.trim();
     if (!text) return;
     setMealParsing(true);
+    // Previously misused mode:"capture" (returns {label,action,priority}, never
+    // the meal JSON) so AI enrichment never fired — it always logged raw. Now
+    // uses the dedicated typed meal-parse action; still logs raw on failure.
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "capture", text: `Parse this meal log entry and return a JSON object with keys: emoji (food emoji), title (meal name), timing (meal type + time like "Lunch · 13:00"), macros (compact string like "P 35 · 480"). Entry: "${text}"` }),
+      const result = await callAiAction("mealParse", { text });
+      const obj = result.ok ? result.data : null;
+      await addMeal({
+        emoji: obj?.emoji || "🍽️",
+        title: obj?.title || text,
+        timing: obj?.timing || "Logged",
+        macros: obj?.macros || "—",
       });
-      const d = await res.json();
-      const parsed = d.action || text;
-      // Try to extract JSON from the AI response
-      const match = parsed.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          const obj = JSON.parse(match[0]);
-          await addMeal({ emoji: obj.emoji || "🍽️", title: obj.title || text, timing: obj.timing || "Logged", macros: obj.macros || "—" });
-          toast("Meal logged via AI", "success", "Nutrition");
-        } catch {
-          await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
-          toast("Logged (AI parse failed — added raw)", "info", "Nutrition");
-        }
-      } else {
-        await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
-        toast("Meal logged", "success", "Nutrition");
-      }
-    } catch {
-      await addMeal({ emoji: "🍽️", title: text, timing: "Logged", macros: "—" });
-      toast("Meal logged", "success", "Nutrition");
+      toast(obj?.title ? "Meal logged via AI" : "Meal logged", "success", "Nutrition");
     } finally {
       setMealInput("");
       setMealParsing(false);
