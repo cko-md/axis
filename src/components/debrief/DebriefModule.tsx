@@ -8,6 +8,7 @@ import { useTasks } from "@/lib/hooks/useTasks";
 import { useObjectives } from "@/lib/hooks/useObjectives";
 import { useToast } from "@/components/ui/Toast";
 import { createClient } from "@/lib/supabase/client";
+import { buildAiRequestBody } from "@/lib/ai/actions";
 
 const DEBRIEF_FOLDER = "Debrief";
 const REMINDER_KEY   = "debrief-reminder";
@@ -403,7 +404,7 @@ export function DebriefModule() {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "debrief_summary", text: combined.slice(0, 6000) }),
+        body: JSON.stringify(buildAiRequestBody("debriefSummary", { text: combined.slice(0, 6000) })),
       });
       setAiSummary(await readAiSummary(res));
     } catch (error) {
@@ -521,7 +522,7 @@ export function DebriefModule() {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "debrief_summary", text: text.slice(0, 6000) }),
+        body: JSON.stringify(buildAiRequestBody("debriefSummary", { text: text.slice(0, 6000) })),
       });
       setDailySummary(await readAiSummary(res));
     } catch (error) {
