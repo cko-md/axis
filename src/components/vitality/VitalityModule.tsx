@@ -22,6 +22,7 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
+import { buildAiRequestBody } from "@/lib/ai/actions";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -709,7 +710,12 @@ function MeditationTab({ rawSessions, addSession }: { rawSessions: MeditationSes
     const timeCtx = hour < 9 ? "morning" : hour < 13 ? "late morning" : hour < 17 ? "afternoon" : "evening";
     const prompt = `I'm planning a meditation session ${timeCtx}. Suggest the single best meditation type and duration for right now (2 sentences max). Types available: focused breath, body scan, loving-kindness, open monitoring, yoga nidra, box breathing.`;
     try {
-      const res = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "capture", text: prompt }) });
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildAiRequestBody("capture", { text: prompt })),
+      });
+      if (!res.ok) throw new Error(`AI meditation suggestion failed: ${res.status}`);
       const d = await res.json();
       setAiSuggestion(d.action || d.label || "Try a 10-minute focused breath session to anchor your morning.");
     } catch { setAiSuggestion("Try a 10-minute focused breath session — ideal for any time of day."); }
@@ -1220,8 +1226,11 @@ export function VitalityModule() {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "capture", text: `Parse this meal log entry and return a JSON object with keys: emoji (food emoji), title (meal name), timing (meal type + time like "Lunch · 13:00"), macros (compact string like "P 35 · 480"). Entry: "${text}"` }),
+        body: JSON.stringify(buildAiRequestBody("capture", {
+          text: `Parse this meal log entry and return a JSON object with keys: emoji (food emoji), title (meal name), timing (meal type + time like "Lunch · 13:00"), macros (compact string like "P 35 · 480"). Entry: "${text}"`,
+        })),
       });
+      if (!res.ok) throw new Error(`AI meal parse failed: ${res.status}`);
       const d = await res.json();
       const parsed = d.action || text;
       // Try to extract JSON from the AI response
