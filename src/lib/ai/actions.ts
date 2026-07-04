@@ -59,6 +59,30 @@ export const AI_ACTION_DEFS = {
     input: z.object({ text: z.string().min(1) }),
     output: z.object({ title: z.string() }),
   },
+  flashcards: {
+    mode: "flashcards",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), title: z.string().optional() }),
+    output: z.object({ cards: z.array(z.unknown()) }),
+  },
+  quiz: {
+    mode: "quiz",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), title: z.string().optional() }),
+    output: z.object({ items: z.array(z.unknown()) }),
+  },
+  mindmap: {
+    mode: "mindmap",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), title: z.string().optional() }),
+    output: z.object({ root: z.unknown() }),
+  },
+  studySummary: {
+    mode: "summary",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), title: z.string().optional() }),
+    output: z.object({ summary: z.string() }),
+  },
   debriefSummary: {
     mode: "debrief_summary",
     sensitive: true,
