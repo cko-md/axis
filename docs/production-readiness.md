@@ -65,9 +65,9 @@ New migrations added this session (both applied live + advisor-clean): `calendar
 
 ---
 
-## 3. Generated Supabase types (PROD-2) — NOT DONE
+## 3. Generated Supabase types (PROD-2) — PARTIAL (types committed; wiring deferred)
 
-No `Database` type is generated/committed; `createClient` is untyped. Full adoption (generate `database.types.ts` + thread `SupabaseClient<Database>` through `src/lib/supabase/*` and every hook) is a large, cross-cutting change and is deferred to its own issue rather than bundled here. Generating the file alone (without rewiring) adds little safety, so it's intentionally not committed yet.
+`src/lib/supabase/database.types.ts` is generated from the live DB (62 tables) and committed as a reference artifact. It is **not yet wired into `createClient`**: typing the base client (`createClient<Database>()`) would type-check every existing `.from(...)` call against the schema and surface a cascade of errors across hooks/routes written before generated types existed — a separate adoption pass, not a bundled change. Until then, new code can import `Database` explicitly (`createClient<Database>()` at a specific call site) to opt in. **Regenerate after every migration** (`generate_typescript_types` / `supabase gen types typescript`).
 
 ---
 
