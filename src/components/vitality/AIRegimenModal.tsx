@@ -139,7 +139,9 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
           }),
         })),
       });
+      if (!res.ok) throw new Error(`AI regimen plan failed: ${res.status}`);
       const data = (await res.json()) as PlanResult;
+      if (!Array.isArray(data.days) || !data.days.length) throw new Error("AI regimen plan returned no days");
       setPlan(data);
     } catch {
       setError(true);

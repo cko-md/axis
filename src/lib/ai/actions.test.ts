@@ -32,6 +32,16 @@ describe("buildAiRequestBody", () => {
       mode: "notes-rewrite",
       text: "make this clearer",
     });
+    expect(buildAiRequestBody("meetingSummary", { text: "transcript", title: "Lab sync" })).toEqual({
+      mode: "meeting-summary",
+      text: "transcript",
+      title: "Lab sync",
+    });
+    expect(buildAiRequestBody("regimenPlan", { text: "half marathon", body: "{\"daysPerWeek\":4}" })).toEqual({
+      mode: "regimenPlan",
+      text: "half marathon",
+      body: "{\"daysPerWeek\":4}",
+    });
   });
 
   it("throws (does not send) on invalid input", () => {
