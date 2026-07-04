@@ -16,6 +16,7 @@ const AI_ROUTE_FILES = [
   "src/app/api/ai/route.ts",
   "src/app/api/signals-ai/route.ts",
 ];
+const CONSOLE_MODULE = "src/components/console/ConsoleModule.tsx";
 
 // Identifiers that carry user content in these routes.
 const PAYLOAD_IDENTIFIERS = /\b(text|body|prompt|userMessage|combined)\b/;
@@ -44,5 +45,14 @@ describe("sensitive AI actions are flagged", () => {
     for (const name of Object.keys(AI_ACTION_DEFS) as AiActionName[]) {
       expect(isSensitiveAiAction(name), `${name} must declare sensitive:true`).toBe(true);
     }
+  });
+});
+
+describe("Console AI call-site privacy", () => {
+  it("routes dispatch triage through the typed AI action registry", () => {
+    const source = readFileSync(join(REPO, CONSOLE_MODULE), "utf8");
+
+    expect(source).toContain('callAiAction("triage"');
+    expect(source).not.toContain('JSON.stringify({ mode: "triage"');
   });
 });

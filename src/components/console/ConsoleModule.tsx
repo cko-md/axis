@@ -545,13 +545,9 @@ export function ConsoleModule() {
   const handleTriage = async (s: { id: string; title: string; body: string | null; source: string }) => {
     setTriagingIds((prev) => new Set(prev).add(s.id));
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "triage", text: s.title, body: s.body ?? "" }),
-      });
-      if (res.ok) {
-        const d = await res.json() as { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
+      const result = await callAiAction("triage", { text: s.title, body: s.body ?? "" });
+      if (result.ok) {
+        const d = result.data;
         await applyClassification(s.id, {
           signal_type: "action",
           priority: d.priority,
@@ -560,6 +556,8 @@ export function ConsoleModule() {
           confidence: 0.8,
         });
         toast(`Triaged · ${d.priority.toUpperCase()} · ${d.category} · ${d.effort}`, "info", "AI");
+      } else {
+        toast("Triage failed — check connection", "error", "AI");
       }
     } catch {
       toast("Triage failed — check connection", "error", "AI");
