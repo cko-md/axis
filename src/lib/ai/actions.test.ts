@@ -32,6 +32,16 @@ describe("buildAiRequestBody", () => {
       mode: "notes-rewrite",
       text: "make this clearer",
     });
+    expect(buildAiRequestBody("flashcards", { text: "source text", title: "DBS notes" })).toEqual({
+      mode: "flashcards",
+      text: "source text",
+      title: "DBS notes",
+    });
+    expect(buildAiRequestBody("studySummary", { text: "source text", title: "DBS notes" })).toEqual({
+      mode: "summary",
+      text: "source text",
+      title: "DBS notes",
+    });
   });
 
   it("throws (does not send) on invalid input", () => {

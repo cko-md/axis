@@ -36,6 +36,7 @@ import { NotesEditor } from "./NotesEditorLazy";
 import { formatAutosaveLabel } from "@/lib/notes/save-status";
 import { filterNotesByKeyword, orderNotesBySemanticIds } from "@/lib/notes/search";
 import { callAiAction } from "@/lib/ai/callAction";
+import { buildAiRequestBody, type AiActionName } from "@/lib/ai/actions";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
@@ -339,6 +340,13 @@ export function NotesModule() {
     | { type: "quiz"; items: QuizItem[] }
     | { type: "mindmap"; root: MindMapNode }
     | { type: "summary"; summary: string };
+
+  const STUDY_AID_ACTIONS: Record<StudyAid["type"], AiActionName> = {
+    flashcards: "flashcards",
+    quiz: "quiz",
+    mindmap: "mindmap",
+    summary: "studySummary",
+  };
   const [studyAidLoading, setStudyAidLoading] = useState<string | null>(null);
   const [studyAid, setStudyAid] = useState<StudyAid | null>(null);
   const supabase = useMemo(() => createClient(), []);
@@ -672,7 +680,7 @@ export function NotesModule() {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: type, text: selected.body, title: selected.title }),
+        body: JSON.stringify(buildAiRequestBody(STUDY_AID_ACTIONS[type], { text: selected.body, title: selected.title })),
       });
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
