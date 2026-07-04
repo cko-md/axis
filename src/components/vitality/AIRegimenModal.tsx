@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { buildAiRequestBody } from "@/lib/ai/actions";
 
 type RegimenItem = {
   name: string;
@@ -122,21 +123,21 @@ export function AIRegimenModal({ discipline, open, onClose, onApply, stravaConte
   const generate = async () => {
     setLoading(true);
     setError(false);
+    const requestGoal = goal.trim() || "general fitness";
     try {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "regimenPlan",
-          text: goal,
+        body: JSON.stringify(buildAiRequestBody("regimenPlan", {
+          text: requestGoal,
           body: JSON.stringify({
             discipline,
             daysPerWeek,
             currentLevel: level,
-            goal,
+            goal: requestGoal,
             ...(stravaContext ? { stravaContext } : {}),
           }),
-        }),
+        })),
       });
       const data = (await res.json()) as PlanResult;
       setPlan(data);

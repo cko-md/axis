@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import * as Sentry from "@sentry/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { buildAiRequestBody } from "@/lib/ai/actions";
 
 // ── Module context ─────────────────────────────────────────────────────────────
 const MODULE_CONTEXTS: Record<string, string> = {
@@ -340,11 +341,10 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "companion",
+        body: JSON.stringify(buildAiRequestBody("companion", {
           text: `Deliver a 2-sentence strategic situation brief. ${context}. ${focus ? `User's active focus: "${focus}".` : "No active focus set — prompt them to set one."} Be direct. Field advisor tone, not chatbot. Surface one actionable priority.`,
           body: JSON.stringify({ context, history: [], persona: "axiom" }),
-        }),
+        })),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -399,7 +399,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: messages.slice(-8), persona: "axiom" }) }),
+        body: JSON.stringify(buildAiRequestBody("companion", { text: q, body: JSON.stringify({ context, history: messages.slice(-8), persona: "axiom" }) })),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -521,7 +521,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "deck-insights", text: context, body: JSON.stringify({ context }) }),
+        body: JSON.stringify(buildAiRequestBody("deckInsights", { text: context, body: JSON.stringify({ context }) })),
       });
       if (!res.ok) {
         captureCompanionError("codex", "cards", pathname, new Error("Codex cards request failed"), res.status);
@@ -638,7 +638,7 @@ function NovaChar({ onHide }: { onHide: () => void }) {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "companion", text: q, body: JSON.stringify({ context, history: [], persona: "nova" }) }),
+        body: JSON.stringify(buildAiRequestBody("companion", { text: q, body: JSON.stringify({ context, history: [], persona: "nova" }) })),
       });
       if (!res.ok) {
         captureCompanionError("nova", "ask", pathname, new Error("Nova request failed"), res.status);

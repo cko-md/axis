@@ -71,6 +71,40 @@ export const AI_ACTION_DEFS = {
     input: z.object({ text: z.string().min(1) }),
     output: z.object({ label: z.string(), action: z.string(), priority }),
   },
+  meetingSummary: {
+    mode: "meeting-summary",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), title: z.string().optional() }),
+    output: z.object({ summary: z.string() }),
+  },
+  // The next four carry a JSON-string `body` of extra context and have
+  // free-form model outputs; call sites keep their own response parsing +
+  // observability and use buildAiRequestBody() for a validated request, so
+  // their `output` here is intentionally loose (not consumed by callAiAction).
+  companion: {
+    mode: "companion",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), body: z.string().optional() }),
+    output: z.object({ response: z.string() }).passthrough(),
+  },
+  deckInsights: {
+    mode: "deck-insights",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), body: z.string().optional() }),
+    output: z.object({ cards: z.array(z.unknown()) }).passthrough(),
+  },
+  regimen: {
+    mode: "regimen",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), body: z.string().optional() }),
+    output: z.object({}).passthrough(),
+  },
+  regimenPlan: {
+    mode: "regimenPlan",
+    sensitive: true,
+    input: z.object({ text: z.string().min(1), body: z.string().optional() }),
+    output: z.object({}).passthrough(),
+  },
 } as const;
 
 export type AiActionName = keyof typeof AI_ACTION_DEFS;

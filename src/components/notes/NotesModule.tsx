@@ -209,11 +209,6 @@ function textToNoteHtml(text: string): string {
     .join("");
 }
 
-async function readJsonResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-  return (await res.json()) as T;
-}
-
 export function NotesModule() {
   const {
     notes,
@@ -395,23 +390,13 @@ export function NotesModule() {
     }
 
     setRecState("processing");
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "meeting-summary",
-          text: transcript,
-          title: selectedTitleRef.current,
-        }),
-      });
-      const data = await readJsonResponse<{ summary?: string }>(res);
-      setRecSummary(data.summary ?? "");
-      setRecState("done");
-    } catch {
-      setRecSummary("Could not generate a meeting summary. The transcript is still available.");
-      setRecState("done");
-    }
+    const result = await callAiAction("meetingSummary", { text: transcript, title: selectedTitleRef.current });
+    setRecSummary(
+      result.ok
+        ? result.data.summary
+        : "Could not generate a meeting summary. The transcript is still available.",
+    );
+    setRecState("done");
   }, []);
 
   const startRecording = useCallback(() => {

@@ -8,6 +8,7 @@ import {
   KIND_LABELS,
   INTENSITY_LABELS,
 } from "@/lib/hooks/useTrainingWeek";
+import { buildAiRequestBody } from "@/lib/ai/actions";
 
 export type RegimenItem = {
   name: string;
@@ -175,8 +176,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "regimen",
+        body: JSON.stringify(buildAiRequestBody("regimen", {
           text: session.title,
           body: JSON.stringify({
             kind: session.kind,
@@ -184,7 +184,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
             intensity: session.intensity,
             notes: session.notes,
           }),
-        }),
+        })),
       });
       const data = (await res.json()) as {
         warmup?: string;
