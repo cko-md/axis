@@ -121,6 +121,7 @@ type Props = {
 export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props) {
   const [log, setLog] = useState<WorkoutLog | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -138,6 +139,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
       });
     }
     setSaved(false);
+    setAiError(null);
   }, [session]);
 
   useEffect(() => {
@@ -172,6 +174,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
   const generateWithAI = useCallback(async () => {
     if (!session) return;
     setAiLoading(true);
+    setAiError(null);
     try {
       const res = await fetch("/api/ai", {
         method: "POST",
@@ -186,11 +189,13 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
           }),
         })),
       });
+      if (!res.ok) throw new Error(`AI regimen failed: ${res.status}`);
       const data = (await res.json()) as {
         warmup?: string;
         items?: RegimenItem[];
         cooldown?: string;
       };
+      if (!data.items?.length) throw new Error("AI regimen returned no items");
       if (data.items?.length) {
         setLog((prev) =>
           prev
@@ -205,7 +210,7 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
         );
       }
     } catch {
-      // ignore — keep existing regimen
+      setAiError("Could not design a regimen. Your current workout details are unchanged.");
     } finally {
       setAiLoading(false);
     }
@@ -438,6 +443,18 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
                     {aiLoading ? "Generating…" : "✦ Design with AI"}
                   </button>
                 </div>
+                {aiError && (
+                  <p
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 10,
+                      color: "var(--hi)",
+                      margin: "0 0 8px",
+                    }}
+                  >
+                    {aiError}
+                  </p>
+                )}
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {log.items.map((item, idx) => (
