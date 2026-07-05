@@ -77,19 +77,20 @@ export function FundResearchExtras() {
         <h2 className="sec">
           Rules &amp; Alerts
           <span className="rule" />
+          <span className="count">Templates</span>
         </h2>
         <div style={{ marginTop: 10 }}>
           <div className="metricrow">
             <span className="metric-k">Max single position</span>
-            <span className="metric-v">10% · NVDA over</span>
+            <span className="metric-v">10% target</span>
           </div>
           <div className="metricrow">
             <span className="metric-k">Rebalance band</span>
-            <span className="metric-v">±5%</span>
+            <span className="metric-v">5% target</span>
           </div>
           <div className="metricrow">
             <span className="metric-k">Cash floor</span>
-            <span className="metric-v up">Met</span>
+            <span className="metric-v">Not configured</span>
           </div>
         </div>
       </Card>
