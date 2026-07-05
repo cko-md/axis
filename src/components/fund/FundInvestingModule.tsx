@@ -24,15 +24,29 @@ export function FundInvestingModule() {
   const [addCost, setAddCost] = useState("0");
 
   async function addHolding() {
-    if (!addSym.trim()) return;
+    const symbol = addSym.trim().toUpperCase();
+    const shares = Number(addShares);
+    const costBasis = Number(addCost);
+    if (!symbol) {
+      toast("Enter a symbol.", "warn", "Investing");
+      return;
+    }
+    if (!Number.isFinite(shares) || shares < 0) {
+      toast("Enter a valid share count.", "warn", "Investing");
+      return;
+    }
+    if (!Number.isFinite(costBasis) || costBasis < 0) {
+      toast("Enter a valid cost basis.", "warn", "Investing");
+      return;
+    }
     const res = await fetch("/api/fund/holdings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        symbol: addSym.trim().toUpperCase(),
-        name: addName.trim() || addSym.trim().toUpperCase(),
-        shares: Number(addShares) || 0,
-        cost_basis: Number(addCost) || 0,
+        symbol,
+        name: addName.trim() || symbol,
+        shares,
+        cost_basis: costBasis,
       }),
     });
     if (!res.ok) {
@@ -46,8 +60,14 @@ export function FundInvestingModule() {
   }
 
   async function removeHolding(id: string) {
-    await fetch(`/api/fund/holdings/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/fund/holdings/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error ?? "Couldn't remove holding.", "error", "Investing");
+      return;
+    }
     await load();
+    toast("Holding removed.", "info", "Investing");
   }
 
   return (
