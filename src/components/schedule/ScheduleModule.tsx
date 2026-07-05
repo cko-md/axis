@@ -111,6 +111,20 @@ function formatEventWindow(event: ScheduleEvent): string {
   return `${startText} – ${endText}`;
 }
 
+async function disconnectCalendarAccount(url: string): Promise<void> {
+  const res = await fetch(url, { method: "DELETE" });
+  if (res.ok) return;
+
+  let message = "Calendar disconnect failed.";
+  try {
+    const payload = (await res.json()) as { error?: string };
+    if (payload.error) message = payload.error;
+  } catch {
+    // Keep the generic message when the response is not JSON.
+  }
+  throw new Error(message);
+}
+
 function makeSeedEvents(): Omit<ScheduleEvent, "id">[] {
   const now = new Date();
   const y = now.getFullYear();
@@ -712,9 +726,13 @@ export function ScheduleModule() {
             className="selectbox"
             style={{ background: "none", color: "var(--up)" }}
             onClick={async () => {
-              await fetch("/api/calendar/disconnect?provider=google", { method: "DELETE" });
-              setCalStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
-              toast("Google Calendar disconnected", "info", "Schedule");
+              try {
+                await disconnectCalendarAccount("/api/calendar/disconnect?provider=google");
+                setCalStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
+                toast("Google Calendar disconnected", "info", "Schedule");
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not disconnect Google Calendar.", "error", "Schedule");
+              }
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
@@ -726,9 +744,13 @@ export function ScheduleModule() {
             className="selectbox"
             style={{ background: "none", color: "var(--up)" }}
             onClick={async () => {
-              await fetch("/api/integrations/composio/disconnect?toolkit=googlecalendar", { method: "DELETE" });
-              setComposioCal((s) => ({ ...s, google: { active: false, email: null } }));
-              toast("Google Calendar disconnected", "info", "Schedule");
+              try {
+                await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=googlecalendar");
+                setComposioCal((s) => ({ ...s, google: { active: false, email: null } }));
+                toast("Google Calendar disconnected", "info", "Schedule");
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not disconnect Google Calendar.", "error", "Schedule");
+              }
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
@@ -742,9 +764,13 @@ export function ScheduleModule() {
             className="selectbox"
             style={{ background: "none", color: "var(--up)" }}
             onClick={async () => {
-              await fetch("/api/calendar/disconnect?provider=outlook", { method: "DELETE" });
-              setCalStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
-              toast("Outlook Calendar disconnected", "info", "Schedule");
+              try {
+                await disconnectCalendarAccount("/api/calendar/disconnect?provider=outlook");
+                setCalStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
+                toast("Outlook Calendar disconnected", "info", "Schedule");
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not disconnect Outlook Calendar.", "error", "Schedule");
+              }
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
@@ -756,9 +782,13 @@ export function ScheduleModule() {
             className="selectbox"
             style={{ background: "none", color: "var(--up)" }}
             onClick={async () => {
-              await fetch("/api/integrations/composio/disconnect?toolkit=outlook", { method: "DELETE" });
-              setComposioCal((s) => ({ ...s, outlook: { active: false, email: null } }));
-              toast("Outlook Calendar disconnected", "info", "Schedule");
+              try {
+                await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=outlook");
+                setComposioCal((s) => ({ ...s, outlook: { active: false, email: null } }));
+                toast("Outlook Calendar disconnected", "info", "Schedule");
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not disconnect Outlook Calendar.", "error", "Schedule");
+              }
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
