@@ -96,12 +96,30 @@ export async function POST(req: NextRequest) {
     description: ownedEvent.description ?? undefined,
   };
 
-  const { data: connections } = await supabase
+  const { data: connections, error: connectionsError } = await supabase
     .from("calendar_connections")
     .select("provider")
     .eq("user_id", user.id);
+  if (connectionsError) {
+    Sentry.captureException(connectionsError, {
+      tags: { area: "schedule", op: "sync_load_calendar_connections" },
+      extra: { eventId },
+    });
+    return NextResponse.json({ error: "Could not load calendar connections." }, { status: 500 });
+  }
+
   const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
-  const composioAccounts = await listComposioCalendarAccounts(user.id);
+  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
+  try {
+    composioAccounts = await listComposioCalendarAccounts(user.id);
+  } catch (error) {
+    Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { area: "schedule", op: "sync_load_composio_connections" },
+      extra: { eventId },
+    });
+    return NextResponse.json({ error: "Could not load calendar connections." }, { status: 500 });
+  }
+
   const composioGoogle = !legacyProviders.has("google") && composioAccounts.find((a) => a.provider === "googlecalendar");
   const composioOutlook = !legacyProviders.has("outlook") && composioAccounts.find((a) => a.provider === "outlook");
 
