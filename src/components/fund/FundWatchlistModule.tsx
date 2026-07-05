@@ -19,9 +19,13 @@ export function FundWatchlistModule() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from("fund_watchlist").select("*").eq("user_id", user.id).order("sort_order");
+    const { data, error } = await supabase.from("fund_watchlist").select("*").eq("user_id", user.id).order("sort_order");
+    if (error) {
+      toast("Couldn't load watchlist.", "error", "Watchlist");
+      return;
+    }
     if (data) setWatchlist(data.map((r) => ({ id: r.id, symbol: r.symbol, name: r.name })));
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void load();
@@ -59,11 +63,16 @@ export function FundWatchlistModule() {
   }
 
   async function removeFromWatchlist(row: WatchlistRow) {
-    setWatchlist((prev) => prev.filter((w) => w.symbol !== row.symbol));
     if (row.id) {
       const supabase = createClient();
-      await supabase.from("fund_watchlist").delete().eq("id", row.id);
+      const { error } = await supabase.from("fund_watchlist").delete().eq("id", row.id);
+      if (error) {
+        toast(error.message || "Couldn't remove ticker.", "error", "Watchlist");
+        return;
+      }
     }
+    setWatchlist((prev) => prev.filter((w) => w.symbol !== row.symbol));
+    toast(`${row.symbol} removed from watchlist.`, "info", "Watchlist");
   }
 
   return (
