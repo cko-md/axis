@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { deleteTokens, type CalendarProvider } from "@/lib/calendar/tokens";
 
@@ -13,6 +14,12 @@ export async function DELETE(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  await deleteTokens(user.id, provider);
+  const error = await deleteTokens(user.id, provider);
+  if (error) {
+    Sentry.captureException(error, {
+      tags: { area: "calendar", operation: "disconnect", provider, transport: "direct" },
+    });
+    return NextResponse.json({ error: "Could not disconnect calendar" }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

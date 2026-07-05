@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { deleteMailTokens, type MailProvider } from "@/lib/mail/tokens";
 
@@ -20,6 +21,12 @@ export async function DELETE(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  await deleteMailTokens(user.id, provider, email);
+  const error = await deleteMailTokens(user.id, provider, email);
+  if (error) {
+    Sentry.captureException(error, {
+      tags: { area: "mail", operation: "disconnect", provider, transport: "direct" },
+    });
+    return NextResponse.json({ error: "Could not disconnect mailbox" }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }
