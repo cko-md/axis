@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -9,29 +9,19 @@ import { fmtUsd } from "@/lib/store/fund-defaults";
 import { FundOrderTicket } from "@/components/fund/FundOrderTicket";
 import { FundSparkline } from "@/components/fund/FundSparkline";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
-
-type Row = { id: string; symbol: string; name: string; shares: number; cost_basis: number; source: string };
-type Aggregated = { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] };
+import { useFundData } from "@/components/fund/FundDataProvider";
 
 export function FundInvestingModule() {
   const { toast } = useToast();
   const { brokerageConfigured } = usePlaidConnection();
-  const [rows, setRows] = useState<Row[]>([]);
-  const [aggregated, setAggregated] = useState<Aggregated[]>([]);
+  // FUND-1: holdings come from the shared layout store; mutations call
+  // refreshHoldings() so Net Worth/Overview reflect changes with no extra fetch.
+  const { rows, aggregated, refreshHoldings: load } = useFundData();
   const [addOpen, setAddOpen] = useState(false);
   const [addSym, setAddSym] = useState("");
   const [addName, setAddName] = useState("");
   const [addShares, setAddShares] = useState("1");
   const [addCost, setAddCost] = useState("0");
-
-  const load = useCallback(async () => {
-    const res = await fetch("/api/fund/holdings");
-    const data = await res.json().catch(() => ({}));
-    setRows(data.rows ?? []);
-    setAggregated(data.aggregated ?? []);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   async function addHolding() {
     if (!addSym.trim()) return;

@@ -6,17 +6,20 @@ import { FundBudget } from "@/components/fund/FundBudget";
 import { FundLiabilities } from "@/components/fund/FundLiabilities";
 import { FundRecurringList } from "@/components/fund/FundRecurringList";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
+import { useFundData } from "@/components/fund/FundDataProvider";
 import { fmtUsd } from "@/lib/store/fund-defaults";
 
 type BankTxn = { amount: number; is_transfer: boolean; posted_date: string };
 type Recurring = { expected_amount: number; status: string };
-type Liability = { minimum_payment: number | null };
 
 export function FundCashflowModule() {
   const { plaidConfigured, plaidLinked, cash, connectBank, balanceError } = usePlaidConnection();
+  // FUND-1: liabilities' minimum payments come from the shared layout store,
+  // not a third fetch batched here (the same data Net Worth/Overview use).
+  const { liabilities } = useFundData();
   const [income, setIncome] = useState(0);
   const [spend, setSpend] = useState(0);
-  const [upcomingBills, setUpcomingBills] = useState(0);
+  const [recurringMonthly, setRecurringMonthly] = useState(0);
   const [cashflowNotice, setCashflowNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,35 +33,26 @@ export function FundCashflowModule() {
         if (!r.ok) throw new Error("recurring");
         return r.json();
       }),
-      fetch("/api/fund/liabilities").then((r) => {
-        if (!r.ok) throw new Error("liabilities");
-        return r.json();
-      }),
-    ]).then(([txnResult, recurringResult, liabilityResult]) => {
+    ]).then(([txnResult, recurringResult]) => {
       const failed = [
         txnResult.status === "rejected" ? "transactions" : null,
         recurringResult.status === "rejected" ? "recurring" : null,
-        liabilityResult.status === "rejected" ? "liabilities" : null,
       ].filter((item): item is string => !!item);
 
       const txnData = txnResult.status === "fulfilled" ? txnResult.value : {};
       const recurringData = recurringResult.status === "fulfilled" ? recurringResult.value : {};
-      const liabilityData = liabilityResult.status === "fulfilled" ? liabilityResult.value : {};
       const txns = (txnData.transactions ?? []) as BankTxn[];
       setIncome(txns.filter((t) => !t.is_transfer && t.amount > 0).reduce((s, t) => s + t.amount, 0));
       setSpend(txns.filter((t) => !t.is_transfer && t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0));
 
       const recurring = ((recurringData.recurring ?? []) as Recurring[]).filter((r) => r.status === "active");
-      const recurringMonthly = recurring.reduce((s, r) => s + Number(r.expected_amount), 0);
-      const minPayments = ((liabilityData.liabilities ?? []) as Liability[]).reduce(
-        (s, l) => s + Number(l.minimum_payment ?? 0),
-        0,
-      );
-      setUpcomingBills(recurringMonthly + minPayments);
+      setRecurringMonthly(recurring.reduce((s, r) => s + Number(r.expected_amount), 0));
       setCashflowNotice(failed.length ? `Partial refresh — ${failed.join(", ")} unavailable.` : null);
     }).catch(() => setCashflowNotice("Cash flow could not refresh."));
   }, []);
 
+  const minPayments = liabilities.reduce((s, l) => s + Number(l.minimum_payment ?? 0), 0);
+  const upcomingBills = recurringMonthly + minPayments;
   const safeToInvest = Math.max(cash - upcomingBills, 0);
   const runwayMonths = spend > 0 ? cash / spend : null;
 

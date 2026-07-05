@@ -6,15 +6,19 @@ import { fmtUsd, holdingGain, holdingValue, type HoldingRow } from "@/lib/store/
 import { Card } from "@/components/ui/Card";
 import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
+import { useFundData } from "@/components/fund/FundDataProvider";
 
 type Insight = { id: string; title: string; body: string; confidence: string };
 
 export function OverviewModule() {
   const { plaidConfigured, plaidLinked, bankAccounts, cash, connectBank, brokerageConfigured, balanceError } =
     usePlaidConnection();
+  // FUND-1: liabilities come from the shared layout store (the same
+  // /api/fund/liabilities data Net Worth + Cashflow use), not a separate fetch.
+  const { liabilities: liabilityRows } = useFundData();
+  const liabilities = liabilityRows.reduce((s, l) => s + Number(l.balance), 0);
   const [signedIn, setSignedIn] = useState(false);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
-  const [liabilities, setLiabilities] = useState(0);
   const [brief, setBrief] = useState<Insight | null>(null);
 
   const loadHoldings = useCallback(async () => {
@@ -34,12 +38,6 @@ export function OverviewModule() {
 
   useEffect(() => {
     void loadHoldings();
-    fetch("/api/fund/liabilities")
-      .then((r) => r.json())
-      .then((d: { liabilities?: Array<{ balance: number }> }) =>
-        setLiabilities((d.liabilities ?? []).reduce((s, l) => s + Number(l.balance), 0)),
-      )
-      .catch(() => null);
     fetch("/api/fund/insights?kind=daily_brief")
       .then((r) => r.json())
       .then((d: { insights?: Insight[] }) => setBrief(d.insights?.[0] ?? null))

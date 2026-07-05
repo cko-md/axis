@@ -1,41 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmtUsd } from "@/lib/store/fund-defaults";
-
-type Liability = {
-  id: string;
-  name: string;
-  kind: string;
-  balance: number;
-  apr: number | null;
-  minimum_payment: number | null;
-  due_date: string | null;
-};
+import { useFundData } from "@/components/fund/FundDataProvider";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
 
 export function FundLiabilities() {
   const { toast } = useToast();
-  const [liabilities, setLiabilities] = useState<Liability[]>([]);
+  // FUND-1: liabilities come from the shared layout store; mutations call
+  // refreshLiabilities() so Cashflow/Net Worth/Overview stay consistent.
+  const { liabilities, refreshLiabilities: load } = useFundData();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState(KINDS[0]);
   const [balance, setBalance] = useState("");
   const [minimumPayment, setMinimumPayment] = useState("");
   const [dueDate, setDueDate] = useState("");
-
-  const load = useCallback(async () => {
-    const res = await fetch("/api/fund/liabilities");
-    const data = await res.json().catch(() => ({}));
-    setLiabilities(data.liabilities ?? []);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   async function add() {
     const balanceNum = Number(balance);
@@ -57,7 +42,7 @@ export function FundLiabilities() {
 
   async function remove(id: string) {
     await fetch(`/api/fund/liabilities/${id}`, { method: "DELETE" });
-    setLiabilities((prev) => prev.filter((l) => l.id !== id));
+    await load();
   }
 
   const total = liabilities.reduce((s, l) => s + Number(l.balance), 0);

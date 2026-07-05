@@ -1,33 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
+import { useFundData } from "@/components/fund/FundDataProvider";
 import { fmtUsd } from "@/lib/store/fund-defaults";
-
-type Aggregated = { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] };
-type Liability = { id: string; name: string; balance: number };
 
 export function FundNetWorthModule() {
   const { cash, plaidLinked, balanceError } = usePlaidConnection();
-  const [signedIn, setSignedIn] = useState(false);
-  const [holdings, setHoldings] = useState<Aggregated[]>([]);
-  const [liabilities, setLiabilities] = useState<Liability[]>([]);
-
-  useEffect(() => {
-    fetch("/api/fund/holdings")
-      .then((r) => {
-        setSignedIn(r.status !== 401);
-        return r.json();
-      })
-      .then((d: { aggregated?: Aggregated[] }) => setHoldings(d.aggregated ?? []))
-      .catch(() => null);
-    fetch("/api/fund/liabilities")
-      .then((r) => r.json())
-      .then((d: { liabilities?: Liability[] }) => setLiabilities(d.liabilities ?? []))
-      .catch(() => null);
-  }, []);
+  // FUND-1: holdings + liabilities come from the shared layout store, not a
+  // per-mount fetch.
+  const { aggregated: holdings, liabilities, signedIn } = useFundData();
 
   const invested = holdings.reduce((s, h) => s + h.cost_basis, 0);
   const liabilityTotal = liabilities.reduce((s, l) => s + Number(l.balance), 0);
