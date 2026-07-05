@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
   }
 
   const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
-  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>>;
+  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   try {
     composioAccounts = await listComposioCalendarAccounts(user.id);
   } catch (error) {
