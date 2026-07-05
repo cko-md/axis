@@ -23,3 +23,14 @@ test("task, schedule, note, and console routes load cleanly", async ({ page }) =
     await expect(page.locator("body")).not.toContainText(/application error|runtime error/i);
   }
 });
+
+// DISP-3: legacy duplicate routes 308-redirect to their canonical counterparts.
+// Only reachable when authenticated — middleware sends unauthenticated users to
+// /login before the page-level redirect runs.
+test("legacy routes redirect to canonical destinations", async ({ page }) => {
+  await page.goto("/console");
+  await expect(page).toHaveURL(/\/command$/);
+
+  await page.goto("/signals");
+  await expect(page).toHaveURL(/\/dispatch$/);
+});
