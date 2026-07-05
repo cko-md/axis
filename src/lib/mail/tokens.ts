@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { refreshGoogleOAuth, refreshMicrosoftOAuth } from "@/lib/oauth/refresh";
 import { listComposioMailAccounts } from "./composio";
+import type { PostgrestError } from "@supabase/supabase-js";
 
 const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 const OUTLOOK_MAIL_SCOPE = "Mail.Read offline_access User.Read";
@@ -72,14 +73,15 @@ export async function deleteMailTokens(
   userId: string,
   provider: MailProvider,
   mailEmail: string,
-): Promise<void> {
+): Promise<PostgrestError | null> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("mail_connections")
     .delete()
     .eq("user_id", userId)
     .eq("provider", provider)
     .eq("mail_email", mailEmail);
+  return error;
 }
 
 export type MailAccountRef = {

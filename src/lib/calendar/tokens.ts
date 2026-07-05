@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { refreshGoogleOAuth, refreshMicrosoftOAuth } from "@/lib/oauth/refresh";
+import type { PostgrestError } from "@supabase/supabase-js";
 
 const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 const OUTLOOK_CALENDAR_SCOPE = "Calendars.ReadWrite offline_access";
@@ -62,13 +63,14 @@ export async function saveTokens(
   );
 }
 
-export async function deleteTokens(userId: string, provider: CalendarProvider): Promise<void> {
+export async function deleteTokens(userId: string, provider: CalendarProvider): Promise<PostgrestError | null> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("calendar_connections")
     .delete()
     .eq("user_id", userId)
     .eq("provider", provider);
+  return error;
 }
 
 /** Returns a valid access token, refreshing if within 5 minutes of expiry. */
