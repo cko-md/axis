@@ -40,7 +40,7 @@ group by o.tablename
 having count(*) filter (where coalesce(p.qual,'')||coalesce(p.with_check,'') ilike '%auth.uid%')=0;
 ```
 
-Supabase security advisors (`get_advisors type=security`): only `auth_leaked_password_protection` (WARN) — HaveIBeenPwned check is disabled. **Recommendation:** enable Leaked Password Protection in Supabase Auth settings (dashboard-only toggle; no migration).
+Supabase security advisors (`get_advisors type=security`): only `auth_leaked_password_protection` (WARN) — Supabase's built-in HaveIBeenPwned check requires the Pro plan. **Implemented at the application layer instead** (no Pro, no schema needed): `src/lib/auth/passwordCheck.ts` runs the HIBP Pwned-Passwords **k-anonymity** range check (only a 5-char SHA-1 prefix leaves the server; `Add-Padding: true`; fails open on API/network error). Enforced server-side on password change (`/api/auth/account`) and client-side pre-check on signup (`/login`). The pure `rangeContainsSuffix` parser requires `count > 0` so padding entries can't false-positive; unit-tested in `passwordCheck.test.ts`. The Supabase advisor WARN can be ignored (or the toggle enabled if you later upgrade to Pro — the app-layer check is harmless alongside it).
 
 ---
 
@@ -67,7 +67,7 @@ New migrations added this session (both applied live + advisor-clean): `calendar
 
 ## 3. Generated Supabase types (PROD-2) — PARTIAL (types committed; wiring deferred)
 
-`src/lib/supabase/database.types.ts` is generated from the live DB (62 tables) and committed as a reference artifact. It is **not yet wired into `createClient`**: typing the base client (`createClient<Database>()`) would type-check every existing `.from(...)` call against the schema and surface a cascade of errors across hooks/routes written before generated types existed — a separate adoption pass, not a bundled change. Until then, new code can import `Database` explicitly (`createClient<Database>()` at a specific call site) to opt in. **Regenerate after every migration** (`generate_typescript_types` / `supabase gen types typescript`).
+`src/lib/supabase/database.types.ts` is generated from the live DB (62 tables) and committed as a reference artifact. Wiring it into the base client was **attempted and reverted**: `createClient<Database>()` produced **340 type errors** — and the tell-tale `never`/"not callable" cascade shows the root cause is a **version skew**, `@supabase/ssr` 0.6.1 does not propagate the `Database` generic into the installed `@supabase/supabase-js` 2.108, so every query resolves to `never`. Full adoption therefore requires **aligning `@supabase/ssr`/`supabase-js` versions first**, then fixing the genuine schema-mismatch errors that remain — a dedicated migration, not a bundled change. Until then, the file stands as reference and new code can opt in per-call-site once the versions are aligned. **Regenerate after every migration** (`generate_typescript_types` / `supabase gen types typescript`).
 
 ---
 
@@ -91,4 +91,5 @@ Run before promoting `main` to production:
 - RLS: verified clean (§1). Migrations: drift documented (§2), needs reconciliation before treating the repo as a from-scratch source of truth.
 - **PROD-4 (e2e smoke) — DONE for the public surface.** `tests/e2e/smoke.spec.ts` (Playwright `public` project) covers home, legal, 404, and every production nav route + the legacy `/console`,`/signals` resolving without an error boundary pre-auth — **10 public tests verified passing locally** against a dev server + Chromium (`npm run test:e2e`). Authenticated smoke (`authenticated.spec.ts`, incl. the DISP-3 `/console→/command` & `/signals→/dispatch` redirect assertions) runs under `AXIS_E2E_AUTH=1` (`npm run test:e2e:auth`) and needs a seeded test login — **not run this session** (no test credentials here); run it in CI/with creds before treating the authed paths as gated.
 - **AI-1..4 — DONE** (typed registry `src/lib/ai/actions.ts` + `callAiAction`, all call sites migrated/fixed, `privacy.test.ts` logging guard). See handoff.
-- Remaining open Phase-8: full PROD-2 type wiring (cascade), migration-drift reconciliation (§2), Leaked Password Protection toggle (§1).
+- Leaked-password protection (§1): **DONE at the app layer** (HIBP k-anonymity, no Pro/schema); Supabase advisor WARN is expected and can be ignored.
+- Remaining open Phase-8: full PROD-2 type wiring (blocked on `@supabase/ssr`↔`supabase-js` version alignment — §3), migration-drift reconciliation (§2).

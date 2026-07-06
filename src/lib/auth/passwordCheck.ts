@@ -21,6 +21,22 @@ async function sha1Hex(input: string): Promise<string> {
 /** Returns true if the password is known-leaked. Fails open (returns false)
  * on any network/API error — an HIBP outage should never block sign-up or a
  * password change. */
+// Pure parse of an HIBP range response ("SUFFIX:count" per line) for a given
+// suffix. Requires count > 0: with `Add-Padding: true`, HIBP injects fake
+// entries with a count of 0 to obscure real result sizes, so matching on the
+// suffix alone would false-positive on a padding collision and wrongly flag a
+// safe password. Case-insensitive; tolerant of CRLF and blank lines.
+export function rangeContainsSuffix(rangeBody: string, suffix: string): boolean {
+  const target = suffix.trim().toUpperCase();
+  for (const line of rangeBody.split("\n")) {
+    const [hashSuffix, countStr] = line.split(":");
+    if (hashSuffix && hashSuffix.trim().toUpperCase() === target) {
+      return Number(countStr) > 0;
+    }
+  }
+  return false;
+}
+
 export async function isPasswordPwned(password: string): Promise<boolean> {
   try {
     const hash = await sha1Hex(password);
@@ -30,8 +46,7 @@ export async function isPasswordPwned(password: string): Promise<boolean> {
       headers: { "Add-Padding": "true" },
     });
     if (!res.ok) return false;
-    const body = await res.text();
-    return body.split("\n").some((line) => line.split(":")[0].trim() === suffix);
+    return rangeContainsSuffix(await res.text(), suffix);
   } catch {
     return false;
   }
