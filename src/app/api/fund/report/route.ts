@@ -11,7 +11,7 @@ export async function POST() {
 
   const { data: holdings } = await supabase
     .from("fund_holdings")
-    .select("symbol, name, shares, cost_basis, last_price")
+    .select("symbol, name, shares, cost_basis")
     .eq("user_id", user.id)
     .limit(10);
 
@@ -55,7 +55,7 @@ export async function POST() {
       ? holdings
           .map(
             (h) =>
-              `${h.symbol} (${h.name ?? h.symbol}): ${h.shares} shares @ $${h.last_price ?? h.cost_basis ?? "?"}`,
+              `${h.symbol} (${h.name ?? h.symbol}): ${h.shares} shares @ $${h.cost_basis ?? "?"}`,
           )
           .join("\n")
       : "No holdings on file. Generate a general market brief.";

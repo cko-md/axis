@@ -24,25 +24,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
   }
 
-  const { data: prefs } = await supabase
-    .from("user_preferences")
-    .select("display_name")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
   const { data: objectives } = await supabase
     .from("objectives")
-    .select("title, category")
+    .select("title, descriptor")
     .eq("user_id", user.id)
     .limit(5);
 
-  const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
+  // display_name lives on `profiles`, not `user_preferences` — the old query
+  // selected a non-existent column and always fell back to "the user".
+  const { data: profile } = await supabase.from("profiles").select("ai_provider, display_name").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
 
-  const name = prefs?.display_name ?? "the user";
+  const name = profile?.display_name ?? "the user";
   const objectivesList =
     objectives && objectives.length > 0
-      ? objectives.map((o) => `- ${o.title} (${o.category})`).join("\n")
+      ? objectives.map((o) => `- ${o.title} (${o.descriptor})`).join("\n")
       : "No objectives on file.";
 
   const currentList =
