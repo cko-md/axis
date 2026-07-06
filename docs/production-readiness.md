@@ -76,7 +76,7 @@ New migrations added this session (both applied live + advisor-clean): `calendar
 - `api/fund/report`: selected `fund_holdings.last_price` (nonexistent) → removed; uses `cost_basis`.
 - `api/agenda/rebuild`: read `display_name` from `user_preferences` (wrong table — it's on `profiles`, so the user's name always fell back to "the user") → now from `profiles`; `objectives.category` → `descriptor`.
 
-**Remaining to finish full wiring (22 errors, deferred):** all mechanical ORM-boundary friction — domain metadata typed `Record<string,unknown>` vs generated `Json` on inserts/updates, `string | null` columns assigned to non-null locals (token tables), and `RejectExcessProperties` on insert payloads — across `useTasks`, `useSignals`, `useFitnessRoutines`, `{mail,calendar,contacts}/tokens`, `fund/{advisor,liabilities,bank-transactions}`, `calendar/{sync,external}`, `widgets/batch`, `feeds/cached`, `integrations/composio/status`, `notes` study-aid insert. Each needs a targeted `as Json`/null-guard/payload cast (not `as any`). The generic is **reverted for now** so `main` stays 0-error; re-apply `createClient<Database>()` in `client.ts`+`server.ts` and clear these 22 as a focused follow-up. **Regenerate types after every migration.**
+**COMPLETE (as of 2026-07-06):** `createClient<Database>()` is now wired in both `client.ts`+`server.ts`; all 22 mechanical ORM-boundary casts resolved (targeted `as Json`/null-guard/payload casts — no `as any`) across `useTasks`, `useSignals`, `useFitnessRoutines`, `{mail,calendar,contacts}/tokens`, `fund/{advisor,liabilities,bank-transactions}`, `calendar/{sync,external}`, `widgets/batch`, `feeds/cached`, `integrations/composio/status`, `notes` study-aid insert. Wiring the generic surfaced+fixed 8 latent bugs (wrong column names, missing NOT-NULL `user_id`, nonexistent columns). `main` is 0-error with the generic live. **Regenerate types after every migration.**
 
 ---
 
@@ -101,4 +101,31 @@ Run before promoting `main` to production:
 - **PROD-4 (e2e smoke) — DONE for the public surface.** `tests/e2e/smoke.spec.ts` (Playwright `public` project) covers home, legal, 404, and every production nav route + the legacy `/console`,`/signals` resolving without an error boundary pre-auth — **10 public tests verified passing locally** against a dev server + Chromium (`npm run test:e2e`). Authenticated smoke (`authenticated.spec.ts`, incl. the DISP-3 `/console→/command` & `/signals→/dispatch` redirect assertions) runs under `AXIS_E2E_AUTH=1` (`npm run test:e2e:auth`) and needs a seeded test login — **not run this session** (no test credentials here); run it in CI/with creds before treating the authed paths as gated.
 - **AI-1..4 — DONE** (typed registry `src/lib/ai/actions.ts` + `callAiAction`, all call sites migrated/fixed, `privacy.test.ts` logging guard). See handoff.
 - Leaked-password protection (§1): **DONE at the app layer** (HIBP k-anonymity, no Pro/schema); Supabase advisor WARN is expected and can be ignored.
-- Remaining open Phase-8: full PROD-2 type wiring (version skew now resolved; 22 mechanical boundary casts remain — §3), migration-drift reconciliation (§2).
+- Remaining open Phase-8: migration-drift reconciliation (§2, human decision). PROD-2 typed client is now **fully wired** (§3). Market/quotes shared caching is an optional FUND perf follow-on, not a maturity blocker.
+
+---
+
+## 6. Adversarial codebase audit (2026-07-06)
+
+Full-codebase adversarial review across UI/UX, security/privacy, design, code, bugs, and module maturity. **No exploitable defects or fake-data honesty violations found** — the platform is production-mature. Checks and results:
+
+**Security / privacy (thorough):**
+- **AuthZ / IDOR** — all 10 dynamic `[id]`/`[symbol]` API routes scope by `user_id`/`getUser()`. No IDOR. Of 114 routes, the 13 without a user check are legitimately public (market-data proxy, academic literature feed, provider-status, webhooks, pre-auth passkey).
+- **Webhooks** — Plaid (`plaid-verification` JWT via `verifyPlaidWebhook`) and Make (`x-make-secret` shared secret **+** HMAC-SHA256 with a length-guarded `timingSafeEqual`) verify before touching the admin client.
+- **XSS** — both `dangerouslySetInnerHTML` sinks (mail `MessagePanel`, WebViewer reader) render DOMPurify-sanitized HTML with strict tag/attr allowlists (no event handlers, no `data-*`). Reader HTML is also SSRF-guarded upstream.
+- **RLS-bypass admin client** — confined to signature-verified webhooks, `CRON_SECRET`-guarded crons, and pre-auth WebAuthn lookups. All 4 cron routes check `CRON_SECRET`.
+- **Secrets** — none hardcoded; all via env helpers. **Log privacy** — `ai/privacy.test.ts` enforces no payload identifiers in AI-route logs.
+
+**Code / bugs:**
+- Zero `TODO`/`FIXME`/`HACK`/`@ts-ignore`/`@ts-nocheck` in non-test src.
+- No "silent-failure" client fetches — every `await fetch` file has `.ok`/status/throw/catch handling.
+- **Financial correctness verified** — `cost_basis` is consistently *total* (whole-position) across `snapshotNetWorth`, `position/[symbol]`, `FundNetWorthModule`, holdings aggregation; live (`shares×price`) and fallback (`costBasis`) paths compute the same quantity. No net-worth miscalculation.
+- Gate green: `tsc` clean · `lint` clean · **334 unit tests pass** · production build succeeds.
+
+**UI/UX / design / maturity:**
+- App-Router robustness: `error.tsx`, `global-error.tsx`, `not-found.tsx` present.
+- a11y: no `<img>` without `alt`; broad `aria-label` usage.
+- Runtime: landing renders with **zero console errors**; all 16 module routes compile and redirect to auth (no 500s).
+- Honest degradation (not fake data): Vitality HealthKit "coming soon" panel, training-widget graceful stub, brokerage "not wired to live execution" (made honest by the fund-order-safety rescue), Schedule/Debrief demo content shown **only when signed-out** — all clearly labeled.
+
+**Rescue work landed this pass:** 4 preserved codex-rescue branches — `8608807` (notes study-aid typed AI), `f56bcdb` (honest fund order-capture states), `2c3f6c9` (calendar-sync discovery errors + test), `756d647` (mail/calendar status-error surfacing; also removed a dead duplicate `connectionsError` block and fixed a silent-UI-failure error shape in `calendar/external`).
