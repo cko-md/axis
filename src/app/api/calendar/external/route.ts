@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 import { listGoogleEvents, type ExternalCalendarEvent } from "@/lib/calendar/google";
 import { listOutlookEvents } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, listComposioEvents } from "@/lib/calendar/composio";
@@ -198,7 +199,7 @@ export async function GET(req: NextRequest) {
     if (cacheRows.length > 0) {
       const { error: cacheError } = await supabase
         .from("calendar_event_cache")
-        .upsert(cacheRows, { onConflict: "user_id,source" });
+        .upsert(cacheRows as Database["public"]["Tables"]["calendar_event_cache"]["Insert"][], { onConflict: "user_id,source" });
       if (cacheError) throw cacheError;
     }
     // Errored sources keep their last-known events (no overwrite) — only the

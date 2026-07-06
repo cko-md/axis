@@ -4,6 +4,9 @@ import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
+import type { Database, Json } from "@/lib/supabase/database.types";
+
+type TaskRowUpdate = Database["public"]["Tables"]["tasks"]["Update"];
 
 export type TaskCategory = "research" | "clinical" | "life" | "personal";
 export type TaskPriority = "hi" | "med" | "lo";
@@ -110,7 +113,7 @@ export function useTasks() {
       }
       return t as Task;
     });
-    setTasks(normalized);
+    setTasks(normalized as Task[]);
     clearError();
     setLoading(false);
   }, [clearError, recordError, supabase]);
@@ -140,7 +143,7 @@ export function useTasks() {
         priority: partial.priority ?? "med",
         effort: partial.effort ?? null,
         deadline: partial.deadline ?? null,
-        metadata: partial.metadata ?? {},
+        metadata: (partial.metadata ?? {}) as Json,
         status: "open",
         sort_order: tasks.length,
       })
@@ -156,7 +159,7 @@ export function useTasks() {
   }, [clearError, recordError, supabase, tasks.length]);
 
   const updateTask = useCallback(async (id: string, patch: TaskUpdate) => {
-    const { data, error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
+    const { data, error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() } as TaskRowUpdate).eq("id", id).select().single();
     if (!error && data) {
       setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
       clearError();

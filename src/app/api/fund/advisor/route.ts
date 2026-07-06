@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit } from "@/lib/ratelimit";
+import type { Json } from "@/lib/supabase/database.types";
 import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
 
 /**
@@ -149,8 +150,8 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         conversation_id: conversationId,
         tool_name: block.name,
-        input: block.input,
-        output,
+        input: block.input as Json,
+        output: output as Json,
         latency_ms: latencyMs,
       });
 
@@ -183,7 +184,7 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       role: "assistant",
       content: finalText,
-      tool_calls: toolCallsForStorage,
+      tool_calls: toolCallsForStorage as Json,
     })
     .select("id, created_at")
     .single();

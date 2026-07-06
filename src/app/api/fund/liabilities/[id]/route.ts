@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 
 const MAX_MONEY = 1_000_000_000_000;
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
@@ -58,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { data, error } = await supabase
     .from("fund_liabilities")
-    .update(patch)
+    .update(patch as Database["public"]["Tables"]["fund_liabilities"]["Update"])
     .eq("id", id)
     .eq("user_id", user.id)
     .select()

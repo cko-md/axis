@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 import { createGoogleEvent } from "@/lib/calendar/google";
 import { createOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, createComposioEvent } from "@/lib/calendar/composio";
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
   if (Object.keys(patch).length) {
     const { error: persistError } = await supabase
       .from("schedule_events")
-      .update(patch)
+      .update(patch as Database["public"]["Tables"]["schedule_events"]["Update"])
       .eq("id", eventId)
       .eq("user_id", user.id);
     if (persistError) {

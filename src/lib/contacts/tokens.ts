@@ -46,7 +46,7 @@ export async function getContactsTokens(userId: string): Promise<ContactsTokens 
     .eq("provider", "google")
     .single();
 
-  if (!data) return null;
+  if (!data || !data.access_token_enc) return null;
   const accessToken = decrypt(data.access_token_enc);
   if (!accessToken) return null;
 

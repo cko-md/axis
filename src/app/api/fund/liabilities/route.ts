@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       name,
       kind,
-      balance: balance.value,
+      balance: balance.value as number, // validated non-null above (balance.error → 400)
       apr: apr.value,
       minimum_payment: minimumPayment.value,
       due_date: dueDate.value,

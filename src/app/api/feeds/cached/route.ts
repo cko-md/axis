@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     .select("feed_url, items, fetched_at")
     .in("feed_url", urls);
 
-  const cachedByUrl = new Map((cachedRows ?? []).map((r) => [(r as CacheRow).feed_url, r as CacheRow]));
+  const cachedByUrl = new Map((cachedRows ?? []).map((r) => [(r as unknown as CacheRow).feed_url, r as unknown as CacheRow]));
   const collected: RssItem[] = [];
   const live: string[] = [];
 

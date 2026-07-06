@@ -46,6 +46,9 @@ export async function saveTokens(
 ): Promise<void> {
   const supabase = await createClient();
   const accessEnc = encrypt(accessToken);
+  // encrypt() returns null when ENCRYPTION_KEY is missing — never persist a null
+  // access token into the NOT NULL column.
+  if (!accessEnc) throw new Error("Calendar token encryption failed — ENCRYPTION_KEY not configured");
   const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
   const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 

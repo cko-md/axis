@@ -34,6 +34,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { NotesEditor } from "./NotesEditorLazy";
 import { formatAutosaveLabel } from "@/lib/notes/save-status";
+import type { Json } from "@/lib/supabase/database.types";
 import { filterNotesByKeyword, orderNotesBySemanticIds } from "@/lib/notes/search";
 import { callAiAction } from "@/lib/ai/callAction";
 import styles from "./NotesEditor.module.css";
@@ -655,9 +656,10 @@ export function NotesModule() {
     if (!selected) return;
     try {
       await supabase.from("note_artifacts").insert({
+        user_id: selected.user_id, // required (NOT NULL) — was omitted, so the insert always failed
         note_id: selected.id,
         type: aid.type,
-        data: aid,
+        data: aid as unknown as Json,
       });
     } catch {
       /* table not migrated yet — non-fatal */

@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
+import type { Database } from "@/lib/supabase/database.types";
+
+type SignalRowInsert = Database["public"]["Tables"]["signals"]["Insert"];
+type SignalRowUpdate = Database["public"]["Tables"]["signals"]["Update"];
 
 export type SignalType = "action" | "awaiting" | "fyi";
 
@@ -123,7 +127,7 @@ export function useSignals() {
     }
     setLoadError(null);
     if (!data?.length) {
-      const inserts = SEED.map((s) => ({ ...s, user_id: user.id }));
+      const inserts = SEED.map((s) => ({ ...s, user_id: user.id })) as SignalRowInsert[];
       const { data: seeded } = await supabase.from("signals").insert(inserts).select();
       setSignals((seeded ?? []) as Signal[]);
     } else {
@@ -154,7 +158,7 @@ export function useSignals() {
   }, [supabase]);
 
   const updateSignal = useCallback(async (id: string, patch: Partial<Signal>) => {
-    const { data, error } = await supabase.from("signals").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
+    const { data, error } = await supabase.from("signals").update({ ...patch, updated_at: new Date().toISOString() } as SignalRowUpdate).eq("id", id).select().single();
     if (error || !data) return null;
     setSignals((prev) => prev.map((s) => (s.id === id ? (data as Signal) : s)));
     return data as Signal;

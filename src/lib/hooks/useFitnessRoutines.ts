@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
+import type { Database } from "@/lib/supabase/database.types";
 
 export type FitnessDiscipline = "strength" | "mobility";
 
@@ -349,7 +350,7 @@ export function useFitnessRoutines(discipline: FitnessDiscipline) {
               weight: ex.weight ?? null,
               rest: ex.rest ?? null,
               sort_order: i,
-            })),
+            })) as Database["public"]["Tables"]["fitness_routine_exercises"]["Insert"][],
           )
           .select();
         insertedExercises = (exData as FitnessExercise[] | null) ?? [];

@@ -5,6 +5,7 @@ import { DEFAULT_LOCATION } from "@/lib/geo/default-location";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 import {
   shouldCaptureWidgetEndpointStatus,
   widgetEndpointErrorCode,
@@ -227,7 +228,7 @@ export async function POST(req: Request) {
   if (cacheRows.length > 0) {
     const { error: cacheError } = await supabase
       .from("widget_cache")
-      .upsert(cacheRows, { onConflict: "user_id,widget_id,cache_key" });
+      .upsert(cacheRows as Database["public"]["Tables"]["widget_cache"]["Insert"][], { onConflict: "user_id,widget_id,cache_key" });
     if (cacheError) {
       captureRouteError(cacheError, {
         route,

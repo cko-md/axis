@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 
 const PATCHABLE = [
   "custom_category",
@@ -86,7 +87,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { data, error } = await supabase
     .from("fund_bank_transactions")
-    .update(patch)
+    .update(patch as Database["public"]["Tables"]["fund_bank_transactions"]["Update"])
     .eq("id", id)
     .eq("user_id", user.id)
     .select()

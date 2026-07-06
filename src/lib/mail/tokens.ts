@@ -52,6 +52,9 @@ export async function saveMailTokens(
 ): Promise<void> {
   const supabase = await createClient();
   const accessEnc = encrypt(accessToken);
+  // encrypt() returns null when ENCRYPTION_KEY is missing/misconfigured — never
+  // persist a null access token (the column is NOT NULL and a null would be useless).
+  if (!accessEnc) throw new Error("Mail token encryption failed — ENCRYPTION_KEY not configured");
   const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
   const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 

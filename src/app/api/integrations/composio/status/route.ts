@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 import { getConnectedAccount, isSupportedToolkit, resolveProfileLabel } from "@/lib/integrations/composio";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 
@@ -40,7 +41,7 @@ export async function GET() {
         }
         if (Object.keys(patch).length > 0) {
           patch.updated_at = new Date().toISOString();
-          await supabase.from("composio_connections").update(patch).eq("id", row.id);
+          await supabase.from("composio_connections").update(patch as Database["public"]["Tables"]["composio_connections"]["Update"]).eq("id", row.id);
         }
         return { ...row, ...patch };
       } catch (err) {
