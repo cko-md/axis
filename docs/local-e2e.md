@@ -54,11 +54,40 @@ AXIS_E2E_AUTH=1 \
 npm run test:e2e:auth
 ```
 
-Current expected result:
+Current expected result (auth-setup + 3 authenticated specs):
 
 ```text
-2 passed
+4 passed
 ```
+
+## Run against a production build (recommended — avoids dev-server flakiness)
+
+The Playwright `webServer` default runs `npm run dev`, whose **on-demand route
+compilation** makes the first hit to each route slow (a cold `/login` can take
+>10s) and races React hydration. Prefer running the suite against a production
+build, where every route is precompiled:
+
+```bash
+npm run build
+npx next start -H 127.0.0.1 -p 3000 &   # serve the prod build
+
+E2E_BASE_URL=http://127.0.0.1:3000 \
+E2E_USER_EMAIL="<test email>" \
+E2E_USER_PASSWORD="<test password>" \
+npm run test:e2e:auth     # 4 passed  (~8s)
+
+E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e   # 10 public passed (~5s)
+```
+
+Setting `E2E_BASE_URL` makes Playwright use your already-running server instead
+of spawning `npm run dev`. Verified 2026-07-06: **10 public + 4 authenticated
+tests green** against the prod build (a fresh confirmed test user created via the
+service-role admin API and deleted afterward).
+
+`auth.setup.ts` is hydration-safe: it re-attempts the sign-in click until the
+`sb-*-auth-token` cookie is set (rather than trusting a single click, which can
+native-submit `/login?` before React hydrates — the login inputs have no `name`
+attribute), then navigates to `/command` deterministically.
 
 ## Notes For Future Agents
 
