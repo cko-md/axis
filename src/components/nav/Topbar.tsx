@@ -55,7 +55,7 @@ export function Topbar({ section, page, onOpenPalette }: Props) {
         <span className="srch-text">Search or Command…</span>
         <span className="kbd">⌘K</span>
       </div>
-      <button type="button" className="iconbtn" title="Mini Browser" onClick={() => openBrowser("https://www.google.com", "Browser")}>
+      <button type="button" className="iconbtn" title="Mini Browser" onClick={() => openBrowser("", "New Tab")}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 16, height: 16 }}>
           <circle cx="12" cy="12" r="9" />
           <path d="M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18" />

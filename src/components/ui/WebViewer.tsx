@@ -95,7 +95,7 @@ export function WebViewer() {
     setTabs((prev) => [...prev, { id, url, title: url ? "Loading…" : "New Tab", back: [], forward: [] }]);
     setActiveTabId(id);
     setInputUrl(url);
-    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
+    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
   };
   const addTab = useCallback((url = "") => addTabRef.current(url), []);
 
@@ -108,7 +108,7 @@ export function WebViewer() {
         const nextTab = next[Math.min(idx, next.length - 1)];
         setActiveTabId(nextTab.id);
         setInputUrl(nextTab.url);
-        if (iframeRef.current) iframeRef.current.src = nextTab.url ? `/api/proxy?url=${encodeURIComponent(nextTab.url)}` : "";
+        if (iframeRef.current) iframeRef.current.src = nextTab.url ? `/api/proxy?url=${encodeURIComponent(nextTab.url)}` : "about:blank";
       }
       return next;
     });
@@ -120,7 +120,7 @@ export function WebViewer() {
       if (!tab) return prev;
       setActiveTabId(id);
       setInputUrl(tab.url);
-      if (iframeRef.current) iframeRef.current.src = tab.url ? `/api/proxy?url=${encodeURIComponent(tab.url)}` : "";
+      if (iframeRef.current) iframeRef.current.src = tab.url ? `/api/proxy?url=${encodeURIComponent(tab.url)}` : "about:blank";
       return prev;
     });
   }, []);
@@ -139,7 +139,7 @@ export function WebViewer() {
           : t
       )
     );
-    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
+    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
     // New navigation supersedes any in-flight reader fetch and clears reader UI.
     readerTokenRef.current += 1;
     setReaderState("off");
@@ -218,7 +218,7 @@ export function WebViewer() {
       if (!tab || !tab.back.length) return prev;
       const url = tab.back[tab.back.length - 1];
       setInputUrl(url);
-      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
+      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
       return prev.map((t) =>
         t.id === activeTabId
           ? { ...t, url, back: t.back.slice(0, -1), forward: [t.url, ...t.forward] }
@@ -233,7 +233,7 @@ export function WebViewer() {
       if (!tab || !tab.forward.length) return prev;
       const url = tab.forward[0];
       setInputUrl(url);
-      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "";
+      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
       return prev.map((t) =>
         t.id === activeTabId
           ? { ...t, url, back: [...t.back, t.url], forward: t.forward.slice(1) }
@@ -313,13 +313,17 @@ export function WebViewer() {
 
   const handleUrlSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    let url = inputUrl.trim();
-    if (!url) return;
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      url = url.includes(".") && !url.includes(" ")
-        ? `https://${url}`
-        : `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+    const raw = inputUrl.trim();
+    if (!raw) return;
+    const looksLikeUrl = /^https?:\/\//.test(raw) || (raw.includes(".") && !raw.includes(" "));
+    if (!looksLikeUrl) {
+      // Search queries can't be embedded — every major engine framebusts, so an
+      // in-frame Google search just falls to a garbled reader view. Open the
+      // search in the user's real browser instead of pretending it works here.
+      window.open(`https://www.google.com/search?q=${encodeURIComponent(raw)}`, "_blank", "noopener");
+      return;
     }
+    const url = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
     navigate(url);
     setShowFavs(false);
   }, [inputUrl, navigate]);
@@ -455,7 +459,7 @@ export function WebViewer() {
         <div className="wv-frame-wrap">
           <iframe
             ref={iframeRef}
-            src={activeUrl ? `/api/proxy?url=${encodeURIComponent(activeUrl)}` : ""}
+            src={activeUrl ? `/api/proxy?url=${encodeURIComponent(activeUrl)}` : undefined}
             title={activeTab?.title ?? "Browser"}
             className="wv-frame"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
@@ -464,6 +468,22 @@ export function WebViewer() {
               setLoadState("ok");
             }}
           />
+          {!activeUrl && readerState === "off" && (
+            <div className="wv-start">
+              <div className="wv-start-mark">A<span>XIS</span> · Browser</div>
+              <p className="wv-start-hint">Type a URL in the address bar to browse in-app. Plain search terms open in your default browser.</p>
+              {favs.length > 0 && (
+                <div className="wv-start-favs">
+                  {favs.map((f) => (
+                    <button key={f.url} type="button" className="wv-start-fav" onClick={() => navigate(f.url)} title={f.url}>
+                      <span className="wv-start-fav-t">{f.title.slice(0, 26)}{f.title.length > 26 ? "…" : ""}</span>
+                      <span className="wv-start-fav-u">{f.url.replace(/^https?:\/\//, "").slice(0, 32)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {loadState === "blocked" && readerState === "off" && (
             <div className="wv-blocked-hint">
               <span>This page is taking too long to load — it may be blocking embedding.</span>

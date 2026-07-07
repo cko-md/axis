@@ -598,10 +598,14 @@ html.light body {
 
 .app-shell.mode-open  { --sb-w: 240px; }
 .app-shell.mode-icons { --sb-w: 62px; }
-/* sidebar becomes position:fixed below and drops out of grid flow, leaving
-   .main-scroll as the sole grid item — give it the full row instead of
-   collapsing into the (now-empty) first column track. */
-.app-shell.mode-hidden { --sb-w: 0px; grid-template-columns: 1fr; }
+/* Keep the SAME two-track template in every mode (only --sb-w changes) so the
+   grid can smoothly interpolate the first track 240px → 62px → 0px. Switching to
+   a single-track template here (the old approach) made the browser jump instead
+   of animate, because grid-template-columns can't tween between different track
+   counts. In hidden mode the sidebar goes position:fixed (below) and leaves the
+   0px track empty — .main-scroll is pinned to column 2 so it never collapses
+   into it. */
+.app-shell.mode-hidden { --sb-w: 0px; }
 
 /* hidden mode — sidebar slides off-screen, peeks on hover */
 .app-shell.mode-hidden .sidebar {
@@ -831,6 +835,10 @@ html.light .avatar {
 }
 
 .main-scroll {
+  /* Always occupy the second (1fr) track, even in hidden mode where the sidebar
+     is position:fixed and out of grid flow — otherwise it would auto-place into
+     the empty 0px first track and collapse. */
+  grid-column: 2;
   overflow-y: auto;
   overflow-x: hidden;
   height: 100vh;
@@ -3447,7 +3455,7 @@ body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
 .sb-toggle svg{width:14px;height:14px}
 /* hidden mode — sidebar is off-screen; pin the toggle to the left edge so it
    reads as "show sidebar" and stays fully on-screen (no straddle at left:0). */
-.app-shell.mode-hidden .sb-toggle{left:10px;transform:translateY(-50%)}
+.app-shell.mode-hidden .sb-toggle{left:24px}
 /* ...and shift the topbar right so the toggle sits in its own gutter instead of
    landing on top of the breadcrumb (which read as a stray floating button). */
 .app-shell.mode-hidden .topbar{left:48px}
@@ -4672,6 +4680,58 @@ a:focus-visible,
   display: block;
   background: #fff;
 }
+
+/* New-tab start page — shown instead of a blank white iframe when no URL is
+   loaded (e.g. opening the Mini Browser). Themed to match AXIS chrome. */
+.wv-start {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px;
+  background: var(--surface);
+  text-align: center;
+}
+.wv-start-mark {
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.24em;
+  color: var(--ink);
+}
+.wv-start-mark span { color: var(--accent); }
+.wv-start-hint {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  max-width: 420px;
+  line-height: 1.5;
+}
+.wv-start-favs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+  margin-top: 6px;
+}
+.wv-start-fav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--rl);
+  background: var(--glass);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.wv-start-fav:hover { border-color: var(--accent); background: var(--glass-2); }
+.wv-start-fav-t { font-size: 12px; color: var(--ink); font-weight: 500; }
+.wv-start-fav-u { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
 
 .wv-blocked-hint {
   position: absolute;
