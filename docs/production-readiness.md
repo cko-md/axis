@@ -44,7 +44,15 @@ Supabase security advisors (`get_advisors type=security`): only `auth_leaked_pas
 
 ---
 
-## 2. Migration ordering / replay audit (PROD-1) — DRIFT, needs human reconciliation
+## 2. Migration ordering / replay audit (PROD-1) — RECONCILED (2026-07-06)
+
+**Resolution (2026-07-06):** verified against the live `schema_migrations` history (62 tracked entries) via MCP.
+- **`avatars_bucket`** (remote version `20260614050112`) had no local file — a from-scratch replay would have missed the avatars storage bucket + its 4 owner-scoped policies. **Recovered idempotently** as [`011_avatars_bucket.sql`](../../supabase/migrations/011_avatars_bucket.sql) from the live definition (sorts before `011_cleanup_functions.sql`, so replay creates the bucket then the maintenance fns).
+- **`011_cleanup_functions`** — its functions (`mark_overdue_tasks`, `cleanup_old_signals`) confirmed **present in prod**; the local file is valid content that was applied under a different tracked version. Kept as-is.
+- **Completeness verified:** every one of the **63 prod `public` tables** has a matching `create table` in `supabase/migrations/`, and `key_result_progress`'s user index (a separately-tracked remote version) is bundled in its local file. **The repo now rebuilds the full production schema via lexical replay** (`supabase db reset`).
+- **Remaining prefix≠version differences are cosmetic and harmless** under this project's workflow: DDL is applied via the **Supabase MCP `apply_migration`** path (see `axis-supabase-mcp` memory), *not* `supabase db push`, so local filename prefixes are documentary. Do **not** run `supabase db push` against the linked prod project; use MCP. New migrations use timestamp prefixes (`2026…`) so numbering can't collide again.
+
+Original drift analysis (kept for provenance):
 
 The local `supabase/migrations/` file set (**59 files**) does **not** match the remote applied migration history (**62 entries**). Local files sort correctly lexically (numeric `001-049` prefixes sort before the newer `2026…` timestamp prefixes; interleaved `0281`/`030x` prefixes sort within their neighbours as intended), so *local* ordering is internally consistent — but it has diverged from what production actually applied. Confirmed mismatches:
 
