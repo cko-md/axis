@@ -1414,7 +1414,7 @@ export function NotesModule() {
         {/* ── Folders (drag to reorder) ── */}
         <div>
           <div className="seclabel">Folders</div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFolderDragEnd}>
+          <DndContext id="notes-folders" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFolderDragEnd}>
             <SortableContext items={folders} strategy={verticalListSortingStrategy}>
               {folders.map((f) => (
                 <SortableFolder

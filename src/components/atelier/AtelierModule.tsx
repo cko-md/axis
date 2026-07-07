@@ -510,7 +510,7 @@ export function AtelierModule() {
                 ))}
               </div>
             ) : (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMoodDragEnd}>
+              <DndContext id="atelier-moodboard" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMoodDragEnd}>
                 <SortableContext items={moodImages.map((img) => img.id)} strategy={rectSortingStrategy}>
                   <div
                     style={{

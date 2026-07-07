@@ -1082,7 +1082,7 @@ export function AgendaModule() {
       <div className="routine-grid">
         <div className="card mr-card tick">
           {/* autoScroll off: fixed-position shell elements trigger dnd-kit's scroll warning, and the list is short */}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} autoScroll={false}>
+          <DndContext id="agenda-morning-routine" sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} autoScroll={false}>
             <SortableContext items={routine.map((s) => s.id)} strategy={verticalListSortingStrategy}>
               {routine.map((step) => (
                 <SortableRow key={step.id} step={step} checked={!!checks[step.id]} onToggle={() => toggleCheck(step.id)} />
@@ -1167,7 +1167,7 @@ export function AgendaModule() {
       <h2 className="sec" style={{ marginBottom: 14 }}>Nighttime Routine<span className="rule" /><span className="count">~90 min · {nightDoneCount}/{nightRoutine.length}</span></h2>
       <div className="routine-grid">
         <div className="card mr-card tick">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onNightDragEnd} autoScroll={false}>
+          <DndContext id="agenda-night-routine" sensors={sensors} collisionDetection={closestCenter} onDragEnd={onNightDragEnd} autoScroll={false}>
             <SortableContext items={nightRoutine.map((s) => s.id)} strategy={verticalListSortingStrategy}>
               {nightRoutine.map((step) => (
                 <SortableRow key={step.id} step={step} checked={!!nightChecks[step.id]} onToggle={() => toggleNightCheck(step.id)} />

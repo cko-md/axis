@@ -1191,6 +1191,7 @@ export function ConsoleModule() {
 
       <BlockSizeContext.Provider value={{ sizes: blockSizes, toggle: toggleBlockSize }}>
         <DndContext
+          id="console-widget-grid"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}

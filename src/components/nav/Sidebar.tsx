@@ -395,6 +395,7 @@ function SortableNavGroup({
       )}
 
       <DndContext
+        id="sidebar-items"
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={onItemDragEnd}
@@ -582,6 +583,7 @@ export function Sidebar({ collapsed }: Props) {
 
       <nav className="nav">
         <DndContext
+          id="sidebar-groups"
           sensors={groupSensors}
           collisionDetection={closestCenter}
           onDragEnd={onGroupDragEnd}
