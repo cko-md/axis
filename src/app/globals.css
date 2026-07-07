@@ -90,6 +90,10 @@
 
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-bright);
   --on-accent: #0a0b0e;
+
+  /* panel depth — dark themes lean on a deep soft drop; light overrides with a
+     cool, gentle shadow (see html.light). dim/slate inherit this default. */
+  --panel-shadow: 0 24px 54px -34px rgba(0, 0, 0, 0.9);
 }
 
 /* dim — amber study lamp: warm brown-black ground, distinct from cold void-dark */
@@ -148,20 +152,25 @@ html.slate {
   --chart-grid: rgba(150, 170, 205, 0.08);
 }
 
-/* light — gallery chrome: white-silver room, graphite ink, chromatic edges */
+/* light — gallery chrome: chromatic silver-white room, graphite ink, frosted
+   white glass. Cool blue-steel silver ground (no warm/cream cast); glass panels
+   are white-tinted so modules/widgets read as bright frosted panes floating on
+   the silver, not the old dark-slate film. */
 html.light {
   --accent-subtle: rgba(89, 111, 139, 0.12);
-  --bg: #f8fafc;
-  --surface: #f1f4f8;
-  --surface-2: #e6ebf1;
-  --surface-3: #d7dee8;
-  --line: rgba(31, 42, 56, 0.18);
-  --line-strong: rgba(31, 42, 56, 0.34);
-  --edge: rgba(255, 255, 255, 0.88);
-  --metal-edge: rgba(118, 135, 158, 0.34);
-  --glass: rgba(31, 42, 56, 0.075);
-  --glass-2: rgba(31, 42, 56, 0.12);
-  --grid: rgba(58, 76, 100, 0.052);
+  --bg: #dfe5ee;            /* cool chromatic silver ground — clearly deeper than panels so frosted-white glass pops */
+  --surface: #eef2f8;       /* solid chrome (sidebar/topbar/inputs) — cool silver */
+  --surface-2: #e2e8f1;
+  --surface-3: #d2dae6;
+  --line: rgba(41, 55, 74, 0.14);
+  --line-strong: rgba(41, 55, 74, 0.28);
+  --edge: rgba(255, 255, 255, 0.96);
+  --metal-edge: rgba(150, 166, 188, 0.44);
+  --glass: rgba(255, 255, 255, 0.78);   /* frosted white, not dark-tint */
+  --glass-2: rgba(255, 255, 255, 0.92);
+  --grid: rgba(74, 96, 124, 0.05);
+  /* soft cool depth so frosted-white panels read as raised on the silver ground */
+  --panel-shadow: 0 1px 2px rgba(41, 55, 74, 0.06), 0 6px 20px rgba(41, 55, 74, 0.07);
   --ink: #111820;
   --ink-2: #26313e;
   --ink-dim: #445363;
@@ -188,6 +197,40 @@ html.light {
   --glow: 0 0 16px color-mix(in srgb, #8fa2ba 36%, transparent);
   --glow-soft: 0 0 30px color-mix(in srgb, #8fa2ba 18%, transparent);
   --on-accent: #fbfcff;
+}
+
+/* light theme only: frosted-white glass panels get a gentle cool drop shadow so
+   they read as raised panes on the silver ground. Dark/dim/slate keep their flat
+   inset-highlight look (they don't need it against a dark ground). Congruent with
+   the theme-aware `.card` shadow (which uses --panel-shadow directly). */
+html.light .widget-shell,
+html.light .module,
+html.light .feed-card,
+html.light .reader,
+html.light .ncard,
+html.light .dropzone {
+  box-shadow: 0 1px 0 var(--edge) inset, var(--panel-shadow);
+}
+
+/* light theme: soften the heavy dark drop shadows on elevated overlays into cool
+   silver ones (dark themes keep their deep drops). Matches the topbar/.drawer
+   light overrides already in the sheet. */
+html.light .appwin {
+  box-shadow: 0 40px 100px -34px rgba(41, 55, 74, 0.30), 0 0 0 1px var(--edge) inset;
+}
+html.light .widget-detail-drawer {
+  box-shadow: -22px 0 54px -20px rgba(41, 55, 74, 0.24);
+}
+html.light .widget-action-popover {
+  box-shadow: 0 18px 38px -16px rgba(41, 55, 74, 0.20);
+}
+html.light .cp-popout {
+  box-shadow: 0 24px 64px -24px rgba(41, 55, 74, 0.24), 0 4px 20px -8px rgba(41, 55, 74, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+html.light .m-bubble,
+html.light .mascot-restore,
+html.light .notes-pill {
+  box-shadow: var(--panel-shadow);
 }
 
 /* ── base ─────────────────────────────────────────────────────── */
@@ -1175,7 +1218,7 @@ h2.sec .count {
   -webkit-backdrop-filter: var(--blur);
   box-shadow:
     0 1px 0 var(--edge) inset,
-    0 24px 54px -34px rgba(0, 0, 0, 0.9);
+    var(--panel-shadow);
 }
 
 .card::after {
@@ -1489,7 +1532,7 @@ html.light .card::after {
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: var(--r);
-  background: color-mix(in srgb, var(--panel) 94%, black);
+  background: color-mix(in srgb, var(--surface-2) 94%, black);
   box-shadow: 0 18px 38px rgba(0, 0, 0, .28);
 }
 
@@ -1632,7 +1675,7 @@ html.light .card::after {
   width: min(420px, 100vw);
   height: 100%;
   border-left: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--panel) 96%, black);
+  background: color-mix(in srgb, var(--surface-2) 96%, black);
   color: var(--ink);
   box-shadow: -22px 0 54px rgba(0, 0, 0, .34);
   display: flex;
