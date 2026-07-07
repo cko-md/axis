@@ -4,6 +4,34 @@
 > queried against the live Supabase project on 2026-07-03. Re-run the checks in
 > §4 before each production promotion — this is the repeatable gate.
 
+## 7. Live production audit + rescue patches (2026-07-07)
+
+Authenticated live audit (real signed-in session driven through the app in-browser),
+not just static analysis. Verified core write path end-to-end (capture task →
+persisted to `tasks` in Supabase → visible → cleaned up). Rescue patches landed:
+
+- **App-wide SSR hydration mismatch — FIXED.** Every `<DndContext>` (@dnd-kit) lacked a
+  stable `id`, so its `aria-describedby` fell back to a non-deterministic mount counter
+  (`DndDescribedBy-<n>`) that differed server vs client → React hydration-mismatch error.
+  The **Sidebar** DndContext renders on every authenticated page, so this fired app-wide.
+  Gave all 7 contexts stable ids (sidebar-items/groups, agenda morning/night routines,
+  notes-folders, atelier-moodboard, console-widget-grid). Live DOM now emits a
+  deterministic describedby. Console is otherwise error-free across all modules.
+- **Invalid `--panel` token — FIXED.** `.widget-action-popover` and `.widget-detail-drawer`
+  used `color-mix(… var(--panel) …)` but `--panel` was never defined → the `background`
+  was invalid → these overlays rendered with **no background (transparent)** in every
+  theme. Repointed to `var(--surface-2)`.
+- **Light theme reworked to chromatic silver/white** with frosted-WHITE glass (was a
+  muddy dark-tint film); theme-aware `--panel-shadow`; softened heavy dark overlay shadows
+  in light only. Dark/dim/slate unchanged. See the `feat(theme)` commit.
+
+Audit dimensions checked & clean: security/privacy (§6 + auth-scoped writes verified live),
+component color discipline (no invisible-on-light text; only 2 intentional dark bgs — an
+image-cropper backdrop and a video iframe), network (no real failures — Speed Insights is
+Vercel-only; `/vault` 404 was a mistyped probe, nav correctly targets `/listening-vault`),
+honest degradation (Mail/Vitality/Fund empty + lab states all truthful), and all 4
+authenticated + 10 public e2e green against a prod build. 334 unit tests green; prod build passes.
+
 Supabase project: `twkcvyhmlguipchfetge`. Vercel auto-deploys `main`.
 
 ---
