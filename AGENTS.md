@@ -267,3 +267,65 @@ Discovered from repository inspection (`docs/audits/axis-platform-audit.md`). Tr
 ---
 
 _See also:_ `docs/agent-handoff/claude-to-codex.md` (onboarding handoff), `docs/architecture/integration-adapters.md` (adapter contract + Mail test matrix), `docs/audits/axis-platform-audit.md` (platform findings), `docs/linear/axis-mvp-issues.md` (issue plan + acceptance criteria).
+
+---
+
+## Cursor Cloud specific instructions
+
+This section captures non-obvious startup/run caveats for the Cursor Cloud VM. Dependency installation is handled by the startup update script (`npm install`); everything below is about *running* the stack, since services are not auto-started.
+
+### Node version (PATH gotcha)
+- The repo requires Node 24.x; it is installed via `nvm` in the VM snapshot. Standard commands (`npm run dev|build|lint|test`, `npx tsc`) work as documented in §4 / README.
+- Gotcha: the VM injects a `/exec-daemon/node` (Node 22) shim early on `PATH`, so plain non-login shells resolve Node 22. Login shells (e.g. tmux started with `bash -l`) source `~/.bashrc`, which prepends nvm's Node 24 — so run long-lived processes from a login shell. For a one-off non-login shell, `nvm use 24` (or prepend `~/.nvm/versions/node/v24.*/bin` to PATH) selects Node 24. `npm install` itself is fine on either version.
+
+### Local backend: Supabase CLI stack (Docker)
+The app only hard-requires `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` (`src/lib/env.ts`); all other providers degrade gracefully. Dev uses the Supabase CLI local stack (`docs/local-e2e.md`). `.env.local` is already present (gitignored) and points at the local stack with the deterministic local keys, so it stays valid across reboots.
+
+Startup after a cold VM boot:
+1. Start Docker (not auto-started): `sudo dockerd >/var/log/dockerd.log 2>&1 &` then `sudo chmod 666 /var/run/docker.sock`. Docker is v29, so `/etc/docker/daemon.json` must set `storage-driver: fuse-overlayfs` **and** `features.containerd-snapshotter: false` (already configured in the snapshot).
+2. Start Supabase: `cd /tmp/axis-sb && npx supabase start` (see the migration caveat below for why a temp workdir is used). API: `http://127.0.0.1:54321`, Studio: `http://127.0.0.1:54323`, Mailpit: `http://127.0.0.1:54334`, DB: `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, container `supabase_db_axis`.
+
+Two non-obvious defects mean `supabase start` cannot replay `supabase/migrations` cleanly from scratch (repo audit finding A4):
+- **Duplicate migration version:** `011_avatars_bucket.sql` and `011_cleanup_functions.sql` share version `011` → `duplicate key ... schema_migrations_pkey`.
+- **Policy conflict:** `027_security_definer_lockdown.sql` re-`create`s policy `avatars_select_owner` (already made by `011`) without dropping it first → hard error that aborts the whole start.
+
+Reproducible workaround (keeps the repo pristine — do NOT commit migration edits):
+```bash
+# 1. Temp workdir; disable auto-migrations + seed in the COPY's config.toml only
+rm -rf /tmp/axis-sb && mkdir -p /tmp/axis-sb && cp -r /workspace/supabase /tmp/axis-sb/supabase
+python3 - <<'PY'   # set enabled=false only under [db.migrations] and [db.seed]
+import pathlib
+p = pathlib.Path("/tmp/axis-sb/supabase/config.toml"); s = p.read_text()
+for sect in ("[db.migrations]", "[db.seed]"):
+    head, _, tail = s.partition(sect)
+    tail = tail.replace("enabled = true", "enabled = false", 1)
+    s = head + sect + tail
+p.write_text(s)
+PY
+cd /tmp/axis-sb && npx supabase start          # brings up the stack WITHOUT applying migrations
+# 2. Apply every migration in filename order via psql, tolerating the ONE benign
+#    "policy avatars_select_owner already exists" error from 027:
+for f in $(ls /workspace/supabase/migrations/*.sql | sort); do
+  cat "$f" | docker exec -i supabase_db_axis psql -U postgres -d postgres -v ON_ERROR_STOP=0 -q >/dev/null 2>&1
+done
+# 3. Grant table privileges to the API roles. The new Supabase CLI default does NOT
+#    auto-expose public tables to anon/authenticated (see auto_expose_new_tables in
+#    config.toml), so without this every REST call 403s with 42501 "permission denied".
+docker exec -i supabase_db_axis psql -U postgres -d postgres <<'SQL'
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+SQL
+```
+The Postgres data volume persists on disk, so steps 2–3 are only needed on first init or after `supabase db reset`; a plain restart just needs `npx supabase start` from `/tmp/axis-sb`.
+
+### Dev server
+- Run bound to `127.0.0.1` so it matches Supabase auth `site_url` and cookies work: `npm run dev -- --hostname 127.0.0.1` → `http://127.0.0.1:3000`. Use a tmux login shell so Node 24 is active.
+
+### Auth / signup gotcha (not a bug)
+- The `/login` sign-up form's submit button stays **disabled until the Terms of Service / Privacy checkbox is checked** (`src/app/login/page.tsx`). Email confirmation is disabled locally (`config.toml` `enable_confirmations = false`), so a checked-Terms signup logs in immediately. Background `400/404` console noise on `/auth/v1/token` from the Supabase client (no session yet) is harmless.
+- Verified hello-world: signup → land on `/command` → create a Note in `/notes` → persists across reload (row in `public.notes`).
