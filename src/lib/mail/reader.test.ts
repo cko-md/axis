@@ -44,6 +44,42 @@ describe("sanitizeMailHtml", () => {
     expect(clean).toContain('rel="noopener noreferrer"');
     expect(clean).not.toContain("_top");
   });
+
+  // HTML emails lean on table layout + inline styles + images; the reader must
+  // preserve all of that (so real newsletters render), while still dropping the
+  // <style> block and any threats.
+  const RICH_EMAIL =
+    '<style>.x{color:red}</style>' +
+    '<table role="presentation" width="600" style="border-collapse:collapse">' +
+    '<tr><td style="padding:20px;font-size:16px;color:#222">' +
+    '<h1 style="margin:0">Newsletter</h1>' +
+    '<p>Hi <strong>Kevin</strong>, your <a href="https://ex.com/a">update</a>.</p>' +
+    '<img src="https://cdn.example.com/hero.png" srcset="https://cdn.example.com/2x.png 2x" alt="hero" style="display:block">' +
+    '<ul><li>One</li><li>Two</li></ul><blockquote style="padding-left:10px">Quote</blockquote>' +
+    '</td></tr></table><script>track()</script><img src="https://evil/p.gif" onerror="x()">';
+
+  it("preserves table layout, inline styles, lists and images (images on)", () => {
+    const out = sanitizeMailHtml(RICH_EMAIL, true);
+    expect(out).toContain("<table");
+    expect(out).toContain("<td");
+    expect(out).toContain("padding");
+    expect(out).toContain("<h1");
+    expect(out).toContain("<ul>");
+    expect(out).toContain("<blockquote");
+    expect(out).toContain("<strong>Kevin</strong>");
+    expect(out).toContain("cdn.example.com/hero.png");
+    expect(out).toContain("srcset");
+    expect(out.toLowerCase()).not.toContain("<script");
+    expect(out.toLowerCase()).not.toContain("onerror");
+    expect(out.toLowerCase()).not.toContain("<style"); // block dropped; inline style kept
+  });
+
+  it("keeps text and layout but drops images when images are off", () => {
+    const out = sanitizeMailHtml(RICH_EMAIL, false);
+    expect(out).toContain("Newsletter");
+    expect(out).toContain("<table");
+    expect(out).not.toContain("cdn.example.com/hero.png");
+  });
 });
 
 describe("stripMailHtml", () => {
