@@ -64,6 +64,22 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
   });
 
+  it("reads sender/subject/date from object-style headers maps", () => {
+    const raw = {
+      id: "msg-map-headers",
+      headers: {
+        from: "Map Sender <sender@example.com>",
+        subject: "Mapped Subject",
+        date: "Thu, 1 Jan 2025 00:00:00 +0000",
+      },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).not.toBeNull();
+    expect(result!.from).toBe("Map Sender <sender@example.com>");
+    expect(result!.subject).toBe("Mapped Subject");
+    expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
+  });
+
   it("normalizes Gmail internalDate numeric strings", () => {
     const raw = { id: "msg-date", internalDate: "1735689600000" };
     const result = normalizeGmailMessage(raw, "user@gmail.com");
@@ -228,6 +244,39 @@ describe("normalizeGmailMessageFull()", () => {
 
     expect(result).toMatchObject({
       body: "Line one\nLine two",
+      bodyIsHtml: false,
+    });
+  });
+
+  it("extracts body from snake_case flattened fields", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-4",
+        message_html: "<section>snake html</section>",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "<section>snake html</section>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("extracts payload bodies from wrapped gmail_payload records", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-5",
+        gmail_payload: {
+          mimeType: "text/plain",
+          body: { data: "U25ha2UgcGF5bG9hZA" },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "Snake payload",
       bodyIsHtml: false,
     });
   });
