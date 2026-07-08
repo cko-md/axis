@@ -6,6 +6,8 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 import { type Article, TOPICS, useLiterature } from "@/lib/hooks/useLiterature";
 import { createClient } from "@/lib/supabase/client";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import styles from "./LiteratureModule.module.css";
 
 // ── Saved articles (offline) ──────────────────────────────────────────────────
@@ -418,7 +420,7 @@ export function LiteratureModule() {
   };
 
   return (
-    <>
+    <div className="module-stage literature-stage">
       {persistence.warning && (
         <div className="module-status module-status-beta" style={{ marginBottom: 14 }}>
           <div>
@@ -429,6 +431,17 @@ export function LiteratureModule() {
           <span>Saved papers still show their own sync state below.</span>
         </div>
       )}
+
+      <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
+        <div className="eyebrow">Research · Literature</div>
+        <h1 className="hero-title">{query ? "Search" : "Feed"}</h1>
+        <p className="sub mail-hero-meta">
+          {feed.articles.length} article{feed.articles.length === 1 ? "" : "s"}
+          {feed.fetchedAt ? ` · updated ${relTime(feed.fetchedAt)}` : loading ? " · loading" : ""}
+        </p>
+      </AxisReflectiveCard>
+
+      <div className="module-layout-tools">
         <button
           type="button"
           onClick={() => setShowSaved((v) => !v)}
@@ -436,6 +449,7 @@ export function LiteratureModule() {
         >
           {showSaved ? "★" : "☆"} SAVED{savedLit.length > 0 ? ` (${savedLit.length})` : ""}
         </button>
+      </div>
       {persistence.warning && (
         <div className="module-status module-status-beta" style={{ marginTop: 10, marginBottom: 12 }}>
           <div>
@@ -446,9 +460,7 @@ export function LiteratureModule() {
           <span>{persistence.mode === "local" ? "Saved papers still try Supabase first when signed in." : "Retry refresh after Supabase is available."}</span>
         </div>
       )}
-      <div className="divider" />
 
-      {/* Saved panel */}
       {showSaved && (
         <div style={{ marginBottom: 24, borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", padding: 16 }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: savedPersisted === "supabase" ? "var(--up)" : "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 10 }}>
@@ -524,6 +536,7 @@ export function LiteratureModule() {
         </div>
       )}
 
+      <AxisGlassPanel className="module-glass-zone literature-workspace">
       {/* search */}
       <div className="routebar">
         <div className="feedbar-in">
@@ -785,6 +798,7 @@ export function LiteratureModule() {
           ))}
         </div>
       )}
-    </>
+      </AxisGlassPanel>
+    </div>
   );
 }

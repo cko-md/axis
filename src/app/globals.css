@@ -1414,6 +1414,293 @@ html.light :is(.card, .axis-reflective-card)::after {
   }
 }
 
+/* ── module premium composition (shared route shells) ── */
+.module-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
+  flex: 1;
+}
+
+.module-hero-shell {
+  padding: 22px 24px 24px;
+  border-radius: max(var(--rl), 16px);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 18%, transparent), transparent 34%),
+    color-mix(in srgb, var(--glass) 100%, transparent);
+}
+
+.module-hero-shell .hero-title {
+  margin-top: 10px;
+  letter-spacing: 0.02em;
+}
+
+.module-hero-shell .eyebrow {
+  color: color-mix(in srgb, var(--ink-dim) 82%, var(--axis-iridescent-amber));
+}
+
+.module-hero-shell--compact .hero-title {
+  font-size: 32px;
+  line-height: 1;
+}
+
+html.light .module-hero-shell .hero-title {
+  color: var(--ink-2);
+  text-shadow: none;
+}
+
+.module-layout-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.module-layout-hint {
+  margin-right: auto;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--ink-faint);
+  letter-spacing: .06em;
+}
+
+.module-glass-zone {
+  padding: 16px;
+}
+
+.module-premium-card,
+.console-premium-card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+.module-premium-card h2.sec,
+.console-premium-card h2.sec {
+  margin-bottom: 2px;
+}
+
+.mail-stage {
+  min-height: 0;
+}
+
+.mail-workspace {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.mail-hero-meta {
+  margin-top: 8px;
+}
+
+html.light .mail-workspace .mail-search {
+  background: color-mix(in srgb, var(--glass-2) 88%, white 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 80%, var(--axis-glass-border));
+  color: var(--ink);
+}
+
+html.light .mail-workspace .mail-search::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
+.fund-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+.control-room-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+.literature-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+html.light .literature-workspace .feedbar-in input {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+html.light .literature-workspace .feedbar-in input::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
+.vitality-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+/* ── public landing premium hero ── */
+.landing-page {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.landing-page .axis-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+.landing-page .grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.landing-content {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.landing-hero {
+  max-width: 640px;
+  width: 100%;
+  text-align: center;
+}
+
+.landing-hero .hero-title {
+  font-size: clamp(28px, 5vw, 40px);
+  margin-top: 12px;
+}
+
+.landing-hero .sub {
+  max-width: 520px;
+  margin: 16px auto 0;
+  line-height: 1.7;
+  color: var(--ink-dim);
+  font-size: 15px;
+}
+
+.landing-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 32px;
+}
+
+.landing-signin {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 22px;
+  border-radius: var(--r);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+.landing-signin:hover {
+  opacity: 0.92;
+}
+
+.landing-footer {
+  position: relative;
+  z-index: 2;
+  padding: 20px 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.landing-footer a {
+  color: var(--ink-faint);
+  text-decoration: none;
+}
+
+.landing-footer a:hover {
+  color: var(--ink-dim);
+}
+
+html.light .landing-hero .hero-title {
+  color: var(--ink-2);
+}
+
+/* ── interface studio premium drawer ── */
+.interface-studio-drawer .dr-head {
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 14%, transparent), transparent 42%),
+    var(--surface);
+}
+
+.interface-studio-drawer .dr-preview {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 12%, transparent), transparent 38%),
+    color-mix(in srgb, var(--glass-2) 100%, transparent);
+}
+
+.interface-studio-drawer .dr-preview-grid > div {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 55%, var(--line));
+}
+
+html.light .interface-studio-drawer .dr-preview-main strong {
+  color: var(--ink-2);
+}
+
+/* ── presence companion light-theme polish ── */
+html.light .cp-head {
+  background: linear-gradient(to bottom, var(--surface-2), var(--surface));
+}
+
+html.light .cp-input {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+html.light .cp-input::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
+html.light .cp-popout-axiom {
+  border-top-color: color-mix(in srgb, var(--gold) 55%, var(--line-strong));
+}
+
+html.light .cp-popout-codex {
+  border-top-color: color-mix(in srgb, var(--marine) 55%, var(--line-strong));
+}
+
+html.light .cp-popout-nova {
+  border-top-color: color-mix(in srgb, var(--marine-2) 55%, var(--line-strong));
+}
+
+html.light .cp-card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+  background: var(--surface);
+}
+
+html.light .cp-ai span:last-child {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--axis-glass-border) 60%, var(--line));
+}
+
+html.light .cp-you span {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+html.light .cp-ident {
+  color: var(--ink-2);
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;

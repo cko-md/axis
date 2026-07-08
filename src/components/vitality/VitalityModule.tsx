@@ -23,6 +23,8 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -1249,9 +1251,23 @@ export function VitalityModule() {
   const avgPace = stravaConnected && stravaSummary ? stravaSummary.avgPace : sampleAvgPace;
   const runActivities = stravaConnected ? stravaActivities.filter((a) => a.sport_type === "Run" || a.type === "Run") : [];
 
+  const activeTabLabel = TABS.find((t) => t.id === tab)?.label ?? "Health";
+
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+      <div className="module-stage vitality-stage">
+        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
+          <div className="eyebrow">Wellness · Vitality</div>
+          <h1 className="hero-title">{activeTabLabel}</h1>
+          <p className="sub mail-hero-meta">
+            {stravaConnected
+              ? `Strava synced · ${stravaStatus?.athlete?.name ?? "athlete"}`
+              : "Connect Strava for live training data"}
+          </p>
+        </AxisReflectiveCard>
+
+        <div className="module-layout-tools">
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         {/* Strava badge — live when connected, faded when not */}
         {stravaConnected ? (
           <div
@@ -1289,8 +1305,10 @@ export function VitalityModule() {
           </button>
         )}
       </div>
+        </div>
 
-      <div className="subtabbar" style={{ marginTop: 20 }}>
+        <AxisGlassPanel className="module-glass-zone vitality-workspace">
+      <div className="subtabbar">
         {TABS.map((t) => (
           <button key={t.id} type="button" className={`subtab${tab === t.id ? " on" : ""}`} onClick={() => setTab(t.id)}>
             {t.label}
@@ -1761,6 +1779,8 @@ export function VitalityModule() {
         <TrainingWeekPlanner />
         <div className="divider" />
         <HealthMetricsPanel />
+      </div>
+        </AxisGlassPanel>
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────────────────────── */}
