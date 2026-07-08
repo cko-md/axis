@@ -11,7 +11,15 @@
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
 import { createClient } from "@/lib/supabase/server";
 import { executeTool, ComposioError } from "@/lib/integrations/composio";
-import { extractBody, extractGmailAttachments, type GmailPayload, type MailAttachment, type MailMessage, type MailMessageFull } from "./gmail";
+import {
+  decodeBase64Url,
+  extractBody,
+  extractGmailAttachments,
+  type GmailPayload,
+  type MailAttachment,
+  type MailMessage,
+  type MailMessageFull,
+} from "./gmail";
 import { normalizeMailDate } from "./dates";
 
 // Profile/email resolution for ACTIVE connections now lives in the shared
@@ -26,14 +34,11 @@ const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
-// Single-message fetch tools. Best-effort slugs (Gmail's single-message fetch
-// and Outlook's get-message) — NOT yet confirmed against a live connected
-// account, mapped defensively like the list normalizers above. A wrong slug
-// surfaces as a structured `provider_error` the UI shows, which is strictly
-// better than the previous behavior (the message detail route had no Composio
-// branch at all, so Composio rows 404'd silently). Verify on first live test.
+// Single-message fetch tools. Gmail's exact detail slug was confirmed via the
+// Composio tool-search surface on 2026-07-08; Outlook keeps its historical
+// fallback until KEV-6 validates that path live.
 const GET_TOOL: Record<MailToolkit, string[]> = {
-  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", "GMAIL_GET_MESSAGE"],
+  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"],
   outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
 };
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
@@ -74,6 +79,13 @@ function gmailHeader(headers: unknown, name: string): string {
     (x) => typeof x?.name === "string" && x.name.toLowerCase() === name.toLowerCase(),
   );
   return typeof h?.value === "string" ? h.value : "";
+}
+
+function gmailHeadersFromMessage(message: Record<string, unknown>): unknown {
+  const payload = asRecord(message.payload);
+  if (Array.isArray(payload?.headers)) return payload.headers;
+  if (Array.isArray(message.headers)) return message.headers;
+  return undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -148,6 +160,18 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     if (content) {
       const contentType = stringField(bodyObj, ["contentType", "content_type", "mimeType", "mime_type"]) ?? "";
       return { body: content, bodyIsHtml: contentType.toLowerCase().includes("html") || looksLikeHtml(content) };
+    }
+    const encoded = stringField(bodyObj, ["data"]);
+    if (encoded) {
+      const decoded = decodeBase64Url(encoded);
+      const contentType =
+        stringField(bodyObj, ["contentType", "content_type", "mimeType", "mime_type"]) ??
+        stringField(m, ["mimeType", "mime_type"]) ??
+        "";
+      return {
+        body: decoded,
+        bodyIsHtml: contentType.toLowerCase().includes("html") || looksLikeHtml(decoded),
+      };
     }
   }
 
@@ -227,7 +251,7 @@ export function normalizeGmailMessage(
 ): MailMessage | null {
   const id = (m.id ?? m.messageId) as string | undefined;
   if (!id) return null;
-  const headers = (m.payload as Record<string, unknown> | undefined)?.headers;
+  const headers = gmailHeadersFromMessage(m);
   return {
     id,
     threadId: (m.threadId as string) ?? id,

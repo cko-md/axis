@@ -64,6 +64,29 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
   });
 
+  it("reads Gmail headers when Composio returns them at the top level", () => {
+    const raw = {
+      id: "msg-top-level-headers",
+      headers: [
+        { name: "From", value: "Dana <dana@example.com>" },
+        { name: "Subject", value: "Top level headers" },
+        { name: "Date", value: "Thu, 2 Jan 2025 00:00:00 +0000" },
+      ],
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).toEqual({
+      id: "msg-top-level-headers",
+      threadId: "msg-top-level-headers",
+      from: "Dana <dana@example.com>",
+      subject: "Top level headers",
+      date: "2025-01-02T00:00:00.000Z",
+      snippet: "",
+      isUnread: false,
+      provider: "gmail",
+      accountEmail: "user@gmail.com",
+    });
+  });
+
   it("normalizes Gmail internalDate numeric strings", () => {
     const raw = { id: "msg-date", internalDate: "1735689600000" };
     const result = normalizeGmailMessage(raw, "user@gmail.com");
@@ -229,6 +252,24 @@ describe("normalizeGmailMessageFull()", () => {
     expect(result).toMatchObject({
       body: "Line one\nLine two",
       bodyIsHtml: false,
+    });
+  });
+
+  it("decodes base64url body objects when Composio returns encoded content", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-4",
+        mimeType: "text/html",
+        body: {
+          data: "PGRpdj5IZWxsbyA8c3Ryb25nPndvcmxkPC9zdHJvbmc-PC9kaXY-",
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "<div>Hello <strong>world</strong></div>",
+      bodyIsHtml: true,
     });
   });
 });
