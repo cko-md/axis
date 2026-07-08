@@ -26,14 +26,15 @@ const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
-// Single-message fetch tools. Best-effort slugs (Gmail's single-message fetch
-// and Outlook's get-message) — NOT yet confirmed against a live connected
-// account, mapped defensively like the list normalizers above. A wrong slug
-// surfaces as a structured `provider_error` the UI shows, which is strictly
-// better than the previous behavior (the message detail route had no Composio
-// branch at all, so Composio rows 404'd silently). Verify on first live test.
+// Single-message fetch tools. GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID is the
+// verified Composio slug for Gmail (confirmed against Composio's /tools schema:
+// it takes message_id + optional user_id and returns the native Gmail API
+// resource — payload.headers, payload.parts, labelIds, snippet). A secondary
+// slug (GMAIL_GET_MESSAGE) is retained as a last-resort fallback in case the
+// Composio registry is updated or a legacy account uses a different mapping.
+export const GMAIL_FETCH_MESSAGE_SLUG = "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID";
 const GET_TOOL: Record<MailToolkit, string[]> = {
-  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", "GMAIL_GET_MESSAGE"],
+  gmail: [GMAIL_FETCH_MESSAGE_SLUG, "GMAIL_GET_MESSAGE"],
   outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
 };
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
@@ -141,6 +142,34 @@ function looksLikeHtml(value: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(value);
 }
 
+/**
+ * Safely formats a sender/from value that may arrive as:
+ *  - A plain RFC 5322 string: "Alice <alice@example.com>"
+ *  - A Graph-API / Composio object: { emailAddress: { name?, address? } }
+ *  - A flat sender object: { name?, email? } or { name?, address? }
+ *
+ * Returns an empty string for null / non-recognizable shapes (never "[object Object]").
+ */
+function formatSenderObject(value: unknown): string {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  const obj = asRecord(value);
+  if (!obj) return "";
+  // Graph-API / Composio convenience: { emailAddress: { name?, address? } }
+  const ea = asRecord(obj.emailAddress);
+  if (ea) {
+    const name = typeof ea.name === "string" ? ea.name.trim() : "";
+    const addr = typeof ea.address === "string" ? ea.address.trim() : "";
+    return name && addr ? `${name} <${addr}>` : addr || name;
+  }
+  // Flat object: { name?, email? } or { name?, address? }
+  const name = typeof obj.name === "string" ? obj.name.trim() : "";
+  const addr = (
+    typeof obj.email === "string" ? obj.email :
+    typeof obj.address === "string" ? obj.address : ""
+  ).trim();
+  return name && addr ? `${name} <${addr}>` : addr || name;
+}
+
 function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIsHtml: boolean } {
   const bodyObj = asRecord(m.body);
   if (bodyObj) {
@@ -227,11 +256,18 @@ export function normalizeGmailMessage(
 ): MailMessage | null {
   const id = (m.id ?? m.messageId) as string | undefined;
   if (!id) return null;
-  const headers = (m.payload as Record<string, unknown> | undefined)?.headers;
+  // Prefer payload.headers (native Gmail API resource shape). Fall back to a
+  // top-level `headers` array that some Composio response variants include
+  // directly on the message object rather than nested under `payload`.
+  const payloadHeaders = (m.payload as Record<string, unknown> | undefined)?.headers;
+  const headers = Array.isArray(payloadHeaders) ? payloadHeaders : m.headers;
   return {
     id,
     threadId: (m.threadId as string) ?? id,
-    from: gmailHeader(headers, "From") || (m.sender as string) || (m.from as string) || "",
+    // Use formatSenderObject for m.sender / m.from because Composio may return
+    // those as objects ({ emailAddress: { name, address } }) rather than strings;
+    // a naive `as string` cast would produce "[object Object]".
+    from: gmailHeader(headers, "From") || formatSenderObject(m.sender) || formatSenderObject(m.from) || "",
     subject: gmailHeader(headers, "Subject") || (m.subject as string) || "(no subject)",
     date: normalizeMailDate(
       gmailHeader(headers, "Date") ||

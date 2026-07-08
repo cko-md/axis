@@ -4,6 +4,7 @@ import {
   normalizeGmailMessageFull,
   normalizeOutlookMessage,
   normalizeOutlookMessageFull,
+  GMAIL_FETCH_MESSAGE_SLUG,
 } from "./composio";
 
 describe("normalizeGmailMessage()", () => {
@@ -104,6 +105,61 @@ describe("normalizeGmailMessage()", () => {
     const raw = { id: "msg6" };
     const result = normalizeGmailMessage(raw, "user@gmail.com");
     expect(result!.threadId).toBe("msg6");
+  });
+
+  it("uses top-level headers array when payload.headers is absent", () => {
+    const raw = {
+      id: "msg-top-headers",
+      headers: [
+        { name: "From", value: "Dave <dave@example.com>" },
+        { name: "Subject", value: "Top-level headers" },
+        { name: "Date", value: "Thu, 1 Jan 2026 00:00:00 +0000" },
+      ],
+      labelIds: ["INBOX"],
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).not.toBeNull();
+    expect(result!.from).toBe("Dave <dave@example.com>");
+    expect(result!.subject).toBe("Top-level headers");
+  });
+
+  it("normalises from as a Graph-API emailAddress object", () => {
+    const raw = {
+      id: "msg-from-obj",
+      from: { emailAddress: { name: "Eve", address: "eve@example.com" } },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Eve <eve@example.com>");
+  });
+
+  it("normalises from as a flat {name, email} object", () => {
+    const raw = {
+      id: "msg-from-flat",
+      from: { name: "Frank", email: "frank@example.com" },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Frank <frank@example.com>");
+  });
+
+  it("normalises sender as a Graph-API emailAddress object", () => {
+    const raw = {
+      id: "msg-sender-obj",
+      sender: { emailAddress: { name: "Grace", address: "grace@example.com" } },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Grace <grace@example.com>");
+  });
+
+  it("never returns [object Object] for an unrecognised object sender", () => {
+    const raw = { id: "msg-bad-sender", from: { some: "random", nested: "object" } };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).not.toContain("[object Object]");
+  });
+});
+
+describe("GMAIL_FETCH_MESSAGE_SLUG", () => {
+  it("is the verified primary Composio get-message slug", () => {
+    expect(GMAIL_FETCH_MESSAGE_SLUG).toBe("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID");
   });
 });
 
@@ -230,6 +286,53 @@ describe("normalizeGmailMessageFull()", () => {
       body: "Line one\nLine two",
       bodyIsHtml: false,
     });
+  });
+
+  it("decodes a native Gmail payload body (base64url) from a single-part message", () => {
+    const html = "<p>Native payload body</p>";
+    const bodyData = Buffer.from(html)
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=/g, "");
+
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-native",
+        payload: {
+          mimeType: "text/html",
+          headers: [
+            { name: "From", value: "Alice <alice@example.com>" },
+            { name: "Subject", value: "Native payload" },
+          ],
+          body: { data: bodyData },
+        },
+        labelIds: [],
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({ body: html, bodyIsHtml: true });
+  });
+
+  it("uses top-level headers for metadata when payload.headers is absent", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-top-hdr",
+        headers: [
+          { name: "From", value: "Bob <bob@example.com>" },
+          { name: "Subject", value: "Top headers" },
+        ],
+        messageHtml: "<p>Body</p>",
+        labelIds: [],
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.from).toBe("Bob <bob@example.com>");
+    expect(result!.subject).toBe("Top headers");
+    expect(result!.bodyIsHtml).toBe(true);
   });
 });
 
