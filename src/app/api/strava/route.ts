@@ -102,8 +102,10 @@ export async function GET(req: NextRequest) {
     }
 
     const tokens = await tokenRes.json();
+    const secure = process.env.NODE_ENV === "production";
     cookieStore.set("strava_access_token", tokens.access_token, {
       httpOnly: true,
+      secure,
       maxAge: tokens.expires_in ?? 21600,
       path: "/",
       sameSite: "lax",
@@ -111,6 +113,7 @@ export async function GET(req: NextRequest) {
     if (tokens.refresh_token) {
       cookieStore.set("strava_refresh_token", tokens.refresh_token, {
         httpOnly: true,
+        secure,
         maxAge: 60 * 60 * 24 * 90,
         path: "/",
         sameSite: "lax",

@@ -1166,7 +1166,7 @@ export function VitalityModule() {
     } catch {}
   }, []);
 
-  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit } = useStrava(paceUnit);
+  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
   const { open: openInApp } = useWebViewer();
   const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet } = useNutritionProtocol();
   const stravaConnected = stravaStatus?.connected ?? false;
@@ -1276,7 +1276,7 @@ export function VitalityModule() {
             title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}
             onClick={() => {
               openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-                if (status === "ok") window.location.reload();
+                if (status === "ok") void refetchStravaStatus();
               });
             }}
           >
@@ -1436,7 +1436,7 @@ export function VitalityModule() {
               style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", whiteSpace: "nowrap", cursor: "pointer" }}
               onClick={() => {
                 openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-                  if (status === "ok") window.location.reload();
+                  if (status === "ok") void refetchStravaStatus();
                 });
               }}
             >

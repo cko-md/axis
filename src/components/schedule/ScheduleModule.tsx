@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { AddCalendarPicker } from "./AddCalendarPicker";
 import { formatCalendarFreshness } from "@/lib/calendar/freshness";
+import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
 
 type ComposioCalState = { active: boolean; email: string | null };
 type CalendarStatusResponse = {
@@ -199,19 +200,17 @@ export function ScheduleModule() {
   const [externalFetchedAt, setExternalFetchedAt] = useState<string | null>(null);
   const [externalFromCache, setExternalFromCache] = useState(false);
 
-  const refreshComposioCalStatus = useCallback(() => {
-    fetch("/api/integrations/composio/status")
-      .then((r) => r.json())
-      .then((d: { connections?: Array<{ toolkit: string; status: string; account_label: string | null }> }) => {
-        const conns = d.connections ?? [];
-        const g = conns.find((c) => c.toolkit === "googlecalendar" && c.status === "ACTIVE");
-        const o = conns.find((c) => c.toolkit === "outlook" && c.status === "ACTIVE");
-        setComposioCal({
-          google: { active: !!g, email: g?.account_label ?? null },
-          outlook: { active: !!o, email: o?.account_label ?? null },
-        });
-      })
-      .catch(() => {});
+  const refreshComposioCalStatus = useCallback(async () => {
+    const d = await fetch("/api/integrations/composio/status")
+      .then((r) => r.json() as Promise<{ connections?: Array<{ toolkit: string; status: string; account_label: string | null }> }>)
+      .catch(() => ({ connections: [] as Array<{ toolkit: string; status: string; account_label: string | null }> }));
+    const conns = d.connections ?? [];
+    const g = conns.find((c) => c.toolkit === "googlecalendar" && c.status === "ACTIVE");
+    const o = conns.find((c) => c.toolkit === "outlook" && c.status === "ACTIVE");
+    setComposioCal({
+      google: { active: !!g, email: g?.account_label ?? null },
+      outlook: { active: !!o, email: o?.account_label ?? null },
+    });
   }, []);
 
   // Close calendar picker on outside click
@@ -820,22 +819,25 @@ export function ScheduleModule() {
               onClose={() => setShowCalPicker(false)}
               onConnected={(provider) => {
                 toast(`${provider === "google" ? "Google" : "Outlook"} Calendar connected`, "success", "Schedule");
-                fetch("/api/calendar/status")
-                  .then(async (r) => {
-                    const s = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
-                    if (!r.ok) throw new Error(s.error ?? "Calendar status could not be refreshed.");
-                    return s as CalendarStatusResponse;
-                  })
-                  .then((s) => {
+                refreshAfterComposioConnect(async () => {
+                  await refreshComposioCalStatus();
+                  const s = await fetch("/api/calendar/status")
+                    .then(async (r) => {
+                      const body = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
+                      if (!r.ok) throw new Error(body.error ?? "Calendar status could not be refreshed.");
+                      return body as CalendarStatusResponse;
+                    })
+                    .catch((error) => {
+                      const message = error instanceof Error ? error.message : "Calendar status could not be refreshed.";
+                      setExternalNotice(message);
+                      toast(message, "error", "Schedule");
+                      return null;
+                    });
+                  if (s) {
                     setCalStatus(s);
                     setExternalNotice(null);
-                  })
-                  .catch((error) => {
-                    const message = error instanceof Error ? error.message : "Calendar status could not be refreshed.";
-                    setExternalNotice(message);
-                    toast(message, "error", "Schedule");
-                  });
-                refreshComposioCalStatus();
+                  }
+                });
               }}
             />
           )}

@@ -223,6 +223,12 @@ export function useStrava(initialUnit: PaceUnit = "km") {
     setHighlights(null);
   }, [status?.configured]);
 
+  const refetchStatus = useCallback(async () => {
+    const connected = await fetchStatus();
+    if (connected) await fetchActivities();
+    return connected;
+  }, [fetchStatus, fetchActivities]);
+
   useEffect(() => {
     let mounted = true;
     const controller = new AbortController();
@@ -254,5 +260,6 @@ export function useStrava(initialUnit: PaceUnit = "km") {
     setUnit,
     disconnect,
     refetch: fetchActivities,
+    refetchStatus,
   };
 }

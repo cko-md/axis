@@ -13,6 +13,7 @@ import { ComposeModal, type ComposeDraft } from "./ComposeModal";
 import { MessagePanel } from "./MessagePanel";
 import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
 import { isEditableTarget, mailShortcutForKey, parseSenderParts } from "@/lib/mail/reader";
+import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -512,7 +513,7 @@ export function MailModule() {
   }, [toast]);
 
   const refreshMailStatus = useCallback(() => {
-    fetch("/api/mail/status")
+    return fetch("/api/mail/status")
       .then(async (r) => {
         const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
         if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
@@ -523,6 +524,7 @@ export function MailModule() {
           setAccounts(s.accounts ?? []);
           setInboxNotice(null);
         }
+        return s;
       })
       .catch((error) => {
         if (!mountedRef.current) return;
@@ -531,6 +533,13 @@ export function MailModule() {
         toast(message, "error", "Mail");
       });
   }, [toast]);
+
+  const refreshMailAfterConnect = useCallback(() => {
+    refreshAfterComposioConnect(async () => {
+      await refreshMailStatus();
+      if (mountedRef.current) await fetchInbox();
+    });
+  }, [fetchInbox, refreshMailStatus]);
 
   const isConnected = statusLoaded && accounts.length > 0;
 
@@ -895,7 +904,7 @@ export function MailModule() {
             >
               Connect mailbox →
             </button>
-            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailStatus} />}
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailAfterConnect} />}
           </div>
         </div>
       </>
@@ -1122,7 +1131,7 @@ export function MailModule() {
             >
               + Add
             </button>
-            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailStatus} />}
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailAfterConnect} />}
           </div>
 
           {/* Compose */}
