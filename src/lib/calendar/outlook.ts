@@ -39,21 +39,30 @@ export async function listOutlookEvents(
       location?: { displayName?: string };
       attendees?: Array<{ emailAddress?: { name?: string; address?: string } }>;
       isAllDay?: boolean;
-      start?: { dateTime?: string };
-      end?: { dateTime?: string };
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
     };
-    if (!item.id || !item.start?.dateTime || !item.end?.dateTime) return [];
+    const startDateOnly = !item.start?.dateTime && !!item.start?.date;
+    const endDateOnly = !item.end?.dateTime && !!item.end?.date;
+    const startVal = item.start?.dateTime ?? item.start?.date;
+    const endVal = item.end?.dateTime ?? item.end?.date;
+    if (!item.id || !startVal || !endVal) return [];
+    const formatDateTime = (value: string, dateOnly: boolean) => {
+      if (dateOnly) return value.includes("T") ? value : `${value}T00:00:00Z`;
+      if (value.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(value)) return value;
+      return `${value}Z`;
+    };
     return [{
       externalId: item.id,
       title: item.subject || "(No title)",
-      start_at: `${item.start.dateTime}Z`,
-      end_at: `${item.end.dateTime}Z`,
+      start_at: formatDateTime(startVal, startDateOnly),
+      end_at: formatDateTime(endVal, endDateOnly),
       description: item.bodyPreview ?? null,
       location: item.location?.displayName ?? null,
       attendees: (item.attendees ?? [])
         .map((attendee) => attendee.emailAddress?.name || attendee.emailAddress?.address)
         .filter((attendee): attendee is string => !!attendee),
-      all_day: !!item.isAllDay,
+      all_day: !!item.isAllDay || startDateOnly,
     }];
   });
 }
