@@ -1529,6 +1529,10 @@ html.light .literature-workspace .feedbar-in input::placeholder {
   color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
 }
 
+.vitality-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;
