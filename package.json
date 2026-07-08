@@ -39,6 +39,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "@vercel/speed-insights": "^2.0.0",
+    "clsx": "^2.1.1",
     "isomorphic-dompurify": "^3.18.0",
     "lowlight": "^3.3.0",
     "motion": "^12.42.2",
@@ -47,6 +48,7 @@
     "react-dom": "^19.1.0",
     "react-easy-crop": "^6.0.2",
     "react-plaid-link": "^4.1.1",
+    "tailwind-merge": "^3.6.0",
     "zod": "^3.25.28"
   },
   "devDependencies": {
