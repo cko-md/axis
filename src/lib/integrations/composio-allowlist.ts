@@ -1,20 +1,10 @@
 import type { SupportedToolkit } from "@/lib/integrations/composio";
+import { MAIL_COMPOSIO_TOOLS } from "@/lib/integrations/composio-mail-tools";
 
 /** Composio tools permitted via /api/integrations/composio/execute per toolkit. */
 export const ALLOWED_COMPOSIO_TOOLS: Record<SupportedToolkit, readonly string[]> = {
-  gmail: [
-    "GMAIL_FETCH_EMAILS",
-    "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
-    "GMAIL_GET_MESSAGE",
-    "GMAIL_SEND_EMAIL",
-    "GMAIL_ADD_LABEL_TO_EMAIL",
-    "GMAIL_MOVE_TO_TRASH",
-  ],
-  outlook: [
-    "OUTLOOK_OUTLOOK_LIST_MESSAGES",
-    "OUTLOOK_OUTLOOK_GET_MESSAGE",
-    "OUTLOOK_OUTLOOK_SEND_EMAIL",
-  ],
+  gmail: [...MAIL_COMPOSIO_TOOLS.gmail],
+  outlook: [...MAIL_COMPOSIO_TOOLS.outlook],
   googlecalendar: [],
   googlecontacts: [],
   strava: [],

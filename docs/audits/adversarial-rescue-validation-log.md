@@ -85,40 +85,46 @@ Composio execute route captures connection/list and tool failures with safe tags
 
 ---
 
-## Batch 9 — 2026-07-08 (partial)
+## Batch 9 — 2026-07-08 ✅ (local)
+
+### Remaining risks closed
+
+| Risk | Resolution |
+|------|------------|
+| AR-040 WorkoutDetailModal localStorage | `050_workout_logs.sql` + `useWorkoutLog` + Supabase persistence |
+| AR-038 Objectives scan silent failure | `scanForObjectives` returns `{ results, error }`; UI + cron updated |
+| AR-039 Agenda routine `.catch(() => {})` | Toast on Supabase sync failure |
+| AR-035 Mail Composio pagination | `listComposioInbox` page tokens + Mail Load more |
+| Composio allowlist drift | `composio-mail-tools.ts` single source + parity test |
+| AR-018 migration chaos | `docs/audits/migration-renumber-plan.md` (human gate) |
+| E2E / cross-theme | `adversarial-rescue.spec.ts` added; `console-theme-rendering.spec.ts` exists |
+| Vitality logs load errors | `useVitalityLogs` + nutrition protocol errors surfaced |
 
 ### Automated checks
 
-| Command | Result |
-|---------|--------|
-| tsc | ✅ |
-| lint | ✅ |
-| test | ✅ 356/356 |
-| build | ⚠️ blocked (env) |
-| e2e | ⏭ not run (requires local Supabase stack) |
+| Command | Result | Notes |
+|---------|--------|-------|
+| `npx tsc --noEmit` | ✅ Pass | workout_logs via untyped store until types regen |
+| `npm run lint` | ✅ Pass | 5 warnings (pre-existing text-effect + WorkoutDetailModal deps) |
+| `npm run test` | ✅ 360/360 | +4 new test files |
+| `npm run build` | ⚠️ Blocked | `NEXT_PUBLIC_SUPABASE_*` not in cloud VM |
+| `npm run test:e2e` | ⚠️ Blocked | Playwright webServer needs Supabase env vars |
 
-### Vercel preview
+### Database / Supabase impact
 
-⏭ Pending — push branch; validate `/mail` multi-account, `/briefing` feed error, `/debrief` loading, `/library` load error, Composio execute 403 on disallowed tools.
+- **New migration:** `050_workout_logs.sql` (RLS owner-scoped, unique user+session)
+- Apply via standard migration workflow before using workout log sync in prod
+- Tembo: N/A
 
-### Sentry
+### Vercel preview validation (human)
 
-⏭ Pending post-preview — filter `environment:preview` + route tags `integrations/composio/execute`.
+- [ ] Apply migration `050_workout_logs.sql` on preview Supabase
+- [ ] Vitality → open workout detail → save log → reload persists
+- [ ] Mail → filter single account → Load more
+- [ ] Objectives → Platform scan → error/empty states visible
+- [ ] Agenda → routine check toggle with Supabase outage shows toast
 
-### Manual checklist (preview)
+### Sentry validation (post-preview)
 
-- [ ] Mail: Composio Gmail message open with `accountId` query param
-- [ ] Mail: archive action resolves correct account
-- [ ] Briefing: feed refresh failure shows info callout; curated stories still visible
-- [ ] Debrief: signed-in load shows skeletons, not demo wins/friction
-- [ ] Library: Supabase load failure shows error callout
-- [ ] Vitality: training week DB failure shows inline error (no silent localStorage)
-- [ ] Command palette: Lucide icons on create/action/navigate rows
-- [ ] POST `/api/ai` with `mode: "evil"` → 400
-- [ ] POST `/api/integrations/composio/execute` with disallowed tool → 403
+Query preview for `workout_logs`, `objectives/scan`, `composio/execute` regressions.
 
-### Tembo
-
-N/A — role unspecified in repo.
-
----

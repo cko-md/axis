@@ -53,6 +53,7 @@ export function useVitalityLogs() {
   const [sessions, setSessions] = useState<MeditationSession[]>([]);
   const [meals, setMeals] = useState<MealLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -61,6 +62,7 @@ export function useVitalityLogs() {
     if (!user) {
       setSessions([]);
       setMeals([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
@@ -69,10 +71,18 @@ export function useVitalityLogs() {
       supabase.from("meditation_sessions").select("*").eq("user_id", user.id),
       supabase.from("meal_logs").select("*").eq("user_id", user.id).order("logged_at", { ascending: false }),
     ]);
+    if (sessionsRes.error || mealsRes.error) {
+      setLoadError("Vitality logs could not be loaded from Supabase.");
+      setSessions([]);
+      setMeals([]);
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     let sessionRows = (sessionsRes.data ?? []) as MeditationSession[];
     let mealRows = (mealsRes.data ?? []) as MealLog[];
 
-    if (sessionRows.length === 0 && !sessionsRes.error) {
+    if (sessionRows.length === 0) {
       const legacy = readLegacyMedSessions();
       if (legacy.length > 0) {
         // Coerce numeric/required fields defensively — duration_min/mood_before/
@@ -94,7 +104,7 @@ export function useVitalityLogs() {
       }
     }
 
-    if (mealRows.length === 0 && !mealsRes.error) {
+    if (mealRows.length === 0) {
       const { data: seeded } = await supabase
         .from("meal_logs")
         .insert(SEED_MEALS.map((m) => ({ user_id: user.id, ...m })))
@@ -168,5 +178,5 @@ export function useVitalityLogs() {
     }
   }, [supabase]);
 
-  return { sessions, meals, loading, refresh, addSession, addMeal, removeMeal };
+  return { sessions, meals, loading, loadError, refresh, addSession, addMeal, removeMeal };
 }

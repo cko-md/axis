@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { formatProgressEntry, formatProgressTime, netProgress, type KeyResultProgressEntry } from "@/lib/objectives/progress";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
 import { useTasks } from "@/lib/hooks/useTasks";
 import { useNotes } from "@/lib/hooks/useNotes";
@@ -56,6 +57,7 @@ export function ObjectivesModule() {
   } = useObjectives();
 
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState<Array<{ target: string; module: string; confidence: string }>>([]);
 
@@ -79,12 +81,21 @@ export function ObjectivesModule() {
     setScanOpen(true);
     setScanning(true);
     setResults([]);
+    setScanError(null);
     try {
       const res = await fetch("/api/objectives/scan", { method: "POST" });
-      const data = await res.json();
-      setResults(data.results ?? []);
+      const data = (await res.json()) as { results?: typeof results; error?: string };
+      if (!res.ok) {
+        setScanError(data.error ?? "Platform scan failed.");
+        setResults([]);
+      } else {
+        setResults(data.results ?? []);
+        if (data.error) setScanError(data.error);
+        else if ((data.results ?? []).length === 0) setScanError("No objectives suggested from recent activity.");
+      }
     } catch {
       setResults([]);
+      setScanError("Could not reach the scan service.");
     }
     setScanning(false);
   };
@@ -504,6 +515,8 @@ export function ObjectivesModule() {
       >
         {scanning ? (
           <p style={{ color: "var(--ink-dim)" }}>Scanning Agenda, Pipeline, Signals, Objectives…</p>
+        ) : scanError ? (
+          <StatusCallout kind="info" title="Scan unavailable">{scanError}</StatusCallout>
         ) : (
           <div className="tasklist">
             {results.map((r) => (

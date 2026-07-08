@@ -356,15 +356,26 @@ export async function listComposioInbox(
   connectedAccountId: string,
   userId: string,
   accountEmail: string,
-): Promise<MailMessage[]> {
+  opts?: { pageToken?: string; skip?: number },
+): Promise<{ messages: MailMessage[]; nextPageToken?: string; hasMore?: boolean }> {
   const res = await executeTool({
     toolSlug: LIST_TOOL[toolkit],
     connectedAccountId,
     userId,
     arguments:
       toolkit === "gmail"
-        ? { max_results: 20, include_payload: true, label_ids: ["INBOX"] }
-        : { top: 20, folder: "Inbox", orderby: ["receivedDateTime desc"] },
+        ? {
+            max_results: 20,
+            include_payload: true,
+            label_ids: ["INBOX"],
+            ...(opts?.pageToken ? { page_token: opts.pageToken } : {}),
+          }
+        : {
+            top: 20,
+            folder: "Inbox",
+            orderby: ["receivedDateTime desc"],
+            ...(opts?.skip ? { skip: opts.skip } : {}),
+          },
   });
   if (!res.successful) {
     throw new ComposioError(res.error ?? `${toolkit} inbox list failed`, 502);
@@ -373,9 +384,18 @@ export async function listComposioInbox(
   const data = res.data as Record<string, unknown>;
   const rawMessages = (data.messages ?? data.value ?? []) as Record<string, unknown>[];
   const normalize = toolkit === "gmail" ? normalizeGmailMessage : normalizeOutlookMessage;
-  return rawMessages
+  const messages = rawMessages
     .map((m) => normalize(m, accountEmail, connectedAccountId))
     .filter((m): m is MailMessage => m !== null);
+  const nextPageToken =
+    (typeof data.nextPageToken === "string" && data.nextPageToken) ||
+    (typeof data.next_page_token === "string" && data.next_page_token) ||
+    undefined;
+  const hasMore =
+    toolkit === "gmail"
+      ? Boolean(nextPageToken)
+      : Boolean(data["@odata.nextLink"]) || rawMessages.length >= 20;
+  return { messages, nextPageToken, hasMore };
 }
 
 export async function sendComposioMail(

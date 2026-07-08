@@ -82,7 +82,19 @@ export async function GET(req: NextRequest) {
         const result = await timedProviderOperation(timing, () =>
           adapter.listInbox(toMailContext(user.id, acct), { pageToken, skip }),
         );
-        if (result.ok) return { messages: result.data.messages };
+        if (result.ok) {
+          return {
+            messages: result.data.messages,
+            pagination:
+              accountParam && providerParam
+                ? {
+                    nextPageToken: result.data.nextPageToken,
+                    hasMore: result.data.hasMore ?? Boolean(result.data.nextPageToken),
+                    skip: skip + result.data.messages.length,
+                  }
+                : undefined,
+          };
+        }
 
         recordProviderFailure(
           timing,
@@ -133,6 +145,7 @@ export async function GET(req: NextRequest) {
   );
 
   const errors = perAccount.flatMap((result) => (result.error ? [result.error] : []));
+  const pagination = perAccount.find((result) => result.pagination)?.pagination;
   const all = perAccount.flatMap((result) => result.messages).sort((a, b) => {
     const da = new Date(a.date).getTime();
     const db = new Date(b.date).getTime();
@@ -151,5 +164,8 @@ export async function GET(req: NextRequest) {
     partial: errors.length > 0,
     errors,
     fetchedAt: new Date().toISOString(),
+    nextPageToken: pagination?.nextPageToken,
+    hasMore: pagination?.hasMore ?? false,
+    skip: pagination?.skip,
   });
 }
