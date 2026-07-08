@@ -1511,6 +1511,10 @@ html.light .mail-workspace .mail-search::placeholder {
   border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
 }
 
+.control-room-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;

@@ -12,6 +12,8 @@ import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
 import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { Seg } from "@/components/ui/Seg";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import type { AIProviderPref } from "@/lib/ai/router";
 
 const TABS = [
@@ -973,11 +975,21 @@ export function ControlRoomModule() {
   const allConnections = [...serviceConnections, ...providerRows];
   const connectedCount = allConnections.filter((c) => c.state === "on").length;
 
+  const activeTabLabel = TABS.find((t) => t.id === tab)?.label ?? "Overview";
+
   return (
     <>
-      <div className="divider" />
+      <div className="module-stage control-room-stage">
+        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
+          <div className="eyebrow">System · Control Room</div>
+          <h1 className="hero-title">{activeTabLabel}</h1>
+          <p className="sub mail-hero-meta">
+            {connectedCount} of {allConnections.length} connections live
+          </p>
+        </AxisReflectiveCard>
 
-      <div className="subtabbar" style={{ marginTop: 20 }}>
+        <AxisGlassPanel className="module-glass-zone control-room-workspace">
+          <div className="subtabbar">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -1519,6 +1531,8 @@ export function ControlRoomModule() {
             </div>
           )}
         </div>
+      </div>
+        </AxisGlassPanel>
       </div>
 
       {/* ----------------------------------------------------------------- MODALS */}
