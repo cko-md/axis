@@ -1414,6 +1414,99 @@ html.light :is(.card, .axis-reflective-card)::after {
   }
 }
 
+/* ── module premium composition (shared route shells) ── */
+.module-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
+  flex: 1;
+}
+
+.module-hero-shell {
+  padding: 22px 24px 24px;
+  border-radius: max(var(--rl), 16px);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 18%, transparent), transparent 34%),
+    color-mix(in srgb, var(--glass) 100%, transparent);
+}
+
+.module-hero-shell .hero-title {
+  margin-top: 10px;
+  letter-spacing: 0.02em;
+}
+
+.module-hero-shell .eyebrow {
+  color: color-mix(in srgb, var(--ink-dim) 82%, var(--axis-iridescent-amber));
+}
+
+.module-hero-shell--compact .hero-title {
+  font-size: 32px;
+  line-height: 1;
+}
+
+html.light .module-hero-shell .hero-title {
+  color: var(--ink-2);
+  text-shadow: none;
+}
+
+.module-layout-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.module-layout-hint {
+  margin-right: auto;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--ink-faint);
+  letter-spacing: .06em;
+}
+
+.module-glass-zone {
+  padding: 16px;
+}
+
+.module-premium-card,
+.console-premium-card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+.module-premium-card h2.sec,
+.console-premium-card h2.sec {
+  margin-bottom: 2px;
+}
+
+.mail-stage {
+  min-height: 0;
+}
+
+.mail-workspace {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.mail-hero-meta {
+  margin-top: 8px;
+}
+
+html.light .mail-workspace .mail-search {
+  background: color-mix(in srgb, var(--glass-2) 88%, white 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 80%, var(--axis-glass-border));
+  color: var(--ink);
+}
+
+html.light .mail-workspace .mail-search::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;
