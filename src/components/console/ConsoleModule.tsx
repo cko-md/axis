@@ -637,7 +637,7 @@ export function ConsoleModule() {
 
   const widgetsSection = (
     <DraggableBlock key="widgets" id="widgets">
-      <AxisGlassPanel className="command-widget-zone">
+      <AxisGlassPanel className="module-glass-zone command-widget-zone">
         <WidgetGrid
           widgetIds={widgetIds}
           widgetTexts={widgetTexts}
@@ -662,7 +662,7 @@ export function ConsoleModule() {
 
   const photosSection = (
     <DraggableBlock key="photos" id="photos">
-      <AxisGlassPanel className="command-photo-zone">
+      <AxisGlassPanel className="module-glass-zone command-photo-zone">
         <FeaturedPhotos />
       </AxisGlassPanel>
     </DraggableBlock>
@@ -1082,66 +1082,20 @@ export function ConsoleModule() {
           Structured 2-up grid that snaps cards to slots; collapses to a single
           column on narrow viewports so the layout never overflows. */}
       <style>{`
-        .command-stage {
-          display: flex;
-          flex-direction: column;
-          gap: 22px;
-        }
-        .command-hero-shell {
-          padding: 22px 24px 24px;
-          border-radius: max(var(--rl), 16px);
-          background:
-            linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 18%, transparent), transparent 34%),
-            color-mix(in srgb, var(--glass) 100%, transparent);
-        }
-        .command-hero-shell .hero-title {
-          margin-top: 10px;
-          letter-spacing: 0.02em;
-        }
-        .command-hero-shell .eyebrow {
-          color: color-mix(in srgb, var(--ink-dim) 82%, var(--axis-iridescent-amber));
-        }
-        .command-hero-shell .capture {
+        .module-hero-shell .capture {
           margin-top: 18px;
         }
-        html.light .command-hero-shell .hero-title {
-          color: var(--ink-2);
-          text-shadow: none;
-        }
-        html.light .command-hero-shell .capture {
+        html.light .module-hero-shell .capture {
           background: color-mix(in srgb, var(--glass-2) 88%, white 12%);
           border-color: color-mix(in srgb, var(--line-strong) 80%, var(--axis-glass-border));
         }
-        html.light .command-hero-shell .capture input,
-        html.light .command-hero-shell .capture input::placeholder {
+        html.light .module-hero-shell .capture input,
+        html.light .module-hero-shell .capture input::placeholder {
           color: color-mix(in srgb, var(--ink) 82%, var(--ink-faint));
-        }
-        .command-layout-tools {
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          gap: 8px;
-        }
-        .command-layout-hint {
-          margin-right: auto;
-          font-size: 10px;
-          font-family: var(--mono);
-          color: var(--ink-faint);
-          letter-spacing: .06em;
-        }
-        .command-widget-zone,
-        .command-photo-zone {
-          padding: 16px;
         }
         .command-photo-zone .photostrip-top,
         .command-widget-zone .tidbits {
           margin-top: 0;
-        }
-        .console-premium-card {
-          border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
-        }
-        .console-premium-card h2.sec {
-          margin-bottom: 2px;
         }
         .console-grid {
           display: grid;
@@ -1238,8 +1192,8 @@ export function ConsoleModule() {
           }
         }
       `}</style>
-      <div className="command-stage">
-        <AxisReflectiveCard className="command-hero-shell">
+      <div className="module-stage">
+        <AxisReflectiveCard className="module-hero-shell">
           <div className="eyebrow">{formatDateLong()}</div>
           <HeroLine tasks={tasks} />
 
@@ -1252,8 +1206,8 @@ export function ConsoleModule() {
           />
         </AxisReflectiveCard>
 
-        <div className="command-layout-tools">
-          <span className="command-layout-hint">
+        <div className="module-layout-tools">
+          <span className="module-layout-hint">
             Drag ⠿ to rearrange · click ⊞/⊡/⊟ to cycle size
           </span>
           <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>

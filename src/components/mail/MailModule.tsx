@@ -15,6 +15,8 @@ import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib
 import { isEditableTarget, mailShortcutForKey, parseSenderParts } from "@/lib/mail/reader";
 import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
 import { mailAccountQuery } from "@/lib/mail/query";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -898,36 +900,38 @@ export function MailModule() {
   // Setup state — no accounts yet
   if (statusLoaded && !isConnected) {
     return (
-      <>
-        <div className="divider" />
-        <div className="setup-state" data-svc="mail">
-          <div className="setup-ic">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="M3 7l9 6 9-6" />
-            </svg>
+      <div className="module-stage mail-stage">
+        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
+          <div className="eyebrow">Daily · Mail</div>
+          <h1 className="hero-title">Inbox</h1>
+          <p className="sub mail-hero-meta">Connect a mailbox to triage, summarize, and route mail.</p>
+        </AxisReflectiveCard>
+        <AxisGlassPanel className="module-glass-zone">
+          <div className="setup-state" data-svc="mail">
+            <div className="setup-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M3 7l9 6 9-6" />
+              </svg>
+            </div>
+            <div className="setup-t">Connect a mailbox</div>
+            <div className="setup-d">
+              Link Gmail or Outlook (read-only) to triage, summarize, and route mail.
+              Tokens are encrypted server-side — never stored in the browser.
+            </div>
+            <div ref={addBtnRef} style={{ position: "relative", display: "inline-block" }}>
+              <button
+                type="button"
+                className="setup-btn"
+                onClick={() => setShowAddPicker((v) => !v)}
+              >
+                Connect mailbox →
+              </button>
+              {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailAfterConnect} />}
+            </div>
           </div>
-          <div className="setup-t">Connect a mailbox</div>
-          <div className="setup-d">
-            Link Gmail or Outlook (read-only) to triage, summarize, and route mail.
-            Tokens are encrypted server-side — never stored in the browser.
-          </div>
-          {/* Same AddAccountPicker the connected-state toolbar's "+ Add" button
-              opens (line ~545) — previously this empty state had its own
-              hardcoded direct-OAuth-only buttons, so a brand-new user could
-              never reach the Composio rows on their first connect. */}
-          <div ref={addBtnRef} style={{ position: "relative", display: "inline-block" }}>
-            <button
-              type="button"
-              className="setup-btn"
-              onClick={() => setShowAddPicker((v) => !v)}
-            >
-              Connect mailbox →
-            </button>
-            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailAfterConnect} />}
-          </div>
-        </div>
-      </>
+        </AxisGlassPanel>
+      </div>
     );
   }
 
@@ -936,12 +940,20 @@ export function MailModule() {
   }
 
   return (
-    <>
-      <div className="divider" />
-      <div style={{ position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+    <div className="module-stage mail-stage">
+      <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
+        <div className="eyebrow">Daily · Mail</div>
+        <h1 className="hero-title">Inbox</h1>
+        <p className="sub mail-hero-meta">
+          {accounts.length} account{accounts.length === 1 ? "" : "s"} connected
+          {unreadCount > 0 ? ` · ${unreadCount} unread` : " · all caught up"}
+        </p>
+      </AxisReflectiveCard>
 
+      <AxisGlassPanel className="mail-workspace">
         {/* Toolbar */}
         <div
+          className="mail-toolbar"
           style={{
             display: "flex",
             alignItems: "center",
@@ -1063,6 +1075,7 @@ export function MailModule() {
           {/* Search */}
           <input
             ref={searchRef}
+            className="mail-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
@@ -1284,7 +1297,8 @@ export function MailModule() {
             onRouteAttachmentToLibrary={(attachment) => { void routeAttachmentToLibrary(selected, attachment); }}
           />
         )}
-      </div>
+      </AxisGlassPanel>
+
       {composeDraft && (
         <ComposeModal
           draft={composeDraft}
@@ -1293,6 +1307,6 @@ export function MailModule() {
           onSent={() => setComposeDraft(null)}
         />
       )}
-    </>
+    </div>
   );
 }
