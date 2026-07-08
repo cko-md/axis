@@ -142,27 +142,27 @@ function NovaSVG({ size = 52 }: { size?: number }) {
       <defs>
         <radialGradient id={`nvCore${uid}`} cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="white" />
-          <stop offset="22%" stopColor="#a8ecff" />
-          <stop offset="55%" stopColor="#16B8F3" />
-          <stop offset="100%" stopColor="#004a7f" stopOpacity="0" />
+          <stop offset="22%" stopColor="var(--companion-nova-glow)" />
+          <stop offset="55%" stopColor="var(--companion-nova-core)" />
+          <stop offset="100%" stopColor="var(--companion-nova-core)" stopOpacity="0" />
         </radialGradient>
         <radialGradient id={`nvAura${uid}`} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#16B8F3" stopOpacity="0.38" />
-          <stop offset="100%" stopColor="#16B8F3" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--companion-nova-core)" stopOpacity="0.38" />
+          <stop offset="100%" stopColor="var(--companion-nova-core)" stopOpacity="0" />
         </radialGradient>
       </defs>
 
       {/* Ambient shadow */}
-      <ellipse className="nova-shad" cx="42" cy="95" rx="16" ry="3" fill="rgba(22,184,243,.18)" />
+      <ellipse className="nova-shad" cx="42" cy="95" rx="16" ry="3" fill="color-mix(in srgb, var(--companion-nova-core) 18%, transparent)" />
 
       {/* Soft round star-dots scattered in field */}
-      <circle className="nova-star ns1" cx="8"  cy="14" r="1.3" fill="#a8ecff" />
+      <circle className="nova-star ns1" cx="8"  cy="14" r="1.3" fill="var(--companion-nova-glow)" />
       <circle className="nova-star ns2" cx="70" cy="8"  r="1.0" fill="white" />
-      <circle className="nova-star ns3" cx="78" cy="38" r="1.1" fill="#a8ecff" />
+      <circle className="nova-star ns3" cx="78" cy="38" r="1.1" fill="var(--companion-nova-glow)" />
       <circle className="nova-star ns4" cx="70" cy="74" r="0.9" fill="var(--gold)" />
-      <circle className="nova-star ns5" cx="18" cy="83" r="1.2" fill="#a8ecff" />
+      <circle className="nova-star ns5" cx="18" cy="83" r="1.2" fill="var(--companion-nova-glow)" />
       <circle className="nova-star ns6" cx="4"  cy="55" r="1.0" fill="white" />
-      <circle className="nova-star ns7" cx="48" cy="3"  r="0.9" fill="#a8ecff" />
+      <circle className="nova-star ns7" cx="48" cy="3"  r="0.9" fill="var(--companion-nova-glow)" />
       <circle className="nova-star ns8" cx="62" cy="84" r="0.8" fill="white" />
 
       {/* Atmospheric aura */}
@@ -171,33 +171,33 @@ function NovaSVG({ size = 52 }: { size?: number }) {
       {/* Atomic orbital rings — each pre-tilted at a different inclination */}
       {/* nr1: equatorial plane */}
       <g className="nova-ring nr1">
-        <ellipse cx="42" cy="48" rx="27" ry="6" fill="none" stroke="#16B8F3" strokeWidth="0.9" opacity="0.62" />
+        <ellipse cx="42" cy="48" rx="27" ry="6" fill="none" stroke="var(--companion-nova-core)" strokeWidth="0.9" opacity="0.62" />
         <circle cx="69" cy="48" r="2.4" fill="white" className="nova-e ne1" />
       </g>
       {/* nr2: tilted 58° */}
       <g className="nova-ring nr2" transform="rotate(58, 42, 48)">
-        <ellipse cx="42" cy="48" rx="24" ry="5.5" fill="none" stroke="#60caff" strokeWidth="0.8" opacity="0.48" />
-        <circle cx="66" cy="48" r="2.0" fill="#a8ecff" className="nova-e ne2" />
+        <ellipse cx="42" cy="48" rx="24" ry="5.5" fill="none" stroke="var(--companion-nova-glow)" strokeWidth="0.8" opacity="0.48" />
+        <circle cx="66" cy="48" r="2.0" fill="var(--companion-nova-glow)" className="nova-e ne2" />
       </g>
       {/* nr3: tilted 112° */}
       <g className="nova-ring nr3" transform="rotate(112, 42, 48)">
-        <ellipse cx="42" cy="48" rx="21" ry="5" fill="none" stroke="rgba(201,164,99,.6)" strokeWidth="0.8" opacity="0.48" />
+        <ellipse cx="42" cy="48" rx="21" ry="5" fill="none" stroke="color-mix(in srgb, var(--companion-axiom-ring) 60%, transparent)" strokeWidth="0.8" opacity="0.48" />
         <circle cx="63" cy="48" r="1.8" fill="var(--gold)" className="nova-e ne3" />
       </g>
       {/* nr4: tilted −38° */}
       <g className="nova-ring nr4" transform="rotate(-38, 42, 48)">
-        <ellipse cx="42" cy="48" rx="25" ry="5" fill="none" stroke="#a8ecff" strokeWidth="0.7" opacity="0.32" />
-        <circle cx="67" cy="48" r="1.5" fill="#60caff" className="nova-e ne4" />
+        <ellipse cx="42" cy="48" rx="25" ry="5" fill="none" stroke="var(--companion-nova-glow)" strokeWidth="0.7" opacity="0.32" />
+        <circle cx="67" cy="48" r="1.5" fill="var(--companion-nova-glow)" className="nova-e ne4" />
       </g>
       {/* nr5: tilted 82° (near-vertical — completes the field) */}
       <g className="nova-ring nr5" transform="rotate(82, 42, 48)">
-        <ellipse cx="42" cy="48" rx="20" ry="5" fill="none" stroke="#16B8F3" strokeWidth="0.6" opacity="0.26" />
+        <ellipse cx="42" cy="48" rx="20" ry="5" fill="none" stroke="var(--companion-nova-core)" strokeWidth="0.6" opacity="0.26" />
         <circle cx="62" cy="48" r="1.3" fill="white" className="nova-e ne5" />
       </g>
 
       {/* Core glow layers */}
-      <circle cx="42" cy="48" r="12" fill="#16B8F3" opacity="0.14" className="nova-gl g2" />
-      <circle cx="42" cy="48" r="7.5" fill="#16B8F3" opacity="0.6" className="nova-gl g1" />
+      <circle cx="42" cy="48" r="12" fill="var(--companion-nova-core)" opacity="0.14" className="nova-gl g2" />
+      <circle cx="42" cy="48" r="7.5" fill="var(--companion-nova-core)" opacity="0.6" className="nova-gl g1" />
       <circle cx="42" cy="48" r="5.5" fill={`url(#nvCore${uid})`} className="nova-core" />
       <circle cx="42" cy="48" r="2.2" fill="white" opacity="0.96" />
     </svg>

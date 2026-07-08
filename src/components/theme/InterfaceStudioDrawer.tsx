@@ -476,7 +476,9 @@ export function InterfaceStudioDrawer() {
               </div>
             </>
           )}
-          <div className="dr-note" style={{ marginTop: 8 }}>Banner notifications require browser permission. Silent mode logs to Dispatch without an OS alert.</div>
+          <div className="dr-note" style={{ marginTop: 8 }}>
+            Preferences are saved for signed-in accounts. OS notification delivery is not wired yet — toggles record intent only until the notification service ships.
+          </div>
 
           <div className="dr-sec">Reset</div>
           <button
