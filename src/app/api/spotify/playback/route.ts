@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getAccessToken, notConnected, pickArt, spotifyFetch, spotifyGet } from "../_lib";
+import { getAccessToken, isConfigured, notConnected, pickArt, spotifyFetch, spotifyGet } from "../_lib";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -13,14 +13,16 @@ export async function GET() {
   const token = await getAccessToken();
   if (!token) return notConnected();
 
+  const configured = isConfigured();
   const data = await spotifyGet<any>(token, "/me/player");
   if (!data || !data.item) {
-    return NextResponse.json({ connected: true, playing: false, track: null });
+    return NextResponse.json({ connected: true, configured, playing: false, track: null });
   }
 
   const item = data.item;
   return NextResponse.json({
     connected: true,
+    configured,
     playing: data.is_playing ?? false,
     track: item.name ?? "Unknown",
     artist: (item.artists ?? []).map((a: any) => a?.name).filter(Boolean).join(", "),

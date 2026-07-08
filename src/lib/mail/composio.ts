@@ -32,9 +32,9 @@ const SEND_TOOL: Record<MailToolkit, string> = {
 // surfaces as a structured `provider_error` the UI shows, which is strictly
 // better than the previous behavior (the message detail route had no Composio
 // branch at all, so Composio rows 404'd silently). Verify on first live test.
-const GET_TOOL: Record<MailToolkit, string> = {
-  gmail: "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
-  outlook: "OUTLOOK_OUTLOOK_GET_MESSAGE",
+const GET_TOOL: Record<MailToolkit, string[]> = {
+  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", "GMAIL_GET_MESSAGE"],
+  outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
 };
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
 const GMAIL_MOVE_TO_TRASH_TOOL = "GMAIL_MOVE_TO_TRASH";
@@ -99,8 +99,16 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
     data.response_data,
     data.responseData,
     data.payload,
+    data.output,
+    data.response,
     data,
   ];
+
+  for (const candidate of candidates) {
+    const first = Array.isArray(candidate) ? candidate[0] : candidate;
+    const record = asRecord(first);
+    if (record && (record.id || record.messageId)) return record;
+  }
 
   for (const candidate of candidates) {
     const first = Array.isArray(candidate) ? candidate[0] : candidate;
@@ -109,6 +117,24 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
   }
 
   return data;
+}
+
+function gmailGetMessageArguments(messageId: string): Record<string, unknown>[] {
+  return [
+    { message_id: messageId, user_id: "me", format: "full" },
+    { message_id: messageId, user_id: "me", format: "FULL" },
+    { messageId, user_id: "me", format: "full" },
+    { id: messageId, user_id: "me", format: "full" },
+    { message_id: messageId },
+  ];
+}
+
+function outlookGetMessageArguments(messageId: string): Record<string, unknown>[] {
+  return [
+    { message_id: messageId },
+    { messageId },
+    { id: messageId },
+  ];
 }
 
 function looksLikeHtml(value: string): boolean {
@@ -277,24 +303,34 @@ export async function getComposioMessage(
   messageId: string,
   accountEmail: string,
 ): Promise<MailMessageFull | null> {
-  const res = await executeTool({
-    toolSlug: GET_TOOL[toolkit],
-    connectedAccountId,
-    userId,
-    arguments:
-      toolkit === "gmail"
-        ? { message_id: messageId, user_id: "me", format: "full" }
-        : { message_id: messageId },
-  });
-  if (!res.successful) {
-    throw new ComposioError(res.error ?? `${toolkit} get-message failed`, 502);
+  const toolSlugs = GET_TOOL[toolkit];
+  const argVariants = toolkit === "gmail" ? gmailGetMessageArguments(messageId) : outlookGetMessageArguments(messageId);
+  const normalize = toolkit === "gmail" ? normalizeGmailMessageFull : normalizeOutlookMessageFull;
+
+  let lastError: string | null = null;
+  for (const toolSlug of toolSlugs) {
+    for (const args of argVariants) {
+      const res = await executeTool({
+        toolSlug,
+        connectedAccountId,
+        userId,
+        arguments: args,
+      });
+      if (!res.successful) {
+        lastError = res.error ?? `${toolkit} get-message failed`;
+        continue;
+      }
+      const data = res.data as Record<string, unknown>;
+      const raw = unwrapMessageRecord(data);
+      const message = normalize(raw, accountEmail);
+      if (message) return message;
+    }
   }
-  // Tools may return the message at the top level or nested under data/message.
-  const data = res.data as Record<string, unknown>;
-  const raw = unwrapMessageRecord(data);
-  return toolkit === "gmail"
-    ? normalizeGmailMessageFull(raw, accountEmail)
-    : normalizeOutlookMessageFull(raw, accountEmail);
+
+  if (lastError) {
+    throw new ComposioError(lastError, 502);
+  }
+  return null;
 }
 
 export async function listComposioInbox(

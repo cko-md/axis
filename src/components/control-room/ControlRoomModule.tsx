@@ -10,7 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { Seg } from "@/components/ui/Seg";
 import type { AIProviderPref } from "@/lib/ai/router";
 
@@ -476,14 +476,14 @@ export function ControlRoomModule() {
 
   // --- Actions ------------------------------------------------------------
   const connectSpotify = () => {
-    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
-      if (status === "ok") void refreshSpotifyStatus();
+    openComposioOAuthPopup("spotify", (status) => {
+      if (status === "ok") void refreshAfterComposio();
     });
   };
 
   const connectStrava = () => {
-    openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-      if (status === "ok") void refreshStravaStatus();
+    openComposioOAuthPopup("strava", (status) => {
+      if (status === "ok") void refreshAfterComposio();
     });
   };
 
@@ -509,7 +509,7 @@ export function ControlRoomModule() {
   ]);
 
   const connectComposioToolkit = (toolkit: ComposioToolkit) => {
-    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+    openComposioOAuthPopup(toolkit, (status) => {
       if (status === "ok") void refreshAfterComposio();
     });
   };
@@ -761,7 +761,7 @@ export function ControlRoomModule() {
           ? "broken"
           : composioState(contactsComposio);
   const spotifyState: ConnState =
-    spotifyStatus?.connected || isActiveComposio(spotifyComposio)
+    spotifyStatus?.connected
       ? "on"
       : spotifyStatus === null || composioConnections === null
         ? "pending"
@@ -769,7 +769,7 @@ export function ControlRoomModule() {
           ? "broken"
           : composioState(spotifyComposio);
   const stravaState: ConnState =
-    stravaStatus?.connected || isActiveComposio(stravaComposio)
+    stravaStatus?.connected
       ? "on"
       : stravaStatus === null || composioConnections === null
         ? "pending"

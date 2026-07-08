@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
+import { findMailAccount } from "@/lib/mail/findAccount";
 import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import {
@@ -39,6 +40,7 @@ export async function GET(
   if (!email) {
     return NextResponse.json({ error: "email param is required" }, { status: 400 });
   }
+  const accountId = req.nextUrl.searchParams.get("accountId");
 
   const supabase = await createClient();
   const {
@@ -64,7 +66,7 @@ export async function GET(
       { status: 503 },
     );
   }
-  const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
+  const account = findMailAccount(accounts, provider, email, accountId);
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
   const adapter = adapterForAccount(account);
@@ -145,6 +147,7 @@ export async function POST(
   if (!email) {
     return NextResponse.json({ error: "email param is required" }, { status: 400 });
   }
+  const accountId = req.nextUrl.searchParams.get("accountId");
 
   const body = await req.json().catch(() => ({})) as {
     action?: string;
@@ -180,7 +183,7 @@ export async function POST(
       { status: 503 },
     );
   }
-  const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
+  const account = findMailAccount(accounts, provider, email, accountId);
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
   const adapter = adapterForAccount(account);

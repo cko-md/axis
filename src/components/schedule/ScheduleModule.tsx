@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { AddCalendarPicker } from "./AddCalendarPicker";
 import { formatCalendarFreshness } from "@/lib/calendar/freshness";
+import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
 
 type ComposioCalState = { active: boolean; email: string | null };
 type CalendarStatusResponse = {
@@ -199,20 +200,30 @@ export function ScheduleModule() {
   const [externalFetchedAt, setExternalFetchedAt] = useState<string | null>(null);
   const [externalFromCache, setExternalFromCache] = useState(false);
 
-  const refreshComposioCalStatus = useCallback(() => {
-    fetch("/api/integrations/composio/status")
-      .then((r) => r.json())
-      .then((d: { connections?: Array<{ toolkit: string; status: string; account_label: string | null }> }) => {
-        const conns = d.connections ?? [];
-        const g = conns.find((c) => c.toolkit === "googlecalendar" && c.status === "ACTIVE");
-        const o = conns.find((c) => c.toolkit === "outlook" && c.status === "ACTIVE");
-        setComposioCal({
-          google: { active: !!g, email: g?.account_label ?? null },
-          outlook: { active: !!o, email: o?.account_label ?? null },
-        });
-      })
-      .catch(() => {});
+  const refreshComposioCalStatus = useCallback(async () => {
+    const d = await fetch("/api/integrations/composio/status")
+      .then((r) => r.json() as Promise<{ connections?: Array<{ toolkit: string; status: string; account_label: string | null }> }>)
+      .catch(() => ({ connections: [] as Array<{ toolkit: string; status: string; account_label: string | null }> }));
+    const conns = d.connections ?? [];
+    const g = conns.find((c) => c.toolkit === "googlecalendar" && c.status === "ACTIVE");
+    const o = conns.find((c) => c.toolkit === "outlook" && c.status === "ACTIVE");
+    setComposioCal({
+      google: { active: !!g, email: g?.account_label ?? null },
+      outlook: { active: !!o, email: o?.account_label ?? null },
+    });
   }, []);
+
+  const refreshCalendarConnections = useCallback(async () => {
+    await refreshComposioCalStatus();
+    const s = await fetch("/api/calendar/status")
+      .then(async (r) => {
+        const body = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
+        if (!r.ok) throw new Error(body.error ?? "Calendar status could not be refreshed.");
+        return body as CalendarStatusResponse;
+      })
+      .catch(() => null);
+    if (s) setCalStatus(s);
+  }, [refreshComposioCalStatus]);
 
   // Close calendar picker on outside click
   useEffect(() => {
@@ -734,8 +745,29 @@ export function ScheduleModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-        {/* Google Calendar — connected via legacy direct-OAuth or Composio */}
-        {calStatus?.google ? (
+        {/* Google Calendar — prefer Composio disconnect when that is the live transport */}
+        {composioCal.google.active ? (
+          <button
+            type="button"
+            className="selectbox"
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              try {
+                await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=googlecalendar");
+                setComposioCal((s) => ({ ...s, google: { active: false, email: null } }));
+                setExternalEvents([]);
+                setExternalNotice(null);
+                await refreshCalendarConnections();
+                toast("Google Calendar disconnected", "info", "Schedule");
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not disconnect Google Calendar.", "error", "Schedule");
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            {composioCal.google.email ?? calStatus?.googleEmail ?? "Google Calendar"} ✓
+          </button>
+        ) : calStatus?.google ? (
           <button
             type="button"
             className="selectbox"
@@ -744,6 +776,9 @@ export function ScheduleModule() {
               try {
                 await disconnectCalendarAccount("/api/calendar/disconnect?provider=google");
                 setCalStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
+                setExternalEvents([]);
+                setExternalNotice(null);
+                await refreshCalendarConnections();
                 toast("Google Calendar disconnected", "info", "Schedule");
               } catch (error) {
                 toast(error instanceof Error ? error.message : "Could not disconnect Google Calendar.", "error", "Schedule");
@@ -753,45 +788,9 @@ export function ScheduleModule() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
             {calStatus.googleEmail ?? "Google Calendar"} ✓
           </button>
-        ) : composioCal.google.active ? (
-          <button
-            type="button"
-            className="selectbox"
-            style={{ background: "none", color: "var(--up)" }}
-            onClick={async () => {
-              try {
-                await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=googlecalendar");
-                setComposioCal((s) => ({ ...s, google: { active: false, email: null } }));
-                toast("Google Calendar disconnected", "info", "Schedule");
-              } catch (error) {
-                toast(error instanceof Error ? error.message : "Could not disconnect Google Calendar.", "error", "Schedule");
-              }
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            {composioCal.google.email ?? "Google Calendar"} ✓
-          </button>
         ) : null}
-        {/* Outlook Calendar — connected via legacy direct-OAuth or Composio */}
-        {calStatus?.outlook ? (
-          <button
-            type="button"
-            className="selectbox"
-            style={{ background: "none", color: "var(--up)" }}
-            onClick={async () => {
-              try {
-                await disconnectCalendarAccount("/api/calendar/disconnect?provider=outlook");
-                setCalStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
-                toast("Outlook Calendar disconnected", "info", "Schedule");
-              } catch (error) {
-                toast(error instanceof Error ? error.message : "Could not disconnect Outlook Calendar.", "error", "Schedule");
-              }
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            {calStatus.outlookEmail ?? "Outlook"} ✓
-          </button>
-        ) : composioCal.outlook.active ? (
+        {/* Outlook Calendar — prefer Composio disconnect when that is the live transport */}
+        {composioCal.outlook.active ? (
           <button
             type="button"
             className="selectbox"
@@ -800,6 +799,9 @@ export function ScheduleModule() {
               try {
                 await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=outlook");
                 setComposioCal((s) => ({ ...s, outlook: { active: false, email: null } }));
+                setExternalEvents([]);
+                setExternalNotice(null);
+                await refreshCalendarConnections();
                 toast("Outlook Calendar disconnected", "info", "Schedule");
               } catch (error) {
                 toast(error instanceof Error ? error.message : "Could not disconnect Outlook Calendar.", "error", "Schedule");
@@ -807,7 +809,28 @@ export function ScheduleModule() {
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
-            {composioCal.outlook.email ?? "Outlook"} ✓
+            {composioCal.outlook.email ?? calStatus?.outlookEmail ?? "Outlook"} ✓
+          </button>
+        ) : calStatus?.outlook ? (
+          <button
+            type="button"
+            className="selectbox"
+            style={{ background: "none", color: "var(--up)" }}
+            onClick={async () => {
+              try {
+                await disconnectCalendarAccount("/api/calendar/disconnect?provider=outlook");
+                setCalStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
+                setExternalEvents([]);
+                setExternalNotice(null);
+                await refreshCalendarConnections();
+                toast("Outlook Calendar disconnected", "info", "Schedule");
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not disconnect Outlook Calendar.", "error", "Schedule");
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M2 12h20" /></svg>
+            {calStatus.outlookEmail ?? "Outlook"} ✓
           </button>
         ) : null}
         <div ref={calBtnRef} style={{ position: "relative" }}>
@@ -820,22 +843,32 @@ export function ScheduleModule() {
               onClose={() => setShowCalPicker(false)}
               onConnected={(provider) => {
                 toast(`${provider === "google" ? "Google" : "Outlook"} Calendar connected`, "success", "Schedule");
-                fetch("/api/calendar/status")
-                  .then(async (r) => {
-                    const s = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
-                    if (!r.ok) throw new Error(s.error ?? "Calendar status could not be refreshed.");
-                    return s as CalendarStatusResponse;
-                  })
-                  .then((s) => {
-                    setCalStatus(s);
-                    setExternalNotice(null);
-                  })
-                  .catch((error) => {
-                    const message = error instanceof Error ? error.message : "Calendar status could not be refreshed.";
-                    setExternalNotice(message);
-                    toast(message, "error", "Schedule");
-                  });
-                refreshComposioCalStatus();
+                const toolkit = provider === "google" ? "googlecalendar" : "outlook";
+                refreshAfterComposioConnect(
+                  toolkit,
+                  async () => {
+                    await refreshComposioCalStatus();
+                    const s = await fetch("/api/calendar/status")
+                      .then(async (r) => {
+                        const body = (await r.json().catch(() => ({}))) as Partial<CalendarStatusResponse>;
+                        if (!r.ok) throw new Error(body.error ?? "Calendar status could not be refreshed.");
+                        return body as CalendarStatusResponse;
+                      })
+                      .catch((error) => {
+                        const message = error instanceof Error ? error.message : "Calendar status could not be refreshed.";
+                        setExternalNotice(message);
+                        toast(message, "error", "Schedule");
+                        return null;
+                      });
+                    if (s) {
+                      setCalStatus(s);
+                      setExternalNotice(null);
+                    }
+                  },
+                  () => {
+                    toast("Calendar connection did not finish. Try again in a moment.", "error", "Schedule");
+                  },
+                );
               }}
             />
           )}

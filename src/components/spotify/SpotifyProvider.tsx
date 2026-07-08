@@ -28,7 +28,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 export type NowPlaying = {
   track: string | null;
@@ -93,7 +93,7 @@ const SpotifyContext = createContext<SpotifyState | null>(null);
 
 export function SpotifyProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
-  const [configured, setConfigured] = useState(true);
+  const [configured, setConfigured] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState<NowPlaying>(EMPTY_NOW);
   const [liveProgressMs, setLiveProgressMs] = useState(0);
@@ -104,8 +104,28 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   const poll = useCallback(async () => {
     try {
       const res = await fetch("/api/spotify/playback", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await res.json().catch(() => ({})) as {
+        connected?: boolean;
+        configured?: boolean;
+        playing?: boolean;
+        track?: string | null;
+        artist?: string;
+        album?: string;
+        art?: string | null;
+        trackId?: string | null;
+        uri?: string | null;
+        progressMs?: number;
+        durationMs?: number;
+        device?: string | null;
+        volume?: number | null;
+        shuffle?: boolean;
+        repeat?: string;
+      };
+      if (!res.ok) {
+        setConnected(false);
+        if (typeof data.configured === "boolean") setConfigured(data.configured);
+        return;
+      }
       setConnected(Boolean(data.connected));
       if (typeof data.configured === "boolean") setConfigured(data.configured);
       if (data.connected && data.track) {
@@ -209,8 +229,8 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   }, [connected]);
 
   const connect = useCallback(() => {
-    openOAuthPopup('/api/spotify/auth', (_provider, status) => {
-      if (status === 'ok') void poll();
+    openComposioOAuthPopup("spotify", (status) => {
+      if (status === "ok") void poll();
     });
   }, [poll]);
 

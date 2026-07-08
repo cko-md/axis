@@ -13,6 +13,7 @@ import { ComposeModal, type ComposeDraft } from "./ComposeModal";
 import { MessagePanel } from "./MessagePanel";
 import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
 import { isEditableTarget, mailShortcutForKey, parseSenderParts } from "@/lib/mail/reader";
+import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -512,7 +513,7 @@ export function MailModule() {
   }, [toast]);
 
   const refreshMailStatus = useCallback(() => {
-    fetch("/api/mail/status")
+    return fetch("/api/mail/status")
       .then(async (r) => {
         const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
         if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
@@ -523,6 +524,7 @@ export function MailModule() {
           setAccounts(s.accounts ?? []);
           setInboxNotice(null);
         }
+        return s;
       })
       .catch((error) => {
         if (!mountedRef.current) return;
@@ -531,6 +533,20 @@ export function MailModule() {
         toast(message, "error", "Mail");
       });
   }, [toast]);
+
+  const refreshMailAfterConnect = useCallback((provider: "gmail" | "outlook") => {
+    refreshAfterComposioConnect(
+      provider,
+      async () => {
+        await refreshMailStatus();
+        if (mountedRef.current) await fetchInbox();
+      },
+      () => {
+        if (!mountedRef.current) return;
+        toast("Mailbox connection did not finish. Try again in a moment.", "error", "Mail");
+      },
+    );
+  }, [fetchInbox, refreshMailStatus, toast]);
 
   const isConnected = statusLoaded && accounts.length > 0;
 
@@ -543,29 +559,13 @@ export function MailModule() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
-    if (connected) {
-      window.history.replaceState({}, "", "/mail");
-      // Re-fetch status to pick up the new account
-      fetch("/api/mail/status")
-        .then(async (r) => {
-          const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
-          if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
-          return s;
-        })
-        .then((s) => {
-          if (mountedRef.current) {
-            setAccounts(s.accounts ?? []);
-            setInboxNotice(null);
-          }
-        })
-        .catch((error) => {
-          if (!mountedRef.current) return;
-          const message = error instanceof Error ? error.message : "Mail status could not be refreshed.";
-          setInboxNotice(message);
-          toast(message, "error", "Mail");
-        });
-    }
-  }, [toast]);
+    if (!connected) return;
+    window.history.replaceState({}, "", "/mail");
+    const provider = connected === "outlook" || connected === "composio_outlook"
+      ? "outlook"
+      : "gmail";
+    refreshMailAfterConnect(provider);
+  }, [refreshMailAfterConnect]);
 
   const messageCapabilities = useCallback((msg: Pick<MailMessage, "provider" | "accountEmail">) => {
     const account = accounts.find((acct) => acct.provider === msg.provider && acct.mailEmail === msg.accountEmail);
@@ -895,7 +895,7 @@ export function MailModule() {
             >
               Connect mailbox →
             </button>
-            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailStatus} />}
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailAfterConnect} />}
           </div>
         </div>
       </>
@@ -1122,7 +1122,7 @@ export function MailModule() {
             >
               + Add
             </button>
-            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailStatus} />}
+            {showAddPicker && <AddAccountPicker onClose={() => setShowAddPicker(false)} onConnected={refreshMailAfterConnect} />}
           </div>
 
           {/* Compose */}

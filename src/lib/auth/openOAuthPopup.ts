@@ -1,3 +1,6 @@
+import { waitForComposioToolkitActive } from "@/lib/integrations/refreshAfterComposioConnect";
+import type { SupportedToolkit } from "@/lib/integrations/composio";
+
 export function openOAuthPopup(
   url: string,
   onDone: (provider: string, status: 'ok' | 'error') => void
@@ -28,4 +31,19 @@ export function openOAuthPopup(
       window.removeEventListener('message', handler);
     }
   }, 1000);
+}
+
+/**
+ * Composio's callback URL cannot be trusted to carry a real success/failure
+ * flag — verify the toolkit flipped to ACTIVE before calling onDone('ok').
+ */
+export function openComposioOAuthPopup(
+  toolkit: SupportedToolkit | string,
+  onDone: (status: 'ok' | 'error') => void,
+): void {
+  openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, () => {
+    void waitForComposioToolkitActive(toolkit).then((active) => {
+      onDone(active ? 'ok' : 'error');
+    });
+  });
 }

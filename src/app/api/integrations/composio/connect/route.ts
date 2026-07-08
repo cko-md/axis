@@ -35,16 +35,13 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const callbackUrl = `${getAppOrigin(req)}/oauth-done?provider=composio_${toolkit}&status=ok`;
+  const callbackUrl = `${getAppOrigin(req)}/oauth-done?provider=composio_${toolkit}`;
 
   const needsCustomAuth = (CUSTOM_AUTH_TOOLKITS as readonly string[]).includes(toolkit);
   if (needsCustomAuth) {
     const creds = CUSTOM_AUTH_ENV[toolkit];
     if (!creds?.clientId || !creds?.clientSecret) {
-      return NextResponse.json(
-        { error: "NOT_CONFIGURED", message: `Composio ${toolkit} requires OAuth client credentials.` },
-        { status: 503 },
-      );
+      return NextResponse.redirect(new URL(`/oauth-done?provider=composio_${toolkit}&status=error`, req.url));
     }
   }
 
@@ -103,10 +100,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     const status = err instanceof ComposioError ? err.status : 500;
     if (status === 503) {
-      return NextResponse.json(
-        { error: "NOT_CONFIGURED", message: "Composio is not configured. Set COMPOSIO_API_KEY to enable this provider." },
-        { status: 503 },
-      );
+      return NextResponse.redirect(new URL(`/oauth-done?provider=composio_${toolkit}&status=error`, req.url));
     }
     captureRouteError(err, {
       route: "/api/integrations/composio/connect",

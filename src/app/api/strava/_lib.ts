@@ -15,7 +15,7 @@ const TOKEN_URL = "https://www.strava.com/oauth/token";
 export const STRAVA_API = "https://www.strava.com/api/v3";
 
 export function isConfigured(): boolean {
-  return hasOptionalEnv("STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET");
+  return hasOptionalEnv("STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET") || hasOptionalEnv("COMPOSIO_API_KEY");
 }
 
 /** Returns a valid access token, refreshing via the stored refresh token when needed, or null. */
