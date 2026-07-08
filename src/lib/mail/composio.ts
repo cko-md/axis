@@ -122,8 +122,27 @@ function hasGmailBodyContent(payload: Record<string, unknown>): boolean {
   return Boolean(body && (body.data || body.attachmentId || body.attachment_id));
 }
 
+function hasDecodableGmailPayload(record: Record<string, unknown>): boolean {
+  const candidates = [
+    record.payload,
+    record.gmailPayload,
+    record.gmail_payload,
+    record.messagePayload,
+    record.message_payload,
+    record.rawPayload,
+    record.raw_payload,
+    asRecord(record.message)?.payload,
+    asRecord(record.data)?.payload,
+  ];
+  for (const candidate of candidates) {
+    const payload = asRecord(candidate);
+    if (payload && hasGmailBodyContent(payload)) return true;
+  }
+  return false;
+}
+
 function hasMessageBodyContent(record: Record<string, unknown>): boolean {
-  if (extractGmailPayload(record)) return true;
+  if (hasDecodableGmailPayload(record)) return true;
   if (stringField(record, ["messageHtml", "message_html", "bodyHtml", "htmlBody", "body_html", "html"])) {
     return true;
   }
@@ -133,7 +152,8 @@ function hasMessageBodyContent(record: Record<string, unknown>): boolean {
     return true;
   }
   const preview = asRecord(record.preview);
-  return typeof preview?.body === "string" && preview.body.trim().length > 0;
+  if (typeof preview?.body === "string" && preview.body.trim().length > 0) return true;
+  return Boolean(stringField(record, ["snippet", "bodyPreview", "body_preview"]));
 }
 
 function messageIdentity(record: Record<string, unknown>): string | undefined {
