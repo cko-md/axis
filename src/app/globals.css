@@ -1515,6 +1515,20 @@ html.light .mail-workspace .mail-search::placeholder {
   border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
 }
 
+.literature-stage .card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+}
+
+html.light .literature-workspace .feedbar-in input {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+html.light .literature-workspace .feedbar-in input::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;
