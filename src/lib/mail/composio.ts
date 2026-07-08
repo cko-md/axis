@@ -412,7 +412,7 @@ export function normalizeGmailMessage(
   accountEmail: string,
   connectedAccountId?: string,
 ): MailMessage | null {
-  const id = (m.id ?? m.messageId) as string | undefined;
+  const id = stringField(m, ["id", "messageId", "message_id"]);
   if (!id) return null;
   const headers = extractGmailHeaders(m);
   return {

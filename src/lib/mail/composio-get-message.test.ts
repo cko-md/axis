@@ -138,6 +138,30 @@ describe("getComposioMessage() — Gmail", () => {
     ]);
   });
 
+  it("normalizes flattened wrappers that identify Gmail messages with message_id", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: {
+        response_data: {
+          message_id: "msg-snake",
+          sender: "Snake <snake@example.com>",
+          subject: "Snake case identity",
+          messageText: "Body from snake_case wrapper",
+        },
+        id: "msg-root",
+      },
+    });
+
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-snake", "me@example.com");
+
+    expect(message).toMatchObject({
+      id: "msg-snake",
+      from: "Snake <snake@example.com>",
+      subject: "Snake case identity",
+      body: "Body from snake_case wrapper",
+    });
+  });
+
   it("unwraps nested data envelopes and flat header maps", async () => {
     executeToolMock.mockResolvedValueOnce({
       successful: true,
