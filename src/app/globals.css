@@ -1634,6 +1634,28 @@ html.light .landing-hero .hero-title {
   color: var(--ink-2);
 }
 
+/* ── interface studio premium drawer ── */
+.interface-studio-drawer .dr-head {
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 14%, transparent), transparent 42%),
+    var(--surface);
+}
+
+.interface-studio-drawer .dr-preview {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--axis-liquid-glint) 12%, transparent), transparent 38%),
+    color-mix(in srgb, var(--glass-2) 100%, transparent);
+}
+
+.interface-studio-drawer .dr-preview-grid > div {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 55%, var(--line));
+}
+
+html.light .interface-studio-drawer .dr-preview-main strong {
+  color: var(--ink-2);
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;
