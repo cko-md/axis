@@ -10,7 +10,7 @@ vi.mock("@/lib/integrations/composio", async () => {
   };
 });
 
-import { getComposioMessage, composioMailErrorStatus } from "./composio";
+import { GMAIL_GET_MESSAGE_TOOL, getComposioMessage, composioMailErrorStatus } from "./composio";
 import { gmailComposioAdapter } from "./adapters/gmail-composio";
 import type { MailAccountContext } from "./adapters/types";
 
@@ -45,7 +45,7 @@ describe("getComposioMessage() — Gmail", () => {
 
     expect(executeToolMock).toHaveBeenCalledTimes(1);
     expect(executeToolMock).toHaveBeenCalledWith({
-      toolSlug: "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+      toolSlug: GMAIL_GET_MESSAGE_TOOL,
       connectedAccountId: "conn-1",
       userId: "user-1",
       arguments: { message_id: "msg-1", user_id: "me", format: "full" },
@@ -136,6 +136,32 @@ describe("getComposioMessage() — Gmail", () => {
         inline: false,
       },
     ]);
+  });
+
+  it("unwraps nested data envelopes and flat header maps", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: {
+        data: {
+          id: "msg-nested",
+          headers: {
+            From: "carol@example.com",
+            Subject: "Nested envelope",
+          },
+          messageHtml: "<p>Rendered</p>",
+        },
+      },
+    });
+
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-nested", "me@example.com");
+
+    expect(message).toMatchObject({
+      id: "msg-nested",
+      from: "carol@example.com",
+      subject: "Nested envelope",
+      body: "<p>Rendered</p>",
+      bodyIsHtml: true,
+    });
   });
 
   it("throws a 404-status ComposioError for a genuine not-found so the route returns not_found (not 502)", async () => {

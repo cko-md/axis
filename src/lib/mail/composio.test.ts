@@ -322,6 +322,68 @@ describe("normalizeGmailMessageFull()", () => {
     expect(result!.attachments).toHaveLength(1);
     expect(result!.attachments![0]).toMatchObject({ id: "att-native", filename: "native.pdf" });
   });
+
+  it("reads headers from a top-level headers array", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-6",
+        headers: [
+          { name: "From", value: "carol@example.com" },
+          { name: "Subject", value: "Top-level headers" },
+        ],
+        bodyText: "Plain body",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      from: "carol@example.com",
+      subject: "Top-level headers",
+      body: "Plain body",
+    });
+  });
+
+  it("reads headers from a flat headers object map", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-7",
+        headers: {
+          From: "dave@example.com",
+          Subject: "Mapped headers",
+        },
+        messageHtml: "<p>Mapped</p>",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      from: "dave@example.com",
+      subject: "Mapped headers",
+      body: "<p>Mapped</p>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("decodes Gmail payload parts nested under data.payload", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-8",
+        data: {
+          payload: {
+            headers: [{ name: "Subject", value: "Nested payload" }],
+            parts: [{ mimeType: "text/plain", body: { data: "TmVzdGVk" } }],
+          },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      subject: "Nested payload",
+      body: "Nested",
+      bodyIsHtml: false,
+    });
+  });
 });
 
 describe("normalizeOutlookMessageFull()", () => {
