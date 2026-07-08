@@ -1,203 +1,305 @@
-/**
- * Regression tests for getComposioMessage() — verifies:
- *  1. The primary tool slug (GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID) is tried first.
- *  2. Fallback to GMAIL_GET_MESSAGE when the primary slug fails.
- *  3. ComposioError is thrown when all slug+arg combinations fail.
- *  4. Null is returned (not an error) when all calls succeed but normalization
- *     yields nothing (e.g. the provider returned an empty/unrecognisable payload).
- *  5. Various Composio response-wrapping shapes (`.message`, `.data`, `.email`,
- *     `.response`, and root-level) are correctly unwrapped.
- *  6. Full normalisation including a native Gmail payload (base64url body).
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeToolMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/integrations/composio", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/integrations/composio")>(
-    "@/lib/integrations/composio",
-  );
-  return { ...actual, executeTool: executeToolMock };
+  const actual = await vi.importActual<typeof import("@/lib/integrations/composio")>("@/lib/integrations/composio");
+  return {
+    ...actual,
+    executeTool: executeToolMock,
+  };
 });
 
-import { getComposioMessage, GMAIL_FETCH_MESSAGE_SLUG } from "./composio";
+import { GMAIL_GET_MESSAGE_TOOL, getComposioMessage, composioMailErrorStatus } from "./composio";
+import { gmailComposioAdapter } from "./adapters/gmail-composio";
+import type { MailAccountContext } from "./adapters/types";
 
-const ACCOUNT = "ca_test_123";
-const USER = "user_test_456";
-const MSG_ID = "msg_abc789";
-const EMAIL = "test@gmail.com";
-
-function success(data: unknown) {
-  return { successful: true as const, data, error: null };
+function b64url(value: string): string {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
-function failure(error = "Provider error") {
-  return { successful: false as const, data: null, error };
-}
+const gmailCtx: MailAccountContext = {
+  userId: "user-1",
+  provider: "gmail",
+  mailEmail: "me@example.com",
+  transport: "composio",
+  connectedAccountId: "conn-1",
+};
 
-/** Minimal Gmail message record that normalizes successfully. */
-function minimalMsg(id = MSG_ID) {
-  return { id, snippet: "hello", labelIds: [] as string[] };
-}
-
-describe("getComposioMessage() — slug selection", () => {
-  beforeEach(() => executeToolMock.mockReset());
-
-  it("enforces GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID as the exported primary slug constant", () => {
-    expect(GMAIL_FETCH_MESSAGE_SLUG).toBe("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID");
+describe("getComposioMessage() — Gmail", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
   });
 
-  it("calls GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID first", async () => {
-    executeToolMock.mockResolvedValueOnce(success(minimalMsg()));
+  it("calls the verified GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID slug exactly once with the canonical arguments", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: { id: "msg-1", threadId: "t-1", snippet: "hi" },
+    });
 
-    await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
+    await getComposioMessage("gmail", "conn-1", "user-1", "msg-1", "me@example.com");
 
-    const firstCall = executeToolMock.mock.calls[0] as [{ toolSlug: string }];
-    expect(firstCall[0].toolSlug).toBe("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID");
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith({
+      toolSlug: GMAIL_GET_MESSAGE_TOOL,
+      connectedAccountId: "conn-1",
+      userId: "user-1",
+      arguments: { message_id: "msg-1", user_id: "me", format: "full" },
+    });
   });
 
-  it("falls back to GMAIL_GET_MESSAGE when the primary slug fails every arg variant", async () => {
-    // Queue 5 failures for all arg variants of the primary slug, then a success
-    // for the first arg variant of the secondary slug.
-    executeToolMock
-      .mockResolvedValueOnce(failure("slug unavailable"))
-      .mockResolvedValueOnce(failure("slug unavailable"))
-      .mockResolvedValueOnce(failure("slug unavailable"))
-      .mockResolvedValueOnce(failure("slug unavailable"))
-      .mockResolvedValueOnce(failure("slug unavailable"))
-      .mockResolvedValueOnce(success(minimalMsg()));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result).not.toBeNull();
-
-    // All 5 primary-slug failures + 1 secondary-slug success = 6 calls total.
-    expect(executeToolMock).toHaveBeenCalledTimes(6);
-    const calls = executeToolMock.mock.calls as Array<[{ toolSlug: string }]>;
-    // Every call in the first 5 should use the primary slug.
-    for (let i = 0; i < 5; i++) {
-      expect(calls[i][0].toolSlug).toBe("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID");
-    }
-    // The 6th call (index 5) should use the fallback slug.
-    expect(calls[5][0].toolSlug).toBe("GMAIL_GET_MESSAGE");
-  });
-
-  it("throws ComposioError when all slug+arg combinations return provider errors", async () => {
-    executeToolMock.mockResolvedValue(failure("Provider unavailable"));
+  it("does not retry with variant argument shapes after a provider failure", async () => {
+    executeToolMock.mockResolvedValue({ successful: false, error: "Internal provider error" });
 
     await expect(
-      getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL),
-    ).rejects.toMatchObject({ message: "Provider unavailable", status: 502 });
+      getComposioMessage("gmail", "conn-1", "user-1", "msg-1", "me@example.com"),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null (not an error) when all attempts succeed but normalization yields nothing", async () => {
-    // Successful call but the response contains no recognisable id field.
-    executeToolMock.mockResolvedValue(success({ noIdHere: true }));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result).toBeNull();
-  });
-});
-
-describe("getComposioMessage() — response unwrapping", () => {
-  beforeEach(() => executeToolMock.mockReset());
-
-  it("unwraps the .message wrapper", async () => {
-    executeToolMock.mockResolvedValueOnce(success({ message: minimalMsg() }));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result?.id).toBe(MSG_ID);
-  });
-
-  it("unwraps the .data wrapper", async () => {
-    executeToolMock.mockResolvedValueOnce(success({ data: minimalMsg() }));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result?.id).toBe(MSG_ID);
-  });
-
-  it("unwraps the .email wrapper", async () => {
-    executeToolMock.mockResolvedValueOnce(success({ email: minimalMsg() }));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result?.id).toBe(MSG_ID);
-  });
-
-  it("unwraps the .response wrapper", async () => {
-    executeToolMock.mockResolvedValueOnce(success({ response: minimalMsg() }));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result?.id).toBe(MSG_ID);
-  });
-
-  it("handles a root-level message (no wrapper)", async () => {
-    executeToolMock.mockResolvedValueOnce(success(minimalMsg()));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result?.id).toBe(MSG_ID);
-  });
-
-  it("threads connectedAccountId through to the normalised message", async () => {
-    executeToolMock.mockResolvedValueOnce(success(minimalMsg()));
-
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result?.connectedAccountId).toBe(ACCOUNT);
-  });
-});
-
-describe("getComposioMessage() — full payload normalisation", () => {
-  beforeEach(() => executeToolMock.mockReset());
-
-  it("decodes a native Gmail multipart payload and returns the HTML body", async () => {
-    const html = "<p>Hello from <strong>Gmail</strong></p>";
-    const bodyData = Buffer.from(html)
-      .toString("base64")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=/g, "");
-
-    executeToolMock.mockResolvedValueOnce(
-      success({
-        id: MSG_ID,
-        threadId: "thread-xyz",
+  it("normalizes a native Gmail full payload (headers + base64url body)", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: {
+        id: "msg-native",
+        threadId: "thread-native",
+        labelIds: ["INBOX", "UNREAD"],
+        snippet: "Native snippet",
         payload: {
           mimeType: "multipart/alternative",
           headers: [
             { name: "From", value: "Alice <alice@example.com>" },
-            { name: "Subject", value: "Rich email" },
-            { name: "Date", value: "Thu, 1 Jan 2026 12:00:00 +0000" },
+            { name: "Subject", value: "Native shape" },
+            { name: "Date", value: "Thu, 1 Jan 2025 00:00:00 +0000" },
           ],
           parts: [
-            { mimeType: "text/plain", body: { data: Buffer.from("plain").toString("base64") } },
-            { mimeType: "text/html", body: { data: bodyData } },
+            { mimeType: "text/plain", body: { data: b64url("plain body") } },
+            { mimeType: "text/html; charset=UTF-8", body: { data: b64url("<p>html body</p>") } },
           ],
         },
-        snippet: "Hello from Gmail",
-        labelIds: ["INBOX", "UNREAD"],
-      }),
-    );
+      },
+    });
 
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result).not.toBeNull();
-    expect(result!.body).toBe(html);
-    expect(result!.bodyIsHtml).toBe(true);
-    expect(result!.isUnread).toBe(true);
-    expect(result!.from).toBe("Alice <alice@example.com>");
-    expect(result!.subject).toBe("Rich email");
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-native", "me@example.com");
+
+    expect(message).toMatchObject({
+      id: "msg-native",
+      threadId: "thread-native",
+      from: "Alice <alice@example.com>",
+      subject: "Native shape",
+      snippet: "Native snippet",
+      isUnread: true,
+      body: "<p>html body</p>",
+      bodyIsHtml: true,
+      connectedAccountId: "conn-1",
+    });
   });
 
-  it("falls back to Composio flattened body fields when no payload", async () => {
-    executeToolMock.mockResolvedValueOnce(
-      success({
-        id: MSG_ID,
-        subject: "Flat body",
-        messageHtml: "<p>Composio flat HTML</p>",
-        labelIds: [],
-      }),
-    );
+  it("normalizes Composio's flattened shape (sender/messageText/attachmentList) nested under data wrappers", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: {
+        response_data: {
+          messageId: "msg-flat",
+          threadId: "thread-flat",
+          sender: "Bob <bob@example.com>",
+          subject: "Flattened shape",
+          messageTimestamp: "2025-01-01T00:00:00Z",
+          messageText: "Plain text body",
+          attachmentList: [
+            { attachmentId: "att-1", filename: "report.pdf", mimeType: "application/pdf" },
+          ],
+        },
+      },
+    });
 
-    const result = await getComposioMessage("gmail", ACCOUNT, USER, MSG_ID, EMAIL);
-    expect(result!.body).toBe("<p>Composio flat HTML</p>");
-    expect(result!.bodyIsHtml).toBe(true);
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-flat", "me@example.com");
+
+    expect(message).toMatchObject({
+      id: "msg-flat",
+      from: "Bob <bob@example.com>",
+      subject: "Flattened shape",
+      date: "2025-01-01T00:00:00.000Z",
+      body: "Plain text body",
+      bodyIsHtml: false,
+    });
+    expect(message?.attachments).toEqual([
+      {
+        id: "att-1",
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: null,
+        inline: false,
+      },
+    ]);
+  });
+
+  it("unwraps nested data envelopes and flat header maps", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: {
+        data: {
+          id: "msg-nested",
+          headers: {
+            From: "carol@example.com",
+            Subject: "Nested envelope",
+          },
+          messageHtml: "<p>Rendered</p>",
+        },
+      },
+    });
+
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-nested", "me@example.com");
+
+    expect(message).toMatchObject({
+      id: "msg-nested",
+      from: "carol@example.com",
+      subject: "Nested envelope",
+      body: "<p>Rendered</p>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("throws a 404-status ComposioError for a genuine not-found so the route returns not_found (not 502)", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: false,
+      error: "Requested entity was not found.",
+    });
+
+    await expect(
+      getComposioMessage("gmail", "conn-1", "user-1", "gone", "me@example.com"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("returns null when the tool succeeds but no message record is present", async () => {
+    executeToolMock.mockResolvedValueOnce({ successful: true, data: {} });
+
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "empty", "me@example.com");
+    expect(message).toBeNull();
+  });
+
+  it("unwraps an .email envelope", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: { email: { id: "msg-email-wrap", snippet: "wrapped in email key", labelIds: [] } },
+    });
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-email-wrap", "me@example.com");
+    expect(message?.id).toBe("msg-email-wrap");
+  });
+
+  it("unwraps a .response envelope", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: { response: { id: "msg-response-wrap", snippet: "wrapped in response key", labelIds: [] } },
+    });
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-response-wrap", "me@example.com");
+    expect(message?.id).toBe("msg-response-wrap");
+  });
+
+  it("handles a root-level message (no wrapper key)", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: { id: "msg-root", snippet: "no wrapper", labelIds: [] },
+    });
+    const message = await getComposioMessage("gmail", "conn-1", "user-1", "msg-root", "me@example.com");
+    expect(message?.id).toBe("msg-root");
+  });
+});
+
+describe("composioMailErrorStatus()", () => {
+  it("maps not-found errors to 404", () => {
+    expect(composioMailErrorStatus("Requested entity was not found.")).toBe(404);
+    expect(composioMailErrorStatus("Message not found")).toBe(404);
+  });
+
+  it("maps auth errors to 401", () => {
+    expect(composioMailErrorStatus("Unauthorized")).toBe(401);
+    expect(composioMailErrorStatus("invalid_grant: token has been expired or revoked")).toBe(401);
+  });
+
+  it("maps throttling errors to 429", () => {
+    expect(composioMailErrorStatus("Rate limit exceeded")).toBe(429);
+    expect(composioMailErrorStatus("Too many requests")).toBe(429);
+  });
+
+  it("keeps unrecognized errors at 502", () => {
+    expect(composioMailErrorStatus("Something else broke")).toBe(502);
+  });
+});
+
+describe("gmailComposioAdapter.getMessage() — structured results end to end", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+  });
+
+  it("returns ok with the normalized message on success", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: true,
+      data: {
+        id: "msg-ok",
+        payload: {
+          headers: [{ name: "Subject", value: "Adapter happy path" }],
+          mimeType: "text/plain",
+          body: { data: b64url("body text") },
+        },
+      },
+    });
+
+    const result = await gmailComposioAdapter.getMessage(gmailCtx, "msg-ok");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.subject).toBe("Adapter happy path");
+      expect(result.data.body).toBe("body text");
+    }
+  });
+
+  it("maps a Composio not-found failure onto the not_found error code", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: false,
+      error: "Requested entity was not found.",
+    });
+
+    const result = await gmailComposioAdapter.getMessage(gmailCtx, "gone");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("not_found");
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it("maps an expired-auth failure onto auth_expired so the UI prompts reconnect", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: false,
+      error: "invalid_grant: Token has been expired or revoked.",
+    });
+
+    const result = await gmailComposioAdapter.getMessage(gmailCtx, "msg-auth");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("auth_expired");
+      expect(result.error.status).toBe(401);
+    }
+  });
+
+  it("keeps unclassified provider failures as retryable provider_error", async () => {
+    executeToolMock.mockResolvedValueOnce({
+      successful: false,
+      error: "Upstream exploded",
+    });
+
+    const result = await gmailComposioAdapter.getMessage(gmailCtx, "msg-boom");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("provider_error");
+      expect(result.error.retryable).toBe(true);
+    }
   });
 });

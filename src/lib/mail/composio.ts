@@ -11,6 +11,7 @@
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
 import { createClient } from "@/lib/supabase/server";
 import { executeTool, ComposioError } from "@/lib/integrations/composio";
+import { GMAIL_COMPOSIO_TOOLS, OUTLOOK_COMPOSIO_TOOLS } from "@/lib/integrations/composio-mail-tools";
 import { extractBody, extractGmailAttachments, type GmailPayload, type MailAttachment, type MailMessage, type MailMessageFull } from "./gmail";
 import { normalizeMailDate } from "./dates";
 
@@ -19,23 +20,21 @@ import { normalizeMailDate } from "./dates";
 // need the same concept — see that file for gmail/outlook tool slugs.
 type MailToolkit = "gmail" | "outlook";
 const LIST_TOOL: Record<MailToolkit, string> = {
-  gmail: "GMAIL_FETCH_EMAILS",
-  outlook: "OUTLOOK_OUTLOOK_LIST_MESSAGES",
+  gmail: GMAIL_COMPOSIO_TOOLS[0],
+  outlook: OUTLOOK_COMPOSIO_TOOLS[0],
 };
 const SEND_TOOL: Record<MailToolkit, string> = {
-  gmail: "GMAIL_SEND_EMAIL",
-  outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
+  gmail: GMAIL_COMPOSIO_TOOLS[2],
+  outlook: OUTLOOK_COMPOSIO_TOOLS[2],
 };
-// Single-message fetch tools. GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID is the
-// verified Composio slug for Gmail (confirmed against Composio's /tools schema:
-// it takes message_id + optional user_id and returns the native Gmail API
-// resource — payload.headers, payload.parts, labelIds, snippet). A secondary
-// slug (GMAIL_GET_MESSAGE) is retained as a last-resort fallback in case the
-// Composio registry is updated or a legacy account uses a different mapping.
-export const GMAIL_FETCH_MESSAGE_SLUG = "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID";
-const GET_TOOL: Record<MailToolkit, string[]> = {
-  gmail: [GMAIL_FETCH_MESSAGE_SLUG, "GMAIL_GET_MESSAGE"],
-  outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
+// Single-message fetch tools verified via Composio's tools API.
+// Gmail: GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID — GMAIL_GET_MESSAGE does not exist.
+// Outlook: OUTLOOK_GET_MESSAGE (replaces invalid OUTLOOK_OUTLOOK_GET_MESSAGE).
+export const GMAIL_GET_MESSAGE_TOOL = GMAIL_COMPOSIO_TOOLS[1];
+export const OUTLOOK_GET_MESSAGE_TOOL = OUTLOOK_COMPOSIO_TOOLS[1];
+const GET_TOOL: Record<MailToolkit, readonly string[]> = {
+  gmail: [GMAIL_GET_MESSAGE_TOOL],
+  outlook: [OUTLOOK_GET_MESSAGE_TOOL],
 };
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
 const GMAIL_MOVE_TO_TRASH_TOOL = "GMAIL_MOVE_TO_TRASH";
@@ -70,11 +69,62 @@ export async function listComposioMailAccounts(userId: string): Promise<Composio
 }
 
 function gmailHeader(headers: unknown, name: string): string {
-  if (!Array.isArray(headers)) return "";
-  const h = headers.find(
-    (x) => typeof x?.name === "string" && x.name.toLowerCase() === name.toLowerCase(),
-  );
-  return typeof h?.value === "string" ? h.value : "";
+  if (Array.isArray(headers)) {
+    const h = headers.find(
+      (x) => typeof x?.name === "string" && x.name.toLowerCase() === name.toLowerCase(),
+    );
+    return typeof h?.value === "string" ? h.value : "";
+  }
+  // Some Composio responses flatten headers into a plain object map
+  // ({ From: "…", Subject: "…" }) instead of the native array-of-{name,value}.
+  const record = asRecord(headers);
+  if (record) {
+    for (const [key, value] of Object.entries(record)) {
+      if (key.toLowerCase() === name.toLowerCase() && typeof value === "string") return value;
+    }
+  }
+  return "";
+}
+
+function extractGmailHeaders(m: Record<string, unknown>): Array<{ name: string; value: string }> {
+  const payloadSources = [m.payload, asRecord(m.data)?.payload];
+  for (const payloadSource of payloadSources) {
+    const payloadRecord = asRecord(payloadSource);
+    if (!payloadRecord) continue;
+
+    const payloadHeaders = payloadRecord.headers;
+    if (Array.isArray(payloadHeaders)) {
+      return payloadHeaders.flatMap((header) => {
+        const record = asRecord(header);
+        if (!record || typeof record.name !== "string" || typeof record.value !== "string") return [];
+        return [{ name: record.name, value: record.value }];
+      });
+    }
+
+    const payloadHeadersObj = asRecord(payloadHeaders);
+    if (payloadHeadersObj) {
+      return Object.entries(payloadHeadersObj).flatMap(([key, value]) =>
+        typeof value === "string" ? [{ name: key, value }] : [],
+      );
+    }
+  }
+
+  if (Array.isArray(m.headers)) {
+    return m.headers.flatMap((header) => {
+      const record = asRecord(header);
+      if (!record || typeof record.name !== "string" || typeof record.value !== "string") return [];
+      return [{ name: record.name, value: record.value }];
+    });
+  }
+
+  const headersObj = asRecord(m.headers);
+  if (headersObj) {
+    return Object.entries(headersObj).flatMap(([key, value]) =>
+      typeof value === "string" ? [{ name: key, value }] : [],
+    );
+  }
+
+  return [];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -92,6 +142,9 @@ function stringField(source: Record<string, unknown>, keys: string[]): string | 
 }
 
 function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unknown> {
+  const nestedResults = Array.isArray(data.results) ? data.results[0] : undefined;
+  const nestedResponse = asRecord(nestedResults)?.response;
+
   const candidates = [
     data.message,
     data.email,
@@ -102,6 +155,10 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
     data.payload,
     data.output,
     data.response,
+    data.data_preview,
+    nestedResponse,
+    asRecord(nestedResponse)?.data,
+    asRecord(data.data)?.data,
     data,
   ];
 
@@ -120,60 +177,51 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
   return data;
 }
 
+// Verified against Composio's live tool schema (2026-07-08):
+// GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID takes { message_id (required),
+// user_id (default "me"), format (default "full") }. A single canonical
+// argument shape — the previous shotgun of five variants meant a genuine
+// provider failure was retried four more times with known-wrong argument
+// names, multiplying latency and masking the real error.
 function gmailGetMessageArguments(messageId: string): Record<string, unknown>[] {
-  return [
-    { message_id: messageId, user_id: "me", format: "full" },
-    { message_id: messageId, user_id: "me", format: "FULL" },
-    { messageId, user_id: "me", format: "full" },
-    { id: messageId, user_id: "me", format: "full" },
-    { message_id: messageId },
-  ];
+  return [{ message_id: messageId, user_id: "me", format: "full" }];
 }
 
 function outlookGetMessageArguments(messageId: string): Record<string, unknown>[] {
   return [
-    { message_id: messageId },
-    { messageId },
-    { id: messageId },
+    { message_id: messageId, user_id: "me" },
   ];
+}
+
+function buildGmailSendArguments(to: string, subject: string, body: string): Record<string, unknown> {
+  return {
+    recipient_email: to,
+    subject,
+    body,
+    user_id: "me",
+    is_html: looksLikeHtml(body),
+  };
+}
+
+function buildOutlookSendArguments(to: string, subject: string, body: string): Record<string, unknown> {
+  return {
+    to,
+    subject,
+    body,
+    user_id: "me",
+    is_html: looksLikeHtml(body),
+    save_to_sent_items: true,
+  };
 }
 
 function looksLikeHtml(value: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(value);
 }
 
-/**
- * Safely formats a sender/from value that may arrive as:
- *  - A plain RFC 5322 string: "Alice <alice@example.com>"
- *  - A Graph-API / Composio object: { emailAddress: { name?, address? } }
- *  - A flat sender object: { name?, email? } or { name?, address? }
- *
- * Returns an empty string for null / non-recognizable shapes (never "[object Object]").
- */
-function formatSenderObject(value: unknown): string {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  const obj = asRecord(value);
-  if (!obj) return "";
-  // Graph-API / Composio convenience: { emailAddress: { name?, address? } }
-  const ea = asRecord(obj.emailAddress);
-  if (ea) {
-    const name = typeof ea.name === "string" ? ea.name.trim() : "";
-    const addr = typeof ea.address === "string" ? ea.address.trim() : "";
-    return name && addr ? `${name} <${addr}>` : addr || name;
-  }
-  // Flat object: { name?, email? } or { name?, address? }
-  const name = typeof obj.name === "string" ? obj.name.trim() : "";
-  const addr = (
-    typeof obj.email === "string" ? obj.email :
-    typeof obj.address === "string" ? obj.address : ""
-  ).trim();
-  return name && addr ? `${name} <${addr}>` : addr || name;
-}
-
 function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIsHtml: boolean } {
   const bodyObj = asRecord(m.body);
   if (bodyObj) {
-    const content = stringField(bodyObj, ["content", "body", "value"]);
+    const content = stringField(bodyObj, ["content", "body", "value", "data"]);
     if (content) {
       const contentType = stringField(bodyObj, ["contentType", "content_type", "mimeType", "mime_type"]) ?? "";
       return { body: content, bodyIsHtml: contentType.toLowerCase().includes("html") || looksLikeHtml(content) };
@@ -187,6 +235,7 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     "body_html",
     "html",
     "renderedBody",
+    "htmlContent",
   ]);
   if (html) return { body: html, bodyIsHtml: true };
 
@@ -202,6 +251,7 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     "text",
     "snippet",
     "bodyPreview",
+    "plainContent",
   ]);
   return { body: text ?? "", bodyIsHtml: false };
 }
@@ -219,7 +269,10 @@ function numberField(source: Record<string, unknown>, keys: string[]): number | 
 }
 
 function extractGenericAttachments(m: Record<string, unknown>): MailAttachment[] {
-  const raw = m.attachments ?? m.attachment ?? m.files ?? m.fileAttachments;
+  // `attachmentList` is the field Composio's Gmail tools document for the
+  // flattened response shape; the rest cover other providers/tool versions.
+  const raw =
+    m.attachmentList ?? m.attachment_list ?? m.attachments ?? m.attachment ?? m.files ?? m.fileAttachments;
   const list = Array.isArray(raw) ? raw : [];
 
   return list.flatMap((item, index) => {
@@ -249,6 +302,32 @@ function extractGenericAttachments(m: Record<string, unknown>): MailAttachment[]
 // gmail.ts produces, trying both the raw Gmail API resource shape (payload/
 // headers/labelIds — Composio's Gmail tools are documented to stay close to
 // the native API) and Composio's flattened convenience fields as a fallback.
+// Sender fallback when no From header is present. Composio's flattened Gmail
+// shape uses a `sender` string; some tool versions return `from` as an object
+// ({ name, email }) instead of a string — never render "[object Object]".
+function gmailFromField(m: Record<string, unknown>): string {
+  if (typeof m.sender === "string" && m.sender.trim()) return m.sender;
+  if (typeof m.from === "string" && m.from.trim()) return m.from;
+  const from = asRecord(m.from);
+  if (from) {
+    const email = stringField(from, ["email", "address", "emailAddress"]);
+    const name = stringField(from, ["name", "displayName"]);
+    if (email) return name ? `${name} <${email}>` : email;
+    if (name) return name;
+  }
+  return "";
+}
+
+function gmailSnippet(m: Record<string, unknown>): string {
+  if (typeof m.snippet === "string") return m.snippet;
+  // Composio's flattened Gmail shape carries the plain-text preview in
+  // `preview.body` (object) or `messageText` (full decoded text/plain part).
+  const preview = asRecord(m.preview);
+  if (preview && typeof preview.body === "string") return preview.body.slice(0, 200);
+  if (typeof m.messageText === "string") return m.messageText.slice(0, 200);
+  return "";
+}
+
 export function normalizeGmailMessage(
   m: Record<string, unknown>,
   accountEmail: string,
@@ -256,18 +335,11 @@ export function normalizeGmailMessage(
 ): MailMessage | null {
   const id = (m.id ?? m.messageId) as string | undefined;
   if (!id) return null;
-  // Prefer payload.headers (native Gmail API resource shape). Fall back to a
-  // top-level `headers` array that some Composio response variants include
-  // directly on the message object rather than nested under `payload`.
-  const payloadHeaders = (m.payload as Record<string, unknown> | undefined)?.headers;
-  const headers = Array.isArray(payloadHeaders) ? payloadHeaders : m.headers;
+  const headers = extractGmailHeaders(m);
   return {
     id,
     threadId: (m.threadId as string) ?? id,
-    // Use formatSenderObject for m.sender / m.from because Composio may return
-    // those as objects ({ emailAddress: { name, address } }) rather than strings;
-    // a naive `as string` cast would produce "[object Object]".
-    from: gmailHeader(headers, "From") || formatSenderObject(m.sender) || formatSenderObject(m.from) || "",
+    from: gmailHeader(headers, "From") || gmailFromField(m),
     subject: gmailHeader(headers, "Subject") || (m.subject as string) || "(no subject)",
     date: normalizeMailDate(
       gmailHeader(headers, "Date") ||
@@ -276,7 +348,7 @@ export function normalizeGmailMessage(
         m.receivedDateTime ||
         m.date,
     ),
-    snippet: (m.snippet as string) ?? (m.messageText as string)?.slice(0, 200) ?? "",
+    snippet: gmailSnippet(m),
     isUnread: Array.isArray(m.labelIds) ? (m.labelIds as string[]).includes("UNREAD") : false,
     provider: "gmail",
     accountEmail,
@@ -318,7 +390,7 @@ export function normalizeGmailMessageFull(
   if (!base) return null;
   // Prefer the native payload shape (same as the direct Gmail adapter); fall
   // back to Composio's flattened convenience fields and body objects.
-  const payload = m.payload as GmailPayload | undefined;
+  const payload = (m.payload ?? asRecord(m.data)?.payload) as GmailPayload | undefined;
   let body = "";
   let bodyIsHtml = false;
   if (payload) {
@@ -331,7 +403,12 @@ export function normalizeGmailMessageFull(
     body = extracted.body;
     bodyIsHtml = extracted.bodyIsHtml;
   }
-  return { ...base, body, bodyIsHtml, attachments: payload ? extractGmailAttachments(payload) : extractGenericAttachments(m) };
+  // Attachments: prefer the native payload parts, but fall back to Composio's
+  // flattened `attachmentList` — some responses include a payload without
+  // attachment parts while still listing attachments at the top level.
+  const payloadAttachments = payload ? extractGmailAttachments(payload) : [];
+  const attachments = payloadAttachments.length > 0 ? payloadAttachments : extractGenericAttachments(m);
+  return { ...base, body, bodyIsHtml, attachments };
 }
 
 export function normalizeOutlookMessageFull(
@@ -343,6 +420,22 @@ export function normalizeOutlookMessageFull(
   if (!base) return null;
   const { body, bodyIsHtml } = extractProviderBody(m);
   return { ...base, body, bodyIsHtml, attachments: extractGenericAttachments(m) };
+}
+
+// Map a Composio tool-execution error string onto the most defensible HTTP
+// status, so the adapter's failFromException produces the right normalized
+// code: genuine not-found → 404 (`not_found`, not captured to Sentry as 5xx),
+// auth failures → 401 (`auth_expired` → reconnect prompt), throttling → 429
+// (`rate_limited` → retryable), anything else stays 502 (`provider_error`).
+// Matches are deliberately narrow — an unrecognized message keeps 502.
+// A Composio "tool … not found" (bad slug — a config bug, not a missing
+// message) must NOT map onto 404; only entity/message not-found does.
+export function composioMailErrorStatus(error: string): number {
+  const msg = error.toLowerCase();
+  if (/requested entity was not found|(?:message|email) (?:was )?not found|\b404\b/.test(msg)) return 404;
+  if (/\bunauthorized\b|invalid credentials|invalid_grant|token (?:has been )?(?:expired|revoked)|\b401\b/.test(msg)) return 401;
+  if (/rate limit|too many requests|\b429\b/.test(msg)) return 429;
+  return 502;
 }
 
 /**
@@ -382,7 +475,7 @@ export async function getComposioMessage(
   }
 
   if (lastError) {
-    throw new ComposioError(lastError, 502);
+    throw new ComposioError(lastError, composioMailErrorStatus(lastError));
   }
   return null;
 }
@@ -408,7 +501,7 @@ export async function listComposioInbox(
           }
         : {
             top: 20,
-            folder: "Inbox",
+            folder: "inbox",
             orderby: ["receivedDateTime desc"],
             ...(opts?.skip ? { skip: opts.skip } : {}),
           },
@@ -448,8 +541,8 @@ export async function sendComposioMail(
     userId,
     arguments:
       toolkit === "gmail"
-        ? { recipient_email: to, subject, body }
-        : { to_email: to, subject, body },
+        ? buildGmailSendArguments(to, subject, body)
+        : buildOutlookSendArguments(to, subject, body),
   });
   return res.successful ? { ok: true } : { ok: false, error: res.error ?? "Send failed" };
 }
