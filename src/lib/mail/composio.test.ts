@@ -50,6 +50,14 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.id).toBe("alt-id");
   });
 
+  it("uses message_id as id when id and messageId are absent", () => {
+    const raw = { message_id: "snake-id", subject: "Snake case id" };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe("snake-id");
+    expect(result!.threadId).toBe("snake-id");
+  });
+
   it("falls back to flattened Composio fields when no payload headers", () => {
     const raw = {
       id: "msg2",

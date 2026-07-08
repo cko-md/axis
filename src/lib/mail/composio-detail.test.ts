@@ -113,4 +113,23 @@ describe("getComposioMessage()", () => {
       body: "Nested snippet body",
     });
   });
+
+  it("normalizes envelopes that only expose message_id", async () => {
+    executeToolMock.mockResolvedValue({
+      successful: true,
+      data: {
+        message_id: "msg-snake",
+        subject: "Snake case envelope",
+        messageText: "Envelope body",
+      },
+    });
+
+    const result = await getComposioMessage("gmail", "ca_1", "user_1", "msg-snake", "user@gmail.com");
+
+    expect(result).toMatchObject({
+      id: "msg-snake",
+      subject: "Snake case envelope",
+      body: "Envelope body",
+    });
+  });
 });
