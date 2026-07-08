@@ -1,12 +1,10 @@
 import Link from "next/link";
+import { AxisAtmosphere } from "@/components/ui/axis/AxisAtmosphere";
 
 export default function NotFound() {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 12, color: "var(--ink)", fontFamily: "var(--mono)" }}>
-      <div className="depthfield" aria-hidden>
-        <div className="wash" /><div className="aurora" /><div className="aurora2" />
-        <div className="haze" /><div className="fall" /><div className="vig" />
-      </div>
+      <AxisAtmosphere />
       <div className="grain" aria-hidden />
       <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
         <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".12em", color: "var(--ink-faint)" }}>404</div>

@@ -370,20 +370,33 @@ body::before {
 .depthfield .haze {
   position: absolute;
   inset: 0;
-  background: radial-gradient(150% 95% at 50% 40%, rgba(30, 35, 49, 0.62), transparent 68%);
+  background: radial-gradient(
+    150% 95% at 50% 40%,
+    color-mix(in srgb, var(--axis-chrome-graphite) 62%, transparent),
+    transparent 68%
+  );
 }
 
 .depthfield .fall {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(232, 228, 220, 0.07), transparent 28%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--axis-liquid-pearl) 10%, transparent),
+    transparent 28%
+  );
 }
 
 .depthfield .vig {
   position: absolute;
   inset: 0;
-  background: radial-gradient(122% 120% at 50% 34%, transparent 46%, rgba(6, 7, 10, 0.5) 78%, rgba(5, 6, 9, 1) 100%);
-  box-shadow: inset 0 0 300px 50px rgba(5, 6, 9, 0.78);
+  background: radial-gradient(
+    122% 120% at 50% 34%,
+    transparent 46%,
+    color-mix(in srgb, var(--axis-liquid-shadow) 70%, transparent) 78%,
+    color-mix(in srgb, var(--axis-liquid-shadow) 100%, black 24%) 100%
+  );
+  box-shadow: inset 0 0 300px 50px color-mix(in srgb, var(--axis-liquid-shadow) 78%, black 18%);
 }
 
 @keyframes dfdrift {
@@ -1736,13 +1749,6 @@ html.light :is(.card, .axis-reflective-card)::after {
   min-height: 108px;
 }
 
-.widget-skeleton-icon,
-.widget-skeleton-line {
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 10%, transparent), transparent);
-  background-size: 220% 100%;
-  animation: widget-skeleton-shimmer 1.6s ease-in-out infinite;
-}
-
 .widget-skeleton-icon {
   width: 32px;
   height: 32px;
@@ -1774,12 +1780,6 @@ html.light :is(.card, .axis-reflective-card)::after {
   width: 58%;
   margin-bottom: 0;
 }
-
-@keyframes widget-skeleton-shimmer {
-  from { background-position: 120% 0; }
-  to { background-position: -120% 0; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .widget-skeleton-icon,
   .widget-skeleton-line {
