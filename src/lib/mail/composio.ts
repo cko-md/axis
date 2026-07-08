@@ -26,14 +26,23 @@ const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
-// Single-message fetch tools. Best-effort slugs (Gmail's single-message fetch
-// and Outlook's get-message) — NOT yet confirmed against a live connected
-// account, mapped defensively like the list normalizers above. A wrong slug
-// surfaces as a structured `provider_error` the UI shows, which is strictly
-// better than the previous behavior (the message detail route had no Composio
-// branch at all, so Composio rows 404'd silently). Verify on first live test.
+// Single-message fetch tools.
+//
+// Gmail: `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID` is the verified single-message
+// fetch slug (confirmed 2026-07-08 against Composio's live tool catalog /
+// `/tools` schema — it is the documented primary tool for "fetch a Gmail
+// message by id"). The previously-tried `GMAIL_GET_MESSAGE` fallback is NOT a
+// real Composio slug, so it only ever wasted a round-trip and muddied error
+// reporting; it has been removed to enforce the verified slug.
+//
+// Outlook: `OUTLOOK_OUTLOOK_GET_MESSAGE` stays best-effort (still pending live
+// validation with an active Outlook account — see docs/architecture/
+// integration-adapters.md). A wrong slug surfaces as a structured
+// `provider_error` the UI shows, which is strictly better than the original
+// behavior (the message detail route had no Composio branch at all, so
+// Composio rows 404'd silently).
 const GET_TOOL: Record<MailToolkit, string[]> = {
-  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", "GMAIL_GET_MESSAGE"],
+  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"],
   outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
 };
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
@@ -68,12 +77,35 @@ export async function listComposioMailAccounts(userId: string): Promise<Composio
   }));
 }
 
+// Reads a Gmail header value across the shapes Composio/Gmail return it in:
+//   • the native API array of `{ name, value }` entries, and
+//   • a flattened object map (`{ From: "...", Subject: "..." }`) some Composio
+//     responses use.
+// Header-name matching is case-insensitive in both shapes.
 function gmailHeader(headers: unknown, name: string): string {
-  if (!Array.isArray(headers)) return "";
-  const h = headers.find(
-    (x) => typeof x?.name === "string" && x.name.toLowerCase() === name.toLowerCase(),
-  );
-  return typeof h?.value === "string" ? h.value : "";
+  const wanted = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    const h = headers.find(
+      (x) => typeof x?.name === "string" && x.name.toLowerCase() === wanted,
+    );
+    return typeof h?.value === "string" ? h.value : "";
+  }
+  const record = asRecord(headers);
+  if (record) {
+    for (const [key, value] of Object.entries(record)) {
+      if (key.toLowerCase() === wanted && typeof value === "string") return value;
+    }
+  }
+  return "";
+}
+
+// Gmail message payloads carry headers under `payload.headers` (native API
+// shape), but some Composio responses hoist them to a top-level `headers`
+// field instead. Resolve whichever is present so header extraction works for
+// both payload shapes.
+function gmailHeaderSource(m: Record<string, unknown>): unknown {
+  const payload = asRecord(m.payload);
+  return payload?.headers ?? m.headers ?? null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -119,14 +151,15 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
   return data;
 }
 
+// Confirmed argument schema for GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID (Composio
+// `/tools` schema): `message_id` (the Gmail API id), `user_id` ("me" for the
+// authenticated mailbox), and `format`. `full` returns the complete MIME
+// structure (payload.headers + nested parts with base64url-encoded body data)
+// we need for body + attachment extraction. The extra speculative variants
+// (`FULL`, `messageId`, `id`, no-format) were removed now that the schema is
+// verified — they never matched and only added latency on failures.
 function gmailGetMessageArguments(messageId: string): Record<string, unknown>[] {
-  return [
-    { message_id: messageId, user_id: "me", format: "full" },
-    { message_id: messageId, user_id: "me", format: "FULL" },
-    { messageId, user_id: "me", format: "full" },
-    { id: messageId, user_id: "me", format: "full" },
-    { message_id: messageId },
-  ];
+  return [{ message_id: messageId, user_id: "me", format: "full" }];
 }
 
 function outlookGetMessageArguments(messageId: string): Record<string, unknown>[] {
@@ -174,7 +207,20 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     "snippet",
     "bodyPreview",
   ]);
-  return { body: text ?? "", bodyIsHtml: false };
+  if (text) return { body: text, bodyIsHtml: false };
+
+  // Composio's Gmail fetch tools wrap a short rendering under `preview`
+  // (`{ body, subject }`); use it as the final fallback so a message still
+  // opens with readable content when no full body field is present.
+  const preview = asRecord(m.preview);
+  if (preview) {
+    const previewHtml = stringField(preview, ["html", "bodyHtml", "body_html"]);
+    if (previewHtml) return { body: previewHtml, bodyIsHtml: true };
+    const previewBody = stringField(preview, ["body", "text", "content"]);
+    if (previewBody) return { body: previewBody, bodyIsHtml: looksLikeHtml(previewBody) };
+  }
+
+  return { body: "", bodyIsHtml: false };
 }
 
 function numberField(source: Record<string, unknown>, keys: string[]): number | null {
@@ -227,7 +273,7 @@ export function normalizeGmailMessage(
 ): MailMessage | null {
   const id = (m.id ?? m.messageId) as string | undefined;
   if (!id) return null;
-  const headers = (m.payload as Record<string, unknown> | undefined)?.headers;
+  const headers = gmailHeaderSource(m);
   return {
     id,
     threadId: (m.threadId as string) ?? id,

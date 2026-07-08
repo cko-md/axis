@@ -94,6 +94,29 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.connectedAccountId).toBe("ca_xyz");
   });
 
+  it("reads headers from a top-level `headers` array when payload is absent", () => {
+    const raw = {
+      id: "msg-top-headers",
+      headers: [
+        { name: "From", value: "Dana <dana@example.com>" },
+        { name: "Subject", value: "Top-level headers" },
+      ],
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Dana <dana@example.com>");
+    expect(result!.subject).toBe("Top-level headers");
+  });
+
+  it("reads headers from a flattened object-map shape", () => {
+    const raw = {
+      id: "msg-map-headers",
+      payload: { headers: { From: "Erin <erin@example.com>", subject: "Mapped subject" } },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Erin <erin@example.com>");
+    expect(result!.subject).toBe("Mapped subject");
+  });
+
   it("uses snippet from messageText when snippet is absent", () => {
     const raw = { id: "msg5", messageText: "This is a longer text that should be used as snippet" };
     const result = normalizeGmailMessage(raw, "user@gmail.com");
@@ -228,6 +251,48 @@ describe("normalizeGmailMessageFull()", () => {
 
     expect(result).toMatchObject({
       body: "Line one\nLine two",
+      bodyIsHtml: false,
+    });
+  });
+
+  it("prefers the native Gmail MIME payload (base64url parts) over flattened fields", () => {
+    const b64url = (s: string) =>
+      Buffer.from(s, "utf-8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-payload",
+        // Flattened fallback that should be ignored in favor of the payload.
+        messageText: "flattened text should lose",
+        payload: {
+          mimeType: "multipart/alternative",
+          headers: [{ name: "Subject", value: "Payload wins" }],
+          parts: [
+            { mimeType: "text/plain", body: { data: b64url("plain part") } },
+            { mimeType: "text/html", body: { data: b64url("<p>payload wins</p>") } },
+          ],
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      subject: "Payload wins",
+      body: "<p>payload wins</p>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("falls back to the Composio `preview` object when no body field is present", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-preview",
+        preview: { body: "Preview only body", subject: "Preview subject" },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "Preview only body",
       bodyIsHtml: false,
     });
   });
