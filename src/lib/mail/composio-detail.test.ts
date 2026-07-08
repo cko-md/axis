@@ -68,4 +68,49 @@ describe("getComposioMessage()", () => {
       bodyIsHtml: true,
     });
   });
+
+  it("unwraps nested envelopes when the outer record lacks body content", async () => {
+    executeToolMock.mockResolvedValue({
+      successful: true,
+      data: {
+        id: "msg-outer",
+        message: {
+          id: "msg-inner",
+          payload: {
+            headers: [{ name: "Subject", value: "Nested envelope" }],
+            parts: [{ mimeType: "text/plain", body: { data: "SW5uZXI=" } }],
+          },
+        },
+      },
+    });
+
+    const result = await getComposioMessage("gmail", "ca_1", "user_1", "msg-inner", "user@gmail.com");
+
+    expect(result).toMatchObject({
+      id: "msg-inner",
+      subject: "Nested envelope",
+      body: "Inner",
+    });
+  });
+
+  it("prefers nested snippet over a sparse outer payload", async () => {
+    executeToolMock.mockResolvedValue({
+      successful: true,
+      data: {
+        id: "msg-outer",
+        payload: { headers: [{ name: "Subject", value: "Outer subject" }] },
+        message: {
+          id: "msg-inner",
+          snippet: "Nested snippet body",
+        },
+      },
+    });
+
+    const result = await getComposioMessage("gmail", "ca_1", "user_1", "msg-inner", "user@gmail.com");
+
+    expect(result).toMatchObject({
+      id: "msg-inner",
+      body: "Nested snippet body",
+    });
+  });
 });

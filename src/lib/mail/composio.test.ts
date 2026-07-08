@@ -433,6 +433,62 @@ describe("normalizeGmailMessageFull()", () => {
       bodyIsHtml: false,
     });
   });
+
+  it("prefers gmail_payload body over a header-only payload", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-sparse",
+        payload: { headers: [{ name: "Subject", value: "Sparse payload" }] },
+        gmail_payload: {
+          mimeType: "text/plain",
+          body: { data: "RnVsbCBib2R5" },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      subject: "Sparse payload",
+      body: "Full body",
+    });
+  });
+
+  it("falls back to headers in gmail_payload when payload.headers is empty", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-empty-headers",
+        payload: { headers: [] },
+        gmail_payload: {
+          headers: [{ name: "From", value: "sender@example.com" }, { name: "Subject", value: "Recovered" }],
+          mimeType: "text/plain",
+          body: { data: "SGVsbG8=" },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      from: "sender@example.com",
+      subject: "Recovered",
+      body: "Hello",
+    });
+  });
+
+  it("prefers preview.body over snippet for the detail body", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-preview",
+        snippet: "short",
+        preview: { body: "Longer preview body text" },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "Longer preview body text",
+      snippet: "short",
+    });
+  });
 });
 
 describe("normalizeOutlookMessageFull()", () => {

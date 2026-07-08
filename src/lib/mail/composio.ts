@@ -109,6 +109,61 @@ function stringField(source: Record<string, unknown>, keys: string[]): string | 
   return undefined;
 }
 
+function hasUsableHeaders(headers: unknown): boolean {
+  if (headers == null) return false;
+  if (Array.isArray(headers)) return headers.length > 0;
+  if (typeof headers === "object") return Object.keys(headers as Record<string, unknown>).length > 0;
+  return false;
+}
+
+function hasGmailBodyContent(payload: Record<string, unknown>): boolean {
+  if (Array.isArray(payload.parts) && payload.parts.length > 0) return true;
+  const body = asRecord(payload.body);
+  return Boolean(body && (body.data || body.attachmentId || body.attachment_id));
+}
+
+function hasDecodableGmailPayload(record: Record<string, unknown>): boolean {
+  const candidates = [
+    record.payload,
+    record.gmailPayload,
+    record.gmail_payload,
+    record.messagePayload,
+    record.message_payload,
+    record.rawPayload,
+    record.raw_payload,
+    asRecord(record.message)?.payload,
+    asRecord(record.data)?.payload,
+  ];
+  for (const candidate of candidates) {
+    const payload = asRecord(candidate);
+    if (payload && hasGmailBodyContent(payload)) return true;
+  }
+  return false;
+}
+
+function hasMessageBodyContent(record: Record<string, unknown>): boolean {
+  if (hasDecodableGmailPayload(record)) return true;
+  if (stringField(record, ["messageHtml", "message_html", "bodyHtml", "htmlBody", "body_html", "html"])) {
+    return true;
+  }
+  const bodyObj = asRecord(record.body);
+  if (bodyObj && stringField(bodyObj, ["content", "body", "value", "data"])) return true;
+  if (stringField(record, ["messageText", "message_text", "bodyText", "plainText", "plain_text", "text"])) {
+    return true;
+  }
+  const preview = asRecord(record.preview);
+  if (typeof preview?.body === "string" && preview.body.trim().length > 0) return true;
+  return Boolean(stringField(record, ["snippet", "bodyPreview", "body_preview"]));
+}
+
+function messageIdentity(record: Record<string, unknown>): string | undefined {
+  for (const key of ["id", "messageId", "message_id"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
 function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unknown> {
   const nestedResults = Array.isArray(data.results) ? data.results[0] : undefined;
   const nestedResponse = asRecord(nestedResults)?.response;
@@ -130,34 +185,38 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
     data,
   ];
 
+  const records: Record<string, unknown>[] = [];
   for (const candidate of candidates) {
     const first = Array.isArray(candidate) ? candidate[0] : candidate;
     const record = asRecord(first);
-    if (record && (record.id || record.messageId)) return record;
+    if (record) records.push(record);
   }
 
-  for (const candidate of candidates) {
-    const first = Array.isArray(candidate) ? candidate[0] : candidate;
-    const record = asRecord(first);
-    if (record) return record;
-  }
+  const withIdentity = records.filter((record) => messageIdentity(record));
+  const rich = withIdentity.find((record) => hasMessageBodyContent(record));
+  if (rich) return rich;
 
-  return data;
+  if (withIdentity.length > 0) return withIdentity[0];
+
+  return records[0] ?? data;
 }
 
 function extractGmailHeaders(m: Record<string, unknown>): unknown {
-  const nestedPayload = asRecord(m.payload) ?? asRecord(asRecord(m.data)?.payload);
-  return (
-    nestedPayload?.headers ??
-    asRecord(m.gmailPayload)?.headers ??
-    asRecord(m.gmail_payload)?.headers ??
-    asRecord(m.messagePayload)?.headers ??
-    asRecord(m.message_payload)?.headers ??
-    m.headers ??
-    m.payloadHeaders ??
-    m.payload_headers ??
-    []
-  );
+  const sources = [
+    asRecord(m.payload)?.headers,
+    asRecord(asRecord(m.data)?.payload)?.headers,
+    asRecord(m.gmailPayload)?.headers,
+    asRecord(m.gmail_payload)?.headers,
+    asRecord(m.messagePayload)?.headers,
+    asRecord(m.message_payload)?.headers,
+    m.headers,
+    m.payloadHeaders,
+    m.payload_headers,
+  ];
+  for (const headers of sources) {
+    if (hasUsableHeaders(headers)) return headers;
+  }
+  return [];
 }
 
 function extractGmailPayload(m: Record<string, unknown>): GmailPayload | null {
@@ -172,14 +231,19 @@ function extractGmailPayload(m: Record<string, unknown>): GmailPayload | null {
     asRecord(m.message)?.payload,
     asRecord(m.data)?.payload,
   ];
+  let sparse: GmailPayload | null = null;
   for (const candidate of candidates) {
     const payload = asRecord(candidate);
     if (!payload) continue;
-    if (payload.parts || payload.body || payload.headers || payload.mimeType || payload.mime_type) {
-      return payload as GmailPayload;
+    if (hasGmailBodyContent(payload)) return payload as GmailPayload;
+    if (
+      !sparse &&
+      (payload.headers || payload.mimeType || payload.mime_type || payload.body)
+    ) {
+      sparse = payload as GmailPayload;
     }
   }
-  return null;
+  return sparse;
 }
 
 // Verified against Composio's live tool schema (2026-07-08):
@@ -250,6 +314,9 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
   const genericBody = stringField(m, ["body", "message", "content"]);
   if (genericBody) return { body: genericBody, bodyIsHtml: looksLikeHtml(genericBody) };
 
+  const previewBody = stringField(asRecord(m.preview) ?? {}, ["body"]);
+  if (previewBody) return { body: previewBody, bodyIsHtml: looksLikeHtml(previewBody) };
+
   const text = stringField(m, [
     "messageText",
     "message_text",
@@ -260,12 +327,12 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     "body_text",
     "text_body",
     "text",
-    "snippet",
-    "bodyPreview",
-    "body_preview",
     "plainContent",
   ]);
-  return { body: text ?? "", bodyIsHtml: false };
+  if (text) return { body: text, bodyIsHtml: false };
+
+  const preview = stringField(m, ["snippet", "bodyPreview", "body_preview"]);
+  return { body: preview ?? "", bodyIsHtml: false };
 }
 
 function numberField(source: Record<string, unknown>, keys: string[]): number | null {

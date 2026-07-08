@@ -166,6 +166,11 @@ export function normalizeOutlookCalEvent(e: Record<string, unknown>): ExternalCa
   };
 }
 
+function outlookDateFilterBounds(timeMin: string, timeMax: string): { dateMin: string; dateMax: string } {
+  const toDate = (value: string) => value.slice(0, 10);
+  return { dateMin: toDate(timeMin), dateMax: toDate(timeMax) };
+}
+
 export async function listComposioEvents(
   toolkit: CalendarToolkit,
   connectedAccountId: string,
@@ -173,6 +178,7 @@ export async function listComposioEvents(
   timeMin: string,
   timeMax: string,
 ): Promise<ExternalCalendarEvent[]> {
+  const outlookBounds = outlookDateFilterBounds(timeMin, timeMax);
   const res = await executeTool({
     toolSlug: LIST_EVENTS_TOOL[toolkit],
     connectedAccountId,
@@ -182,8 +188,10 @@ export async function listComposioEvents(
         ? { calendarId: "primary", timeMin, timeMax, orderBy: "startTime" }
         : {
             top: 100,
-            filter: `start/dateTime ge '${timeMin}' and start/dateTime le '${timeMax}'`,
-            orderby: ["start/dateTime"],
+            filter:
+              `(start/dateTime ge '${timeMin}' and start/dateTime le '${timeMax}')` +
+              ` or (start/date ge '${outlookBounds.dateMin}' and start/date le '${outlookBounds.dateMax}')`,
+            orderby: ["start/dateTime", "start/date"],
             timezone: "UTC",
           },
   });
