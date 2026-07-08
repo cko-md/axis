@@ -119,9 +119,10 @@ UI/Control Room should read `getCapabilities(domain, provider, transport)` to de
 
 ### Composio verification caveats
 
-Composio tool-slug accuracy is confirmed only for the already-live paths (list via `GMAIL_FETCH_EMAILS` / `OUTLOOK_OUTLOOK_LIST_MESSAGES`, send via `GMAIL_SEND_EMAIL` / `OUTLOOK_OUTLOOK_SEND_EMAIL`). New in this change:
+Composio tool-slug accuracy is confirmed only for the already-live paths (list via `GMAIL_FETCH_EMAILS` / `OUTLOOK_OUTLOOK_LIST_MESSAGES`, send via `GMAIL_SEND_EMAIL` / `OUTLOOK_OUTLOOK_SEND_EMAIL`).
 
-- **`getMessage`** uses single-message slugs (`GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `OUTLOOK_OUTLOOK_GET_MESSAGE`) with defensive payload parsing. Gmail detail has been verified against a live Composio account; Outlook detail still needs an active Outlook account for final live validation.
+- **`getMessage` (Gmail)** uses `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID` — confirmed as the sole Gmail single-message tool slug against Composio's `/tools/{slug}` schema endpoint (a previously-guessed alternate, `GMAIL_GET_MESSAGE`, does not exist and has been removed). Its input schema (`message_id`, `user_id` default `"me"`, `format` default `"full"`) and output shape (`messageId`/`threadId`/`sender`/`subject`/`messageTimestamp`/`payload`/`attachmentList`/`preview`) are schema-confirmed; body/header/attachment parsing is still defensive (tries the native `payload` MIME shape first, falls back to Composio's flattened fields) since a real connected account with real message content has not exercised it end to end.
+- **`getMessage` (Outlook)** uses `OUTLOOK_OUTLOOK_GET_MESSAGE` with defensive multi-arg parsing; still needs an active Outlook account (and ideally the same schema-endpoint check performed for Gmail) for final live validation.
 - **Composio `replyToMessage`** intentionally degrades to the verified send tools until native threading args are confirmed. The composer displays this before send, and the API returns a safe success warning after send so the limitation is explicit rather than hidden.
 - **Gmail Composio actions** are verified and wired. **Outlook Composio actions** stay `not_supported` until active-account validation confirms the right mutation semantics and folder IDs.
 
@@ -151,7 +152,7 @@ Run against local dev and again on the Vercel preview.
 8. **Reply:** open a message → Reply → send → arrives; subject is `Re: …` (not doubled).
 9. **Attachments:** for direct Gmail/Outlook, route an attachment to Library and confirm the file is saved. For Composio Gmail/Outlook, confirm the attachment affordance is labeled as Dispatch routing, not direct download.
 10. **Error path (no silent failures):**
-   - Temporarily break a Composio slug (e.g. edit `GET_TOOL` to an invalid value) → opening a Composio message returns a visible error (HTTP 502), not an infinite spinner; restore the slug.
+   - Temporarily break a Composio slug (e.g. edit `GMAIL_GET_MESSAGE_TOOL`/`OUTLOOK_GET_MESSAGE_TOOL` in `src/lib/mail/composio.ts` to an invalid value) → opening a Composio message returns a visible error (HTTP 502), not an infinite spinner; restore the slug.
    - Disconnect an account mid-session and refresh → that account's rows disappear; remaining accounts still list (one account failing never blanks the inbox).
 11. **Persistence:** refresh `/mail` → accounts + inbox reload; re-opening a message still works.
 12. **Vercel preview:** repeat steps 4–11 on the preview deploy URL.

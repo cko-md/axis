@@ -105,6 +105,24 @@ describe("normalizeGmailMessage()", () => {
     const result = normalizeGmailMessage(raw, "user@gmail.com");
     expect(result!.threadId).toBe("msg6");
   });
+
+  it("uses messageId + sender from the confirmed GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID output shape", () => {
+    const raw = { messageId: "19b11732c1b578fd", sender: "alice@example.com", subject: "Hi", messageTimestamp: "2025-06-01T12:00:00Z" };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).toMatchObject({ id: "19b11732c1b578fd", from: "alice@example.com", subject: "Hi" });
+  });
+
+  it("falls back to a nested preview object's snippet field when top-level snippet/messageText are absent", () => {
+    const raw = { id: "msg7", preview: { snippet: "Preview text from nested object" } };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.snippet).toBe("Preview text from nested object");
+  });
+
+  it("prefers top-level snippet over the nested preview object", () => {
+    const raw = { id: "msg8", snippet: "Top-level snippet", preview: { snippet: "Should not be used" } };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.snippet).toBe("Top-level snippet");
+  });
 });
 
 describe("normalizeOutlookMessage()", () => {
@@ -230,6 +248,47 @@ describe("normalizeGmailMessageFull()", () => {
       body: "Line one\nLine two",
       bodyIsHtml: false,
     });
+  });
+
+  it("reads attachments from the confirmed attachmentList field when there is no MIME payload", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-4",
+        messageText: "See attached",
+        attachmentList: [
+          { attachmentId: "att-1", filename: "invoice.pdf", mimeType: "application/pdf", size: 2048 },
+        ],
+      },
+      "user@gmail.com",
+    );
+
+    expect(result?.attachments).toEqual([
+      expect.objectContaining({ id: "att-1", filename: "invoice.pdf", mimeType: "application/pdf", sizeBytes: 2048 }),
+    ]);
+  });
+
+  it("prefers MIME-payload attachments over attachmentList when both are present", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-5",
+        attachmentList: [{ attachmentId: "wrong", filename: "should-not-use.txt", mimeType: "text/plain" }],
+        payload: {
+          mimeType: "multipart/mixed",
+          parts: [
+            {
+              mimeType: "application/pdf",
+              filename: "report.pdf",
+              body: { attachmentId: "att-real", size: 4096 },
+            },
+          ],
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result?.attachments).toEqual([
+      expect.objectContaining({ id: "att-real", filename: "report.pdf" }),
+    ]);
   });
 });
 

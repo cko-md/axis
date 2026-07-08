@@ -26,16 +26,28 @@ const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
-// Single-message fetch tools. Best-effort slugs (Gmail's single-message fetch
-// and Outlook's get-message) — NOT yet confirmed against a live connected
-// account, mapped defensively like the list normalizers above. A wrong slug
-// surfaces as a structured `provider_error` the UI shows, which is strictly
-// better than the previous behavior (the message detail route had no Composio
-// branch at all, so Composio rows 404'd silently). Verify on first live test.
-const GET_TOOL: Record<MailToolkit, string[]> = {
-  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", "GMAIL_GET_MESSAGE"],
-  outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
-};
+// Gmail's single-message fetch tool. Verified live against Composio's
+// /tools/{slug} schema endpoint on 2026-07-08: `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`
+// is the only Gmail single-message tool Composio exposes. A previously-guessed
+// alternate slug, `GMAIL_GET_MESSAGE`, does NOT exist (schema lookup returns
+// `not_found` with suggestions pointing at unrelated tools) and has been
+// removed rather than kept as a dead fallback. Its confirmed input schema is
+// `{ message_id: string (required), user_id?: string (default "me"),
+// format?: "metadata"|"minimal"|"full"|"raw" (default "full") }`; its output
+// shape is `{ messageId, threadId, sender, subject, messageTimestamp,
+// messageText, payload, attachmentList, labelIds, preview }` — the native
+// Gmail API `payload` (headers as a `{name,value}[]`, base64url MIME parts)
+// plus a handful of Composio convenience fields, mapped defensively below the
+// same way `normalizeGmailMessage` already handles list rows.
+const GMAIL_GET_MESSAGE_TOOL = "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID";
+
+// Outlook's single-message fetch tool/args are NOT yet confirmed against a
+// live connected account or Composio's schema endpoint, so it keeps the
+// defensive multi-arg-variant loop below. A wrong slug/args surfaces as a
+// structured `provider_error` the UI shows, which is strictly better than the
+// previous behavior (the message detail route had no Composio branch at all,
+// so Composio rows 404'd silently). Verify on first live Outlook test.
+const OUTLOOK_GET_MESSAGE_TOOL = "OUTLOOK_OUTLOOK_GET_MESSAGE";
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
 const GMAIL_MOVE_TO_TRASH_TOOL = "GMAIL_MOVE_TO_TRASH";
 
@@ -90,6 +102,13 @@ function stringField(source: Record<string, unknown>, keys: string[]): string | 
   return undefined;
 }
 
+// Some Composio payload shapes nest a preview/summary object (e.g. Gmail's
+// confirmed `preview` field) instead of a flat string field.
+function nestedStringField(source: Record<string, unknown>, containerKey: string, keys: string[]): string | undefined {
+  const container = asRecord(source[containerKey]);
+  return container ? stringField(container, keys) : undefined;
+}
+
 function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unknown> {
   const candidates = [
     data.message,
@@ -119,14 +138,8 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
   return data;
 }
 
-function gmailGetMessageArguments(messageId: string): Record<string, unknown>[] {
-  return [
-    { message_id: messageId, user_id: "me", format: "full" },
-    { message_id: messageId, user_id: "me", format: "FULL" },
-    { messageId, user_id: "me", format: "full" },
-    { id: messageId, user_id: "me", format: "full" },
-    { message_id: messageId },
-  ];
+function gmailGetMessageArguments(messageId: string): Record<string, unknown> {
+  return { message_id: messageId, user_id: "me", format: "full" };
 }
 
 function outlookGetMessageArguments(messageId: string): Record<string, unknown>[] {
@@ -190,7 +203,10 @@ function numberField(source: Record<string, unknown>, keys: string[]): number | 
 }
 
 function extractGenericAttachments(m: Record<string, unknown>): MailAttachment[] {
-  const raw = m.attachments ?? m.attachment ?? m.files ?? m.fileAttachments;
+  // `attachmentList` is Gmail's confirmed flattened attachment field (see the
+  // GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID output schema note above); the others
+  // are defensive fallbacks for Outlook / unconfirmed shapes.
+  const raw = m.attachmentList ?? m.attachments ?? m.attachment ?? m.files ?? m.fileAttachments;
   const list = Array.isArray(raw) ? raw : [];
 
   return list.flatMap((item, index) => {
@@ -240,7 +256,11 @@ export function normalizeGmailMessage(
         m.receivedDateTime ||
         m.date,
     ),
-    snippet: (m.snippet as string) ?? (m.messageText as string)?.slice(0, 200) ?? "",
+    snippet:
+      (m.snippet as string) ??
+      nestedStringField(m, "preview", ["snippet", "text", "summary", "body"]) ??
+      (m.messageText as string)?.slice(0, 200) ??
+      "",
     isUnread: Array.isArray(m.labelIds) ? (m.labelIds as string[]).includes("UNREAD") : false,
     provider: "gmail",
     accountEmail,
@@ -295,7 +315,13 @@ export function normalizeGmailMessageFull(
     body = extracted.body;
     bodyIsHtml = extracted.bodyIsHtml;
   }
-  return { ...base, body, bodyIsHtml, attachments: payload ? extractGmailAttachments(payload) : extractGenericAttachments(m) };
+  // Prefer attachments parsed from the native MIME payload (has real
+  // attachmentId/size per part); fall back to Composio's flattened
+  // `attachmentList` when the payload didn't yield any (e.g. a lighter
+  // `format` was used, or a part shape we don't recognize).
+  const payloadAttachments = payload ? extractGmailAttachments(payload) : [];
+  const attachments = payloadAttachments.length ? payloadAttachments : extractGenericAttachments(m);
+  return { ...base, body, bodyIsHtml, attachments };
 }
 
 export function normalizeOutlookMessageFull(
@@ -313,6 +339,11 @@ export function normalizeOutlookMessageFull(
  * Fetch a single message's full body via Composio. Throws ComposioError on
  * provider failure (the adapter wraps it into a structured Result); returns
  * null only when the message genuinely isn't found / can't be normalized.
+ *
+ * Gmail uses the single verified tool slug + confirmed argument shape
+ * (`GMAIL_GET_MESSAGE_TOOL`, above) in one call — no more guessing across
+ * multiple candidate slugs/args. Outlook's slug/args are still unconfirmed,
+ * so it keeps the defensive fallback loop until a live account validates it.
  */
 export async function getComposioMessage(
   toolkit: MailToolkit,
@@ -321,28 +352,35 @@ export async function getComposioMessage(
   messageId: string,
   accountEmail: string,
 ): Promise<MailMessageFull | null> {
-  const toolSlugs = GET_TOOL[toolkit];
-  const argVariants = toolkit === "gmail" ? gmailGetMessageArguments(messageId) : outlookGetMessageArguments(messageId);
-  const normalize = toolkit === "gmail" ? normalizeGmailMessageFull : normalizeOutlookMessageFull;
+  if (toolkit === "gmail") {
+    const res = await executeTool({
+      toolSlug: GMAIL_GET_MESSAGE_TOOL,
+      connectedAccountId,
+      userId,
+      arguments: gmailGetMessageArguments(messageId),
+    });
+    if (!res.successful) {
+      throw new ComposioError(res.error ?? "gmail get-message failed", 502);
+    }
+    const raw = unwrapMessageRecord(res.data as Record<string, unknown>);
+    return normalizeGmailMessageFull(raw, accountEmail, connectedAccountId);
+  }
 
   let lastError: string | null = null;
-  for (const toolSlug of toolSlugs) {
-    for (const args of argVariants) {
-      const res = await executeTool({
-        toolSlug,
-        connectedAccountId,
-        userId,
-        arguments: args,
-      });
-      if (!res.successful) {
-        lastError = res.error ?? `${toolkit} get-message failed`;
-        continue;
-      }
-      const data = res.data as Record<string, unknown>;
-      const raw = unwrapMessageRecord(data);
-      const message = normalize(raw, accountEmail, connectedAccountId);
-      if (message) return message;
+  for (const args of outlookGetMessageArguments(messageId)) {
+    const res = await executeTool({
+      toolSlug: OUTLOOK_GET_MESSAGE_TOOL,
+      connectedAccountId,
+      userId,
+      arguments: args,
+    });
+    if (!res.successful) {
+      lastError = res.error ?? "outlook get-message failed";
+      continue;
     }
+    const raw = unwrapMessageRecord(res.data as Record<string, unknown>);
+    const message = normalizeOutlookMessageFull(raw, accountEmail, connectedAccountId);
+    if (message) return message;
   }
 
   if (lastError) {
