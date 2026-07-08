@@ -126,7 +126,8 @@ export function useTrainingWeek() {
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  // true once we've decided the DB is unavailable → all writes go to localStorage
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // true once we've decided the DB is unavailable → all writes go to localStorage (signed-out demo only)
   const [useLocal, setUseLocal] = useState(false);
 
   const persistLocal = useCallback(
@@ -146,6 +147,7 @@ export function useTrainingWeek() {
     if (!user) {
       setUserId(null);
       setUseLocal(true);
+      setLoadError(null);
       const existing = lsRead("demo");
       const rows = existing ?? buildSeed("demo");
       if (!existing) lsWrite("demo", rows);
@@ -163,17 +165,16 @@ export function useTrainingWeek() {
       .order("dow", { ascending: true })
       .order("sort_order", { ascending: true });
 
-    // Table missing (migration not applied) or any DB error → localStorage fallback
+    // Signed-in users must not silently fall back to localStorage on DB errors.
     if (error) {
-      setUseLocal(true);
-      const existing = lsRead(user.id);
-      const rows = existing ?? buildSeed(user.id);
-      if (!existing) lsWrite(user.id, rows);
-      setSessions(rows);
+      setUseLocal(false);
+      setLoadError("Training plan could not be loaded. Changes may not sync until you refresh.");
+      setSessions([]);
       setLoading(false);
       return;
     }
 
+    setLoadError(null);
     setUseLocal(false);
     if (!data?.length) {
       // First run on a real DB — seed once so the planner isn't empty.
@@ -186,11 +187,8 @@ export function useTrainingWeek() {
         .insert(seed.map((s) => ({ ...s, user_id: user.id })))
         .select();
       if (insErr || !inserted) {
-        // Insert failed — fall back to local so the UI still works
-        setUseLocal(true);
-        const rows = buildSeed(user.id);
-        lsWrite(user.id, rows);
-        setSessions(rows);
+        setLoadError("Could not seed training plan to Supabase.");
+        setSessions([]);
       } else {
         setSessions(inserted as TrainingSession[]);
       }
@@ -293,6 +291,7 @@ export function useTrainingWeek() {
     sessions,
     loading,
     persistence: useLocal ? ("local" as const) : ("supabase" as const),
+    loadError,
     signedIn: !!userId,
     refresh,
     addSession,

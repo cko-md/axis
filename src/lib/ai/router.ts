@@ -64,9 +64,12 @@ async function geminiGenerate(params: {
   const key = getGeminiApiKey();
   if (!key) throw new Error("GEMINI_API_KEY not set");
 
-  const res = await fetch(`${GEMINI_URL}?key=${key}`, {
+  const res = await fetch(GEMINI_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": key,
+    },
     body: JSON.stringify({
       contents: params.messages,
       systemInstruction: { parts: [{ text: params.system }] },

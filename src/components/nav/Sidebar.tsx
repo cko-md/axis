@@ -27,6 +27,7 @@ import type { NavGroup, NavItem } from "@/lib/store/nav";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection";
 import { UrlModules } from "@/components/nav/UrlModules";
+import { Icon } from "@/components/ui/Icon";
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
 const NAV_ORDER_KEY       = "axis-nav-order";
@@ -101,39 +102,10 @@ function applyGroupOrder(nav: typeof DEFAULT_NAV, order: string[]): typeof DEFAU
   });
 }
 
-// ─── SVG Icons ───────────────────────────────────────────────────────────────
-const ICONS: Record<string, React.ReactNode> = {
-  console:    <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
-  signals:    <path d="M3 13h5l2 3h4l2-3h5M5 6h14l2 7v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5z" />,
-  calendar:   <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></>,
-  agenda:     <path d="M4 6h16M4 12h16M4 18h10" />,
-  mail:       <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></>,
-  notes:      <><path d="M5 3h11l4 4v14H5z" /><path d="M9 8h7M9 12h7M9 16h4" /></>,
-  goals:      <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 1v3M12 20v3" /></>,
-  review:     <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 4v4h4" />,
-  pipeline:   <path d="M4 5h16M4 5v14M4 19h16M9 9h7M9 13h5" />,
-  literature: <path d="M4 4h7a2 2 0 0 1 2 2v13a2 2 0 0 0-2-1H4zM20 4h-7a2 2 0 0 0-2 2v13a2 2 0 0 1 2-1h7z" />,
-  fitness:    <path d="M6 6v12M18 6v12M6 12h12M3 9v6M21 9v6" />,
-  atelier:    <path d="M3 21l4-1 11-11-3-3L4 17zM14 6l3 3" />,
-  people:     <><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0M16 6a3 3 0 0 1 0 6M21 20a5 5 0 0 0-4-5" /></>,
-  briefing:   <><path d="M4 5h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /><path d="M8 9h7M8 13h5" /></>,
-  vault:      <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2.6" /><path d="M12 3v3M12 18v3" /></>,
-  library:    <path d="M3 7l2-3h6l2 3h6a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" />,
-  recipes:    <path d="M6 3v18M6 5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6M10 9h6M10 13h6" />,
-  chart:      <path d="M4 19V5M4 19h16M8 15l3-4 3 3 4-6" />,
-  gallery:    <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 15l5-5 4 4 3-3 6 6" /></>,
-  system:     <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.7a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z" /></>,
-  app:        <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 9h6v6H9z" /></>,
-  add:        <path d="M12 5v14M5 12h14" />,
-  board:      <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />,
-};
+// ─── Nav icons (Lucide via Icon primitive) ───────────────────────────────────
 
 function NavIcon({ name }: { name: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      {ICONS[name] ?? ICONS.chart}
-    </svg>
-  );
+  return <Icon icon={name} size="sm" aria-hidden />;
 }
 
 function NavStatusBadge({ status }: { status?: NavItem["status"] }) {

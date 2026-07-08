@@ -7,6 +7,6 @@ export async function POST() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const results = await scanForObjectives(user.id, supabase);
-  return NextResponse.json({ results });
+  const scan = await scanForObjectives(user.id, supabase);
+  return NextResponse.json(scan);
 }

@@ -42,12 +42,16 @@ export const outlookComposioAdapter: MailAdapter = {
   provider: "outlook",
   transport: "composio",
 
-  async listInbox(ctx: MailAccountContext): Promise<Result<InboxPage>> {
+  async listInbox(ctx: MailAccountContext, opts?: { pageToken?: string; skip?: number }): Promise<Result<InboxPage>> {
     const acct = requireConnectedAccount(ctx);
     if (!acct.ok) return acct;
     try {
-      const messages = await listComposioInbox("outlook", acct.data, ctx.userId, ctx.mailEmail);
-      return ok({ messages });
+      const page = await listComposioInbox("outlook", acct.data, ctx.userId, ctx.mailEmail, opts);
+      return ok({
+        messages: page.messages,
+        hasMore: page.hasMore,
+        nextPageToken: page.nextPageToken,
+      });
     } catch (e) {
       return failFromException(e, "Failed to load Outlook inbox", { provider: "outlook", transport: "composio" });
     }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
 import { useTasks } from "@/lib/hooks/useTasks";
 import {
@@ -226,6 +227,7 @@ export function PipelineModule() {
     studies,
     conferences,
     loading,
+    loadError,
     signedIn,
     addStage,
     deleteStage,
@@ -480,6 +482,8 @@ export function PipelineModule() {
 
       {loading ? (
         <div className="empty-state">Loading pipeline…</div>
+      ) : loadError ? (
+        <StatusCallout kind="error" title="Pipeline unavailable">{loadError}</StatusCallout>
       ) : !signedIn ? (
         <div className="board">
           {DEMO_COLUMNS.map((col) => (

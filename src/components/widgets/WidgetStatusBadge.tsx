@@ -1,6 +1,8 @@
 "use client";
 
 import { motion, useReducedMotion } from "motion/react";
+import { Icon } from "@/components/ui/Icon";
+import { statusIconForWidget } from "@/lib/icons/status-icons";
 import type { WidgetStatus } from "@/lib/widgets/types";
 import { shouldAnimateWidgetStatus, WIDGET_MOTION, widgetMotionMode } from "@/components/widgets/widgetMotion";
 
@@ -44,6 +46,12 @@ export function WidgetStatusBadge({ status, className = "" }: Props) {
       animate={shouldPulse ? { opacity: [0.78, 1, 0.78] } : { opacity: 1 }}
       transition={{ ...transition, repeat: shouldPulse ? Infinity : 0 }}
     >
+      <Icon
+        icon={statusIconForWidget(status)}
+        size="xs"
+        className={`inline mr-1 align-[-2px]${status === "loading" || status === "refreshing" ? " animate-spin" : ""}`}
+        aria-hidden
+      />
       {WIDGET_STATUS_LABELS[status]}
     </motion.span>
   );

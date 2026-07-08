@@ -51,3 +51,4 @@ next-env.d.ts
 
 # personal scratch scripts — not part of the app, not meant to be checked in
 agent.py
+test-results

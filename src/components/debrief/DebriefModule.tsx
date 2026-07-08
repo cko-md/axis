@@ -705,7 +705,9 @@ export function DebriefModule() {
         <div className="card tick">
           <h2 className="sec">Wins<span className="rule" /><span className="count">this week</span></h2>
           <div style={{ marginTop: 12 }}>
-            {(!signedIn || loading ? DEMO_WINS.map((t) => ({ id: t, title: t })) : taskWins).map((t) => (
+            {signedIn && loading ? (
+              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>Loading completed tasks…</div>
+            ) : (!signedIn ? DEMO_WINS.map((t) => ({ id: t, title: t })) : taskWins).map((t) => (
               <div key={typeof t === "string" ? t : t.id} className="task">
                 <div className="check done" />
                 <div className="task-main">
@@ -724,7 +726,9 @@ export function DebriefModule() {
         <div className="card">
           <h2 className="sec">Friction<span className="rule" /><span className="count">overdue · idle</span></h2>
           <div style={{ marginTop: 12 }}>
-            {(!signedIn || loading ? DEMO_FRICTION.map((f) => ({ ...f, id: null })) : friction.map((t) => ({
+            {signedIn && loading ? (
+              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>Loading friction items…</div>
+            ) : (!signedIn ? DEMO_FRICTION.map((f) => ({ ...f, id: null })) : friction.map((t) => ({
               id: t.id,
               title: t.title,
               badge: t.status === "overdue" ? "overdue" : "14d idle",
@@ -767,21 +771,25 @@ export function DebriefModule() {
         <div className="card">
           <h2 className="sec">Metrics<span className="rule" /></h2>
           <div style={{ marginTop: 12 }}>
-            {(signedIn && !loading ? [
-              ["Tasks completed", String(completedCount), completedCount > 0 ? "up" : ""],
-              ["Open tasks",      String(openCount),      ""],
-            ] : [
-              ["Deep-work hours", "22.5h", ""],
-              ["Tasks completed", "19",    "up"],
-              ["Run volume",      "38 km", ""],
-              ["Savings rate",    "28%",   "up"],
-              ["French lessons",  "4 / 5", ""],
-            ]).map(([k, v, cls]) => (
-              <div key={k} className="metricrow">
-                <span className="metric-k">{k}</span>
-                <span className={`metric-v${cls ? " " + cls : ""}`}>{v}</span>
-              </div>
-            ))}
+            {signedIn && loading ? (
+              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>Loading metrics…</div>
+            ) : (
+              (signedIn ? [
+                ["Tasks completed", String(completedCount), completedCount > 0 ? "up" : ""],
+                ["Open tasks",      String(openCount),      ""],
+              ] : [
+                ["Deep-work hours", "22.5h", ""],
+                ["Tasks completed", "19",    "up"],
+                ["Run volume",      "38 km", ""],
+                ["Savings rate",    "28%",   "up"],
+                ["French lessons",  "4 / 5", ""],
+              ]).map(([k, v, cls]) => (
+                <div key={k} className="metricrow">
+                  <span className="metric-k">{k}</span>
+                  <span className={`metric-v${cls ? " " + cls : ""}`}>{v}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { SkeletonCard } from "@/components/ui/Skeleton";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
 import { createClient } from "@/lib/supabase/client";
 import { AddAccountPicker } from "@/components/mail/AddAccountPicker";
@@ -100,7 +101,7 @@ const inputCls = "rounded border border-[var(--line)] bg-[var(--surface-2)] px-3
 
 export function PeopleModule() {
   const { toast } = useToast();
-  const { people, loading, signedIn, addPerson, updatePerson, deletePerson } = usePeople();
+  const { people, loading, loadError, signedIn, addPerson, updatePerson, deletePerson } = usePeople();
   const supabase = useMemo(() => createClient(), []);
   const [filter, setFilter] = useState<Filter>("All");
   const [modalOpen, setModalOpen] = useState(false);
@@ -402,6 +403,8 @@ export function PeopleModule() {
         <div className="people-grid" style={{ pointerEvents: "none" }}>
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} rows={3} />)}
         </div>
+      ) : loadError ? (
+        <StatusCallout kind="error" title="People unavailable">{loadError}</StatusCallout>
       ) : !signedIn ? (
         <div className="people-grid">
           {visibleDemo.map((p) => (

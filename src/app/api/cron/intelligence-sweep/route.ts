@@ -76,35 +76,37 @@ export async function POST(req: NextRequest) {
     // last 30 days of signal titles (case-insensitive substring match) since
     // that extra check isn't needed (and isn't present) on the manual button.
     try {
-      const suggestions = await scanForObjectives(userId, supabase);
-      const windowStart = new Date(Date.now() - OBJECTIVE_DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
-      const { data: recentSignals } = await supabase
-        .from("signals")
-        .select("title")
-        .eq("user_id", userId)
-        .gte("created_at", windowStart);
-      const recentLower = (recentSignals ?? []).map((s) => (s.title as string).toLowerCase());
+      const { results: suggestions, error: scanError } = await scanForObjectives(userId, supabase);
+      if (scanError) {
+        userResult.objectives_scan = { error: scanError, inserted: 0 };
+      } else {
+        const windowStart = new Date(Date.now() - OBJECTIVE_DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
+        const { data: recentSignals } = await supabase
+          .from("signals")
+          .select("title")
+          .eq("user_id", userId)
+          .gte("created_at", windowStart);
+        const recentLower = (recentSignals ?? []).map((s) => (s.title as string).toLowerCase());
 
-      let inserted = 0;
-      for (const sug of suggestions) {
-        const targetLower = sug.target.toLowerCase();
-        // Guard empty strings — "".includes(x) is false but x.includes("") is always
-        // true, which would make a blank existing title swallow every suggestion.
-        const isDuplicate = targetLower.length > 0 && recentLower.some((t) => t.length > 0 && (t.includes(targetLower) || targetLower.includes(t)));
-        if (isDuplicate) continue;
-        const { error } = await supabase.from("signals").insert({
-          user_id: userId,
-          title: sug.target,
-          body: `Surfaced from ${sug.module} · confidence: ${sug.confidence}`,
-          source: "Objectives",
-          signal_type: "fyi",
-        });
-        if (!error) {
-          inserted += 1;
-          recentLower.push(targetLower); // avoid inserting near-duplicates of each other within this same run
+        let inserted = 0;
+        for (const sug of suggestions) {
+          const targetLower = sug.target.toLowerCase();
+          const isDuplicate = targetLower.length > 0 && recentLower.some((t) => t.length > 0 && (t.includes(targetLower) || targetLower.includes(t)));
+          if (isDuplicate) continue;
+          const { error } = await supabase.from("signals").insert({
+            user_id: userId,
+            title: sug.target,
+            body: `Surfaced from ${sug.module} · confidence: ${sug.confidence}`,
+            source: "Objectives",
+            signal_type: "fyi",
+          });
+          if (!error) {
+            inserted += 1;
+            recentLower.push(targetLower);
+          }
         }
+        userResult.objectives_scan = { suggested: suggestions.length, inserted };
       }
-      userResult.objectives_scan = { suggested: suggestions.length, inserted };
     } catch (e) {
       userResult.objectives_scan = { error: String(e) };
     }

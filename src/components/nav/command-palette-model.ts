@@ -22,15 +22,15 @@ export type PaletteCommandSpec = {
 // Core create actions the palette must always expose (audit requirement:
 // new note / task / signal reachable from ⌘K).
 export const PALETTE_CREATE_COMMANDS: PaletteCommandSpec[] = [
-  { id: "create-note", label: "New Note", hint: "Create · notes", group: "create", icon: "✦", target: { kind: "route", href: "/notes" } },
-  { id: "create-task", label: "New Task", hint: "Create · agenda", group: "create", icon: "✦", target: { kind: "route", href: "/agenda" } },
-  { id: "create-event", label: "New Event", hint: "Create · schedule", group: "create", icon: "✦", target: { kind: "route", href: "/schedule" } },
-  { id: "create-signal", label: "New Signal", hint: "Create · dispatch", group: "create", icon: "✦", target: { kind: "route", href: "/dispatch" } },
+  { id: "create-note", label: "New Note", hint: "Create · notes", group: "create", icon: "create", target: { kind: "route", href: "/notes" } },
+  { id: "create-task", label: "New Task", hint: "Create · agenda", group: "create", icon: "create", target: { kind: "route", href: "/agenda" } },
+  { id: "create-event", label: "New Event", hint: "Create · schedule", group: "create", icon: "create", target: { kind: "route", href: "/schedule" } },
+  { id: "create-signal", label: "New Signal", hint: "Create · dispatch", group: "create", icon: "create", target: { kind: "route", href: "/dispatch" } },
 ];
 
 export const PALETTE_ACTION_COMMANDS: PaletteCommandSpec[] = [
-  { id: "action-interface-studio", label: "Interface Studio", hint: "Action · theme & appearance", group: "action", icon: "◈", target: { kind: "interface-studio" } },
-  { id: "action-vitality", label: "Log Workout", hint: "Action · vitality", group: "action", icon: "◈", target: { kind: "route", href: "/vitality" } },
+  { id: "action-interface-studio", label: "Interface Studio", hint: "Action · theme & appearance", group: "action", icon: "palette", target: { kind: "interface-studio" } },
+  { id: "action-vitality", label: "Log Workout", hint: "Action · vitality", group: "action", icon: "fitness", target: { kind: "route", href: "/vitality" } },
 ];
 
 // Full command set: create + action + one navigate command per nav route.
@@ -43,6 +43,7 @@ export function buildPaletteCommandSpecs(): PaletteCommandSpec[] {
       label: item.label,
       hint: `Navigate · ${item.section}`,
       group: "navigate",
+      icon: item.icon,
       target: { kind: "route", href: item.href },
     })),
   ];

@@ -65,6 +65,7 @@ export function usePeople() {
   const supabase = useMemo(() => createClient(), []);
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -74,16 +75,23 @@ export function usePeople() {
     if (!user) {
       setSignedIn(false);
       setPeople([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
     setSignedIn(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("people")
       .select("*")
       .eq("user_id", user.id)
       .order("name", { ascending: true });
-    setPeople((data ?? []) as Person[]);
+    if (error) {
+      setLoadError("People could not be loaded. Try refreshing.");
+      setPeople([]);
+    } else {
+      setLoadError(null);
+      setPeople((data ?? []) as Person[]);
+    }
     setLoading(false);
   }, [supabase]);
 
@@ -138,7 +146,7 @@ export function usePeople() {
     return {};
   }, [supabase]);
 
-  return { people, loading, signedIn, refresh, addPerson, updatePerson, deletePerson };
+  return { people, loading, loadError, signedIn, refresh, addPerson, updatePerson, deletePerson };
 }
 
 /** AI-backed triage: calls /api/ai for real extraction, heuristic fallback is server-side */

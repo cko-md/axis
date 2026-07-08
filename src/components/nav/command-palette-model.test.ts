@@ -35,6 +35,13 @@ describe("command palette model", () => {
     }
   });
 
+  it("assigns nav icon keys to every navigate command", () => {
+    const navCommands = specs.filter((c) => c.group === "navigate");
+    for (const cmd of navCommands) {
+      expect(cmd.icon, `${cmd.id} missing palette icon`).toBeTruthy();
+    }
+  });
+
   it("filters case-insensitively across label, hint, and group", () => {
     expect(filterPaletteCommandSpecs(specs, "").length).toBe(specs.length);
     expect(filterPaletteCommandSpecs(specs, "new task").some((c) => c.id === "create-task")).toBe(true);

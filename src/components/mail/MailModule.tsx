@@ -14,6 +14,7 @@ import { MessagePanel } from "./MessagePanel";
 import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
 import { isEditableTarget, mailShortcutForKey, parseSenderParts } from "@/lib/mail/reader";
 import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
+import { mailAccountQuery } from "@/lib/mail/query";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -36,6 +37,9 @@ type MailInboxResponse = {
   errors?: MailInboxError[];
   fetchedAt?: string;
   error?: string;
+  nextPageToken?: string;
+  hasMore?: boolean;
+  skip?: number;
 };
 type MailStatusResponse = {
   accounts?: MailAccount[];
@@ -411,6 +415,9 @@ export function MailModule() {
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [inboxNotice, setInboxNotice] = useState<string | null>(null);
+  const [inboxHasMore, setInboxHasMore] = useState(false);
+  const [inboxPageToken, setInboxPageToken] = useState<string | undefined>();
+  const [inboxSkip, setInboxSkip] = useState(0);
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [selected, setSelected] = useState<MailMessageFull | null>(null);
   const [loadingMsg, setLoadingMsg] = useState(false);
@@ -433,6 +440,12 @@ export function MailModule() {
   const visibleRef = useRef<MailMessage[]>([]);
   const cursorRef = useRef(0);
   cursorRef.current = cursor;
+
+  useEffect(() => {
+    setInboxHasMore(false);
+    setInboxPageToken(undefined);
+    setInboxSkip(0);
+  }, [accountFilter]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -479,10 +492,23 @@ export function MailModule() {
       });
   }, [toast]);
 
-  const fetchInbox = useCallback(async () => {
+  const fetchInbox = useCallback(async (opts?: { loadMore?: boolean }) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/mail/inbox");
+      const params = new URLSearchParams();
+      if (accountFilter !== "all") {
+        const acct = accounts.find((a) => a.mailEmail === accountFilter);
+        if (acct) {
+          params.set("account", acct.mailEmail);
+          params.set("provider", acct.provider);
+          if (opts?.loadMore) {
+            if (inboxPageToken) params.set("pageToken", inboxPageToken);
+            else if (inboxSkip > 0) params.set("skip", String(inboxSkip));
+          }
+        }
+      }
+      const qs = params.toString();
+      const res = await fetch(`/api/mail/inbox${qs ? `?${qs}` : ""}`);
       const data = (await res.json().catch(() => ({}))) as MailInboxResponse;
       if (!mountedRef.current) return;
       if (!res.ok) {
@@ -491,10 +517,12 @@ export function MailModule() {
         toast(message, "error", "Mail");
         return;
       }
-      setMessages(data.messages ?? []);
-      // Refresh accounts list from response
+      setMessages((prev) => (opts?.loadMore ? [...prev, ...(data.messages ?? [])] : (data.messages ?? [])));
       if (data.accounts) setAccounts(data.accounts);
       setLastFetchedAt(data.fetchedAt ?? new Date().toISOString());
+      setInboxHasMore(Boolean(data.hasMore));
+      setInboxPageToken(data.nextPageToken);
+      setInboxSkip(typeof data.skip === "number" ? data.skip : 0);
       if (data.partial && data.errors?.length) {
         const label = data.errors.length === 1 ? "1 mailbox" : `${data.errors.length} mailboxes`;
         setInboxNotice(`Inbox partially refreshed — ${label} could not be reached.`);
@@ -510,7 +538,7 @@ export function MailModule() {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [toast]);
+  }, [toast, accountFilter, accounts, inboxPageToken, inboxSkip]);
 
   const refreshMailStatus = useCallback(() => {
     return fetch("/api/mail/status")
@@ -621,6 +649,7 @@ export function MailModule() {
           action,
           provider: msg.provider,
           email: msg.accountEmail,
+          accountId: msg.connectedAccountId,
         }),
       });
 
@@ -666,7 +695,7 @@ export function MailModule() {
     setCreatingSignal(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?${mailAccountQuery(msg)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -689,7 +718,7 @@ export function MailModule() {
     setCreatingSignal(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?${mailAccountQuery(msg)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -722,7 +751,7 @@ export function MailModule() {
     setLoadingMsg(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?${mailAccountQuery(msg)}`,
       );
       const data = await res.json().catch(() => ({} as { error?: string; code?: string }));
       if (res.ok && mountedRef.current) {
@@ -1208,6 +1237,18 @@ export function MailModule() {
                 onClick={() => { setCursor(idx); void openMessage(msg); }}
               />
             ))
+          )}
+          {accountFilter !== "all" && inboxHasMore && visibleMessages.length > 0 && (
+            <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)" }}>
+              <button
+                type="button"
+                className="feed-manage"
+                disabled={loading}
+                onClick={() => void fetchInbox({ loadMore: true })}
+              >
+                {loading ? "Loading…" : "Load more messages"}
+              </button>
+            </div>
           )}
         </div>
 

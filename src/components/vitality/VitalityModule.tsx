@@ -292,7 +292,7 @@ function SessionEditor({
 
 function TrainingWeekPlanner() {
   const { toast } = useToast();
-  const { sessions, loading, persistence, signedIn, addSession, updateSession, removeSession, toggleComplete } = useTrainingWeek();
+  const { sessions, loading, loadError, persistence, signedIn, addSession, updateSession, removeSession, toggleComplete } = useTrainingWeek();
   const [editing, setEditing] = useState(false);
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [detailSession, setDetailSession] = useState<TrainingSession | null>(null);
@@ -320,6 +320,10 @@ function TrainingWeekPlanner() {
           {editing ? "✓" : "✎"}
         </button>
       </h2>
+
+      {loadError ? (
+        <p className="dr-note" style={{ color: "var(--clay)", marginTop: 10 }}>{loadError}</p>
+      ) : null}
 
       <div className="ftop" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 14 }}>
         <div className="card">
@@ -1142,7 +1146,7 @@ export function VitalityModule() {
   const [tab, setTab] = useState("fit-health");
   const [runChip, setRunChip] = useState("All");
   const [yogaChip, setYogaChip] = useState("All");
-  const { sessions: medSessions, addSession, meals, addMeal, removeMeal } = useVitalityLogs();
+  const { sessions: medSessions, addSession, meals, addMeal, removeMeal, loadError: vitalityLogsError } = useVitalityLogs();
   const [mealInput, setMealInput] = useState("");
   const [mealParsing, setMealParsing] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Record<string, boolean>>({ r1: true, r3: true, r4: true });
@@ -1168,7 +1172,7 @@ export function VitalityModule() {
 
   const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
   const { open: openInApp } = useWebViewer();
-  const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet } = useNutritionProtocol();
+  const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet, loadError: nutritionLoadError } = useNutritionProtocol();
   const stravaConnected = stravaStatus?.connected ?? false;
 
   const changePaceUnit = (u: PaceUnit) => {
@@ -1296,6 +1300,9 @@ export function VitalityModule() {
 
       {/* ── MEDITATION TAB ───────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-meditation" ? " on" : ""}`} id="fit-meditation">
+        {vitalityLogsError && (
+          <p className="dr-note" style={{ color: "var(--clay)", marginBottom: 12 }}>{vitalityLogsError}</p>
+        )}
         {tab === "fit-meditation" && <MeditationTab rawSessions={medSessions} addSession={addSession} />}
       </div>
 
@@ -1570,6 +1577,9 @@ export function VitalityModule() {
 
       {/* ── NUTRITION TAB ─────────────────────────────────────────────────────── */}
       <div className={`subpanel${tab === "fit-nutrition" ? " on" : ""}`} id="fit-nutrition">
+        {nutritionLoadError && (
+          <p className="dr-note" style={{ color: "var(--clay)", marginBottom: 12 }}>{nutritionLoadError}</p>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 18px" }}>
           <div className="selectbox" onClick={cycleNutritionDiet} title="Click to cycle diet protocol" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cycleNutritionDiet(); } }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" /></svg>

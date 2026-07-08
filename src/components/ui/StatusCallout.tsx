@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { Icon } from "@/components/ui/Icon";
+import { statusIconForCallout } from "@/lib/icons/status-icons";
 
 export type StatusCalloutKind =
   | "loading"
@@ -44,7 +46,10 @@ export function StatusCallout({ kind, title, children, actionSlot, className = "
       data-kind={kind}
     >
       <div className="status-callout-body">
-        <div className="status-callout-label">{label}</div>
+        <div className="status-callout-label">
+          <Icon icon={statusIconForCallout(kind)} size="xs" className="inline mr-1.5 align-[-2px]" aria-hidden />
+          {label}
+        </div>
         {title ? <strong>{title}</strong> : null}
         <div className="status-callout-message">{children}</div>
       </div>

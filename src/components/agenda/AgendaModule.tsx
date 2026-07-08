@@ -677,9 +677,10 @@ export function AgendaModule() {
     const persistNight = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      await supabase.from("user_preferences").upsert({ user_id: user.id, night_routine_checks: { [key]: next }, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+      const { error } = await supabase.from("user_preferences").upsert({ user_id: user.id, night_routine_checks: { [key]: next }, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+      if (error) toast("Night routine check could not sync to Supabase.", "error", "Routine");
     };
-    persistNight().catch(() => {});
+    persistNight().catch(() => toast("Night routine check could not sync.", "error", "Routine"));
   };
 
   const saveRoutine = useCallback(async (steps: RoutineStep[]) => {
@@ -697,19 +698,20 @@ export function AgendaModule() {
     const next = { ...checks, [id]: !checks[id] };
     setChecks(next);
     localStorage.setItem(`axis-routine-checks-${key}`, JSON.stringify(next));
-    persistChecks(key, next).catch(() => {});
+    persistChecks(key, next).catch(() => toast("Morning routine check could not sync.", "error", "Routine"));
   };
 
   // Only today's checks are kept server-side — yesterday's reset is intentional
   const persistChecks = async (key: string, next: Record<string, boolean>) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase
+    const { error } = await supabase
       .from("user_preferences")
       .upsert(
         { user_id: user.id, routine_checks: { [key]: next }, updated_at: new Date().toISOString() },
         { onConflict: "user_id" },
       );
+    if (error) throw error;
   };
 
   const sensors = useSensors(

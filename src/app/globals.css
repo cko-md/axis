@@ -94,6 +94,24 @@
   /* panel depth — dark themes lean on a deep soft drop; light overrides with a
      cool, gentle shadow (see html.light). dim/slate inherit this default. */
   --panel-shadow: 0 24px 54px -34px rgba(0, 0, 0, 0.9);
+
+  /* ── atmospheric iridescence (scene-level only — not functional UI) ── */
+  --axis-iridescent-sage: rgb(160, 224, 171);
+  --axis-iridescent-amber: rgb(255, 172, 46);
+  --axis-iridescent-oxblood: rgb(165, 45, 37);
+  --axis-dusk-violet: rgb(107, 98, 242);
+  --axis-cobalt: rgb(48, 92, 220);
+  --axis-chrome-white: #f8fafc;
+  --axis-chrome-silver: #d7dce5;
+  --axis-chrome-graphite: #16181d;
+  --axis-glass-border: rgba(255, 255, 255, 0.16);
+  --axis-glass-fill: rgba(255, 255, 255, 0.07);
+  --axis-liquid-ease: cubic-bezier(0.19, 1, 0.22, 1);
+
+  /* companion presence accents — theme-aware, not hardcoded hex in SVG */
+  --companion-nova-core: var(--marine);
+  --companion-nova-glow: var(--marine-2);
+  --companion-axiom-ring: var(--gold);
 }
 
 /* dim — amber study lamp: warm brown-black ground, distinct from cold void-dark */

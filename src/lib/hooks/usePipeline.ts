@@ -66,6 +66,7 @@ export function usePipeline() {
   const [studies, setStudies] = useState<Study[]>([]);
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -77,16 +78,19 @@ export function usePipeline() {
       setStages([]);
       setStudies([]);
       setConferences([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
     setSignedIn(true);
 
-    let { data: stageRows } = await supabase
+    const stageRes = await supabase
       .from("pipeline_stages")
       .select("*")
       .eq("user_id", user.id)
       .order("sort_order", { ascending: true });
+    let stageRows = stageRes.data;
+    const stageError = stageRes.error;
 
     if (!stageRows?.length) {
       const { data: seeded } = await supabase
@@ -101,9 +105,18 @@ export function usePipeline() {
       supabase.from("conferences").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
     ]);
 
-    setStages((stageRows ?? []) as PipelineStage[]);
-    setStudies((studiesRes.data ?? []) as Study[]);
-    setConferences((confsRes.data ?? []) as Conference[]);
+    const queryError = stageError ?? studiesRes.error ?? confsRes.error;
+    if (queryError) {
+      setLoadError("Pipeline could not be loaded. Try refreshing.");
+      setStages([]);
+      setStudies([]);
+      setConferences([]);
+    } else {
+      setLoadError(null);
+      setStages((stageRows ?? []) as PipelineStage[]);
+      setStudies((studiesRes.data ?? []) as Study[]);
+      setConferences((confsRes.data ?? []) as Conference[]);
+    }
     setLoading(false);
   }, [supabase]);
 
@@ -222,6 +235,7 @@ export function usePipeline() {
     studies,
     conferences,
     loading,
+    loadError,
     signedIn,
     refresh,
     addStage,

@@ -88,6 +88,12 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.isUnread).toBe(false);
   });
 
+  it("threads connectedAccountId when provided for multi-account Composio", () => {
+    const raw = { id: "msg-ca", subject: "Hi" };
+    const result = normalizeGmailMessage(raw, "user@gmail.com", "ca_xyz");
+    expect(result!.connectedAccountId).toBe("ca_xyz");
+  });
+
   it("uses snippet from messageText when snippet is absent", () => {
     const raw = { id: "msg5", messageText: "This is a longer text that should be used as snippet" };
     const result = normalizeGmailMessage(raw, "user@gmail.com");

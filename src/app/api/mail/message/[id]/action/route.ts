@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { listMailAccounts } from "@/lib/mail/tokens";
+import { findMailAccount } from "@/lib/mail/findAccount";
 import { adapterForAccount, mailErrorStatus, toMailContext } from "@/lib/mail/adapters";
 import type { MailProvider } from "@/lib/mail/tokens";
 import {
@@ -31,6 +32,7 @@ export async function POST(
     action?: unknown;
     provider?: unknown;
     email?: unknown;
+    accountId?: unknown;
   } | null;
 
   if (!body || !isMailAction(body.action)) {
@@ -64,7 +66,12 @@ export async function POST(
       { status: 503 },
     );
   }
-  const account = accounts.find((a) => a.provider === provider && a.mailEmail === email);
+  const account = findMailAccount(
+    accounts,
+    provider,
+    email,
+    typeof body.accountId === "string" ? body.accountId : null,
+  );
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
   const adapter = adapterForAccount(account);

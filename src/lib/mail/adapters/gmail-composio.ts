@@ -39,12 +39,16 @@ export const gmailComposioAdapter: MailAdapter = {
   provider: "gmail",
   transport: "composio",
 
-  async listInbox(ctx: MailAccountContext): Promise<Result<InboxPage>> {
+  async listInbox(ctx: MailAccountContext, opts?: { pageToken?: string; skip?: number }): Promise<Result<InboxPage>> {
     const acct = requireConnectedAccount(ctx);
     if (!acct.ok) return acct;
     try {
-      const messages = await listComposioInbox("gmail", acct.data, ctx.userId, ctx.mailEmail);
-      return ok({ messages });
+      const page = await listComposioInbox("gmail", acct.data, ctx.userId, ctx.mailEmail, opts);
+      return ok({
+        messages: page.messages,
+        nextPageToken: page.nextPageToken,
+        hasMore: page.hasMore ?? Boolean(page.nextPageToken),
+      });
     } catch (e) {
       return failFromException(e, "Failed to load Gmail inbox", { provider: "gmail", transport: "composio" });
     }

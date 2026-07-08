@@ -8,47 +8,12 @@ import {
   KIND_LABELS,
   INTENSITY_LABELS,
 } from "@/lib/hooks/useTrainingWeek";
+import { useWorkoutLog } from "@/lib/hooks/useWorkoutLog";
+import type { RegimenItem, WorkoutLog } from "@/lib/vitality/workout-log";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { buildAiRequestBody } from "@/lib/ai/actions";
 
-export type RegimenItem = {
-  name: string;
-  sets?: number;
-  reps?: string;
-  weight?: string;
-  rest?: string;
-  zone?: string;
-  dist?: string;
-  pace?: string;
-};
-
-export type WorkoutLog = {
-  sessionId: string;
-  items: RegimenItem[];
-  warmup?: string;
-  cooldown?: string;
-  actualDuration?: number;
-  rpe?: number;
-  logNotes?: string;
-  loggedAt?: string;
-  aiGenerated?: boolean;
-};
-
-const LS_PREFIX = "axis.workout_log.";
-
-function readLog(id: string): WorkoutLog | null {
-  try {
-    const raw = localStorage.getItem(LS_PREFIX + id);
-    return raw ? (JSON.parse(raw) as WorkoutLog) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLog(log: WorkoutLog) {
-  try {
-    localStorage.setItem(LS_PREFIX + log.sessionId, JSON.stringify(log));
-  } catch {}
-}
+export type { RegimenItem, WorkoutLog };
 
 function defaultItems(session: TrainingSession): RegimenItem[] {
   if (session.kind === "run") {
@@ -119,28 +84,24 @@ type Props = {
 };
 
 export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props) {
-  const [log, setLog] = useState<WorkoutLog | null>(null);
+  const { log, setLog, loading: logLoading, saveError, persistence, save } = useWorkoutLog(session?.id ?? null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!session) return;
-    const existing = readLog(session.id);
-    if (existing) {
-      setLog(existing);
-    } else {
-      setLog({
-        sessionId: session.id,
-        items: defaultItems(session),
-        warmup: defaultWarmup(session.kind),
-        cooldown: defaultCooldown(session.kind),
-      });
-    }
+    if (!session || logLoading) return;
+    if (log) return;
+    setLog({
+      sessionId: session.id,
+      items: defaultItems(session),
+      warmup: defaultWarmup(session.kind),
+      cooldown: defaultCooldown(session.kind),
+    });
     setSaved(false);
     setAiError(null);
-  }, [session]);
+  }, [session, log, logLoading, setLog]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -235,12 +196,14 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
     [],
   );
 
-  const save = useCallback(() => {
+  const saveLog = useCallback(async () => {
     if (!log) return;
-    writeLog({ ...log, loggedAt: new Date().toISOString() });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2200);
-  }, [log]);
+    const ok = await save(log);
+    if (ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2200);
+    }
+  }, [log, save]);
 
   if (!session || typeof document === "undefined") return null;
 
@@ -395,6 +358,14 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
 
         {/* ── Scrollable body ── */}
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
+          {saveError && (
+            <StatusCallout kind="error" title="Workout log persistence" className="mb-3">
+              {saveError}
+            </StatusCallout>
+          )}
+          {logLoading && !log && (
+            <p style={{ fontSize: 12, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>Loading workout log…</p>
+          )}
           {log && (
             <>
               {/* Warm-up */}
@@ -592,11 +563,13 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
           >
             {log?.loggedAt
               ? `Logged ${new Date(log.loggedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
-              : "Not yet logged"}
+              : persistence === "signed-out"
+                ? "Sign in to sync workout logs"
+                : "Not yet logged"}
           </span>
           <button
             type="button"
-            onClick={save}
+            onClick={saveLog}
             style={{
               fontFamily: "var(--mono)",
               fontSize: 10,

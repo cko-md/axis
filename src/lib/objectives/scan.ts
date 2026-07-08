@@ -10,6 +10,11 @@ export type ObjectiveSuggestion = {
   confidence: "high" | "medium" | "low";
 };
 
+export type ObjectivesScanResult = {
+  results: ObjectiveSuggestion[];
+  error?: string;
+};
+
 const VALID_CONFIDENCE = new Set(["high", "medium", "low"]);
 
 /**
@@ -17,21 +22,18 @@ const VALID_CONFIDENCE = new Set(["high", "medium", "low"]);
  * tasks/notes/signals, asks the AI for 3-5 high-level objectives, and returns
  * the suggestions for the caller to render. Does NOT write anything — these
  * are surfaced to the UI for the user to act on, not auto-inserted anywhere.
- *
- * Used by the on-demand /api/objectives/scan route and the cron intelligence
- * sweep (which adds its own signal-insertion + dedup logic on top).
  */
 export async function scanForObjectives(
   userId: string,
   supabase: SupabaseClient,
-): Promise<ObjectiveSuggestion[]> {
+): Promise<ObjectivesScanResult> {
   const [tasksResult, notesResult, signalsResult] = await Promise.all([
     supabase.from("tasks").select("title, priority, deadline, status").eq("user_id", userId).neq("status", "done").limit(30),
     supabase.from("notes").select("title, body").eq("user_id", userId).order("updated_at", { ascending: false }).limit(20),
     supabase.from("signals").select("title, signal_type").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
   ]);
   if (tasksResult.error || notesResult.error || signalsResult.error) {
-    return [];
+    return { results: [], error: "Could not load platform data for scan." };
   }
 
   const lines = buildObjectivesScanContext({
@@ -40,7 +42,7 @@ export async function scanForObjectives(
     signals: signalsResult.data,
   });
 
-  if (!lines) return [];
+  if (!lines) return { results: [], error: "Not enough recent activity to scan." };
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", userId).maybeSingle();
   const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
@@ -58,15 +60,16 @@ export async function scanForObjectives(
       maxTokens: 600,
     });
     const results = Array.isArray(result.results) ? result.results : [];
-    return results
-      .filter((r) => r && typeof r.target === "string" && r.target.trim())
-      .map((r) => ({
-        target: r.target,
-        module: typeof r.module === "string" ? r.module : "platform",
-        confidence: VALID_CONFIDENCE.has(r.confidence) ? r.confidence : "medium",
-      }));
+    return {
+      results: results
+        .filter((r) => r && typeof r.target === "string" && r.target.trim())
+        .map((r) => ({
+          target: r.target,
+          module: typeof r.module === "string" ? r.module : "platform",
+          confidence: VALID_CONFIDENCE.has(r.confidence) ? r.confidence : "medium",
+        })),
+    };
   } catch {
-    // Graceful degrade — empty array, not a thrown error, so callers (route + cron) don't 500.
-    return [];
+    return { results: [], error: "AI scan is unavailable right now. Try again shortly." };
   }
 }
