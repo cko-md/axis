@@ -1533,6 +1533,107 @@ html.light .literature-workspace .feedbar-in input::placeholder {
   border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
 }
 
+/* ── public landing premium hero ── */
+.landing-page {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.landing-page .axis-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+.landing-page .grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.landing-content {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.landing-hero {
+  max-width: 640px;
+  width: 100%;
+  text-align: center;
+}
+
+.landing-hero .hero-title {
+  font-size: clamp(28px, 5vw, 40px);
+  margin-top: 12px;
+}
+
+.landing-hero .sub {
+  max-width: 520px;
+  margin: 16px auto 0;
+  line-height: 1.7;
+  color: var(--ink-dim);
+  font-size: 15px;
+}
+
+.landing-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 32px;
+}
+
+.landing-signin {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 22px;
+  border-radius: var(--r);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+.landing-signin:hover {
+  opacity: 0.92;
+}
+
+.landing-footer {
+  position: relative;
+  z-index: 2;
+  padding: 20px 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.landing-footer a {
+  color: var(--ink-faint);
+  text-decoration: none;
+}
+
+.landing-footer a:hover {
+  color: var(--ink-dim);
+}
+
+html.light .landing-hero .hero-title {
+  color: var(--ink-2);
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;
