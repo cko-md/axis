@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useBriefing } from "@/lib/hooks/useBriefing";
 
 type Story = {
@@ -186,6 +187,7 @@ export function BriefingModule() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [feedItems, setFeedItems] = useState<Story[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(false);
+  const [feedLoadError, setFeedLoadError] = useState<string | null>(null);
   // og:image scraped per curated story (they ship with a gradient only) so the
   // featured cards get a real preview image, same as RSS items do.
   const [storyImages, setStoryImages] = useState<Record<string, string>>({});
@@ -242,6 +244,7 @@ export function BriefingModule() {
   const loadFeeds = useCallback((opts?: { silent?: boolean }) => {
     if (savedFeeds.length === 0) { setFeedItems([]); return; }
     if (!opts?.silent) setFeedsLoading(true);
+    setFeedLoadError(null);
     fetch("/api/feeds/cached", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -278,7 +281,9 @@ export function BriefingModule() {
             });
           });
       })
-      .catch(() => {})
+      .catch(() => {
+        setFeedLoadError("Live feeds could not be refreshed. Showing curated stories only.");
+      })
       .finally(() => { if (!opts?.silent) setFeedsLoading(false); });
   }, [savedFeeds]);
 
@@ -383,8 +388,14 @@ export function BriefingModule() {
     toast(`${feed.name} removed from sources.`, "info", "Briefing");
   };
 
+  const curatedStories = STORIES.map((s) => ({
+    ...s,
+    src: s.src.startsWith("Curated ·") ? s.src : `Curated · ${s.src}`,
+    srcLong: s.srcLong.startsWith("Curated ·") ? s.srcLong : `Curated · ${s.srcLong}`,
+  }));
+
   const allStories = [
-    ...STORIES.map((s) => (s.image ? s : { ...s, image: storyImages[s.id] ?? null })),
+    ...curatedStories.map((s) => (s.image ? s : { ...s, image: storyImages[s.id] ?? null })),
     ...feedItems,
   ];
   const visible = active.has("all")
@@ -407,6 +418,9 @@ export function BriefingModule() {
         </button>
       </div>
       <div className="divider" />
+      {feedLoadError && (
+        <StatusCallout kind="info" title="Live feeds unavailable">{feedLoadError}</StatusCallout>
+      )}
       <div className="feedbar">
         <div className="feedbar-in">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

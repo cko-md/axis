@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
 
 const COLLECTIONS = [
@@ -53,7 +54,7 @@ export function LibraryModule() {
   const [activeColl, setActiveColl] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { files, uploadFile, deleteFile, getDownloadUrl } = useLibraryFiles();
+  const { files, loading, loadError, uploadFile, deleteFile, getDownloadUrl } = useLibraryFiles();
   const { toast } = useToast();
 
   const visibleFiles = activeColl === 0 ? files : files.filter((f) => f.collection === activeColl);
@@ -104,6 +105,11 @@ export function LibraryModule() {
   return (
     <>
       <div className="divider" />
+      {loadError ? (
+        <StatusCallout kind="error" title="Library unavailable">{loadError}</StatusCallout>
+      ) : loading ? (
+        <p style={{ fontSize: 12, color: "var(--ink-faint)", fontFamily: "var(--mono)", marginBottom: 12 }}>Loading files…</p>
+      ) : null}
       <div className="lib-layout">
         <div>
           <div className="seclabel">Collections</div>

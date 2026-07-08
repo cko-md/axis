@@ -163,6 +163,7 @@ export function useFitnessRoutines(discipline: FitnessDiscipline) {
   const [routines, setRoutines] = useState<FitnessRoutine[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [useLocal, setUseLocal] = useState(false);
 
   const persistLocal = useCallback(
@@ -200,15 +201,14 @@ export function useFitnessRoutines(discipline: FitnessDiscipline) {
       .order("sort_order", { ascending: true });
 
     if (error) {
-      setUseLocal(true);
-      const existing = lsRead(user.id, discipline);
-      const rows = existing ?? buildSeed(user.id, discipline);
-      if (!existing) lsWrite(user.id, discipline, rows);
-      setRoutines(rows);
+      setUseLocal(false);
+      setLoadError("Fitness routines could not be loaded. Changes may not sync until you refresh.");
+      setRoutines([]);
       setLoading(false);
       return;
     }
 
+    setLoadError(null);
     setUseLocal(false);
     const mapRow = (row: Record<string, unknown>): FitnessRoutine => {
       const exRows = (row.fitness_routine_exercises as FitnessExercise[] | null) ?? [];
@@ -506,6 +506,7 @@ export function useFitnessRoutines(discipline: FitnessDiscipline) {
   return {
     routines,
     loading,
+    loadError,
     persistence: useLocal ? ("local" as const) : ("supabase" as const),
     signedIn: !!userId,
     refresh,

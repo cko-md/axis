@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { executeTool, ComposioError } from "@/lib/integrations/composio";
+import { executeTool, ComposioError, isSupportedToolkit } from "@/lib/integrations/composio";
+import { isAllowedComposioTool } from "@/lib/integrations/composio-allowlist";
+import { memoryRateLimit } from "@/lib/ratelimit";
 
 interface ExecutePayload {
   toolkit?: string;
@@ -9,14 +12,15 @@ interface ExecutePayload {
 }
 
 // POST /api/integrations/composio/execute { toolkit, tool, arguments }
-// Generic tool-execution bridge: looks up this user's ACTIVE connected
-// account for `toolkit` and calls `tool` on it. Any module that has migrated
-// to Composio (Mail today; calendar/contacts/spotify/etc. later) calls
-// through this single route rather than each owning its own token plumbing.
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rate = memoryRateLimit(`composio-execute:${user.id}`, 30, 60_000);
+  if (!rate.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Try again shortly." }, { status: 429 });
+  }
 
   let payload: ExecutePayload;
   try {
@@ -29,15 +33,28 @@ export async function POST(req: NextRequest) {
   if (!toolkit || !tool) {
     return NextResponse.json({ error: "toolkit and tool are required" }, { status: 422 });
   }
+  if (!isSupportedToolkit(toolkit)) {
+    return NextResponse.json({ error: `Unsupported toolkit: ${toolkit}` }, { status: 400 });
+  }
+  if (!isAllowedComposioTool(toolkit, tool)) {
+    return NextResponse.json({ error: `Tool not allowed for toolkit ${toolkit}` }, { status: 403 });
+  }
 
-  const { data: connection } = await supabase
+  const { data: connections, error: connError } = await supabase
     .from("composio_connections")
     .select("connected_account_id, status")
     .eq("user_id", user.id)
     .eq("toolkit", toolkit)
-    .eq("status", "ACTIVE")
-    .maybeSingle();
+    .eq("status", "ACTIVE");
 
+  if (connError) {
+    Sentry.captureException(connError, {
+      tags: { area: "integrations", route: "/api/integrations/composio/execute", op: "list_connections" },
+    });
+    return NextResponse.json({ error: "Could not load Composio connection" }, { status: 503 });
+  }
+
+  const connection = connections?.[0];
   if (!connection) {
     return NextResponse.json({ error: `No active Composio connection for ${toolkit}` }, { status: 403 });
   }
@@ -49,9 +66,15 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       arguments: payload.arguments,
     });
-    return NextResponse.json(result);
+    return NextResponse.json({
+      successful: result.successful,
+      error: result.error ?? null,
+    });
   } catch (err) {
     const status = err instanceof ComposioError ? err.status : 502;
+    Sentry.captureException(err instanceof Error ? err : new Error("Composio execute failed"), {
+      tags: { area: "integrations", route: "/api/integrations/composio/execute", toolkit, tool },
+    });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Tool execution failed" }, { status });
   }
 }

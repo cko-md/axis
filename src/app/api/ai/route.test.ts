@@ -23,6 +23,14 @@ describe("AI route request parsing", () => {
     });
   });
 
+  it("rejects unknown AI modes before provider invocation", () => {
+    expect(normalizePayload({ mode: "evil-inject", text: "x" })).toEqual({
+      ok: false,
+      error: "Unknown AI mode: evil-inject",
+      status: 400,
+    });
+  });
+
   it("rejects non-string nested body and title values", () => {
     expect(normalizePayload({ mode: "route", text: "note", body: { unsafe: true } })).toEqual({
       ok: false,

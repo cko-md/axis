@@ -292,7 +292,7 @@ function SessionEditor({
 
 function TrainingWeekPlanner() {
   const { toast } = useToast();
-  const { sessions, loading, persistence, signedIn, addSession, updateSession, removeSession, toggleComplete } = useTrainingWeek();
+  const { sessions, loading, loadError, persistence, signedIn, addSession, updateSession, removeSession, toggleComplete } = useTrainingWeek();
   const [editing, setEditing] = useState(false);
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [detailSession, setDetailSession] = useState<TrainingSession | null>(null);
@@ -320,6 +320,10 @@ function TrainingWeekPlanner() {
           {editing ? "✓" : "✎"}
         </button>
       </h2>
+
+      {loadError ? (
+        <p className="dr-note" style={{ color: "var(--clay)", marginTop: 10 }}>{loadError}</p>
+      ) : null}
 
       <div className="ftop" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 14 }}>
         <div className="card">

@@ -88,6 +88,7 @@ export function useNutritionProtocol() {
   const [protocol, setProtocol] = useState<NutritionProtocol | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [useLocal, setUseLocal] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -115,15 +116,14 @@ export function useNutritionProtocol() {
       .maybeSingle();
 
     if (error) {
-      setUseLocal(true);
-      const existing = lsRead(user.id);
-      const row = existing ?? buildDefault(user.id);
-      if (!existing) lsWrite(user.id, row);
-      setProtocol(row);
+      setUseLocal(false);
+      setLoadError("Nutrition protocol could not be loaded. Changes may not sync until you refresh.");
+      setProtocol(null);
       setLoading(false);
       return;
     }
 
+    setLoadError(null);
     setUseLocal(false);
     if (!data) {
       const seed = buildDefault(user.id);
@@ -133,10 +133,8 @@ export function useNutritionProtocol() {
         .select()
         .maybeSingle();
       if (insErr || !inserted) {
-        setUseLocal(true);
-        const row = buildDefault(user.id);
-        lsWrite(user.id, row);
-        setProtocol(row);
+        setLoadError("Could not save nutrition protocol to Supabase.");
+        setProtocol(buildDefault(user.id));
       } else {
         setProtocol(normalize(inserted as NutritionProtocol));
       }
@@ -177,6 +175,7 @@ export function useNutritionProtocol() {
   return {
     protocol,
     loading,
+    loadError,
     persistence: useLocal ? ("local" as const) : ("supabase" as const),
     signedIn: !!userId,
     refresh,

@@ -220,7 +220,11 @@ function extractGenericAttachments(m: Record<string, unknown>): MailAttachment[]
 // gmail.ts produces, trying both the raw Gmail API resource shape (payload/
 // headers/labelIds — Composio's Gmail tools are documented to stay close to
 // the native API) and Composio's flattened convenience fields as a fallback.
-export function normalizeGmailMessage(m: Record<string, unknown>, accountEmail: string): MailMessage | null {
+export function normalizeGmailMessage(
+  m: Record<string, unknown>,
+  accountEmail: string,
+  connectedAccountId?: string,
+): MailMessage | null {
   const id = (m.id ?? m.messageId) as string | undefined;
   if (!id) return null;
   const headers = (m.payload as Record<string, unknown> | undefined)?.headers;
@@ -240,10 +244,15 @@ export function normalizeGmailMessage(m: Record<string, unknown>, accountEmail: 
     isUnread: Array.isArray(m.labelIds) ? (m.labelIds as string[]).includes("UNREAD") : false,
     provider: "gmail",
     accountEmail,
+    ...(connectedAccountId ? { connectedAccountId } : {}),
   };
 }
 
-export function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail: string): MailMessage | null {
+export function normalizeOutlookMessage(
+  m: Record<string, unknown>,
+  accountEmail: string,
+  connectedAccountId?: string,
+): MailMessage | null {
   const id = m.id as string | undefined;
   if (!id) return null;
   const from = m.from as { emailAddress?: { name?: string; address?: string } } | undefined;
@@ -258,13 +267,18 @@ export function normalizeOutlookMessage(m: Record<string, unknown>, accountEmail
     isUnread: m.isRead === false,
     provider: "outlook",
     accountEmail,
+    ...(connectedAccountId ? { connectedAccountId } : {}),
   };
 }
 
 // ── Full-message normalizers (header normalization reused; body added) ────────
 
-export function normalizeGmailMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
-  const base = normalizeGmailMessage(m, accountEmail);
+export function normalizeGmailMessageFull(
+  m: Record<string, unknown>,
+  accountEmail: string,
+  connectedAccountId?: string,
+): MailMessageFull | null {
+  const base = normalizeGmailMessage(m, accountEmail, connectedAccountId);
   if (!base) return null;
   // Prefer the native payload shape (same as the direct Gmail adapter); fall
   // back to Composio's flattened convenience fields and body objects.
@@ -284,8 +298,12 @@ export function normalizeGmailMessageFull(m: Record<string, unknown>, accountEma
   return { ...base, body, bodyIsHtml, attachments: payload ? extractGmailAttachments(payload) : extractGenericAttachments(m) };
 }
 
-export function normalizeOutlookMessageFull(m: Record<string, unknown>, accountEmail: string): MailMessageFull | null {
-  const base = normalizeOutlookMessage(m, accountEmail);
+export function normalizeOutlookMessageFull(
+  m: Record<string, unknown>,
+  accountEmail: string,
+  connectedAccountId?: string,
+): MailMessageFull | null {
+  const base = normalizeOutlookMessage(m, accountEmail, connectedAccountId);
   if (!base) return null;
   const { body, bodyIsHtml } = extractProviderBody(m);
   return { ...base, body, bodyIsHtml, attachments: extractGenericAttachments(m) };
@@ -322,7 +340,7 @@ export async function getComposioMessage(
       }
       const data = res.data as Record<string, unknown>;
       const raw = unwrapMessageRecord(data);
-      const message = normalize(raw, accountEmail);
+      const message = normalize(raw, accountEmail, connectedAccountId);
       if (message) return message;
     }
   }
@@ -356,7 +374,7 @@ export async function listComposioInbox(
   const rawMessages = (data.messages ?? data.value ?? []) as Record<string, unknown>[];
   const normalize = toolkit === "gmail" ? normalizeGmailMessage : normalizeOutlookMessage;
   return rawMessages
-    .map((m) => normalize(m, accountEmail))
+    .map((m) => normalize(m, accountEmail, connectedAccountId))
     .filter((m): m is MailMessage => m !== null);
 }
 

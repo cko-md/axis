@@ -21,6 +21,7 @@ export function useLibraryFiles() {
   const supabase = useMemo(() => createClient(), []);
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -28,6 +29,7 @@ export function useLibraryFiles() {
     setUserId(user?.id ?? null);
     if (!user) {
       setFiles([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
@@ -36,7 +38,13 @@ export function useLibraryFiles() {
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
-    if (!error) setFiles((data ?? []) as LibraryFile[]);
+    if (error) {
+      setLoadError("Library files could not be loaded. Try refreshing.");
+      setFiles([]);
+    } else {
+      setLoadError(null);
+      setFiles((data ?? []) as LibraryFile[]);
+    }
     setLoading(false);
   }, [supabase]);
 
@@ -109,5 +117,5 @@ export function useLibraryFiles() {
     return data.signedUrl;
   }, [supabase]);
 
-  return { files, loading, refresh, uploadFile, deleteFile, getDownloadUrl };
+  return { files, loading, loadError, refresh, uploadFile, deleteFile, getDownloadUrl };
 }

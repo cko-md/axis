@@ -31,7 +31,7 @@ Static CSS review only — light theme already silver/chrome per `html.light` bl
 
 ---
 
-## Batch 1 — 2026-07-08 (in progress)
+## Batch 1 — 2026-07-08 ✅
 
 ### Automated checks
 
@@ -40,7 +40,7 @@ Static CSS review only — light theme already silver/chrome per `html.light` bl
 | `npx tsc --noEmit` | ✅ Pass | |
 | `npm run lint` | ✅ Pass | 1 pre-existing warning `text-effect.tsx` |
 | `npm run test` | ✅ 343/343 | +2 nav-icons tests |
-| `npm run build` | ⚠️ Fail (pre-existing) | Missing `NEXT_PUBLIC_SUPABASE_*` in build env — not introduced by Batch 1 |
+| `npm run build` | ⚠️ Fail (pre-existing) | Missing `NEXT_PUBLIC_SUPABASE_*` in build env |
 
 ### Sentry impact
 
@@ -52,19 +52,73 @@ None — no schema changes.
 
 ---
 
-## Template (copy per batch)
+## Batches 2–8 — 2026-07-08 ✅
 
-```
-### Batch N — DATE
+### Scope delivered
+
+| Batch | Findings | Key changes |
+|-------|----------|-------------|
+| 2 | AR-011, AR-034 | Command palette Lucide icons; status icons (prior commit) |
+| 3 | AR-034 | Widget registry navigate/drawer actions verified (no code change) |
+| 4 | AR-002, AR-016, AR-019 | `mailAccountQuery`, Composio `connectedAccountId`, mail action `accountId`, People/Pipeline/Library `loadError` |
+| 5 | AR-013–AR-015 | Briefing `feedLoadError` callout; Debrief stops demo data during signed-in load |
+| 6 | AR-017 | Fund provider states already present — no change |
+| 7 | AR-004, AR-005 | Vitality hooks surface `loadError`; Supper Club lab banner already present |
+| 8 | AR-001, AR-003, AR-018 | Composio execute allowlist + rate limit; AI mode allowlist; Gemini key via `x-goog-api-key` header |
+
+### Automated checks
+
+| Command | Result | Notes |
+|---------|--------|-------|
+| `npx tsc --noEmit` | ✅ Pass | Node 24 |
+| `npm run lint` | ✅ Pass | 1 pre-existing warning |
+| `npm run test` | ✅ 356/356 | +13 new tests (mail query, AI modes, composio allowlist, palette icons, composio accountId) |
+| `npm run build` | ⚠️ Blocked | `NEXT_PUBLIC_SUPABASE_*` not set in cloud VM — pre-existing |
+
+### Supabase / Tembo impact
+
+None — no migrations.
+
+### Sentry impact
+
+Composio execute route captures connection/list and tool failures with safe tags only.
+
+---
+
+## Batch 9 — 2026-07-08 (partial)
+
+### Automated checks
 
 | Command | Result |
 |---------|--------|
-| tsc | |
-| lint | |
-| test | |
-| build | |
+| tsc | ✅ |
+| lint | ✅ |
+| test | ✅ 356/356 |
+| build | ⚠️ blocked (env) |
+| e2e | ⏭ not run (requires local Supabase stack) |
 
-Vercel preview: URL / pass-fail
-Sentry: query / result
-Manual checklist: ...
-```
+### Vercel preview
+
+⏭ Pending — push branch; validate `/mail` multi-account, `/briefing` feed error, `/debrief` loading, `/library` load error, Composio execute 403 on disallowed tools.
+
+### Sentry
+
+⏭ Pending post-preview — filter `environment:preview` + route tags `integrations/composio/execute`.
+
+### Manual checklist (preview)
+
+- [ ] Mail: Composio Gmail message open with `accountId` query param
+- [ ] Mail: archive action resolves correct account
+- [ ] Briefing: feed refresh failure shows info callout; curated stories still visible
+- [ ] Debrief: signed-in load shows skeletons, not demo wins/friction
+- [ ] Library: Supabase load failure shows error callout
+- [ ] Vitality: training week DB failure shows inline error (no silent localStorage)
+- [ ] Command palette: Lucide icons on create/action/navigate rows
+- [ ] POST `/api/ai` with `mode: "evil"` → 400
+- [ ] POST `/api/integrations/composio/execute` with disallowed tool → 403
+
+### Tembo
+
+N/A — role unspecified in repo.
+
+---

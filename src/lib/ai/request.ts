@@ -1,3 +1,5 @@
+import { isAllowedAiMode } from "@/lib/ai/modes";
+
 export type AIRequestPayload = {
   mode: string;
   text: string;
@@ -28,6 +30,9 @@ export function normalizePayload(raw: unknown): { ok: true; payload: AIRequestPa
   }
   const record = raw as Record<string, unknown>;
   const rawMode = stringValue(record.mode, 80)?.trim() || "capture";
+  if (!isAllowedAiMode(rawMode)) {
+    return { ok: false, error: `Unknown AI mode: ${rawMode}`, status: 400 };
+  }
   const text = stringValue(record.text, MAX_AI_TEXT_CHARS);
   const body = stringValue(record.body, MAX_AI_BODY_CHARS);
   const title = stringValue(record.title, MAX_AI_TITLE_CHARS);

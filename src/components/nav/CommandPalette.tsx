@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { Icon } from "@/components/ui/Icon";
 import { buildPaletteCommandSpecs, filterPaletteCommandSpecs, type PaletteGroup } from "@/components/nav/command-palette-model";
 
 type Command = {
@@ -240,21 +241,17 @@ export function CommandPalette({ open, onClose }: Props) {
                       }}
                     >
                       {cmd.icon && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: cmd.group === "create"
-                              ? "var(--accent)"
+                        <Icon
+                          icon={cmd.icon}
+                          size="xs"
+                          className={
+                            cmd.group === "create"
+                              ? "text-[var(--accent)]"
                               : cmd.group === "action"
-                                ? "var(--gold, #c9a463)"
-                                : "var(--ink-faint)",
-                            fontFamily: "var(--mono)",
-                            width: 14,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {cmd.icon}
-                        </span>
+                                ? "text-[var(--gold,#c9a463)]"
+                                : "text-[var(--ink-faint)]"
+                          }
+                        />
                       )}
                       <span
                         style={{

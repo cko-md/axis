@@ -14,9 +14,11 @@ import {
   Music2,
   Newspaper,
   Paintbrush,
+  Palette,
   Radio,
   RotateCcw,
   Settings,
+  Sparkles,
   Target,
   Users,
 } from "lucide-react";
@@ -42,6 +44,9 @@ export const NAV_ICON_MAP: Record<string, LucideIcon> = {
   recipes: ChefHat,
   chart: LineChart,
   system: Settings,
+  // Command palette action / create keys (not sidebar routes)
+  create: Sparkles,
+  palette: Palette,
 };
 
 export function resolveNavIcon(name: string): LucideIcon {

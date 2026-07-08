@@ -14,6 +14,7 @@ import { MessagePanel } from "./MessagePanel";
 import { compareMailDateDesc, compareMailIdentity, getMailDateTime } from "@/lib/mail/dates";
 import { isEditableTarget, mailShortcutForKey, parseSenderParts } from "@/lib/mail/reader";
 import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
+import { mailAccountQuery } from "@/lib/mail/query";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -621,6 +622,7 @@ export function MailModule() {
           action,
           provider: msg.provider,
           email: msg.accountEmail,
+          accountId: msg.connectedAccountId,
         }),
       });
 
@@ -666,7 +668,7 @@ export function MailModule() {
     setCreatingSignal(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?${mailAccountQuery(msg)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -689,7 +691,7 @@ export function MailModule() {
     setCreatingSignal(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?${mailAccountQuery(msg)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -722,7 +724,7 @@ export function MailModule() {
     setLoadingMsg(true);
     try {
       const res = await fetch(
-        `/api/mail/message/${encodeURIComponent(msg.id)}?provider=${msg.provider}&email=${encodeURIComponent(msg.accountEmail)}`,
+        `/api/mail/message/${encodeURIComponent(msg.id)}?${mailAccountQuery(msg)}`,
       );
       const data = await res.json().catch(() => ({} as { error?: string; code?: string }));
       if (res.ok && mountedRef.current) {
