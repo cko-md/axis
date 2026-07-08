@@ -68,69 +68,37 @@ export async function listComposioMailAccounts(userId: string): Promise<Composio
   }));
 }
 
-function gmailHeader(headers: unknown, name: string): string {
-  if (Array.isArray(headers)) {
-    const h = headers.find(
-      (x) => typeof x?.name === "string" && x.name.toLowerCase() === name.toLowerCase(),
-    );
-    return typeof h?.value === "string" ? h.value : "";
-  }
-  // Some Composio responses flatten headers into a plain object map
-  // ({ From: "…", Subject: "…" }) instead of the native array-of-{name,value}.
-  const record = asRecord(headers);
-  if (record) {
-    for (const [key, value] of Object.entries(record)) {
-      if (key.toLowerCase() === name.toLowerCase() && typeof value === "string") return value;
-    }
-  }
-  return "";
-}
-
-function extractGmailHeaders(m: Record<string, unknown>): Array<{ name: string; value: string }> {
-  const payloadSources = [m.payload, asRecord(m.data)?.payload];
-  for (const payloadSource of payloadSources) {
-    const payloadRecord = asRecord(payloadSource);
-    if (!payloadRecord) continue;
-
-    const payloadHeaders = payloadRecord.headers;
-    if (Array.isArray(payloadHeaders)) {
-      return payloadHeaders.flatMap((header) => {
-        const record = asRecord(header);
-        if (!record || typeof record.name !== "string" || typeof record.value !== "string") return [];
-        return [{ name: record.name, value: record.value }];
-      });
-    }
-
-    const payloadHeadersObj = asRecord(payloadHeaders);
-    if (payloadHeadersObj) {
-      return Object.entries(payloadHeadersObj).flatMap(([key, value]) =>
-        typeof value === "string" ? [{ name: key, value }] : [],
-      );
-    }
-  }
-
-  if (Array.isArray(m.headers)) {
-    return m.headers.flatMap((header) => {
-      const record = asRecord(header);
-      if (!record || typeof record.name !== "string" || typeof record.value !== "string") return [];
-      return [{ name: record.name, value: record.value }];
-    });
-  }
-
-  const headersObj = asRecord(m.headers);
-  if (headersObj) {
-    return Object.entries(headersObj).flatMap(([key, value]) =>
-      typeof value === "string" ? [{ name: key, value }] : [],
-    );
-  }
-
-  return [];
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function gmailHeader(headers: unknown, name: string): string {
+  if (Array.isArray(headers)) {
+    const headerName = name.toLowerCase();
+    const match = headers.find((header) => {
+      const row = asRecord(header);
+      const rowName = row?.name;
+      return typeof rowName === "string" && rowName.toLowerCase() === headerName;
+    });
+    const matchRow = asRecord(match);
+    const value = matchRow?.value;
+    if (typeof value === "string") return value;
+    const nested = asRecord(value)?.value;
+    return typeof nested === "string" ? nested : "";
+  }
+
+  const headerMap = asRecord(headers);
+  if (!headerMap) return "";
+  const headerName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headerMap)) {
+    if (key.toLowerCase() !== headerName) continue;
+    if (typeof value === "string") return value;
+    const nested = asRecord(value);
+    if (typeof nested?.value === "string") return nested.value;
+  }
+  return "";
 }
 
 function stringField(source: Record<string, unknown>, keys: string[]): string | undefined {
@@ -175,6 +143,43 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
   }
 
   return data;
+}
+
+function extractGmailHeaders(m: Record<string, unknown>): unknown {
+  const nestedPayload = asRecord(m.payload) ?? asRecord(asRecord(m.data)?.payload);
+  return (
+    nestedPayload?.headers ??
+    asRecord(m.gmailPayload)?.headers ??
+    asRecord(m.gmail_payload)?.headers ??
+    asRecord(m.messagePayload)?.headers ??
+    asRecord(m.message_payload)?.headers ??
+    m.headers ??
+    m.payloadHeaders ??
+    m.payload_headers ??
+    []
+  );
+}
+
+function extractGmailPayload(m: Record<string, unknown>): GmailPayload | null {
+  const candidates = [
+    m.payload,
+    m.gmailPayload,
+    m.gmail_payload,
+    m.messagePayload,
+    m.message_payload,
+    m.rawPayload,
+    m.raw_payload,
+    asRecord(m.message)?.payload,
+    asRecord(m.data)?.payload,
+  ];
+  for (const candidate of candidates) {
+    const payload = asRecord(candidate);
+    if (!payload) continue;
+    if (payload.parts || payload.body || payload.headers || payload.mimeType || payload.mime_type) {
+      return payload as GmailPayload;
+    }
+  }
+  return null;
 }
 
 // Verified against Composio's live tool schema (2026-07-08):
@@ -230,11 +235,14 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
 
   const html = stringField(m, [
     "messageHtml",
+    "message_html",
     "bodyHtml",
     "htmlBody",
     "body_html",
+    "html_body",
     "html",
     "renderedBody",
+    "rendered_body",
     "htmlContent",
   ]);
   if (html) return { body: html, bodyIsHtml: true };
@@ -244,13 +252,17 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
 
   const text = stringField(m, [
     "messageText",
+    "message_text",
     "bodyText",
     "plainText",
+    "plain_text",
     "textBody",
     "body_text",
+    "text_body",
     "text",
     "snippet",
     "bodyPreview",
+    "body_preview",
     "plainContent",
   ]);
   return { body: text ?? "", bodyIsHtml: false };
@@ -390,7 +402,7 @@ export function normalizeGmailMessageFull(
   if (!base) return null;
   // Prefer the native payload shape (same as the direct Gmail adapter); fall
   // back to Composio's flattened convenience fields and body objects.
-  const payload = (m.payload ?? asRecord(m.data)?.payload) as GmailPayload | undefined;
+  const payload = extractGmailPayload(m);
   let body = "";
   let bodyIsHtml = false;
   if (payload) {
