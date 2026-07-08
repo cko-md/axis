@@ -11,7 +11,7 @@
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
 import { createClient } from "@/lib/supabase/server";
 import { executeTool, ComposioError } from "@/lib/integrations/composio";
-import { extractBody, extractGmailAttachments, type GmailPayload, type MailAttachment, type MailMessage, type MailMessageFull } from "./gmail";
+import { decodeBase64Url, extractBody, extractGmailAttachments, type GmailPayload, type MailAttachment, type MailMessage, type MailMessageFull } from "./gmail";
 import { normalizeMailDate } from "./dates";
 
 // Profile/email resolution for ACTIVE connections now lives in the shared
@@ -26,14 +26,10 @@ const SEND_TOOL: Record<MailToolkit, string> = {
   gmail: "GMAIL_SEND_EMAIL",
   outlook: "OUTLOOK_OUTLOOK_SEND_EMAIL",
 };
-// Single-message fetch tools. Best-effort slugs (Gmail's single-message fetch
-// and Outlook's get-message) — NOT yet confirmed against a live connected
-// account, mapped defensively like the list normalizers above. A wrong slug
-// surfaces as a structured `provider_error` the UI shows, which is strictly
-// better than the previous behavior (the message detail route had no Composio
-// branch at all, so Composio rows 404'd silently). Verify on first live test.
-const GET_TOOL: Record<MailToolkit, string[]> = {
-  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", "GMAIL_GET_MESSAGE"],
+// Single-message fetch tools. Gmail detail is verified against Composio as
+// GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID; do not fall back to unverified aliases.
+const GET_TOOL: Record<MailToolkit, readonly string[]> = {
+  gmail: ["GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"],
   outlook: ["OUTLOOK_OUTLOOK_GET_MESSAGE"],
 };
 const GMAIL_MODIFY_LABELS_TOOL = "GMAIL_ADD_LABEL_TO_EMAIL";
@@ -68,18 +64,35 @@ export async function listComposioMailAccounts(userId: string): Promise<Composio
   }));
 }
 
-function gmailHeader(headers: unknown, name: string): string {
-  if (!Array.isArray(headers)) return "";
-  const h = headers.find(
-    (x) => typeof x?.name === "string" && x.name.toLowerCase() === name.toLowerCase(),
-  );
-  return typeof h?.value === "string" ? h.value : "";
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function gmailHeader(headers: unknown, name: string): string {
+  const normalizedName = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    for (const item of headers) {
+      const header = asRecord(item);
+      if (!header) continue;
+      const headerName = stringField(header, ["name", "key", "header", "headerName"]);
+      if (headerName?.toLowerCase() !== normalizedName) continue;
+      const value = stringField(header, ["value", "val", "text"]);
+      if (value) return value;
+    }
+    return "";
+  }
+
+  const headerRecord = asRecord(headers);
+  if (!headerRecord) return "";
+  for (const [key, rawValue] of Object.entries(headerRecord)) {
+    if (key.toLowerCase() !== normalizedName) continue;
+    if (typeof rawValue === "string" && rawValue.trim()) return rawValue;
+    const valueRecord = asRecord(rawValue);
+    if (valueRecord) return stringField(valueRecord, ["value", "val", "text"]) ?? "";
+  }
+  return "";
 }
 
 function stringField(source: Record<string, unknown>, keys: string[]): string | undefined {
@@ -90,33 +103,35 @@ function stringField(source: Record<string, unknown>, keys: string[]): string | 
   return undefined;
 }
 
-function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unknown> {
+function hasMessageIdentity(record: Record<string, unknown>): boolean {
+  return Boolean(stringField(record, ["id", "messageId", "message_id"]));
+}
+
+function unwrapMessageRecord(data: unknown, depth = 0): Record<string, unknown> {
+  const record = asRecord(Array.isArray(data) ? data[0] : data);
+  if (!record || depth > 5) return asRecord(data) ?? {};
+  if (hasMessageIdentity(record)) return record;
+
   const candidates = [
-    data.message,
-    data.email,
-    data.data,
-    data.result,
-    data.response_data,
-    data.responseData,
-    data.payload,
-    data.output,
-    data.response,
-    data,
+    record.message,
+    record.email,
+    record.data,
+    record.result,
+    record.response_data,
+    record.responseData,
+    record.payload,
+    record.output,
+    record.response,
+    record.item,
+    record.items,
   ];
 
   for (const candidate of candidates) {
-    const first = Array.isArray(candidate) ? candidate[0] : candidate;
-    const record = asRecord(first);
-    if (record && (record.id || record.messageId)) return record;
+    const nested = unwrapMessageRecord(candidate, depth + 1);
+    if (hasMessageIdentity(nested)) return nested;
   }
 
-  for (const candidate of candidates) {
-    const first = Array.isArray(candidate) ? candidate[0] : candidate;
-    const record = asRecord(first);
-    if (record) return record;
-  }
-
-  return data;
+  return record;
 }
 
 function gmailGetMessageArguments(messageId: string): Record<string, unknown>[] {
@@ -141,14 +156,40 @@ function looksLikeHtml(value: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(value);
 }
 
+function decodedBodyData(value: string): string {
+  return decodeBase64Url(value) || value;
+}
+
+function bodyFromObject(bodyObj: Record<string, unknown>): { body: string; bodyIsHtml: boolean } | null {
+  const content = stringField(bodyObj, [
+    "content",
+    "body",
+    "value",
+    "html",
+    "htmlBody",
+    "bodyHtml",
+    "text",
+    "plainText",
+    "bodyText",
+  ]);
+  const contentType = stringField(bodyObj, ["contentType", "content_type", "mimeType", "mime_type"]) ?? "";
+  if (content) {
+    return { body: content, bodyIsHtml: contentType.toLowerCase().includes("html") || looksLikeHtml(content) };
+  }
+
+  const data = stringField(bodyObj, ["data"]);
+  if (data) {
+    return { body: decodedBodyData(data), bodyIsHtml: contentType.toLowerCase().includes("html") };
+  }
+
+  return null;
+}
+
 function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIsHtml: boolean } {
   const bodyObj = asRecord(m.body);
   if (bodyObj) {
-    const content = stringField(bodyObj, ["content", "body", "value"]);
-    if (content) {
-      const contentType = stringField(bodyObj, ["contentType", "content_type", "mimeType", "mime_type"]) ?? "";
-      return { body: content, bodyIsHtml: contentType.toLowerCase().includes("html") || looksLikeHtml(content) };
-    }
+    const extracted = bodyFromObject(bodyObj);
+    if (extracted) return extracted;
   }
 
   const html = stringField(m, [
@@ -156,12 +197,14 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     "bodyHtml",
     "htmlBody",
     "body_html",
+    "html_body",
     "html",
     "renderedBody",
+    "rawHtml",
   ]);
   if (html) return { body: html, bodyIsHtml: true };
 
-  const genericBody = stringField(m, ["body", "message", "content"]);
+  const genericBody = stringField(m, ["body", "messageBody", "message_body", "content"]);
   if (genericBody) return { body: genericBody, bodyIsHtml: looksLikeHtml(genericBody) };
 
   const text = stringField(m, [
@@ -170,6 +213,9 @@ function extractProviderBody(m: Record<string, unknown>): { body: string; bodyIs
     "plainText",
     "textBody",
     "body_text",
+    "text_body",
+    "textPlain",
+    "plain",
     "text",
     "snippet",
     "bodyPreview",
@@ -216,6 +262,31 @@ function extractGenericAttachments(m: Record<string, unknown>): MailAttachment[]
   });
 }
 
+function gmailHeaderFromMessage(m: Record<string, unknown>, name: string): string {
+  const payload = asRecord(m.payload);
+  for (const source of [payload?.headers, m.headers, m.header, m.messageHeaders, m.message_headers]) {
+    const value = gmailHeader(source, name);
+    if (value) return value;
+  }
+  return "";
+}
+
+function addressField(source: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) return value;
+    const record = asRecord(value);
+    if (!record) continue;
+    const emailAddress = asRecord(record.emailAddress) ?? asRecord(record.email_address);
+    const addressRecord = emailAddress ?? record;
+    const address = stringField(addressRecord, ["address", "email", "emailAddress", "email_address", "mail"]);
+    const displayName = stringField(addressRecord, ["name", "displayName", "display_name"]);
+    if (address && displayName) return `${displayName} <${address}>`;
+    if (address) return address;
+  }
+  return undefined;
+}
+
 // Normalizes a single Gmail-toolkit message into the same MailMessage shape
 // gmail.ts produces, trying both the raw Gmail API resource shape (payload/
 // headers/labelIds — Composio's Gmail tools are documented to stay close to
@@ -225,23 +296,31 @@ export function normalizeGmailMessage(
   accountEmail: string,
   connectedAccountId?: string,
 ): MailMessage | null {
-  const id = (m.id ?? m.messageId) as string | undefined;
+  const id = stringField(m, ["id", "messageId", "message_id"]);
   if (!id) return null;
-  const headers = (m.payload as Record<string, unknown> | undefined)?.headers;
+  const labelIds = Array.isArray(m.labelIds)
+    ? m.labelIds
+    : Array.isArray(m.label_ids)
+      ? m.label_ids
+      : Array.isArray(m.labels)
+        ? m.labels
+        : [];
   return {
     id,
-    threadId: (m.threadId as string) ?? id,
-    from: gmailHeader(headers, "From") || (m.sender as string) || (m.from as string) || "",
-    subject: gmailHeader(headers, "Subject") || (m.subject as string) || "(no subject)",
+    threadId: stringField(m, ["threadId", "thread_id", "conversationId", "conversation_id"]) ?? id,
+    from: gmailHeaderFromMessage(m, "From") || addressField(m, ["sender", "from", "fromEmail", "from_email"]) || "",
+    subject: gmailHeaderFromMessage(m, "Subject") || stringField(m, ["subject", "title"]) || "(no subject)",
     date: normalizeMailDate(
-      gmailHeader(headers, "Date") ||
+      gmailHeaderFromMessage(m, "Date") ||
         m.messageTimestamp ||
         m.internalDate ||
+        m.internal_date ||
         m.receivedDateTime ||
+        m.received_date_time ||
         m.date,
     ),
-    snippet: (m.snippet as string) ?? (m.messageText as string)?.slice(0, 200) ?? "",
-    isUnread: Array.isArray(m.labelIds) ? (m.labelIds as string[]).includes("UNREAD") : false,
+    snippet: stringField(m, ["snippet", "preview", "bodyPreview", "messageText"])?.slice(0, 200) ?? "",
+    isUnread: labelIds.some((label) => typeof label === "string" && label.toUpperCase() === "UNREAD"),
     provider: "gmail",
     accountEmail,
     ...(connectedAccountId ? { connectedAccountId } : {}),
