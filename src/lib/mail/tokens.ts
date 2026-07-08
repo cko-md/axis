@@ -5,7 +5,7 @@ import { listComposioMailAccounts } from "./composio";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
-const OUTLOOK_MAIL_SCOPE = "Mail.Read offline_access User.Read";
+const OUTLOOK_MAIL_SCOPE = "Mail.Read Mail.Send offline_access User.Read";
 
 export type MailProvider = "gmail" | "outlook";
 

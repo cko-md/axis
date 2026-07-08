@@ -56,4 +56,31 @@ describe("extractBody()", () => {
       isHtml: false,
     });
   });
+
+  it("matches parts whose mimeType carries parameters (text/html; charset=UTF-8)", () => {
+    const payload: GmailPayload = {
+      mimeType: "multipart/alternative",
+      parts: [
+        { mimeType: "text/plain; charset=UTF-8", body: { data: b64url("plain with charset") } },
+        { mimeType: "text/html; charset=UTF-8", body: { data: b64url("<p>html with charset</p>") } },
+      ],
+    };
+
+    expect(extractBody(payload)).toEqual({
+      content: "<p>html with charset</p>",
+      isHtml: true,
+    });
+  });
+
+  it("respects a parameterized mimeType on a single-part payload", () => {
+    const payload: GmailPayload = {
+      mimeType: "text/html; charset=iso-8859-1",
+      body: { data: b64url("<b>single part</b>") },
+    };
+
+    expect(extractBody(payload)).toEqual({
+      content: "<b>single part</b>",
+      isHtml: true,
+    });
+  });
 });
