@@ -288,7 +288,7 @@ export function InterfaceStudioDrawer() {
   return (
     <>
       <div className="overlay-backdrop on" onClick={closeInterfaceStudio} aria-hidden />
-      <div className="drawer on" role="dialog" aria-modal="true" aria-label="Interface Studio" ref={drawerRef}>
+      <div className="drawer on interface-studio-drawer" role="dialog" aria-modal="true" aria-label="Interface Studio" ref={drawerRef}>
         <div className="dr-head">
           <div>
             <div className="dr-title">Interface Studio</div>
