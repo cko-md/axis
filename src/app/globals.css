@@ -1656,6 +1656,51 @@ html.light .interface-studio-drawer .dr-preview-main strong {
   color: var(--ink-2);
 }
 
+/* ── presence companion light-theme polish ── */
+html.light .cp-head {
+  background: linear-gradient(to bottom, var(--surface-2), var(--surface));
+}
+
+html.light .cp-input {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+html.light .cp-input::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
+html.light .cp-popout-axiom {
+  border-top-color: color-mix(in srgb, var(--gold) 55%, var(--line-strong));
+}
+
+html.light .cp-popout-codex {
+  border-top-color: color-mix(in srgb, var(--marine) 55%, var(--line-strong));
+}
+
+html.light .cp-popout-nova {
+  border-top-color: color-mix(in srgb, var(--marine-2) 55%, var(--line-strong));
+}
+
+html.light .cp-card {
+  border-color: color-mix(in srgb, var(--axis-glass-border) 70%, var(--line));
+  background: var(--surface);
+}
+
+html.light .cp-ai span:last-child {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--axis-glass-border) 60%, var(--line));
+}
+
+html.light .cp-you span {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+html.light .cp-ident {
+  color: var(--ink-2);
+}
+
 .bigmetric {
   font-family: var(--disp);
   font-size: 38px;
