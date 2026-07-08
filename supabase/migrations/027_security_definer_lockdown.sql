@@ -57,5 +57,6 @@ revoke execute on function public.mark_overdue_tasks() from anon, authenticated;
 revoke execute on function public.purge_old_done_tasks() from anon, authenticated;
 
 drop policy if exists "avatars_select_public" on storage.objects;
-create policy "avatars_select_owner" on storage.objects
+drop policy if exists avatars_select_owner on storage.objects;
+create policy avatars_select_owner on storage.objects
   for select using (bucket_id = 'avatars' and auth.uid() = owner);
