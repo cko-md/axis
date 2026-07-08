@@ -56,8 +56,15 @@ export function decodeBase64Url(data: string): string {
   }
 }
 
+// Match a part's mimeType, tolerating trailing parameters some payload shapes
+// pass through (e.g. "text/html; charset=UTF-8" — Composio-relayed messages).
+function mimeTypeMatches(partMimeType: string | undefined, mimeType: "text/html" | "text/plain"): boolean {
+  if (!partMimeType) return false;
+  return partMimeType.toLowerCase().split(";")[0].trim() === mimeType;
+}
+
 function findBodyPart(payload: GmailPayload, mimeType: "text/html" | "text/plain"): GmailPayload | null {
-  if (payload.mimeType?.toLowerCase() === mimeType && payload.body?.data) {
+  if (mimeTypeMatches(payload.mimeType, mimeType) && payload.body?.data) {
     return payload;
   }
   for (const part of payload.parts ?? []) {
@@ -81,7 +88,7 @@ export function extractBody(payload: GmailPayload): { content: string; isHtml: b
   if (payload.body?.data) {
     return {
       content: decodeBase64Url(payload.body.data),
-      isHtml: payload.mimeType?.toLowerCase() === "text/html",
+      isHtml: mimeTypeMatches(payload.mimeType, "text/html"),
     };
   }
 
