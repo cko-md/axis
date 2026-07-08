@@ -28,7 +28,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 export type NowPlaying = {
   track: string | null;
@@ -229,8 +229,8 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   }, [connected]);
 
   const connect = useCallback(() => {
-    openOAuthPopup('/api/spotify/auth', (_provider, status) => {
-      if (status === 'ok') void poll();
+    openComposioOAuthPopup("spotify", (status) => {
+      if (status === "ok") void poll();
     });
   }, [poll]);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { ProviderDot } from "./ProviderBadges";
 
 /**
@@ -37,7 +37,7 @@ export function AddAccountPicker({
   };
   const connect = (toolkit: "gmail" | "outlook") => {
     onClose();
-    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+    openComposioOAuthPopup(toolkit, (status) => {
       if (status === "ok") onConnected(toolkit);
     });
   };

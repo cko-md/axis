@@ -10,6 +10,12 @@ import {
   type StravaStats,
   type StravaAthlete,
 } from "./_lib";
+import {
+  getComposioStravaConnection,
+  getComposioStravaAthlete,
+  listComposioStravaActivities,
+} from "@/lib/integrations/strava-composio";
+import { hasOptionalEnv } from "@/lib/env";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 import { optionalEnv } from "@/lib/env";
 
@@ -39,11 +45,11 @@ export async function GET(req: NextRequest) {
   // ── AUTH REDIRECT ──────────────────────────────────────────────────────────
   if (action === "auth") {
     const clientId = optionalEnv("STRAVA_CLIENT_ID");
+    if (!clientId && !hasOptionalEnv("COMPOSIO_API_KEY")) {
+      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
+    }
     if (!clientId) {
-      return NextResponse.json(
-        { error: "NOT_CONFIGURED", message: "Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET to enable Strava." },
-        { status: 503 },
-      );
+      return NextResponse.redirect(new URL("/api/integrations/composio/connect?toolkit=strava", req.url));
     }
 
     const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
@@ -134,18 +140,40 @@ export async function GET(req: NextRequest) {
 
   // ── STATUS ─────────────────────────────────────────────────────────────────
   if (action === "status") {
+    const composio = await getComposioStravaConnection(user.id);
+    if (composio) {
+      const athlete = await getComposioStravaAthlete(composio.connectedAccountId, user.id);
+      return NextResponse.json({
+        connected: Boolean(athlete),
+        configured: true,
+        via: "composio",
+        athlete: athlete ? { name: `${athlete.firstname} ${athlete.lastname}`, avatar: athlete.profile } : null,
+      });
+    }
+
     const token = await getAccessToken();
     if (!token) return notConnected();
     const athlete = await stravaGet<StravaAthlete>(token, "/athlete");
     return NextResponse.json({
       connected: Boolean(athlete),
       configured: isConfigured(),
+      via: "direct",
       athlete: athlete ? { name: `${athlete.firstname} ${athlete.lastname}`, avatar: athlete.profile } : null,
     });
   }
 
   // ── ACTIVITIES ─────────────────────────────────────────────────────────────
   if (action === "activities") {
+    const composio = await getComposioStravaConnection(user.id);
+    if (composio) {
+      try {
+        const activities = await listComposioStravaActivities(composio.connectedAccountId, user.id);
+        return NextResponse.json({ connected: true, via: "composio", activities });
+      } catch {
+        return NextResponse.json({ connected: true, via: "composio", activities: [], error: "fetch_failed" });
+      }
+    }
+
     const token = await getAccessToken();
     if (!token) return notConnected();
 

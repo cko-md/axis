@@ -1,6 +1,6 @@
 "use client";
 
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { ProviderDot } from "@/components/mail/ProviderBadges";
 
 /**
@@ -35,7 +35,7 @@ export function AddCalendarPicker({
   };
   const connect = (toolkit: "googlecalendar" | "outlook", provider: "google" | "outlook") => {
     onClose();
-    openOAuthPopup(`/api/integrations/composio/connect?toolkit=${toolkit}`, (_provider, status) => {
+    openComposioOAuthPopup(toolkit, (status) => {
       if (status === "ok") onConnected(provider);
     });
   };

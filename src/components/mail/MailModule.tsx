@@ -534,12 +534,19 @@ export function MailModule() {
       });
   }, [toast]);
 
-  const refreshMailAfterConnect = useCallback(() => {
-    refreshAfterComposioConnect(async () => {
-      await refreshMailStatus();
-      if (mountedRef.current) await fetchInbox();
-    });
-  }, [fetchInbox, refreshMailStatus]);
+  const refreshMailAfterConnect = useCallback((provider: "gmail" | "outlook") => {
+    refreshAfterComposioConnect(
+      provider,
+      async () => {
+        await refreshMailStatus();
+        if (mountedRef.current) await fetchInbox();
+      },
+      () => {
+        if (!mountedRef.current) return;
+        toast("Mailbox connection did not finish. Try again in a moment.", "error", "Mail");
+      },
+    );
+  }, [fetchInbox, refreshMailStatus, toast]);
 
   const isConnected = statusLoaded && accounts.length > 0;
 
@@ -552,29 +559,13 @@ export function MailModule() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
-    if (connected) {
-      window.history.replaceState({}, "", "/mail");
-      // Re-fetch status to pick up the new account
-      fetch("/api/mail/status")
-        .then(async (r) => {
-          const s = (await r.json().catch(() => ({}))) as MailStatusResponse;
-          if (!r.ok) throw new Error(s.error ?? "Mail status could not be refreshed.");
-          return s;
-        })
-        .then((s) => {
-          if (mountedRef.current) {
-            setAccounts(s.accounts ?? []);
-            setInboxNotice(null);
-          }
-        })
-        .catch((error) => {
-          if (!mountedRef.current) return;
-          const message = error instanceof Error ? error.message : "Mail status could not be refreshed.";
-          setInboxNotice(message);
-          toast(message, "error", "Mail");
-        });
-    }
-  }, [toast]);
+    if (!connected) return;
+    window.history.replaceState({}, "", "/mail");
+    const provider = connected === "outlook" || connected === "composio_outlook"
+      ? "outlook"
+      : "gmail";
+    refreshMailAfterConnect(provider);
+  }, [refreshMailAfterConnect]);
 
   const messageCapabilities = useCallback((msg: Pick<MailMessage, "provider" | "accountEmail">) => {
     const account = accounts.find((acct) => acct.provider === msg.provider && acct.mailEmail === msg.accountEmail);
