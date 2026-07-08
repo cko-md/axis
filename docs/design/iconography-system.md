@@ -133,7 +133,9 @@
 
 - [x] `Icon` primitive
 - [x] Nav sidebar Lucide
+- [x] Nav sidebar Lucide
 - [ ] Command palette icons
 - [ ] Widget shell actions
-- [ ] Status callout icons
+- [x] Status callout icons
+- [x] Widget status badge icons
 - [ ] Module inline SVG audit (~30 files)
