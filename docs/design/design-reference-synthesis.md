@@ -116,11 +116,12 @@ See `docs/design/typography-research.md`.
 1. **Dark-first command center** — Dimension frosted shell
 2. **Silver/chrome light** — cool gallery, not parchment (`html.light`)
 3. **Atmospheric iridescence** — tokenized `--axis-*`, scene-level only
+4. **Premium surfaces + loading** — token-safe `axis-glass-panel/axis-chrome-panel` and `.axis-loading-sheen` for loading
 4. **Lucide operational glyphs** — consistent stroke, semantic mapping
-5. **Honest system states** — live/stale/error/lab/disconnected/local badges
-6. **Editorial restraint** — typography hierarchy without heavy weights
-7. **Reduced motion** — `prefers-reduced-motion` disables aurora animation
-8. **AXIS identity** — not Monopo, Superhuman, Dimension, or Aceternity clones
+6. **Honest system states** — live/stale/error/lab/disconnected/local badges
+7. **Editorial restraint** — typography hierarchy without heavy weights
+8. **Reduced motion** — `prefers-reduced-motion` disables aurora animation
+9. **AXIS identity** — not Monopo, Superhuman, Dimension, or Aceternity clones
 
 ---
 
