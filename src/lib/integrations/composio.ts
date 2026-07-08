@@ -232,7 +232,7 @@ export async function executeTool(opts: {
 // than through this map.
 const PROFILE_TOOL: Partial<Record<SupportedToolkit, string>> = {
   gmail: "GMAIL_GET_PROFILE",
-  outlook: "OUTLOOK_OUTLOOK_GET_PROFILE",
+  outlook: "OUTLOOK_GET_PROFILE",
   googlecalendar: "GOOGLECALENDAR_LIST_CALENDARS",
 };
 
