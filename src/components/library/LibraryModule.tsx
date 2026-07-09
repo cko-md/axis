@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEve
 import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
+import Link from "next/link";
 
 const COLLECTIONS = [
   { name: "All Files",       icon: <path d="M3 7l2-3h6l2 3h6v13H3z" /> },
@@ -54,7 +55,7 @@ export function LibraryModule() {
   const [activeColl, setActiveColl] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { files, loading, loadError, uploadFile, deleteFile, getDownloadUrl } = useLibraryFiles();
+  const { files, loading, loadError, signedIn, refresh, uploadFile, deleteFile, getDownloadUrl } = useLibraryFiles();
   const { toast } = useToast();
 
   const visibleFiles = activeColl === 0 ? files : files.filter((f) => f.collection === activeColl);
@@ -105,8 +106,17 @@ export function LibraryModule() {
   return (
     <>
       <div className="divider" />
+      {!signedIn && !loading && (
+        <StatusCallout kind="info" title="Sign in to use Library">
+          Uploads and collections require an account.{" "}
+          <Link href="/login" className="feed-manage" style={{ textDecoration: "none" }}>Sign in →</Link>
+        </StatusCallout>
+      )}
       {loadError ? (
-        <StatusCallout kind="error" title="Library unavailable">{loadError}</StatusCallout>
+        <StatusCallout kind="error" title="Library unavailable">
+          {loadError}{" "}
+          <button type="button" className="feed-manage" onClick={() => void refresh()}>Retry</button>
+        </StatusCallout>
       ) : loading ? (
         <p style={{ fontSize: 12, color: "var(--ink-faint)", fontFamily: "var(--mono)", marginBottom: 12 }}>Loading files…</p>
       ) : null}

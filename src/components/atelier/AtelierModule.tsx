@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useAtelierPrefs } from "@/lib/hooks/useAtelierPrefs";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -220,7 +221,7 @@ export function AtelierModule() {
   const [tab, setTab] = useState<"atl-lang" | "atl-style">("atl-lang");
   const [lang, setLang] = useState<LangKey>("fr");
   const [addingAgenda, setAddingAgenda] = useState(false);
-  const { pins, togglePin } = useAtelierPrefs(initialPins());
+  const { pins, loading: prefsLoading, loadError: prefsLoadError, signedIn, refresh: refreshPrefs, togglePin } = useAtelierPrefs(initialPins());
 
   const [moodImages, setMoodImages] = useState<MoodImage[]>([]);
   const moodInputRef = useRef<HTMLInputElement>(null);
@@ -397,6 +398,17 @@ export function AtelierModule() {
 
   return (
     <>
+      {!signedIn && !prefsLoading && (
+        <StatusCallout kind="info" title="Sign in to sync Atelier">
+          Language pins and moodboard images sync to Supabase when signed in. Lesson plans and feeds remain usable locally.
+        </StatusCallout>
+      )}
+      {prefsLoadError && (
+        <StatusCallout kind="error" title="Atelier sync failed">
+          {prefsLoadError}{" "}
+          <button type="button" className="feed-manage" onClick={() => void refreshPrefs()}>Retry</button>
+        </StatusCallout>
+      )}
         <div className="savebtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 5v14M5 12h14" /></svg>
           Add a Pursuit
