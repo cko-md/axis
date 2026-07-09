@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { createUrlBoard, loadUrlBoards, saveUrlBoards, type UrlBoard } from "@/lib/store/url-boards";
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
 const URL_MODULES_KEY = "axis-url-modules";
@@ -80,18 +81,28 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
   const { toast } = useToast();
 
   const [urlModules, setUrlModules] = useState<UrlModule[]>([]);
+  const [boards, setBoards] = useState<UrlBoard[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [boardDetail, setBoardDetail] = useState<UrlBoard | null>(null);
   const [formName, setFormName] = useState("");
   const [formUrl, setFormUrl] = useState("");
+  const [boardName, setBoardName] = useState("");
 
   useEffect(() => {
     setUrlModules(loadUrlModules());
+    setBoards(loadUrlBoards());
   }, []);
 
   const persistModules = (mods: UrlModule[]) => {
     setUrlModules(mods);
     try { localStorage.setItem(URL_MODULES_KEY, JSON.stringify(mods)); }
     catch { /* ignore */ }
+  };
+
+  const persistBoards = (next: UrlBoard[]) => {
+    setBoards(next);
+    saveUrlBoards(next);
   };
 
   const addModule = () => {
@@ -105,6 +116,23 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
 
   const removeModule = (id: string) => persistModules(urlModules.filter((m) => m.id !== id));
 
+  const createBoard = () => {
+    const name = boardName.trim();
+    if (!name) { toast("Name your board first.", "warn", "Boards"); return; }
+    const board = createUrlBoard(name);
+    persistBoards([...boards, board]);
+    setBoardName("");
+    setBoardOpen(false);
+    setBoardDetail(board);
+    toast(`Board "${board.name}" created (device-local).`, "success", "Boards");
+  };
+
+  const removeBoard = (id: string) => {
+    persistBoards(boards.filter((b) => b.id !== id));
+    if (boardDetail?.id === id) setBoardDetail(null);
+    toast("Board removed.", "info", "Boards");
+  };
+
   return (
     <>
       {/* Apps section label */}
@@ -115,6 +143,22 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
         </div>
       )}
       {collapsed && <div style={{ height: 1, background: "var(--line)", margin: "12px 8px" }} />}
+
+      {boards.map((b) => (
+        <button
+          key={b.id}
+          type="button"
+          className="navitem url-module"
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", fontFamily: "var(--sans)" }}
+          onClick={() => setBoardDetail(b)}
+          title={`Board · ${b.moduleIds.length} modules`}
+        >
+          {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
+          <NavIcon name="board" />
+          {!collapsed && <span className="lbl">{b.name}</span>}
+          {!collapsed && <span className="ix" style={{ fontSize: 9, opacity: 0.7 }}>board</span>}
+        </button>
+      ))}
 
       {/* Dynamic URL modules */}
       {urlModules.map((m) => (
@@ -162,7 +206,7 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
         type="button"
         className="navitem"
         style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", fontFamily: "var(--sans)" }}
-        onClick={() => toast("New boards are coming — drag-and-drop board builder is next.", "info", "Boards")}
+        onClick={() => setBoardOpen(true)}
         title="New Board"
       >
         {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
@@ -201,6 +245,56 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
           placeholder="uworld.com"
           className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
         />
+      </Modal>
+
+      <Modal
+        open={boardOpen}
+        onClose={() => setBoardOpen(false)}
+        title="New Board"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setBoardOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={createBoard}>Create board</Button>
+          </>
+        }
+      >
+        <p className="mb-4 text-xs text-[var(--ink-dim)]">
+          Boards group URL modules into workspaces. Phase 1 stores boards on this device only — drag-and-drop assignment ships next.
+        </p>
+        <label className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-[var(--ink-faint)]">Board name</label>
+        <input
+          value={boardName}
+          onChange={(e) => setBoardName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && createBoard()}
+          placeholder="e.g. Research stack, Clinical tools"
+          autoFocus
+          className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+        />
+      </Modal>
+
+      <Modal
+        open={!!boardDetail}
+        onClose={() => setBoardDetail(null)}
+        title={boardDetail?.name ?? "Board"}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => boardDetail && removeBoard(boardDetail.id)}>Delete board</Button>
+            <Button variant="primary" onClick={() => setBoardDetail(null)}>Close</Button>
+          </>
+        }
+      >
+        {boardDetail && (
+          <>
+            <p className="mb-3 text-xs text-[var(--ink-dim)]">
+              Scaffold board · stored locally · {urlModules.length} URL module{urlModules.length === 1 ? "" : "s"} available in Apps.
+            </p>
+            <p className="text-sm text-[var(--ink)]">
+              {boardDetail.moduleIds.length === 0
+                ? "No modules assigned yet. Drag-and-drop board builder is the next step — for now, open modules directly from Apps."
+                : `${boardDetail.moduleIds.length} module(s) will appear here once assignment ships.`}
+            </p>
+          </>
+        )}
       </Modal>
     </>
   );
