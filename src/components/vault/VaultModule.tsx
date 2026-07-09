@@ -776,6 +776,16 @@ export function VaultModule() {
 
   return (
     <div className="vault-view">
+      {!connected && (
+        <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="module-status-kicker">Lab preview</div>
+            <strong>Listening Vault is showing curated sample crates.</strong>
+            <p>Connect Spotify to load your library, rotation, and personalized recommendations.</p>
+          </div>
+          <span>Video Lounge items are curated links — not synced from a provider.</span>
+        </div>
+      )}
       {/* ── Vault tab bar ── */}
       <div className="subtabbar" style={{ marginBottom: 0, paddingBottom: 4 }}>
         {(["room", "taste", "recs", "video"] as const).map((t) => (

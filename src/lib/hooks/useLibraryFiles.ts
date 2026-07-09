@@ -22,11 +22,13 @@ export function useLibraryFiles() {
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
+    setSignedIn(!!user);
     if (!user) {
       setFiles([]);
       setLoadError(null);
@@ -117,5 +119,5 @@ export function useLibraryFiles() {
     return data.signedUrl;
   }, [supabase]);
 
-  return { files, loading, loadError, refresh, uploadFile, deleteFile, getDownloadUrl };
+  return { files, loading, loadError, signedIn, refresh, uploadFile, deleteFile, getDownloadUrl };
 }

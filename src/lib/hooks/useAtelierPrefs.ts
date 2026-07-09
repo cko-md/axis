@@ -24,11 +24,20 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
   const userId = useRef<string | null>(null);
   const [pins, setPins] = useState<Record<string, boolean>>(defaultPins);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [subscribedUserId, setSubscribedUserId] = useState<string | null>(null);
 
   const loadPins = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setSignedIn(false);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
+    setSignedIn(true);
+    setLoadError(null);
     userId.current = user.id;
     setSubscribedUserId(user.id);
     {
@@ -38,7 +47,13 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (!error && data) {
+      if (error) {
+        setLoadError("Atelier preferences could not be loaded.");
+        setLoading(false);
+        return;
+      }
+
+      if (data) {
         setPins(data.pins as Record<string, boolean>);
         setLoading(false);
         return;
@@ -74,5 +89,5 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
     });
   }, [supabase]);
 
-  return { pins, loading, togglePin };
+  return { pins, loading, loadError, signedIn, refresh: loadPins, togglePin };
 }
