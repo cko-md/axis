@@ -65,9 +65,9 @@ export const DEFAULT_HOLDINGS: HoldingRow[] = [
 ];
 
 export const DEFAULT_WATCHLIST: WatchlistRow[] = [
-  { symbol: "TSM", name: "Taiwan Semi", price: 184.2, chg: 1.9 },
-  { symbol: "COST", name: "Costco", price: 902.1, chg: 0.4 },
-  { symbol: "LLY", name: "Eli Lilly", price: 812.5, chg: -0.7 },
+  { symbol: "TSM", name: "Taiwan Semi" },
+  { symbol: "COST", name: "Costco" },
+  { symbol: "LLY", name: "Eli Lilly" },
 ];
 
 export function fmtUsd(n: number) {
