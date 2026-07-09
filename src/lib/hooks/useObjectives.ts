@@ -84,6 +84,7 @@ export function useObjectives() {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -94,10 +95,12 @@ export function useObjectives() {
       setSignedIn(false);
       setObjectives([]);
       setHabits([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
     setSignedIn(true);
+    setLoadError(null);
 
     const [objsRes, habitsRes] = await Promise.all([
       supabase
@@ -111,6 +114,13 @@ export function useObjectives() {
         .eq("user_id", user.id)
         .order("sort_order", { ascending: true }),
     ]);
+
+    if (objsRes.error || habitsRes.error) {
+      setLoadError("Objectives could not be loaded.");
+      Sentry.captureException(objsRes.error ?? habitsRes.error, {
+        tags: { module: "objectives", operation: "refresh" },
+      });
+    }
 
     setObjectives(
       (objsRes.data ?? []).map((o) => ({
@@ -299,6 +309,7 @@ export function useObjectives() {
     objectives,
     habits,
     loading,
+    loadError,
     signedIn,
     refresh,
     addObjective,

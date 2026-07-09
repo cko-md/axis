@@ -21,6 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { mergeTodayEvents } from "@/lib/calendar/today-events";
 import {
   useTasks,
   rankTasks,
@@ -635,26 +636,24 @@ export function AgendaModule() {
         externalId: string; title: string; start_at: string; end_at: string;
         description?: string | null; location?: string | null; attendees?: string[]; all_day: boolean;
       };
-      const external: ScheduleEvent[] = [];
-      for (const row of (cacheRes.data ?? []) as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[] }>) {
-        for (const e of row.events ?? []) {
-          if (new Date(e.start_at).toDateString() !== start.toDateString()) continue;
-          external.push({
-            id: `ext-${row.source}-${e.externalId}`,
-            title: e.title,
-            description: e.description ?? null,
-            location: e.location ?? null,
-            attendees: e.attendees ?? [],
-            start_at: e.start_at,
-            end_at: e.end_at,
-            color_class: "or",
-            all_day: e.all_day,
-            source: row.source,
-          });
-        }
-      }
+      const merged = mergeTodayEvents(
+        owned,
+        (cacheRes.data ?? []) as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[] | null }>,
+        start,
+      );
 
-      setTodayEvents([...owned, ...external]);
+      setTodayEvents(merged.map((event) => ({
+        id: event.id,
+        title: event.title,
+        description: event.description ?? null,
+        location: null,
+        attendees: [],
+        start_at: event.start_at,
+        end_at: event.end_at,
+        color_class: (event.color_class as "a" | "b" | "c" | "or") || "a",
+        all_day: event.all_day ?? false,
+        ...(event.source ? { source: event.source } : {}),
+      })));
       setTodayEventsLoading(false);
     })();
     return () => { cancelled = true; };

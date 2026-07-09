@@ -175,15 +175,39 @@ export function PeopleModule() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showContactsPicker]);
 
+  const parseContactsResponse = (payload: unknown): GoogleContact[] => {
+    if (Array.isArray(payload)) return payload as GoogleContact[];
+    if (payload && typeof payload === "object" && "contacts" in payload) {
+      const contacts = (payload as { contacts?: GoogleContact[] }).contacts;
+      return Array.isArray(contacts) ? contacts : [];
+    }
+    return [];
+  };
+
   const fetchContacts = useCallback(() => {
     setContactsError(null);
-    fetch("/api/contacts/list")
-      .then((r) => {
-        if (!r.ok) throw new Error("contacts_unavailable");
-        return r.json() as Promise<GoogleContact[]>;
+    fetch("/api/contacts/status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() as Promise<{ connected?: boolean }> : { connected: false }))
+      .then((status) => {
+        if (!status.connected) {
+          setContacts([]);
+          setContactsLoaded(true);
+          return null;
+        }
+        return fetch("/api/contacts/list");
       })
-      .then((data: GoogleContact[] | null) => {
-        if (data) setContacts(data);
+      .then((listResponse) => {
+        if (!listResponse) return;
+        if (!listResponse.ok) throw new Error("contacts_unavailable");
+        return listResponse.json();
+      })
+      .then((data) => {
+        if (data === undefined) return;
+        const parsed = parseContactsResponse(data);
+        if (data && typeof data === "object" && "error" in data && typeof (data as { error?: string }).error === "string") {
+          setContactsError((data as { error: string }).error);
+        }
+        setContacts(parsed);
         setContactsLoaded(true);
       })
       .catch(() => {
@@ -201,20 +225,26 @@ export function PeopleModule() {
     const attempt = async () => {
       tries += 1;
       await fetch("/api/integrations/composio/status", { cache: "no-store" }).catch(() => {});
+      const status = await fetch("/api/contacts/status", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() as Promise<{ connected?: boolean }> : { connected: false }))
+        .catch(() => ({ connected: false }));
+      if (!status.connected) {
+        if (tries < 4) setTimeout(attempt, 2500);
+        else setContactsLoaded(true);
+        return;
+      }
       const data = await fetch("/api/contacts/list")
-        .then((r) => {
-          if (!r.ok) throw new Error("contacts_unavailable");
-          return r.json() as Promise<GoogleContact[]>;
-        })
-        .catch(() => {
-          setContactsError("Google Contacts could not be loaded.");
-          return null;
-        });
-      if (data && data.length > 0) {
-        setContacts(data);
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const parsed = parseContactsResponse(data);
+      if (parsed.length > 0) {
+        setContacts(parsed);
         setContactsError(null);
         setContactsLoaded(true);
         return;
+      }
+      if (data && typeof data === "object" && "error" in data && typeof (data as { error?: string }).error === "string") {
+        setContactsError((data as { error: string }).error);
       }
       if (tries < 4) setTimeout(attempt, 2500);
       else setContactsLoaded(true);

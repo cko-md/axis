@@ -6,6 +6,7 @@ import { deleteOutlookEvent, updateOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, deleteComposioEvent } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 import { resolveCleanupTransport, validateEventPatch, type ScheduleEventPatchInput } from "@/lib/calendar/event-detail";
+import { listHealthyLegacyProviders } from "@/lib/calendar/legacy-providers";
 
 type CalendarDeleteError = {
   source: "google" | "outlook";
@@ -82,7 +83,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from("calendar_connections")
     .select("provider")
     .eq("user_id", user.id);
-  const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
+  const legacyProviders = await listHealthyLegacyProviders(user.id, connections ?? []);
 
   async function updateExternal(
     source: "google" | "outlook",
@@ -183,7 +184,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Could not load calendar connections" }, { status: 500 });
   }
 
-  const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
+  const legacyProviders = await listHealthyLegacyProviders(user.id, connections ?? []);
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   if (row.gcal_event_id || row.outlook_event_id) {
     try {

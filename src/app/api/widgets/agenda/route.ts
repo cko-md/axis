@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import * as Sentry from "@sentry/nextjs";
+import { fetchTodayMergedEvents } from "@/lib/calendar/today-events";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
 
 export async function GET() {
@@ -18,16 +19,13 @@ export async function GET() {
     const todayEnd = new Date(todayStart);
     todayEnd.setDate(todayEnd.getDate() + 1);
 
-    const [taskResult, eventResult] = await Promise.allSettled([
-      supabase.from("tasks").select("*", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["open", "overdue"]),
+    const [taskResult, eventsResult] = await Promise.allSettled([
       supabase
-        .from("schedule_events")
-        .select("title, start_at")
+        .from("tasks")
+        .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
-        .gte("start_at", todayStart.toISOString())
-        .lt("start_at", todayEnd.toISOString())
-        .order("start_at", { ascending: true })
-        .limit(5),
+        .in("status", ["open", "overdue"]),
+      fetchTodayMergedEvents(supabase, user.id),
     ]);
 
     const errors: string[] = [];
@@ -36,14 +34,14 @@ export async function GET() {
       errors.push("tasks");
     }
 
-    const events = eventResult.status === "fulfilled" && !eventResult.value.error ? eventResult.value.data : null;
-    if (eventResult.status === "rejected" || (eventResult.status === "fulfilled" && eventResult.value.error)) {
+    const events = eventsResult.status === "fulfilled" ? eventsResult.value : null;
+    if (eventsResult.status === "rejected") {
       errors.push("events");
     }
 
     openTasks = taskCount ?? 0;
     eventsToday = events?.length ?? 0;
-    const upcoming = events?.find((e) => new Date(e.start_at) > new Date());
+    const upcoming = events?.find((event) => new Date(event.start_at) > new Date());
     if (upcoming) {
       const mins = Math.round((new Date(upcoming.start_at).getTime() - Date.now()) / 60000);
       nextTitle = mins > 0 ? `${upcoming.title} in ${mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`}` : upcoming.title;
