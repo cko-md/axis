@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
@@ -107,6 +108,9 @@ export function usePipeline() {
 
     const queryError = stageError ?? studiesRes.error ?? confsRes.error;
     if (queryError) {
+      Sentry.captureException(queryError, {
+        tags: { module: "pipeline", operation: "refresh" },
+      });
       setLoadError("Pipeline could not be loaded. Try refreshing.");
       setStages([]);
       setStudies([]);
@@ -147,6 +151,32 @@ export function usePipeline() {
     return {};
   }, [supabase]);
 
+  const updateStage = useCallback(async (id: string, patch: Partial<Pick<PipelineStage, "name" | "swatch" | "sort_order">>) => {
+    const { data, error } = await supabase
+      .from("pipeline_stages")
+      .update(patch)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) return { error: error.message };
+    setStages((prev) => prev.map((stage) => (stage.id === id ? (data as PipelineStage) : stage)));
+    return { data: data as PipelineStage };
+  }, [supabase]);
+
+  const moveStudy = useCallback(async (id: string, stageId: string, sortOrder?: number) => {
+    const targetCount = studies.filter((study) => study.stage_id === stageId && study.id !== id).length;
+    const nextOrder = sortOrder ?? targetCount;
+    const { data, error } = await supabase
+      .from("studies")
+      .update({ stage_id: stageId, sort_order: nextOrder, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) return { error: error.message };
+    setStudies((prev) => prev.map((study) => (study.id === id ? (data as Study) : study)));
+    return { data: data as Study };
+  }, [supabase, studies]);
+
   const addStudy = useCallback(async (partial: Partial<Study> & { stage_id: string; title: string }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Sign in to save studies." };
@@ -169,16 +199,22 @@ export function usePipeline() {
   }, [supabase, studies]);
 
   const updateStudy = useCallback(async (id: string, patch: Partial<Study>) => {
+    const current = studies.find((study) => study.id === id);
+    const stageChanged = patch.stage_id && current && patch.stage_id !== current.stage_id;
+    const payload = { ...patch, updated_at: new Date().toISOString() };
+    if (stageChanged && patch.stage_id) {
+      payload.sort_order = studies.filter((study) => study.stage_id === patch.stage_id && study.id !== id).length;
+    }
     const { data, error } = await supabase
       .from("studies")
-      .update({ ...patch, updated_at: new Date().toISOString() })
+      .update(payload)
       .eq("id", id)
       .select()
       .single();
     if (error) return { error: error.message };
     setStudies((prev) => prev.map((s) => (s.id === id ? (data as Study) : s)));
     return { data: data as Study };
-  }, [supabase]);
+  }, [supabase, studies]);
 
   const deleteStudy = useCallback(async (id: string) => {
     const { error } = await supabase.from("studies").delete().eq("id", id);
@@ -239,9 +275,11 @@ export function usePipeline() {
     signedIn,
     refresh,
     addStage,
+    updateStage,
     deleteStage,
     addStudy,
     updateStudy,
+    moveStudy,
     deleteStudy,
     addConference,
     updateConference,

@@ -156,6 +156,42 @@ function heuristicMeetingSummary(text: string): { summary: string } {
   return { summary: `## Meeting Summary\n\n**Key Points:**\n- ${points}\n\n**Action Items:**\n- Review transcript and add action items\n\n**Decisions Made:**\n- None identified` };
 }
 
+function heuristicDebriefSummary(text: string): { summary: string } {
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const wins = lines.find((line) => /^wins?:/i.test(line) || /\*\*wins\*\*/i.test(line));
+  const challenges = lines.find((line) => /^challenges?:/i.test(line) || /\*\*challenges\*\*/i.test(line));
+  const focus = lines.find((line) => /^focus:/i.test(line) || /\*\*focus\*\*/i.test(line));
+  const bullets = sentencesOf(text, 6).map((sentence) => `- ${sentence}`);
+  const parts = [
+    wins ? `**Wins:** ${wins.replace(/^\*?\*?wins\*?\*?:?\s*/i, "")}` : "",
+    challenges ? `**Friction:** ${challenges.replace(/^\*?\*?challenges\*?\*?:?\s*/i, "")}` : "",
+    focus ? `**Focus:** ${focus.replace(/^\*?\*?focus\*?\*?:?\s*/i, "")}` : "",
+    bullets.length ? `**Patterns:**\n${bullets.join("\n")}` : "",
+  ].filter(Boolean);
+  return { summary: parts.join("\n\n") || "Capture wins, friction, and next focus — then summarize again." };
+}
+
+function heuristicPipelineDraft(
+  text: string,
+  kind: "study" | "conference" | "study-plan" = "study",
+  meta?: string,
+): PipelineDraftResult {
+  if (kind === "study-plan") {
+    const steps = [
+      "Confirm study question, population, and primary endpoint.",
+      "Map IRB/regulatory requirements and data-use agreements.",
+      "Define analysis plan and interim milestones for this stage.",
+      meta ? `Context: ${meta}` : "",
+      `Next focus for “${text}”: draft one concrete deliverable due this week.`,
+    ].filter(Boolean);
+    return { draft: steps.map((step, index) => `${index + 1}. ${step}`).join("\n") };
+  }
+  const label = kind === "conference" ? "conference abstract" : "study abstract";
+  return {
+    draft: `Background: ${text} addresses an important clinical question.${meta ? ` ${meta}.` : ""}\nMethods: Retrospective/prospective design with clearly defined cohort and outcomes.\nResults: Primary findings to be populated from analysis.\nConclusion: ${text} may inform practice pending full results.`,
+  };
+}
+
 function fallbackRegimen(kind: string, duration: number, intensity: string): RegimenResult {
   if (kind === "run") {
     if (intensity === "easy") return { warmup: "5 min easy walk/jog", items: [{ name: "Easy run", dist: `${Math.round(duration * 0.16 * 10) / 10} km`, zone: "Z1-2" }], cooldown: "5 min walk + stretch" };
@@ -302,8 +338,11 @@ export async function POST(req: NextRequest) {
     }
     if (mode === "companion") return NextResponse.json({ response: "I'm offline right now — check your connection and try again." });
     if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
-    if (mode === "debrief_summary") return NextResponse.json({ summary: "Summary unavailable — API key required." });
-    if (mode === "pipeline-draft") return NextResponse.json({ draft: "" } as PipelineDraftResult);
+    if (mode === "debrief_summary") return NextResponse.json(heuristicDebriefSummary(text));
+    if (mode === "pipeline-draft") {
+      const ctx = parseJsonBody<{ kind?: "study" | "conference" | "study-plan"; role?: string; meta?: string }>(body, {});
+      return NextResponse.json(heuristicPipelineDraft(text, ctx.kind ?? "study", ctx.meta));
+    }
     if (mode === "music-recs") return NextResponse.json({ recs: [] });
     if (mode === "meal-parse") return NextResponse.json({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" });
     return NextResponse.json(heuristicCapture(text));
@@ -643,14 +682,20 @@ export async function POST(req: NextRequest) {
 
     // ── pipeline-draft ─────────────────────────────────────────────────────────
     if (mode === "pipeline-draft") {
-      const ctx = parseJsonBody<{ kind?: "study" | "conference"; role?: string; meta?: string }>(body, {});
+      const ctx = parseJsonBody<{ kind?: "study" | "conference" | "study-plan"; role?: string; meta?: string; next_action?: string; stage?: string }>(body, {});
+      const kind = ctx.kind ?? "study";
+      const metaParts = [ctx.role, ctx.meta, ctx.stage, ctx.next_action].filter(Boolean);
+      const meta = metaParts.join(" · ");
+      const system = kind === "study-plan"
+        ? 'You are an academic project planner for a physician-researcher. Draft a concise numbered project plan (5-8 steps) for the study described. Cover regulatory/data, analysis, drafting, and the immediate next milestone. Return ONLY JSON: { "draft": "..." }. No markdown headers.'
+        : 'You are an academic medical writing assistant for a physician-researcher. Draft a concise scientific abstract (Background/Methods/Results/Conclusion in plain prose, no markdown headers) for the given study or conference submission. 150-250 words. Return ONLY a JSON object with key "draft": the abstract text as a single string. No markdown, no preamble.';
       const result = await aiJSON<PipelineDraftResult>({
         mode,
         anthropic,
         providerPref,
-        system: 'You are an academic medical writing assistant for a physician-researcher. Draft a concise scientific abstract (Background/Methods/Results/Conclusion in plain prose, no markdown headers) for the given study or conference submission. 150-250 words. Return ONLY a JSON object with key "draft": the abstract text as a single string. No markdown, no preamble.',
-        userMessage: `kind: ${ctx.kind ?? "study"}\ntitle: ${text}\nrole: ${ctx.role ?? "First Author"}\ncontext: ${ctx.meta ?? "none"}`,
-        maxTokens: 500,
+        system,
+        userMessage: `kind: ${kind}\ntitle: ${text}\ncontext: ${meta || "none"}`,
+        maxTokens: kind === "study-plan" ? 400 : 500,
       });
       return NextResponse.json({
         draft: typeof result.draft === "string" ? result.draft : "",
@@ -728,7 +773,12 @@ export async function POST(req: NextRequest) {
     if (mode === "regimenPlan") {
       return NextResponse.json({ days: [], summary: "Could not generate plan — check your API key and try again." } as RegimenPlanResult);
     }
-    if (mode === "pipeline-draft") return NextResponse.json({ draft: "" } as PipelineDraftResult);
+    if (mode === "debrief_summary") return NextResponse.json(heuristicDebriefSummary(text));
+    if (mode === "pipeline-draft") {
+      const ctx = parseJsonBody<{ kind?: "study" | "conference" | "study-plan"; role?: string; meta?: string; next_action?: string; stage?: string }>(body, {});
+      const metaParts = [ctx.role, ctx.meta, ctx.stage, ctx.next_action].filter(Boolean);
+      return NextResponse.json(heuristicPipelineDraft(text, ctx.kind ?? "study", metaParts.join(" · ")));
+    }
     return NextResponse.json(heuristicCapture(text));
   }
 }
