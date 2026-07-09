@@ -30,6 +30,7 @@ import {
   GOOGLECALENDAR_COMPOSIO_TOOLS,
   OUTLOOK_CALENDAR_COMPOSIO_TOOLS,
 } from "@/lib/integrations/composio-calendar-tools";
+import { normalizeAllDayTimestamp } from "./event-dates";
 import type { ExternalCalendarEvent } from "./google";
 
 export type CalendarToolkit = "googlecalendar" | "outlook";
@@ -60,8 +61,25 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function unwrapEventList(data: Record<string, unknown>): Record<string, unknown>[] {
-  const candidates = [data.items, data.value, asRecord(data.data)?.items, asRecord(data.data)?.value];
+export function unwrapEventList(data: Record<string, unknown>): Record<string, unknown>[] {
+  const nested = asRecord(data.data);
+  const responseData = asRecord(data.response_data);
+  const nestedResponse = asRecord(nested?.response_data);
+  const candidates = [
+    data.items,
+    data.value,
+    data.events,
+    nested?.items,
+    nested?.value,
+    nested?.events,
+    responseData?.items,
+    responseData?.value,
+    responseData?.events,
+    nestedResponse?.items,
+    nestedResponse?.value,
+    Array.isArray(data.data) ? data.data : null,
+    Array.isArray(data.response_data) ? data.response_data : null,
+  ];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) return candidate as Record<string, unknown>[];
   }
@@ -118,20 +136,21 @@ export function normalizeGcalEvent(e: Record<string, unknown>): ExternalCalendar
   const start = e.start as { dateTime?: string; date?: string } | undefined;
   const end = e.end as { dateTime?: string; date?: string } | undefined;
   const attendees = (e.attendees as Array<{ displayName?: string; email?: string }> | undefined) ?? [];
+  const allDay = !start?.dateTime;
   const startVal = start?.dateTime ?? start?.date;
   const endVal = end?.dateTime ?? end?.date;
   if (!startVal || !endVal) return null;
   return {
     externalId: id,
     title: (e.summary as string) || "(No title)",
-    start_at: startVal,
-    end_at: endVal,
+    start_at: allDay ? normalizeAllDayTimestamp(startVal) : startVal,
+    end_at: allDay ? normalizeAllDayTimestamp(endVal) : endVal,
     description: (e.description as string) ?? null,
     location: (e.location as string) ?? null,
     attendees: attendees
       .map((attendee) => attendee.displayName || attendee.email)
       .filter((attendee): attendee is string => !!attendee),
-    all_day: !start?.dateTime,
+    all_day: allDay,
   };
 }
 

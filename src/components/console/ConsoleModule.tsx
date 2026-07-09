@@ -27,6 +27,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { DEFAULT_WIDGET_IDS, WIDGET_CATALOG, normalizeConsoleLayout, BLOCK_SIZES, type BlockSize } from "@/lib/store/widgets";
 import { formatDateLong } from "@/lib/format";
+import { fetchTodayMergedEvents } from "@/lib/calendar/today-events";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -529,16 +530,17 @@ export function ConsoleModule() {
       }
     }
 
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-    const { data: events } = await supabase
-      .from("schedule_events")
-      .select("id, title, start_at, end_at")
-      .eq("user_id", user.id)
-      .gte("start_at", todayStart.toISOString())
-      .lte("start_at", todayEnd.toISOString())
-      .order("start_at", { ascending: true });
-    if (events) setArcEvents(events);
+    try {
+      const merged = await fetchTodayMergedEvents(supabase, user.id);
+      setArcEvents(merged.map((event) => ({
+        id: event.id,
+        title: event.title,
+        start_at: event.start_at,
+        end_at: event.end_at,
+      })));
+    } catch {
+      setArcEvents([]);
+    }
 
     setLoading(false);
   }, [supabase, toast]);

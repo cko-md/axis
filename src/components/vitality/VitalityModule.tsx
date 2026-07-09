@@ -1256,6 +1256,16 @@ export function VitalityModule() {
   return (
     <>
       <div className="module-stage vitality-stage">
+        {!stravaConnected && (
+          <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+            <div>
+              <div className="module-status-kicker">Lab data</div>
+              <strong>Training stats use sample values until Strava is connected.</strong>
+              <p>Health device sync is planned — wearable metrics are not presented as live data.</p>
+            </div>
+            <span>Content cards in Training and Nutrition are curated placeholders.</span>
+          </div>
+        )}
         <ModuleInteractiveHero
           compact
           eyebrow="Wellness · Vitality"

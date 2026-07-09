@@ -14,12 +14,19 @@ interface GoogleConnectionsResponse {
   connections?: GooglePerson[];
 }
 
-interface ContactEntry {
+export interface ContactEntry {
   id: string;
   name: string;
   email: string;
   phone: string;
 }
+
+export type ContactsListResponse = {
+  contacts: ContactEntry[];
+  connected: boolean;
+  via: "oauth" | "composio" | null;
+  error?: string;
+};
 
 // Merges the legacy direct-OAuth Google Contacts connection with any
 // Composio-connected one — same provider, two auth paths, same output
@@ -31,9 +38,17 @@ export async function GET() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  if (!user) {
+    return NextResponse.json({ contacts: [], connected: false, via: null, error: "Unauthenticated" } satisfies ContactsListResponse, { status: 401 });
+  }
 
   const accessToken = await getFreshContactsAccessToken(user.id);
+  const composioAccounts = await listComposioContactsAccounts(user.id);
+  const connected = Boolean(accessToken) || composioAccounts.length > 0;
+
+  if (!connected) {
+    return NextResponse.json({ contacts: [], connected: false, via: null } satisfies ContactsListResponse);
+  }
 
   let legacyContacts: ContactEntry[] = [];
   if (accessToken) {
@@ -53,16 +68,24 @@ export async function GET() {
     }
   }
 
-  const composioAccounts = await listComposioContactsAccounts(user.id);
-  const composioContacts = (
-    await Promise.all(
-      composioAccounts.map((a) => listComposioContacts(a.connectedAccountId, user.id).catch(() => [])),
-    )
-  ).flat();
+  const composioResults = await Promise.allSettled(
+    composioAccounts.map((account) => listComposioContacts(account.connectedAccountId, user.id)),
+  );
+  const composioContacts = composioResults.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  const composioFailed = composioResults.some((result) => result.status === "rejected");
 
-  if (!accessToken && composioAccounts.length === 0) {
-    return NextResponse.json({ error: "Not connected" }, { status: 401 });
-  }
+  const via: ContactsListResponse["via"] = composioAccounts.length > 0
+    ? "composio"
+    : accessToken
+      ? "oauth"
+      : null;
 
-  return NextResponse.json([...legacyContacts, ...composioContacts]);
+  return NextResponse.json({
+    contacts: [...legacyContacts, ...composioContacts],
+    connected: true,
+    via,
+    ...(composioFailed && composioContacts.length === 0 && legacyContacts.length === 0
+      ? { error: "Google Contacts could not be refreshed right now." }
+      : {}),
+  } satisfies ContactsListResponse);
 }

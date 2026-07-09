@@ -7,6 +7,7 @@ import { listOutlookEvents } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, listComposioEvents } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 import { resolveCleanupTransport } from "@/lib/calendar/event-detail";
+import { listHealthyLegacyProviders } from "@/lib/calendar/legacy-providers";
 
 type CalendarSource = "google" | "outlook";
 type ExternalCalendarError = {
@@ -80,7 +81,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const providers = new Set((connections ?? []).map((c) => c.provider));
+  const providers = await listHealthyLegacyProviders(user.id, connections ?? []);
   const displaySource = (toolkit: "googlecalendar" | "outlook") => (toolkit === "googlecalendar" ? "google" : "outlook");
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   try {

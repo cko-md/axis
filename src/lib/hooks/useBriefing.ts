@@ -44,22 +44,32 @@ export function useBriefing() {
   const [savedItems, setSavedItems] = useState<BriefingSavedItem[]>([]);
   const [feeds, setFeeds] = useState<BriefingFeed[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
     if (!user) {
+      setSignedIn(false);
       setSavedItems([]);
       setFeeds([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
+    setSignedIn(true);
+    setLoadError(null);
 
     const [savedRes, feedsRes] = await Promise.all([
       supabase.from("briefing_saved_items").select("*").eq("user_id", user.id),
       supabase.from("briefing_feeds").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
     ]);
+
+    if (savedRes.error || feedsRes.error) {
+      setLoadError("Briefing feeds and saved items could not be loaded.");
+    }
     let savedRows = (savedRes.data ?? []) as BriefingSavedItem[];
     let feedRows = (feedsRes.data ?? []) as BriefingFeed[];
 
@@ -171,5 +181,16 @@ export function useBriefing() {
     }
   }, [supabase]);
 
-  return { savedItems, feeds, loading, refresh, addSavedItem, removeSavedItem, addFeed, removeFeed };
+  return {
+    savedItems,
+    feeds,
+    loading,
+    loadError,
+    signedIn,
+    refresh,
+    addSavedItem,
+    removeSavedItem,
+    addFeed,
+    removeFeed,
+  };
 }

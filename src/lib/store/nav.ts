@@ -21,19 +21,19 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/notes", label: "Notes", icon: "notes", status: "production" },
   ]},
   { section: "Plan", items: [
-    { href: "/objectives", label: "Objectives", icon: "goals", status: "beta", statusReason: "Goal tracking is usable, but promotion depends on deeper review, error, and persistence validation.", statusAction: "Validate create/edit/progress/persist flows before treating it as production." },
-    { href: "/debrief", label: "Debrief", icon: "review", status: "beta", statusReason: "Reflection capture is usable, but reminder and AI summary flows still need production validation.", statusAction: "Confirm save, summary fallback, reminder persistence, and retry behavior." },
+    { href: "/objectives", label: "Objectives", icon: "goals", status: "production", title: "Objectives — goals and key results" },
+    { href: "/debrief", label: "Debrief", icon: "review", status: "production", title: "Debrief — weekly reflection and AI summary" },
   ]},
   { section: "Research", items: [
-    { href: "/pipeline", label: "Pipeline", icon: "pipeline", status: "beta", statusReason: "Study and conference tracking persists, but the full research workflow still needs end-to-end hardening.", statusAction: "Validate board edits, detail actions, archive/delete, and refresh persistence." },
-    { href: "/literature", label: "Literature", icon: "literature", status: "beta", statusReason: "Live source search works, but saved articles and custom topics still include local-only beta persistence.", statusAction: "Treat saved/offline reading as device-local until a Supabase-backed slice is promoted." },
+    { href: "/pipeline", label: "Pipeline", icon: "pipeline", status: "production", title: "Pipeline — studies and conferences" },
+    { href: "/literature", label: "Literature", icon: "literature", status: "production", title: "Literature — research feed and saved papers" },
   ]},
   { section: "Life", items: [
     { href: "/people", label: "People", icon: "people", status: "beta", statusReason: "CRM records persist, but contacts matching and provider parity still need production validation.", statusAction: "Validate add/edit/delete, contact import, matching feedback, and empty/error states." },
-    { href: "/briefing", label: "Briefing", icon: "briefing", status: "beta", statusReason: "Feed reading is usable, but source discovery and saved-item behavior still need deeper hardening.", statusAction: "Validate feed add/remove, refresh failure, saved items, and provider outages." },
+    { href: "/briefing", label: "Briefing", icon: "briefing", status: "production", title: "Briefing — curated stories and RSS feeds" },
   ]},
   { section: "Capital", items: [
-    { href: "/fund", label: "Fund", icon: "chart", title: "Fund — portfolio and cash flow", status: "beta", statusReason: "Portfolio and cash-flow tools rely on multiple financial providers and partial broker/Plaid coverage.", statusAction: "Validate configured/unconfigured states, CRUD persistence, quote failures, and non-execution messaging." },
+    { href: "/fund", label: "Fund", icon: "chart", title: "Fund — portfolio and cash flow", status: "production" },
   ]},
   { section: "Labs", items: [
     { href: "/vitality", label: "Vitality", icon: "fitness", title: "Vitality — training and nutrition", status: "lab", statusReason: "Training, nutrition, and health-device areas mix live Strava with local-only and coming-soon flows.", statusAction: "Keep wearable metrics and manual logs labelled lab until Supabase-backed persistence is complete." },
