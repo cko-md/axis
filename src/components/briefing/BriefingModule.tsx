@@ -177,8 +177,9 @@ export function BriefingModule() {
     () => new Set(CHIPS.filter((c) => c.on).map((c) => c.f)),
   );
   const [readerId, setReaderId] = useState<string>(STORIES[0].id);
-  const { savedItems: saved, feeds: savedFeeds, addSavedItem, removeSavedItem, addFeed, removeFeed } = useBriefing();
+  const { savedItems: saved, feeds: savedFeeds, loading: briefingLoading, loadError: briefingLoadError, signedIn, refresh: refreshBriefing, addSavedItem, removeSavedItem, addFeed, removeFeed } = useBriefing();
   const [showSaved, setShowSaved] = useState(false);
+  const [feedbarQuery, setFeedbarQuery] = useState("");
 
   const [feedSearchOpen, setFeedSearchOpen] = useState(false);
   const [feedQuery, setFeedQuery] = useState("");
@@ -335,14 +336,16 @@ export function BriefingModule() {
     }
   };
 
-  const searchFeeds = async () => {
-    if (!feedQuery.trim()) return;
+  const searchFeeds = async (queryOverride?: string) => {
+    const q = (queryOverride ?? feedQuery).trim();
+    if (!q) return;
+    setFeedQuery(q);
     setFeedSearching(true);
     try {
       const res = await fetch("/api/briefing/feeds", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: feedQuery }),
+        body: JSON.stringify({ query: q }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -407,6 +410,17 @@ export function BriefingModule() {
 
   return (
     <>
+      {!signedIn && !briefingLoading && (
+        <StatusCallout kind="info" title="Sign in to sync Briefing">
+          Curated stories are available now. Sign in to save articles, add RSS sources, and sync across devices.
+        </StatusCallout>
+      )}
+      {briefingLoadError && (
+        <StatusCallout kind="error" title="Briefing sync failed">
+          {briefingLoadError}{" "}
+          <button type="button" className="feed-manage" onClick={() => void refreshBriefing()}>Retry</button>
+        </StatusCallout>
+      )}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <button
           type="button"
@@ -426,10 +440,32 @@ export function BriefingModule() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
           </svg>
-          <input placeholder="Describe a topic, source, or feed to follow — e.g. 'neurosurgery RCTs', 'Nigerian football', a site URL…" />
-          <button type="button" className="feed-go" onClick={() => setFeedSearchOpen(true)}>✦ Find Feeds</button>
+          <input
+            value={feedbarQuery}
+            onChange={(e) => setFeedbarQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && feedbarQuery.trim()) {
+                setFeedSearchOpen(true);
+                void searchFeeds(feedbarQuery);
+              }
+            }}
+            placeholder="Describe a topic, source, or feed to follow — e.g. 'neurosurgery RCTs', 'Nigerian football', a site URL…"
+          />
+          <button
+            type="button"
+            className="feed-go"
+            onClick={() => {
+              setFeedSearchOpen(true);
+              if (feedbarQuery.trim()) void searchFeeds(feedbarQuery);
+            }}
+          >
+            ✦ Find Feeds
+          </button>
         </div>
         <button type="button" className="feed-manage" onClick={() => setSourcesOpen(true)}>Manage Sources</button>
+        <button type="button" className="feed-manage" onClick={() => loadFeeds()} disabled={feedsLoading || savedFeeds.length === 0}>
+          {feedsLoading ? "Refreshing…" : "Refresh feeds"}
+        </button>
       </div>
       {feedsLoading && (
         <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)", padding: "4px 0" }}>

@@ -383,9 +383,10 @@ export function LiteratureModule() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refresh();
+    const ok = await refresh();
     setRefreshing(false);
-    toast("Feed refreshed", "success", "Literature");
+    if (!ok) toast("Feed refresh failed — showing last results.", "error", "Literature");
+    else toast("Feed refreshed", "success", "Literature");
   };
 
   const onSearch = () => {
@@ -458,16 +459,6 @@ export function LiteratureModule() {
           {showSaved ? "★" : "☆"} SAVED{savedLit.length > 0 ? ` (${savedLit.length})` : ""}
         </button>
       </div>
-      {persistence.warning && (
-        <div className="module-status module-status-beta" style={{ marginTop: 10, marginBottom: 12 }}>
-          <div>
-            <div className="module-status-kicker">Literature persistence</div>
-            <strong>Topic preferences are not fully synced.</strong>
-            <p>{persistence.warning}</p>
-          </div>
-          <span>{persistence.mode === "local" ? "Saved papers still try Supabase first when signed in." : "Retry refresh after Supabase is available."}</span>
-        </div>
-      )}
 
       {showSaved && (
         <div style={{ marginBottom: 24, borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", padding: 16 }}>

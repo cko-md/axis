@@ -124,7 +124,7 @@ export function useLiterature() {
         }
         const { data, error: e } = await supabase.current
           .from("literature_prefs")
-          .select("topics,last_query")
+          .select("topics,last_query,custom_topics")
           .eq("user_id", uid)
           .maybeSingle();
         if (e) {
@@ -135,16 +135,26 @@ export function useLiterature() {
           });
           return;
         }
+        const prefs = data as {
+          topics?: string[];
+          last_query?: string;
+          custom_topics?: { key: string; label: string }[];
+        } | null;
         setPersistence({ mode: "supabase", warning: null });
-        if (!cancelled && data?.topics?.length) {
+        if (!cancelled && Array.isArray(prefs?.custom_topics) && prefs.custom_topics.length) {
+          const fromDb = prefs.custom_topics;
+          setCustomTopicsState(fromDb);
+          writeCustomTopics(fromDb);
+        }
+        if (!cancelled && prefs?.topics?.length) {
           const allKeys = new Set([...BUILT_IN_KEYS, ...readCustomTopics().map((t) => t.key)]);
-          const valid = (data.topics as string[]).filter((t) => allKeys.has(t));
+          const valid = prefs.topics.filter((t) => allKeys.has(t));
           if (valid.length) {
             setTopicsState(valid);
             writeLocalTopics(valid);
           }
         }
-        if (!cancelled && typeof data?.last_query === "string") setQuery(data.last_query);
+        if (!cancelled && typeof prefs?.last_query === "string") setQuery(prefs.last_query);
       } catch {
         prefsTable.current = false;
         setPersistence({
@@ -190,13 +200,32 @@ export function useLiterature() {
     [persistTopics, customTopics],
   );
 
+  const persistCustomTopics = useCallback((next: { key: string; label: string }[]) => {
+    writeCustomTopics(next);
+    const uid = userId.current;
+    if (uid && prefsTable.current) {
+      void supabase.current
+        .from("literature_prefs")
+        .upsert({ user_id: uid, custom_topics: next, updated_at: new Date().toISOString() } as never)
+        .then(({ error: e }) => {
+          if (e) {
+            prefsTable.current = false;
+            setPersistence({
+              mode: "local",
+              warning: "Custom topics did not save to Supabase and are device-local for now.",
+            });
+          }
+        });
+    }
+  }, []);
+
   const addCustomTopic = useCallback((label: string) => {
     const key = label.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
     if (!key || BUILT_IN_KEYS.has(key)) return;
     setCustomTopicsState((prev) => {
       if (prev.some((t) => t.key === key)) return prev;
       const next = [...prev, { key, label: label.trim() }];
-      writeCustomTopics(next);
+      persistCustomTopics(next);
       return next;
     });
     setTopicsState((prev) => {
@@ -204,12 +233,12 @@ export function useLiterature() {
       persistTopics(next);
       return next;
     });
-  }, [persistTopics]);
+  }, [persistTopics, persistCustomTopics]);
 
   const removeCustomTopic = useCallback((key: string) => {
     setCustomTopicsState((prev) => {
       const next = prev.filter((t) => t.key !== key);
-      writeCustomTopics(next);
+      persistCustomTopics(next);
       return next;
     });
     setTopicsState((prev) => {
@@ -218,7 +247,7 @@ export function useLiterature() {
       persistTopics(final);
       return final;
     });
-  }, [persistTopics]);
+  }, [persistTopics, persistCustomTopics]);
 
   const toggleTopic = useCallback(
     (key: string) => {
@@ -235,7 +264,7 @@ export function useLiterature() {
 
   // ── Fetch the feed for the current topics / query.
   const fetchFeed = useCallback(
-    async (opts?: { silent?: boolean; nocache?: boolean; queryOverride?: string }) => {
+    async (opts?: { silent?: boolean; nocache?: boolean; queryOverride?: string }): Promise<boolean> => {
       if (!opts?.silent) setLoading(true);
       setError(false);
       try {
@@ -254,8 +283,10 @@ export function useLiterature() {
           fetchedAt: (json.fetchedAt as string) ?? new Date().toISOString(),
           fallback: Boolean(json.fallback),
         });
+        return true;
       } catch {
         setError(true);
+        return false;
       } finally {
         setLoading(false);
       }
