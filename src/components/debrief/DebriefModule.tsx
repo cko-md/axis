@@ -3,7 +3,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNotes } from "@/lib/hooks/useNotes";
-import type { Note } from "@/lib/hooks/useNotes";
 import { useTasks } from "@/lib/hooks/useTasks";
 import { useObjectives } from "@/lib/hooks/useObjectives";
 import { useToast } from "@/components/ui/Toast";
@@ -85,8 +84,13 @@ async function readAiSummary(res: Response): Promise<string> {
   const data = (await res.json()) as { summary?: string };
   const summary = data.summary?.trim();
   if (!summary) throw new Error("AI summary response was empty");
+  if (/API key required|check your API key/i.test(summary)) {
+    throw new Error("AI summary unavailable — configure a model key in Control Room.");
+  }
   return summary;
 }
+
+type DebriefReminderPrefs = { day: number; hour: number; taskId?: string | null };
 
 const DEMO_WINS = ["AANS abstract submitted", "Cohort 2 chart review (80%)", "4 zone-2 runs · 38 km"];
 const DEMO_FRICTION = [
@@ -149,7 +153,7 @@ function PromptField({
   );
 }
 
-function PastReflectionRow({ note }: { note: Note }) {
+function PastReflectionRow({ note }: { note: { id: string; title: string; body: string; created_at: string } }) {
   const [expanded, setExpanded] = useState(false);
   const date = new Date(note.created_at).toLocaleDateString("en-US", {
     month: "short",
@@ -244,7 +248,7 @@ function PastReflectionRow({ note }: { note: Note }) {
 
 export function DebriefModule() {
   const supabase = useMemo(() => createClient(), []);
-  const { notes, createNote, updateNote } = useNotes();
+  const { notes } = useNotes();
   const { tasks, loading, addTask, toggleDone, deleteTask } = useTasks();
   const { objectives } = useObjectives();
   const { toast }                  = useToast();
@@ -258,6 +262,9 @@ export function DebriefModule() {
   const [dailySummary,  setDailySummary]  = useState("");
   const [dailySaving,   setDailySaving]   = useState(false);
   const [dailyLoading,  setDailyLoading]  = useState(false);
+  const [dailyLoadError, setDailyLoadError] = useState<string | null>(null);
+  const [weeklySummaryError, setWeeklySummaryError] = useState<string | null>(null);
+  const [dailyEntries, setDailyEntries] = useState<DebriefEntry[]>([]);
   const [events,        setEvents]        = useState<ScheduleEvent[]>([]);
   const [externalEvents, setExternalEvents] = useState<ExternalEvent[]>([]);
   const [eventError,    setEventError]    = useState<string | null>(null);
@@ -311,6 +318,7 @@ export function DebriefModule() {
     setSignedIn(!!user);
     if (!user) return;
     setDailyLoading(true);
+    setDailyLoadError(null);
     setEventError(null);
     const [{ data: entry, error: entryError }, { data: localEvents, error: eventsError }] = await Promise.all([
       supabase
@@ -329,7 +337,8 @@ export function DebriefModule() {
         .order("start_at", { ascending: true }),
     ]);
     if (entryError) {
-      toast("Could not load today's debrief.", "error", "Debrief");
+      setDailyLoadError("Could not load today's debrief.");
+      Sentry.captureException(entryError, { tags: { area: "debrief", op: "load_daily_entry" } });
     }
     if (eventsError) {
       setEventError("Local calendar events could not be loaded.");
@@ -378,29 +387,98 @@ export function DebriefModule() {
   const openCount = tasks.filter((t) => t.status === "open" || t.status === "overdue").length;
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setDailyEntries([]);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("debrief_entries")
+        .select("id, review_date, wins, challenges, focus, summary, updated_at, review_type")
+        .eq("user_id", user.id)
+        .eq("review_type", "daily")
+        .order("review_date", { ascending: false })
+        .limit(20);
+      if (!cancelled) {
+        if (error) Sentry.captureException(error, { tags: { area: "debrief", op: "load_daily_history" } });
+        else setDailyEntries((data ?? []) as DebriefEntry[]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, dailyEntry?.updated_at]);
+
+  const loadReminderPrefs = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("user_preferences")
+      .select("debrief_reminder")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const prefs = (data as { debrief_reminder?: DebriefReminderPrefs | null } | null)?.debrief_reminder;
+    if (prefs && typeof prefs.day === "number" && typeof prefs.hour === "number") {
+      setReminderDay(prefs.day);
+      setReminderHour(prefs.hour);
+      setReminderSet(true);
+      return;
+    }
     try {
       const stored = localStorage.getItem(REMINDER_KEY);
       if (stored) {
-        const { day, hour } = JSON.parse(stored) as { day: number; hour: number };
+        const { day, hour } = JSON.parse(stored) as DebriefReminderPrefs;
         setReminderDay(day ?? DEFAULT_DAY);
         setReminderHour(hour ?? DEFAULT_HOUR);
         setReminderSet(true);
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [supabase]);
 
-  // Past reflections: all notes in the Debrief folder, newest first
-  const pastReflections = notes
-    .filter((n) => n.folder === DEBRIEF_FOLDER)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  useEffect(() => {
+    void loadReminderPrefs();
+  }, [loadReminderPrefs]);
+
+  const persistReminderPrefs = useCallback(async (prefs: DebriefReminderPrefs) => {
+    localStorage.setItem(REMINDER_KEY, JSON.stringify(prefs));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("user_preferences").upsert({
+      user_id: user.id,
+      debrief_reminder: prefs,
+      updated_at: new Date().toISOString(),
+    } as never, { onConflict: "user_id" });
+  }, [supabase]);
+
+  // Past reflections: weekly notes + saved daily debrief entries
+  const pastReflections = useMemo(() => {
+    const weekly = notes
+      .filter((n) => n.folder === DEBRIEF_FOLDER)
+      .map((n) => ({
+        id: n.id,
+        title: n.title,
+        body: n.body ?? "",
+        created_at: n.created_at,
+        kind: "weekly" as const,
+      }));
+    const daily = dailyEntries.map((entry) => ({
+      id: entry.id,
+      title: `Daily · ${entry.review_date}`,
+      body: [entry.wins, entry.challenges, entry.focus, entry.summary].filter(Boolean).join("\n\n"),
+      created_at: entry.updated_at,
+      kind: "daily" as const,
+    }));
+    return [...weekly, ...daily].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [notes, dailyEntries]);
 
   const generateWeeklySummary = async () => {
     const last7 = pastReflections.slice(0, 7);
     if (last7.length === 0) { toast("No past reflections to summarize.", "warn", "Debrief"); return; }
     setSummarizing(true);
     setAiSummary(null);
+    setWeeklySummaryError(null);
     try {
-      const combined = last7.map((n) => `## ${n.title}\n${n.body ?? ""}`).join("\n\n---\n\n");
+      const combined = last7.map((n) => `## ${n.title}\n${n.body}`).join("\n\n---\n\n");
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -411,7 +489,7 @@ export function DebriefModule() {
       Sentry.captureException(error instanceof Error ? error : new Error("Weekly debrief summary failed"), {
         tags: { area: "debrief", op: "weekly_summary" },
       });
-      setAiSummary("Unable to generate summary — check your connection.");
+      setWeeklySummaryError(error instanceof Error ? error.message : "Weekly summary is unavailable right now.");
     } finally {
       setSummarizing(false);
     }
@@ -476,10 +554,17 @@ export function DebriefModule() {
       .single();
     setDailySaving(false);
     if (error || !data) {
+      Sentry.captureException(error ?? new Error("Daily debrief save failed"), {
+        tags: { area: "debrief", op: "save_daily_entry" },
+      });
       toast("Could not save daily debrief.", "error", "Debrief");
       return;
     }
     setDailyEntry(data as DebriefEntry);
+    setDailyEntries((prev) => {
+      const next = prev.filter((entry) => entry.id !== (data as DebriefEntry).id);
+      return [(data as DebriefEntry), ...next].sort((a, b) => b.review_date.localeCompare(a.review_date));
+    });
     toast("Daily debrief saved.", "success", "Debrief");
   };
 
@@ -548,13 +633,37 @@ export function DebriefModule() {
         challenges.trim() ? `**Challenges:**\n${challenges.trim()}` : "",
         focus.trim()      ? `**Focus:**\n${focus.trim()}`           : "",
       ].filter(Boolean).join("\n\n");
-      const note  = await createNote(`Week of ${label}`, DEBRIEF_FOLDER);
-      if (note) await updateNote(note.id, { body });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast("Sign in to save reflections.", "warn", "Debrief");
+        return;
+      }
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          user_id: user.id,
+          title: `Week of ${label}`,
+          body,
+          folder: DEBRIEF_FOLDER,
+          tags: [],
+        })
+        .select()
+        .single();
+      if (error || !data) {
+        Sentry.captureException(error ?? new Error("Weekly reflection save failed"), {
+          tags: { area: "debrief", op: "save_weekly_reflection" },
+        });
+        toast("Could not save reflection.", "error", "Debrief");
+        return;
+      }
       toast("Reflection saved to Notes › Debrief", "success", "Debrief");
       setWins("");
       setChallenges("");
       setFocus("");
-    } catch {
+    } catch (error) {
+      Sentry.captureException(error instanceof Error ? error : new Error("Weekly reflection save failed"), {
+        tags: { area: "debrief", op: "save_weekly_reflection" },
+      });
       toast("Could not save — check your connection", "error", "Debrief");
     } finally {
       setSaving(false);
@@ -566,14 +675,22 @@ export function DebriefModule() {
     const dateStr = next.toISOString().split("T")[0];
     const label   = next.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
     const hourFmt = reminderHour === 0 ? "12 AM" : reminderHour < 12 ? `${reminderHour} AM` : reminderHour === 12 ? "12 PM" : `${reminderHour - 12} PM`;
-    await addTask({
+    const task = await addTask({
       title:    `Weekly Debrief · Review + Plan — ${DAY_NAMES[reminderDay]} ${hourFmt}`,
       category: "personal",
       priority: "med",
       effort:   "30m",
       deadline: dateStr,
+      metadata: {
+        source_object_type: "debrief_reminder",
+        source_route: "/debrief",
+      },
     } as Parameters<typeof addTask>[0]);
-    localStorage.setItem(REMINDER_KEY, JSON.stringify({ day: reminderDay, hour: reminderHour }));
+    if (!task) {
+      toast("Could not add reminder to Agenda.", "error", "Debrief");
+      return;
+    }
+    await persistReminderPrefs({ day: reminderDay, hour: reminderHour, taskId: task.id });
     setReminderSet(true);
     setShowConfig(false);
     toast(`Reminder added to Agenda for ${label}`, "success", "Debrief");
@@ -601,6 +718,13 @@ export function DebriefModule() {
             style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r)", color: "var(--ink)", padding: "7px 10px", fontSize: 12 }}
           />
         </div>
+
+        {dailyLoadError && (
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--down)" }}>
+            {dailyLoadError}{" "}
+            <button type="button" className="savebtn" onClick={() => void loadDailyReview()}>Retry</button>
+          </p>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
           <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 12, background: "var(--surface-2)" }}>
@@ -704,6 +828,9 @@ export function DebriefModule() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
         <div className="card tick">
           <h2 className="sec">Wins<span className="rule" /><span className="count">this week</span></h2>
+          {!signedIn && (
+            <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--ink-faint)" }}>Demo data — sign in to see your completed tasks.</p>
+          )}
           <div style={{ marginTop: 12 }}>
             {signedIn && loading ? (
               <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>Loading completed tasks…</div>
@@ -725,6 +852,9 @@ export function DebriefModule() {
 
         <div className="card">
           <h2 className="sec">Friction<span className="rule" /><span className="count">overdue · idle</span></h2>
+          {!signedIn && (
+            <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--ink-faint)" }}>Demo data — sign in to triage your real friction items.</p>
+          )}
           <div style={{ marginTop: 12 }}>
             {signedIn && loading ? (
               <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>Loading friction items…</div>
@@ -773,22 +903,18 @@ export function DebriefModule() {
           <div style={{ marginTop: 12 }}>
             {signedIn && loading ? (
               <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>Loading metrics…</div>
-            ) : (
-              (signedIn ? [
+            ) : signedIn ? (
+              [
                 ["Tasks completed", String(completedCount), completedCount > 0 ? "up" : ""],
                 ["Open tasks",      String(openCount),      ""],
-              ] : [
-                ["Deep-work hours", "22.5h", ""],
-                ["Tasks completed", "19",    "up"],
-                ["Run volume",      "38 km", ""],
-                ["Savings rate",    "28%",   "up"],
-                ["French lessons",  "4 / 5", ""],
-              ]).map(([k, v, cls]) => (
+              ].map(([k, v, cls]) => (
                 <div key={k} className="metricrow">
                   <span className="metric-k">{k}</span>
                   <span className={`metric-v${cls ? " " + cls : ""}`}>{v}</span>
                 </div>
               ))
+            ) : (
+              <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>Sign in to see live task metrics.</p>
             )}
           </div>
         </div>
@@ -987,6 +1113,13 @@ export function DebriefModule() {
               </button>
             )}
             </div>
+
+            {weeklySummaryError && (
+              <p style={{ marginTop: 10, fontSize: 12, color: "var(--down)" }}>
+                {weeklySummaryError}{" "}
+                <button type="button" className="savebtn" onClick={() => void generateWeeklySummary()}>Retry</button>
+              </p>
+            )}
 
             {aiSummary && (
               <div
