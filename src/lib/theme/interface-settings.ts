@@ -1,7 +1,22 @@
+import {
+  BODY_STACKS,
+  DISPLAY_STACKS,
+  LABEL_STACKS,
+  LEGACY_BODY_MAP,
+  LEGACY_DISPLAY_MAP,
+  resolveSubheadStack,
+} from "@/lib/theme/typography";
+
 export type AccentPreset = "gold" | "marine" | "clay" | "bone" | "sage" | "chrome";
 export type SurfaceTone = "deep" | "mid" | "lifted";
-export type DisplayFace = "instrument" | "playfair" | "grotesk";
-export type BodyFace = "archivo" | "inter" | "plex";
+export type DisplayFace =
+  | "array" | "tanker" | "neco" | "nippo" | "telma" | "boxing" | "kola"
+  | "instrument" | "playfair" | "grotesk" | "bebas" | "anton" | "teko";
+export type BodyFace =
+  | "archivo" | "inter" | "plex"
+  | "ranade" | "sora" | "public-sans" | "nunito" | "montserrat" | "red-hat" | "firasans";
+export type LabelFace = "narrow" | "azeret" | "jetbrains" | "teko";
+export type SubheadFace = "match-display" | "match-body" | "sora" | "ranade" | "grotesk";
 export type Density = "cozy" | "default" | "compact";
 export type Companion = "deck" | "monolith" | "nova";
 export type Presence = "show" | "hide";
@@ -22,6 +37,8 @@ export type InterfaceSettings = {
   cornerRadius: number;
   displayFace: DisplayFace;
   bodyFace: BodyFace;
+  labelFace: LabelFace;
+  subheadFace: SubheadFace;
   density: Density;
   companion: Companion;
   presence: Presence;
@@ -35,8 +52,10 @@ export const DEFAULT_INTERFACE_SETTINGS: InterfaceSettings = {
   accent: "gold",
   surfaceTone: "mid",
   cornerRadius: 3,
-  displayFace: "instrument",
-  bodyFace: "archivo",
+  displayFace: "array",
+  bodyFace: "ranade",
+  labelFace: "narrow",
+  subheadFace: "match-body",
   density: "default",
   companion: "monolith",
   presence: "hide",
@@ -147,20 +166,29 @@ export function applyInterfaceSettings(settings: InterfaceSettings) {
 
   applySurfaceTone(settings, isLight);
 
-  // ── Faces: MUST be set on <body>, where next/font's --font-* vars are in
-  // scope. Setting them on <html> is shadowed by the body{} rule in globals.css. ──
-  const displayMap: Record<DisplayFace, string> = {
-    instrument: 'var(--font-serif), "Fraunces", Georgia, serif',
-    playfair: 'var(--font-playfair), "Playfair Display", Georgia, serif',
-    grotesk: 'var(--font-grotesk), "Space Grotesk", var(--font-narrow), sans-serif',
-  };
-  const bodyMap: Record<BodyFace, string> = {
-    archivo: 'var(--font-sans), "Archivo", -apple-system, sans-serif',
-    inter: 'var(--font-inter), "Inter", -apple-system, sans-serif',
-    plex: 'var(--font-plex), "IBM Plex Sans", -apple-system, sans-serif',
-  };
-  body.style.setProperty("--serif", displayMap[settings.displayFace] ?? displayMap.instrument);
-  body.style.setProperty("--sans", bodyMap[settings.bodyFace] ?? bodyMap.archivo);
+  // ── Faces: set on <body> where next/font CSS variables are in scope. ──
+  const displayKey: DisplayFace = settings.displayFace in DISPLAY_STACKS
+    ? settings.displayFace
+    : LEGACY_DISPLAY_MAP[settings.displayFace as string] ?? "array";
+  const bodyKey: BodyFace = settings.bodyFace in BODY_STACKS
+    ? settings.bodyFace
+    : LEGACY_BODY_MAP[settings.bodyFace as string] ?? "archivo";
+  const labelKey: LabelFace = settings.labelFace in LABEL_STACKS ? settings.labelFace : "narrow";
+  const subheadKey: SubheadFace = settings.subheadFace ?? "match-body";
+
+  const disp = DISPLAY_STACKS[displayKey];
+  const sans = BODY_STACKS[bodyKey];
+  const label = LABEL_STACKS[labelKey];
+  const subhead = resolveSubheadStack(subheadKey, displayKey, bodyKey);
+
+  body.style.setProperty("--disp", disp);
+  body.style.setProperty("--serif", disp);
+  body.style.setProperty("--sans", sans);
+  body.style.setProperty("--label", label);
+  body.style.setProperty("--subhead", subhead);
+  body.style.setProperty("--narrow", label);
+  body.dataset.displayFace = displayKey;
+  body.dataset.bodyFace = bodyKey;
 
   body.dataset.density = settings.density;
   root.dataset.companion = settings.companion;

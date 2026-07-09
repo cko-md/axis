@@ -11,8 +11,6 @@ const URL_MODULES_KEY = "axis-url-modules";
 // ─── Types ───────────────────────────────────────────────────────────────────
 type UrlModule = { id: string; name: string; url: string };
 
-const STEP2CK: UrlModule = { id: "step2ck", name: "Step 2 CK Bank", url: "https://step2ck.bank/dashboard" };
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function loadUrlModules(): UrlModule[] {
   if (typeof window === "undefined") return [];
@@ -118,27 +116,13 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
       )}
       {collapsed && <div style={{ height: 1, background: "var(--line)", margin: "12px 8px" }} />}
 
-      {/* Step2CK built-in link */}
-      <button
-        type="button"
-        className="navitem"
-        style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
-        onClick={() => openWebViewer(STEP2CK.url, STEP2CK.name)}
-        title="Step 2 CK Bank"
-      >
-        {!collapsed && <GripHandle style={{ opacity: 0, pointerEvents: "none" }} />}
-        <NavIcon name="app" />
-        {!collapsed && <span className="lbl">Step 2 CK Bank</span>}
-        {!collapsed && <span className="ix">↗</span>}
-      </button>
-
       {/* Dynamic URL modules */}
       {urlModules.map((m) => (
         <button
           key={m.id}
           type="button"
           className="navitem url-module"
-          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", fontFamily: "var(--sans)" }}
           onClick={() => openWebViewer(m.url, m.name)}
           title={m.url}
         >
@@ -164,7 +148,7 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
       <button
         type="button"
         className="navitem"
-        style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
+        style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", fontFamily: "var(--sans)" }}
         onClick={() => setAddOpen(true)}
         title="Add a module by URL"
       >
@@ -177,7 +161,7 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
       <button
         type="button"
         className="navitem"
-        style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit" }}
+        style={{ width: "100%", background: "none", border: "none", textAlign: "left", font: "inherit", fontFamily: "var(--sans)" }}
         onClick={() => toast("New boards are coming — drag-and-drop board builder is next.", "info", "Boards")}
         title="New Board"
       >

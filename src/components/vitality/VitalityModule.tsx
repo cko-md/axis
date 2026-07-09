@@ -24,7 +24,7 @@ import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes"
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
-import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -1256,15 +1256,34 @@ export function VitalityModule() {
   return (
     <>
       <div className="module-stage vitality-stage">
-        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
-          <div className="eyebrow">Wellness · Vitality</div>
-          <h1 className="hero-title">{activeTabLabel}</h1>
-          <p className="sub mail-hero-meta">
-            {stravaConnected
+        <ModuleInteractiveHero
+          compact
+          eyebrow="Wellness · Vitality"
+          title={activeTabLabel}
+          subtitle={
+            stravaConnected
               ? `Strava synced · ${stravaStatus?.athlete?.name ?? "athlete"}`
-              : "Connect Strava for live training data"}
-          </p>
-        </AxisReflectiveCard>
+              : "Connect Strava for live training data"
+          }
+          stats={[
+            { label: "Strava", value: stravaConnected ? "Connected" : "Offline", tone: stravaConnected ? "accent" : "warn" },
+            { label: "Tab", value: activeTabLabel },
+          ]}
+          actions={[
+            {
+              label: stravaConnected ? "Disconnect Strava" : "Connect Strava",
+              onClick: () => {
+                if (stravaConnected) stravaDisconnect();
+                else {
+                  openComposioOAuthPopup("strava", (status) => {
+                    if (status === "ok") void refetchStravaStatus();
+                  });
+                }
+              },
+            },
+            { label: "Training log", onClick: () => setTab("training") },
+          ]}
+        />
 
         <div className="module-layout-tools">
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

@@ -6,8 +6,8 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 import { type Article, TOPICS, useLiterature } from "@/lib/hooks/useLiterature";
 import { createClient } from "@/lib/supabase/client";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
-import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import styles from "./LiteratureModule.module.css";
 
 // ── Saved articles (offline) ──────────────────────────────────────────────────
@@ -432,14 +432,22 @@ export function LiteratureModule() {
         </div>
       )}
 
-      <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
-        <div className="eyebrow">Research · Literature</div>
-        <h1 className="hero-title">{query ? "Search" : "Feed"}</h1>
-        <p className="sub mail-hero-meta">
-          {feed.articles.length} article{feed.articles.length === 1 ? "" : "s"}
-          {feed.fetchedAt ? ` · updated ${relTime(feed.fetchedAt)}` : loading ? " · loading" : ""}
-        </p>
-      </AxisReflectiveCard>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Research · Literature"
+        title={query ? "Search" : "Feed"}
+        subtitle={`${feed.articles.length} article${feed.articles.length === 1 ? "" : "s"}${feed.fetchedAt ? ` · updated ${relTime(feed.fetchedAt)}` : loading ? " · loading" : ""}`}
+        stats={[
+          { label: "Saved", value: String(savedLit.length), tone: savedLit.length ? "accent" : "default" },
+          { label: "Topics", value: String(topics.length + customTopics.length) },
+          { label: "Sync", value: savedPersisted === "supabase" ? "Cloud" : "Local", tone: savedPersisted === "supabase" ? "accent" : "warn" },
+        ]}
+        actions={[
+          { label: showSaved ? "Hide saved" : "Saved papers", onClick: () => setShowSaved((v) => !v) },
+          { label: "Refresh feed", onClick: () => { void refresh(); } },
+          { label: "Search", onClick: () => { void runSearch(query); } },
+        ]}
+      />
 
       <div className="module-layout-tools">
         <button

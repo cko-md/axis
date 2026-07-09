@@ -19,7 +19,7 @@ export async function GET() {
     todayEnd.setDate(todayEnd.getDate() + 1);
 
     const [taskResult, eventResult] = await Promise.allSettled([
-      supabase.from("tasks").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "open"),
+      supabase.from("tasks").select("*", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["open", "overdue"]),
       supabase
         .from("schedule_events")
         .select("title, start_at")
