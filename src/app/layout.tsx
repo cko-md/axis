@@ -93,6 +93,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
+        <link
+          rel="stylesheet"
+          href="https://api.fontshare.com/v2/css?f[]=array@400,700&f[]=tanker@400&f[]=neco@400,700&f[]=nippo@400,700&f[]=telma@400,700&f[]=boxing@400,700&f[]=kola@400,700&f[]=ranade@400,700&f[]=sora@400,700&f[]=public-sans@400,700&f[]=nunito@400,700&f[]=montserrat@400,700&f[]=red-hat-display@400,700&f[]=firasans@400,700&f[]=anton@400&f[]=teko@400,700&f[]=azeret-mono@400,700&display=swap"
+        />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

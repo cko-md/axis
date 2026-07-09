@@ -49,6 +49,8 @@ export const BLOCK_SIZES: readonly BlockSize[] = ["sm", "md", "full"];
 export type ConsoleLayout = {
   order?: string[];
   sizes?: Record<string, BlockSize>;
+  /** 1-based grid column start (4-col grid). Lets blocks sit right on a row. */
+  columns?: Record<string, number>;
 };
 
 /**
@@ -62,7 +64,7 @@ export type ConsoleLayout = {
 export function normalizeConsoleLayout(
   raw: unknown,
   defaultOrder: readonly string[],
-): { order: string[]; sizes: Record<string, BlockSize> } | null {
+): { order: string[]; sizes: Record<string, BlockSize>; columns: Record<string, number> } | null {
   if (!raw || typeof raw !== "object") return null;
   const blob = raw as ConsoleLayout;
   const known = new Set(defaultOrder);
@@ -84,6 +86,15 @@ export function normalizeConsoleLayout(
     if (Object.keys(out).length > 0) sizes = out;
   }
 
-  if (!order && !sizes) return null;
-  return { order: order ?? [...defaultOrder], sizes: sizes ?? {} };
+  let columns: Record<string, number> | null = null;
+  if (blob.columns && typeof blob.columns === "object") {
+    const out: Record<string, number> = {};
+    for (const [id, col] of Object.entries(blob.columns)) {
+      if (known.has(id) && typeof col === "number" && col >= 1 && col <= 4) out[id] = col;
+    }
+    if (Object.keys(out).length > 0) columns = out;
+  }
+
+  if (!order && !sizes && !columns) return null;
+  return { order: order ?? [...defaultOrder], sizes: sizes ?? {}, columns: columns ?? {} };
 }

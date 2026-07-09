@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { FundSubNav } from "@/components/fund/FundSubNav";
 
 const PAGE_LABELS: Record<string, string> = {
@@ -29,11 +29,20 @@ export function FundPremiumShell({ children }: Props) {
 
   return (
     <div className="module-stage fund-stage">
-      <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
-        <div className="eyebrow">Capital · Fund</div>
-        <h1 className="hero-title">{activeLabel}</h1>
-        <p className="sub mail-hero-meta">Chart-safe Tier 1 surfaces · live when connected</p>
-      </AxisReflectiveCard>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Capital · Fund"
+        title={activeLabel}
+        subtitle="Chart-safe Tier 1 surfaces · live when connected"
+        stats={[
+          { label: "Surface", value: activeLabel },
+          { label: "Mode", value: "Live when connected", tone: "accent" },
+        ]}
+        actions={[
+          { label: "Refresh quotes", href: "/fund/watchlist" },
+          { label: "Connections", href: "/control-room" },
+        ]}
+      />
       <FundSubNav />
       {children}
     </div>

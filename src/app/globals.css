@@ -1164,7 +1164,7 @@ html.dim .topbar {
 }
 
 .eyebrow {
-  font-family: var(--narrow);
+  font-family: var(--label, var(--narrow));
   font-weight: 600;
   font-size: 10px;
   letter-spacing: 0.3em;
@@ -1221,6 +1221,7 @@ html.light h1.hero em {
   max-width: 62ch;
   font-size: 12.5px;
   font-weight: 300;
+  font-family: var(--subhead, var(--sans));
 }
 
 /* light mode: sub text on bright chrome needs graphite contrast */
@@ -1443,6 +1444,68 @@ html.light :is(.card, .axis-reflective-card)::after {
 .module-hero-shell--compact .hero-title {
   font-size: 32px;
   line-height: 1;
+}
+
+.module-interactive-hero .module-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.module-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.module-hero-action {
+  text-decoration: none;
+}
+
+.module-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.module-hero-stat {
+  background: color-mix(in srgb, var(--glass) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--rl);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.module-hero-stat.is-accent .module-hero-stat-v {
+  color: var(--gold);
+}
+
+.module-hero-stat.is-warn .module-hero-stat-v {
+  color: var(--clay-2, var(--gold-deep));
+}
+
+.module-hero-stat-v {
+  display: block;
+  font-family: var(--disp);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.module-hero-stat-k {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--label, var(--narrow));
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
 }
 
 html.light .module-hero-shell .hero-title {
@@ -1713,9 +1776,10 @@ html.light .cp-ident {
 
 .tidbits {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
   margin: 4px 0 0;
+  width: 100%;
 }
 
 .tb {
@@ -1769,6 +1833,13 @@ html.light .cp-ident {
   margin-top: 5px;
   padding-top: 5px;
   border-top: 1px solid var(--line);
+}
+
+.widget-shell .tb-v {
+  font-family: var(--disp);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
 }
 
 .widget-shell {

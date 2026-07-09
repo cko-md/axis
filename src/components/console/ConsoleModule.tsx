@@ -168,6 +168,8 @@ const DEFAULT_SECTION_ORDER = [
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
 
 const CONSOLE_BLOCK_SIZES_KEY = "axis-console-block-sizes";
+const CONSOLE_BLOCK_COLUMNS_KEY = "axis-console-block-columns";
+const BLOCK_COL_SPAN: Record<BlockSize, number> = { sm: 1, md: 2, full: 4 };
 // Defaults lean on "md" (half-width) for the content cards so blocks sit
 // side-by-side out of the box — that's what makes "drag a widget to the right"
 // possible. The full-bleed sections (the tidbits bar + featured photos) stay
@@ -185,8 +187,13 @@ const NEXT_BLOCK_SIZE: Record<BlockSize, BlockSize> = { sm: "md", md: "full", fu
 const BLOCK_SIZE_GLYPH: Record<BlockSize, string> = { sm: "⊞", md: "⊡", full: "⊟" };
 const BLOCK_SIZE_LABEL: Record<BlockSize, string> = { sm: "Compact", md: "Medium", full: "Full width" };
 
-type BlockSizeCtx = { sizes: Record<string, BlockSize>; toggle: (id: string) => void };
-const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, toggle: () => {} });
+type BlockSizeCtx = {
+  sizes: Record<string, BlockSize>;
+  columns: Partial<Record<string, number>>;
+  toggle: (id: string) => void;
+  nudgeColumn: (id: string, dir: -1 | 1) => void;
+};
+const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, columns: {}, toggle: () => {}, nudgeColumn: () => {} });
 
 /* ── HeroLine ──────────────────────────────────────────────────── */
 
@@ -234,9 +241,14 @@ const BLOCK_SPAN: Record<BlockSize, string> = { sm: "span 1", md: "span 2", full
 
 function DraggableBlock({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const { sizes, toggle } = useContext(BlockSizeContext);
+  const { sizes, columns, toggle, nudgeColumn } = useContext(BlockSizeContext);
   const size = sizes[id] ?? "full";
+  const span = BLOCK_COL_SPAN[size];
+  const colStart = columns[id];
   const reduceMotion = useReducedMotion();
+  const gridColumn = colStart
+    ? `${colStart} / span ${span}`
+    : BLOCK_SPAN[size];
   return (
     <motion.div
       ref={setNodeRef}
@@ -246,15 +258,22 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
-        // While dragging, lift the card above its neighbors so the snap target
-        // reads clearly during the freeform rearrange.
         zIndex: isDragging ? 2 : 1,
         position: "relative",
-        gridColumn: BLOCK_SPAN[size],
+        gridColumn,
         minWidth: 0,
       }}
     >
       <div className="block-controls">
+        <button
+          type="button"
+          onClick={() => nudgeColumn(id, -1)}
+          className="console-block-control"
+          aria-label={`Move ${id.replace(/-/g, " ")} block left`}
+          title="Nudge left"
+        >
+          ←
+        </button>
         <button
           type="button"
           onClick={() => toggle(id)}
@@ -263,6 +282,15 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
           title={`${BLOCK_SIZE_LABEL[size]} — click to resize`}
         >
           {BLOCK_SIZE_GLYPH[size]}
+        </button>
+        <button
+          type="button"
+          onClick={() => nudgeColumn(id, 1)}
+          className="console-block-control"
+          aria-label={`Move ${id.replace(/-/g, " ")} block right`}
+          title="Nudge right"
+        >
+          →
         </button>
         <button
           type="button"
@@ -345,6 +373,7 @@ export function ConsoleModule() {
   // Section ordering + block size state
   const [sectionOrder, setSectionOrder] = useState<SectionId[]>([...DEFAULT_SECTION_ORDER]);
   const [blockSizes, setBlockSizes] = useState<Record<SectionId, BlockSize>>({ ...DEFAULT_BLOCK_SIZES });
+  const [blockColumns, setBlockColumns] = useState<Partial<Record<SectionId, number>>>({});
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   // Layout auto-save plumbing. `layoutColumnRef` flips to false the first time a
@@ -388,6 +417,15 @@ export function ConsoleModule() {
         }
         setBlockSizes((prev) => ({ ...prev, ...valid }));
       }
+      const storedCols = localStorage.getItem(CONSOLE_BLOCK_COLUMNS_KEY);
+      if (storedCols) {
+        const parsedCols = JSON.parse(storedCols) as Record<string, number>;
+        const validCols: Partial<Record<SectionId, number>> = {};
+        for (const [id, col] of Object.entries(parsedCols)) {
+          if (col >= 1 && col <= 4) validCols[id as SectionId] = col;
+        }
+        setBlockColumns((prev) => ({ ...prev, ...validCols }));
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -397,9 +435,10 @@ export function ConsoleModule() {
   // detects the schema error, flips layoutColumnRef off, and we degrade to
   // localStorage-only — the drag/snap UX is unaffected either way.
   const persistLayout = useCallback(
-    (order: SectionId[], sizes: Record<SectionId, BlockSize>) => {
+    (order: SectionId[], sizes: Record<SectionId, BlockSize>, columns: Partial<Record<SectionId, number>>) => {
       try { localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
       try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(sizes)); } catch { /* ignore */ }
+      try { localStorage.setItem(CONSOLE_BLOCK_COLUMNS_KEY, JSON.stringify(columns)); } catch { /* ignore */ }
 
       if (!layoutColumnRef.current) return;
       if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
@@ -409,7 +448,7 @@ export function ConsoleModule() {
         const { error } = await supabase.from("console_widgets").upsert(
           {
             user_id: user.id,
-            layout: { order, sizes },
+            layout: { order, sizes, columns },
             updated_at: new Date().toISOString(),
           },
           { onConflict: "user_id" },
@@ -429,17 +468,31 @@ export function ConsoleModule() {
     setBlockSizes((prev) => {
       const current = prev[id as SectionId] ?? "full";
       const next = { ...prev, [id]: NEXT_BLOCK_SIZE[current] } as Record<SectionId, BlockSize>;
-      persistLayout(sectionOrder, next);
+      persistLayout(sectionOrder, next, blockColumns);
       return next;
     });
-  }, [persistLayout, sectionOrder]);
+  }, [persistLayout, sectionOrder, blockColumns]);
+
+  const nudgeColumn = useCallback((id: string, dir: -1 | 1) => {
+    setBlockColumns((prev) => {
+      const size = blockSizes[id as SectionId] ?? "full";
+      const span = BLOCK_COL_SPAN[size];
+      const current = prev[id as SectionId] ?? 1;
+      const nextCol = Math.min(5 - span, Math.max(1, current + dir));
+      const next = { ...prev, [id]: nextCol } as Record<SectionId, number>;
+      persistLayout(sectionOrder, blockSizes, next);
+      return next;
+    });
+  }, [blockSizes, persistLayout, sectionOrder]);
 
   const resetLayout = useCallback(() => {
     const order: SectionId[] = [...DEFAULT_SECTION_ORDER];
     const sizes: Record<SectionId, BlockSize> = { ...DEFAULT_BLOCK_SIZES };
+    const columns: Partial<Record<SectionId, number>> = {};
     setSectionOrder(order);
     setBlockSizes(sizes);
-    persistLayout(order, sizes);
+    setBlockColumns(columns);
+    persistLayout(order, sizes, columns);
     toast("Layout reset to default.", "success", "Console");
   }, [persistLayout, toast]);
 
@@ -470,6 +523,9 @@ export function ConsoleModule() {
       if (layout) {
         setSectionOrder(layout.order as SectionId[]);
         setBlockSizes((prev) => ({ ...prev, ...(layout.sizes as Record<SectionId, BlockSize>) }));
+        if (layout.columns) {
+          setBlockColumns((prev) => ({ ...prev, ...(layout.columns as Record<SectionId, number>) }));
+        }
       }
     }
 
@@ -626,7 +682,7 @@ export function ConsoleModule() {
       if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
       // Auto-save on drag-end (debounced) — no manual "save" step for layout.
-      persistLayout(next, blockSizes);
+      persistLayout(next, blockSizes, blockColumns);
       return next;
     });
   };
@@ -1208,12 +1264,12 @@ export function ConsoleModule() {
 
         <div className="module-layout-tools">
           <span className="module-layout-hint">
-            Drag ⠿ to rearrange · click ⊞/⊡/⊟ to cycle size
+            Drag ⠿ to rearrange · ← → to nudge · click ⊞/⊡/⊟ to cycle size
           </span>
           <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>
         </div>
 
-        <BlockSizeContext.Provider value={{ sizes: blockSizes, toggle: toggleBlockSize }}>
+        <BlockSizeContext.Provider value={{ sizes: blockSizes, columns: blockColumns, toggle: toggleBlockSize, nudgeColumn }}>
           <DndContext
             id="console-widget-grid"
             sensors={sensors}
