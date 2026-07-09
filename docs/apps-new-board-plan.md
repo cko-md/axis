@@ -4,17 +4,17 @@
 
 Let users group sidebar URL modules into named boards (workspaces) without pretending drag-and-drop is fully shipped.
 
-## Phase 1 (this PR) — scaffold
+## Phase 1 (shipped) — scaffold + assignment
 
 - **Create board** modal from sidebar "New Board" action
 - Persist boards in `localStorage` (`axis-url-boards`)
-- List boards under Apps with honest "scaffold" label
-- Opening a board shows placeholder state + linked URL modules count
+- List boards under Apps
+- **Assign modules** via drag-and-drop zones + checkboxes in board detail modal (exclusive per board)
+- Reorder modules within a board via drag
 
 ## Phase 2 — board builder
 
-- Drag URL modules between boards (dnd-kit, same pattern as Atelier moodboard)
-- Reorder modules within a board
+- Drag URL modules onto board rows in the sidebar (without opening the modal)
 - Default board for unassigned modules
 - Board-level icon/color
 
@@ -39,5 +39,5 @@ Let users group sidebar URL modules into named boards (workspaces) without prete
 ## Acceptance for Phase 1
 
 - New Board creates a persisted row and surfaces it in Apps
-- User sees explicit scaffold/coming-soon for drag-and-drop
+- User can drag modules between Assigned / Available zones (and reorder on board)
 - No fake "synced" label — local-only until Phase 3

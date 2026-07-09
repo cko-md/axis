@@ -29,7 +29,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/literature", label: "Literature", icon: "literature", status: "production", title: "Literature — research feed and saved papers" },
   ]},
   { section: "Life", items: [
-    { href: "/people", label: "People", icon: "people", status: "beta", statusReason: "CRM records persist, but contacts matching and provider parity still need production validation.", statusAction: "Validate add/edit/delete, contact import, matching feedback, and empty/error states." },
+    { href: "/people", label: "People", icon: "people", status: "production", title: "People — CRM and follow-ups" },
     { href: "/briefing", label: "Briefing", icon: "briefing", status: "production", title: "Briefing — curated stories and RSS feeds" },
   ]},
   { section: "Capital", items: [
@@ -40,7 +40,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/atelier", label: "Atelier", icon: "atelier", status: "lab", statusReason: "Creative discovery remains exploratory and provider-dependent.", statusAction: "Validate source availability, pin persistence, and empty/error states before promotion." },
     { href: "/listening-vault", label: "Listening Vault", icon: "vault", title: "Listening Vault — music room", status: "lab", statusReason: "Music-room workflows depend on Spotify availability and exploratory listening UI.", statusAction: "Validate connect/disconnect, playback fallbacks, and saved state before promotion." },
     { href: "/library", label: "Library", icon: "library", status: "lab", statusReason: "Uploads are available, but the broader library workflow still needs production hardening.", statusAction: "Validate upload/delete/download, storage errors, and RLS before promotion." },
-    { href: "/supper-club", label: "Supper Club", icon: "recipes", status: "lab", statusReason: "Recipe curation is intentionally local-only and exploratory.", statusAction: "Saved recipes and diet preferences stay on this device until a Supabase recipe slice ships." },
+    { href: "/supper-club", label: "Supper Club", icon: "recipes", status: "lab", statusReason: "Recipe curation syncs to Supabase when signed in; seed catalog remains curated.", statusAction: "Validate recipe save, diet prefs persistence, and error states before promotion." },
   ]},
   { section: "System", items: [
     { href: "/control-room", label: "Control Room", icon: "system", title: "Control Room — settings and integrations", status: "production" },

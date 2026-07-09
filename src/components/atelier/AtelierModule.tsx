@@ -230,6 +230,7 @@ export function AtelierModule() {
   const [trendItems, setTrendItems] = useState<RssItem[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(true);
   const [trendsRefreshing, setTrendsRefreshing] = useState(false);
+  const [trendsError, setTrendsError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -339,6 +340,21 @@ export function AtelierModule() {
     }
   }, []);
 
+  const loadFeedOrFail = useCallback(async (feedUrls: string[]): Promise<{ items: RssItem[]; ok: boolean }> => {
+    try {
+      const res = await fetch("/api/feeds/cached", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedUrls }),
+      });
+      if (!res.ok) return { items: [], ok: false };
+      const json = await res.json();
+      return { items: Array.isArray(json.items) ? (json.items as RssItem[]) : [], ok: true };
+    } catch {
+      return { items: [], ok: false };
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const loadAllLangFeeds = async () => {
@@ -358,10 +374,11 @@ export function AtelierModule() {
   // and the manual "Refresh" button both call this; the button sets a visible
   // refreshing state while in flight.
   const loadTrends = useCallback(async () => {
-    const items = await loadFeed(MENS_STYLE_FEEDS);
+    const { items, ok } = await loadFeedOrFail(MENS_STYLE_FEEDS);
     setTrendItems(items.slice(0, 4));
+    setTrendsError(ok || items.length > 0 ? null : "Style feeds could not be refreshed.");
     setTrendsLoading(false);
-  }, [loadFeed]);
+  }, [loadFeedOrFail]);
 
   const refreshTrends = useCallback(async () => {
     setTrendsRefreshing(true);
@@ -577,6 +594,12 @@ export function AtelierModule() {
               </span>
             </h2>
             <div style={{ marginTop: 12 }}>
+              {trendsError && (
+                <p style={{ fontSize: 10.5, color: "var(--clay)", fontFamily: "var(--mono)", marginBottom: 8 }}>
+                  {trendsError}{" "}
+                  <button type="button" className="feed-manage" onClick={() => void refreshTrends()}>Retry</button>
+                </p>
+              )}
               {trendsLoading && trendItems.length === 0 ? (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "9px 0" }}>
                   Loading trends…

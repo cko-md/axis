@@ -1,16 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCenter,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-import { createUrlBoard, loadUrlBoards, saveUrlBoards, type UrlBoard } from "@/lib/store/url-boards";
+import {
+  assignModuleToBoard,
+  createUrlBoard,
+  isModuleOnBoard,
+  loadUrlBoards,
+  removeModuleFromBoard,
+  reorderModulesOnBoard,
+  saveUrlBoards,
+  type UrlBoard,
+} from "@/lib/store/url-boards";
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
 const URL_MODULES_KEY = "axis-url-modules";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type UrlModule = { id: string; name: string; url: string };
+
+const ASSIGNED_DROP = "board-assigned-drop";
+const POOL_DROP = "board-pool-drop";
+const poolId = (moduleId: string) => `pool-${moduleId}`;
+const fromPoolId = (id: string) => id.startsWith("pool-") ? id.slice(5) : null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function loadUrlModules(): UrlModule[] {
@@ -71,6 +102,140 @@ function GripHandle(props: React.HTMLAttributes<HTMLSpanElement>) {
   );
 }
 
+function ModuleChip({
+  module: m,
+  checked,
+  dragHandle,
+  onToggle,
+  onOpen,
+}: {
+  module: UrlModule;
+  checked: boolean;
+  dragHandle?: React.HTMLAttributes<HTMLButtonElement>;
+  onToggle?: (on: boolean) => void;
+  onOpen: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 10px",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--r)",
+        background: checked ? "var(--glass)" : "transparent",
+      }}
+    >
+      {dragHandle ? (
+        <button
+          type="button"
+          aria-label={`Drag ${m.name}`}
+          {...dragHandle}
+          style={{
+            border: "none",
+            background: "transparent",
+            padding: 0,
+            cursor: "grab",
+            color: "var(--ink-faint)",
+            lineHeight: 1,
+          }}
+        >
+          <GripHandle style={{ opacity: 1, marginRight: 0 }} />
+        </button>
+      ) : null}
+      {onToggle ? (
+        <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+      ) : null}
+      <span style={{ flex: 1, fontSize: 13, color: "var(--ink)" }}>{m.name}</span>
+      <button type="button" className="feed-manage" style={{ fontSize: 10 }} onClick={onOpen}>
+        Open
+      </button>
+    </div>
+  );
+}
+
+function SortableAssignedModule({
+  module: m,
+  onToggle,
+  onOpen,
+}: {
+  module: UrlModule;
+  onToggle: (on: boolean) => void;
+  onOpen: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: m.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.45 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <ModuleChip
+        module={m}
+        checked
+        dragHandle={{ ...attributes, ...listeners }}
+        onToggle={onToggle}
+        onOpen={onOpen}
+      />
+    </div>
+  );
+}
+
+function DraggablePoolModule({
+  module: m,
+  onOpen,
+}: {
+  module: UrlModule;
+  onOpen: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: poolId(m.id) });
+  const style = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    opacity: isDragging ? 0.45 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <ModuleChip module={m} checked={false} dragHandle={{ ...attributes, ...listeners }} onOpen={onOpen} />
+    </div>
+  );
+}
+
+function DropZone({
+  id,
+  label,
+  hint,
+  empty,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  empty?: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        border: `1px dashed ${isOver ? "var(--accent)" : "var(--line)"}`,
+        borderRadius: "var(--r)",
+        padding: 10,
+        minHeight: 72,
+        background: isOver ? "var(--glass)" : "transparent",
+        transition: "border-color 0.15s, background 0.15s",
+      }}
+    >
+      <div style={{ fontSize: 10, fontFamily: "var(--mono)", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--ink-faint)", marginBottom: 8 }}>
+        {label}
+      </div>
+      {empty ? <p style={{ fontSize: 12, color: "var(--ink-faint)", margin: 0 }}>{hint}</p> : children}
+    </div>
+  );
+}
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 type Props = {
   collapsed: boolean;
@@ -88,6 +253,9 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
   const [formName, setFormName] = useState("");
   const [formUrl, setFormUrl] = useState("");
   const [boardName, setBoardName] = useState("");
+  const [dragModule, setDragModule] = useState<UrlModule | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
     setUrlModules(loadUrlModules());
@@ -132,6 +300,63 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
     if (boardDetail?.id === id) setBoardDetail(null);
     toast("Board removed.", "info", "Boards");
   };
+
+  const toggleModuleOnBoard = (moduleId: string, on: boolean) => {
+    if (!boardDetail) return;
+    const next = on
+      ? assignModuleToBoard(boards, boardDetail.id, moduleId)
+      : removeModuleFromBoard(boards, boardDetail.id, moduleId);
+    persistBoards(next);
+    const updated = next.find((b) => b.id === boardDetail.id) ?? null;
+    setBoardDetail(updated);
+  };
+
+  const assignedModules = boardDetail
+    ? urlModules.filter((m) => isModuleOnBoard(boardDetail, m.id))
+    : [];
+  const availableModules = boardDetail
+    ? urlModules.filter((m) => !isModuleOnBoard(boardDetail, m.id))
+    : [];
+
+  const handleBoardDragEnd = (event: DragEndEvent) => {
+    setDragModule(null);
+    if (!boardDetail) return;
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeKey = String(active.id);
+    const overKey = String(over.id);
+    const poolModuleId = fromPoolId(activeKey);
+
+    if (poolModuleId) {
+      if (overKey === ASSIGNED_DROP || boardDetail.moduleIds.includes(overKey)) {
+        const next = assignModuleToBoard(boards, boardDetail.id, poolModuleId);
+        persistBoards(next);
+        setBoardDetail(next.find((b) => b.id === boardDetail.id) ?? null);
+      }
+      return;
+    }
+
+    if (!boardDetail.moduleIds.includes(activeKey)) return;
+
+    if (overKey === POOL_DROP) {
+      const next = removeModuleFromBoard(boards, boardDetail.id, activeKey);
+      persistBoards(next);
+      setBoardDetail(next.find((b) => b.id === boardDetail.id) ?? null);
+      return;
+    }
+
+    if (boardDetail.moduleIds.includes(overKey)) {
+      const fromIndex = boardDetail.moduleIds.indexOf(activeKey);
+      const toIndex = boardDetail.moduleIds.indexOf(overKey);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+      const next = reorderModulesOnBoard(boards, boardDetail.id, fromIndex, toIndex);
+      persistBoards(next);
+      setBoardDetail(next.find((b) => b.id === boardDetail.id) ?? null);
+    }
+  };
+
+  const openModule = (m: UrlModule) => openWebViewer(m.url, m.name);
 
   return (
     <>
@@ -259,7 +484,7 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
         }
       >
         <p className="mb-4 text-xs text-[var(--ink-dim)]">
-          Boards group URL modules into workspaces. Phase 1 stores boards on this device only — drag-and-drop assignment ships next.
+          Boards group URL modules into workspaces. Assign modules below — stored on this device until Supabase sync ships.
         </p>
         <label className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-[var(--ink-faint)]">Board name</label>
         <input
@@ -286,13 +511,54 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
         {boardDetail && (
           <>
             <p className="mb-3 text-xs text-[var(--ink-dim)]">
-              Scaffold board · stored locally · {urlModules.length} URL module{urlModules.length === 1 ? "" : "s"} available in Apps.
+              {assignedModules.length} of {urlModules.length} module{urlModules.length === 1 ? "" : "s"} assigned · drag between zones or use checkboxes · device-local
             </p>
-            <p className="text-sm text-[var(--ink)]">
-              {boardDetail.moduleIds.length === 0
-                ? "No modules assigned yet. Drag-and-drop board builder is the next step — for now, open modules directly from Apps."
-                : `${boardDetail.moduleIds.length} module(s) will appear here once assignment ships.`}
-            </p>
+            {urlModules.length === 0 ? (
+              <p className="text-sm text-[var(--ink-faint)]">Add URL modules in Apps first, then assign them here.</p>
+            ) : (
+              <DndContext
+                id="board-module-assignment"
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={(e) => {
+                  const id = String(e.active.id);
+                  const moduleId = fromPoolId(id) ?? id;
+                  const mod = urlModules.find((m) => m.id === moduleId) ?? null;
+                  setDragModule(mod);
+                }}
+                onDragEnd={handleBoardDragEnd}
+                onDragCancel={() => setDragModule(null)}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 360, overflowY: "auto" }}>
+                  <DropZone id={ASSIGNED_DROP} label="On this board" hint="Drag modules here to assign" empty={assignedModules.length === 0}>
+                    <SortableContext items={assignedModules.map((m) => m.id)} strategy={verticalListSortingStrategy}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {assignedModules.map((m) => (
+                          <SortableAssignedModule
+                            key={m.id}
+                            module={m}
+                            onToggle={(on) => toggleModuleOnBoard(m.id, on)}
+                            onOpen={() => openModule(m)}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DropZone>
+                  <DropZone id={POOL_DROP} label="Available" hint="All modules are on this board" empty={availableModules.length === 0}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {availableModules.map((m) => (
+                        <DraggablePoolModule key={m.id} module={m} onOpen={() => openModule(m)} />
+                      ))}
+                    </div>
+                  </DropZone>
+                </div>
+                <DragOverlay>
+                  {dragModule ? (
+                    <ModuleChip module={dragModule} checked={isModuleOnBoard(boardDetail, dragModule.id)} onOpen={() => openModule(dragModule)} />
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            )}
           </>
         )}
       </Modal>
