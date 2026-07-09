@@ -246,9 +246,11 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
   const size = sizes[id] ?? "full";
   const span = BLOCK_COL_SPAN[size];
   const colStart = columns[id];
+  const maxStart = Math.max(1, 5 - span);
+  const validStart = colStart && colStart <= maxStart ? colStart : undefined;
   const reduceMotion = useReducedMotion();
-  const gridColumn = colStart
-    ? `${colStart} / span ${span}`
+  const gridColumn = validStart
+    ? `${validStart} / span ${span}`
     : BLOCK_SPAN[size];
   return (
     <motion.div
@@ -466,13 +468,28 @@ export function ConsoleModule() {
   useEffect(() => () => { if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current); }, []);
 
   const toggleBlockSize = useCallback((id: string) => {
-    setBlockSizes((prev) => {
-      const current = prev[id as SectionId] ?? "full";
-      const next = { ...prev, [id]: NEXT_BLOCK_SIZE[current] } as Record<SectionId, BlockSize>;
-      persistLayout(sectionOrder, next, blockColumns);
-      return next;
+    setBlockSizes((prevSizes) => {
+      const current = prevSizes[id as SectionId] ?? "full";
+      const nextSize = NEXT_BLOCK_SIZE[current];
+      const nextSizes = { ...prevSizes, [id]: nextSize } as Record<SectionId, BlockSize>;
+      setBlockColumns((prevCols) => {
+        const span = BLOCK_COL_SPAN[nextSize];
+        const col = prevCols[id as SectionId];
+        const nextCols = { ...prevCols };
+        if (col !== undefined) {
+          const maxStart = Math.max(1, 5 - span);
+          if (span >= 4 || col > maxStart) {
+            delete nextCols[id as SectionId];
+          } else if (col > maxStart) {
+            nextCols[id as SectionId] = maxStart;
+          }
+        }
+        persistLayout(sectionOrder, nextSizes, nextCols);
+        return nextCols;
+      });
+      return nextSizes;
     });
-  }, [persistLayout, sectionOrder, blockColumns]);
+  }, [persistLayout, sectionOrder]);
 
   const nudgeColumn = useCallback((id: string, dir: -1 | 1) => {
     setBlockColumns((prev) => {

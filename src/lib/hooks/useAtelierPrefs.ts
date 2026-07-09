@@ -32,6 +32,9 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setSignedIn(false);
+      setPins(defaultPins);
+      userId.current = null;
+      setSubscribedUserId(null);
       setLoadError(null);
       setLoading(false);
       return;

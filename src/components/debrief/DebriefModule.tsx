@@ -248,8 +248,8 @@ function PastReflectionRow({ note }: { note: { id: string; title: string; body: 
 
 export function DebriefModule() {
   const supabase = useMemo(() => createClient(), []);
-  const { notes } = useNotes();
-  const { tasks, loading, addTask, toggleDone, deleteTask } = useTasks();
+  const { notes, refresh: refreshNotes } = useNotes();
+  const { tasks, loading, addTask, updateTask, toggleDone, deleteTask } = useTasks();
   const { objectives } = useObjectives();
   const { toast }                  = useToast();
 
@@ -276,6 +276,7 @@ export function DebriefModule() {
   const [reminderDay,   setReminderDay]   = useState(DEFAULT_DAY);
   const [reminderHour,  setReminderHour]  = useState(DEFAULT_HOUR);
   const [reminderSet,   setReminderSet]   = useState(false);
+  const [reminderTaskId, setReminderTaskId] = useState<string | null>(null);
   const [showConfig,    setShowConfig]    = useState(false);
   const [pastOpen,      setPastOpen]      = useState(false);
   const [aiSummary,     setAiSummary]     = useState<string | null>(null);
@@ -421,15 +422,17 @@ export function DebriefModule() {
     if (prefs && typeof prefs.day === "number" && typeof prefs.hour === "number") {
       setReminderDay(prefs.day);
       setReminderHour(prefs.hour);
+      setReminderTaskId(prefs.taskId ?? null);
       setReminderSet(true);
       return;
     }
     try {
       const stored = localStorage.getItem(REMINDER_KEY);
       if (stored) {
-        const { day, hour } = JSON.parse(stored) as DebriefReminderPrefs;
-        setReminderDay(day ?? DEFAULT_DAY);
-        setReminderHour(hour ?? DEFAULT_HOUR);
+        const parsed = JSON.parse(stored) as DebriefReminderPrefs;
+        setReminderDay(parsed.day ?? DEFAULT_DAY);
+        setReminderHour(parsed.hour ?? DEFAULT_HOUR);
+        setReminderTaskId(parsed.taskId ?? null);
         setReminderSet(true);
       }
     } catch { /* ignore */ }
@@ -442,13 +445,18 @@ export function DebriefModule() {
   const persistReminderPrefs = useCallback(async (prefs: DebriefReminderPrefs) => {
     localStorage.setItem(REMINDER_KEY, JSON.stringify(prefs));
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from("user_preferences").upsert({
+    if (!user) return true;
+    const { error } = await supabase.from("user_preferences").upsert({
       user_id: user.id,
       debrief_reminder: prefs,
       updated_at: new Date().toISOString(),
     } as never, { onConflict: "user_id" });
-  }, [supabase]);
+    if (error) {
+      toast("Reminder saved on this device only — cloud sync failed.", "warn", "Debrief");
+      return false;
+    }
+    return true;
+  }, [supabase, toast]);
 
   // Past reflections: weekly notes + saved daily debrief entries
   const pastReflections = useMemo(() => {
@@ -660,6 +668,7 @@ export function DebriefModule() {
       setWins("");
       setChallenges("");
       setFocus("");
+      void refreshNotes();
     } catch (error) {
       Sentry.captureException(error instanceof Error ? error : new Error("Weekly reflection save failed"), {
         tags: { area: "debrief", op: "save_weekly_reflection" },
@@ -675,22 +684,34 @@ export function DebriefModule() {
     const dateStr = next.toISOString().split("T")[0];
     const label   = next.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
     const hourFmt = reminderHour === 0 ? "12 AM" : reminderHour < 12 ? `${reminderHour} AM` : reminderHour === 12 ? "12 PM" : `${reminderHour - 12} PM`;
-    const task = await addTask({
-      title:    `Weekly Debrief · Review + Plan — ${DAY_NAMES[reminderDay]} ${hourFmt}`,
-      category: "personal",
-      priority: "med",
-      effort:   "30m",
+    const title = `Weekly Debrief · Review + Plan — ${DAY_NAMES[reminderDay]} ${hourFmt}`;
+    const taskPatch = {
+      title,
+      category: "personal" as const,
+      priority: "med" as const,
+      effort: "30m" as const,
       deadline: dateStr,
       metadata: {
         source_object_type: "debrief_reminder",
         source_route: "/debrief",
       },
-    } as Parameters<typeof addTask>[0]);
+    };
+
+    let task = reminderTaskId && tasks.some((t) => t.id === reminderTaskId)
+      ? await updateTask(reminderTaskId, taskPatch)
+      : null;
+
+    if (!task) {
+      if (reminderTaskId) await deleteTask(reminderTaskId);
+      task = await addTask(taskPatch as Parameters<typeof addTask>[0]);
+    }
+
     if (!task) {
       toast("Could not add reminder to Agenda.", "error", "Debrief");
       return;
     }
     await persistReminderPrefs({ day: reminderDay, hour: reminderHour, taskId: task.id });
+    setReminderTaskId(task.id);
     setReminderSet(true);
     setShowConfig(false);
     toast(`Reminder added to Agenda for ${label}`, "success", "Debrief");

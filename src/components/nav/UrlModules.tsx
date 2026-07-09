@@ -268,9 +268,12 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
     catch { /* ignore */ }
   };
 
-  const persistBoards = (next: UrlBoard[]) => {
-    setBoards(next);
-    saveUrlBoards(next);
+  const persistBoards = (next: UrlBoard[] | ((prev: UrlBoard[]) => UrlBoard[])) => {
+    setBoards((prev) => {
+      const resolved = typeof next === "function" ? next(prev) : next;
+      saveUrlBoards(resolved);
+      return resolved;
+    });
   };
 
   const addModule = () => {
@@ -288,7 +291,7 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
     const name = boardName.trim();
     if (!name) { toast("Name your board first.", "warn", "Boards"); return; }
     const board = createUrlBoard(name);
-    persistBoards([...boards, board]);
+    persistBoards((prev) => [...prev, board]);
     setBoardName("");
     setBoardOpen(false);
     setBoardDetail(board);
@@ -296,19 +299,21 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
   };
 
   const removeBoard = (id: string) => {
-    persistBoards(boards.filter((b) => b.id !== id));
+    persistBoards((prev) => prev.filter((b) => b.id !== id));
     if (boardDetail?.id === id) setBoardDetail(null);
     toast("Board removed.", "info", "Boards");
   };
 
   const toggleModuleOnBoard = (moduleId: string, on: boolean) => {
     if (!boardDetail) return;
-    const next = on
-      ? assignModuleToBoard(boards, boardDetail.id, moduleId)
-      : removeModuleFromBoard(boards, boardDetail.id, moduleId);
-    persistBoards(next);
-    const updated = next.find((b) => b.id === boardDetail.id) ?? null;
-    setBoardDetail(updated);
+    persistBoards((prev) => {
+      const next = on
+        ? assignModuleToBoard(prev, boardDetail.id, moduleId)
+        : removeModuleFromBoard(prev, boardDetail.id, moduleId);
+      const updated = next.find((b) => b.id === boardDetail.id) ?? null;
+      setBoardDetail(updated);
+      return next;
+    });
   };
 
   const assignedModules = boardDetail
@@ -327,32 +332,40 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
     const activeKey = String(active.id);
     const overKey = String(over.id);
     const poolModuleId = fromPoolId(activeKey);
+    const detailId = boardDetail.id;
+    const detailModuleIds = boardDetail.moduleIds;
 
     if (poolModuleId) {
-      if (overKey === ASSIGNED_DROP || boardDetail.moduleIds.includes(overKey)) {
-        const next = assignModuleToBoard(boards, boardDetail.id, poolModuleId);
-        persistBoards(next);
-        setBoardDetail(next.find((b) => b.id === boardDetail.id) ?? null);
+      if (overKey === ASSIGNED_DROP || detailModuleIds.includes(overKey)) {
+        persistBoards((prev) => {
+          const next = assignModuleToBoard(prev, detailId, poolModuleId);
+          setBoardDetail(next.find((b) => b.id === detailId) ?? null);
+          return next;
+        });
       }
       return;
     }
 
-    if (!boardDetail.moduleIds.includes(activeKey)) return;
+    if (!detailModuleIds.includes(activeKey)) return;
 
     if (overKey === POOL_DROP) {
-      const next = removeModuleFromBoard(boards, boardDetail.id, activeKey);
-      persistBoards(next);
-      setBoardDetail(next.find((b) => b.id === boardDetail.id) ?? null);
+      persistBoards((prev) => {
+        const next = removeModuleFromBoard(prev, detailId, activeKey);
+        setBoardDetail(next.find((b) => b.id === detailId) ?? null);
+        return next;
+      });
       return;
     }
 
-    if (boardDetail.moduleIds.includes(overKey)) {
-      const fromIndex = boardDetail.moduleIds.indexOf(activeKey);
-      const toIndex = boardDetail.moduleIds.indexOf(overKey);
+    if (detailModuleIds.includes(overKey)) {
+      const fromIndex = detailModuleIds.indexOf(activeKey);
+      const toIndex = detailModuleIds.indexOf(overKey);
       if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
-      const next = reorderModulesOnBoard(boards, boardDetail.id, fromIndex, toIndex);
-      persistBoards(next);
-      setBoardDetail(next.find((b) => b.id === boardDetail.id) ?? null);
+      persistBoards((prev) => {
+        const next = reorderModulesOnBoard(prev, detailId, fromIndex, toIndex);
+        setBoardDetail(next.find((b) => b.id === detailId) ?? null);
+        return next;
+      });
     }
   };
 

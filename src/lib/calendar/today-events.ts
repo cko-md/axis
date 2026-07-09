@@ -61,22 +61,30 @@ export async function fetchTodayMergedEvents(
 ): Promise<TodayMergedEvent[]> {
   const start = startOfLocalDay(day);
   const end = endOfLocalDay(day);
+  const lookback = new Date(start);
+  lookback.setDate(lookback.getDate() - 1);
+  const lookahead = new Date(end);
+  lookahead.setDate(lookahead.getDate() + 1);
 
   const [ownedRes, cacheRes] = await Promise.all([
     supabase
       .from("schedule_events")
       .select("id, title, description, start_at, end_at, color_class, all_day")
       .eq("user_id", userId)
-      .gte("start_at", start.toISOString())
-      .lte("start_at", end.toISOString())
+      .gte("start_at", lookback.toISOString())
+      .lte("start_at", lookahead.toISOString())
       .order("start_at", { ascending: true }),
     supabase.from("calendar_event_cache").select("source, events"),
   ]);
 
   if (ownedRes.error) throw ownedRes.error;
 
+  const ownedFiltered = ((ownedRes.data ?? []) as TodayOwnedEvent[]).filter((event) =>
+    eventOccursOnLocalDay(event.start_at, Boolean(event.all_day), day),
+  );
+
   return mergeTodayEvents(
-    (ownedRes.data ?? []) as TodayOwnedEvent[],
+    ownedFiltered,
     (cacheRes.data ?? []) as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[] | null }>,
     day,
   );

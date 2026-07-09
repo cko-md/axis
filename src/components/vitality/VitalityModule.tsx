@@ -1298,7 +1298,7 @@ export function VitalityModule() {
                 }
               },
             },
-            { label: "Training log", onClick: () => setTab("training") },
+            { label: "Training log", onClick: () => setTab("fit-run") },
           ]}
         />
 
