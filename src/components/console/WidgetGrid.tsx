@@ -8,6 +8,8 @@ import { WidgetActionMenu, WidgetDetailDrawer, WidgetShell } from "@/components/
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
 import { resolveWidgetTileActivation, widgetLegacyStatusLabel, widgetRuntimeStatus } from "@/components/console/widget-grid-model";
+import { InteractiveWidgetTile } from "@/components/console/InteractiveWidgetTile";
+import { WidgetMiniViz } from "@/components/console/WidgetMiniViz";
 
 type WidgetTexts = Record<string, { v: string; k: string }>;
 
@@ -124,6 +126,11 @@ export function WidgetGrid({
         </button>
       </div>
       <div className="tidbits">
+        {widgetIds.length === 0 ? (
+          <StatusCallout kind="empty" title="No widgets yet">
+            Customize your Command strip to add live weather, agenda, training, and market tiles.
+          </StatusCallout>
+        ) : null}
         {widgetIds.map((id, i) => {
           const w = getWidgetById(id);
           const definition = getWidgetDefinition(id);
@@ -151,6 +158,7 @@ export function WidgetGrid({
                   error={live?.error}
                   lab={status === "lab"}
                   disconnected={status === "disconnected"}
+                  miniVisualizationSlot={<WidgetMiniViz widgetId={id} raw={live?.raw} />}
                   onPrimaryAction={editing ? undefined : () => onDetailWidgetChange(id)}
                   titleText={drawerOpen ? "Details open" : "Open widget details"}
                   actionSlot={
@@ -232,58 +240,37 @@ export function WidgetGrid({
             onExpandedWidgetChange(expandedWidget === id ? null : id);
           };
           return (
-            <div
+            <InteractiveWidgetTile
               key={`${id}-${i}`}
-              className="tb"
-              style={{ position: "relative", cursor: editing ? "default" : "pointer" }}
-              role={editing ? undefined : "button"}
-              tabIndex={editing ? undefined : 0}
-              aria-label={routeHref ? activation?.label : expandedWidget === id ? `Collapse ${w.label}` : `Expand ${w.label}`}
-              onClick={handlePrimaryAction}
-              onKeyDown={(e) => {
-                if (editing) return;
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  handlePrimaryAction();
-                }
-              }}
-              title={routeHref ? activation?.label : expandedWidget === id ? "Click to collapse" : "Click to expand · double-click refreshes"}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
+              widgetId={id}
+              label={w.label}
+              value={value}
+              hint={hint}
+              status={status}
+              expanded={expandedWidget === id}
+              editing={editing}
+              loading={live?.loading}
+              stale={live?.stale}
+              error={live?.error}
+              raw={live?.raw}
+              icon={<WidgetIcon id={id} />}
+              iconStyle={widgetIconStyle(id, live?.raw)}
+              statusLabel={label}
+              activationLabel={routeHref ? activation?.label : expandedWidget === id ? `Collapse ${w.label}` : `Expand ${w.label}`}
+              onPrimaryAction={handlePrimaryAction}
+              onDoubleClickAction={() => {
                 onRefreshOne(id);
                 onToast("Widget refreshed", "success", w.label);
               }}
-            >
-              {editing && (
-                <button
-                  type="button"
-                  style={{ position: "absolute", right: 8, top: 8, fontFamily: "var(--mono)", fontSize: 10, color: "var(--accent-2)" }}
-                  onClick={(e) => { e.stopPropagation(); onSwapIndexChange(i); onPickerOpenChange(true); }}
-                >
-                  ⇄
-                </button>
-              )}
-              <div className="tb-ic" style={widgetIconStyle(id, live?.raw)}><WidgetIcon id={id} /></div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div contentEditable={editing} suppressContentEditableWarning className="tb-v" onBlur={(e) => {
-                  const next = { ...widgetTexts, [id]: { v: e.currentTarget.textContent || value, k: hint } };
-                  onWidgetTextsChange(next);
-                }}>{value} {!editing && <span style={{ color: "var(--ink-faint)", fontSize: 10 }}>· {label}</span>}</div>
-                <div contentEditable={editing} suppressContentEditableWarning className="tb-k" onBlur={(e) => {
-                  const next = { ...widgetTexts, [id]: { v: value, k: e.currentTarget.textContent || hint } };
-                  onWidgetTextsChange(next);
-                }}>{expandedWidget === id ? `${hint} · tap to collapse` : hint}</div>
-                {expandedWidget === id && !editing && <WidgetSecondLine id={id} raw={live?.raw} />}
-                {!editing && live?.loading && live.updatedAt && (
-                  <div className="tb-raw">Refreshing…</div>
-                )}
-                {!editing && live?.error && (
-                  <div className="tb-raw" style={{ color: "var(--clay)" }}>
-                    {live.stale ? "Showing last update" : "Refresh failed"}
-                  </div>
-                )}
-              </div>
-            </div>
+              onSwap={editing ? () => { onSwapIndexChange(i); onPickerOpenChange(true); } : undefined}
+              onValueBlur={(nextValue) => {
+                onWidgetTextsChange({ ...widgetTexts, [id]: { v: nextValue, k: hint } });
+              }}
+              onHintBlur={(nextHint) => {
+                onWidgetTextsChange({ ...widgetTexts, [id]: { v: value, k: nextHint } });
+              }}
+              secondLine={<WidgetSecondLine id={id} raw={live?.raw} />}
+            />
           );
         })}
       </div>

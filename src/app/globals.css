@@ -1835,6 +1835,136 @@ html.light .cp-ident {
   border-top: 1px solid var(--line);
 }
 
+.widget-tile-interactive {
+  position: relative;
+  cursor: pointer;
+  align-items: flex-start;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.widget-tile-interactive:hover,
+.widget-tile-interactive:focus-visible {
+  border-color: color-mix(in srgb, var(--gold) 42%, var(--line));
+  background: var(--glass-2);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.widget-tile-interactive.is-expanded {
+  grid-column: span 2;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.widget-tile-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.widget-tile-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.widget-tile-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.widget-tile-value {
+  font-family: var(--disp);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.widget-tile-status-label {
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-family: var(--sans);
+  font-weight: 500;
+}
+
+.widget-tile-swap {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.widget-tile-error {
+  color: var(--clay);
+}
+
+.widget-tile-mini {
+  flex: none;
+  align-self: center;
+  margin-left: 4px;
+}
+
+.widget-mini-viz--bar,
+.widget-mini-viz--progress {
+  width: 52px;
+}
+
+.widget-mini-viz__track {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.widget-mini-viz__fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--gold-2);
+}
+
+.widget-mini-viz__fill.up {
+  background: var(--up);
+}
+
+.widget-mini-viz__fill.down {
+  background: var(--down);
+}
+
+.widget-mini-viz__caption {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.widget-mini-viz--ring {
+  width: 40px;
+  height: 40px;
+}
+
+.widget-mini-viz--pills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--ink-faint);
+}
+
+.widget-shell-mini {
+  flex: none;
+  align-self: center;
+}
+
 .widget-shell .tb-v {
   font-family: var(--disp);
   font-size: 15px;
