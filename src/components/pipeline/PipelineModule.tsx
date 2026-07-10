@@ -219,6 +219,15 @@ function NextIcon({ kind }: { kind: "plus" | "check" }) {
   );
 }
 
+function formatAbstractDue(iso: string): string {
+  const due = new Date(`${iso}T12:00:00`);
+  const days = Math.ceil((due.getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return `Abstract overdue · ${iso}`;
+  if (days === 0) return "Abstract due today";
+  if (days === 1) return "Abstract due tomorrow";
+  return `Abstract due in ${days} days`;
+}
+
 export function PipelineModule() {
   const { toast } = useToast();
   const { addTask } = useTasks();
@@ -229,7 +238,9 @@ export function PipelineModule() {
     loading,
     loadError,
     signedIn,
+    refresh,
     addStage,
+    updateStage,
     deleteStage,
     addStudy,
     updateStudy,
@@ -243,6 +254,7 @@ export function PipelineModule() {
   const [editingStudy, setEditingStudy] = useState<Study | null>(null);
   const [studyForm, setStudyForm] = useState(EMPTY_STUDY_FORM);
   const [stageModalOpen, setStageModalOpen] = useState(false);
+  const [editingStage, setEditingStage] = useState<PipelineStage | null>(null);
   const [stageForm, setStageForm] = useState({ name: "", swatch: "var(--accent)" });
   const [pendingDeleteStage, setPendingDeleteStage] = useState<PipelineStage | null>(null);
   const [confModalOpen, setConfModalOpen] = useState(false);
@@ -252,8 +264,19 @@ export function PipelineModule() {
   const [studyDraftText, setStudyDraftText] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [studyDrafting, setStudyDrafting] = useState(false);
+  const [savingStudy, setSavingStudy] = useState(false);
+  const [savingConf, setSavingConf] = useState(false);
+  const [savingStage, setSavingStage] = useState(false);
+
+  const requireSignIn = () => {
+    toast("Sign in to manage your pipeline.", "warn", "Pipeline");
+  };
 
   const openAddStudy = (stageId: string) => {
+    if (!signedIn) {
+      requireSignIn();
+      return;
+    }
     setEditingStudy(null);
     setStudyForm({ ...EMPTY_STUDY_FORM, stage_id: stageId });
     setStudyDraftText("");
@@ -272,6 +295,7 @@ export function PipelineModule() {
       toast("Give the study a title.", "warn", "Pipeline");
       return;
     }
+    setSavingStudy(true);
     const payload = {
       title: studyForm.title.trim(),
       role: studyForm.role,
@@ -280,6 +304,7 @@ export function PipelineModule() {
       stage_id: studyForm.stage_id,
     };
     const result = editingStudy ? await updateStudy(editingStudy.id, payload) : await addStudy(payload);
+    setSavingStudy(false);
     if (result.error) {
       toast(result.error, "error", "Pipeline");
       return;
@@ -290,7 +315,9 @@ export function PipelineModule() {
 
   const removeStudy = async () => {
     if (!editingStudy) return;
+    setSavingStudy(true);
     const result = await deleteStudy(editingStudy.id);
+    setSavingStudy(false);
     if (result.error) toast(result.error, "error", "Pipeline");
     else toast("Study removed.", "info", "Pipeline");
     setStudyModalOpen(false);
@@ -354,17 +381,38 @@ export function PipelineModule() {
       return;
     }
     if (!signedIn) {
-      toast("Sign in to customize stages.", "warn", "Pipeline");
+      requireSignIn();
       return;
     }
-    const result = await addStage(stageForm.name.trim(), stageForm.swatch);
+    setSavingStage(true);
+    const result = editingStage
+      ? await updateStage(editingStage.id, { name: stageForm.name.trim(), swatch: stageForm.swatch })
+      : await addStage(stageForm.name.trim(), stageForm.swatch);
+    setSavingStage(false);
     if (result.error) {
       toast(result.error, "error", "Pipeline");
       return;
     }
-    toast("Stage added.", "success", "Pipeline");
+    toast(editingStage ? "Stage updated." : "Stage added.", "success", "Pipeline");
     setStageModalOpen(false);
+    setEditingStage(null);
     setStageForm({ name: "", swatch: "var(--accent)" });
+  };
+
+  const openAddStage = () => {
+    if (!signedIn) {
+      requireSignIn();
+      return;
+    }
+    setEditingStage(null);
+    setStageForm({ name: "", swatch: "var(--accent)" });
+    setStageModalOpen(true);
+  };
+
+  const openEditStage = (stage: PipelineStage) => {
+    setEditingStage(stage);
+    setStageForm({ name: stage.name, swatch: stage.swatch });
+    setStageModalOpen(true);
   };
 
   const confirmDeleteStage = async () => {
@@ -437,6 +485,7 @@ export function PipelineModule() {
       toast("Give the conference a name.", "warn", "Pipeline");
       return;
     }
+    setSavingConf(true);
     const payload = {
       name: confForm.name.trim(),
       location: confForm.location.trim(),
@@ -449,6 +498,7 @@ export function PipelineModule() {
       abstract_due_date: confForm.abstract_due_date || null,
     };
     const result = editingConf ? await updateConference(editingConf.id, payload) : await addConference(payload);
+    setSavingConf(false);
     if (result.error) {
       toast(result.error, "error", "Pipeline");
       return;
@@ -459,7 +509,9 @@ export function PipelineModule() {
 
   const removeConf = async () => {
     if (!editingConf) return;
+    setSavingConf(true);
     const result = await deleteConference(editingConf.id);
+    setSavingConf(false);
     if (result.error) toast(result.error, "error", "Pipeline");
     else toast("Conference removed.", "info", "Pipeline");
     setConfModalOpen(false);
@@ -471,7 +523,7 @@ export function PipelineModule() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <button type="button" className="savebtn" onClick={() => setStageModalOpen(true)}>
+        <button type="button" className="savebtn" onClick={openAddStage}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <circle cx="12" cy="12" r="3" />
             <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5c.07-.3.1-.6.1-1z" />
@@ -483,9 +535,18 @@ export function PipelineModule() {
       {loading ? (
         <div className="empty-state">Loading pipeline…</div>
       ) : loadError ? (
-        <StatusCallout kind="error" title="Pipeline unavailable">{loadError}</StatusCallout>
+        <StatusCallout
+          kind="error"
+          title="Pipeline unavailable"
+          actionSlot={<Button variant="ghost" onClick={() => void refresh()}>Retry</Button>}
+        >
+          {loadError}
+        </StatusCallout>
       ) : !signedIn ? (
         <div className="board">
+          <p style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--ink-faint)", margin: "0 0 8px" }}>
+            Demo board — sign in to manage your research pipeline.
+          </p>
           {DEMO_COLUMNS.map((col) => (
             <div key={col.name} className="col">
               <div className="col-h">
@@ -506,11 +567,11 @@ export function PipelineModule() {
                     </div>
                   </div>
                 ))}
-                <div className="addcard">+ Add Study</div>
+                <div className="addcard" role="button" tabIndex={0} onClick={requireSignIn} onKeyDown={(e) => e.key === "Enter" && requireSignIn()}>+ Add Study</div>
               </div>
             </div>
           ))}
-          <div className="addcol">+ Add Stage</div>
+          <div className="addcol" role="button" tabIndex={0} onClick={requireSignIn} onKeyDown={(e) => e.key === "Enter" && requireSignIn()}>+ Add Stage</div>
         </div>
       ) : (
         <div className="board">
@@ -520,7 +581,17 @@ export function PipelineModule() {
               <div key={stage.id} className="col">
                 <div className="col-h">
                   <span className="swatch" style={{ background: stage.swatch }} />
-                  <span className="ct">{stage.name}</span>
+                  <span
+                    className="ct"
+                    role="button"
+                    tabIndex={0}
+                    title="Edit stage"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => openEditStage(stage)}
+                    onKeyDown={(e) => e.key === "Enter" && openEditStage(stage)}
+                  >
+                    {stage.name}
+                  </span>
                   <span className="cn">{stageStudies.length}</span>
                   <span
                     className="cmenu"
@@ -637,6 +708,9 @@ export function PipelineModule() {
                 </div>
                 <span className={`conf-badge ${BADGE_CLASS[c.status]}`}>{CONFERENCE_STATUS_LABELS[c.status]}</span>
               </div>
+              {c.abstract_due_date && (
+                <div className="conf-row"><span className="conf-k">Abstract due</span><span className="conf-v">{formatAbstractDue(c.abstract_due_date)}</span></div>
+              )}
               {c.abstract && (
                 <div className="conf-row"><span className="conf-k">Abstract</span><span className="conf-v">{c.abstract}</span></div>
               )}
@@ -672,7 +746,7 @@ export function PipelineModule() {
           <>
             {editingStudy && <Button variant="danger" onClick={removeStudy}>Remove</Button>}
             <Button variant="ghost" onClick={() => setStudyModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={saveStudy}>Save</Button>
+            <Button variant="primary" onClick={saveStudy} disabled={savingStudy}>{savingStudy ? "Saving…" : "Save"}</Button>
           </>
         }
       >
@@ -735,12 +809,12 @@ export function PipelineModule() {
 
       <Modal
         open={stageModalOpen}
-        onClose={() => setStageModalOpen(false)}
-        title="Add stage"
+        onClose={() => { setStageModalOpen(false); setEditingStage(null); }}
+        title={editingStage ? "Edit stage" : "Add stage"}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setStageModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={saveStage}>Save</Button>
+            <Button variant="ghost" onClick={() => { setStageModalOpen(false); setEditingStage(null); }}>Cancel</Button>
+            <Button variant="primary" onClick={saveStage} disabled={savingStage}>{savingStage ? "Saving…" : "Save"}</Button>
           </>
         }
       >
@@ -792,7 +866,7 @@ export function PipelineModule() {
           <>
             {editingConf && <Button variant="danger" onClick={removeConf}>Remove</Button>}
             <Button variant="ghost" onClick={() => setConfModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={saveConf}>Save</Button>
+            <Button variant="primary" onClick={saveConf} disabled={savingConf}>{savingConf ? "Saving…" : "Save"}</Button>
           </>
         }
       >

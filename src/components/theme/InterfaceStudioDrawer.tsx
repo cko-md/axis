@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { ACCENT_PRESETS, DEFAULT_INTERFACE_SETTINGS, type AccentPreset, type BodyFace, type Companion, type Density, type DisplayFace, type NotifFeatures, type NotifType, type Presence, type SurfaceTone } from "@/lib/theme/interface-settings";
+import { ACCENT_PRESETS, DEFAULT_INTERFACE_SETTINGS, type AccentPreset, type BodyFace, type Companion, type Density, type DisplayFace, type LabelFace, type NotifFeatures, type NotifType, type Presence, type SubheadFace, type SurfaceTone } from "@/lib/theme/interface-settings";
+import { BODY_STACKS, DISPLAY_STACKS, LABEL_STACKS, SUGGESTED_BODY_FOR_DISPLAY } from "@/lib/theme/typography";
 import { Seg } from "@/components/ui/Seg";
 import type { ThemeMode } from "@/lib/types";
 
@@ -13,51 +14,46 @@ const DENSITY_OPTIONS: { value: Density; label: string; rows: number[]; gap: num
 ];
 
 const DISPLAY_FACE_OPTIONS: { value: DisplayFace; label: string; sample: string; note: string; style: string }[] = [
-  {
-    value: "instrument",
-    label: "Instrument",
-    sample: "AXIS",
-    note: "Architectural default",
-    style: 'var(--font-serif), "Fraunces", Georgia, serif',
-  },
-  {
-    value: "playfair",
-    label: "Editorial",
-    sample: "Signal",
-    note: "Reading-forward serif",
-    style: 'var(--font-playfair), "Playfair Display", Georgia, serif',
-  },
-  {
-    value: "grotesk",
-    label: "Grotesk",
-    sample: "Command",
-    note: "Technical display",
-    style: 'var(--font-grotesk), "Space Grotesk", var(--font-narrow), sans-serif',
-  },
+  { value: "array", label: "Array", sample: "COMMAND", note: "Dramatic gallery signage", style: DISPLAY_STACKS.array },
+  { value: "tanker", label: "Tanker", sample: "SIGNAL", note: "Bold condensed punch", style: DISPLAY_STACKS.tanker },
+  { value: "neco", label: "Neco", sample: "AXIS", note: "Futuristic display", style: DISPLAY_STACKS.neco },
+  { value: "nippo", label: "Nippo", sample: "BRIEF", note: "Technical headline", style: DISPLAY_STACKS.nippo },
+  { value: "telma", label: "Telma", sample: "FEED", note: "Elegant editorial", style: DISPLAY_STACKS.telma },
+  { value: "boxing", label: "Boxing", sample: "FUND", note: "Heavy dramatic caps", style: DISPLAY_STACKS.boxing },
+  { value: "kola", label: "Kola", sample: "VITALITY", note: "Luxurious serif display", style: DISPLAY_STACKS.kola },
+  { value: "instrument", label: "Instrument", sample: "AXIS", note: "Architectural Fraunces", style: DISPLAY_STACKS.instrument },
+  { value: "grotesk", label: "Grotesk", sample: "Command", note: "Technical Space Grotesk", style: DISPLAY_STACKS.grotesk },
+  { value: "playfair", label: "Editorial", sample: "Signal", note: "Reading-forward serif", style: DISPLAY_STACKS.playfair },
+  { value: "bebas", label: "Bebas", sample: "OVERVIEW", note: "Classic condensed", style: DISPLAY_STACKS.bebas },
+  { value: "anton", label: "Anton", sample: "PIPELINE", note: "Poster-style", style: DISPLAY_STACKS.anton },
 ];
 
 const BODY_FACE_OPTIONS: { value: BodyFace; label: string; sample: string; note: string; style: string }[] = [
-  {
-    value: "archivo",
-    label: "Archivo",
-    sample: "A precise dashboard body for dense daily scanning.",
-    note: "Default system voice",
-    style: 'var(--font-sans), "Archivo", -apple-system, sans-serif',
-  },
-  {
-    value: "inter",
-    label: "Inter",
-    sample: "A neutral body face tuned for product interfaces.",
-    note: "Modern utility",
-    style: 'var(--font-inter), "Inter", -apple-system, sans-serif',
-  },
-  {
-    value: "plex",
-    label: "Plex",
-    sample: "A slightly engineered rhythm for notes and data.",
-    note: "Analytical tone",
-    style: 'var(--font-plex), "IBM Plex Sans", -apple-system, sans-serif',
-  },
+  { value: "ranade", label: "Ranade", sample: "Dense scanning body for dashboards and feeds.", note: "Pairs with Array / Tanker", style: BODY_STACKS.ranade },
+  { value: "sora", label: "Sora", sample: "Clean geometric rhythm for product UI.", note: "Pairs with Neco", style: BODY_STACKS.sora },
+  { value: "archivo", label: "Archivo", sample: "A precise dashboard body for dense daily scanning.", note: "Default system voice", style: BODY_STACKS.archivo },
+  { value: "public-sans", label: "Public Sans", sample: "Neutral civic tone for long-form modules.", note: "Pairs with Boxing", style: BODY_STACKS["public-sans"] },
+  { value: "nunito", label: "Nunito", sample: "Rounded warmth for reading-heavy surfaces.", note: "Pairs with Telma", style: BODY_STACKS.nunito },
+  { value: "montserrat", label: "Montserrat", sample: "Confident sans for capital and fund views.", note: "Pairs with Tanker", style: BODY_STACKS.montserrat },
+  { value: "inter", label: "Inter", sample: "A neutral body face tuned for product interfaces.", note: "Modern utility", style: BODY_STACKS.inter },
+  { value: "plex", label: "Plex", sample: "A slightly engineered rhythm for notes and data.", note: "Analytical tone", style: BODY_STACKS.plex },
+  { value: "red-hat", label: "Red Hat", sample: "Open, readable body for research modules.", note: "Serious / clean", style: BODY_STACKS["red-hat"] },
+  { value: "firasans", label: "Fira Sans", sample: "Humanist sans for mixed content blocks.", note: "Pairs with Nippo", style: BODY_STACKS.firasans },
+];
+
+const LABEL_FACE_OPTIONS: { value: LabelFace; label: string; sample: string; note: string; style: string }[] = [
+  { value: "narrow", label: "Narrow", sample: "CAPITAL · FUND", note: "Eyebrows & nav labels", style: LABEL_STACKS.narrow },
+  { value: "azeret", label: "Azeret Mono", sample: "OPEN-METEO · UPDATED", note: "Data labels & meta", style: LABEL_STACKS.azeret },
+  { value: "jetbrains", label: "JetBrains", sample: "SYNC · FRESH", note: "Technical status chips", style: LABEL_STACKS.jetbrains },
+  { value: "teko", label: "Teko", sample: "RESEARCH · LITERATURE", note: "Condensed section tags", style: LABEL_STACKS.teko },
+];
+
+const SUBHEAD_FACE_OPTIONS: { value: SubheadFace; label: string; sample: string; note: string; style: string }[] = [
+  { value: "match-body", label: "Match body", sample: "Chart-safe Tier 1 surfaces · live when connected", note: "Follows body selection", style: BODY_STACKS.ranade },
+  { value: "match-display", label: "Match display", sample: "6 open tasks, morning block yours", note: "Echoes headline voice", style: DISPLAY_STACKS.array },
+  { value: "sora", label: "Sora", sample: "Secondary module descriptions", note: "Geometric subhead", style: BODY_STACKS.sora },
+  { value: "ranade", label: "Ranade", sample: "Supporting copy under hero titles", note: "Editorial subhead", style: BODY_STACKS.ranade },
+  { value: "grotesk", label: "Grotesk", sample: "Technical module intros", note: "Display-adjacent sans", style: DISPLAY_STACKS.grotesk },
 ];
 
 const SURFACE_TONE_OPTIONS: { value: SurfaceTone; label: string; note: string }[] = [
@@ -170,7 +166,7 @@ function RadiusPreview({ value }: { value: number }) {
   );
 }
 
-function FontFacePicker<T extends DisplayFace | BodyFace>({
+function FontFacePicker<T extends DisplayFace | BodyFace | LabelFace | SubheadFace>({
   value,
   options,
   onChange,
@@ -288,7 +284,7 @@ export function InterfaceStudioDrawer() {
   return (
     <>
       <div className="overlay-backdrop on" onClick={closeInterfaceStudio} aria-hidden />
-      <div className="drawer on" role="dialog" aria-modal="true" aria-label="Interface Studio" ref={drawerRef}>
+      <div className="drawer on interface-studio-drawer" role="dialog" aria-modal="true" aria-label="Interface Studio" ref={drawerRef}>
         <div className="dr-head">
           <div>
             <div className="dr-title">Interface Studio</div>
@@ -362,7 +358,14 @@ export function InterfaceStudioDrawer() {
           <FontFacePicker<DisplayFace>
             options={DISPLAY_FACE_OPTIONS}
             value={interfaceSettings.displayFace}
-            onChange={(displayFace) => setInterfaceSettings((s) => ({ ...s, displayFace }))}
+            onChange={(displayFace) => {
+              const suggested = SUGGESTED_BODY_FOR_DISPLAY[displayFace];
+              setInterfaceSettings((s) => ({
+                ...s,
+                displayFace,
+                ...(suggested ? { bodyFace: suggested } : {}),
+              }));
+            }}
           />
 
           <div className="dr-sec">Body Face</div>
@@ -370,6 +373,20 @@ export function InterfaceStudioDrawer() {
             options={BODY_FACE_OPTIONS}
             value={interfaceSettings.bodyFace}
             onChange={(bodyFace) => setInterfaceSettings((s) => ({ ...s, bodyFace }))}
+          />
+
+          <div className="dr-sec">Label Face</div>
+          <FontFacePicker<LabelFace>
+            options={LABEL_FACE_OPTIONS}
+            value={interfaceSettings.labelFace ?? "narrow"}
+            onChange={(labelFace) => setInterfaceSettings((s) => ({ ...s, labelFace }))}
+          />
+
+          <div className="dr-sec">Subhead Face</div>
+          <FontFacePicker<SubheadFace>
+            options={SUBHEAD_FACE_OPTIONS}
+            value={interfaceSettings.subheadFace ?? "match-body"}
+            onChange={(subheadFace) => setInterfaceSettings((s) => ({ ...s, subheadFace }))}
           />
 
           <div className="dr-sec">Density</div>

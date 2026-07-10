@@ -1,4 +1,5 @@
 import { getFreshAccessToken } from "./tokens";
+import { normalizeAllDayTimestamp } from "./event-dates";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const BASE = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
@@ -57,8 +58,8 @@ export async function listGoogleEvents(
     return [{
       externalId: item.id,
       title: item.summary || "(No title)",
-      start_at: start,
-      end_at: end,
+      start_at: allDay ? normalizeAllDayTimestamp(start) : start,
+      end_at: allDay ? normalizeAllDayTimestamp(end) : end,
       description: item.description ?? null,
       location: item.location ?? null,
       attendees: (item.attendees ?? [])

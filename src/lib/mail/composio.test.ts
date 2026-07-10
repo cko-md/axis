@@ -50,6 +50,14 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.id).toBe("alt-id");
   });
 
+  it("uses message_id as id when id and messageId are absent", () => {
+    const raw = { message_id: "snake-id", subject: "Snake case id" };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe("snake-id");
+    expect(result!.threadId).toBe("snake-id");
+  });
+
   it("falls back to flattened Composio fields when no payload headers", () => {
     const raw = {
       id: "msg2",
@@ -64,27 +72,20 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
   });
 
-  it("reads Gmail headers when Composio returns them at the top level", () => {
+  it("reads sender/subject/date from object-style headers maps", () => {
     const raw = {
-      id: "msg-top-level-headers",
-      headers: [
-        { name: "From", value: "Dana <dana@example.com>" },
-        { name: "Subject", value: "Top level headers" },
-        { name: "Date", value: "Thu, 2 Jan 2025 00:00:00 +0000" },
-      ],
+      id: "msg-map-headers",
+      headers: {
+        from: "Map Sender <sender@example.com>",
+        subject: "Mapped Subject",
+        date: "Thu, 1 Jan 2025 00:00:00 +0000",
+      },
     };
     const result = normalizeGmailMessage(raw, "user@gmail.com");
-    expect(result).toEqual({
-      id: "msg-top-level-headers",
-      threadId: "msg-top-level-headers",
-      from: "Dana <dana@example.com>",
-      subject: "Top level headers",
-      date: "2025-01-02T00:00:00.000Z",
-      snippet: "",
-      isUnread: false,
-      provider: "gmail",
-      accountEmail: "user@gmail.com",
-    });
+    expect(result).not.toBeNull();
+    expect(result!.from).toBe("Map Sender <sender@example.com>");
+    expect(result!.subject).toBe("Mapped Subject");
+    expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
   });
 
   it("normalizes Gmail internalDate numeric strings", () => {
@@ -127,6 +128,54 @@ describe("normalizeGmailMessage()", () => {
     const raw = { id: "msg6" };
     const result = normalizeGmailMessage(raw, "user@gmail.com");
     expect(result!.threadId).toBe("msg6");
+  });
+
+  it("reads headers hoisted to the top level when payload is absent", () => {
+    const raw = {
+      id: "msg-top-headers",
+      headers: [
+        { name: "From", value: "Dana <dana@example.com>" },
+        { name: "Subject", value: "Top-level headers" },
+      ],
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Dana <dana@example.com>");
+    expect(result!.subject).toBe("Top-level headers");
+  });
+
+  it("reads headers flattened into an object map", () => {
+    const raw = {
+      id: "msg-map-headers",
+      payload: {
+        headers: {
+          from: "Erin <erin@example.com>",
+          subject: "Object-map headers",
+          date: "Thu, 1 Jan 2025 00:00:00 +0000",
+        },
+      },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Erin <erin@example.com>");
+    expect(result!.subject).toBe("Object-map headers");
+    expect(result!.date).toBe("2025-01-01T00:00:00.000Z");
+  });
+
+  it("formats a from object as name <email> instead of [object Object]", () => {
+    const raw = {
+      id: "msg-from-obj",
+      from: { name: "Frank", email: "frank@example.com" },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.from).toBe("Frank <frank@example.com>");
+  });
+
+  it("uses preview.body for the snippet when snippet is absent", () => {
+    const raw = {
+      id: "msg-preview",
+      preview: { body: "Preview body text", subject: "ignored" },
+    };
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result!.snippet).toBe("Preview body text");
   });
 });
 
@@ -255,21 +304,197 @@ describe("normalizeGmailMessageFull()", () => {
     });
   });
 
-  it("decodes base64url body objects when Composio returns encoded content", () => {
+  it("extracts body from snake_case flattened fields", () => {
     const result = normalizeGmailMessageFull(
       {
         id: "gmail-full-4",
-        mimeType: "text/html",
-        body: {
-          data: "PGRpdj5IZWxsbyA8c3Ryb25nPndvcmxkPC9zdHJvbmc-PC9kaXY-",
+        message_html: "<section>snake html</section>",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "<section>snake html</section>",
+      bodyIsHtml: true,
+    });
+  });
+
+  it("extracts payload bodies from wrapped gmail_payload records", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-5",
+        gmail_payload: {
+          mimeType: "text/plain",
+          body: { data: "U25ha2UgcGF5bG9hZA" },
         },
       },
       "user@gmail.com",
     );
 
     expect(result).toMatchObject({
-      body: "<div>Hello <strong>world</strong></div>",
+      body: "Snake payload",
+      bodyIsHtml: false,
+    });
+  });
+
+  it("falls back to the flattened attachmentList when the payload has no attachment parts", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-6",
+        payload: {
+          mimeType: "text/plain",
+          body: { data: Buffer.from("hello").toString("base64") },
+        },
+        attachmentList: [
+          { attachmentId: "att-9", filename: "notes.txt", mimeType: "text/plain", size: 12 },
+        ],
+      },
+      "user@gmail.com",
+    );
+
+    expect(result!.attachments).toEqual([
+      { id: "att-9", filename: "notes.txt", mimeType: "text/plain", sizeBytes: 12, inline: false },
+    ]);
+  });
+
+  it("prefers native payload attachment parts over the flattened attachmentList", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-7",
+        payload: {
+          mimeType: "multipart/mixed",
+          parts: [
+            {
+              mimeType: "application/pdf",
+              filename: "native.pdf",
+              body: { attachmentId: "att-native", size: 100 },
+            },
+          ],
+        },
+        attachmentList: [{ attachmentId: "att-flat", filename: "flat.pdf" }],
+      },
+      "user@gmail.com",
+    );
+
+    expect(result!.attachments).toHaveLength(1);
+    expect(result!.attachments![0]).toMatchObject({ id: "att-native", filename: "native.pdf" });
+  });
+
+  it("reads headers from a top-level headers array", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-8",
+        headers: [
+          { name: "From", value: "carol@example.com" },
+          { name: "Subject", value: "Top-level headers" },
+        ],
+        bodyText: "Plain body",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      from: "carol@example.com",
+      subject: "Top-level headers",
+      body: "Plain body",
+    });
+  });
+
+  it("reads headers from a flat headers object map", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-9",
+        headers: {
+          From: "dave@example.com",
+          Subject: "Mapped headers",
+        },
+        messageHtml: "<p>Mapped</p>",
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      from: "dave@example.com",
+      subject: "Mapped headers",
+      body: "<p>Mapped</p>",
       bodyIsHtml: true,
+    });
+  });
+
+  it("decodes Gmail payload parts nested under data.payload", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-10",
+        data: {
+          payload: {
+            headers: [{ name: "Subject", value: "Nested payload" }],
+            parts: [{ mimeType: "text/plain", body: { data: "TmVzdGVk" } }],
+          },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      subject: "Nested payload",
+      body: "Nested",
+      bodyIsHtml: false,
+    });
+  });
+
+  it("prefers gmail_payload body over a header-only payload", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-sparse",
+        payload: { headers: [{ name: "Subject", value: "Sparse payload" }] },
+        gmail_payload: {
+          mimeType: "text/plain",
+          body: { data: "RnVsbCBib2R5" },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      subject: "Sparse payload",
+      body: "Full body",
+    });
+  });
+
+  it("falls back to headers in gmail_payload when payload.headers is empty", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-empty-headers",
+        payload: { headers: [] },
+        gmail_payload: {
+          headers: [{ name: "From", value: "sender@example.com" }, { name: "Subject", value: "Recovered" }],
+          mimeType: "text/plain",
+          body: { data: "SGVsbG8=" },
+        },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      from: "sender@example.com",
+      subject: "Recovered",
+      body: "Hello",
+    });
+  });
+
+  it("prefers preview.body over snippet for the detail body", () => {
+    const result = normalizeGmailMessageFull(
+      {
+        id: "gmail-full-preview",
+        snippet: "short",
+        preview: { body: "Longer preview body text" },
+      },
+      "user@gmail.com",
+    );
+
+    expect(result).toMatchObject({
+      body: "Longer preview body text",
+      snippet: "short",
     });
   });
 });

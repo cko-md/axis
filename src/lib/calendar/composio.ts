@@ -26,21 +26,26 @@
 //   — it has no end_datetime parameter at all, unlike Outlook's create tool.
 import { createClient } from "@/lib/supabase/server";
 import { executeTool } from "@/lib/integrations/composio";
+import {
+  GOOGLECALENDAR_COMPOSIO_TOOLS,
+  OUTLOOK_CALENDAR_COMPOSIO_TOOLS,
+} from "@/lib/integrations/composio-calendar-tools";
+import { normalizeAllDayTimestamp } from "./event-dates";
 import type { ExternalCalendarEvent } from "./google";
 
 export type CalendarToolkit = "googlecalendar" | "outlook";
 
 const LIST_EVENTS_TOOL: Record<CalendarToolkit, string> = {
-  googlecalendar: "GOOGLECALENDAR_EVENTS_LIST",
-  outlook: "OUTLOOK_OUTLOOK_LIST_EVENTS",
+  googlecalendar: GOOGLECALENDAR_COMPOSIO_TOOLS[0],
+  outlook: OUTLOOK_CALENDAR_COMPOSIO_TOOLS[0],
 };
 const CREATE_EVENT_TOOL: Record<CalendarToolkit, string> = {
-  googlecalendar: "GOOGLECALENDAR_CREATE_EVENT",
-  outlook: "OUTLOOK_OUTLOOK_CALENDAR_CREATE_EVENT",
+  googlecalendar: GOOGLECALENDAR_COMPOSIO_TOOLS[1],
+  outlook: OUTLOOK_CALENDAR_COMPOSIO_TOOLS[1],
 };
 const DELETE_EVENT_TOOL: Record<CalendarToolkit, string> = {
-  googlecalendar: "GOOGLECALENDAR_DELETE_EVENT",
-  outlook: "OUTLOOK_OUTLOOK_DELETE_EVENT",
+  googlecalendar: GOOGLECALENDAR_COMPOSIO_TOOLS[2],
+  outlook: OUTLOOK_CALENDAR_COMPOSIO_TOOLS[2],
 };
 
 export type ComposioCalendarAccount = {
@@ -49,6 +54,52 @@ export type ComposioCalendarAccount = {
   via: "composio";
   connectedAccountId: string;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export function unwrapEventList(data: Record<string, unknown>): Record<string, unknown>[] {
+  const nested = asRecord(data.data);
+  const responseData = asRecord(data.response_data);
+  const nestedResponse = asRecord(nested?.response_data);
+  const candidates = [
+    data.items,
+    data.value,
+    data.events,
+    nested?.items,
+    nested?.value,
+    nested?.events,
+    responseData?.items,
+    responseData?.value,
+    responseData?.events,
+    nestedResponse?.items,
+    nestedResponse?.value,
+    Array.isArray(data.data) ? data.data : null,
+    Array.isArray(data.response_data) ? data.response_data : null,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate as Record<string, unknown>[];
+  }
+  return [];
+}
+
+function unwrapCreatedEventId(data: Record<string, unknown>): string | null {
+  const candidates = [
+    data.id,
+    asRecord(data.response_data)?.id,
+    asRecord(data.data)?.id,
+    asRecord(data.data)?.response_data,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+    const record = asRecord(candidate);
+    if (typeof record?.id === "string" && record.id.trim()) return record.id;
+  }
+  return null;
+}
 
 function composioCalendarError(operation: string): Error & { status: number } {
   const err = new Error(`Composio Calendar ${operation} failed`) as Error & { status: number };
@@ -79,48 +130,64 @@ export async function listComposioCalendarAccounts(userId: string): Promise<Comp
   }));
 }
 
-function normalizeGcalEvent(e: Record<string, unknown>): ExternalCalendarEvent | null {
+export function normalizeGcalEvent(e: Record<string, unknown>): ExternalCalendarEvent | null {
   const id = e.id as string | undefined;
   if (!id || e.status === "cancelled") return null;
   const start = e.start as { dateTime?: string; date?: string } | undefined;
   const end = e.end as { dateTime?: string; date?: string } | undefined;
   const attendees = (e.attendees as Array<{ displayName?: string; email?: string }> | undefined) ?? [];
+  const allDay = !start?.dateTime;
   const startVal = start?.dateTime ?? start?.date;
   const endVal = end?.dateTime ?? end?.date;
   if (!startVal || !endVal) return null;
   return {
     externalId: id,
     title: (e.summary as string) || "(No title)",
-    start_at: startVal,
-    end_at: endVal,
+    start_at: allDay ? normalizeAllDayTimestamp(startVal) : startVal,
+    end_at: allDay ? normalizeAllDayTimestamp(endVal) : endVal,
     description: (e.description as string) ?? null,
     location: (e.location as string) ?? null,
     attendees: attendees
       .map((attendee) => attendee.displayName || attendee.email)
       .filter((attendee): attendee is string => !!attendee),
-    all_day: !start?.dateTime,
+    all_day: allDay,
   };
 }
 
-function normalizeOutlookCalEvent(e: Record<string, unknown>): ExternalCalendarEvent | null {
+function formatOutlookDateTime(value: string, dateOnly: boolean): string {
+  if (dateOnly) return value.includes("T") ? value : `${value}T00:00:00Z`;
+  if (value.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(value)) return value;
+  return `${value}Z`;
+}
+
+export function normalizeOutlookCalEvent(e: Record<string, unknown>): ExternalCalendarEvent | null {
   const id = e.id as string | undefined;
-  const start = e.start as { dateTime?: string } | undefined;
-  const end = e.end as { dateTime?: string } | undefined;
+  const start = e.start as { dateTime?: string; date?: string } | undefined;
+  const end = e.end as { dateTime?: string; date?: string } | undefined;
   const location = e.location as { displayName?: string } | undefined;
   const attendees = (e.attendees as Array<{ emailAddress?: { name?: string; address?: string } }> | undefined) ?? [];
-  if (!id || !start?.dateTime || !end?.dateTime) return null;
+  const startDateOnly = !start?.dateTime && !!start?.date;
+  const endDateOnly = !end?.dateTime && !!end?.date;
+  const startVal = start?.dateTime ?? start?.date;
+  const endVal = end?.dateTime ?? end?.date;
+  if (!id || !startVal || !endVal) return null;
   return {
     externalId: id,
     title: (e.subject as string) || "(No title)",
-    start_at: `${start.dateTime}Z`,
-    end_at: `${end.dateTime}Z`,
+    start_at: formatOutlookDateTime(startVal, startDateOnly),
+    end_at: formatOutlookDateTime(endVal, endDateOnly),
     description: (e.bodyPreview as string) ?? null,
     location: location?.displayName ?? null,
     attendees: attendees
       .map((attendee) => attendee.emailAddress?.name || attendee.emailAddress?.address)
       .filter((attendee): attendee is string => !!attendee),
-    all_day: !!e.isAllDay,
+    all_day: !!e.isAllDay || startDateOnly,
   };
+}
+
+function outlookDateFilterBounds(timeMin: string, timeMax: string): { dateMin: string; dateMax: string } {
+  const toDate = (value: string) => value.slice(0, 10);
+  return { dateMin: toDate(timeMin), dateMax: toDate(timeMax) };
 }
 
 export async function listComposioEvents(
@@ -130,6 +197,7 @@ export async function listComposioEvents(
   timeMin: string,
   timeMax: string,
 ): Promise<ExternalCalendarEvent[]> {
+  const outlookBounds = outlookDateFilterBounds(timeMin, timeMax);
   const res = await executeTool({
     toolSlug: LIST_EVENTS_TOOL[toolkit],
     connectedAccountId,
@@ -137,11 +205,18 @@ export async function listComposioEvents(
     arguments:
       toolkit === "googlecalendar"
         ? { calendarId: "primary", timeMin, timeMax, orderBy: "startTime" }
-        : { filter: `start/dateTime ge '${timeMin}' and end/dateTime le '${timeMax}'`, orderby: ["start/dateTime"] },
+        : {
+            top: 100,
+            filter:
+              `(start/dateTime ge '${timeMin}' and start/dateTime le '${timeMax}')` +
+              ` or (start/date ge '${outlookBounds.dateMin}' and start/date le '${outlookBounds.dateMax}')`,
+            orderby: ["start/dateTime", "start/date"],
+            timezone: "UTC",
+          },
   });
   if (!res.successful) throw composioCalendarError("list_events");
   const data = res.data as Record<string, unknown>;
-  const rawItems = (data.items ?? data.value ?? []) as Record<string, unknown>[];
+  const rawItems = unwrapEventList(data);
   const normalize = toolkit === "googlecalendar" ? normalizeGcalEvent : normalizeOutlookCalEvent;
   return rawItems.map(normalize).filter((e): e is ExternalCalendarEvent => e !== null);
 }
@@ -180,15 +255,16 @@ export async function createComposioEvent(
     args = {
       subject: event.title,
       body: event.description ?? "",
-      start_datetime: event.start_at,
-      end_datetime: event.end_at,
+      start_datetime: toNaiveDatetime(event.start_at),
+      end_datetime: toNaiveDatetime(event.end_at),
       time_zone: "UTC",
+      user_id: "me",
     };
   }
   const res = await executeTool({ toolSlug: CREATE_EVENT_TOOL[toolkit], connectedAccountId, userId, arguments: args });
   if (!res.successful) throw composioCalendarError("create_event");
   const data = res.data as Record<string, unknown>;
-  return (data.id as string) ?? null;
+  return unwrapCreatedEventId(data);
 }
 
 export async function deleteComposioEvent(
@@ -204,7 +280,7 @@ export async function deleteComposioEvent(
     arguments:
       toolkit === "googlecalendar"
         ? { calendar_id: "primary", event_id: externalEventId }
-        : { event_id: externalEventId },
+        : { event_id: externalEventId, user_id: "me" },
   });
   if (!res.successful) throw composioCalendarError("delete_event");
   return true;

@@ -20,6 +20,25 @@ Defined in `src/app/globals.css` `:root`:
 --axis-glass-border: rgba(255, 255, 255, 0.16);
 --axis-glass-fill: rgba(255, 255, 255, 0.07);
 --axis-liquid-ease: cubic-bezier(0.19, 1, 0.22, 1);
+
+/* liquid atmosphere tuning */
+--axis-liquid-pearl: rgba(248, 250, 252, 0.72);
+--axis-liquid-veil: rgba(255, 255, 255, 0.08);
+--axis-liquid-glint: rgba(255, 255, 255, 0.22);
+--axis-liquid-shadow: rgba(0, 0, 0, 0.42);
+
+/* motion tokens */
+--axis-motion-fast: 140ms;
+--axis-motion-base: 220ms;
+--axis-motion-slow: 700ms;
+--axis-motion-cinematic: 1200ms;
+
+--axis-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+--axis-ease-liquid: cubic-bezier(0.19, 1, 0.22, 1);
+
+/* loading sheen */
+--axis-loading-sheen-duration: 1400ms;
+--axis-loading-sheen-angle: 110deg;
 ```
 
 Existing depth field uses gold/marine/clay rgba washes — future refactors should reference `--axis-*` tokens.
@@ -36,7 +55,7 @@ Existing depth field uses gold/marine/clay rgba washes — future refactors shou
 | Interface Studio preview | Preview card glass | None on controls |
 | Presence form aura | Nova gradients via `--companion-nova-*` | SVG ring animation — reduced-motion partial |
 | Empty states | Subtle radial wash behind illustration | Optional |
-| Loading skeletons | No iridescence — use `--surface-2` shimmer | — |
+| Loading skeletons | No iridescence — use `AxisLoadingSheen` / `axis-loading-sheen` neutral shimmer | — |
 
 ---
 
@@ -53,8 +72,8 @@ Existing depth field uses gold/marine/clay rgba washes — future refactors shou
 ## Implementation rules
 
 1. **Tokenize** — no raw hex in new atmospheric code
-2. **`prefers-reduced-motion`** — disable `dfwash`, `dfdrift`, aurora animation (partially implemented `globals.css` ~3671)
-3. **`prefers-reduced-transparency`** — fall back to solid `--surface` where implemented
+2. **`prefers-reduced-motion`** — disable depthfield drift/wash and shimmer animations (implemented in `globals.css`)
+3. **`prefers-reduced-transparency`** — fall back to less-blurred frosted fills where implemented (e.g. glass panels)
 4. **Contrast** — atmospheric layers are `pointer-events: none`, z-index 0
 5. **Performance** — no expensive filters on scroll containers; depth field is `position: fixed`
 6. **Never imply provider status** with color animation

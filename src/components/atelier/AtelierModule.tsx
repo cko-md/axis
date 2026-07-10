@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useAtelierPrefs } from "@/lib/hooks/useAtelierPrefs";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -220,7 +221,7 @@ export function AtelierModule() {
   const [tab, setTab] = useState<"atl-lang" | "atl-style">("atl-lang");
   const [lang, setLang] = useState<LangKey>("fr");
   const [addingAgenda, setAddingAgenda] = useState(false);
-  const { pins, togglePin } = useAtelierPrefs(initialPins());
+  const { pins, loading: prefsLoading, loadError: prefsLoadError, signedIn, refresh: refreshPrefs, togglePin } = useAtelierPrefs(initialPins());
 
   const [moodImages, setMoodImages] = useState<MoodImage[]>([]);
   const moodInputRef = useRef<HTMLInputElement>(null);
@@ -229,6 +230,7 @@ export function AtelierModule() {
   const [trendItems, setTrendItems] = useState<RssItem[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(true);
   const [trendsRefreshing, setTrendsRefreshing] = useState(false);
+  const [trendsError, setTrendsError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -338,6 +340,21 @@ export function AtelierModule() {
     }
   }, []);
 
+  const loadFeedOrFail = useCallback(async (feedUrls: string[]): Promise<{ items: RssItem[]; ok: boolean }> => {
+    try {
+      const res = await fetch("/api/feeds/cached", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedUrls }),
+      });
+      if (!res.ok) return { items: [], ok: false };
+      const json = await res.json();
+      return { items: Array.isArray(json.items) ? (json.items as RssItem[]) : [], ok: true };
+    } catch {
+      return { items: [], ok: false };
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const loadAllLangFeeds = async () => {
@@ -357,10 +374,11 @@ export function AtelierModule() {
   // and the manual "Refresh" button both call this; the button sets a visible
   // refreshing state while in flight.
   const loadTrends = useCallback(async () => {
-    const items = await loadFeed(MENS_STYLE_FEEDS);
+    const { items, ok } = await loadFeedOrFail(MENS_STYLE_FEEDS);
     setTrendItems(items.slice(0, 4));
+    setTrendsError(ok || items.length > 0 ? null : "Style feeds could not be refreshed.");
     setTrendsLoading(false);
-  }, [loadFeed]);
+  }, [loadFeedOrFail]);
 
   const refreshTrends = useCallback(async () => {
     setTrendsRefreshing(true);
@@ -397,6 +415,17 @@ export function AtelierModule() {
 
   return (
     <>
+      {!signedIn && !prefsLoading && (
+        <StatusCallout kind="info" title="Sign in to sync Atelier">
+          Language pins and moodboard images sync to Supabase when signed in. Lesson plans and feeds remain usable locally.
+        </StatusCallout>
+      )}
+      {prefsLoadError && (
+        <StatusCallout kind="error" title="Atelier sync failed">
+          {prefsLoadError}{" "}
+          <button type="button" className="feed-manage" onClick={() => void refreshPrefs()}>Retry</button>
+        </StatusCallout>
+      )}
         <div className="savebtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 5v14M5 12h14" /></svg>
           Add a Pursuit
@@ -565,6 +594,12 @@ export function AtelierModule() {
               </span>
             </h2>
             <div style={{ marginTop: 12 }}>
+              {trendsError && (
+                <p style={{ fontSize: 10.5, color: "var(--clay)", fontFamily: "var(--mono)", marginBottom: 8 }}>
+                  {trendsError}{" "}
+                  <button type="button" className="feed-manage" onClick={() => void refreshTrends()}>Retry</button>
+                </p>
+              )}
               {trendsLoading && trendItems.length === 0 ? (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "9px 0" }}>
                   Loading trends…

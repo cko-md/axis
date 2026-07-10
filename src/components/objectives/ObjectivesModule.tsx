@@ -43,6 +43,7 @@ export function ObjectivesModule() {
     objectives,
     habits,
     loading,
+    loadError,
     signedIn,
     addObjective,
     updateObjective,
@@ -334,6 +335,8 @@ export function ObjectivesModule() {
 
       {loading ? (
         <div className="empty-state">Loading objectives…</div>
+      ) : loadError ? (
+        <StatusCallout kind="error" title="Objectives unavailable">{loadError}</StatusCallout>
       ) : !signedIn ? (
         <div>
           <div className="goal">

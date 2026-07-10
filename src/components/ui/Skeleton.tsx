@@ -1,4 +1,5 @@
-import React from "react";
+import type React from "react";
+import { AxisLoadingSheen } from "./axis/AxisLoadingSheen";
 
 interface SkeletonProps {
   width?: string | number;
@@ -10,33 +11,13 @@ interface SkeletonProps {
 
 export function Skeleton({ width = "100%", height = 16, borderRadius = 4, className, style }: SkeletonProps) {
   return (
-    <div
+    <AxisLoadingSheen
+      width={width}
+      height={height}
+      borderRadius={borderRadius}
       className={className}
-      style={{
-        width,
-        height,
-        borderRadius,
-        background: "var(--surface-2)",
-        overflow: "hidden",
-        position: "relative",
-        ...style,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "linear-gradient(90deg, transparent 0%, var(--line) 50%, transparent 100%)",
-          animation: "skeleton-shimmer 1.4s ease-in-out infinite",
-          transform: "translateX(-100%)",
-        }}
-      />
-      <style>{`
-        @keyframes skeleton-shimmer {
-          to { transform: translateX(100%); }
-        }
-      `}</style>
-    </div>
+      style={style}
+    />
   );
 }
 

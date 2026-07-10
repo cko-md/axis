@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
+import { AxisAtmosphere } from "@/components/ui/axis/AxisAtmosphere";
 import { ALL_NAV_ITEMS } from "@/lib/store/nav";
 
 const CommandPalette = dynamic(
@@ -112,11 +113,7 @@ export function AppShell({ section, page, children }: Props) {
 
   return (
     <SpotifyProvider>
-      <div className="depthfield" aria-hidden>
-        <div className="wash" /><div className="aurora" /><div className="aurora2" />
-        <div className="haze" /><div className="fall" /><div className="vig" />
-        {isNight && !reduceMotion && <div className="stars" />}
-      </div>
+      <AxisAtmosphere includeStars={isNight && !reduceMotion} />
       <div className="grain" aria-hidden />
       <div className={`app-shell mode-${sidebarMode}`}>
         <Sidebar collapsed={sidebarMode === "icons"} />

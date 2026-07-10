@@ -27,6 +27,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { DEFAULT_WIDGET_IDS, WIDGET_CATALOG, normalizeConsoleLayout, BLOCK_SIZES, type BlockSize } from "@/lib/store/widgets";
 import { formatDateLong } from "@/lib/format";
+import { fetchTodayMergedEvents } from "@/lib/calendar/today-events";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -41,6 +42,8 @@ import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 
 /* ── art gallery card ──────────────────────────────────────────── */
 
@@ -71,7 +74,7 @@ function ArtGalleryCard() {
   }, [seed]);
 
   return (
-    <Card>
+    <Card className="console-premium-card">
       <h2 className="sec">
         Art of the Day<span className="rule" />
         <span className="count" style={{ cursor: "pointer" }} onClick={() => setSeed((s) => s + 1)} title="Next artwork">Next →</span>
@@ -166,6 +169,8 @@ const DEFAULT_SECTION_ORDER = [
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
 
 const CONSOLE_BLOCK_SIZES_KEY = "axis-console-block-sizes";
+const CONSOLE_BLOCK_COLUMNS_KEY = "axis-console-block-columns";
+const BLOCK_COL_SPAN: Record<BlockSize, number> = { sm: 1, md: 2, full: 4 };
 // Defaults lean on "md" (half-width) for the content cards so blocks sit
 // side-by-side out of the box — that's what makes "drag a widget to the right"
 // possible. The full-bleed sections (the tidbits bar + featured photos) stay
@@ -183,8 +188,13 @@ const NEXT_BLOCK_SIZE: Record<BlockSize, BlockSize> = { sm: "md", md: "full", fu
 const BLOCK_SIZE_GLYPH: Record<BlockSize, string> = { sm: "⊞", md: "⊡", full: "⊟" };
 const BLOCK_SIZE_LABEL: Record<BlockSize, string> = { sm: "Compact", md: "Medium", full: "Full width" };
 
-type BlockSizeCtx = { sizes: Record<string, BlockSize>; toggle: (id: string) => void };
-const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, toggle: () => {} });
+type BlockSizeCtx = {
+  sizes: Record<string, BlockSize>;
+  columns: Partial<Record<string, number>>;
+  toggle: (id: string) => void;
+  nudgeColumn: (id: string, dir: -1 | 1) => void;
+};
+const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, columns: {}, toggle: () => {}, nudgeColumn: () => {} });
 
 /* ── HeroLine ──────────────────────────────────────────────────── */
 
@@ -232,9 +242,16 @@ const BLOCK_SPAN: Record<BlockSize, string> = { sm: "span 1", md: "span 2", full
 
 function DraggableBlock({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const { sizes, toggle } = useContext(BlockSizeContext);
+  const { sizes, columns, toggle, nudgeColumn } = useContext(BlockSizeContext);
   const size = sizes[id] ?? "full";
+  const span = BLOCK_COL_SPAN[size];
+  const colStart = columns[id];
+  const maxStart = Math.max(1, 5 - span);
+  const validStart = colStart && colStart <= maxStart ? colStart : undefined;
   const reduceMotion = useReducedMotion();
+  const gridColumn = validStart
+    ? `${validStart} / span ${span}`
+    : BLOCK_SPAN[size];
   return (
     <motion.div
       ref={setNodeRef}
@@ -244,15 +261,22 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
-        // While dragging, lift the card above its neighbors so the snap target
-        // reads clearly during the freeform rearrange.
         zIndex: isDragging ? 2 : 1,
         position: "relative",
-        gridColumn: BLOCK_SPAN[size],
+        gridColumn,
         minWidth: 0,
       }}
     >
       <div className="block-controls">
+        <button
+          type="button"
+          onClick={() => nudgeColumn(id, -1)}
+          className="console-block-control"
+          aria-label={`Move ${id.replace(/-/g, " ")} block left`}
+          title="Nudge left"
+        >
+          ←
+        </button>
         <button
           type="button"
           onClick={() => toggle(id)}
@@ -261,6 +285,15 @@ function DraggableBlock({ id, children }: { id: string; children: React.ReactNod
           title={`${BLOCK_SIZE_LABEL[size]} — click to resize`}
         >
           {BLOCK_SIZE_GLYPH[size]}
+        </button>
+        <button
+          type="button"
+          onClick={() => nudgeColumn(id, 1)}
+          className="console-block-control"
+          aria-label={`Move ${id.replace(/-/g, " ")} block right`}
+          title="Nudge right"
+        >
+          →
         </button>
         <button
           type="button"
@@ -343,6 +376,7 @@ export function ConsoleModule() {
   // Section ordering + block size state
   const [sectionOrder, setSectionOrder] = useState<SectionId[]>([...DEFAULT_SECTION_ORDER]);
   const [blockSizes, setBlockSizes] = useState<Record<SectionId, BlockSize>>({ ...DEFAULT_BLOCK_SIZES });
+  const [blockColumns, setBlockColumns] = useState<Partial<Record<SectionId, number>>>({});
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   // Layout auto-save plumbing. `layoutColumnRef` flips to false the first time a
@@ -386,6 +420,15 @@ export function ConsoleModule() {
         }
         setBlockSizes((prev) => ({ ...prev, ...valid }));
       }
+      const storedCols = localStorage.getItem(CONSOLE_BLOCK_COLUMNS_KEY);
+      if (storedCols) {
+        const parsedCols = JSON.parse(storedCols) as Record<string, number>;
+        const validCols: Partial<Record<SectionId, number>> = {};
+        for (const [id, col] of Object.entries(parsedCols)) {
+          if (col >= 1 && col <= 4) validCols[id as SectionId] = col;
+        }
+        setBlockColumns((prev) => ({ ...prev, ...validCols }));
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -395,9 +438,10 @@ export function ConsoleModule() {
   // detects the schema error, flips layoutColumnRef off, and we degrade to
   // localStorage-only — the drag/snap UX is unaffected either way.
   const persistLayout = useCallback(
-    (order: SectionId[], sizes: Record<SectionId, BlockSize>) => {
+    (order: SectionId[], sizes: Record<SectionId, BlockSize>, columns: Partial<Record<SectionId, number>>) => {
       try { localStorage.setItem(CONSOLE_SECTION_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
       try { localStorage.setItem(CONSOLE_BLOCK_SIZES_KEY, JSON.stringify(sizes)); } catch { /* ignore */ }
+      try { localStorage.setItem(CONSOLE_BLOCK_COLUMNS_KEY, JSON.stringify(columns)); } catch { /* ignore */ }
 
       if (!layoutColumnRef.current) return;
       if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
@@ -407,7 +451,7 @@ export function ConsoleModule() {
         const { error } = await supabase.from("console_widgets").upsert(
           {
             user_id: user.id,
-            layout: { order, sizes },
+            layout: { order, sizes, columns },
             updated_at: new Date().toISOString(),
           },
           { onConflict: "user_id" },
@@ -424,20 +468,49 @@ export function ConsoleModule() {
   useEffect(() => () => { if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current); }, []);
 
   const toggleBlockSize = useCallback((id: string) => {
-    setBlockSizes((prev) => {
-      const current = prev[id as SectionId] ?? "full";
-      const next = { ...prev, [id]: NEXT_BLOCK_SIZE[current] } as Record<SectionId, BlockSize>;
-      persistLayout(sectionOrder, next);
-      return next;
+    setBlockSizes((prevSizes) => {
+      const current = prevSizes[id as SectionId] ?? "full";
+      const nextSize = NEXT_BLOCK_SIZE[current];
+      const nextSizes = { ...prevSizes, [id]: nextSize } as Record<SectionId, BlockSize>;
+      setBlockColumns((prevCols) => {
+        const span = BLOCK_COL_SPAN[nextSize];
+        const col = prevCols[id as SectionId];
+        const nextCols = { ...prevCols };
+        if (col !== undefined) {
+          const maxStart = Math.max(1, 5 - span);
+          if (span >= 4 || col > maxStart) {
+            delete nextCols[id as SectionId];
+          } else if (col > maxStart) {
+            nextCols[id as SectionId] = maxStart;
+          }
+        }
+        persistLayout(sectionOrder, nextSizes, nextCols);
+        return nextCols;
+      });
+      return nextSizes;
     });
   }, [persistLayout, sectionOrder]);
+
+  const nudgeColumn = useCallback((id: string, dir: -1 | 1) => {
+    setBlockColumns((prev) => {
+      const size = blockSizes[id as SectionId] ?? "full";
+      const span = BLOCK_COL_SPAN[size];
+      const current = prev[id as SectionId] ?? 1;
+      const nextCol = Math.min(5 - span, Math.max(1, current + dir));
+      const next = { ...prev, [id]: nextCol } as Record<SectionId, number>;
+      persistLayout(sectionOrder, blockSizes, next);
+      return next;
+    });
+  }, [blockSizes, persistLayout, sectionOrder]);
 
   const resetLayout = useCallback(() => {
     const order: SectionId[] = [...DEFAULT_SECTION_ORDER];
     const sizes: Record<SectionId, BlockSize> = { ...DEFAULT_BLOCK_SIZES };
+    const columns: Partial<Record<SectionId, number>> = {};
     setSectionOrder(order);
     setBlockSizes(sizes);
-    persistLayout(order, sizes);
+    setBlockColumns(columns);
+    persistLayout(order, sizes, columns);
     toast("Layout reset to default.", "success", "Console");
   }, [persistLayout, toast]);
 
@@ -468,19 +541,23 @@ export function ConsoleModule() {
       if (layout) {
         setSectionOrder(layout.order as SectionId[]);
         setBlockSizes((prev) => ({ ...prev, ...(layout.sizes as Record<SectionId, BlockSize>) }));
+        if (layout.columns) {
+          setBlockColumns((prev) => ({ ...prev, ...(layout.columns as Record<SectionId, number>) }));
+        }
       }
     }
 
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-    const { data: events } = await supabase
-      .from("schedule_events")
-      .select("id, title, start_at, end_at")
-      .eq("user_id", user.id)
-      .gte("start_at", todayStart.toISOString())
-      .lte("start_at", todayEnd.toISOString())
-      .order("start_at", { ascending: true });
-    if (events) setArcEvents(events);
+    try {
+      const merged = await fetchTodayMergedEvents(supabase, user.id);
+      setArcEvents(merged.map((event) => ({
+        id: event.id,
+        title: event.title,
+        start_at: event.start_at,
+        end_at: event.end_at,
+      })));
+    } catch {
+      setArcEvents([]);
+    }
 
     setLoading(false);
   }, [supabase, toast]);
@@ -624,7 +701,7 @@ export function ConsoleModule() {
       if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
       // Auto-save on drag-end (debounced) — no manual "save" step for layout.
-      persistLayout(next, blockSizes);
+      persistLayout(next, blockSizes, blockColumns);
       return next;
     });
   };
@@ -635,30 +712,34 @@ export function ConsoleModule() {
 
   const widgetsSection = (
     <DraggableBlock key="widgets" id="widgets">
-      <WidgetGrid
-        widgetIds={widgetIds}
-        widgetTexts={widgetTexts}
-        liveData={liveData}
-        editing={editing}
-        expandedWidget={expandedWidget}
-        detailWidgetId={detailWidgetId}
-        onEditingChange={setEditing}
-        onExpandedWidgetChange={setExpandedWidget}
-        onDetailWidgetChange={setDetailWidgetId}
-        onWidgetTextsChange={setWidgetTexts}
-        onSwapIndexChange={setSwapIdx}
-        onPickerOpenChange={setPickerOpen}
-        onSave={save}
-        onRefreshOne={refreshOne}
-        onRefreshAll={refreshAll}
-        onToast={toast}
-      />
+      <AxisGlassPanel className="module-glass-zone command-widget-zone">
+        <WidgetGrid
+          widgetIds={widgetIds}
+          widgetTexts={widgetTexts}
+          liveData={liveData}
+          editing={editing}
+          expandedWidget={expandedWidget}
+          detailWidgetId={detailWidgetId}
+          onEditingChange={setEditing}
+          onExpandedWidgetChange={setExpandedWidget}
+          onDetailWidgetChange={setDetailWidgetId}
+          onWidgetTextsChange={setWidgetTexts}
+          onSwapIndexChange={setSwapIdx}
+          onPickerOpenChange={setPickerOpen}
+          onSave={save}
+          onRefreshOne={refreshOne}
+          onRefreshAll={refreshAll}
+          onToast={toast}
+        />
+      </AxisGlassPanel>
     </DraggableBlock>
   );
 
   const photosSection = (
     <DraggableBlock key="photos" id="photos">
-      <FeaturedPhotos />
+      <AxisGlassPanel className="module-glass-zone command-photo-zone">
+        <FeaturedPhotos />
+      </AxisGlassPanel>
     </DraggableBlock>
   );
 
@@ -666,7 +747,7 @@ export function ConsoleModule() {
 
   const dailyRingsSection = (
     <DraggableBlock key="daily-rings" id="daily-rings">
-      <Card tick>
+      <Card tick className="console-premium-card">
         <h2 className="sec">Daily Rings<span className="rule" /><span className="count">Tasks live · labs/disconnected</span><SectionDrillIn section="daily-rings" /></h2>
         <div className="rings-wrap">
           <svg className="rings" viewBox="0 0 120 120">
@@ -688,7 +769,7 @@ export function ConsoleModule() {
 
   const todaysArcSection = (
     <DraggableBlock key="todays-arc" id="todays-arc">
-      <Card tick>
+      <Card tick className="console-premium-card">
         <h2 className="sec">Today&apos;s Arc<span className="rule" /><span className="count">{arcEvents.length || "Schedule"}</span><SectionDrillIn section="todays-arc" /></h2>
         {arcEvents.length === 0 ? (
           <p style={{ marginTop: 12, color: "var(--ink-faint)", fontSize: 12 }}>No events scheduled for today. Add events on the Schedule page.</p>
@@ -709,7 +790,7 @@ export function ConsoleModule() {
 
   const focusRankedSection = (
     <DraggableBlock key="focus-ranked" id="focus-ranked">
-      <Card>
+      <Card className="console-premium-card">
         <h2 className="sec">Focus · Ranked<span className="rule" /><span className="count">Top {topTasks.length || 3}</span><SectionDrillIn section="focus-ranked" /></h2>
         <div style={{ marginTop: 14 }}>
           {topTasks.length === 0 ? (
@@ -735,7 +816,7 @@ export function ConsoleModule() {
 
   const weeklyDevotionalSection = (
     <DraggableBlock key="weekly-devotional" id="weekly-devotional">
-      <Card tick className="devo">
+      <Card tick className="devo console-premium-card">
         <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional · Static local reference</div>
         <div className="verse">&ldquo;Whatever you do, work heartily, as for the Lord and not for men.&rdquo;</div>
         <div className="ref">COLOSSIANS 3:23 · ESV</div>
@@ -747,7 +828,7 @@ export function ConsoleModule() {
 
   const stoicMaximSection = (
     <DraggableBlock key="stoic-maxim" id="stoic-maxim">
-      <Card tick className="quote-card">
+      <Card tick className="quote-card console-premium-card">
         <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Daily Reflection · Static local</div>
         <div className="qtext">&ldquo;{todayQuote.text}&rdquo;</div>
         <div className="qauth">
@@ -766,7 +847,7 @@ export function ConsoleModule() {
 
   const marketsBodySection = (
     <DraggableBlock key="markets-body" id="markets-body">
-      <Card>
+      <Card className="console-premium-card">
         <h2 className="sec">
           Markets<span className="rule" />
           <span className="count">
@@ -787,7 +868,7 @@ export function ConsoleModule() {
   // ── Dispatch block ──────────────────────────────────────────────
   const dispatchBlockSection = (
     <DraggableBlock key="dispatch-block" id="dispatch-block">
-      <Card>
+      <Card className="console-premium-card">
         <h2 className="sec">
           Dispatch
           <span className="rule" />
@@ -895,7 +976,7 @@ export function ConsoleModule() {
 
   const routineSection = (
     <DraggableBlock key="routine" id="routine">
-      <Card>
+      <Card className="console-premium-card">
         <h2 className="sec">
           {routineLabel}
           <span className="rule" />
@@ -931,7 +1012,7 @@ export function ConsoleModule() {
 
   const peopleSpotlightSection = (
     <DraggableBlock key="people-spotlight" id="people-spotlight">
-      <Card>
+      <Card className="console-premium-card">
         <h2 className="sec">
           People · Follow-Up
           <span className="rule" />
@@ -976,7 +1057,7 @@ export function ConsoleModule() {
   const pomodoroSection = (
     <DraggableBlock key="pomodoro" id="pomodoro">
       {blockSizes["pomodoro"] === "sm" ? (
-        <Card>
+        <Card className="console-premium-card">
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "14px 8px 18px", gap: 10 }}>
             <div style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: pomMode === "work" ? "var(--clay)" : "var(--up)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
               {pomMode === "work" ? "FOCUS" : "BREAK"}{pomBlocks > 0 ? ` · ${pomBlocks}×` : ""}
@@ -995,7 +1076,7 @@ export function ConsoleModule() {
           </div>
         </Card>
       ) : (
-        <Card>
+        <Card className="console-premium-card">
           <h2 className="sec">
             Pomodoro<span className="rule" />
             <span className="count" style={{ color: pomMode === "work" ? "var(--clay)" : "var(--up)" }}>
@@ -1076,6 +1157,21 @@ export function ConsoleModule() {
           Structured 2-up grid that snaps cards to slots; collapses to a single
           column on narrow viewports so the layout never overflows. */}
       <style>{`
+        .module-hero-shell .capture {
+          margin-top: 18px;
+        }
+        html.light .module-hero-shell .capture {
+          background: color-mix(in srgb, var(--glass-2) 88%, white 12%);
+          border-color: color-mix(in srgb, var(--line-strong) 80%, var(--axis-glass-border));
+        }
+        html.light .module-hero-shell .capture input,
+        html.light .module-hero-shell .capture input::placeholder {
+          color: color-mix(in srgb, var(--ink) 82%, var(--ink-faint));
+        }
+        .command-photo-zone .photostrip-top,
+        .command-widget-zone .tidbits {
+          margin-top: 0;
+        }
         .console-grid {
           display: grid;
           /* 4-col base grid gives three size steps (sm = 1, md = 2, full = 4
@@ -1171,40 +1267,44 @@ export function ConsoleModule() {
           }
         }
       `}</style>
-      <div className="eyebrow">{formatDateLong()}</div>
-      <HeroLine tasks={tasks} />
+      <div className="module-stage">
+        <AxisReflectiveCard className="module-hero-shell">
+          <div className="eyebrow">{formatDateLong()}</div>
+          <HeroLine tasks={tasks} />
 
-      <ConsoleCaptureBar
-        value={captureText}
-        mode={captMode}
-        onValueChange={setCaptureText}
-        onModeChange={setCaptMode}
-        onCapture={handleCapture}
-      />
+          <ConsoleCaptureBar
+            value={captureText}
+            mode={captMode}
+            onValueChange={setCaptureText}
+            onModeChange={setCaptMode}
+            onCapture={handleCapture}
+          />
+        </AxisReflectiveCard>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: "var(--section-gap)" }}>
-        <span style={{ marginRight: "auto", fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-faint)", letterSpacing: ".06em" }}>
-          Drag ⠿ to rearrange · click ⊞/⊡/⊟ to cycle size
-        </span>
-        <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>
+        <div className="module-layout-tools">
+          <span className="module-layout-hint">
+            Drag ⠿ to rearrange · ← → to nudge · click ⊞/⊡/⊟ to cycle size
+          </span>
+          <button type="button" className="feed-manage" onClick={resetLayout}>Reset layout</button>
+        </div>
+
+        <BlockSizeContext.Provider value={{ sizes: blockSizes, columns: blockColumns, toggle: toggleBlockSize, nudgeColumn }}>
+          <DndContext
+            id="console-widget-grid"
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={sectionOrder} strategy={rectSortingStrategy}>
+              <div className="console-grid" data-testid="console-grid">
+                {sectionOrder.map((id) => sectionMap[id])}
+              </div>
+            </SortableContext>
+            <DragOverlay>{overlayNode}</DragOverlay>
+          </DndContext>
+        </BlockSizeContext.Provider>
       </div>
-
-      <BlockSizeContext.Provider value={{ sizes: blockSizes, toggle: toggleBlockSize }}>
-        <DndContext
-          id="console-widget-grid"
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={sectionOrder} strategy={rectSortingStrategy}>
-            <div className="console-grid" data-testid="console-grid">
-              {sectionOrder.map((id) => sectionMap[id])}
-            </div>
-          </SortableContext>
-          <DragOverlay>{overlayNode}</DragOverlay>
-        </DndContext>
-      </BlockSizeContext.Provider>
 
       <Modal open={pickerOpen} onClose={() => setPickerOpen(false)} title="Choose Widget" footer={<Button variant="ghost" onClick={() => setPickerOpen(false)}>Cancel</Button>}>
         <p style={{ fontSize: 11.5, color: "var(--ink-faint)", marginBottom: 12 }}>

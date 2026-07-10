@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
+import { AxisAtmosphere } from '@/components/ui/axis/AxisAtmosphere';
 import { usePasskey } from '@/hooks/usePasskey';
 import MFAChallenge from '@/components/auth/MFAChallenge';
 import { isPasswordPwned, PWNED_PASSWORD_MESSAGE } from '@/lib/auth/passwordCheck';
@@ -185,10 +186,7 @@ function LoginForm() {
 
   const Bg = () => (
     <>
-      <div className="depthfield" aria-hidden>
-        <div className="wash" /><div className="aurora" /><div className="aurora2" />
-        <div className="haze" /><div className="fall" /><div className="vig" />
-      </div>
+      <AxisAtmosphere />
       <div className="grain" aria-hidden />
     </>
   );

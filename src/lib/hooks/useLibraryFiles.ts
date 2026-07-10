@@ -17,16 +17,25 @@ export type LibraryFile = {
 
 const BUCKET = "library-files";
 
+function formatDbError(message: string): string {
+  if (message.includes("42501") || /permission denied/i.test(message)) {
+    return "Library access denied — sign in again or check storage permissions.";
+  }
+  return message;
+}
+
 export function useLibraryFiles() {
   const supabase = useMemo(() => createClient(), []);
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
+    setSignedIn(!!user);
     if (!user) {
       setFiles([]);
       setLoadError(null);
@@ -39,7 +48,7 @@ export function useLibraryFiles() {
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (error) {
-      setLoadError("Library files could not be loaded. Try refreshing.");
+      setLoadError(formatDbError(error.message));
       setFiles([]);
     } else {
       setLoadError(null);
@@ -63,7 +72,7 @@ export function useLibraryFiles() {
       const { error: uploadError } = await supabase.storage
         .from(BUCKET)
         .upload(storagePath, file, { contentType: file.type || undefined });
-      if (uploadError) return { error: uploadError.message };
+      if (uploadError) return { error: formatDbError(uploadError.message) };
 
       const { data, error: insertError } = await supabase
         .from("library_files")
@@ -81,7 +90,7 @@ export function useLibraryFiles() {
       if (insertError || !data) {
         // Roll back the orphaned object if the metadata insert failed.
         await supabase.storage.from(BUCKET).remove([storagePath]);
-        return { error: insertError?.message ?? "Failed to save file metadata" };
+        return { error: formatDbError(insertError?.message ?? "Failed to save file metadata") };
       }
 
       setFiles((prev) => [data as LibraryFile, ...prev]);
@@ -95,10 +104,10 @@ export function useLibraryFiles() {
   const deleteFile = useCallback(async (id: string, storagePath: string) => {
     try {
       const { error: storageError } = await supabase.storage.from(BUCKET).remove([storagePath]);
-      if (storageError) return { error: storageError.message };
+      if (storageError) return { error: formatDbError(storageError.message) };
 
       const { error: dbError } = await supabase.from("library_files").delete().eq("id", id);
-      if (dbError) return { error: dbError.message };
+      if (dbError) return { error: formatDbError(dbError.message) };
 
       setFiles((prev) => prev.filter((f) => f.id !== id));
       return { ok: true };
@@ -117,5 +126,5 @@ export function useLibraryFiles() {
     return data.signedUrl;
   }, [supabase]);
 
-  return { files, loading, loadError, refresh, uploadFile, deleteFile, getDownloadUrl };
+  return { files, loading, loadError, signedIn, refresh, uploadFile, deleteFile, getDownloadUrl };
 }

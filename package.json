@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test --project=public",
-    "test:e2e:auth": "AXIS_E2E_AUTH=1 playwright test --project=authenticated"
+    "test:e2e:auth": "AXIS_E2E_AUTH=1 playwright test --project=authenticated",
+    "axis": "node scripts/axis.mjs"
   },
   "engines": {
     "node": "24.x"

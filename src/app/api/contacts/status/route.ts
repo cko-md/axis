@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getFreshContactsAccessToken } from "@/lib/contacts/tokens";
 
 type ContactConnection = {
   provider: "google";
@@ -57,7 +58,8 @@ export async function GET() {
   }
 
   const connections: ContactConnection[] = [];
-  if (legacyResult.data) {
+  const legacyToken = await getFreshContactsAccessToken(user.id);
+  if (legacyResult.data && legacyToken) {
     connections.push({
       provider: "google",
       email: (legacyResult.data.email as string | null) ?? null,

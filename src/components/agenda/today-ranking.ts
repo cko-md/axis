@@ -1,6 +1,7 @@
 import { rankTasks, type Task } from "@/lib/hooks/useTasks";
 import { personFootLabel, type Person } from "@/lib/hooks/usePeople";
 import type { ScheduleEvent } from "@/lib/types";
+import { eventOccursOnLocalDay } from "@/lib/calendar/event-dates";
 
 // CAL-4: merges today's calendar events, open/overdue tasks, and due People
 // follow-ups into one ranked "Today" list. Pure and unit-testable so the
@@ -12,12 +13,12 @@ export type TodayItem =
   | { kind: "task"; id: string; title: string; priority: Task["priority"]; source: Task }
   | { kind: "follow-up"; id: string; title: string; footLabel: string; source: Person };
 
-function isToday(iso: string, now: Date): boolean {
-  const d = new Date(iso);
-  return !Number.isNaN(d.getTime()) && d.toDateString() === now.toDateString();
+function isTodayEvent(event: ScheduleEvent, now: Date): boolean {
+  return eventOccursOnLocalDay(event.start_at, Boolean(event.all_day), now);
 }
 
 function eventTime(event: ScheduleEvent): string {
+  if (event.all_day) return "All day";
   const d = new Date(event.start_at);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -35,7 +36,7 @@ export function buildTodayRanking(
   limit?: number,
 ): TodayItem[] {
   const todaysEvents = [...events]
-    .filter((e) => isToday(e.start_at, now))
+    .filter((e) => isTodayEvent(e, now))
     .sort((a, b) => a.start_at.localeCompare(b.start_at))
     .map<TodayItem>((event) => ({ kind: "event", id: event.id, title: event.title, time: eventTime(event), source: event }));
 

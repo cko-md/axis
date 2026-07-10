@@ -23,6 +23,9 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
 import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -1170,7 +1173,7 @@ export function VitalityModule() {
     } catch {}
   }, []);
 
-  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
+  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, statusError: stravaStatusError, activitiesError: stravaActivitiesError, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
   const { open: openInApp } = useWebViewer();
   const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet, loadError: nutritionLoadError } = useNutritionProtocol();
   const stravaConnected = stravaStatus?.connected ?? false;
@@ -1249,9 +1252,58 @@ export function VitalityModule() {
   const avgPace = stravaConnected && stravaSummary ? stravaSummary.avgPace : sampleAvgPace;
   const runActivities = stravaConnected ? stravaActivities.filter((a) => a.sport_type === "Run" || a.type === "Run") : [];
 
+  const activeTabLabel = TABS.find((t) => t.id === tab)?.label ?? "Health";
+
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+      <div className="module-stage vitality-stage">
+        {!stravaConnected && (
+          <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+            <div>
+              <div className="module-status-kicker">Lab data</div>
+              <strong>Training stats use sample values until Strava is connected.</strong>
+              <p>Health device sync is planned — wearable metrics are not presented as live data.</p>
+            </div>
+            <span>Content cards in Training and Nutrition are curated placeholders.</span>
+          </div>
+        )}
+        {(stravaStatusError || stravaActivitiesError) && (
+          <StatusCallout kind="error" title="Strava sync issue">
+            {stravaStatusError ?? stravaActivitiesError}{" "}
+            <button type="button" className="feed-manage" onClick={() => void refetchStravaStatus()}>Retry</button>
+          </StatusCallout>
+        )}
+        <ModuleInteractiveHero
+          compact
+          eyebrow="Wellness · Vitality"
+          title={activeTabLabel}
+          subtitle={
+            stravaConnected
+              ? `Strava synced · ${stravaStatus?.athlete?.name ?? "athlete"}`
+              : "Connect Strava for live training data"
+          }
+          stats={[
+            { label: "Strava", value: stravaConnected ? "Connected" : "Offline", tone: stravaConnected ? "accent" : "warn" },
+            { label: "Tab", value: activeTabLabel },
+          ]}
+          actions={[
+            {
+              label: stravaConnected ? "Disconnect Strava" : "Connect Strava",
+              onClick: () => {
+                if (stravaConnected) stravaDisconnect();
+                else {
+                  openComposioOAuthPopup("strava", (status) => {
+                    if (status === "ok") void refetchStravaStatus();
+                  });
+                }
+              },
+            },
+            { label: "Training log", onClick: () => setTab("fit-run") },
+          ]}
+        />
+
+        <div className="module-layout-tools">
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         {/* Strava badge — live when connected, faded when not */}
         {stravaConnected ? (
           <div
@@ -1289,8 +1341,10 @@ export function VitalityModule() {
           </button>
         )}
       </div>
+        </div>
 
-      <div className="subtabbar" style={{ marginTop: 20 }}>
+        <AxisGlassPanel className="module-glass-zone vitality-workspace">
+      <div className="subtabbar">
         {TABS.map((t) => (
           <button key={t.id} type="button" className={`subtab${tab === t.id ? " on" : ""}`} onClick={() => setTab(t.id)}>
             {t.label}
@@ -1761,6 +1815,8 @@ export function VitalityModule() {
         <TrainingWeekPlanner />
         <div className="divider" />
         <HealthMetricsPanel />
+      </div>
+        </AxisGlassPanel>
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────────────────────── */}

@@ -1,3 +1,19 @@
+.notes-folders-zone,
+.notes-list-zone {
+  min-height: 0;
+}
+
+html.light .notes-list-zone .capture input,
+html.light .notes-list-zone input[aria-label="Search notes"] {
+  background: color-mix(in srgb, var(--glass-2) 88%, white 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 80%, var(--axis-glass-border));
+  color: var(--ink);
+}
+
+html.light .notes-list-zone input[aria-label="Search notes"]::placeholder {
+  color: color-mix(in srgb, var(--ink) 72%, var(--ink-faint));
+}
+
 /* NotesEditor — Atelier register for a Bear-style rich text editor.
    All colors via global Atelier CSS variables (defined in globals.css). */
 

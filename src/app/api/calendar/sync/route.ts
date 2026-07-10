@@ -5,6 +5,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { createGoogleEvent } from "@/lib/calendar/google";
 import { createOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, createComposioEvent } from "@/lib/calendar/composio";
+import { listHealthyLegacyProviders } from "@/lib/calendar/legacy-providers";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 
 type CalendarSyncError = {
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const legacyProviders = new Set((connections ?? []).map((c) => c.provider));
+  const legacyProviders = await listHealthyLegacyProviders(user.id, connections ?? []);
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   try {
     composioAccounts = await listComposioCalendarAccounts(user.id);

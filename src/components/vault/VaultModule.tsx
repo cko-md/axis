@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
+import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
 import { callAiAction } from "@/lib/ai/callAction";
@@ -488,6 +489,13 @@ function VideoLounge() {
 
   return (
     <div style={{ marginTop: 8 }}>
+      <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+        <div>
+          <div className="module-status-kicker">Lab · curated feed</div>
+          <strong>Video Lounge is a curated link collection, not a live provider sync.</strong>
+          <p>Videos open via YouTube embed or in-app viewer. No watch history is persisted yet.</p>
+        </div>
+      </div>
       <div style={{ marginBottom: 18 }}>
         <h2 className="sec" style={{ margin: "0 0 6px" }}>Video Lounge<span className="rule" /><span className="count">Culture Feed</span></h2>
         <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)" }}>Music videos, theory, interviews, release breakdowns.</p>
@@ -579,7 +587,17 @@ function VideoLounge() {
 export function VaultModule() {
   const spotify = useSpotify();
   const { toast } = useToast();
-  const { connected, configured, now, liveProgressMs, playing } = spotify;
+  const { connected, configured, now, liveProgressMs, playing, refresh: refreshSpotify } = spotify;
+
+  const connectSpotify = useCallback(() => {
+    openComposioOAuthPopup("spotify", (status) => {
+      if (status === "error") {
+        toast("Spotify connection failed. Try again from Control Room.", "error", "Vault");
+        return;
+      }
+      void refreshSpotify();
+    });
+  }, [refreshSpotify, toast]);
 
   const [vaultTab, setVaultTab] = useState<"room" | "taste" | "recs" | "video">("room");
   const [tasteIteration, setTasteIteration] = useState(0);
@@ -776,6 +794,16 @@ export function VaultModule() {
 
   return (
     <div className="vault-view">
+      {!connected && (
+        <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="module-status-kicker">Lab preview</div>
+            <strong>Listening Vault is showing curated sample crates.</strong>
+            <p>Connect Spotify to load your library, rotation, and personalized recommendations.</p>
+          </div>
+          <span>Video Lounge items are curated links — not synced from a provider.</span>
+        </div>
+      )}
       {/* ── Vault tab bar ── */}
       <div className="subtabbar" style={{ marginBottom: 0, paddingBottom: 4 }}>
         {(["room", "taste", "recs", "video"] as const).map((t) => (
@@ -833,7 +861,7 @@ export function VaultModule() {
                     Disconnect
                   </button>
                 ) : (
-                  <button type="button" className="pst-connect" onClick={spotify.connect}>
+                  <button type="button" className="pst-connect" onClick={connectSpotify}>
                     Connect Spotify →
                   </button>
                 )}
@@ -994,7 +1022,7 @@ export function VaultModule() {
                   : "Spotify isn’t configured on the server yet. The Record Room runs in preview mode — load any public Spotify link below."}
               </p>
               {configured ? (
-                <button type="button" className={styles.setupBtn} onClick={spotify.connect}>
+                <button type="button" className={styles.setupBtn} onClick={connectSpotify}>
                   Connect Spotify
                 </button>
               ) : (

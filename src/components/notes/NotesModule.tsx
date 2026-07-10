@@ -38,6 +38,8 @@ import type { Json } from "@/lib/supabase/database.types";
 import { filterNotesByKeyword, orderNotesBySemanticIds } from "@/lib/notes/search";
 import { callAiAction } from "@/lib/ai/callAction";
 import { buildAiRequestBody, type AiActionName } from "@/lib/ai/actions";
+import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
+import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
@@ -1408,11 +1410,19 @@ export function NotesModule() {
 
   return (
     <>
-      <div className="divider" />
+      <div className="module-stage notes-stage">
+        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
+          <div className="eyebrow">Research · Notes</div>
+          <h1 className="hero-title">Notes</h1>
+          <p className="sub mail-hero-meta">
+            {filtered.length} note{filtered.length === 1 ? "" : "s"}
+            {trimmedQuery ? ` matching “${trimmedQuery}”` : ` in ${activeFolder}`}
+          </p>
+        </AxisReflectiveCard>
 
       <div className={`${styles.layout} ${styles.breakout}`}>
         {/* ── Folders (drag to reorder) ── */}
-        <div>
+        <AxisGlassPanel className="module-glass-zone notes-folders-zone">
           <div className="seclabel">Folders</div>
           <DndContext id="notes-folders" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFolderDragEnd}>
             <SortableContext items={folders} strategy={verticalListSortingStrategy}>
@@ -1465,10 +1475,10 @@ export function NotesModule() {
               + New folder
             </button>
           )}
-        </div>
+        </AxisGlassPanel>
 
         {/* ── Note list ── */}
-        <div>
+        <AxisGlassPanel className="module-glass-zone notes-list-zone">
           <div className="capture" style={{ margin: "0 0 8px", padding: "9px 13px" }}>
             <input
               placeholder="New note…"
@@ -1567,10 +1577,10 @@ export function NotesModule() {
               </div>
             );
           })}
-        </div>
+        </AxisGlassPanel>
 
         {/* ── Editor (embedded, shown when not popped out) ── */}
-        <div className={`card ${styles.editorCard}`}>
+        <div className={`card module-premium-card ${styles.editorCard}`}>
           {!popout ? (
             editorEl
           ) : (
@@ -1587,6 +1597,7 @@ export function NotesModule() {
             </p>
           )}
         </div>
+      </div>
       </div>
 
       {/* ── Pop-out overlay ── */}
