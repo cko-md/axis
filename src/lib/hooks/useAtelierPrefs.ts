@@ -32,6 +32,9 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setSignedIn(false);
+      setPins(defaultPins);
+      userId.current = null;
+      setSubscribedUserId(null);
       setLoadError(null);
       setLoading(false);
       return;
@@ -83,7 +86,10 @@ export function useAtelierPrefs(defaultPins: Record<string, boolean>) {
     setPins((prev) => {
       const next = { ...prev, [key]: !prev[key] };
       if (userId.current) {
-        void supabase.from("atelier_prefs").upsert({ user_id: userId.current, pins: next, updated_at: new Date().toISOString() });
+        void supabase.from("atelier_prefs").upsert({ user_id: userId.current, pins: next, updated_at: new Date().toISOString() })
+          .then(({ error }) => {
+            if (error) setLoadError("Pin changes did not save to Supabase.");
+          });
       }
       return next;
     });

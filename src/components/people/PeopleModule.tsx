@@ -101,7 +101,7 @@ const inputCls = "rounded border border-[var(--line)] bg-[var(--surface-2)] px-3
 
 export function PeopleModule() {
   const { toast } = useToast();
-  const { people, loading, loadError, signedIn, addPerson, updatePerson, deletePerson } = usePeople();
+  const { people, loading, loadError, signedIn, refresh, addPerson, updatePerson, deletePerson } = usePeople();
   const supabase = useMemo(() => createClient(), []);
   const [filter, setFilter] = useState<Filter>("All");
   const [modalOpen, setModalOpen] = useState(false);
@@ -368,6 +368,11 @@ export function PeopleModule() {
 
   return (
     <>
+      {!signedIn && !loading && (
+        <StatusCallout kind="info" title="Sign in for your CRM">
+          Demo contacts below are illustrative only. Sign in to add people, sync Google Contacts, and route follow-ups to Dispatch.
+        </StatusCallout>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <div ref={mailBtnRef} style={{ position: "relative" }}>
           <div
@@ -434,9 +439,14 @@ export function PeopleModule() {
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} rows={3} />)}
         </div>
       ) : loadError ? (
-        <StatusCallout kind="error" title="People unavailable">{loadError}</StatusCallout>
+        <StatusCallout kind="error" title="People unavailable">
+          {loadError}{" "}
+          <button type="button" className="feed-manage" onClick={() => void refresh()}>Retry</button>
+        </StatusCallout>
       ) : !signedIn ? (
-        <div className="people-grid">
+        <div>
+          <p style={{ fontSize: 10.5, color: "var(--ink-faint)", fontFamily: "var(--mono)", marginBottom: 10 }}>Curated demo · not your data</p>
+          <div className="people-grid">
           {visibleDemo.map((p) => (
             <div className="person" key={p.name}>
               <div className="ph">
@@ -453,6 +463,7 @@ export function PeopleModule() {
               </div>
             </div>
           ))}
+          </div>
         </div>
       ) : people.length === 0 ? (
         <div className="empty-state">

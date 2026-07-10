@@ -21,7 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { mergeTodayEvents } from "@/lib/calendar/today-events";
+import { fetchTodayMergedEvents } from "@/lib/calendar/today-events";
 import {
   useTasks,
   rankTasks,
@@ -602,59 +602,27 @@ export function AgendaModule() {
         if (!cancelled) { setTodayEvents([]); setTodayEventsLoading(false); }
         return;
       }
-      const start = new Date(); start.setHours(0, 0, 0, 0);
-      const end = new Date(start); end.setDate(end.getDate() + 1);
 
-      const [ownedRes, cacheRes] = await Promise.all([
-        supabase
-          .from("schedule_events")
-          .select("id, title, description, start_at, end_at, color_class, all_day")
-          .eq("user_id", user.id)
-          .gte("start_at", start.toISOString())
-          .lt("start_at", end.toISOString()),
-        supabase.from("calendar_event_cache").select("source, events"),
-      ]);
-      if (cancelled) return;
-
-      if (ownedRes.error) {
-        setTodayEventsError("Could not load today's events.");
-        setTodayEventsLoading(false);
-        return;
+      try {
+        const merged = await fetchTodayMergedEvents(supabase, user.id, new Date());
+        if (cancelled) return;
+        setTodayEvents(merged.map((event) => ({
+          id: event.id,
+          title: event.title,
+          description: event.description ?? null,
+          location: null,
+          attendees: [],
+          start_at: event.start_at,
+          end_at: event.end_at,
+          color_class: (event.color_class as "a" | "b" | "c" | "or") || "a",
+          all_day: event.all_day ?? false,
+          ...(event.source ? { source: event.source } : {}),
+        })));
+      } catch {
+        if (!cancelled) setTodayEventsError("Could not load today's events.");
+      } finally {
+        if (!cancelled) setTodayEventsLoading(false);
       }
-
-      const owned: ScheduleEvent[] = (ownedRes.data ?? []).map((e) => ({
-        id: e.id,
-        title: e.title,
-        description: e.description,
-        start_at: e.start_at,
-        end_at: e.end_at,
-        color_class: (e.color_class as "a" | "b" | "c") || "a",
-        all_day: e.all_day,
-      }));
-
-      type CachedExternalEvent = {
-        externalId: string; title: string; start_at: string; end_at: string;
-        description?: string | null; location?: string | null; attendees?: string[]; all_day: boolean;
-      };
-      const merged = mergeTodayEvents(
-        owned,
-        (cacheRes.data ?? []) as Array<{ source: "google" | "outlook"; events: CachedExternalEvent[] | null }>,
-        start,
-      );
-
-      setTodayEvents(merged.map((event) => ({
-        id: event.id,
-        title: event.title,
-        description: event.description ?? null,
-        location: null,
-        attendees: [],
-        start_at: event.start_at,
-        end_at: event.end_at,
-        color_class: (event.color_class as "a" | "b" | "c" | "or") || "a",
-        all_day: event.all_day ?? false,
-        ...(event.source ? { source: event.source } : {}),
-      })));
-      setTodayEventsLoading(false);
     })();
     return () => { cancelled = true; };
   }, [supabase]);

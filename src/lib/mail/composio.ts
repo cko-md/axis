@@ -196,7 +196,14 @@ function unwrapMessageRecord(data: Record<string, unknown>): Record<string, unkn
   const rich = withIdentity.find((record) => hasMessageBodyContent(record));
   if (rich) return rich;
 
-  if (withIdentity.length > 0) return withIdentity[0];
+  if (withIdentity.length > 0) {
+    const rank = (record: Record<string, unknown>) =>
+      (hasMessageBodyContent(record) ? 8 : 0) +
+      (typeof record.id === "string" && record.id.trim() ? 4 : 0) +
+      (typeof record.messageId === "string" && record.messageId.trim() ? 2 : 0) +
+      (typeof record.message_id === "string" && record.message_id.trim() ? 1 : 0);
+    return [...withIdentity].sort((a, b) => rank(b) - rank(a))[0];
+  }
 
   return records[0] ?? data;
 }
@@ -412,7 +419,7 @@ export function normalizeGmailMessage(
   accountEmail: string,
   connectedAccountId?: string,
 ): MailMessage | null {
-  const id = (m.id ?? m.messageId ?? m.message_id) as string | undefined;
+  const id = messageIdentity(m);
   if (!id) return null;
   const headers = extractGmailHeaders(m);
   return {

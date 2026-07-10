@@ -132,4 +132,28 @@ describe("getComposioMessage()", () => {
       body: "Envelope body",
     });
   });
+
+  it("prefers nested id record over sparse message_id wrapper", async () => {
+    executeToolMock.mockResolvedValue({
+      successful: true,
+      data: {
+        message_id: "wrapper-only",
+        data: {
+          id: "msg-real",
+          payload: {
+            headers: [{ name: "Subject", value: "Real subject" }],
+            parts: [{ mimeType: "text/plain", body: { data: "UmVhbCBib2R5" } }],
+          },
+        },
+      },
+    });
+
+    const result = await getComposioMessage("gmail", "ca_1", "user_1", "msg-real", "user@gmail.com");
+
+    expect(result).toMatchObject({
+      id: "msg-real",
+      subject: "Real subject",
+      body: "Real body",
+    });
+  });
 });

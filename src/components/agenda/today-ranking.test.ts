@@ -94,6 +94,17 @@ describe("buildTodayRanking", () => {
     expect(result.map((r) => r.id)).toEqual(["e1", "t1"]);
   });
 
+  it("includes all-day events for the local calendar day", () => {
+    const result = buildTodayRanking(
+      [event({ id: "allday", start_at: "2026-07-02", all_day: true })],
+      [],
+      [],
+      NOW,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: "allday", time: "All day" });
+  });
+
   it("returns an empty list when there is nothing today (real empty state)", () => {
     expect(buildTodayRanking([], [], [], NOW)).toEqual([]);
   });

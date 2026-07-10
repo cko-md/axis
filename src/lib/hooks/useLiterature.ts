@@ -141,7 +141,7 @@ export function useLiterature() {
           custom_topics?: { key: string; label: string }[];
         } | null;
         setPersistence({ mode: "supabase", warning: null });
-        if (!cancelled && Array.isArray(prefs?.custom_topics) && prefs.custom_topics.length) {
+        if (!cancelled && Array.isArray(prefs?.custom_topics)) {
           const fromDb = prefs.custom_topics;
           setCustomTopicsState(fromDb);
           writeCustomTopics(fromDb);

@@ -25,6 +25,7 @@ import { useNutritionProtocol } from "@/lib/hooks/useNutritionProtocol";
 import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitalityLogs";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
+import { StatusCallout } from "@/components/ui/StatusCallout";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -1172,7 +1173,7 @@ export function VitalityModule() {
     } catch {}
   }, []);
 
-  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
+  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, statusError: stravaStatusError, activitiesError: stravaActivitiesError, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
   const { open: openInApp } = useWebViewer();
   const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet, loadError: nutritionLoadError } = useNutritionProtocol();
   const stravaConnected = stravaStatus?.connected ?? false;
@@ -1266,6 +1267,12 @@ export function VitalityModule() {
             <span>Content cards in Training and Nutrition are curated placeholders.</span>
           </div>
         )}
+        {(stravaStatusError || stravaActivitiesError) && (
+          <StatusCallout kind="error" title="Strava sync issue">
+            {stravaStatusError ?? stravaActivitiesError}{" "}
+            <button type="button" className="feed-manage" onClick={() => void refetchStravaStatus()}>Retry</button>
+          </StatusCallout>
+        )}
         <ModuleInteractiveHero
           compact
           eyebrow="Wellness · Vitality"
@@ -1291,7 +1298,7 @@ export function VitalityModule() {
                 }
               },
             },
-            { label: "Training log", onClick: () => setTab("training") },
+            { label: "Training log", onClick: () => setTab("fit-run") },
           ]}
         />
 

@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
-import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet, type Recipe } from "@/lib/recipes";
-
-const SAVED_KEY   = "axis-supper-saved";
-const RECIPES_KEY = "axis-supper-recipes";
-const DIET_KEY    = "axis-supper-diet";
+import { StatusCallout } from "@/components/ui/StatusCallout";
+import { useSupperClub } from "@/lib/hooks/useSupperClub";
+import { DIET_LABEL, DIETS, recipeUrl, type Recipe } from "@/lib/recipes";
 
 function proxyImage(url: string): string {
   return `/api/og-image?url=${encodeURIComponent(url)}`;
@@ -71,22 +69,19 @@ function RecipeCard({
 
 export function SupperClubModule() {
   const { open: openInApp } = useWebViewer();
-  const [diet, setDiet] = useState<Diet>(() => {
-    if (typeof window === "undefined") return "high-protein";
-    const stored = localStorage.getItem(DIET_KEY) as Diet | null;
-    return stored && DIETS.includes(stored) ? stored : "high-protein";
-  });
-  const [savedIds, setSavedIds] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "null") ?? []; }
-    catch { return []; }
-  });
-  const [myRecipes, setMyRecipes] = useState<Recipe[]>(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem(RECIPES_KEY) ?? "null") ?? []; }
-    catch { return []; }
-  });
-  const [storageError, setStorageError] = useState<string | null>(null);
+  const {
+    diet,
+    savedIds,
+    customRecipes,
+    seedRecipes,
+    loadError,
+    persistence,
+    signedIn,
+    refresh,
+    setDiet,
+    toggleSaved,
+    addCustomRecipe,
+  } = useSupperClub();
   const [formOpen, setFormOpen] = useState(false);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -94,97 +89,62 @@ export function SupperClubModule() {
   const kcalRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(DIET_KEY, diet);
-      setStorageError(null);
-    } catch {
-      setStorageError("Supper Club could not save your diet preference in this browser.");
-    }
-  }, [diet]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SAVED_KEY, JSON.stringify(savedIds));
-      setStorageError(null);
-    } catch {
-      setStorageError("Supper Club could not save recipe stars in this browser.");
-    }
-  }, [savedIds]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(RECIPES_KEY, JSON.stringify(myRecipes));
-      setStorageError(null);
-    } catch {
-      setStorageError("Supper Club could not save your recipes in this browser.");
-    }
-  }, [myRecipes]);
-
-  const toggleSave = (id: string) => {
-    setSavedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
   const cycleDiet = () => {
-    setDiet((prev) => DIETS[(DIETS.indexOf(prev) + 1) % DIETS.length]);
+    setDiet(DIETS[(DIETS.indexOf(diet) + 1) % DIETS.length]);
   };
 
   const addRecipe = () => {
     const t = titleRef.current?.value || "Untitled";
     const time = timeRef.current?.value || "—";
     const kcal = kcalRef.current?.value || "—";
-    setMyRecipes((prev) => [
-      {
-        id: `mine-${Date.now()}`,
-        t,
-        diets: [diet],
-        kcal,
-        time,
-        src: "Your recipe",
-        g: "linear-gradient(135deg,#3a3f48,#23262b)",
-        mine: true,
-        note: noteRef.current?.value || undefined,
-      },
-      ...prev,
-    ]);
+    addCustomRecipe({
+      id: `mine-${Date.now()}`,
+      t,
+      diets: [diet],
+      kcal,
+      time,
+      src: "Your recipe",
+      g: "linear-gradient(135deg,#3a3f48,#23262b)",
+      mine: true,
+      note: noteRef.current?.value || undefined,
+    });
     [titleRef, timeRef, kcalRef, noteRef].forEach((r) => {
       if (r.current) r.current.value = "";
     });
     setFormOpen(false);
   };
 
-  const pool = RECIPES.filter((r) => r.diets.includes(diet));
+  const pool = seedRecipes.filter((r) => r.diets.includes(diet));
   const offset = pool.length ? refreshSeed % pool.length : 0;
   const suggested = pool.slice(offset).concat(pool.slice(0, offset)).slice(0, 8);
-  const savedList: Recipe[] = [...myRecipes, ...RECIPES.filter((r) => savedIds.includes(r.id))];
+  const savedList: Recipe[] = [...customRecipes, ...seedRecipes.filter((r) => savedIds.includes(r.id))];
   const savedCount = savedList.length;
 
   return (
     <>
       <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
         <div>
-          <div className="module-status-kicker">Lab persistence</div>
-          <strong>Supper Club is local-only in this lab phase.</strong>
-          <p>Diet preference, saved recipes, and added recipes are stored in this browser and are not synced to Supabase yet.</p>
+          <div className="module-status-kicker">Lab · Supper Club</div>
+          <strong>
+            {signedIn && persistence === "supabase"
+              ? "Recipes and diet preferences sync to Supabase when signed in."
+              : "Sign in to sync diet, saved recipes, and custom recipes to Supabase."}
+          </strong>
+          <p>Suggested recipes remain curated seed content — star or add your own to build a personal collection.</p>
         </div>
-        <span>Suggested recipes are curated seed content; saved recipes only appear after you star or add them.</span>
       </div>
-      {storageError && (
-        <div className="module-status module-status-lab" style={{ marginBottom: 14 }}>
-          <div>
-            <div className="module-status-kicker">Storage unavailable</div>
-            <strong>Your latest Supper Club change may not persist.</strong>
-            <p>{storageError}</p>
-          </div>
-          <span>Check browser storage permissions, then retry the action.</span>
-        </div>
+      {loadError && (
+        <StatusCallout kind="error" title="Supper Club sync issue">
+          {loadError}{" "}
+          <button type="button" className="feed-manage" onClick={() => void refresh()}>Retry</button>
+        </StatusCallout>
       )}
-        <div className="selectbox" onClick={cycleDiet}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" />
-          </svg>
-          <span>Curate: {DIET_LABEL[diet]}</span>
-        <div className="savebtn" onClick={() => setRefreshSeed((s) => s + 1)}>
+      <div className="selectbox" onClick={cycleDiet}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M12 3v18M5 8c0 4 3 5 7 5M19 8c0 4-3 5-7 5" />
+        </svg>
+        <span>Curate: {DIET_LABEL[diet]}</span>
+        <div className="savebtn" onClick={(e) => { e.stopPropagation(); setRefreshSeed((s) => s + 1); }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4" />
           </svg>
@@ -254,7 +214,7 @@ export function SupperClubModule() {
       <div className="recipe-grid" style={{ marginBottom: 26 }}>
         {savedList.length ? (
           savedList.map((r) => (
-            <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} onOpen={() => openInApp(recipeUrl(r), r.t)} />
+            <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSaved} onOpen={() => openInApp(recipeUrl(r), r.t)} />
           ))
         ) : (
           <div className="empty" style={{ gridColumn: "1/-1" }}>
@@ -263,12 +223,12 @@ export function SupperClubModule() {
         )}
       </div>
       <div className="seclabel">
-        Suggested · Sourced <span className="rule" style={{ background: "var(--line)" }} />
-        <span style={{ fontFamily: "var(--mono)", fontSize: "9.5px" }}>Refreshes weekly</span>
+        Suggested · curated <span className="rule" style={{ background: "var(--line)" }} />
+        <span style={{ fontFamily: "var(--mono)", fontSize: "9.5px" }}>Seed content</span>
       </div>
       <div className="recipe-grid">
         {suggested.map((r) => (
-          <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSave} onOpen={() => openInApp(recipeUrl(r), r.t)} />
+          <RecipeCard key={r.id} recipe={r} saved={savedIds.includes(r.id)} onToggleSave={toggleSaved} onOpen={() => openInApp(recipeUrl(r), r.t)} />
         ))}
       </div>
     </>

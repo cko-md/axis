@@ -168,6 +168,8 @@ export function useStrava(initialUnit: PaceUnit = "km") {
   const [highlights, setHighlights] = useState<StravaHighlights | null>(null);
   const [loading, setLoading] = useState(true);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [activitiesError, setActivitiesError] = useState<string | null>(null);
   const [unit, setUnit] = useState<PaceUnit>(initialUnit);
   // Kept in sync with `unit` via effect below; lets fetchActivities read the
   // latest unit without depending on it (so toggling the unit never triggers
@@ -180,11 +182,18 @@ export function useStrava(initialUnit: PaceUnit = "km") {
   const fetchStatus = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/strava?action=status", { signal });
+      if (!res.ok) {
+        setStatusError("Strava status could not be loaded.");
+        setStatus({ connected: false, configured: false, athlete: null });
+        return false;
+      }
       const data = (await res.json()) as StravaStatus;
       setStatus(data);
+      setStatusError(null);
       return data.connected;
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") throw err;
+      setStatusError("Strava status could not be loaded.");
       setStatus({ connected: false, configured: false, athlete: null });
       return false;
     }
@@ -192,8 +201,13 @@ export function useStrava(initialUnit: PaceUnit = "km") {
 
   const fetchActivities = useCallback(async (signal?: AbortSignal) => {
     setActivitiesLoading(true);
+    setActivitiesError(null);
     try {
       const res = await fetch("/api/strava?action=activities", { signal });
+      if (!res.ok) {
+        setActivitiesError("Strava activities could not be loaded.");
+        return;
+      }
       const data = await res.json() as { connected: boolean; activities?: StravaActivity[] };
       if (data.connected && data.activities) {
         setActivities(data.activities);
@@ -202,7 +216,7 @@ export function useStrava(initialUnit: PaceUnit = "km") {
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
-      // fail silently
+      setActivitiesError("Strava activities could not be loaded.");
     } finally {
       setActivitiesLoading(false);
     }
@@ -256,6 +270,8 @@ export function useStrava(initialUnit: PaceUnit = "km") {
     highlights,
     loading,
     activitiesLoading,
+    statusError,
+    activitiesError,
     unit,
     setUnit,
     disconnect,

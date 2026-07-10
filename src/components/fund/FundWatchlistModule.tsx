@@ -22,6 +22,7 @@ export function FundWatchlistModule() {
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const refreshQuotes = useCallback(async (symbols: string[]) => {
@@ -62,23 +63,27 @@ export function FundWatchlistModule() {
   }, [configured]);
 
   const load = useCallback(async () => {
+    setAuthLoading(true);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     setSignedIn(!!user);
     if (!user) {
       setWatchlist([]);
       setLoadError(null);
+      setAuthLoading(false);
       return;
     }
     const { data, error } = await supabase.from("fund_watchlist").select("*").eq("user_id", user.id).order("sort_order");
     if (error) {
       setLoadError("Couldn't load watchlist.");
       toast("Couldn't load watchlist.", "error", "Watchlist");
+      setAuthLoading(false);
       return;
     }
     setLoadError(null);
     const rows = (data ?? []).map((r) => ({ id: r.id, symbol: r.symbol, name: r.name }));
     setWatchlist(rows);
+    setAuthLoading(false);
   }, [toast]);
 
   useEffect(() => {
@@ -136,6 +141,16 @@ export function FundWatchlistModule() {
     }
     setWatchlist((prev) => prev.filter((w) => w.symbol !== row.symbol));
     toast(`${row.symbol} removed from watchlist.`, "info", "Watchlist");
+  }
+
+  if (authLoading) {
+    return (
+      <div>
+        <p style={{ fontSize: 12, color: "var(--ink-faint)", margin: 0 }}>Loading watchlist…</p>
+        <div className="divider" />
+        <FundResearchExtras />
+      </div>
+    );
   }
 
   if (!signedIn) {
@@ -216,7 +231,7 @@ export function FundWatchlistModule() {
               <div key={w.symbol} className="wtile" style={{ position: "relative" }}>
                 <button type="button" title={`Remove ${w.symbol}`} onClick={() => removeFromWatchlist(w)} style={{ position: "absolute", top: 4, right: 6, background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 11 }}>×</button>
                 <div className="wsym"><a href={`/fund/position/${w.symbol}`} style={{ color: "inherit" }}>{w.symbol}</a></div>
-                <div className="wprice">{q?.price ? fmtUsd2(q.price) : quotesLoading ? "…" : "—"}</div>
+                <div className="wprice">{typeof q?.price === "number" ? fmtUsd2(q.price) : quotesLoading ? "…" : "—"}</div>
                 {typeof q?.chg === "number" && (
                   <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: q.chg >= 0 ? "var(--up)" : "var(--down)" }}>
                     {q.chg >= 0 ? "+" : ""}{q.chg.toFixed(2)}%
