@@ -22,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { fetchTodayMergedEvents } from "@/lib/calendar/today-events";
+import { todayLocalIso } from "@/lib/calendar/event-dates";
 import {
   useTasks,
   rankTasks,
@@ -63,7 +64,7 @@ const DEFAULT_ROUTINE: RoutineStep[] = [
 
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalIso();
 }
 
 const SortableRow = memo(function SortableRow({ step, checked, onToggle }: { step: RoutineStep; checked: boolean; onToggle: () => void }) {
