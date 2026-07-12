@@ -697,11 +697,23 @@ export function DebriefModule() {
       },
     };
 
-    let task = reminderTaskId && tasks.some((t) => t.id === reminderTaskId)
-      ? await updateTask(reminderTaskId, taskPatch)
-      : null;
+    const hasExistingTask =
+      Boolean(reminderTaskId) && tasks.some((t) => t.id === reminderTaskId);
 
-    if (!task) {
+    let task: Awaited<ReturnType<typeof updateTask>> = null;
+    if (hasExistingTask && reminderTaskId) {
+      // Update the existing reminder in place. A null result here means the
+      // update genuinely failed (transient error / RLS) — the task still
+      // exists, so we must NOT delete it. Surface the error and leave the
+      // existing reminder intact.
+      task = await updateTask(reminderTaskId, taskPatch);
+      if (!task) {
+        toast("Could not update your reminder — it was left unchanged.", "error", "Debrief");
+        return;
+      }
+    } else {
+      // No live task to update (never scheduled, or the stored id is stale).
+      // Clear any stale id, then create a fresh reminder task.
       if (reminderTaskId) await deleteTask(reminderTaskId);
       task = await addTask(taskPatch as Parameters<typeof addTask>[0]);
     }
