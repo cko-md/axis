@@ -1,29 +1,78 @@
 import { describe, expect, it } from "vitest";
-import { localDayIso, todayLocalIso } from "./event-dates";
+import {
+  endOfLocalDay,
+  eventOccursOnLocalDay,
+  localDayIso,
+  normalizeAllDayTimestamp,
+  startOfLocalDay,
+  todayLocalIso,
+} from "./event-dates";
 
-describe("localDayIso", () => {
-  it("formats a date using local calendar components", () => {
-    const d = new Date(2026, 2, 9, 0, 0, 0); // 2026-03-09 local midnight
-    expect(localDayIso(d)).toBe("2026-03-09");
-  });
+// localDayIso / todayLocalIso are owned by `@/lib/dates` (see dates.test.ts).
+// This suite covers the calendar-specific helpers plus the re-export surface.
 
-  it("uses the local day for an evening time, not the UTC day", () => {
-    // 2026-07-12 20:00 local. localDayIso reads local components, so it stays
-    // on the 12th even though toISOString() reports the 13th in negative-UTC
-    // timezones — the exact bug this helper exists to prevent.
-    const evening = new Date(2026, 6, 12, 20, 0, 0);
-    expect(localDayIso(evening)).toBe("2026-07-12");
-  });
-
-  it("zero-pads single-digit month and day", () => {
-    const d = new Date(2026, 0, 5, 12, 0, 0); // 2026-01-05
-    expect(localDayIso(d)).toBe("2026-01-05");
+describe("event-dates re-exports", () => {
+  it("re-exports the local-day helpers from @/lib/dates", () => {
+    expect(localDayIso(new Date(2026, 6, 12))).toBe("2026-07-12");
+    expect(todayLocalIso()).toBe(localDayIso(new Date()));
   });
 });
 
-describe("todayLocalIso", () => {
-  it("returns today's local calendar day as yyyy-mm-dd", () => {
-    expect(todayLocalIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(todayLocalIso()).toBe(localDayIso(new Date()));
+describe("startOfLocalDay / endOfLocalDay", () => {
+  it("startOfLocalDay zeroes the time components", () => {
+    const start = startOfLocalDay(new Date(2026, 6, 12, 15, 30, 45, 123));
+    expect(start.getHours()).toBe(0);
+    expect(start.getMinutes()).toBe(0);
+    expect(start.getSeconds()).toBe(0);
+    expect(start.getMilliseconds()).toBe(0);
+    expect(localDayIso(start)).toBe("2026-07-12");
+  });
+
+  it("endOfLocalDay pushes to the last millisecond of the day", () => {
+    const end = endOfLocalDay(new Date(2026, 6, 12, 8, 0, 0));
+    expect(end.getHours()).toBe(23);
+    expect(end.getMinutes()).toBe(59);
+    expect(end.getSeconds()).toBe(59);
+    expect(end.getMilliseconds()).toBe(999);
+    expect(localDayIso(end)).toBe("2026-07-12");
+  });
+
+  it("does not mutate the input date", () => {
+    const input = new Date(2026, 6, 12, 15, 30, 0);
+    startOfLocalDay(input);
+    expect(input.getHours()).toBe(15);
+  });
+});
+
+describe("normalizeAllDayTimestamp", () => {
+  it("expands a date-only value to a UTC midnight timestamp", () => {
+    expect(normalizeAllDayTimestamp("2026-07-12")).toBe("2026-07-12T00:00:00.000Z");
+  });
+
+  it("passes a full timestamp through unchanged", () => {
+    expect(normalizeAllDayTimestamp("2026-07-12T15:30:00.000Z")).toBe(
+      "2026-07-12T15:30:00.000Z",
+    );
+  });
+});
+
+describe("eventOccursOnLocalDay", () => {
+  const day = new Date(2026, 6, 12); // 2026-07-12 local
+
+  it("matches an all-day event on the same local day", () => {
+    expect(eventOccursOnLocalDay("2026-07-12", true, day)).toBe(true);
+  });
+
+  it("matches a date-only start even when allDay is false", () => {
+    expect(eventOccursOnLocalDay("2026-07-12", false, day)).toBe(true);
+  });
+
+  it("rejects an all-day event on a different day", () => {
+    expect(eventOccursOnLocalDay("2026-07-13", true, day)).toBe(false);
+  });
+
+  it("matches a timed event that falls on the local day", () => {
+    const timed = new Date(2026, 6, 12, 15, 0, 0).toISOString();
+    expect(eventOccursOnLocalDay(timed, false, day)).toBe(true);
   });
 });

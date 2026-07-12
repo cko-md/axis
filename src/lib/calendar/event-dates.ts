@@ -1,17 +1,8 @@
-/** Local calendar day as yyyy-mm-dd. */
-export function localDayIso(day: Date): string {
-  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-}
+import { localDayIso, todayLocalIso } from "@/lib/dates";
 
-/**
- * Today's local calendar day as yyyy-mm-dd. Prefer this over
- * `new Date().toISOString().slice(0, 10)`, which returns the UTC day and rolls
- * over early for users in negative-UTC timezones (e.g. after 8 PM EDT it
- * reports tomorrow), producing wrong "today" writes and comparisons.
- */
-export function todayLocalIso(): string {
-  return localDayIso(new Date());
-}
+// The general-purpose local-day helpers now live in `@/lib/dates`. They are
+// re-exported here so existing `@/lib/calendar/event-dates` imports keep working.
+export { localDayIso, todayLocalIso };
 
 export function startOfLocalDay(day = new Date()): Date {
   const start = new Date(day);
