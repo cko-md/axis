@@ -681,7 +681,11 @@ export function DebriefModule() {
 
   const scheduleReminder = async () => {
     const next    = nextOccurrence(reminderDay, reminderHour);
-    const dateStr = next.toISOString().split("T")[0];
+    // Derive the deadline from the LOCAL calendar day. next is a local Date;
+    // toISOString() would roll evening reminders (e.g. 8 PM in a UTC-negative
+    // zone) to the next UTC day, storing a deadline that disagrees with the
+    // day shown to the user and surfacing the task on the wrong Agenda day.
+    const dateStr = localDayIso(next);
     const label   = next.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
     const hourFmt = reminderHour === 0 ? "12 AM" : reminderHour < 12 ? `${reminderHour} AM` : reminderHour === 12 ? "12 PM" : `${reminderHour - 12} PM`;
     const title = `Weekly Debrief · Review + Plan — ${DAY_NAMES[reminderDay]} ${hourFmt}`;
