@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { buildTodayRanking, type TodayItem } from "@/components/agenda/today-ranking";
 import type { ScheduleEvent } from "@/lib/types";
+import { activateOnEnterSpace } from "@/lib/a11y";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
@@ -924,7 +925,7 @@ export function AgendaModule() {
           style={{ cursor: "pointer" }}
           onClick={() => setStatFilter(statFilter === null ? null : null)}
           title="Show open tasks"
-        >
+         role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
           <div className="sv">{open.length}</div>
           <div className="sk">Open</div>
         </div>
@@ -933,7 +934,7 @@ export function AgendaModule() {
           style={{ cursor: "pointer" }}
           onClick={() => setStatFilter((f) => f === "overdue" ? null : "overdue")}
           title="Show overdue tasks"
-        >
+         role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
           <div className="sv">{overdue.length}</div>
           <div className="sk">Overdue</div>
         </div>
@@ -942,7 +943,7 @@ export function AgendaModule() {
           style={{ cursor: "pointer" }}
           onClick={() => setStatFilter((f) => f === "done" ? null : "done")}
           title="Show tasks completed today"
-        >
+         role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
           <div className="sv">{doneToday.length}</div>
           <div className="sk">Done today</div>
         </div>

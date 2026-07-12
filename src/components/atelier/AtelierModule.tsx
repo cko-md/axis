@@ -23,6 +23,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useAtelierPrefs } from "@/lib/hooks/useAtelierPrefs";
 import { StatusCallout } from "@/components/ui/StatusCallout";
+import { activateOnEnterSpace } from "@/lib/a11y";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -443,7 +444,7 @@ export function AtelierModule() {
       <div className={`subpanel${tab === "atl-lang" ? " on" : ""}`} id="atl-lang">
         <div className="langbar">
           {LANGS.map((l) => (
-            <div key={l.key} className={`langbtn${lang === l.key ? " on" : ""}`} onClick={() => setLang(l.key)}>
+            <div key={l.key} className={`langbtn${lang === l.key ? " on" : ""}`} onClick={() => setLang(l.key)} role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
               {l.flag} {l.label} <span className="lv">{l.lv}</span>
             </div>
           ))}
@@ -482,7 +483,7 @@ export function AtelierModule() {
                   <span
                     className={`pin${pins[`${lang}:${i}`] ? " on" : ""}`}
                     onClick={() => togglePin(`${lang}:${i}`)}
-                  >
+                   role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2l2.6 6.3 6.8.5-5.2 4.4 1.7 6.6L12 17l-5.9 3.3 1.7-6.6L2.6 8.8l6.8-.5z" />
                     </svg>
@@ -573,7 +574,7 @@ export function AtelierModule() {
               }}
             />
             <div style={{ marginTop: 12 }}>
-              <span className="savebtn" role="button" tabIndex={0} onClick={() => moodInputRef.current?.click()}>
+              <span className="savebtn" role="button" tabIndex={0} onClick={() => moodInputRef.current?.click()} onKeyDown={activateOnEnterSpace}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 5v14M5 12h14" /></svg>
                 Add Images
               </span>
