@@ -21,3 +21,47 @@ export function localDayIso(day: Date): string {
 export function todayLocalIso(): string {
   return localDayIso(new Date());
 }
+
+/**
+ * Resolve a stored IANA timezone string, falling back to "UTC".
+ *
+ * Server code that needs a user's local day should read the timezone captured
+ * on the client (see ThemeProvider / user_preferences.interface_settings.timeZone)
+ * and pass it through here so a missing/invalid value degrades to UTC rather
+ * than throwing.
+ */
+export function resolveTimeZone(value: unknown): string {
+  return typeof value === "string" && value.trim().length > 0 ? value : "UTC";
+}
+
+/**
+ * The browser's current IANA timezone (e.g. "America/New_York"), or undefined
+ * if it cannot be determined. Safe to call in any environment.
+ */
+export function getBrowserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The calendar day (yyyy-mm-dd) on which `date` falls when observed in the
+ * given IANA timezone. This is the timezone-aware analogue of `localDayIso`:
+ * use it in server code (which has no local timezone of its own) to compute a
+ * specific user's "today"/day instead of the UTC day.
+ */
+export function localDayIsoInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  const y = get("year") ?? "0000";
+  const m = get("month") ?? "01";
+  const d = get("day") ?? "01";
+  return `${y}-${m}-${d}`;
+}
