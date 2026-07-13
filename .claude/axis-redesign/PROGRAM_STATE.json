@@ -111,10 +111,10 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Persist provenance columns on financial tables (MIGRATION-GATED: requires Supabase migration + RLS review; blocked until DB target/tooling available)",
+    "Human + RLS review of drafted (UNAPPLIED) migrations: supabase/migrations/202607131700_fund_provenance_columns.sql, 202607131701_tasks_table.sql, 202607131702_approvals_table.sql — then apply against a real Supabase target",
+    "After tasks/approvals tables exist: wire src/lib/tasks/taskState.ts and src/lib/security/actionPolicy.ts to real persistence (API routes)",
     "Wire classifyFreshness into Fund UI as visible freshness badges (fresh/delayed/stale)",
-    "Reshape objectives/pipeline around FinancialTaskStatus state machine (typed status + transitions, pure first)",
-    "Add severity tiers + dedup + resolution memory to signals module"
+    "Build approval-card UI (never a bare Allow button — full scope per §11.3)"
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",
