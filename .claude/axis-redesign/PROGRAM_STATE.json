@@ -1,0 +1,65 @@
+{
+  "program": "axis-system-redesign",
+  "branch": "claude/axis-system-redesign-cifxlw",
+  "baseline_commit": "f478cde",
+  "revision_reviewed": "f478cde",
+  "updated": "2026-07-13",
+  "governance": {
+    "source": "AGENTS.md",
+    "rules": [
+      "no broad unrelated refactors",
+      "one coherent change per branch/PR",
+      "ship complete vertical slices, not prototypes",
+      "preserve existing behavior unless the wave changes it",
+      "no schema change without migration + RLS review",
+      "no secrets in code/logs/PRs"
+    ]
+  },
+  "baseline_health": {
+    "typecheck": "pass",
+    "lint": "0 errors, 7 pre-existing react-hooks/exhaustive-deps warnings",
+    "unit_tests": "416 passed / 67 files",
+    "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
+  },
+  "phases": {
+    "0_initialization": "done",
+    "1_audit": "in_progress",
+    "2_product_synthesis": "started",
+    "3_target_architecture": "started",
+    "4_financial_domain": "wave_4.1_landed",
+    "5_security_kernel": "planned",
+    "6_design_system": "planned",
+    "7_workspace_shell": "planned",
+    "8_core_modules": "planned",
+    "9_agent_runtime": "planned",
+    "10_integrations": "planned",
+    "11_performance": "planned",
+    "12_testing": "planned",
+    "13_observability": "planned",
+    "14_cicd": "planned"
+  },
+  "waves": [
+    {
+      "id": "4.1",
+      "title": "Deterministic money primitive",
+      "status": "landed",
+      "files_added": ["src/lib/fund/money.ts", "src/lib/fund/money.test.ts"],
+      "files_changed": ["src/lib/fund/financeNarratorContext.ts"],
+      "tests": "14 targeted tests pass; full suite green",
+      "adr": "docs/axis-redesign/adr/0001-deterministic-money.md",
+      "verification": "npx vitest run + npx tsc --noEmit"
+    }
+  ],
+  "next_dependency_ordered_actions": [
+    "Adopt sumBy/sumMoney at Fund aggregation call sites (one component per PR): OverviewModule, FundNetWorthModule, FundLiabilities, FundRecurringList, FundCashflowModule",
+    "Add provenance fields to financial values (provider, record id, retrieved_at, effective_at, currency, confidence)",
+    "Define reconciliation states (matched/partial/conflicting/missing/stale/pending)",
+    "Reshape objectives/pipeline around FinancialTaskStatus state machine",
+    "Add severity tiers + dedup + resolution memory to signals module"
+  ],
+  "artifacts": {
+    "docs": "docs/axis-redesign/",
+    "skill": ".claude/skills/axis-system-redesign/",
+    "defect_ledger": ".claude/axis-redesign/DEFECT_LEDGER.json"
+  }
+}

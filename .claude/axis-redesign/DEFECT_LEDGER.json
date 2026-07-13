@@ -1,0 +1,42 @@
+{
+  "updated": "2026-07-13",
+  "revision": "f478cde",
+  "defects": [
+    {
+      "id": "FIN-001",
+      "severity": "medium",
+      "source": "current-state audit",
+      "summary": "Money aggregated as IEEE-754 float across Fund; totals can drift by a cent",
+      "reproduction": "Sum [0.1, 0.2] via reduce(+) -> 0.30000000000000004; roll up N balances",
+      "affected": [
+        "src/components/fund/OverviewModule.tsx",
+        "src/components/fund/FundNetWorthModule.tsx",
+        "src/components/fund/FundLiabilities.tsx",
+        "src/components/fund/FundRecurringList.tsx",
+        "src/components/fund/FundCashflowModule.tsx",
+        "src/lib/fund/financeDailyJobs.ts",
+        "src/lib/fund/financeNarratorContext.ts"
+      ],
+      "root_cause": "No deterministic money primitive; ad-hoc float arithmetic",
+      "fix": "Added src/lib/fund/money.ts (integer minor units + exact sumMoney/sumBy); routed safeMoney through it",
+      "regression_test": "src/lib/fund/money.test.ts (financial invariants)",
+      "status": "partially_fixed",
+      "revision_fixed": "pending-commit",
+      "verification": "14 targeted tests pass; full suite 416 green",
+      "similar_code_search": "Remaining reduce(+ Number()) sites listed in 'affected' are follow-up adoption waves (one component per PR)"
+    },
+    {
+      "id": "FIN-002",
+      "severity": "low",
+      "source": "current-state audit",
+      "summary": "safeMoney accepted sub-cent floats without rounding to the currency minor unit",
+      "affected": ["src/lib/fund/financeNarratorContext.ts"],
+      "root_cause": "Raw Number() parse",
+      "fix": "safeMoney delegates to parseMoney (cent-rounded)",
+      "regression_test": "src/lib/fund/money.test.ts",
+      "status": "fixed",
+      "revision_fixed": "pending-commit",
+      "verification": "existing financeNarratorContext.test.ts still passes"
+    }
+  ]
+}
