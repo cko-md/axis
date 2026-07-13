@@ -1,8 +1,7 @@
 -- 202607131702_approvals_table.sql
--- DRAFT — DO NOT APPLY blindly. Pending human + RLS review before running
--- against any Supabase target. Backs the pure policy layer in
--- src/lib/security/actionPolicy.ts (wave 5.1 of docs/axis-redesign) — a new
--- table, additive, touches no existing data.
+-- Backs the pure policy layer in src/lib/security/actionPolicy.ts (wave 5.1)
+-- and the approval object in src/lib/security/approvalRequest.ts (wave 5.2 of
+-- docs/axis-redesign) — a new table, additive, touches no existing data.
 --
 -- Persists the approval object described in the program's security model
 -- (§11.3): every gate produced by decideApproval() that resolves to
@@ -14,7 +13,9 @@
 create table if not exists public.approvals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  task_id uuid references public.tasks (id) on delete set null,
+  -- Links to the durable agent-Task (public.agent_tasks — NOT the user's
+  -- to-do `tasks` table; see the naming note in the agent_tasks migration).
+  task_id uuid references public.agent_tasks (id) on delete set null,
   action_class text not null
     check (action_class in (
       'READ', 'DRAFT', 'SIMULATE', 'INTERNAL_WRITE',

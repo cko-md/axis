@@ -114,18 +114,16 @@
       "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
     }
   ],
-  "migrations_rls_review": {
-    "reviewed": "2026-07-13",
-    "status": "sound — safe to apply when owner authorizes a real Supabase target (§25 escalation point; NOT applied by the agent)",
+  "migrations_applied": {
+    "applied": "2026-07-13",
+    "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) — the app's live Supabase project",
+    "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
+    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. Security advisor: no RLS lint on any new table (only a pre-existing auth leaked-password-protection warning, unrelated).",
+    "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "files": [
       "supabase/migrations/202607131700_fund_provenance_columns.sql",
-      "supabase/migrations/202607131701_tasks_table.sql",
+      "supabase/migrations/202607131701_tasks_table.sql (creates agent_tasks/agent_task_activity)",
       "supabase/migrations/202607131702_approvals_table.sql"
-    ],
-    "findings": [
-      "Provenance migration is additive (add column if not exists) against existing tables fund_holdings/fund_liabilities/fund_transactions/net_worth_snapshots (all confirmed present) — applies cleanly, no RLS change needed.",
-      "tasks + task_activity + approvals all enable RLS with owner-scoped (auth.uid() = user_id) select/insert/update; task_activity and approvals are append-only (no delete policy) for audit integrity; check constraints mirror the domain enums.",
-      "MINOR (app-code, not a blocker): approvals UPDATE policy permits updating any column, so audit-immutability of action_class/proposed_action after creation is delegated to application code — consistent with the taskState assertTransition approach."
     ]
   },
   "governance_override": {

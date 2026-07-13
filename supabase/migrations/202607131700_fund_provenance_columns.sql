@@ -1,6 +1,5 @@
 -- 202607131700_fund_provenance_columns.sql
--- DRAFT — DO NOT APPLY blindly. Pending human + RLS review before running
--- against any Supabase target. Written to back the pure domain layer in
+-- Written to back the pure domain layer in
 -- src/lib/fund/provenance.ts (wave 4.3 of docs/axis-redesign) — this migration
 -- only adds nullable/defaulted columns, so it is additive and backward
 -- compatible with existing rows and read paths.
