@@ -19,6 +19,7 @@ import {
   Radio,
   RotateCcw,
   Settings,
+  ShieldCheck,
   Sparkles,
   Target,
   Users,
@@ -45,6 +46,7 @@ export const NAV_ICON_MAP: Record<string, LucideIcon> = {
   recipes: ChefHat,
   chart: LineChart,
   tasks: Bot,
+  approvals: ShieldCheck,
   system: Settings,
   // Command palette action / create keys (not sidebar routes)
   create: Sparkles,
