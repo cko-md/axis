@@ -42,6 +42,29 @@ describe("listComposioEvents()", () => {
       }),
     }));
   });
+
+  // Regression: verified live against a real connected account that
+  // GOOGLECALENDAR_EVENTS_LIST rejects orderBy:"startTime" with a 400
+  // ("The requested ordering is not available for the particular query.")
+  // unless singleEvents:true is also set — every Composio Google Calendar
+  // sync failed on this until singleEvents was added.
+  it("always sets singleEvents:true alongside orderBy:startTime for Google Calendar", async () => {
+    await listComposioEvents(
+      "googlecalendar",
+      "ca_google",
+      "user_1",
+      "2026-07-01T00:00:00Z",
+      "2026-07-31T23:59:59Z",
+    );
+
+    expect(executeToolMock).toHaveBeenCalledWith(expect.objectContaining({
+      arguments: expect.objectContaining({
+        calendarId: "primary",
+        singleEvents: true,
+        orderBy: "startTime",
+      }),
+    }));
+  });
 });
 
 import {

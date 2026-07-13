@@ -10,7 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
-import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openComposioOAuthPopup, openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { Seg } from "@/components/ui/Seg";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
@@ -477,15 +477,23 @@ export function ControlRoomModule() {
   }, [tab]);
 
   // --- Actions ------------------------------------------------------------
+  // Primary "Connect" uses DIRECT OAuth (/api/spotify/auth, /api/strava?action=auth)
+  // — the deeply-integrated path SpotifyProvider/useStrava actually read from
+  // (playback control, token refresh, activity fetch). Composio is a secondary,
+  // narrower bridge (see "Via Composio" below) that those hooks don't consume for
+  // Spotify, so wiring the primary button to Composio left the miniplayer/Vitality
+  // widgets stuck showing "disconnected" even after a successful Composio grant —
+  // both buttons were doing the same thing, and the one users click first didn't
+  // reach the code that actually reads it.
   const connectSpotify = () => {
-    openComposioOAuthPopup("spotify", (status) => {
-      if (status === "ok") void refreshAfterComposio();
+    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
+      if (status === "ok") void refreshSpotifyStatus();
     });
   };
 
   const connectStrava = () => {
-    openComposioOAuthPopup("strava", (status) => {
-      if (status === "ok") void refreshAfterComposio();
+    openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
+      if (status === "ok") void refreshStravaStatus();
     });
   };
 

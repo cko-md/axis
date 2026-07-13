@@ -9,6 +9,7 @@ import {
   isSupportedToolkit,
   CUSTOM_AUTH_TOOLKITS,
   ComposioError,
+  deleteConnectedAccount,
 } from "@/lib/integrations/composio";
 
 // Toolkits in CUSTOM_AUTH_TOOLKITS need our own OAuth client registered with
@@ -21,6 +22,18 @@ const CUSTOM_AUTH_ENV: Record<string, { clientId?: string; clientSecret?: string
   googlecontacts: { clientId: optionalEnv("GOOGLE_CLIENT_ID"), clientSecret: optionalEnv("GOOGLE_CLIENT_SECRET") },
   spotify: { clientId: optionalEnv("SPOTIFY_CLIENT_ID"), clientSecret: optionalEnv("SPOTIFY_CLIENT_SECRET") },
 };
+
+// gmail/outlook intentionally allow multiple connected mailboxes (see
+// mail_connections' composite key). Every other toolkit is single-account in
+// this app's design — but Composio issues a FRESH connected_account_id on
+// every OAuth grant, and the DB's unique constraint is
+// (user_id, toolkit, connected_account_id), so the upsert below can never
+// match an existing row on reconnect. Left unhandled, every reconnect (e.g.
+// after a token expired, or just retrying) silently piled up a duplicate
+// ACTIVE row — which duplicated every calendar event, Strava activity, etc.
+// in any UI that lists "all active connections" for the toolkit. Revoke prior
+// rows for single-account toolkits before recording the new one.
+const MULTI_ACCOUNT_TOOLKITS = new Set(["gmail", "outlook"]);
 
 // GET /api/integrations/composio/connect?toolkit=gmail|outlook
 // Mirrors /api/mail/connect's shape (a popup-friendly redirect) so it can be
@@ -59,6 +72,26 @@ export async function GET(req: NextRequest) {
       callbackUrl,
       composioManaged: !needsCustomAuth,
     });
+
+    // Revoke any prior connection(s) for this single-account toolkit now that
+    // the new grant is confirmed in-flight — never before, so a failed
+    // initiateConnection above never leaves the user with nothing connected.
+    if (!MULTI_ACCOUNT_TOOLKITS.has(toolkit)) {
+      const { data: staleRows } = await supabase
+        .from("composio_connections")
+        .select("id, connected_account_id")
+        .eq("user_id", user.id)
+        .eq("toolkit", toolkit)
+        .neq("connected_account_id", connectedAccountId);
+      if (staleRows && staleRows.length > 0) {
+        await Promise.allSettled(staleRows.map((row) => deleteConnectedAccount(row.connected_account_id)));
+        await supabase
+          .from("composio_connections")
+          .delete()
+          .eq("user_id", user.id)
+          .in("id", staleRows.map((row) => row.id));
+      }
+    }
 
     const { error: dbError } = await supabase.from("composio_connections").upsert(
       {
