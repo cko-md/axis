@@ -143,6 +143,22 @@
       "note": "Wires src/lib/tasks/taskState.ts to public.agent_tasks. GET/POST collection (auth + RLS + ?status filter; create seeds queued + activity log). [id] GET (task + append-only activity) and PATCH transition — reads current status, enforces canTransition SERVER-SIDE (illegal => 409 ILLEGAL_TRANSITION, not a Sentry exception), stamps completed_at on terminal, appends status_change activity. database.types.ts: added agent_tasks/agent_task_activity/approvals table types (targeted). Verified live DB check constraints mirror the domain enums exactly (12 statuses, 7 action classes, requirement/scope/status).",
       "tests": "501 tests pass (taskState transition logic already covered); tsc clean; lint clean. Routes mirror the proven fund/holdings pattern.",
       "verification": "npx tsc --noEmit + npx eslint src/app/api/agent-tasks + live constraint read-back"
+    },
+    {
+      "id": "8.3",
+      "title": "Tasks workbench — user-facing agent-Task slice",
+      "status": "landed",
+      "files_added": [
+        "src/lib/hooks/useAgentTasks.ts",
+        "src/lib/tasks/taskStatusView.ts",
+        "src/lib/tasks/taskStatusView.test.ts",
+        "src/components/tasks/TasksModule.tsx",
+        "src/app/tasks/page.tsx"
+      ],
+      "files_changed": ["src/lib/store/nav.ts", "src/lib/icons/nav-icons.ts"],
+      "note": "Turns wave 8.2 into a user-facing slice. New 'Operate' nav section + /tasks route (status=beta, honestly labeled). TasksModule: create + status filter (Seg) + two-pane list/detail; detail shows activity log and ONLY the legal next statuses (TASK_TRANSITIONS) as move buttons; 409 ILLEGAL_TRANSITION surfaced as a toast. All states handled: loading (Skeleton), empty, error, signed-out (StatusCallout). Pure taskStatusView presenter (label/tone/group/color) unit-tested. Verified: next build compiled successfully; tsc/lint/505 tests green. Manual interactive click-through requires the local Supabase stack (auth) — listed as the manual validation step.",
+      "tests": "505 tests pass (+4); tsc clean; lint clean; next build compiled successfully",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build (compile)"
     }
   ],
   "migrations_applied": {
