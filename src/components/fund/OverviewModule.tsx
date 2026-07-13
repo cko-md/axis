@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fmtUsd, holdingGain, holdingValue, type HoldingRow } from "@/lib/store/fund-defaults";
+import { sumBy, sumMoney } from "@/lib/fund/money";
 import { Card } from "@/components/ui/Card";
 import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
@@ -16,7 +17,7 @@ export function OverviewModule() {
   // FUND-1: liabilities come from the shared layout store (the same
   // /api/fund/liabilities data Net Worth + Cashflow use), not a separate fetch.
   const { liabilities: liabilityRows } = useFundData();
-  const liabilities = liabilityRows.reduce((s, l) => s + Number(l.balance), 0);
+  const liabilities = sumBy(liabilityRows, (l) => l.balance);
   const [signedIn, setSignedIn] = useState(false);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [brief, setBrief] = useState<Insight | null>(null);
@@ -44,8 +45,8 @@ export function OverviewModule() {
       .catch(() => null);
   }, [loadHoldings]);
 
-  const invested = holdings.reduce((s, h) => s + holdingValue(h), 0);
-  const netWorth = invested + cash - liabilities;
+  const invested = sumBy(holdings, holdingValue);
+  const netWorth = sumMoney([invested, cash, -liabilities]);
 
   return (
     <div>

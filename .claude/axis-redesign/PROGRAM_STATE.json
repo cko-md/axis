@@ -48,10 +48,32 @@
       "tests": "14 targeted tests pass; full suite green",
       "adr": "docs/axis-redesign/adr/0001-deterministic-money.md",
       "verification": "npx vitest run + npx tsc --noEmit"
+    },
+    {
+      "id": "4.2",
+      "title": "Adopt deterministic money primitive across Fund aggregation sites",
+      "status": "landed",
+      "files_changed": [
+        "src/components/fund/OverviewModule.tsx",
+        "src/components/fund/FundNetWorthModule.tsx",
+        "src/components/fund/FundLiabilities.tsx",
+        "src/components/fund/FundRecurringList.tsx",
+        "src/components/fund/FundCashflowModule.tsx",
+        "src/lib/fund/financeDailyJobs.ts",
+        "src/lib/fund/usePlaidConnection.ts"
+      ],
+      "note": "All float reduce(+Number()) money aggregations + net-worth combinations now cent-exact via sumBy/sumMoney. Closes FIN-001. Executed under the owner-authorized System Redesign Override (AGENTS.md 2a).",
+      "tests": "427 tests pass; tsc clean; lint 0 errors",
+      "verification": "npm run test + npx tsc --noEmit + npm run lint"
     }
   ],
+  "governance_override": {
+    "active": true,
+    "authorized_by": "repo owner (c.k.ogonuwe@gmail.com)",
+    "scope": "sweeping cross-module redesign per AGENTS.md 2a; safety rails (secrets, no-silent-fail, financial kernel, migrations+RLS, green gates) remain non-negotiable",
+    "recorded": "AGENTS.md 2a"
+  },
   "next_dependency_ordered_actions": [
-    "Adopt sumBy/sumMoney at Fund aggregation call sites (one component per PR): OverviewModule, FundNetWorthModule, FundLiabilities, FundRecurringList, FundCashflowModule",
     "Add provenance fields to financial values (provider, record id, retrieved_at, effective_at, currency, confidence)",
     "Define reconciliation states (matched/partial/conflicting/missing/stale/pending)",
     "Reshape objectives/pipeline around FinancialTaskStatus state machine",

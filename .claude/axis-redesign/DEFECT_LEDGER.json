@@ -20,10 +20,10 @@
       "root_cause": "No deterministic money primitive; ad-hoc float arithmetic",
       "fix": "Added src/lib/fund/money.ts (integer minor units + exact sumMoney/sumBy); routed safeMoney through it",
       "regression_test": "src/lib/fund/money.test.ts (financial invariants)",
-      "status": "partially_fixed",
-      "revision_fixed": "pending-commit",
-      "verification": "14 targeted tests pass; full suite 416 green",
-      "similar_code_search": "Remaining reduce(+ Number()) sites listed in 'affected' are follow-up adoption waves (one component per PR)"
+      "status": "fixed",
+      "revision_fixed": "wave-4.2",
+      "verification": "All listed aggregation sites now route through sumBy/sumMoney; net-worth combinations use sumMoney; 427 tests green, tsc clean",
+      "similar_code_search": "All reduce(+ Number()) money aggregation sites in Fund adopted in wave 4.2 (OverviewModule, FundNetWorthModule, FundLiabilities, FundRecurringList, FundCashflowModule, financeDailyJobs, usePlaidConnection)"
     },
     {
       "id": "FIN-002",
