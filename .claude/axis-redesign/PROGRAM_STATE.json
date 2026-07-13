@@ -130,6 +130,19 @@
       "note": "Pure freshnessBadgeView(tier)->{label,tone,description} + relativeTimeShort (null on missing/invalid/future). Tokenized, accessible FreshnessBadge primitive (role=status, aria-label) deriving tier via classifyFreshness. Wired into NetWorthChart driven by the latest snapshot's real computed_at (networth GET now selects it; POST stamps it) with FRESHNESS_SLAS.accountBalance — shown only when a real snapshot exists (no fabricated 'as of'). database.types.ts: added computed_at to net_worth_snapshots (targeted, not full regen).",
       "tests": "501 tests pass (+7); tsc clean; lint clean",
       "verification": "npm run test + npx tsc --noEmit + npx eslint (changed files)"
+    },
+    {
+      "id": "8.2",
+      "title": "Agent-Task persistence wiring (API routes + assertTransition server gate)",
+      "status": "landed",
+      "files_added": [
+        "src/app/api/agent-tasks/route.ts",
+        "src/app/api/agent-tasks/[id]/route.ts"
+      ],
+      "files_changed": ["src/lib/supabase/database.types.ts"],
+      "note": "Wires src/lib/tasks/taskState.ts to public.agent_tasks. GET/POST collection (auth + RLS + ?status filter; create seeds queued + activity log). [id] GET (task + append-only activity) and PATCH transition — reads current status, enforces canTransition SERVER-SIDE (illegal => 409 ILLEGAL_TRANSITION, not a Sentry exception), stamps completed_at on terminal, appends status_change activity. database.types.ts: added agent_tasks/agent_task_activity/approvals table types (targeted). Verified live DB check constraints mirror the domain enums exactly (12 statuses, 7 action classes, requirement/scope/status).",
+      "tests": "501 tests pass (taskState transition logic already covered); tsc clean; lint clean. Routes mirror the proven fund/holdings pattern.",
+      "verification": "npx tsc --noEmit + npx eslint src/app/api/agent-tasks + live constraint read-back"
     }
   ],
   "migrations_applied": {
@@ -151,10 +164,10 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "OWNER ACTION (§25 escalation — agent will not apply): apply the three RLS-reviewed drafted migrations against a real Supabase target via the standard flow. RLS review complete (see migrations_rls_review).",
-    "After tasks/approvals tables exist: wire src/lib/tasks/taskState.ts, src/lib/security/actionPolicy.ts, and src/lib/security/approvalRequest.ts to real persistence (API routes with ownership checks + assertTransition/isActionable gates).",
-    "Wire classifyFreshness into Fund UI as visible freshness badges (fresh/delayed/stale) — pure-UI wave, no schema.",
-    "Build approval-card UI on top of ApprovalRequest/validateApprovalCompleteness (never a bare Allow button — full scope per §11.3)."
+    "Approvals persistence: POST /api/approvals (buildApprovalRequest + validateApprovalCompleteness before insert) + PATCH decide/execute gated by isActionable (step-up + unexpired). Mirrors the agent-tasks wiring.",
+    "Agent-Task UI: a Tasks workbench listing agent_tasks with status + activity, consuming /api/agent-tasks (turns wave 8.2 into a user-facing vertical slice).",
+    "Extend freshness badges to Accounts/Activity views once provenance columns (retrieved_at) are populated by the Plaid/holdings sync paths.",
+    "Approval-card UI on top of ApprovalRequest/validateApprovalCompleteness (never a bare Allow button — full scope per §11.3)."
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",

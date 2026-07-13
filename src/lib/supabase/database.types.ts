@@ -1516,6 +1516,142 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_tasks: {
+        Row: {
+          actual_cost_usd: number | null
+          completed_at: string | null
+          context: Json
+          created_at: string
+          estimated_cost_usd: number | null
+          id: string
+          objective: string
+          source_routine_id: string | null
+          source_skill: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          context?: Json
+          created_at?: string
+          estimated_cost_usd?: number | null
+          id?: string
+          objective: string
+          source_routine_id?: string | null
+          source_skill?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          context?: Json
+          created_at?: string
+          estimated_cost_usd?: number | null
+          id?: string
+          objective?: string
+          source_routine_id?: string | null
+          source_skill?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_task_activity: {
+        Row: {
+          created_at: string
+          detail: Json
+          id: string
+          kind: string
+          task_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          id?: string
+          kind: string
+          task_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          id?: string
+          kind?: string
+          task_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_task_activity_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "agent_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approvals: {
+        Row: {
+          action_class: string
+          created_at: string
+          decided_at: string | null
+          expires_at: string | null
+          id: string
+          proposed_action: Json
+          reasons: string[]
+          requirement: string
+          scope: string
+          status: string
+          step_up_verified_at: string | null
+          task_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action_class: string
+          created_at?: string
+          decided_at?: string | null
+          expires_at?: string | null
+          id?: string
+          proposed_action: Json
+          reasons?: string[]
+          requirement: string
+          scope?: string
+          status?: string
+          step_up_verified_at?: string | null
+          task_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action_class?: string
+          created_at?: string
+          decided_at?: string | null
+          expires_at?: string | null
+          id?: string
+          proposed_action?: Json
+          reasons?: string[]
+          requirement?: string
+          scope?: string
+          status?: string
+          step_up_verified_at?: string | null
+          task_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approvals_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "agent_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       net_worth_snapshots: {
         Row: {
           captured_on: string
