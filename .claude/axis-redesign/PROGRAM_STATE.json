@@ -74,6 +74,15 @@
       "note": "Typed Provenance shape, deterministic classifyFreshness (fresh/delayed/stale/unknown with clock-skew guard), reconcileAmount (matched/partial/conflicting/missing, cent-exact + tolerance). No DB/network — persistence of provenance columns is a separate migration-gated wave.",
       "tests": "441 tests pass (+14); tsc clean; lint 0 errors",
       "verification": "npm run test + npx tsc --noEmit + npm run lint"
+    },
+    {
+      "id": "8.1",
+      "title": "Durable agent-Task state machine (pure)",
+      "status": "landed",
+      "files_added": ["src/lib/tasks/taskState.ts", "src/lib/tasks/taskState.test.ts"],
+      "note": "FinancialTaskStatus (12 states), TASK_TRANSITIONS graph, canTransition/assertTransition guards, terminal/active/waiting helpers. Approval grant must route through executing; terminal states are dead-ends. Persistence (tasks table + RLS) deferred to a migration-gated wave.",
+      "tests": "453 tests pass (+12); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/tasks"
     }
   ],
   "governance_override": {
