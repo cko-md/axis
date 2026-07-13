@@ -1,6 +1,7 @@
 {
   "program": "axis-system-redesign",
-  "branch": "claude/axis-system-redesign-cifxlw",
+  "branch": "claude/axis-system-redesign-7986vb",
+  "branch_note": "Consolidated onto 7986vb (PR #190); the six waves originally landed on cifxlw were reset onto this branch, superseding a redundant §0 override with the canonical AGENTS.md §2a. Verified green here: tsc clean, lint 0 errors, 494 tests pass.",
   "baseline_commit": "f478cde",
   "revision_reviewed": "f478cde",
   "updated": "2026-07-13",
@@ -102,8 +103,31 @@
       "note": "ActionClass (READ..DESTRUCTIVE_ADMIN), BASE_REQUIREMENT, decideApproval/requiresApproval. Enforces the combinatorial prompt-injection rule (sensitive data + untrusted external content + outbound/execution => mandatory approval) and forbids downgrading financial execution / destructive admin. Pure; the approval-object persistence + UI cards are later waves.",
       "tests": "474 tests pass (+10); tsc clean; lint clean",
       "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
+    },
+    {
+      "id": "5.2",
+      "title": "Approval object — §11.3 durable approval contract (pure)",
+      "status": "landed",
+      "files_added": ["src/lib/security/approvalRequest.ts", "src/lib/security/approvalRequest.test.ts"],
+      "note": "ApprovalRequest shape + buildApprovalRequest (derives requirement/reasons/step-up from decideApproval; forces one_time scope for FINANCIAL_EXECUTION/DESTRUCTIVE_ADMIN), validateApprovalCompleteness ('never a bare Allow' — outbound/executing need freshness+expiry; execution needs amount/account/before+after; destructive needs before-state), isApprovalExpired (fail-safe: unparseable => expired), isActionable (single execution gate: complete + unexpired + step-up satisfied). Pure; this is the typed contract the drafted approvals table + future approval-card UI implement.",
+      "tests": "494 tests pass (+20); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
     }
   ],
+  "migrations_rls_review": {
+    "reviewed": "2026-07-13",
+    "status": "sound — safe to apply when owner authorizes a real Supabase target (§25 escalation point; NOT applied by the agent)",
+    "files": [
+      "supabase/migrations/202607131700_fund_provenance_columns.sql",
+      "supabase/migrations/202607131701_tasks_table.sql",
+      "supabase/migrations/202607131702_approvals_table.sql"
+    ],
+    "findings": [
+      "Provenance migration is additive (add column if not exists) against existing tables fund_holdings/fund_liabilities/fund_transactions/net_worth_snapshots (all confirmed present) — applies cleanly, no RLS change needed.",
+      "tasks + task_activity + approvals all enable RLS with owner-scoped (auth.uid() = user_id) select/insert/update; task_activity and approvals are append-only (no delete policy) for audit integrity; check constraints mirror the domain enums.",
+      "MINOR (app-code, not a blocker): approvals UPDATE policy permits updating any column, so audit-immutability of action_class/proposed_action after creation is delegated to application code — consistent with the taskState assertTransition approach."
+    ]
+  },
   "governance_override": {
     "active": true,
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com)",
@@ -111,10 +135,10 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Human + RLS review of drafted (UNAPPLIED) migrations: supabase/migrations/202607131700_fund_provenance_columns.sql, 202607131701_tasks_table.sql, 202607131702_approvals_table.sql — then apply against a real Supabase target",
-    "After tasks/approvals tables exist: wire src/lib/tasks/taskState.ts and src/lib/security/actionPolicy.ts to real persistence (API routes)",
-    "Wire classifyFreshness into Fund UI as visible freshness badges (fresh/delayed/stale)",
-    "Build approval-card UI (never a bare Allow button — full scope per §11.3)"
+    "OWNER ACTION (§25 escalation — agent will not apply): apply the three RLS-reviewed drafted migrations against a real Supabase target via the standard flow. RLS review complete (see migrations_rls_review).",
+    "After tasks/approvals tables exist: wire src/lib/tasks/taskState.ts, src/lib/security/actionPolicy.ts, and src/lib/security/approvalRequest.ts to real persistence (API routes with ownership checks + assertTransition/isActionable gates).",
+    "Wire classifyFreshness into Fund UI as visible freshness badges (fresh/delayed/stale) — pure-UI wave, no schema.",
+    "Build approval-card UI on top of ApprovalRequest/validateApprovalCompleteness (never a bare Allow button — full scope per §11.3)."
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",
