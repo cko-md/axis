@@ -93,6 +93,15 @@
       "note": "SignalSeverity (critical/actionable/informational/noise) derived over persisted signal_type + priority (no schema change); SEVERITY_ORDER + bySeverity comparator; normalizeSignalKey/isDuplicateSignal punctuation+whitespace-insensitive dedup. Adopted normalizeSignalKey in scan.ts, replacing weak exact-lowercase dedup.",
       "tests": "464 tests pass (+11); tsc clean; lint clean",
       "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/signals"
+    },
+    {
+      "id": "5.1",
+      "title": "Security kernel — action taxonomy + approval policy (pure)",
+      "status": "landed",
+      "files_added": ["src/lib/security/actionPolicy.ts", "src/lib/security/actionPolicy.test.ts"],
+      "note": "ActionClass (READ..DESTRUCTIVE_ADMIN), BASE_REQUIREMENT, decideApproval/requiresApproval. Enforces the combinatorial prompt-injection rule (sensitive data + untrusted external content + outbound/execution => mandatory approval) and forbids downgrading financial execution / destructive admin. Pure; the approval-object persistence + UI cards are later waves.",
+      "tests": "474 tests pass (+10); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
     }
   ],
   "governance_override": {
