@@ -65,6 +65,15 @@
       "note": "All float reduce(+Number()) money aggregations + net-worth combinations now cent-exact via sumBy/sumMoney. Closes FIN-001. Executed under the owner-authorized System Redesign Override (AGENTS.md 2a).",
       "tests": "427 tests pass; tsc clean; lint 0 errors",
       "verification": "npm run test + npx tsc --noEmit + npm run lint"
+    },
+    {
+      "id": "4.3",
+      "title": "Financial provenance + freshness + reconciliation domain (pure)",
+      "status": "landed",
+      "files_added": ["src/lib/fund/provenance.ts", "src/lib/fund/provenance.test.ts"],
+      "note": "Typed Provenance shape, deterministic classifyFreshness (fresh/delayed/stale/unknown with clock-skew guard), reconcileAmount (matched/partial/conflicting/missing, cent-exact + tolerance). No DB/network — persistence of provenance columns is a separate migration-gated wave.",
+      "tests": "441 tests pass (+14); tsc clean; lint 0 errors",
+      "verification": "npm run test + npx tsc --noEmit + npm run lint"
     }
   ],
   "governance_override": {
@@ -74,9 +83,9 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Add provenance fields to financial values (provider, record id, retrieved_at, effective_at, currency, confidence)",
-    "Define reconciliation states (matched/partial/conflicting/missing/stale/pending)",
-    "Reshape objectives/pipeline around FinancialTaskStatus state machine",
+    "Persist provenance columns on financial tables (MIGRATION-GATED: requires Supabase migration + RLS review; blocked until DB target/tooling available)",
+    "Wire classifyFreshness into Fund UI as visible freshness badges (fresh/delayed/stale)",
+    "Reshape objectives/pipeline around FinancialTaskStatus state machine (typed status + transitions, pure first)",
     "Add severity tiers + dedup + resolution memory to signals module"
   ],
   "artifacts": {
