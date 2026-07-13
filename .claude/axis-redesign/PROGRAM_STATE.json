@@ -159,6 +159,20 @@
       "note": "Turns wave 8.2 into a user-facing slice. New 'Operate' nav section + /tasks route (status=beta, honestly labeled). TasksModule: create + status filter (Seg) + two-pane list/detail; detail shows activity log and ONLY the legal next statuses (TASK_TRANSITIONS) as move buttons; 409 ILLEGAL_TRANSITION surfaced as a toast. All states handled: loading (Skeleton), empty, error, signed-out (StatusCallout). Pure taskStatusView presenter (label/tone/group/color) unit-tested. Verified: next build compiled successfully; tsc/lint/505 tests green. Manual interactive click-through requires the local Supabase stack (auth) — listed as the manual validation step.",
       "tests": "505 tests pass (+4); tsc clean; lint clean; next build compiled successfully",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build (compile)"
+    },
+    {
+      "id": "5.3",
+      "title": "Approvals persistence (isActionable-gated execute path)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/security/approvalPersistence.ts",
+        "src/lib/security/approvalPersistence.test.ts",
+        "src/app/api/approvals/route.ts",
+        "src/app/api/approvals/[id]/route.ts"
+      ],
+      "note": "Persists the §11.3 approval object. Pure approvalPersistence maps ApprovalRequest<->row (round-trip tested). POST /api/approvals builds via buildApprovalRequest and REJECTS auto (nothing to approve) or incomplete (never a bare Allow, returns missing[]). PATCH /api/approvals/[id] approve/deny (pending-only; expired pending -> expired) and execute — the safety gate: reconstructs the request from the STORED row (never client-supplied) and re-runs isActionable (complete + unexpired + step-up satisfied) before clearing to 'executed'. Records the gate passing only; the side-effecting action is intentionally NOT performed (no autonomous execution, §7/§11.2).",
+      "tests": "508 tests pass (+3); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint src/app/api/approvals + npm run test"
     }
   ],
   "migrations_applied": {
