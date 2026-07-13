@@ -112,6 +112,24 @@
       "note": "ApprovalRequest shape + buildApprovalRequest (derives requirement/reasons/step-up from decideApproval; forces one_time scope for FINANCIAL_EXECUTION/DESTRUCTIVE_ADMIN), validateApprovalCompleteness ('never a bare Allow' — outbound/executing need freshness+expiry; execution needs amount/account/before+after; destructive needs before-state), isApprovalExpired (fail-safe: unparseable => expired), isActionable (single execution gate: complete + unexpired + step-up satisfied). Pure; this is the typed contract the drafted approvals table + future approval-card UI implement.",
       "tests": "494 tests pass (+20); tsc clean; lint clean",
       "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
+    },
+    {
+      "id": "6.1",
+      "title": "Data-freshness badge (pure presenter + UI primitive) wired into net-worth",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/freshnessBadge.ts",
+        "src/lib/fund/freshnessBadge.test.ts",
+        "src/components/ui/FreshnessBadge.tsx"
+      ],
+      "files_changed": [
+        "src/components/fund/NetWorthChart.tsx",
+        "src/app/api/fund/networth/route.ts",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Pure freshnessBadgeView(tier)->{label,tone,description} + relativeTimeShort (null on missing/invalid/future). Tokenized, accessible FreshnessBadge primitive (role=status, aria-label) deriving tier via classifyFreshness. Wired into NetWorthChart driven by the latest snapshot's real computed_at (networth GET now selects it; POST stamps it) with FRESHNESS_SLAS.accountBalance — shown only when a real snapshot exists (no fabricated 'as of'). database.types.ts: added computed_at to net_worth_snapshots (targeted, not full regen).",
+      "tests": "501 tests pass (+7); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint (changed files)"
     }
   ],
   "migrations_applied": {

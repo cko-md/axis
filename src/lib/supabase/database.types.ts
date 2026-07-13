@@ -1520,6 +1520,7 @@ export type Database = {
         Row: {
           captured_on: string
           cash: number
+          computed_at: string
           created_at: string
           id: string
           invested: number
@@ -1530,6 +1531,7 @@ export type Database = {
         Insert: {
           captured_on?: string
           cash?: number
+          computed_at?: string
           created_at?: string
           id?: string
           invested?: number
@@ -1540,6 +1542,7 @@ export type Database = {
         Update: {
           captured_on?: string
           cash?: number
+          computed_at?: string
           created_at?: string
           id?: string
           invested?: number
