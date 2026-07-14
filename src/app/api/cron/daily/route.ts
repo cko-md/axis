@@ -47,6 +47,13 @@ export async function GET(req: NextRequest) {
     ? { error: purgeError.message }
     : { deleted: purgedCount ?? 0 };
 
+  // 4b. Expire stale pending approvals (hygiene; the execute gate already
+  // refuses expired approvals — this just keeps the queue accurate).
+  const { data: expiredApprovals, error: approvalsError } = await supabase.rpc("expire_stale_approvals");
+  results.stale_approvals_expired = approvalsError
+    ? { error: approvalsError.message }
+    : { updated: expiredApprovals ?? 0 };
+
   // 5. Dependency freshness check (sample 3 key packages)
   const WATCH_PKGS = ["next", "@supabase/ssr", "anthropic"];
   const depResults: Record<string, { current: string; latest: string; behind: boolean }> = {};

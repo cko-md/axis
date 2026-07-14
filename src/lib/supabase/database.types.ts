@@ -2609,6 +2609,7 @@ export type Database = {
     Functions: {
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
       search_note_embeddings: {
