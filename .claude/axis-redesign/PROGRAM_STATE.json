@@ -29,7 +29,7 @@
     "3_target_architecture": "substantial — 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs). More ADRs as waves land.",
     "4_financial_domain": "core done — deterministic money (adopted), provenance/freshness/reconciliation domain + provenance columns live. Corporate actions / tax lots / multi-currency FX not yet built.",
     "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is modeled, not yet bound to a real WebAuthn challenge.",
-    "6_design_system": "partial — freshness badge primitive + tokens reused. No full token/typography/motion overhaul (existing AXIS system retained).",
+    "6_design_system": "partial — semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started — command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial — Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
     "9_agent_runtime": "core done — durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
@@ -282,6 +282,16 @@
       "tests": "535 tests pass (+4); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
+    {
+      "id": "6.2",
+      "title": "Consolidate semantic status tokens (§6)",
+      "status": "landed",
+      "files_added": ["src/lib/design/statusTokens.ts", "src/lib/design/statusTokens.test.ts", "docs/axis-redesign/06-design-system.md"],
+      "files_changed": ["src/components/ui/FreshnessBadge.tsx", "src/lib/tasks/taskStatusView.ts", "src/lib/security/approvalCardView.ts"],
+      "note": "Single source of truth for status color (muted/accent/success/warning/alert/danger -> existing theme CSS vars). Freshness, task-status, and approval presenters now resolve their domain tones through it; a test pins the values so the palette can't drift. Consolidation only — every existing color preserved (consumer tests unchanged, incl. approvalToneColor==var(--down)).",
+      "tests": "537 tests pass (+2); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
   ],
   "migrations_applied": {
     "applied": "2026-07-13",

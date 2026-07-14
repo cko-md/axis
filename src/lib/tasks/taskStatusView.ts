@@ -9,6 +9,7 @@ import {
   WAITING_STATUSES,
   type FinancialTaskStatus,
 } from "./taskState";
+import { semanticToneColor } from "@/lib/design/statusTokens";
 
 /** Coarse tone used to color a status chip. */
 export type TaskStatusTone = "neutral" | "active" | "waiting" | "blocked" | "done" | "failed";
@@ -55,20 +56,20 @@ export function taskStatusGroup(status: FinancialTaskStatus): TaskStatusGroup {
   return "queued";
 }
 
-/** CSS var for a tone (matches the app's token palette). */
+/** CSS var for a tone, via the shared semantic status tokens. */
 export function taskToneColor(tone: TaskStatusTone): string {
   switch (tone) {
     case "active":
-      return "var(--accent)";
+      return semanticToneColor("accent");
     case "waiting":
-      return "var(--clay-2, var(--gold-deep))";
+      return semanticToneColor("warning");
     case "blocked":
-      return "var(--clay)";
+      return semanticToneColor("alert");
     case "done":
-      return "var(--up)";
+      return semanticToneColor("success");
     case "failed":
-      return "var(--down)";
+      return semanticToneColor("danger");
     default:
-      return "var(--ink-faint)";
+      return semanticToneColor("muted");
   }
 }

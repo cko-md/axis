@@ -6,6 +6,7 @@ import {
   relativeTimeShort,
   type FreshnessTone,
 } from "@/lib/fund/freshnessBadge";
+import { semanticToneColor, type SemanticToneKey } from "@/lib/design/statusTokens";
 
 /**
  * A small, tokenized data-freshness pill (§17: every financially material view
@@ -16,11 +17,17 @@ import {
  * classify it via the pure `classifyFreshness`. When a timestamp is available it
  * is shown as a relative "as of" caption and exposed to assistive tech.
  */
+const FRESHNESS_TONE: Record<FreshnessTone, SemanticToneKey> = {
+  positive: "success",
+  caution: "warning",
+  negative: "danger",
+  muted: "muted",
+};
 const TONE_COLOR: Record<FreshnessTone, string> = {
-  positive: "var(--up)",
-  caution: "var(--clay-2, var(--gold-deep))",
-  negative: "var(--down)",
-  muted: "var(--ink-faint)",
+  positive: semanticToneColor(FRESHNESS_TONE.positive),
+  caution: semanticToneColor(FRESHNESS_TONE.caution),
+  negative: semanticToneColor(FRESHNESS_TONE.negative),
+  muted: semanticToneColor(FRESHNESS_TONE.muted),
 };
 
 export function FreshnessBadge({

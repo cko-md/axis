@@ -6,6 +6,7 @@
 
 import type { ActionClass } from "./actionPolicy";
 import type { ApprovalAmount } from "./approvalRequest";
+import { semanticToneColor } from "@/lib/design/statusTokens";
 
 export type ApprovalTone = "neutral" | "caution" | "negative";
 
@@ -32,11 +33,11 @@ export function actionClassTone(cls: ActionClass): ApprovalTone {
 export function approvalToneColor(tone: ApprovalTone): string {
   switch (tone) {
     case "negative":
-      return "var(--down)";
+      return semanticToneColor("danger");
     case "caution":
-      return "var(--clay-2, var(--gold-deep))";
+      return semanticToneColor("warning");
     default:
-      return "var(--ink-faint)";
+      return semanticToneColor("muted");
   }
 }
 
