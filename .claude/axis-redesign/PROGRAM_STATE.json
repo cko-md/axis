@@ -28,7 +28,7 @@
     "2_product_synthesis": "substantial — 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
     "3_target_architecture": "substantial — 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs). More ADRs as waves land.",
     "4_financial_domain": "core done — deterministic money (adopted), provenance/freshness/reconciliation domain + provenance columns live. Corporate actions / tax lots / multi-currency FX not yet built.",
-    "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is modeled, not yet bound to a real WebAuthn challenge.",
+    "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is now bound to a REAL WebAuthn passkey assertion (/api/approvals/[id]/step-up); the self-attestable stepUpVerified client boolean was removed. NEEDS INDEPENDENT SECURITY REVIEW + manual test with a real authenticator.",
     "6_design_system": "partial — semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started — command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial — Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
@@ -300,6 +300,16 @@
       "note": "artifacts.test.ts JSON-validates every .claude/axis-redesign/*.json in CI (prevents the source-of-truth corruption a stray comma caused). operate.spec.ts is an authenticated Playwright smoke for /tasks (loads + Run Concentration Check enabled) and /approvals (loads + empty/populated state), matching the existing authenticated project; runs under AXIS_E2E_AUTH with the local Supabase stack (not in unit CI).",
       "tests": "539 unit tests pass (+2); tsc clean; lint clean; e2e spec authored to the existing pattern (needs the local stack to run)",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.5",
+      "title": "Bind approval step-up to a real WebAuthn passkey assertion (§11.2)",
+      "status": "landed — NEEDS INDEPENDENT SECURITY REVIEW",
+      "files_added": ["src/app/api/approvals/[id]/step-up/route.ts"],
+      "files_changed": ["src/app/api/approvals/[id]/route.ts", "src/lib/hooks/useApprovals.ts", "src/components/approvals/ApprovalCard.tsx", "src/components/approvals/ApprovalsModule.tsx"],
+      "note": "SECURITY FIX + feature. Previously the approve path trusted a client-supplied stepUpVerified boolean (self-attestable). Now step_up_verified_at is set ONLY by /api/approvals/[id]/step-up after a verified passkey assertion by the approval's OWNER (credential must belong to the user; one-time challenge bound to user_id; reuses the verified src/lib/webauthn/server helpers). Removed the boolean from PATCH. ApprovalCard replaces the checkbox with a 'Verify with passkey' ceremony; Approve for step-up classes is gated on step_up_verified_at. No schema change (uses existing approvals column + user_passkeys/webauthn_challenges). Reuses the exact pattern of the login passkey route. MUST get human security review + a manual test with a real authenticator before production.",
+      "tests": "539 tests pass; tsc clean; lint clean; next build compiles. WebAuthn ceremony NOT unit-testable here (no authenticator).",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build; manual authenticator test pending"
     }
   ],
   "migrations_applied": {

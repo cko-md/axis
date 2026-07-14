@@ -29,13 +29,13 @@ const DECISION_ERRORS: Record<string, string> = {
 
 export function ApprovalsModule() {
   const [filter, setFilter] = useState<Filter>("pending");
-  const { approvals, loading, error, decide } = useApprovals(filter === "all" ? undefined : filter);
+  const { approvals, loading, error, decide, stepUp } = useApprovals(filter === "all" ? undefined : filter);
   const { toast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const onDecide = async (id: string, action: ApprovalDecision, stepUpVerified?: boolean) => {
+  const onDecide = async (id: string, action: ApprovalDecision) => {
     setBusyId(id);
-    const result = await decide(id, action, stepUpVerified);
+    const result = await decide(id, action);
     setBusyId(null);
     if (result.ok) {
       const verb = action === "approve" ? "Approved" : action === "deny" ? "Denied" : "Cleared to execute";
@@ -43,6 +43,25 @@ export function ApprovalsModule() {
     } else {
       toast(
         (result.reason && DECISION_ERRORS[result.reason]) ?? "Could not update the approval.",
+        "error",
+        "Approvals",
+      );
+    }
+  };
+
+  const onStepUp = async (id: string) => {
+    setBusyId(id);
+    const result = await stepUp(id);
+    setBusyId(null);
+    if (result.ok) {
+      toast("Identity verified.", "success", "Approvals");
+    } else if (result.reason === "Cancelled") {
+      // user aborted the ceremony — no error toast
+    } else {
+      toast(
+        result.reason === "NO_PASSKEY"
+          ? "No passkey registered. Add one in Control Room to approve financial actions."
+          : "Passkey verification failed.",
         "error",
         "Approvals",
       );
@@ -89,7 +108,8 @@ export function ApprovalsModule() {
               key={a.id}
               approval={a}
               busy={busyId === a.id}
-              onDecide={(action, stepUp) => void onDecide(a.id, action, stepUp)}
+              onDecide={(action) => void onDecide(a.id, action)}
+              onStepUp={() => void onStepUp(a.id)}
             />
           ))}
         </div>

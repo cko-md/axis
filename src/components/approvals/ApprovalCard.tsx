@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
@@ -33,17 +32,19 @@ export function ApprovalCard({
   approval,
   busy,
   onDecide,
+  onStepUp,
 }: {
   approval: ApprovalRecord;
   busy?: boolean;
-  onDecide: (action: ApprovalDecision, stepUpVerified?: boolean) => void;
+  onDecide: (action: ApprovalDecision) => void;
+  onStepUp: () => void;
 }) {
   const pa = approval.proposed_action ?? ({} as ApprovalRecord["proposed_action"]);
   const tone = actionClassTone(approval.action_class);
   const toneColor = approvalToneColor(tone);
   const amount = formatApprovalAmount(pa.amount);
   const stepUpRequired = approval.requirement === "approval_step_up";
-  const [stepUpConfirmed, setStepUpConfirmed] = useState(false);
+  const stepUpVerified = !!approval.step_up_verified_at;
 
   const isPending = approval.status === "pending";
   const isApproved = approval.status === "approved";
@@ -113,11 +114,21 @@ export function ApprovalCard({
         </ul>
       )}
 
-      {isPending && stepUpRequired && (
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 12, color: "var(--ink-dim)" }}>
-          <input type="checkbox" checked={stepUpConfirmed} onChange={(e) => setStepUpConfirmed(e.target.checked)} />
-          Step-up verification confirmed (required for {actionClassLabel(approval.action_class).toLowerCase()})
-        </label>
+      {stepUpRequired && (
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          {stepUpVerified ? (
+            <span style={{ color: "var(--up)", fontWeight: 600 }}>✓ Identity verified with passkey</span>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Button variant="secondary" onClick={onStepUp} disabled={busy}>
+                Verify with passkey
+              </Button>
+              <span style={{ color: "var(--ink-dim)" }}>
+                Required for {actionClassLabel(approval.action_class).toLowerCase()}.
+              </span>
+            </div>
+          )}
+        </div>
       )}
 
       {(isPending || isApproved) && (
@@ -129,8 +140,8 @@ export function ApprovalCard({
               </Button>
               <Button
                 variant="primary"
-                onClick={() => onDecide("approve", stepUpRequired ? stepUpConfirmed : undefined)}
-                disabled={busy || (stepUpRequired && !stepUpConfirmed)}
+                onClick={() => onDecide("approve")}
+                disabled={busy || (stepUpRequired && !stepUpVerified)}
               >
                 Approve
               </Button>

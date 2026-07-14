@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await request.json().catch(() => ({}))) as { action?: string; stepUpVerified?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { action?: string };
   const action = body.action;
   if (action !== "approve" && action !== "deny" && action !== "execute") {
     return NextResponse.json({ error: "INVALID_ACTION" }, { status: 400 });
@@ -50,14 +50,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
     }
 
-    const patch: { status: string; decided_at: string; step_up_verified_at?: string } = {
+    // Step-up is NEVER set here: it is set only by a verified WebAuthn assertion
+    // via /api/approvals/[id]/step-up (a client can't self-attest identity).
+    const patch: { status: string; decided_at: string } = {
       status: action === "approve" ? "approved" : "denied",
       decided_at: now,
     };
-    // Capture step-up at approval time when the class requires it.
-    if (action === "approve" && row.requirement === "approval_step_up" && body.stepUpVerified) {
-      patch.step_up_verified_at = now;
-    }
 
     const { data, error } = await supabase
       .from("approvals").update(patch).eq("user_id", user.id).eq("id", id).select(SELECT).single();

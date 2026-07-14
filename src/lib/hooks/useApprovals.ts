@@ -54,6 +54,40 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
   }, [reload]);
 
   /**
+   * Run WebAuthn step-up for a step-up-required approval. Passkey assertion is
+   * the ONLY way step_up_verified_at gets set (server-enforced). Returns { ok }
+   * plus a reason (incl. "Cancelled" / "NO_PASSKEY") on failure.
+   */
+  const stepUp = useCallback(async (id: string): Promise<{ ok: boolean; reason?: string }> => {
+    const optRes = await fetch(`/api/approvals/${id}/step-up?action=options`).catch(() => null);
+    if (!optRes?.ok) {
+      const body = (await optRes?.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, reason: body?.error ?? "OPTIONS_FAILED" };
+    }
+    const options = await optRes.json();
+    let assertion;
+    try {
+      const { startAuthentication } = await import("@simplewebauthn/browser");
+      assertion = await startAuthentication({ optionsJSON: options });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      return { ok: false, reason: /cancel|abort|not allowed/.test(msg) ? "Cancelled" : "CEREMONY_FAILED" };
+    }
+    const verifyRes = await fetch(`/api/approvals/${id}/step-up?action=verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ response: assertion }),
+    }).catch(() => null);
+    if (!verifyRes?.ok) {
+      const body = (await verifyRes?.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, reason: body?.error ?? "VERIFY_FAILED" };
+    }
+    const data = (await verifyRes.json()) as { stepUpVerifiedAt?: string };
+    setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, step_up_verified_at: data.stepUpVerifiedAt ?? new Date().toISOString() } : a)));
+    return { ok: true };
+  }, []);
+
+  /**
    * Decide an approval. Returns { ok } plus a reason on failure so the card can
    * distinguish an expired/not-actionable/step-up conflict (409) from a
    * network/server error.
@@ -62,12 +96,11 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
     async (
       id: string,
       action: ApprovalDecision,
-      stepUpVerified?: boolean,
     ): Promise<{ ok: boolean; reason?: string; missing?: string[] }> => {
       const res = await fetch(`/api/approvals/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, stepUpVerified }),
+        body: JSON.stringify({ action }),
       }).catch(() => null);
       if (!res) return { ok: false, reason: "NETWORK" };
       if (res.ok) {
@@ -82,5 +115,5 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
     [],
   );
 
-  return { approvals, loading, error, reload, decide };
+  return { approvals, loading, error, reload, decide, stepUp };
 }
