@@ -48,4 +48,17 @@ describe("command palette model", () => {
     expect(filterPaletteCommandSpecs(specs, "CREATE").every((c) => c.group === "create")).toBe(true);
     expect(filterPaletteCommandSpecs(specs, "zzzznomatch")).toEqual([]);
   });
+
+  it("exposes an executable run-routine command for the concentration check", () => {
+    const cmd = specs.find((c) => c.id === "action-concentration-check");
+    expect(cmd).toBeDefined();
+    expect(cmd!.group).toBe("action");
+    expect(cmd!.target).toEqual({ kind: "run-routine", routine: "concentration-check", href: "/tasks" });
+    expect(filterPaletteCommandSpecs(specs, "concentration").some((c) => c.id === "action-concentration-check")).toBe(true);
+  });
+
+  it("covers the new Operate routes (tasks, approvals) with navigate commands", () => {
+    const hrefs = specs.filter((c) => c.target.kind === "route").map((c) => (c.target as { href: string }).href);
+    expect(hrefs).toEqual(expect.arrayContaining(["/tasks", "/approvals"]));
+  });
 });

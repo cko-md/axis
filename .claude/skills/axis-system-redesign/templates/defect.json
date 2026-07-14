@@ -1,0 +1,17 @@
+{
+  "id": "AREA-NNN",
+  "severity": "critical | high | medium | low",
+  "source": "audit | review | test | runtime | sentry",
+  "summary": "",
+  "reproduction": "",
+  "affected": [],
+  "root_cause": "",
+  "architectural_condition": "what permitted it",
+  "fix": "",
+  "regression_test": "",
+  "owner": "",
+  "status": "open | in_progress | partially_fixed | fixed | deferred",
+  "revision_fixed": "",
+  "verification": "",
+  "similar_code_search": ""
+}

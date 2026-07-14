@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 
 type Snapshot = {
   captured_on: string;
@@ -8,6 +10,8 @@ type Snapshot = {
   invested: number;
   liabilities: number;
   net_worth: number;
+  /** Timestamp of the last recomputation (added by the provenance migration). */
+  computed_at?: string | null;
 };
 
 // Pleasant static curve for the signed-out demo view.
@@ -106,6 +110,11 @@ export function NetWorthChart({
     }
   }
 
+  // The latest snapshot's recomputation time drives the freshness badge;
+  // fall back to the day-granular captured_on if computed_at is absent.
+  const latest = snaps.length > 0 ? snaps[snaps.length - 1] : null;
+  const latestSnapshotAt = latest?.computed_at ?? latest?.captured_on ?? null;
+
   const caption = !signedIn
     ? "Illustrative trend"
     : historyError
@@ -141,8 +150,15 @@ export function NetWorthChart({
       ) : (
         <div style={{ height: 54, marginTop: 12 }} />
       )}
-      <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 2, letterSpacing: ".04em" }}>
-        {caption}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", letterSpacing: ".04em" }}>
+          {caption}
+        </span>
+        {/* Honest freshness signal: only shown once a real snapshot exists,
+            driven by its actual recomputation time (no fabricated "as of"). */}
+        {signedIn && loaded && !historyError && latestSnapshotAt && (
+          <FreshnessBadge retrievedAt={latestSnapshotAt} sla={FRESHNESS_SLAS.accountBalance} />
+        )}
       </div>
     </>
   );

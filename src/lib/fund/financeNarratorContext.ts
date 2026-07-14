@@ -1,3 +1,5 @@
+import { parseMoney } from "./money";
+
 const MAX_FINANCE_LABEL_CHARS = 120;
 const MAX_RECURRING_ITEMS = 10;
 
@@ -7,9 +9,13 @@ export function cleanFinanceLabel(value: unknown, fallback = "unknown"): string 
   return cleaned || fallback;
 }
 
+/**
+ * Normalize an untrusted money value for narration/Make payloads. Delegates to
+ * the deterministic {@link parseMoney} primitive so amounts are rounded to the
+ * cent and non-finite input collapses to 0 (unchanged public contract).
+ */
 export function safeMoney(value: unknown): number {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount : 0;
+  return parseMoney(value);
 }
 
 export function shapeRecurringForNarration<T extends { merchant_name?: unknown; expected_amount?: unknown; cadence?: unknown; last_seen_date?: unknown }>(

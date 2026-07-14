@@ -8,6 +8,7 @@ import { FundRecurringList } from "@/components/fund/FundRecurringList";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
 import { fmtUsd } from "@/lib/store/fund-defaults";
+import { sumBy } from "@/lib/fund/money";
 
 type BankTxn = { amount: number; is_transfer: boolean; posted_date: string };
 type Recurring = { expected_amount: number; status: string };
@@ -42,16 +43,16 @@ export function FundCashflowModule() {
       const txnData = txnResult.status === "fulfilled" ? txnResult.value : {};
       const recurringData = recurringResult.status === "fulfilled" ? recurringResult.value : {};
       const txns = (txnData.transactions ?? []) as BankTxn[];
-      setIncome(txns.filter((t) => !t.is_transfer && t.amount > 0).reduce((s, t) => s + t.amount, 0));
-      setSpend(txns.filter((t) => !t.is_transfer && t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0));
+      setIncome(sumBy(txns.filter((t) => !t.is_transfer && t.amount > 0), (t) => t.amount));
+      setSpend(sumBy(txns.filter((t) => !t.is_transfer && t.amount < 0), (t) => Math.abs(t.amount)));
 
       const recurring = ((recurringData.recurring ?? []) as Recurring[]).filter((r) => r.status === "active");
-      setRecurringMonthly(recurring.reduce((s, r) => s + Number(r.expected_amount), 0));
+      setRecurringMonthly(sumBy(recurring, (r) => r.expected_amount));
       setCashflowNotice(failed.length ? `Partial refresh — ${failed.join(", ")} unavailable.` : null);
     }).catch(() => setCashflowNotice("Cash flow could not refresh."));
   }, []);
 
-  const minPayments = liabilities.reduce((s, l) => s + Number(l.minimum_payment ?? 0), 0);
+  const minPayments = sumBy(liabilities, (l) => l.minimum_payment ?? 0);
   const upcomingBills = recurringMonthly + minPayments;
   const safeToInvest = Math.max(cash - upcomingBills, 0);
   const runwayMonths = spend > 0 ? cash / spend : null;

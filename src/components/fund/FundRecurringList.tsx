@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
+import { sumBy } from "@/lib/fund/money";
 
 type Recurring = {
   id: string;
@@ -49,7 +50,7 @@ export function FundRecurringList() {
     toast("Recurring charge dismissed.", "info", "Cash Flow");
   }
 
-  const monthlyTotal = recurring.reduce((s, r) => s + Number(r.expected_amount), 0);
+  const monthlyTotal = sumBy(recurring, (r) => r.expected_amount);
 
   return (
     <Card tick>

@@ -1,0 +1,23 @@
+name:
+purpose:
+user_question_answered:
+domain_owner:
+data_sources:
+calculation_source:        # deterministic module path; never free-form AI
+freshness_requirement:
+permissions:               # READ | DRAFT | SIMULATE | INTERNAL_WRITE | EXTERNAL_COMMUNICATION | FINANCIAL_EXECUTION | DESTRUCTIVE_ADMIN
+states:
+  loading:
+  empty:
+  partial:
+  stale:
+  error:
+  unavailable:
+interactions:
+responsive_behavior:
+keyboard_behavior:
+accessibility:
+analytics:
+observability:
+performance_budget:
+tests:

@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { optionalEnv } from "@/lib/env";
 import { buildSignalsScanTaskContext } from "@/lib/ai/platformScanContext";
+import { normalizeSignalKey } from "@/lib/signals/severity";
 
 type SignalType = "action" | "awaiting" | "fyi";
 const VALID_SIGNAL_TYPES: SignalType[] = ["action", "awaiting", "fyi"];
@@ -52,11 +53,12 @@ export async function scanPlatformForUser(
     return { created: 0 };
   }
 
-  const existingLower = new Set(existingTitles.map((t) => t.toLowerCase()));
+  const existingKeys = new Set(existingTitles.map(normalizeSignalKey));
   let created = 0;
   for (const item of items.slice(0, 4)) {
     if (!item.title) continue;
-    if (existingLower.has(item.title.toLowerCase())) continue;
+    const itemKey = normalizeSignalKey(item.title);
+    if (itemKey === "" || existingKeys.has(itemKey)) continue;
     const type: SignalType = VALID_SIGNAL_TYPES.includes(item.signal_type as SignalType) ? (item.signal_type as SignalType) : "fyi";
     const { data, error } = await supabase
       .from("signals")
@@ -71,7 +73,7 @@ export async function scanPlatformForUser(
       .single();
     if (!error && data) {
       created += 1;
-      existingLower.add(item.title.toLowerCase());
+      existingKeys.add(itemKey);
     }
   }
 

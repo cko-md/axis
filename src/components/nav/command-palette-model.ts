@@ -8,7 +8,8 @@ export type PaletteGroup = "navigate" | "action" | "create";
 
 export type PaletteTarget =
   | { kind: "route"; href: string }
-  | { kind: "interface-studio" };
+  | { kind: "interface-studio" }
+  | { kind: "run-routine"; routine: string; href: string };
 
 export type PaletteCommandSpec = {
   id: string;
@@ -31,6 +32,7 @@ export const PALETTE_CREATE_COMMANDS: PaletteCommandSpec[] = [
 export const PALETTE_ACTION_COMMANDS: PaletteCommandSpec[] = [
   { id: "action-interface-studio", label: "Interface Studio", hint: "Action · theme & appearance", group: "action", icon: "palette", target: { kind: "interface-studio" } },
   { id: "action-vitality", label: "Log Workout", hint: "Action · vitality", group: "action", icon: "fitness", target: { kind: "route", href: "/vitality" } },
+  { id: "action-concentration-check", label: "Run Concentration Check", hint: "Action · routines", group: "action", icon: "tasks", target: { kind: "run-routine", routine: "concentration-check", href: "/tasks" } },
 ];
 
 // Full command set: create + action + one navigate command per nav route.
