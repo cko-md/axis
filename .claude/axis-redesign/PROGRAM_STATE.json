@@ -23,22 +23,23 @@
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
-    "0_initialization": "done",
-    "1_audit": "in_progress",
-    "2_product_synthesis": "started",
-    "3_target_architecture": "started",
-    "4_financial_domain": "wave_4.1_landed",
-    "5_security_kernel": "planned",
-    "6_design_system": "planned",
-    "7_workspace_shell": "planned",
-    "8_core_modules": "planned",
-    "9_agent_runtime": "planned",
-    "10_integrations": "planned",
-    "11_performance": "planned",
-    "12_testing": "planned",
-    "13_observability": "planned",
-    "14_cicd": "planned"
+    "0_initialization": "done — branch/baseline/state artifacts + tool map",
+    "1_audit": "substantial — repo mapped; docs/axis-redesign/01-current-state-audit.md; risk/defect ledgers. Not an exhaustive per-module audit.",
+    "2_product_synthesis": "substantial — 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
+    "3_target_architecture": "substantial — 04-target-architecture + ADR-0001. More ADRs to write as waves land.",
+    "4_financial_domain": "core done — deterministic money (adopted), provenance/freshness/reconciliation domain + provenance columns live. Corporate actions / tax lots / multi-currency FX not yet built.",
+    "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is modeled, not yet bound to a real WebAuthn challenge.",
+    "6_design_system": "partial — freshness badge primitive + tokens reused. No full token/typography/motion overhaul (existing AXIS system retained).",
+    "7_workspace_shell": "not started as redesign — existing AppShell/nav retained; split-panes/command-palette-redesign not attempted.",
+    "8_core_modules": "partial — Tasks workbench shipped (agent_tasks). Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
+    "9_agent_runtime": "core done — durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
+    "10_integrations": "not started this program — existing Plaid/Composio/etc. adapters retained.",
+    "11_performance": "not started this program.",
+    "12_testing": "ongoing — 524 unit tests incl. financial invariants; no new e2e/browser suite added this program.",
+    "13_observability": "partial — structured API error codes; no new Sentry dashboards this program.",
+    "14_cicd": "unchanged — existing CI (tsc + audit) retained; no new gates added this program."
   },
+  "convergence_note": "This program is NOT a completed 14-phase rewrite — the initial prompt describes a multi-quarter effort. What is delivered is a coherent, green, end-to-end vertical of the operating loop (observe->task->approval->durable run) on a deterministic financial-safety kernel, plus foundational domain primitives, all additive and behind existing behavior. Remaining phases are honestly tracked above and in next_dependency_ordered_actions. No delivered wave is a broken prototype; every one is tsc/lint/test green and the migrations are applied+verified.",
   "waves": [
     {
       "id": "4.1",
