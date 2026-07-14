@@ -281,7 +281,7 @@
       "note": "Pure redactSafe (recursively masks token/secret/password/authorization/cookie/api-key/PII keys, depth-limited) + structuredEvent + emitServerEvent. Wired safe run.completed / run.failed events (counts + status only, no holdings/PII) into the concentration routine. Defensive: fields are redacted regardless of caller discipline.",
       "tests": "535 tests pass (+4); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
-    }
+    },
     {
       "id": "6.2",
       "title": "Consolidate semantic status tokens (§6)",
@@ -291,7 +291,7 @@
       "note": "Single source of truth for status color (muted/accent/success/warning/alert/danger -> existing theme CSS vars). Freshness, task-status, and approval presenters now resolve their domain tones through it; a test pins the values so the palette can't drift. Consolidation only — every existing color preserved (consumer tests unchanged, incl. approvalToneColor==var(--down)).",
       "tests": "537 tests pass (+2); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
-    },
+    }
   ],
   "migrations_applied": {
     "applied": "2026-07-13",
