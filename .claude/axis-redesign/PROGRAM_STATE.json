@@ -34,8 +34,8 @@
     "8_core_modules": "partial — Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
     "9_agent_runtime": "core done — durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
     "10_integrations": "in progress — integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts, and Plaid transactions (normalized, provenance-aware, positive=inflow cent-exact). /api/markets/quote + /api/plaid/accounts + /api/plaid/transactions/recent use them. Plaid liabilities, Public (orders), and Make adapter rearchitecture still to do.",
-    "11_performance": "started — measurable budgets established from real build numbers (PERFORMANCE_BUDGETS.json) + CI build reports sizes. No profiling-driven optimization pass yet.",
-    "12_testing": "ongoing — 539 unit tests incl. financial invariants + a CI-run guard that JSON-validates the program-state artifacts; added tests/e2e/operate.spec.ts (authenticated smoke for /tasks + /approvals, runs under AXIS_E2E_AUTH with the local stack). Broader browser/visual-regression suite still future.",
+    "11_performance": "in progress — measurable budgets + an ENFORCED CI bundle-budget gate (scripts/check-bundle-budget.mjs fails on total-static-JS regression past 4400KB; currently 3826KB/87%). No profiling-driven optimization pass yet.",
+    "12_testing": "ongoing — 574 unit tests incl. financial invariants + JSON-artifact guard; authenticated operate.spec.ts (local stack) + a NEW public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
     "13_observability": "started — structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done — .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program §20). Deployment/rollback strategy unchanged."
   },
@@ -377,6 +377,16 @@
       "note": "Pure normalizeTransaction(s) -> domain Transaction with provenance (provider/providerRecordId/effectiveAt=date/currency) + freshness; amount is cent-exact via parseMoney and sign-flipped so positive=inflow (matches app convention). Adapter gains getTransactions(userId,{days}) hitting /transactions/get (default 30d, count 250). /api/plaid/transactions/recent returns the normalized list; soft connect-a-bank state on not_supported/auth_expired. Distinct from the existing POST /api/plaid/transactions sync path.",
       "tests": "574 tests pass (+5); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "11.2_12.2",
+      "title": "Enforced bundle-budget gate + public e2e smoke in CI (follow-up)",
+      "status": "landed",
+      "files_added": ["scripts/check-bundle-budget.mjs", "tests/e2e/ci-smoke.spec.ts"],
+      "files_changed": [".github/workflows/ci.yml", ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"],
+      "note": "PERF GATE: scripts/check-bundle-budget.mjs sums .next/static/chunks/**/*.js (deterministic, not log-parsing) and fails past total_static_js_kb.budget (4400; measured 3826/87%). Wired as a CI step after build. E2E-IN-CI: new e2e-smoke CI job installs Chromium and runs a public ci-smoke.spec.ts that boots the app (placeholder Supabase env) and asserts /login renders its form with no uncaught page errors. Verified locally up to browser-launch (dev server booted; only the container's pre-installed browser version mismatched — CI's playwright install provides the right one). Watching PR #191 CI to confirm the e2e job is green.",
+      "tests": "574 unit tests pass; bundle gate passes locally (87%); ci.yml valid; e2e job pending first CI run",
+      "verification": "node scripts/check-bundle-budget.mjs + local dev-server boot + CI"
     }
   ],
   "migrations_applied": {

@@ -45,3 +45,29 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
         run: npm run build
+
+      - name: Bundle budget
+        # Deterministic perf gate (§11): fails on a bundle-size regression past
+        # the budget in PERFORMANCE_BUDGETS.json.
+        run: node scripts/check-bundle-budget.mjs
+
+  e2e-smoke:
+    # Public (unauthenticated) browser smoke — boots the app with placeholder
+    # Supabase env and checks the login page renders. Fuller authenticated
+    # flows need the local Supabase stack and run outside CI for now.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Public smoke
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+        run: npx playwright test --project=public tests/e2e/ci-smoke.spec.ts
