@@ -872,8 +872,14 @@ export type Database = {
           connection_id: string | null
           cost_basis: number
           created_at: string
+          currency: string
+          effective_at: string | null
           id: string
           name: string
+          provider: string | null
+          provider_record_id: string | null
+          reconciliation_state: string | null
+          retrieved_at: string | null
           shares: number
           sort_order: number
           source: string
@@ -885,8 +891,14 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
@@ -898,8 +910,14 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string

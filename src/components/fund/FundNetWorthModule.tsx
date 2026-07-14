@@ -1,6 +1,8 @@
 "use client";
 
 import { Card } from "@/components/ui/Card";
+import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
@@ -36,7 +38,10 @@ export function FundNetWorthModule() {
             )}
             {holdings.map((h) => (
               <div key={h.symbol} className="metricrow">
-                <span className="metric-k">{h.symbol} · {h.sources.join("+")}</span>
+                <span className="metric-k" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  {h.symbol} · {h.sources.join("+")}
+                  <FreshnessBadge retrievedAt={h.retrieved_at ?? null} sla={FRESHNESS_SLAS.holdings} showRelative={false} />
+                </span>
                 <span className="metric-v">{fmtUsd(h.cost_basis)}</span>
               </div>
             ))}

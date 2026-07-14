@@ -10,8 +10,8 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 // and shares it. Editor modules call the exposed refresh() after mutating so
 // every subroute stays consistent without redundant network round-trips.
 
-export type Holding = { id: string; symbol: string; name: string; shares: number; cost_basis: number; source: string };
-export type AggregatedHolding = { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] };
+export type Holding = { id: string; symbol: string; name: string; shares: number; cost_basis: number; source: string; retrieved_at?: string | null };
+export type AggregatedHolding = { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; retrieved_at?: string | null };
 export type Liability = {
   id: string;
   name: string;

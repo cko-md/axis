@@ -348,6 +348,15 @@
       "note": "A step-up verification no longer stays valid indefinitely. isActionable now takes stepUpVerifiedAt (timestamp) not a boolean and requires it within STEP_UP_MAX_AGE_MS (5 min) via the pure isStepUpFresh (fail-safe on missing/unparseable/future). Execute path distinguishes STEP_UP_REQUIRED vs STEP_UP_STALE (409); the card re-shows 'Verify with passkey' when stale and the queue toasts a re-verify prompt. Also verified the #190 production deploy: Vercel READY on ca73d37 + no new Sentry prod errors (24h).",
       "tests": "563 tests pass; tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "4.4",
+      "title": "Provenance on persisted holdings + freshness badge on Assets (follow-up)",
+      "status": "landed",
+      "files_changed": ["src/app/api/fund/holdings/route.ts", "src/components/fund/FundDataProvider.tsx", "src/components/fund/FundNetWorthModule.tsx", "src/lib/supabase/database.types.ts"],
+      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 202607131700 migration but never typed).",
+      "tests": "563 tests pass; tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     }
   ],
   "migrations_applied": {
