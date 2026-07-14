@@ -2511,6 +2511,7 @@ export type Database = {
       }
       webauthn_challenges: {
         Row: {
+          approval_id: string | null
           challenge: string
           created_at: string
           email: string | null
@@ -2520,6 +2521,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          approval_id?: string | null
           challenge: string
           created_at?: string
           email?: string | null
@@ -2529,6 +2531,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          approval_id?: string | null
           challenge?: string
           created_at?: string
           email?: string | null

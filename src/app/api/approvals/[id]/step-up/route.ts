@@ -3,6 +3,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
+import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
 /**
  * WebAuthn step-up for a FINANCIAL_EXECUTION / DESTRUCTIVE_ADMIN approval
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     challenge: options.challenge,
     type: "authentication",
     user_id: user.id,
+    approval_id: id, // bind the assertion to THIS approval (defense-in-depth)
     expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
   });
   if (error) return NextResponse.json({ error: "CHALLENGE_STORE_FAILED" }, { status: 500 });
@@ -82,6 +84,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (req.nextUrl.searchParams.get("action") !== "verify") {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  }
+
+  // Throttle assertion attempts per user (brute-force / abuse guard), matching
+  // the login passkey route.
+  const { success } =
+    (await redisRateLimit(user.id, 10, "10 m", "axis:approval-step-up")) ??
+    memoryRateLimit(`approval-step-up:${user.id}`, 10, 10 * 60_000);
+  if (!success) {
+    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
   }
 
   const body = (await req.json().catch(() => null)) as { response?: AuthenticationResponseJSON } | null;
@@ -109,6 +120,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .select("id, challenge")
     .eq("type", "authentication")
     .eq("user_id", user.id)
+    .eq("approval_id", id) // must be a challenge minted for THIS approval
     .gt("expires_at", new Date().toISOString())
     .order("created_at", { ascending: false })
     .limit(1);

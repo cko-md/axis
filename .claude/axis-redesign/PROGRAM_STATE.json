@@ -28,7 +28,7 @@
     "2_product_synthesis": "substantial — 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
     "3_target_architecture": "substantial — 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs). More ADRs as waves land.",
     "4_financial_domain": "core done — deterministic money (adopted), provenance/freshness/reconciliation domain + provenance columns live. Corporate actions / tax lots / multi-currency FX not yet built.",
-    "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is now bound to a REAL WebAuthn passkey assertion (/api/approvals/[id]/step-up); the self-attestable stepUpVerified client boolean was removed. NEEDS INDEPENDENT SECURITY REVIEW + manual test with a real authenticator.",
+    "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) — see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
     "6_design_system": "partial — semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started — command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial — Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
@@ -328,6 +328,16 @@
       "note": "AccountAdapter contract (getAccounts(userId) -> Result<Account[]>) with a Plaid impl. Pure normalizeAccount(s) maps Plaid balances to a domain Account with provenance (provider/retrievedAt/currency) + freshness (accountBalance SLA) — balances read as fresh right after a live pull. Self-contained in lib (creds via env, reuses getPlaidAccessToken; token never leaves the server). Errors -> IntegrationError taxonomy; not_supported/auth_expired return a soft connect-a-bank state (200), harder failures map to status. /api/plaid/accounts uses it; existing /api/plaid/balances untouched.",
       "tests": "549 tests pass (+5); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.6",
+      "title": "Step-up security review + hardening",
+      "status": "landed (residual: human sign-off + authenticator test)",
+      "files_added": ["docs/axis-redesign/security/step-up-review.md", "supabase/migrations/202607140200_webauthn_challenges_approval_id.sql"],
+      "files_changed": ["src/app/api/approvals/[id]/step-up/route.ts", "src/lib/supabase/database.types.ts"],
+      "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) — see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 202607140200, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
+      "tests": "549 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test; live migration verified"
     }
   ],
   "migrations_applied": {
