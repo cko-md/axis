@@ -32,3 +32,19 @@ export function getAppOrigin(req: NextRequest): string {
   }
   return configured ?? req.nextUrl.origin;
 }
+
+// Builds an absolute same-app URL (path + optional query) for a redirect,
+// e.g. `new URL("/oauth-done?status=ok", getAppOrigin(req))`.
+//
+// This is NOT equivalent to `new URL(pathAndQuery, req.url)`, the pattern
+// used throughout the OAuth callback routes — req.url suffers the exact same
+// corruption as req.nextUrl (NextRequest's constructor literally sets
+// `this.url = nextUrl.toString()` by default; see next/dist/server/web/
+// spec-extension/request.js), so building a redirect target from req.url
+// silently bounces a 127.0.0.1 request to a "localhost" redirect target,
+// landing the browser on a different origin mid-OAuth-flow (breaking the
+// popup's window.opener postMessage handshake and dropping any origin-scoped
+// session state). Always build redirect targets from this helper instead.
+export function buildAppUrl(req: NextRequest, pathAndQuery: string): URL {
+  return new URL(pathAndQuery, getAppOrigin(req));
+}

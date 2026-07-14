@@ -1,7 +1,20 @@
 import { createServerClient } from "@supabase/ssr/dist/module/createServerClient";
 import { NextResponse, type NextRequest } from "next/server";
+import { buildAppUrl } from "@/lib/auth/getAppOrigin";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy"];
+
+// request.nextUrl.clone() inherits Next's NextURL bug where 127.0.0.1/[::1]
+// get silently rewritten to the literal string "localhost" at parse time (see
+// the long comment in getAppOrigin.ts) — so a plain `.clone()` redirect issued
+// while browsing via 127.0.0.1 bounces the browser to a DIFFERENT origin
+// (localhost), dropping the session's cookies (origin-scoped) entirely. Build
+// the redirect target from buildAppUrl (reads the raw Host header) instead.
+function redirectWithinApp(request: NextRequest, pathname: string, search?: URLSearchParams): NextResponse {
+  const url = buildAppUrl(request, pathname);
+  if (search) url.search = search.toString();
+  return NextResponse.redirect(url);
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -118,16 +131,12 @@ export async function middleware(request: NextRequest) {
 
   const isPublic = pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   if (!user && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(url);
+    const search = new URLSearchParams({ redirect: pathname });
+    return redirectWithinApp(request, "/login", search);
   }
 
   if (user && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/command";
-    return NextResponse.redirect(url);
+    return redirectWithinApp(request, "/command");
   }
 
   return supabaseResponse;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { optionalEnv } from "@/lib/env";
 
 export async function GET(req: NextRequest) {
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const saved = cookieStore.get("spotify_oauth_state")?.value;
 
   if (!code || !state || state !== saved) {
-    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
+    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=error"));
   }
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
 
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
+    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=error"));
   }
 
   const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   });
 
   if (!tokenRes.ok) {
-    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
+    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=error"));
   }
 
   const tokens = await tokenRes.json();
@@ -55,5 +55,5 @@ export async function GET(req: NextRequest) {
   }
   cookieStore.delete("spotify_oauth_state");
 
-  return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=ok", req.url));
+  return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=ok"));
 }
