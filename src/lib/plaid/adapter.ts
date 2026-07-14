@@ -14,6 +14,7 @@ import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
 import { fail, failFromException, failFromStatus, ok, type Result } from "@/lib/integrations/types";
 import { normalizeAccounts, type Account, type RawPlaidAccount } from "./account";
 import { normalizeTransactions, type RawPlaidTransaction, type Transaction } from "./transaction";
+import { normalizeLiabilities, type AccountSummary, type Liability, type RawLiabilities } from "./liability";
 
 export interface AccountAdapter {
   readonly provider: string;
@@ -22,6 +23,8 @@ export interface AccountAdapter {
   getAccounts(userId: string): Promise<Result<Account[]>>;
   /** Normalized recent transactions (default last ~30 days) for the user's item. */
   getTransactions(userId: string, opts?: { days?: number }): Promise<Result<Transaction[]>>;
+  /** Normalized liabilities (credit/student/mortgage) for the user's item. */
+  getLiabilities(userId: string): Promise<Result<Liability[]>>;
 }
 
 function getCreds() {
@@ -121,6 +124,50 @@ export const plaidAccountAdapter: AccountAdapter = {
       return ok(normalizeTransactions(data.transactions ?? [], { provider: "plaid" }));
     } catch (e) {
       return failFromException<Transaction[]>(e, "Failed to fetch Plaid transactions.", { provider: "plaid" });
+    }
+  },
+
+  async getLiabilities(userId) {
+    const creds = getCreds();
+    if (!creds) {
+      return fail<Liability[]>("not_supported", "Plaid isn't configured (set PLAID_CLIENT_ID / PLAID_SECRET).", {
+        provider: "plaid",
+        retryable: false,
+      });
+    }
+    const accessToken = await getPlaidAccessToken(userId);
+    if (!accessToken) {
+      return fail<Liability[]>("auth_expired", "No linked bank account — connect one to see liabilities.", {
+        provider: "plaid",
+        retryable: false,
+      });
+    }
+    try {
+      const res = await fetch(`${plaidHost(creds.env)}/liabilities/get`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: creds.clientId, secret: creds.secret, access_token: accessToken }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(9_000),
+      });
+      if (!res.ok) {
+        return failFromStatus<Liability[]>(res.status, "Plaid liabilities request failed.", { provider: "plaid" });
+      }
+      const data = (await res.json()) as { accounts?: RawPlaidAccount[]; liabilities?: RawLiabilities };
+      // Build the account_id -> summary map the pure normalizer joins against.
+      const accountsById: Record<string, AccountSummary> = {};
+      for (const a of data.accounts ?? []) {
+        if (a.account_id) {
+          accountsById[a.account_id] = {
+            name: a.name,
+            balanceCurrent: a.balances?.current ?? null,
+            currency: a.balances?.iso_currency_code ?? "USD",
+          };
+        }
+      }
+      return ok(normalizeLiabilities(data.liabilities ?? {}, accountsById, { provider: "plaid" }));
+    } catch (e) {
+      return failFromException<Liability[]>(e, "Failed to fetch Plaid liabilities.", { provider: "plaid" });
     }
   },
 };

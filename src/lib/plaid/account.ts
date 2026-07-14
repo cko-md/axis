@@ -31,6 +31,7 @@ export type Account = {
 
 /** The Plaid account fields the adapter extracts. */
 export type RawPlaidAccount = {
+  account_id?: string;
   name: string;
   mask?: string | null;
   subtype?: string | null;
