@@ -30,14 +30,14 @@
     "4_financial_domain": "core done — deterministic money (adopted), provenance/freshness/reconciliation domain + provenance columns live. Corporate actions / tax lots / multi-currency FX not yet built.",
     "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is modeled, not yet bound to a real WebAuthn challenge.",
     "6_design_system": "partial — freshness badge primitive + tokens reused. No full token/typography/motion overhaul (existing AXIS system retained).",
-    "7_workspace_shell": "not started as redesign — existing AppShell/nav retained; split-panes/command-palette-redesign not attempted.",
-    "8_core_modules": "partial — Tasks workbench shipped (agent_tasks). Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
+    "7_workspace_shell": "started — command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
+    "8_core_modules": "partial — Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
     "9_agent_runtime": "core done — durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
-    "10_integrations": "not started this program — existing Plaid/Composio/etc. adapters retained.",
-    "11_performance": "not started this program.",
-    "12_testing": "ongoing — 524 unit tests incl. financial invariants; no new e2e/browser suite added this program.",
+    "10_integrations": "started — pure integration risk model (capabilities -> action classes -> approval defaults + risk level + context-impact count), composing the security kernel. Live-provider adapter rearchitecture (Plaid/Polygon/Public/Make) not attempted; existing adapters retained.",
+    "11_performance": "started — measurable budgets established from real build numbers (PERFORMANCE_BUDGETS.json) + CI build reports sizes. No profiling-driven optimization pass yet.",
+    "12_testing": "ongoing — 531 unit tests incl. financial invariants; no new e2e/browser suite added this program.",
     "13_observability": "partial — structured API error codes; no new Sentry dashboards this program.",
-    "14_cicd": "unchanged — existing CI (tsc + audit) retained; no new gates added this program."
+    "14_cicd": "core done — .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program §20). Deployment/rollback strategy unchanged."
   },
   "convergence_note": "This program is NOT a completed 14-phase rewrite — the initial prompt describes a multi-quarter effort. What is delivered is a coherent, green, end-to-end vertical of the operating loop (observe->task->approval->durable run) on a deterministic financial-safety kernel, plus foundational domain primitives, all additive and behind existing behavior. Remaining phases are honestly tracked above and in next_dependency_ordered_actions. No delivered wave is a broken prototype; every one is tsc/lint/test green and the migrations are applied+verified.",
   "waves": [
@@ -225,6 +225,43 @@
       "note": "Durable execution backbone. Pure runState (RunStatus/StepStatus + transitions + deriveRunOutcome: all-ok=completed, mixed=partial, all-fail=failed, empty=completed). Migration routine_runs + routine_step_runs (owner-scoped RLS, no-delete audit, applied+verified: 3 policies each). Concentration routine refactored to open a durable run and record each step (load_holdings, review_concentration, create_tasks) with input/output snapshots, deriving the final run status; a thrown step marks the run failed with snapshots intact. GET /api/routines/runs (list + ?runId detail with steps). RoutineRunsPanel shows recent runs on the Tasks workbench (honest empty until a run exists). Cost fields recorded (0 — deterministic, no model).",
       "tests": "524 tests pass (+5); tsc clean; lint clean; next build compiles",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build + live RLS policy read-back"
+    },
+    {
+      "id": "14.1",
+      "title": "CI/CD PR quality gate (§20)",
+      "status": "landed",
+      "files_added": [".github/workflows/ci.yml"],
+      "note": "PR + main CI: npm ci -> lint -> tsc --noEmit -> unit tests -> build (placeholder Supabase env, safe: no network at build). Concurrency-cancels superseded runs. Makes the AGENTS.md minimum bar a real merge gate instead of the once-daily health check. Build step also prints route bundle sizes for §11.",
+      "tests": "n/a (workflow); validated as YAML; build verified locally with placeholder env (exit 0)",
+      "verification": "yaml parse + local build with placeholder env"
+    },
+    {
+      "id": "10.1",
+      "title": "Integration risk model — capabilities -> action classes (§16)",
+      "status": "landed",
+      "files_added": ["src/lib/integrations/risk.ts", "src/lib/integrations/risk.test.ts"],
+      "note": "Pure model composing the security kernel: capabilityActionClass (list/read->READ, markRead/archive->INTERNAL_WRITE, send/reply->EXTERNAL_COMMUNICATION, delete->DESTRUCTIVE_ADMIN), capabilitiesRiskProfile/providerRiskProfile -> {read/write/send/destructive caps, highestClass, riskLevel, approvalDefault (from decideApproval), enabledCount}. Lets Control Room organize integrations by capability+risk, and routines inherit approval defaults. Disabled caps never contribute risk.",
+      "tests": "531 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "11.1",
+      "title": "Performance budgets from measured build sizes (§11)",
+      "status": "landed",
+      "files_added": [".claude/axis-redesign/PERFORMANCE_BUDGETS.json"],
+      "note": "Measured (not aspirational) budgets: shared first-load 227kB (budget 260), heaviest route /vitality 391kB (budget 420), middleware 156kB (budget 180), /tasks 367kB. CI build prints current sizes each PR; automated enforcement is a follow-up. Watch-list flags the known N+1/cache-first and code-splitting candidates from the audit.",
+      "tests": "n/a (artifact)",
+      "verification": "sizes taken from a real next build on this branch"
+    },
+    {
+      "id": "7.1b",
+      "title": "Command system — executable run-routine command (§7)",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": ["src/components/nav/command-palette-model.ts", "src/components/nav/CommandPalette.tsx", "src/components/nav/command-palette-model.test.ts"],
+      "note": "Extends the palette beyond navigation: new run-routine PaletteTarget kind + 'Run Concentration Check' action command that POSTs the routine then lands on /tasks. New Operate routes (/tasks, /approvals) are already palette-covered via ALL_NAV_ITEMS; added guard tests asserting both the route coverage and the executable command.",
+      "tests": "531 tests pass (+ palette coverage tests); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
   ],
   "migrations_applied": {
