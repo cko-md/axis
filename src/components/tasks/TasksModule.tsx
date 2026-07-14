@@ -18,6 +18,15 @@ import {
 } from "@/lib/tasks/taskStatusView";
 import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 import { RoutineRunsPanel } from "@/components/tasks/RoutineRunsPanel";
+import { actionClassLabel, approvalStatusLabel, type ApprovalStatus } from "@/lib/security/approvalCardView";
+import type { ActionClass } from "@/lib/security/actionPolicy";
+
+type TaskApproval = {
+  id: string;
+  action_class: ActionClass;
+  status: ApprovalStatus;
+  proposed_action: { summary?: string } | null;
+};
 
 type Filter = "all" | TaskStatusGroup;
 
@@ -67,6 +76,7 @@ export function TasksModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ task: AgentTask; activity: AgentTaskActivity[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [taskApprovals, setTaskApprovals] = useState<TaskApproval[]>([]);
   const [busy, setBusy] = useState(false);
 
   const visible = useMemo(
@@ -78,10 +88,17 @@ export function TasksModule() {
     async (id: string) => {
       setSelectedId(id);
       setDetailLoading(true);
+      setTaskApprovals([]);
       const result = await getTask(id);
       setDetail(result);
       setDetailLoading(false);
       if (!result) toast("Could not load task detail.", "error", "Tasks");
+      // Linked approvals (best-effort; a failure just leaves the section empty).
+      const res = await fetch(`/api/approvals?taskId=${id}`).catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        setTaskApprovals(Array.isArray(data.approvals) ? data.approvals : []);
+      }
     },
     [getTask, toast],
   );
@@ -271,6 +288,24 @@ export function TasksModule() {
                     ))}
                   </div>
                 </div>
+              )}
+
+              {taskApprovals.length > 0 && (
+                <>
+                  <div className="divider" style={{ margin: "14px 0" }} />
+                  <div className="seclabel" style={{ marginBottom: 8 }}>
+                    Approvals · <a href="/approvals" style={{ color: "var(--accent)" }}>review queue</a>
+                  </div>
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {taskApprovals.map((a) => (
+                      <li key={a.id} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "baseline" }}>
+                        <span style={{ color: "var(--ink-faint)", minWidth: 118 }}>{actionClassLabel(a.action_class)}</span>
+                        <span style={{ color: "var(--ink)", flex: 1 }}>{a.proposed_action?.summary ?? "—"}</span>
+                        <span style={{ color: "var(--ink-dim)", fontWeight: 600 }}>{approvalStatusLabel(a.status)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
 
               <div className="divider" style={{ margin: "14px 0" }} />

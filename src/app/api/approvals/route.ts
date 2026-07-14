@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
   if (status && !(APPROVAL_STATUSES as readonly string[]).includes(status)) {
     return NextResponse.json({ error: "INVALID_STATUS" }, { status: 400 });
   }
+  const taskId = request.nextUrl.searchParams.get("taskId");
 
   let query = supabase
     .from("approvals")
@@ -42,6 +43,7 @@ export async function GET(request: NextRequest) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
   if (status) query = query.eq("status", status);
+  if (taskId) query = query.eq("task_id", taskId);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: "APPROVALS_UNAVAILABLE" }, { status: 500 });

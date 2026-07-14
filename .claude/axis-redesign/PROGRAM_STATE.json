@@ -262,6 +262,15 @@
       "note": "Extends the palette beyond navigation: new run-routine PaletteTarget kind + 'Run Concentration Check' action command that POSTs the routine then lands on /tasks. New Operate routes (/tasks, /approvals) are already palette-covered via ALL_NAV_ITEMS; added guard tests asserting both the route coverage and the executable command.",
       "tests": "531 tests pass (+ palette coverage tests); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "8.4",
+      "title": "Link approvals to tasks (flesh-out, §8)",
+      "status": "landed",
+      "files_changed": ["src/app/api/approvals/route.ts", "src/components/tasks/TasksModule.tsx"],
+      "note": "Approvals GET accepts ?taskId to fetch a task's approvals (owner-scoped). Task detail pane now shows a linked 'Approvals' section (action class + summary + status) with a deep link to the review queue, cohering the Tasks and Approvals surfaces. Empty section when a task has no approvals.",
+      "tests": "531 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
   ],
   "migrations_applied": {
