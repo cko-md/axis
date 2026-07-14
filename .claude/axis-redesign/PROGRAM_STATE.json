@@ -357,6 +357,16 @@
       "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 202607131700 migration but never typed).",
       "tests": "563 tests pass; tsc clean; lint clean; next build compiles",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.3",
+      "title": "Resumable durable execution + idempotency (§15.5, follow-up)",
+      "status": "landed",
+      "files_added": ["src/lib/routines/runner.ts", "src/lib/routines/runner.test.ts"],
+      "files_changed": ["src/app/api/routines/concentration-check/route.ts"],
+      "note": "Pure planResume(orderedKeys, existingSteps) -> {toRun, reuse}: succeeded steps are skipped and their output snapshots reused (idempotent replay); order preserved; a key counts done if any record succeeded. isStepAlreadyDone/isRunComplete helpers. Concentration routine now RESUMABLE: POST {runId} resumes a non-terminal run, skipping succeeded steps and reusing their outputs; a step failure now marks the run 'blocked' (non-terminal, resumable) instead of terminal 'failed', emitting routine.run.blocked. The pausing-for-approval routine that fully exercises resume is the next adopter (the framework + storage support it today).",
+      "tests": "569 tests pass (+6); tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     }
   ],
   "migrations_applied": {
