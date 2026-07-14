@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { isActionable, validateApprovalCompleteness, isApprovalExpired } from "@/lib/security/approvalRequest";
+import { isActionable, validateApprovalCompleteness, isApprovalExpired, isStepUpFresh } from "@/lib/security/approvalRequest";
 import { rowToApprovalRequest } from "@/lib/security/approvalPersistence";
 
 /**
@@ -69,22 +69,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const req = rowToApprovalRequest(row);
-  const stepUpVerified = !!row.step_up_verified_at;
+  const nowMs = Date.now();
+  const stepUpFresh = isStepUpFresh(row.step_up_verified_at, undefined, nowMs);
 
-  if (isApprovalExpired(req, Date.now())) {
+  if (isApprovalExpired(req, nowMs)) {
     await supabase.from("approvals").update({ status: "expired" }).eq("user_id", user.id).eq("id", id);
     return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
   }
-  if (!isActionable(req, { stepUpVerified, nowMs: Date.now() })) {
+  if (!isActionable(req, { stepUpVerifiedAt: row.step_up_verified_at, nowMs })) {
     const missing = validateApprovalCompleteness(req).missing;
-    return NextResponse.json(
-      {
-        error: "NOT_ACTIONABLE",
-        reason: req.stepUpRequired && !stepUpVerified ? "STEP_UP_REQUIRED" : "INCOMPLETE",
-        missing,
-      },
-      { status: 409 },
-    );
+    // Distinguish "never verified" from "verified too long ago" so the UI can
+    // prompt a re-verify rather than a generic error.
+    const reason = req.stepUpRequired && !stepUpFresh
+      ? (row.step_up_verified_at ? "STEP_UP_STALE" : "STEP_UP_REQUIRED")
+      : "INCOMPLETE";
+    return NextResponse.json({ error: "NOT_ACTIONABLE", reason, missing }, { status: 409 });
   }
 
   const { data, error } = await supabase

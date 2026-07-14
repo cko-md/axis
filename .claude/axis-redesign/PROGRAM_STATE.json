@@ -338,6 +338,16 @@
       "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) — see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 202607140200, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
       "tests": "549 tests pass; tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test; live migration verified"
+    },
+    {
+      "id": "5.7",
+      "title": "Step-up freshness window (follow-up PR, post-merge)",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": ["src/lib/security/approvalRequest.ts", "src/app/api/approvals/[id]/route.ts", "src/components/approvals/ApprovalCard.tsx", "src/components/approvals/ApprovalsModule.tsx", "src/lib/security/approvalRequest.test.ts", "src/lib/security/approvalPersistence.test.ts"],
+      "note": "A step-up verification no longer stays valid indefinitely. isActionable now takes stepUpVerifiedAt (timestamp) not a boolean and requires it within STEP_UP_MAX_AGE_MS (5 min) via the pure isStepUpFresh (fail-safe on missing/unparseable/future). Execute path distinguishes STEP_UP_REQUIRED vs STEP_UP_STALE (409); the card re-shows 'Verify with passkey' when stale and the queue toasts a re-verify prompt. Also verified the #190 production deploy: Vercel READY on ca73d37 + no new Sentry prod errors (24h).",
+      "tests": "563 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
   ],
   "migrations_applied": {
