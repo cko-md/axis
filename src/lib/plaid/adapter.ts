@@ -13,12 +13,15 @@ import { optionalEnv } from "@/lib/env";
 import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
 import { fail, failFromException, failFromStatus, ok, type Result } from "@/lib/integrations/types";
 import { normalizeAccounts, type Account, type RawPlaidAccount } from "./account";
+import { normalizeTransactions, type RawPlaidTransaction, type Transaction } from "./transaction";
 
 export interface AccountAdapter {
   readonly provider: string;
   isConfigured(): boolean;
   /** Normalized account balances for the user's linked item. */
   getAccounts(userId: string): Promise<Result<Account[]>>;
+  /** Normalized recent transactions (default last ~30 days) for the user's item. */
+  getTransactions(userId: string, opts?: { days?: number }): Promise<Result<Transaction[]>>;
 }
 
 function getCreds() {
@@ -74,6 +77,50 @@ export const plaidAccountAdapter: AccountAdapter = {
       return ok(normalizeAccounts(data.accounts ?? [], { provider: "plaid" }));
     } catch (e) {
       return failFromException<Account[]>(e, "Failed to fetch Plaid balances.", { provider: "plaid" });
+    }
+  },
+
+  async getTransactions(userId, opts) {
+    const creds = getCreds();
+    if (!creds) {
+      return fail<Transaction[]>("not_supported", "Plaid isn't configured (set PLAID_CLIENT_ID / PLAID_SECRET).", {
+        provider: "plaid",
+        retryable: false,
+      });
+    }
+    const accessToken = await getPlaidAccessToken(userId);
+    if (!accessToken) {
+      return fail<Transaction[]>("auth_expired", "No linked bank account — connect one to see transactions.", {
+        provider: "plaid",
+        retryable: false,
+      });
+    }
+
+    const days = Math.min(730, Math.max(1, opts?.days ?? 30));
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 86_400_000);
+    try {
+      const res = await fetch(`${plaidHost(creds.env)}/transactions/get`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: creds.clientId,
+          secret: creds.secret,
+          access_token: accessToken,
+          start_date: start.toISOString().slice(0, 10),
+          end_date: end.toISOString().slice(0, 10),
+          options: { count: 250, offset: 0 },
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(9_000),
+      });
+      if (!res.ok) {
+        return failFromStatus<Transaction[]>(res.status, "Plaid transactions request failed.", { provider: "plaid" });
+      }
+      const data = (await res.json()) as { transactions?: RawPlaidTransaction[] };
+      return ok(normalizeTransactions(data.transactions ?? [], { provider: "plaid" }));
+    } catch (e) {
+      return failFromException<Transaction[]>(e, "Failed to fetch Plaid transactions.", { provider: "plaid" });
     }
   },
 };
