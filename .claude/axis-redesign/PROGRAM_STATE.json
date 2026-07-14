@@ -36,7 +36,7 @@
     "10_integrations": "started — pure integration risk model (capabilities -> action classes -> approval defaults + risk level + context-impact count), composing the security kernel. Live-provider adapter rearchitecture (Plaid/Polygon/Public/Make) not attempted; existing adapters retained.",
     "11_performance": "started — measurable budgets established from real build numbers (PERFORMANCE_BUDGETS.json) + CI build reports sizes. No profiling-driven optimization pass yet.",
     "12_testing": "ongoing — 531 unit tests incl. financial invariants; no new e2e/browser suite added this program.",
-    "13_observability": "partial — structured API error codes; no new Sentry dashboards this program.",
+    "13_observability": "started — structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done — .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program §20). Deployment/rollback strategy unchanged."
   },
   "convergence_note": "This program is NOT a completed 14-phase rewrite — the initial prompt describes a multi-quarter effort. What is delivered is a coherent, green, end-to-end vertical of the operating loop (observe->task->approval->durable run) on a deterministic financial-safety kernel, plus foundational domain primitives, all additive and behind existing behavior. Remaining phases are honestly tracked above and in next_dependency_ordered_actions. No delivered wave is a broken prototype; every one is tsc/lint/test green and the migrations are applied+verified.",
@@ -270,6 +270,16 @@
       "files_changed": ["src/app/api/approvals/route.ts", "src/components/tasks/TasksModule.tsx"],
       "note": "Approvals GET accepts ?taskId to fetch a task's approvals (owner-scoped). Task detail pane now shows a linked 'Approvals' section (action class + summary + status) with a deep link to the review queue, cohering the Tasks and Approvals surfaces. Empty section when a task has no approvals.",
       "tests": "531 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "13.1",
+      "title": "Structured observability events with redaction guard (§13)",
+      "status": "landed",
+      "files_added": ["src/lib/observability/events.ts", "src/lib/observability/events.test.ts"],
+      "files_changed": ["src/app/api/routines/concentration-check/route.ts"],
+      "note": "Pure redactSafe (recursively masks token/secret/password/authorization/cookie/api-key/PII keys, depth-limited) + structuredEvent + emitServerEvent. Wired safe run.completed / run.failed events (counts + status only, no holdings/PII) into the concentration routine. Defensive: fields are redacted regardless of caller discipline.",
+      "tests": "535 tests pass (+4); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
   ],

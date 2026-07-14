@@ -4,6 +4,7 @@ import type { Json } from "@/lib/supabase/database.types";
 import { sumBy } from "@/lib/fund/money";
 import { breachObjective, reviewConcentration, type Position } from "@/lib/skills/concentrationReview";
 import { deriveRunOutcome, type StepStatus } from "@/lib/routines/runState";
+import { emitServerEvent } from "@/lib/observability/events";
 
 /**
  * Concentration-check routine (program §15.3) — a deterministic trigger that
@@ -129,6 +130,16 @@ export async function POST(request: NextRequest) {
       .update({ status, output: output as Json, actual_cost_usd: 0, completed_at: new Date().toISOString() })
       .eq("id", runId);
 
+    // Safe operational event: counts + status only, no holdings/PII.
+    emitServerEvent("routine.run.completed", {
+      routine: ROUTINE_KEY,
+      runId,
+      status,
+      breaches: review.breaches.length,
+      tasksCreated: outcome.created.length,
+      tasksSkipped: outcome.skipped,
+    });
+
     return NextResponse.json({ runId, status, ...output });
   } catch (err) {
     // A step threw — mark the run failed with the error, leaving the recorded
@@ -137,6 +148,11 @@ export async function POST(request: NextRequest) {
       .from("routine_runs")
       .update({ status: "failed", error: err instanceof Error ? err.message : "run failed", completed_at: new Date().toISOString() })
       .eq("id", runId);
+    emitServerEvent("routine.run.failed", {
+      routine: ROUTINE_KEY,
+      runId,
+      error: err instanceof Error ? err.message : "run failed",
+    });
     return NextResponse.json({ error: "RUN_FAILED", runId }, { status: 500 });
   }
 }
