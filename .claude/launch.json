@@ -4,7 +4,7 @@
     {
       "name": "axis-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "3200"],
+      "runtimeArgs": ["run", "dev:https", "--", "-p", "3200"],
       "port": 3200
     },
     {
