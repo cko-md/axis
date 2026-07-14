@@ -33,7 +33,7 @@
     "7_workspace_shell": "started — command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial — Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
     "9_agent_runtime": "core done — durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
-    "10_integrations": "started — pure integration risk model (capabilities -> action classes -> approval defaults) + a real market-data adapter (§10 provider->domain boundary): MarketDataAdapter contract + Polygon impl over the existing client, returning normalized MarketQuote with provenance + freshness via the kernel; /api/markets/quote uses it. Plaid/Public/Make adapter rearchitecture still to do.",
+    "10_integrations": "in progress — integration risk model + two real provider->domain adapters behind the shared Result contract: market-data (Polygon, MarketQuote) and Plaid accounts (AccountAdapter, provenance+freshness on balances; token stays server-side). /api/markets/quote + /api/plaid/accounts use them. Public (orders) + Make adapter rearchitecture + transactions/liabilities still to do.",
     "11_performance": "started — measurable budgets established from real build numbers (PERFORMANCE_BUDGETS.json) + CI build reports sizes. No profiling-driven optimization pass yet.",
     "12_testing": "ongoing — 539 unit tests incl. financial invariants + a CI-run guard that JSON-validates the program-state artifacts; added tests/e2e/operate.spec.ts (authenticated smoke for /tasks + /approvals, runs under AXIS_E2E_AUTH with the local stack). Broader browser/visual-regression suite still future.",
     "13_observability": "started — structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
@@ -318,6 +318,15 @@
       "files_added": ["src/lib/markets/quote.ts", "src/lib/markets/quote.test.ts", "src/lib/markets/adapter.ts", "src/app/api/markets/quote/route.ts"],
       "note": "Stable MarketDataAdapter contract (getQuote -> Result<MarketQuote>) with a Polygon/Massive implementation over the existing rate-limited client. Pure normalizeQuote stamps provenance (provider/retrievedAt/effectiveAt/currency) and classifies freshness against FRESHNESS_SLAS.marketPrice — so a delayed feed reads as delayed/stale, never 'live'. Errors map to the shared IntegrationError taxonomy (not_found/rate_limited/provider_error via failFromException). /api/markets/quote returns the normalized domain quote (feeds FreshnessBadge). Call sites never branch on provider.",
       "tests": "544 tests pass (+5); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "10.3",
+      "title": "Plaid account adapter — balances into the provenance model (§10)",
+      "status": "landed",
+      "files_added": ["src/lib/plaid/account.ts", "src/lib/plaid/account.test.ts", "src/lib/plaid/adapter.ts", "src/app/api/plaid/accounts/route.ts"],
+      "note": "AccountAdapter contract (getAccounts(userId) -> Result<Account[]>) with a Plaid impl. Pure normalizeAccount(s) maps Plaid balances to a domain Account with provenance (provider/retrievedAt/currency) + freshness (accountBalance SLA) — balances read as fresh right after a live pull. Self-contained in lib (creds via env, reuses getPlaidAccessToken; token never leaves the server). Errors -> IntegrationError taxonomy; not_supported/auth_expired return a soft connect-a-bank state (200), harder failures map to status. /api/plaid/accounts uses it; existing /api/plaid/balances untouched.",
+      "tests": "549 tests pass (+5); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
   ],
