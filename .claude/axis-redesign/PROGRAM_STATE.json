@@ -26,7 +26,7 @@
     "0_initialization": "done — branch/baseline/state artifacts + tool map",
     "1_audit": "substantial — repo mapped; docs/axis-redesign/01-current-state-audit.md; risk/defect ledgers. Not an exhaustive per-module audit.",
     "2_product_synthesis": "substantial — 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
-    "3_target_architecture": "substantial — 04-target-architecture + ADR-0001. More ADRs to write as waves land.",
+    "3_target_architecture": "substantial — 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs). More ADRs as waves land.",
     "4_financial_domain": "core done — deterministic money (adopted), provenance/freshness/reconciliation domain + provenance columns live. Corporate actions / tax lots / multi-currency FX not yet built.",
     "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is modeled, not yet bound to a real WebAuthn challenge.",
     "6_design_system": "partial — freshness badge primitive + tokens reused. No full token/typography/motion overhaul (existing AXIS system retained).",
