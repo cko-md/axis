@@ -35,7 +35,7 @@
     "9_agent_runtime": "core done — durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
     "10_integrations": "started — pure integration risk model (capabilities -> action classes -> approval defaults + risk level + context-impact count), composing the security kernel. Live-provider adapter rearchitecture (Plaid/Polygon/Public/Make) not attempted; existing adapters retained.",
     "11_performance": "started — measurable budgets established from real build numbers (PERFORMANCE_BUDGETS.json) + CI build reports sizes. No profiling-driven optimization pass yet.",
-    "12_testing": "ongoing — 531 unit tests incl. financial invariants; no new e2e/browser suite added this program.",
+    "12_testing": "ongoing — 539 unit tests incl. financial invariants + a CI-run guard that JSON-validates the program-state artifacts; added tests/e2e/operate.spec.ts (authenticated smoke for /tasks + /approvals, runs under AXIS_E2E_AUTH with the local stack). Broader browser/visual-regression suite still future.",
     "13_observability": "started — structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done — .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program §20). Deployment/rollback strategy unchanged."
   },
@@ -290,6 +290,15 @@
       "files_changed": ["src/components/ui/FreshnessBadge.tsx", "src/lib/tasks/taskStatusView.ts", "src/lib/security/approvalCardView.ts"],
       "note": "Single source of truth for status color (muted/accent/success/warning/alert/danger -> existing theme CSS vars). Freshness, task-status, and approval presenters now resolve their domain tones through it; a test pins the values so the palette can't drift. Consolidation only — every existing color preserved (consumer tests unchanged, incl. approvalToneColor==var(--down)).",
       "tests": "537 tests pass (+2); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "12.1",
+      "title": "Testing flesh-out — artifact guard + Operate e2e smoke (§12)",
+      "status": "landed",
+      "files_added": ["src/lib/redesign/artifacts.test.ts", "tests/e2e/operate.spec.ts"],
+      "note": "artifacts.test.ts JSON-validates every .claude/axis-redesign/*.json in CI (prevents the source-of-truth corruption a stray comma caused). operate.spec.ts is an authenticated Playwright smoke for /tasks (loads + Run Concentration Check enabled) and /approvals (loads + empty/populated state), matching the existing authenticated project; runs under AXIS_E2E_AUTH with the local Supabase stack (not in unit CI).",
+      "tests": "539 unit tests pass (+2); tsc clean; lint clean; e2e spec authored to the existing pattern (needs the local stack to run)",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     }
   ],
