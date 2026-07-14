@@ -204,6 +204,26 @@
       "note": "Closes the observe->significance->task arc with deterministic math (no LLM, no fabricated data). Pure reviewConcentration(positions, maxWeight) computes cent-exact weights, flags positions over target, and returns the trim amount + a stable breachObjective (idempotency key). POST /api/routines/concentration-check reads the user's real fund_holdings, runs the skill, and creates a 'queued' agent-Task per breach — idempotent (skips breaches whose objective already has a non-terminal task). It never trades or creates a financial-execution approval; output is a task to review. 'Run concentration check' button on the Tasks workbench. Approvals queue intentionally stays empty until a real execution skill with order details exists — no fabricated trade approvals.",
       "tests": "519 tests pass (+6); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "9.2",
+      "title": "Durable routine-run execution (§15.5) — run + step snapshots",
+      "status": "landed",
+      "files_added": [
+        "src/lib/routines/runState.ts",
+        "src/lib/routines/runState.test.ts",
+        "src/app/api/routines/runs/route.ts",
+        "src/components/tasks/RoutineRunsPanel.tsx",
+        "supabase/migrations/202607140100_routine_runs.sql"
+      ],
+      "files_changed": [
+        "src/app/api/routines/concentration-check/route.ts",
+        "src/components/tasks/TasksModule.tsx",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Durable execution backbone. Pure runState (RunStatus/StepStatus + transitions + deriveRunOutcome: all-ok=completed, mixed=partial, all-fail=failed, empty=completed). Migration routine_runs + routine_step_runs (owner-scoped RLS, no-delete audit, applied+verified: 3 policies each). Concentration routine refactored to open a durable run and record each step (load_holdings, review_concentration, create_tasks) with input/output snapshots, deriving the final run status; a thrown step marks the run failed with snapshots intact. GET /api/routines/runs (list + ?runId detail with steps). RoutineRunsPanel shows recent runs on the Tasks workbench (honest empty until a run exists). Cost fields recorded (0 — deterministic, no model).",
+      "tests": "524 tests pass (+5); tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build + live RLS policy read-back"
     }
   ],
   "migrations_applied": {

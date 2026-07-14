@@ -1652,6 +1652,113 @@ export type Database = {
           },
         ]
       }
+      routine_runs: {
+        Row: {
+          actual_cost_usd: number | null
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          estimated_cost_usd: number | null
+          id: string
+          input_snapshot: Json
+          output: Json | null
+          routine_key: string
+          routine_version: number
+          started_at: string
+          status: string
+          trigger: string
+          user_id: string
+        }
+        Insert: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          input_snapshot?: Json
+          output?: Json | null
+          routine_key: string
+          routine_version?: number
+          started_at?: string
+          status?: string
+          trigger?: string
+          user_id: string
+        }
+        Update: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          input_snapshot?: Json
+          output?: Json | null
+          routine_key?: string
+          routine_version?: number
+          started_at?: string
+          status?: string
+          trigger?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      routine_step_runs: {
+        Row: {
+          attempt: number
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          id: string
+          input_snapshot: Json | null
+          ordinal: number
+          output_snapshot: Json | null
+          run_id: string
+          status: string
+          step_key: string
+          started_at: string | null
+          user_id: string
+        }
+        Insert: {
+          attempt?: number
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_snapshot?: Json | null
+          ordinal: number
+          output_snapshot?: Json | null
+          run_id: string
+          status?: string
+          step_key: string
+          started_at?: string | null
+          user_id: string
+        }
+        Update: {
+          attempt?: number
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_snapshot?: Json | null
+          ordinal?: number
+          output_snapshot?: Json | null
+          run_id?: string
+          status?: string
+          step_key?: string
+          started_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routine_step_runs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "routine_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       net_worth_snapshots: {
         Row: {
           captured_on: string

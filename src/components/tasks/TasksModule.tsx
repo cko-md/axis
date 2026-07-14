@@ -17,6 +17,7 @@ import {
   type TaskStatusGroup,
 } from "@/lib/tasks/taskStatusView";
 import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
+import { RoutineRunsPanel } from "@/components/tasks/RoutineRunsPanel";
 
 type Filter = "all" | TaskStatusGroup;
 
@@ -62,6 +63,7 @@ export function TasksModule() {
   const [draft, setDraft] = useState("");
   const [creating, setCreating] = useState(false);
   const [running, setRunning] = useState(false);
+  const [runsRefresh, setRunsRefresh] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ task: AgentTask; activity: AgentTaskActivity[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -108,6 +110,7 @@ export function TasksModule() {
       return;
     }
     const data = (await res.json()) as { created?: unknown[]; skipped?: number; breaches?: number };
+    setRunsRefresh((n) => n + 1);
     const createdCount = Array.isArray(data.created) ? data.created.length : 0;
     if (createdCount > 0) {
       toast(`Concentration check: ${createdCount} task(s) created.`, "success", "Routines");
@@ -169,6 +172,10 @@ export function TasksModule() {
           </span>
         </div>
       </Card>
+
+      <div style={{ marginTop: 16 }}>
+        <RoutineRunsPanel refreshKey={runsRefresh} />
+      </div>
 
       <div className="divider" />
 
