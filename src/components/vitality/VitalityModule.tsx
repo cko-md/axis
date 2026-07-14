@@ -17,7 +17,7 @@ import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
-import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { callAiAction } from "@/lib/ai/callAction";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
@@ -1292,7 +1292,12 @@ export function VitalityModule() {
               onClick: () => {
                 if (stravaConnected) stravaDisconnect();
                 else {
-                  openComposioOAuthPopup("strava", (status) => {
+                  // Direct OAuth — Composio has zero registered tools for the
+                  // Strava toolkit (verified live: total_items:0), so a
+                  // Composio-only connect could never resolve an athlete and
+                  // status would report "disconnected" forever despite an
+                  // ACTIVE connected_account row existing.
+                  openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
                     if (status === "ok") void refetchStravaStatus();
                   });
                 }
@@ -1331,7 +1336,7 @@ export function VitalityModule() {
             style={{ opacity: 0.45, cursor: "pointer", background: "none", border: "none" }}
             title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}
             onClick={() => {
-              openComposioOAuthPopup("strava", (status) => {
+              openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
                 if (status === "ok") void refetchStravaStatus();
               });
             }}
@@ -1496,7 +1501,7 @@ export function VitalityModule() {
               type="button"
               style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", whiteSpace: "nowrap", cursor: "pointer" }}
               onClick={() => {
-                openComposioOAuthPopup("strava", (status) => {
+                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
                   if (status === "ok") void refetchStravaStatus();
                 });
               }}

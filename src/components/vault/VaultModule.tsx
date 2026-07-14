@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
-import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
 import { callAiAction } from "@/lib/ai/callAction";
@@ -589,8 +589,13 @@ export function VaultModule() {
   const { toast } = useToast();
   const { connected, configured, now, liveProgressMs, playing, refresh: refreshSpotify } = spotify;
 
+  // Direct OAuth (not Composio) — SpotifyProvider's poll() only reads the
+  // direct-OAuth cookie (/api/spotify/playback), so a Composio-only grant
+  // here would leave the Vault's connected state permanently stuck on
+  // "disconnected" even after a successful connect. See the same fix in
+  // ControlRoomModule.tsx for the full root-cause writeup.
   const connectSpotify = useCallback(() => {
-    openComposioOAuthPopup("spotify", (status) => {
+    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
       if (status === "error") {
         toast("Spotify connection failed. Try again from Control Room.", "error", "Vault");
         return;

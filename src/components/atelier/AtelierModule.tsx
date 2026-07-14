@@ -227,6 +227,10 @@ export function AtelierModule() {
   const moodInputRef = useRef<HTMLInputElement>(null);
 
   const [langFeedItems, setLangFeedItems] = useState<Record<LangKey, RssItem[]>>({ fr: [], es: [], yo: [] });
+  // Distinguishes "still loading" / "genuinely no items" from a source failure
+  // — an empty array alone can't tell those apart, which left a failed feed
+  // rendering as a silent blank instead of an honest message.
+  const [langFeedsLoaded, setLangFeedsLoaded] = useState(false);
   const [trendItems, setTrendItems] = useState<RssItem[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(true);
   const [trendsRefreshing, setTrendsRefreshing] = useState(false);
@@ -364,6 +368,7 @@ export function AtelierModule() {
       const next = {} as Record<LangKey, RssItem[]>;
       keys.forEach((k, i) => { next[k] = results[i]; });
       setLangFeedItems(next);
+      setLangFeedsLoaded(true);
     };
     loadAllLangFeeds();
     const id = setInterval(loadAllLangFeeds, 4 * 60 * 1000);
@@ -520,6 +525,11 @@ export function AtelierModule() {
                   <span className="rt">{relAge(item.date)}</span>
                 </div>
               ))}
+              {langFeedsLoaded && langFeedForCurrent.length === 0 && (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", padding: "6px 0" }}>
+                  No live stories right now — this feed source may be unavailable.
+                </div>
+              )}
               <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 12 }}>
                 Auto-refreshes weekly · click ★ to pin
               </div>
