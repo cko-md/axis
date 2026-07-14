@@ -55,12 +55,13 @@ function StatusChip({ status }: { status: FinancialTaskStatus }) {
 }
 
 export function TasksModule() {
-  const { tasks, loading, error, createTask, transition, getTask } = useAgentTasks();
+  const { tasks, loading, error, reload, createTask, transition, getTask } = useAgentTasks();
   const { toast } = useToast();
 
   const [filter, setFilter] = useState<Filter>("all");
   const [draft, setDraft] = useState("");
   const [creating, setCreating] = useState(false);
+  const [running, setRunning] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ task: AgentTask; activity: AgentTaskActivity[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -97,6 +98,26 @@ export function TasksModule() {
       toast("Could not create task.", "error", "Tasks");
     }
   }, [draft, createTask, toast, openTask]);
+
+  const runConcentrationCheck = useCallback(async () => {
+    setRunning(true);
+    const res = await fetch("/api/routines/concentration-check", { method: "POST" }).catch(() => null);
+    setRunning(false);
+    if (!res?.ok) {
+      toast("Couldn’t run the concentration check.", "error", "Routines");
+      return;
+    }
+    const data = (await res.json()) as { created?: unknown[]; skipped?: number; breaches?: number };
+    const createdCount = Array.isArray(data.created) ? data.created.length : 0;
+    if (createdCount > 0) {
+      toast(`Concentration check: ${createdCount} task(s) created.`, "success", "Routines");
+      void reload();
+    } else if ((data.breaches ?? 0) > 0) {
+      toast("Concentration check: breaches already tracked.", "info", "Routines");
+    } else {
+      toast("Concentration check: no positions over target.", "success", "Routines");
+    }
+  }, [toast, reload]);
 
   const move = useCallback(
     async (id: string, status: FinancialTaskStatus) => {
@@ -138,6 +159,14 @@ export function TasksModule() {
           <Button variant="primary" onClick={() => void submit()} disabled={creating || !draft.trim()}>
             {creating ? "Adding…" : "Add task"}
           </Button>
+        </div>
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Button variant="secondary" onClick={() => void runConcentrationCheck()} disabled={running}>
+            {running ? "Running…" : "Run concentration check"}
+          </Button>
+          <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>
+            Deterministic review of your holdings — opens a task for any position over target weight.
+          </span>
         </div>
       </Card>
 
