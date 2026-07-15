@@ -33,9 +33,9 @@
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
     "9_agent_runtime": "core done \u2014 durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
-    "10_integrations": "in progress \u2014 integration risk model + two real provider->domain adapters behind the shared Result contract: market-data (Polygon, MarketQuote) and Plaid accounts (AccountAdapter, provenance+freshness on balances; token stays server-side). /api/markets/quote + /api/plaid/accounts use them. Public (orders) + Make adapter rearchitecture + transactions/liabilities still to do.",
-    "11_performance": "in progress \u2014 budgets enforced in CI (scripts/check-perf-budgets.mjs fails on regression; /command pinned at 450kB measured 434). Profiling/code-splitting still to do.",
-    "12_testing": "ongoing \u2014 539 unit tests incl. financial invariants + a CI-run guard that JSON-validates the program-state artifacts; added tests/e2e/operate.spec.ts (authenticated smoke for /tasks + /approvals, runs under AXIS_E2E_AUTH with the local stack). Broader browser/visual-regression suite still future.",
+    "10_integrations": "in progress \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts, and Plaid transactions (normalized, provenance-aware, positive=inflow cent-exact). /api/markets/quote + /api/plaid/accounts + /api/plaid/transactions/recent use them. Plaid liabilities, Public (orders), and Make adapter rearchitecture still to do.",
+    "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
+    "12_testing": "ongoing \u2014 574 unit tests incl. financial invariants + JSON-artifact guard; authenticated operate.spec.ts (local stack) + a NEW public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Deployment/rollback strategy unchanged."
   },
@@ -425,20 +425,189 @@
       "verification": "npx tsc --noEmit + npx eslint + npm run test; live migration verified"
     },
     {
+      "id": "5.7",
+      "title": "Step-up freshness window (follow-up PR, post-merge)",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": [
+        "src/lib/security/approvalRequest.ts",
+        "src/app/api/approvals/[id]/route.ts",
+        "src/components/approvals/ApprovalCard.tsx",
+        "src/components/approvals/ApprovalsModule.tsx",
+        "src/lib/security/approvalRequest.test.ts",
+        "src/lib/security/approvalPersistence.test.ts"
+      ],
+      "note": "A step-up verification no longer stays valid indefinitely. isActionable now takes stepUpVerifiedAt (timestamp) not a boolean and requires it within STEP_UP_MAX_AGE_MS (5 min) via the pure isStepUpFresh (fail-safe on missing/unparseable/future). Execute path distinguishes STEP_UP_REQUIRED vs STEP_UP_STALE (409); the card re-shows 'Verify with passkey' when stale and the queue toasts a re-verify prompt. Also verified the #190 production deploy: Vercel READY on ca73d37 + no new Sentry prod errors (24h).",
+      "tests": "563 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
       "id": "4.4",
-      "title": "Multi-currency minor-unit table + FX conversion with provenance",
+      "title": "Provenance on persisted holdings + freshness badge on Assets (follow-up)",
+      "status": "landed",
+      "files_changed": [
+        "src/app/api/fund/holdings/route.ts",
+        "src/components/fund/FundDataProvider.tsx",
+        "src/components/fund/FundNetWorthModule.tsx",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 202607131700 migration but never typed).",
+      "tests": "563 tests pass; tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.3",
+      "title": "Resumable durable execution + idempotency (\u00a715.5, follow-up)",
       "status": "landed",
       "files_added": [
-        "src/lib/fund/currency.ts",
-        "src/lib/fund/currency.test.ts",
-        "src/lib/fund/fx.ts",
-        "src/lib/fund/fx.test.ts"
+        "src/lib/routines/runner.ts",
+        "src/lib/routines/runner.test.ts"
       ],
       "files_changed": [
-        "src/lib/fund/money.ts"
+        "src/app/api/routines/concentration-check/route.ts"
       ],
-      "tests": "584 pass (+25)",
-      "verification": "tsc + eslint + full suite"
+      "note": "Pure planResume(orderedKeys, existingSteps) -> {toRun, reuse}: succeeded steps are skipped and their output snapshots reused (idempotent replay); order preserved; a key counts done if any record succeeded. isStepAlreadyDone/isRunComplete helpers. Concentration routine now RESUMABLE: POST {runId} resumes a non-terminal run, skipping succeeded steps and reusing their outputs; a step failure now marks the run 'blocked' (non-terminal, resumable) instead of terminal 'failed', emitting routine.run.blocked. The pausing-for-approval routine that fully exercises resume is the next adopter (the framework + storage support it today).",
+      "tests": "569 tests pass (+6); tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "10.4",
+      "title": "Plaid transactions adapter (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/plaid/transaction.ts",
+        "src/lib/plaid/transaction.test.ts",
+        "src/app/api/plaid/transactions/recent/route.ts"
+      ],
+      "files_changed": [
+        "src/lib/plaid/adapter.ts"
+      ],
+      "note": "Pure normalizeTransaction(s) -> domain Transaction with provenance (provider/providerRecordId/effectiveAt=date/currency) + freshness; amount is cent-exact via parseMoney and sign-flipped so positive=inflow (matches app convention). Adapter gains getTransactions(userId,{days}) hitting /transactions/get (default 30d, count 250). /api/plaid/transactions/recent returns the normalized list; soft connect-a-bank state on not_supported/auth_expired. Distinct from the existing POST /api/plaid/transactions sync path.",
+      "tests": "574 tests pass (+5); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "11.2_12.2",
+      "title": "Enforced bundle-budget gate + public e2e smoke in CI (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "scripts/check-bundle-budget.mjs",
+        "tests/e2e/ci-smoke.spec.ts"
+      ],
+      "files_changed": [
+        ".github/workflows/ci.yml",
+        ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"
+      ],
+      "note": "PERF GATE: scripts/check-bundle-budget.mjs sums .next/static/chunks/**/*.js (deterministic, not log-parsing) and fails past total_static_js_kb.budget (4400; measured 3826/87%). Wired as a CI step after build. E2E-IN-CI: new e2e-smoke CI job installs Chromium and runs a public ci-smoke.spec.ts that boots the app (placeholder Supabase env) and asserts /login renders its form with no uncaught page errors. Verified locally up to browser-launch (dev server booted; only the container's pre-installed browser version mismatched \u2014 CI's playwright install provides the right one). Watching PR #191 CI to confirm the e2e job is green.",
+      "tests": "574 unit tests pass; bundle gate passes locally (87%); ci.yml valid; e2e job pending first CI run",
+      "verification": "node scripts/check-bundle-budget.mjs + local dev-server boot + CI"
+    },
+    {
+      "id": "10.5",
+      "title": "Plaid liabilities adapter \u2014 completes the adapter trio (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/plaid/liability.ts",
+        "src/lib/plaid/liability.test.ts",
+        "src/app/api/plaid/liabilities/route.ts"
+      ],
+      "files_changed": [
+        "src/lib/plaid/adapter.ts",
+        "src/lib/plaid/account.ts"
+      ],
+      "note": "Pure normalizeLiabilities joins Plaid credit/student/mortgage arrays to their account balances (by account_id) into domain Liability with provenance + freshness; payment amounts cent-exact. Adapter now does accounts + transactions + liabilities. /api/plaid/liabilities returns the normalized list.",
+      "tests": "tsc + eslint clean; targeted tests pass",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.8",
+      "title": "Approval-expiry sweeper cron (hygiene, follow-up)",
+      "status": "landed",
+      "files_added": [
+        "supabase/migrations/202607140300_expire_stale_approvals.sql"
+      ],
+      "files_changed": [
+        "src/app/api/cron/daily/route.ts",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "SECURITY DEFINER expire_stale_approvals() (applied+verified; returns 0 today) marks pending approvals past expires_at as 'expired'; folded into /api/cron/daily. Cross-user sweep needs SECURITY DEFINER (cron has no session). Hygiene only \u2014 isActionable already refuses expired approvals.",
+      "tests": "tsc + eslint clean; function verified live",
+      "verification": "apply_migration + execute_sql (returns 0) + npx tsc --noEmit"
+    },
+    {
+      "id": "11.3",
+      "title": "Batch quotes \u2014 collapse the watchlist N+1 (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/markets/quotes.ts",
+        "src/lib/markets/quotes.test.ts",
+        "src/app/api/markets/quotes/route.ts"
+      ],
+      "files_changed": [
+        "src/components/fund/FundWatchlistModule.tsx"
+      ],
+      "note": "FundWatchlistModule fetched /api/massive/quote once per symbol (N client round-trips, each serialized behind the 280ms Polygon rate limit). New /api/markets/quotes?symbols=A,B,C returns all quotes (via the market adapter, provenance+freshness) in one request; pure parseSymbolList (dedupe/validate/cap) tested. Watchlist now does ONE fetch. Widget batch was already cache-first + parallel (not a naive N+1) \u2014 left as-is per 'don't rewrite working systems'.",
+      "tests": "583 tests pass; tsc + eslint clean; next build compiles; bundle 3832KB/87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.4",
+      "title": "Order-prep + rebalance skill + pausing routine that creates REAL approvals",
+      "status": "landed",
+      "files_added": [
+        "src/lib/orders/orderTicket.ts",
+        "src/lib/orders/orderTicket.test.ts",
+        "src/lib/skills/rebalanceProposal.ts",
+        "src/lib/skills/rebalanceProposal.test.ts",
+        "src/app/api/routines/rebalance-proposal/route.ts"
+      ],
+      "note": "Delivers the order-prep boundary + the pausing-for-approval routine (\u00a710 Public prep, \u00a715.5 pause). Pure buildOrderTicket (validated, cent-exact notional; DRAFT only, never submits) + proposeRebalance (deterministic drift->order tickets). /api/routines/rebalance-proposal reads holdings, fetches LIVE prices via the market adapter, runs the skill, and creates one FINANCIAL_EXECUTION approval per proposed order (real numbers, not fabricated), then sets the run status to waiting_for_approval (first genuine pause). Nothing is submitted: approvals are proposals the user reviews (approve + passkey step-up + execute clears the gate; live broker submission deliberately unbuilt = no autonomous execution). This is the first honest populator of the approvals queue.",
+      "tests": "594 tests pass (+11); tsc clean; lint clean; next build compiles; bundle 87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.5",
+      "title": "LLM-judgment step (explain-only) + cost metering",
+      "status": "landed",
+      "files_added": [
+        "src/lib/ai/cost.ts",
+        "src/lib/ai/cost.test.ts",
+        "src/lib/ai/explain.ts"
+      ],
+      "files_changed": [
+        "src/app/api/routines/rebalance-proposal/route.ts"
+      ],
+      "note": "Pure cost estimator (estimateTokens ~4ch/tok + per-model MODEL_PRICING -> estimateCostUsd; router returns no usage so cost is ESTIMATED, clearly labeled). explainWithCost wraps aiGenerate: the sanctioned LLM use \u2014 EXPLAIN an already-computed result, never compute financial values; returns text + estimated cost or {skipped} (no throw, graceful when no model configured). Wired an optional explain_proposal step into the rebalance routine that narrates the deterministic proposal and records actual_cost_usd on the run (\u00a711 cost visibility). Arithmetic stays deterministic; AI is decorative narrative, not authoritative.",
+      "tests": "599 tests pass (+5); tsc clean; lint clean; next build compiles; bundle 87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.6",
+      "title": "Observability events at approval decision points + Sentry dashboard spec",
+      "status": "landed",
+      "files_added": [
+        "docs/axis-redesign/14-observability-dashboards.md"
+      ],
+      "files_changed": [
+        "src/app/api/approvals/[id]/route.ts",
+        "src/app/api/approvals/[id]/step-up/route.ts"
+      ],
+      "note": "Wired structured emitServerEvent signals across the operate loop's decision points: approval.decided (decision, actionClass, requirement, decisionLatencyMs) at approve/deny, approval.executed (stepUpRequired, executeLatencyMs) at the isActionable gate clear, and approval.step_up_verified on a verified passkey assertion. Safe fields only (IDs/enums/booleans/durations) \u2014 no proposed_action/prices/balances/PII, enforced structurally by redactSafe. Added docs/axis-redesign/14-observability-dashboards.md: the committed dashboard definition (event catalogue as the contract + copy-pasteable Sentry queries for approval reliability/latency, step-up security, routine reliability, integration+cost health, plus a minimum alert set). Dashboards are Sentry UI artifacts; the spec is the reviewable source they're built from.",
+      "tests": "599 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
+    },
+    {
+      "id": "9.7",
+      "title": "Surface Plaid liabilities (accounts/transactions/liabilities trio) into Net Worth with freshness",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": [
+        "src/components/fund/FundDataProvider.tsx",
+        "src/components/fund/FundNetWorthModule.tsx"
+      ],
+      "note": "The Plaid liabilities adapter + /api/plaid/liabilities route existed but had no UI consumer \u2014 the accounts/transactions/liabilities trio was only 2/3 surfaced. FundDataProvider now fetches /api/plaid/liabilities (soft-fails to empty when unlinked), flattens provenance.retrievedAt for the badge, and exposes plaidLiabilities. FundNetWorthModule renders bank-linked liabilities as freshness-badged rows ('\u00b7 Plaid' + FreshnessBadge on FRESHNESS_SLAS.accountBalance), mirroring how Assets shows per-holding freshness and Cash shows '\u00b7 Plaid'. Net-worth math now sums manual + Plaid liabilities via sumMoney (deterministic minor-units). Financially-material debt data now carries its freshness tier per \u00a717.",
+      "tests": "599 tests pass; tsc clean; lint clean (local next build blocked only by missing NEXT_PUBLIC_SUPABASE_* env on unrelated /agenda prerender \u2014 CI supplies secrets)",
+      "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
     },
     {
       "id": "4.5",

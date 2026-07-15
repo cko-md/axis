@@ -3,6 +3,7 @@ import {
   buildApprovalRequest,
   isActionable,
   isApprovalExpired,
+  isStepUpFresh,
   validateApprovalCompleteness,
   type ApprovalRequest,
   type ApprovalRequestInput,
@@ -160,31 +161,54 @@ describe("isApprovalExpired — fail safe, never fail open", () => {
 
 describe("isActionable — the single execution gate", () => {
   const now = Date.parse("2026-07-13T17:01:00.000Z");
+  const freshStepUp = "2026-07-13T17:00:40.000Z"; // 20s before `now`
 
-  it("is actionable when complete, unexpired, and step-up verified", () => {
+  it("is actionable when complete, unexpired, and step-up FRESH", () => {
     const req = buildApprovalRequest(financialInput());
-    expect(isActionable(req, { stepUpVerified: true, nowMs: now })).toBe(true);
+    expect(isActionable(req, { stepUpVerifiedAt: freshStepUp, nowMs: now })).toBe(true);
   });
 
   it("is not actionable without step-up for a step-up class", () => {
     const req = buildApprovalRequest(financialInput());
-    expect(isActionable(req, { stepUpVerified: false, nowMs: now })).toBe(false);
+    expect(isActionable(req, { stepUpVerifiedAt: null, nowMs: now })).toBe(false);
+  });
+
+  it("is not actionable when step-up is STALE (verified too long ago)", () => {
+    const req = buildApprovalRequest(financialInput());
+    // Verified 10 min before now, past the 5-min window.
+    expect(isActionable(req, { stepUpVerifiedAt: "2026-07-13T16:51:00.000Z", nowMs: now })).toBe(false);
   });
 
   it("is not actionable when incomplete", () => {
     const req = buildApprovalRequest(financialInput({ amount: undefined }));
-    expect(isActionable(req, { stepUpVerified: true, nowMs: now })).toBe(false);
+    expect(isActionable(req, { stepUpVerifiedAt: freshStepUp, nowMs: now })).toBe(false);
   });
 
   it("is not actionable when expired", () => {
     const req = buildApprovalRequest(financialInput());
     expect(
-      isActionable(req, { stepUpVerified: true, nowMs: Date.parse("2026-07-13T18:00:00.000Z") }),
+      isActionable(req, { stepUpVerifiedAt: "2026-07-13T17:59:50.000Z", nowMs: Date.parse("2026-07-13T18:00:00.000Z") }),
     ).toBe(false);
   });
 
   it("does not require step-up for a plain internal write", () => {
     const req = buildApprovalRequest(baseInput);
     expect(isActionable(req, { nowMs: now })).toBe(true);
+  });
+});
+
+describe("isStepUpFresh", () => {
+  const now = Date.parse("2026-07-13T17:05:00.000Z");
+  it("accepts a recent verification and rejects an old one", () => {
+    expect(isStepUpFresh("2026-07-13T17:02:00.000Z", undefined, now)).toBe(true); // 3m
+    expect(isStepUpFresh("2026-07-13T16:58:00.000Z", undefined, now)).toBe(false); // 7m
+  });
+  it("rejects missing, unparseable, and future-dated timestamps", () => {
+    expect(isStepUpFresh(null, undefined, now)).toBe(false);
+    expect(isStepUpFresh("nope", undefined, now)).toBe(false);
+    expect(isStepUpFresh("2026-07-13T17:10:00.000Z", undefined, now)).toBe(false); // future
+  });
+  it("honors a custom max age", () => {
+    expect(isStepUpFresh("2026-07-13T16:58:00.000Z", 10 * 60_000, now)).toBe(true);
   });
 });

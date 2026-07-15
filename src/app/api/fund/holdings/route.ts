@@ -13,7 +13,15 @@ type HoldingRow = {
   source: "manual" | "plaid" | "public";
   currency: string | null;
   reconciliation_state: ReconciliationState | null;
+  retrieved_at: string | null;
 };
+
+/** Oldest of two nullable ISO timestamps (the conservative freshness anchor). */
+function olderOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return Date.parse(a) <= Date.parse(b) ? a : b;
+}
 
 /**
  * GET /api/fund/holdings
@@ -31,7 +39,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("fund_holdings")
-    .select("id, symbol, name, shares, cost_basis, source, sort_order, currency, reconciliation_state")
+    .select("id, symbol, name, shares, cost_basis, source, sort_order, currency, reconciliation_state, retrieved_at")
     .eq("user_id", user.id)
     .order("sort_order");
 
@@ -41,13 +49,15 @@ export async function GET() {
   // Reconcile per symbol across sources (pure, deterministic, minor-unit).
   const reconciliation = reconcileHoldings(rows);
 
-  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; reconciliation_state: ReconciliationState | null }>();
+  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; reconciliation_state: ReconciliationState | null; retrieved_at: string | null }>();
   for (const r of rows) {
     const existing = bySymbol.get(r.symbol);
     if (existing) {
       existing.shares += Number(r.shares);
       existing.cost_basis += Number(r.cost_basis);
       if (!existing.sources.includes(r.source)) existing.sources.push(r.source);
+      // Aggregate freshness = the oldest constituent (most conservative).
+      existing.retrieved_at = olderOf(existing.retrieved_at, r.retrieved_at);
     } else {
       bySymbol.set(r.symbol, {
         symbol: r.symbol,
@@ -56,6 +66,7 @@ export async function GET() {
         cost_basis: Number(r.cost_basis),
         sources: [r.source],
         reconciliation_state: reconciliation.get(r.symbol)?.state ?? null,
+        retrieved_at: r.retrieved_at,
       });
     }
   }

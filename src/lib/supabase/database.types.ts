@@ -875,18 +875,18 @@ export type Database = {
           connection_id: string | null
           cost_basis: number
           created_at: string
+          currency: string
+          effective_at: string | null
           id: string
           name: string
+          provider: string | null
+          provider_record_id: string | null
+          reconciliation_state: string | null
+          retrieved_at: string | null
           shares: number
           sort_order: number
           source: string
           symbol: string
-          provider: string | null
-          provider_record_id: string | null
-          retrieved_at: string | null
-          effective_at: string | null
-          currency: string
-          reconciliation_state: string | null
           updated_at: string
           user_id: string
         }
@@ -894,18 +894,18 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
           symbol: string
-          provider?: string | null
-          provider_record_id?: string | null
-          retrieved_at?: string | null
-          effective_at?: string | null
-          currency?: string
-          reconciliation_state?: string | null
           updated_at?: string
           user_id: string
         }
@@ -913,18 +913,18 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
           symbol?: string
-          provider?: string | null
-          provider_record_id?: string | null
-          retrieved_at?: string | null
-          effective_at?: string | null
-          currency?: string
-          reconciliation_state?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2642,6 +2642,7 @@ export type Database = {
     Functions: {
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
       search_note_embeddings: {

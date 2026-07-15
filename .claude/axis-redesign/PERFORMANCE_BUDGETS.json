@@ -3,6 +3,7 @@
   "source": "next build output (this branch); measured, not aspirational",
   "notes": "Budgets are first-load JS (kB) reported by `next build`. The CI build step (.github/workflows/ci.yml) prints current sizes on every PR so regressions are visible in the log; automated enforcement is a follow-up.",
   "budgets": {
+    "total_static_js_kb": { "measured": 3826, "budget": 4400, "note": "Sum of .next/static/chunks/**/*.js (raw). Enforced in CI by scripts/check-bundle-budget.mjs; raise deliberately on an intended growth." },
     "shared_first_load_kb": { "measured": 227, "budget": 260 },
     "per_route_first_load_kb": { "measured_max": 391, "measured_max_route": "/vitality", "budget": 420 },
     "middleware_kb": { "measured": 156, "budget": 180 },
