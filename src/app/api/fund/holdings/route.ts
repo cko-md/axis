@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
+import { reconcileHoldings } from "@/lib/fund/reconcileHoldings";
+import type { ReconciliationState } from "@/lib/fund/provenance";
 
 type HoldingRow = {
   id: string;
@@ -8,6 +11,8 @@ type HoldingRow = {
   shares: number;
   cost_basis: number;
   source: "manual" | "plaid" | "public";
+  currency: string | null;
+  reconciliation_state: ReconciliationState | null;
 };
 
 /**
@@ -26,14 +31,17 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("fund_holdings")
-    .select("id, symbol, name, shares, cost_basis, source, sort_order")
+    .select("id, symbol, name, shares, cost_basis, source, sort_order, currency, reconciliation_state")
     .eq("user_id", user.id)
     .order("sort_order");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rows = (data ?? []) as HoldingRow[];
 
-  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] }>();
+  // Reconcile per symbol across sources (pure, deterministic, minor-unit).
+  const reconciliation = reconcileHoldings(rows);
+
+  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; reconciliation_state: ReconciliationState | null }>();
   for (const r of rows) {
     const existing = bySymbol.get(r.symbol);
     if (existing) {
@@ -47,8 +55,42 @@ export async function GET() {
         shares: Number(r.shares),
         cost_basis: Number(r.cost_basis),
         sources: [r.source],
+        reconciliation_state: reconciliation.get(r.symbol)?.state ?? null,
       });
     }
+  }
+
+  // Persist the freshly computed state back to any symbol group whose stored
+  // value drifted from the computed one. Best-effort: a write failure must not
+  // fail the read, but it is never swallowed silently — it is reported to
+  // Sentry as a scoped warning so the drift stays visible.
+  const changedSymbols: string[] = [];
+  for (const [symbol, recon] of reconciliation) {
+    const stored = rows.filter((r) => r.symbol === symbol);
+    // A group needs a write when any of its rows disagrees with the computed state.
+    if (stored.some((r) => (r.reconciliation_state ?? null) !== recon.state)) {
+      changedSymbols.push(symbol);
+    }
+  }
+
+  if (changedSymbols.length > 0) {
+    await Promise.all(
+      changedSymbols.map(async (symbol) => {
+        const state = reconciliation.get(symbol)?.state ?? null;
+        const { error: updateError } = await supabase
+          .from("fund_holdings")
+          .update({ reconciliation_state: state })
+          .eq("user_id", user.id)
+          .eq("symbol", symbol);
+        if (updateError) {
+          Sentry.captureException(updateError, {
+            level: "warning",
+            tags: { area: "fund", op: "persist_reconciliation_state", route: "/api/fund/holdings" },
+            extra: { symbol, computedState: state },
+          });
+        }
+      }),
+    );
   }
 
   return NextResponse.json({ rows, aggregated: [...bySymbol.values()] });

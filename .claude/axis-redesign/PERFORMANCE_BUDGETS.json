@@ -8,7 +8,12 @@
     "middleware_kb": { "measured": 156, "budget": 180 },
     "new_redesign_routes_kb": {
       "/tasks": { "measured_first_load": 367, "budget": 400 },
-      "/approvals": { "budget": 400 }
+      "/approvals": { "budget": 400 },
+      "/command": {
+        "measured_first_load": 434,
+        "budget": 450,
+        "note": "Measured 434 kB when enforcement was introduced (wave 11.2) — pre-existing weight, not a wave regression; top code-splitting candidate (Console widget fan-out). Budget pinned just above measurement so further growth fails CI."
+      }
     }
   },
   "watch": [
