@@ -44,4 +44,9 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-        run: npm run build
+        run: npm run build 2>&1 | tee build.log
+
+      - name: Enforce performance budgets
+        # Fails the gate when a first-load size exceeds
+        # .claude/axis-redesign/PERFORMANCE_BUDGETS.json (§11, wave 11.2).
+        run: node scripts/check-perf-budgets.mjs build.log
