@@ -1,7 +1,7 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Latest verified green: tsc clean, lint 0 errors / 0 warnings, 726 tests, build + bundle budget pass.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Latest verified green: tsc clean, lint 0 errors / 0 warnings, 728 tests, build + bundle budget pass.",
   "baseline_commit": "f478cde",
   "revision_reviewed": "f478cde",
   "updated": "2026-07-15",
@@ -31,11 +31,11 @@
     "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) \u2014 see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
     "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
-    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity now has deterministic provider-category normalization and same-currency anomaly rules; Research and Signals UI remain future waves.",
+    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research now persists cited owner-scoped market-report drafts. Signals UI remains a future wave.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities (normalized, provenance-aware, positive=inflow cent-exact for transactions), Public order prepare/verify/submit boundary, webhook signature hardening, bounded read-only retries, widget stale-cache fallback, Control Room risk cards, and per-routine integration metadata. Make adapter rearchitecture remains future work.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
-    "12_testing": "ongoing \u2014 726 unit tests incl. financial invariants, provider adapter contract coverage, portfolio return/allocation math, Activity category/anomaly rules, connection-health provenance mapping, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + a public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
+    "12_testing": "ongoing \u2014 728 unit tests incl. financial invariants, provider adapter contract coverage, portfolio return/allocation math, Activity category/anomaly rules, cited market-report provenance, connection-health provenance mapping, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + a public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Deployment/rollback strategy unchanged."
   },
@@ -897,20 +897,38 @@
       "note": "Adds one pure Activity rule layer used by Plaid sync and daily anomaly review. Provider categories are mapped only through an explicit Axis taxonomy (unknown labels -> OTHER; no merchant-name guessing), while user custom categories remain authoritative. Anomaly evaluation is minor-unit exact, only considers prior same-merchant/same-currency debits, excludes transfers/pending/inflows, and never applies the USD first-merchant threshold to an unconverted currency. The existing notification/insight paths remain review signals only; there is no autonomous financial action. Spending UI now consumes the shared category taxonomy. No schema, RLS, credential, or provider-call changes.",
       "tests": "726 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles 155 routes; bundle budget passes",
       "verification": "npx vitest run src/lib/fund/activityRules.test.ts src/lib/fund/money.test.ts src/lib/fund/financeNarratorContext.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "8.6",
+      "title": "Cited, persisted Fund research reports",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/marketReport.ts",
+        "src/lib/fund/marketReport.test.ts",
+        "supabase/migrations/202607151200_market_report_insights.sql"
+      ],
+      "files_changed": [
+        "src/app/api/fund/report/route.ts",
+        "src/components/fund/FundResearchExtras.tsx"
+      ],
+      "note": "Replaces the ephemeral direct-Claude report with a complete saved Research slice: authenticated context read, bounded cited Polygon news metadata, model draft through the shared AI router, owner-scoped ai_insights persistence, saved-report history/detail, source links, and explicit signed-out/loading/error/source-unavailable states. External source titles are untrusted data, URLs are restricted to http(s), model input excludes source URLs, and report copy explicitly remains a review aid rather than investment advice or execution. The additive migration permits ai_insights.kind='market_report'; existing owner RLS policies were verified unchanged on live Supabase.",
+      "tests": "728 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles 155 routes; bundle budget passes",
+      "verification": "npx vitest run src/lib/fund/marketReport.test.ts src/lib/fund/activityRules.test.ts src/lib/redesign/artifacts.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs + live ai_insights constraint/RLS read-back"
     }
   ],
   "migrations_applied": {
     "applied": "2026-07-13; updated 2026-07-15",
     "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
-    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata and routine_versions applied via Supabase MCP to twkcvyhmlguipchfetge; read-back confirmed routine_runs pause columns, owner-pair FK/check, indexes, routine_versions columns/indexes/RLS, fund_bank_transactions.retrieved_at already present, and no public-table RLS gaps.",
+    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata, routine_versions, and market_report_insights applied via Supabase MCP to twkcvyhmlguipchfetge; read-back confirmed routine_runs pause columns, owner-pair FK/check, indexes, routine_versions columns/indexes/RLS, ai_insights market_report kind constraint plus owner select/insert/update/delete RLS, fund_bank_transactions.retrieved_at already present, and no public-table RLS gaps.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "files": [
       "supabase/migrations/202607131700_fund_provenance_columns.sql",
       "supabase/migrations/202607131701_tasks_table.sql (creates agent_tasks/agent_task_activity)",
       "supabase/migrations/202607131702_approvals_table.sql",
       "supabase/migrations/202607150900_routine_run_pause_metadata.sql",
-      "supabase/migrations/202607151100_routine_versions.sql"
+      "supabase/migrations/202607151100_routine_versions.sql",
+      "supabase/migrations/202607151200_market_report_insights.sql"
     ]
   },
   "governance_override": {
@@ -920,7 +938,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 8 core-module slices: Research UI, then Signals UI.",
+    "Continue Phase 8 core-module slices: Signals UI.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
