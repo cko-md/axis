@@ -10,6 +10,7 @@ type ProviderTimingOptions = {
   captureFailures?: boolean;
   timeoutMs?: number;
   slowMs?: number;
+  retry?: ProviderRetryOptions;
   tags?: Record<string, SafeValue>;
 };
 
@@ -18,6 +19,17 @@ type ProviderFailure = {
   message?: string;
   status?: number;
 };
+
+type ProviderRetryOptions = {
+  /** Total attempts including the first try. */
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  statuses?: number[];
+  sleep?: (ms: number) => Promise<void>;
+};
+
+const DEFAULT_RETRY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 export class ProviderTimeoutError extends Error {
   readonly code = "PROVIDER_TIMEOUT";
@@ -81,6 +93,71 @@ function timingData(
 
 function logTiming(label: string, data: Record<string, SafeValue>) {
   console.info(`[axis:${label}]`, JSON.stringify(data));
+}
+
+function retryPolicy(opts: ProviderTimingOptions): Required<Omit<ProviderRetryOptions, "sleep">> & Pick<ProviderRetryOptions, "sleep"> {
+  return {
+    maxAttempts: Math.max(1, Math.floor(opts.retry?.maxAttempts ?? 1)),
+    baseDelayMs: Math.max(0, opts.retry?.baseDelayMs ?? 250),
+    maxDelayMs: Math.max(0, opts.retry?.maxDelayMs ?? 2_000),
+    statuses: opts.retry?.statuses ?? [...DEFAULT_RETRY_STATUSES],
+    sleep: opts.retry?.sleep,
+  };
+}
+
+export function retryDelayMs(attempt: number, baseDelayMs = 250, maxDelayMs = 2_000): number {
+  if (attempt <= 0 || baseDelayMs <= 0 || maxDelayMs <= 0) return 0;
+  return Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
+
+function retryableStatus(status: number, statuses: number[]): boolean {
+  return statuses.includes(status);
+}
+
+function retryableError(error: unknown): boolean {
+  if (error instanceof ProviderTimeoutError) return true;
+  const name = errorName(error);
+  return name === "TimeoutError" || name === "AbortError" || name === "TypeError" || name === "Error";
+}
+
+async function sleepMs(ms: number, sleeper?: (ms: number) => Promise<void>) {
+  if (ms <= 0) return;
+  if (sleeper) return sleeper(ms);
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function recordProviderRetry(
+  opts: ProviderTimingOptions,
+  attempt: number,
+  delayMs: number,
+  extra: Record<string, SafeValue>,
+) {
+  const data = {
+    area: opts.area,
+    provider: opts.provider,
+    operation: opts.operation,
+    ...(opts.transport ? { transport: opts.transport } : {}),
+    attempt,
+    delayMs,
+    ...opts.tags,
+    ...extra,
+  };
+  Sentry.addBreadcrumb({
+    category: "provider.retry",
+    level: "info",
+    message: `${opts.provider}.${opts.operation}`,
+    data,
+  });
+  logTiming("provider-retry", data);
 }
 
 export function recordProviderFailure(
@@ -167,53 +244,82 @@ export async function timedProviderFetch(
   const timeoutMs = opts.timeoutMs ?? 8_000;
   const slowMs = opts.slowMs ?? 2_000;
   const startedAt = nowMs();
+  const policy = retryPolicy(opts);
+  let lastError: unknown;
 
-  try {
-    const res = await fetch(input, {
-      ...init,
-      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
-    });
-    const durationMs = nowMs() - startedAt;
-    if (durationMs >= slowMs) {
-      const data = timingData(opts, durationMs, "slow", {
-        status: res.status,
-        target: safeTarget(input),
+  for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
+    try {
+      const res = await fetch(input, {
+        ...init,
+        signal: init.signal ?? AbortSignal.timeout(timeoutMs),
       });
-      Sentry.addBreadcrumb({
-        category: "provider.slow",
-        level: "warning",
-        message: `${opts.provider}.${opts.operation}`,
-        data,
-      });
-      logTiming("provider", data);
-    }
+      const durationMs = nowMs() - startedAt;
+      if (durationMs >= slowMs) {
+        const data = timingData(opts, durationMs, "slow", {
+          status: res.status,
+          target: safeTarget(input),
+        });
+        Sentry.addBreadcrumb({
+          category: "provider.slow",
+          level: "warning",
+          message: `${opts.provider}.${opts.operation}`,
+          data,
+        });
+        logTiming("provider", data);
+      }
 
-    if (!res.ok && res.status >= 500) {
+      if (
+        !res.ok &&
+        attempt < policy.maxAttempts &&
+        retryableStatus(res.status, policy.statuses)
+      ) {
+        const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
+        const delayMs = Math.min(
+          policy.maxDelayMs,
+          Math.max(retryDelayMs(attempt, policy.baseDelayMs, policy.maxDelayMs), retryAfterMs ?? 0),
+        );
+        recordProviderRetry(opts, attempt, delayMs, { status: res.status, target: safeTarget(input) });
+        await sleepMs(delayMs, policy.sleep);
+        continue;
+      }
+
+      if (!res.ok && res.status >= 500) {
+        recordProviderFailure(
+          opts,
+          {
+            code: "provider_error",
+            message: `${opts.provider} ${opts.operation} returned ${res.status}`,
+            status: res.status,
+          },
+          durationMs,
+        );
+      }
+
+      return res;
+    } catch (error) {
+      lastError = error;
+      const durationMs = nowMs() - startedAt;
+      const code = errorName(error) === "TimeoutError" ? "PROVIDER_TIMEOUT" : "network";
+      if (attempt < policy.maxAttempts && retryableError(error)) {
+        const delayMs = retryDelayMs(attempt, policy.baseDelayMs, policy.maxDelayMs);
+        recordProviderRetry(opts, attempt, delayMs, { code, target: safeTarget(input) });
+        await sleepMs(delayMs, policy.sleep);
+        continue;
+      }
       recordProviderFailure(
         opts,
         {
-          code: "provider_error",
-          message: `${opts.provider} ${opts.operation} returned ${res.status}`,
-          status: res.status,
+          code,
+          message: error instanceof Error ? error.message : `${opts.provider} ${opts.operation} request failed`,
+          status: statusFrom(error),
         },
         durationMs,
       );
+      throw error;
     }
-
-    return res;
-  } catch (error) {
-    const durationMs = nowMs() - startedAt;
-    recordProviderFailure(
-      opts,
-      {
-        code: errorName(error) === "TimeoutError" ? "PROVIDER_TIMEOUT" : "network",
-        message: error instanceof Error ? error.message : `${opts.provider} ${opts.operation} request failed`,
-        status: statusFrom(error),
-      },
-      durationMs,
-    );
-    throw error;
   }
+
+  throw lastError instanceof Error ? lastError : new Error(`${opts.provider} ${opts.operation} request failed`);
 }
 
 export function logRouteTiming(

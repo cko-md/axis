@@ -757,6 +757,24 @@
       "note": "Extracts raw-body HMAC-SHA256 verification into a tested helper and switches the Make inbound webhook route to shared verification. Both x-make-secret and x-make-signature now use constant-time comparison semantics; malformed signatures fail closed before JSON parsing or admin-client work.",
       "tests": "687 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
       "verification": "npx vitest run src/lib/security/webhookSignature.test.ts src/lib/redesign/artifacts.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "10.8",
+      "title": "Bounded provider retry/backoff for read-only integrations",
+      "status": "landed",
+      "files_added": [
+        "src/lib/observability/providerTiming.test.ts"
+      ],
+      "files_changed": [
+        "src/lib/observability/providerTiming.ts",
+        "src/lib/massive/client.ts",
+        "src/app/api/brokerage/accounts/route.ts",
+        "src/app/api/brokerage/positions/route.ts",
+        "src/app/api/brokerage/order-history/route.ts"
+      ],
+      "note": "Adds an opt-in retry policy to timedProviderFetch with capped exponential backoff, Retry-After awareness, provider.retry breadcrumbs, and final-failure capture only. Enabled only for read-only Polygon/Massive market data and Public account/portfolio/order-history calls; no write, webhook, approval, or order-submit path retries in this wave.",
+      "tests": "691 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx vitest run src/lib/observability/providerTiming.test.ts src/lib/security/webhookSignature.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
@@ -780,7 +798,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 10 integrations: rate-limit/retry/backoff, cache-first reads, integration cards UI, and per-routine integration enablement.",
+    "Continue Phase 10 integrations: cache-first reads, integration cards UI, and per-routine integration enablement.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {

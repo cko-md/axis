@@ -39,6 +39,7 @@ export async function massiveRequest<T>(
       operation: path.split("/").filter(Boolean).slice(0, 3).join("_") || "request",
       timeoutMs: 5_000,
       slowMs: 1_500,
+      retry: { maxAttempts: 3, baseDelayMs: 200, maxDelayMs: 1_200 },
       tags: { host: "api.polygon.io" },
     },
   );
