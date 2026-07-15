@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
 import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
+import { isStepUpFresh } from "@/lib/security/approvalRequest";
 import {
   actionClassLabel,
   actionClassTone,
@@ -44,7 +45,9 @@ export function ApprovalCard({
   const toneColor = approvalToneColor(tone);
   const amount = formatApprovalAmount(pa.amount);
   const stepUpRequired = approval.requirement === "approval_step_up";
-  const stepUpVerified = !!approval.step_up_verified_at;
+  // Treat a stale verification as unverified so the re-verify affordance returns
+  // (the server re-checks freshness authoritatively on execute).
+  const stepUpVerified = isStepUpFresh(approval.step_up_verified_at);
 
   const isPending = approval.status === "pending";
   const isApproved = approval.status === "approved";

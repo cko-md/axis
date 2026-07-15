@@ -8,7 +8,15 @@ type HoldingRow = {
   shares: number;
   cost_basis: number;
   source: "manual" | "plaid" | "public";
+  retrieved_at: string | null;
 };
+
+/** Oldest of two nullable ISO timestamps (the conservative freshness anchor). */
+function olderOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return Date.parse(a) <= Date.parse(b) ? a : b;
+}
 
 /**
  * GET /api/fund/holdings
@@ -26,20 +34,22 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("fund_holdings")
-    .select("id, symbol, name, shares, cost_basis, source, sort_order")
+    .select("id, symbol, name, shares, cost_basis, source, sort_order, retrieved_at")
     .eq("user_id", user.id)
     .order("sort_order");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rows = (data ?? []) as HoldingRow[];
 
-  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] }>();
+  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; retrieved_at: string | null }>();
   for (const r of rows) {
     const existing = bySymbol.get(r.symbol);
     if (existing) {
       existing.shares += Number(r.shares);
       existing.cost_basis += Number(r.cost_basis);
       if (!existing.sources.includes(r.source)) existing.sources.push(r.source);
+      // Aggregate freshness = the oldest constituent (most conservative).
+      existing.retrieved_at = olderOf(existing.retrieved_at, r.retrieved_at);
     } else {
       bySymbol.set(r.symbol, {
         symbol: r.symbol,
@@ -47,6 +57,7 @@ export async function GET() {
         shares: Number(r.shares),
         cost_basis: Number(r.cost_basis),
         sources: [r.source],
+        retrieved_at: r.retrieved_at,
       });
     }
   }
@@ -82,6 +93,10 @@ export async function POST(request: NextRequest) {
       cost_basis: costBasis,
       source: "manual",
       sort_order: count ?? 0,
+      // Provenance: a manually entered holding is "as of" now, in USD.
+      provider: "manual",
+      retrieved_at: new Date().toISOString(),
+      currency: "USD",
     })
     .select()
     .single();

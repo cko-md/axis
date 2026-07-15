@@ -194,17 +194,46 @@ export function isApprovalExpired(req: ApprovalRequest, nowMs: number = Date.now
 }
 
 /**
+ * How long a step-up (WebAuthn) verification stays valid before it must be
+ * re-done. A step-up proves identity *at a moment*; a long-lived approval must
+ * not be executable on identity proof from hours ago (§11.2 defense-in-depth).
+ */
+export const STEP_UP_MAX_AGE_MS = 5 * 60_000;
+
+/**
+ * Whether a step-up verification is present and recent enough to act on. Missing,
+ * unparseable, clearly-future (beyond clock skew), or older than `maxAgeMs` all
+ * return false — fail safe.
+ */
+export function isStepUpFresh(
+  verifiedAt: string | null | undefined,
+  maxAgeMs: number = STEP_UP_MAX_AGE_MS,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!verifiedAt) return false;
+  const t = Date.parse(verifiedAt);
+  if (!Number.isFinite(t)) return false;
+  const age = nowMs - t;
+  if (age < -60_000) return false; // future-dated beyond skew
+  return age <= maxAgeMs;
+}
+
+/**
  * Whether an approval object is safe to act on right now: it must be complete,
- * not expired, and — for step-up classes — have step-up satisfied by the caller.
- * This is the single gate execution paths should consult before proceeding.
+ * not expired, and — for step-up classes — have a **fresh** step-up verification
+ * (`stepUpVerifiedAt` within the max age). This is the single gate execution
+ * paths should consult before proceeding.
  */
 export function isActionable(
   req: ApprovalRequest,
-  opts: { stepUpVerified?: boolean; nowMs?: number } = {},
+  opts: { stepUpVerifiedAt?: string | null; nowMs?: number; stepUpMaxAgeMs?: number } = {},
 ): boolean {
+  const now = opts.nowMs ?? Date.now();
   if (!validateApprovalCompleteness(req).complete) return false;
-  if (isApprovalExpired(req, opts.nowMs ?? Date.now())) return false;
-  if (req.stepUpRequired && !opts.stepUpVerified) return false;
+  if (isApprovalExpired(req, now)) return false;
+  if (req.stepUpRequired && !isStepUpFresh(opts.stepUpVerifiedAt, opts.stepUpMaxAgeMs ?? STEP_UP_MAX_AGE_MS, now)) {
+    return false;
+  }
   return true;
 }
 
