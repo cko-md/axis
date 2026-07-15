@@ -46,6 +46,45 @@ Missing optional keys should produce a configured/not-configured response, a set
 | Brokerage stubs | `APP_PUBLIC_API_KEY` or `PUBLIC_API_KEY` or `BROKERAGE_API_KEY`; `APP_PUBLIC_ACCOUNT_ID` or `PUBLIC_ACCOUNT_ID` or `BROKERAGE_ACCOUNT_ID`; `TRADE_EXECUTION_ENABLED` |
 | Cron protection | `CRON_SECRET`, `FEED_DIGEST_SECRET`, `MAKE_SWEEP_SECRET` |
 
+## Local HTTPS + OAuth Redirect URIs
+
+`npm run dev` serves plain HTTP (unchanged — Playwright's e2e webServer and the
+`axis-dev-verify`/`axis-worktree-dev` preview configs depend on that). For
+interactive local dev that exercises real OAuth (Spotify, Strava, Composio),
+use `npm run dev:https` instead — the `axis-dev` preview config (port 3200)
+already runs this. It serves genuine TLS via `next dev --experimental-https`,
+using a cert generated into `.gitignore`d `certificates/` (regenerate anytime
+with `rm -rf certificates && npx next dev --experimental-https` once, then
+stop it — it self-heals the cert on first boot if missing).
+
+One local, one-time step an agent cannot complete on your behalf: the
+generated cert isn't trusted by your OS yet (adding a CA to Keychain needs an
+interactive `sudo` password). Run this yourself once:
+
+```bash
+npx mkcert -install
+```
+
+Until you do, `https://localhost:3200` shows a bypassable browser warning —
+click through it, or run the command above for a clean, warning-free
+experience going forward (all local HTTPS dev, not just this project).
+
+`NEXT_PUBLIC_APP_URL` should be `https://localhost:3200` locally to match
+(`getAppOrigin()` in `src/lib/auth/getAppOrigin.ts` actually derives the
+scheme + host from the live request for `localhost`/`127.0.0.1`/`[::1]`, but
+`src/lib/webauthn/server.ts`'s passkey RP origin reads this env var directly,
+so it must match the scheme you're actually serving on).
+
+**Redirect URIs to register on each provider's dashboard** (must be an exact
+string match, scheme included):
+- Spotify ([developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)):
+  `https://localhost:3200/api/spotify/callback`. Spotify's policy (enforced
+  since April 2025) only exempts the *literal loopback IP* `127.0.0.1` from
+  its HTTPS requirement — `http://localhost:...` is rejected outright — so
+  once local dev is genuinely HTTPS this is moot either way.
+- Strava ([strava.com/settings/api](https://www.strava.com/settings/api)):
+  `https://localhost:3200/api/strava?action=callback`.
+
 ## Runtime Behavior
 
 - Required Supabase variables are read through `getPublicEnv()` and fail with a clear message that points back to this file.

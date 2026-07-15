@@ -12,6 +12,8 @@ type PlaidTxn = {
   authorized_date?: string;
   personal_finance_category?: { primary: string };
   pending?: boolean;
+  /** ISO-4217 currency of the transaction amount; present on /transactions/get rows. */
+  iso_currency_code?: string | null;
 };
 
 /**
@@ -55,6 +57,10 @@ export async function syncPlaidTransactions(
   const transactions = (data.transactions ?? []) as PlaidTxn[];
   if (!transactions.length) return { synced: 0 };
 
+  // Provenance: a just-pulled transaction's freshness anchor is the sync time;
+  // the existing iso_currency_code column serves the Provenance.currency role
+  // and is now populated from the Plaid row instead of the 'USD' default.
+  const retrievedAt = now.toISOString();
   const rows = transactions.map((t) => ({
     user_id: userId,
     connection_id: connectionId,
@@ -67,6 +73,8 @@ export async function syncPlaidTransactions(
     posted_date: t.date,
     authorized_date: t.authorized_date ?? null,
     pending: t.pending ?? false,
+    retrieved_at: retrievedAt,
+    iso_currency_code: t.iso_currency_code ?? "USD",
   }));
 
   const { error } = await admin

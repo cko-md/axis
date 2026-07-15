@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmtUsd } from "@/lib/store/fund-defaults";
+import { sumBy } from "@/lib/fund/money";
 import { useFundData, type Liability } from "@/components/fund/FundDataProvider";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
@@ -68,7 +69,7 @@ export function FundLiabilities() {
     toast("Liability removed.", "info", "Cash Flow");
   }
 
-  const total = liabilities.reduce((s, l) => s + Number(l.balance), 0);
+  const total = sumBy(liabilities, (l) => l.balance);
 
   return (
     <Card>

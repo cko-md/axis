@@ -33,7 +33,7 @@ export async function GET() {
   const since = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("net_worth_snapshots")
-    .select("captured_on, cash, invested, liabilities, net_worth")
+    .select("captured_on, cash, invested, liabilities, net_worth, computed_at")
     .eq("user_id", user.id)
     .gte("captured_on", since)
     .order("captured_on", { ascending: true });
@@ -75,7 +75,9 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase
     .from("net_worth_snapshots")
     .upsert(
-      { user_id: user.id, captured_on, cash, invested, liabilities, net_worth },
+      // computed_at stamps the actual recomputation time so the freshness badge
+      // reflects the last update, not the day-granular captured_on.
+      { user_id: user.id, captured_on, cash, invested, liabilities, net_worth, computed_at: new Date().toISOString() },
       { onConflict: "user_id,captured_on" },
     );
 

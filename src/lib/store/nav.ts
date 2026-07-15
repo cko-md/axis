@@ -20,6 +20,10 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/mail", label: "Mail", icon: "mail", status: "production" },
     { href: "/notes", label: "Notes", icon: "notes", status: "production" },
   ]},
+  { section: "Operate", items: [
+    { href: "/tasks", label: "Tasks", icon: "tasks", title: "Tasks — the assistant's durable work queue", status: "beta", statusReason: "New agent-Task workbench from the Axis System Redesign; backed by agent_tasks with server-enforced lifecycle transitions.", statusAction: "Validate create, status transitions, activity log, and empty/error/signed-out states before promotion." },
+    { href: "/approvals", label: "Approvals", icon: "approvals", title: "Approvals — review and authorize gated actions", status: "beta", statusReason: "New approval queue from the Axis System Redesign; every gated action shows full scope (§11.3) and financial execution requires step-up. Empty until routines/agents create approvals.", statusAction: "Validate approve/deny/execute, step-up gating, expiry, and empty/error/signed-out states before promotion." },
+  ]},
   { section: "Plan", items: [
     { href: "/objectives", label: "Objectives", icon: "goals", status: "production", title: "Objectives — goals and key results" },
     { href: "/debrief", label: "Debrief", icon: "review", status: "production", title: "Debrief — weekly reflection and AI summary" },

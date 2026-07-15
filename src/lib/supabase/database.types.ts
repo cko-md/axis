@@ -720,6 +720,7 @@ export type Database = {
           id: string
           is_transfer: boolean
           iso_currency_code: string
+          retrieved_at: string | null
           merchant_name: string | null
           notes: string | null
           pending: boolean
@@ -744,6 +745,7 @@ export type Database = {
           id?: string
           is_transfer?: boolean
           iso_currency_code?: string
+          retrieved_at?: string | null
           merchant_name?: string | null
           notes?: string | null
           pending?: boolean
@@ -768,6 +770,7 @@ export type Database = {
           id?: string
           is_transfer?: boolean
           iso_currency_code?: string
+          retrieved_at?: string | null
           merchant_name?: string | null
           notes?: string | null
           pending?: boolean
@@ -872,8 +875,14 @@ export type Database = {
           connection_id: string | null
           cost_basis: number
           created_at: string
+          currency: string
+          effective_at: string | null
           id: string
           name: string
+          provider: string | null
+          provider_record_id: string | null
+          reconciliation_state: string | null
+          retrieved_at: string | null
           shares: number
           sort_order: number
           source: string
@@ -885,8 +894,14 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
@@ -898,8 +913,14 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
@@ -929,6 +950,12 @@ export type Database = {
           minimum_payment: number | null
           name: string
           source: string
+          provider: string | null
+          provider_record_id: string | null
+          retrieved_at: string | null
+          effective_at: string | null
+          currency: string
+          reconciliation_state: string | null
           updated_at: string
           user_id: string
         }
@@ -943,6 +970,12 @@ export type Database = {
           minimum_payment?: number | null
           name: string
           source?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          effective_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           updated_at?: string
           user_id: string
         }
@@ -957,6 +990,12 @@ export type Database = {
           minimum_payment?: number | null
           name?: string
           source?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          effective_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1029,6 +1068,10 @@ export type Database = {
           shares: number
           source: string
           symbol: string | null
+          provider_record_id: string | null
+          retrieved_at: string | null
+          currency: string
+          reconciliation_state: string | null
           user_id: string
         }
         Insert: {
@@ -1044,6 +1087,10 @@ export type Database = {
           shares?: number
           source?: string
           symbol?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           user_id: string
         }
         Update: {
@@ -1059,6 +1106,10 @@ export type Database = {
           shares?: number
           source?: string
           symbol?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           user_id?: string
         }
         Relationships: []
@@ -1516,10 +1567,254 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_tasks: {
+        Row: {
+          actual_cost_usd: number | null
+          completed_at: string | null
+          context: Json
+          created_at: string
+          estimated_cost_usd: number | null
+          id: string
+          objective: string
+          source_routine_id: string | null
+          source_skill: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          context?: Json
+          created_at?: string
+          estimated_cost_usd?: number | null
+          id?: string
+          objective: string
+          source_routine_id?: string | null
+          source_skill?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          context?: Json
+          created_at?: string
+          estimated_cost_usd?: number | null
+          id?: string
+          objective?: string
+          source_routine_id?: string | null
+          source_skill?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_task_activity: {
+        Row: {
+          created_at: string
+          detail: Json
+          id: string
+          kind: string
+          task_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          id?: string
+          kind: string
+          task_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          id?: string
+          kind?: string
+          task_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_task_activity_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "agent_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approvals: {
+        Row: {
+          action_class: string
+          created_at: string
+          decided_at: string | null
+          expires_at: string | null
+          id: string
+          proposed_action: Json
+          reasons: string[]
+          requirement: string
+          scope: string
+          status: string
+          step_up_verified_at: string | null
+          task_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action_class: string
+          created_at?: string
+          decided_at?: string | null
+          expires_at?: string | null
+          id?: string
+          proposed_action: Json
+          reasons?: string[]
+          requirement: string
+          scope?: string
+          status?: string
+          step_up_verified_at?: string | null
+          task_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action_class?: string
+          created_at?: string
+          decided_at?: string | null
+          expires_at?: string | null
+          id?: string
+          proposed_action?: Json
+          reasons?: string[]
+          requirement?: string
+          scope?: string
+          status?: string
+          step_up_verified_at?: string | null
+          task_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approvals_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "agent_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routine_runs: {
+        Row: {
+          actual_cost_usd: number | null
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          estimated_cost_usd: number | null
+          id: string
+          input_snapshot: Json
+          output: Json | null
+          routine_key: string
+          routine_version: number
+          started_at: string
+          status: string
+          trigger: string
+          user_id: string
+        }
+        Insert: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          input_snapshot?: Json
+          output?: Json | null
+          routine_key: string
+          routine_version?: number
+          started_at?: string
+          status?: string
+          trigger?: string
+          user_id: string
+        }
+        Update: {
+          actual_cost_usd?: number | null
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          input_snapshot?: Json
+          output?: Json | null
+          routine_key?: string
+          routine_version?: number
+          started_at?: string
+          status?: string
+          trigger?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      routine_step_runs: {
+        Row: {
+          attempt: number
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          id: string
+          input_snapshot: Json | null
+          ordinal: number
+          output_snapshot: Json | null
+          run_id: string
+          status: string
+          step_key: string
+          started_at: string | null
+          user_id: string
+        }
+        Insert: {
+          attempt?: number
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_snapshot?: Json | null
+          ordinal: number
+          output_snapshot?: Json | null
+          run_id: string
+          status?: string
+          step_key: string
+          started_at?: string | null
+          user_id: string
+        }
+        Update: {
+          attempt?: number
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_snapshot?: Json | null
+          ordinal?: number
+          output_snapshot?: Json | null
+          run_id?: string
+          status?: string
+          step_key?: string
+          started_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routine_step_runs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "routine_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       net_worth_snapshots: {
         Row: {
           captured_on: string
           cash: number
+          computed_at: string
           created_at: string
           id: string
           invested: number
@@ -1530,6 +1825,7 @@ export type Database = {
         Insert: {
           captured_on?: string
           cash?: number
+          computed_at?: string
           created_at?: string
           id?: string
           invested?: number
@@ -1540,6 +1836,7 @@ export type Database = {
         Update: {
           captured_on?: string
           cash?: number
+          computed_at?: string
           created_at?: string
           id?: string
           invested?: number
@@ -2265,6 +2562,7 @@ export type Database = {
       }
       webauthn_challenges: {
         Row: {
+          approval_id: string | null
           challenge: string
           created_at: string
           email: string | null
@@ -2274,6 +2572,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          approval_id?: string | null
           challenge: string
           created_at?: string
           email?: string | null
@@ -2283,6 +2582,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          approval_id?: string | null
           challenge?: string
           created_at?: string
           email?: string | null
@@ -2342,6 +2642,7 @@ export type Database = {
     Functions: {
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
       search_note_embeddings: {

@@ -63,9 +63,17 @@ export function CommandPalette({ open, onClose }: Props) {
           hint: spec.hint,
           group: spec.group,
           icon: spec.icon,
-          run: target.kind === "interface-studio"
-            ? openInterfaceStudio
-            : () => router.push(target.href),
+          run:
+            target.kind === "interface-studio"
+              ? openInterfaceStudio
+              : target.kind === "run-routine"
+                ? () => {
+                    // Fire-and-navigate: trigger the routine, then land on the
+                    // Tasks workbench where its run + any new tasks appear.
+                    void fetch(`/api/routines/${target.routine}`, { method: "POST" }).catch(() => null);
+                    router.push(target.href);
+                  }
+                : () => router.push(target.href),
         };
       }),
     [router, openInterfaceStudio],

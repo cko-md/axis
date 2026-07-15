@@ -16,7 +16,7 @@ import {
   listComposioStravaActivities,
 } from "@/lib/integrations/strava-composio";
 import { hasOptionalEnv } from "@/lib/env";
-import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { optionalEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -46,10 +46,10 @@ export async function GET(req: NextRequest) {
   if (action === "auth") {
     const clientId = optionalEnv("STRAVA_CLIENT_ID");
     if (!clientId && !hasOptionalEnv("COMPOSIO_API_KEY")) {
-      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
+      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
     }
     if (!clientId) {
-      return NextResponse.redirect(new URL("/api/integrations/composio/connect?toolkit=strava", req.url));
+      return NextResponse.redirect(buildAppUrl(req, "/api/integrations/composio/connect?toolkit=strava"));
     }
 
     const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
@@ -83,13 +83,13 @@ export async function GET(req: NextRequest) {
     const savedState = cookieStore.get("strava_oauth_state")?.value;
 
     if (!code || !state || state !== savedState) {
-      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
+      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
     }
 
     const clientId = optionalEnv("STRAVA_CLIENT_ID");
     const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET");
     if (!clientId || !clientSecret) {
-      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
+      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
     }
 
     const tokenRes = await fetch("https://www.strava.com/oauth/token", {
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=error", req.url));
+      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
     }
 
     const tokens = await tokenRes.json();
@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
     }
     cookieStore.delete("strava_oauth_state");
 
-    return NextResponse.redirect(new URL("/oauth-done?provider=strava&status=ok", req.url));
+    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=ok"));
   }
 
   // ── DISCONNECT ─────────────────────────────────────────────────────────────

@@ -116,13 +116,27 @@ export async function listComposioCalendarAccounts(userId: string): Promise<Comp
   // "succeeded" but the schedule stayed empty. List events as soon as ACTIVE.
   const { data, error } = await supabase
     .from("composio_connections")
-    .select("toolkit, connected_account_id, account_label")
+    .select("toolkit, connected_account_id, account_label, created_at")
     .eq("user_id", userId)
     .eq("status", "ACTIVE")
-    .in("toolkit", ["googlecalendar", "outlook"]);
+    .in("toolkit", ["googlecalendar", "outlook"])
+    .order("created_at", { ascending: false });
   if (error) throw error;
 
-  return (data ?? []).map((row) => ({
+  // Defensive dedup: calendar toolkits are single-account by design (see the
+  // legacyProviders.has("google")/has("outlook") singular checks throughout
+  // this domain). A reconnect could still leave more than one ACTIVE row per
+  // toolkit (Composio issues a fresh connected_account_id every grant) —
+  // keep only the newest so an old, possibly-stale grant doesn't double every
+  // event in the merged calendar view.
+  const seen = new Set<string>();
+  const deduped = (data ?? []).filter((row) => {
+    if (seen.has(row.toolkit)) return false;
+    seen.add(row.toolkit);
+    return true;
+  });
+
+  return deduped.map((row) => ({
     provider: row.toolkit as CalendarToolkit,
     calendarEmail: (row.account_label as string | null) ?? "Connected calendar",
     via: "composio" as const,
@@ -204,7 +218,15 @@ export async function listComposioEvents(
     userId,
     arguments:
       toolkit === "googlecalendar"
-        ? { calendarId: "primary", timeMin, timeMax, orderBy: "startTime" }
+        // singleEvents:true is REQUIRED alongside orderBy:"startTime" — the Google
+        // Calendar API rejects ordering by start time on unexpanded recurring
+        // events with a 400 ("The requested ordering is not available for the
+        // particular query."). Verified live: every Composio calendar listing
+        // call failed with this exact error until singleEvents was added, so
+        // Composio-connected Google Calendars never synced/resynced a single
+        // event. The direct-OAuth path (src/lib/calendar/google.ts) already sets
+        // this correctly.
+        ? { calendarId: "primary", timeMin, timeMax, singleEvents: true, orderBy: "startTime" }
         : {
             top: 100,
             filter:

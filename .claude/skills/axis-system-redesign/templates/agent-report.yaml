@@ -1,0 +1,18 @@
+agent:
+scope:
+revision_reviewed:
+files_inspected:
+files_changed:
+findings:
+  critical:
+  high:
+  medium:
+  low:
+decisions:
+implementation:
+tests_run:
+results:
+remaining_risks:
+dependencies:
+recommended_next_action:
+confidence:        # low | medium | high

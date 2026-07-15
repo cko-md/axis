@@ -4,6 +4,7 @@ import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
 import { fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client";
 import { notifyViaMake } from "@/lib/fund/notifyViaMake";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
+import { sumBy, sumMoney } from "@/lib/fund/money";
 
 /** Fetches live Plaid balances server-side for the finance-daily snapshot job. */
 async function fetchPlaidCash(accessToken: string): Promise<number> {
@@ -18,7 +19,7 @@ async function fetchPlaidCash(accessToken: string): Promise<number> {
     if (!res.ok) return 0;
     const data = await res.json();
     const accounts = (data.accounts ?? []) as Array<{ balances?: { current?: number } }>;
-    return accounts.reduce((sum, a) => sum + (a.balances?.current ?? 0), 0);
+    return sumBy(accounts, (a) => a.balances?.current ?? 0);
   } catch {
     return 0;
   }
@@ -71,9 +72,9 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     .from("fund_liabilities")
     .select("balance")
     .eq("user_id", userId);
-  const liabilities = (liabilityRows ?? []).reduce((sum, l) => sum + Number(l.balance), 0);
+  const liabilities = sumBy(liabilityRows ?? [], (l) => l.balance);
 
-  const net_worth = cash + invested - liabilities;
+  const net_worth = sumMoney([cash, invested, -liabilities]);
   await admin.from("net_worth_snapshots").upsert(
     {
       user_id: userId,
