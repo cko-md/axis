@@ -82,6 +82,10 @@ export async function POST(request: NextRequest) {
       cost_basis: costBasis,
       source: "manual",
       sort_order: count ?? 0,
+      // Provenance: for a manual entry, entry time IS the retrieval time.
+      provider: "manual",
+      retrieved_at: new Date().toISOString(),
+      currency: "USD",
     })
     .select()
     .single();
