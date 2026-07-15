@@ -38,6 +38,16 @@ default) · `FINANCIAL_EXECUTION` (approve + step-up) · `DESTRUCTIVE_ADMIN`
 (approve + safeguards). Combinatorial rule: sensitive private data + untrusted
 external content + an external comm/execution tool ⇒ mandatory approval.
 
+## Public order boundary (Phase 10)
+
+Public order flow is split into `prepare`, `verify`, and `submit`.
+`src/lib/brokerage/publicOrderAdapter.ts` only creates deterministic
+`FINANCIAL_EXECUTION` drafts and configuration checks. `/api/brokerage/orders`
+does not place live orders: `submit` returns `APPROVAL_REQUIRED` without a
+server-side approval execution context and `BROKER_SUBMIT_NOT_ENABLED` when a
+client supplies an approval id. A real broker submitter must be called only from
+the server-side approval kernel after `isActionable` and fresh step-up.
+
 ## Migration strategy — strangler pattern
 
 Add new contracts beside old systems → route one module/flow at a time → keep

@@ -726,6 +726,22 @@
       "note": "Single-source symbols stay NULL (honest absence); mixed-currency -> pending; cent-exact tolerance.",
       "tests": "624 pass (+15)",
       "verification": "tsc + eslint + full suite + build + perf gate"
+    },
+    {
+      "id": "10.6",
+      "title": "Public order adapter boundary: prepare / verify / submit",
+      "status": "landed",
+      "files_added": [
+        "src/lib/brokerage/publicOrderAdapter.ts",
+        "src/lib/brokerage/publicOrderAdapter.test.ts"
+      ],
+      "files_changed": [
+        "src/app/api/brokerage/orders/route.ts",
+        "docs/axis-redesign/04-target-architecture.md"
+      ],
+      "note": "Removes the dormant Public.com live POST path that was guarded only by TRADE_EXECUTION_ENABLED. /api/brokerage/orders now exposes explicit prepare + verify actions that build deterministic FINANCIAL_EXECUTION drafts and reports configured state, while submit never touches the network and returns APPROVAL_REQUIRED or BROKER_SUBMIT_NOT_ENABLED. A client-provided approval id is not treated as authorization; future submit must originate from the server-side approval kernel after isActionable + fresh step-up.",
+      "tests": "684 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx vitest run src/lib/brokerage/publicOrderAdapter.test.ts src/lib/orders/orderTicket.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
@@ -747,7 +763,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Ask owner for authorization to apply pending live Supabase migrations for PR #195, then continue Phase 10 integrations: Public orders adapter split prep/verify vs submit, webhook signature verification, rate-limit/retry/backoff, cache-first reads, integration cards UI, and per-routine integration enablement.",
+    "Ask owner for authorization to apply pending live Supabase migrations for PR #195, then continue Phase 10 integrations: webhook signature verification, rate-limit/retry/backoff, cache-first reads, integration cards UI, and per-routine integration enablement.",
     "HUMAN: apply supabase/migrations/202607151000_fund_bank_transactions_provenance.sql to prod before relying on fund_bank_transactions.retrieved_at."
   ],
   "artifacts": {
