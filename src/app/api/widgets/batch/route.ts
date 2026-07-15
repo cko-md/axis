@@ -13,15 +13,18 @@ import {
 } from "@/lib/widgets/observability";
 import {
   dedupeWidgetIds,
+  cachedWidgetRowToBatchWidget,
   maxWidgetsPerBatch,
   safeWidgetBatchError,
   statusForWidgetPayload,
   type BatchWidgetError,
+  type BatchWidget,
   type WidgetPayload,
   widgetProviderTimeoutMs,
 } from "@/lib/widgets/batch";
+import type { WidgetCacheRow } from "@/lib/widgets/cache";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
-import type { WidgetDataSource, WidgetStatus } from "@/lib/widgets/types";
+import type { WidgetDataSource } from "@/lib/widgets/types";
 
 const route = "/api/widgets/batch";
 
@@ -33,17 +36,6 @@ const batchSchema = z.object({
     name: z.string().min(1).max(120).optional(),
   }).optional(),
 });
-
-type BatchWidget = {
-  id: string;
-  status: WidgetStatus;
-  value: string;
-  hint: string;
-  raw?: Record<string, unknown>;
-  fallback?: boolean;
-  fetchedAt: string;
-  source: WidgetDataSource;
-};
 
 type FetchWidgetResult = {
   id: string;
@@ -198,13 +190,40 @@ export async function POST(req: Request) {
   const results = await Promise.all(widgetIds.map((id) => fetchWidget(req, id, parsed.data.location, fetchedAt)));
   const widgets: Record<string, BatchWidget> = {};
   const errors: Record<string, BatchWidgetError> = {};
+  const freshWidgetIds = new Set<string>();
 
   for (const result of results) {
-    if (result.widget) widgets[result.id] = result.widget;
+    if (result.widget) {
+      widgets[result.id] = result.widget;
+      freshWidgetIds.add(result.id);
+    }
     if (result.error) errors[result.id] = result.error;
   }
 
-  const cacheRows = Object.values(widgets).map((widget) => {
+  const failedWidgetIds = Object.keys(errors).filter((id) => !widgets[id]);
+  if (failedWidgetIds.length > 0) {
+    const { data: cachedRows, error: cacheReadError } = await supabase
+      .from("widget_cache")
+      .select("widget_id,cache_key,status,value,hint,raw,error,fetched_at,expires_at")
+      .in("widget_id", failedWidgetIds);
+    if (cacheReadError) {
+      captureRouteError(cacheReadError, {
+        route,
+        operation: "read_cache_fallback",
+        area: "widgets",
+        provider: "supabase",
+        code: cacheReadError.code,
+      });
+    } else {
+      for (const row of (cachedRows ?? []) as WidgetCacheRow[]) {
+        if (widgets[row.widget_id]) continue;
+        const cachedWidget = cachedWidgetRowToBatchWidget(row);
+        if (cachedWidget) widgets[row.widget_id] = cachedWidget;
+      }
+    }
+  }
+
+  const cacheRows = Object.values(widgets).filter((widget) => freshWidgetIds.has(widget.id)).map((widget) => {
     const definition = getWidgetDefinition(widget.id);
     const staleAfterSeconds = definition?.freshness.staleAfterSeconds ?? 15 * 60;
     const expiresAt = staleAfterSeconds > 0

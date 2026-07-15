@@ -775,6 +775,19 @@
       "note": "Adds an opt-in retry policy to timedProviderFetch with capped exponential backoff, Retry-After awareness, provider.retry breadcrumbs, and final-failure capture only. Enabled only for read-only Polygon/Massive market data and Public account/portfolio/order-history calls; no write, webhook, approval, or order-submit path retries in this wave.",
       "tests": "691 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
       "verification": "npx vitest run src/lib/observability/providerTiming.test.ts src/lib/security/webhookSignature.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "10.9",
+      "title": "Widget batch cache-first stale fallback",
+      "status": "landed",
+      "files_changed": [
+        "src/app/api/widgets/batch/route.ts",
+        "src/lib/widgets/batch.ts",
+        "src/lib/widgets/batch.test.ts"
+      ],
+      "note": "When a widget provider refresh fails, /api/widgets/batch now reads the owner-scoped widget_cache row for that widget and returns it as a stale fallback in the same response. Fresh provider results are still the only rows written back to widget_cache, so a refresh failure cannot overwrite a good cache row with stale/error copy. This extends the existing client cache-first Console behavior to the batch route boundary without new schema.",
+      "tests": "692 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx vitest run src/lib/widgets/batch.test.ts src/lib/widgets/cache.test.ts src/lib/observability/providerTiming.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
@@ -798,7 +811,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 10 integrations: cache-first reads, integration cards UI, and per-routine integration enablement.",
+    "Continue Phase 10 integrations: integration cards UI and per-routine integration enablement.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
