@@ -6,8 +6,8 @@ import { Modal } from "@/components/ui/Modal";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
 import { useTasks } from "@/lib/hooks/useTasks";
-import {
 import { activateOnEnterSpace } from "@/lib/a11y";
+import {
   usePipeline,
   CONFERENCE_STATUS_LABELS,
   type Conference,
