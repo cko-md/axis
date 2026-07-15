@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
 import { useTasks } from "@/lib/hooks/useTasks";
+import { activateOnEnterSpace } from "@/lib/a11y";
 import {
   usePipeline,
   CONFERENCE_STATUS_LABELS,
@@ -677,7 +678,7 @@ export function PipelineModule() {
               ))}
             </div>
           ))}
-          <div className="card conf add-conf" role="button" tabIndex={0} onClick={openAddConf}>
+          <div className="card conf add-conf" role="button" tabIndex={0} onClick={openAddConf} onKeyDown={activateOnEnterSpace}>
             <div>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 22, height: 22, color: "var(--accent)" }}>
                 <path d="M12 5v14M5 12h14" />
