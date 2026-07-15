@@ -387,6 +387,36 @@
       "note": "PERF GATE: scripts/check-bundle-budget.mjs sums .next/static/chunks/**/*.js (deterministic, not log-parsing) and fails past total_static_js_kb.budget (4400; measured 3826/87%). Wired as a CI step after build. E2E-IN-CI: new e2e-smoke CI job installs Chromium and runs a public ci-smoke.spec.ts that boots the app (placeholder Supabase env) and asserts /login renders its form with no uncaught page errors. Verified locally up to browser-launch (dev server booted; only the container's pre-installed browser version mismatched — CI's playwright install provides the right one). Watching PR #191 CI to confirm the e2e job is green.",
       "tests": "574 unit tests pass; bundle gate passes locally (87%); ci.yml valid; e2e job pending first CI run",
       "verification": "node scripts/check-bundle-budget.mjs + local dev-server boot + CI"
+    },
+    {
+      "id": "10.5",
+      "title": "Plaid liabilities adapter — completes the adapter trio (follow-up)",
+      "status": "landed",
+      "files_added": ["src/lib/plaid/liability.ts", "src/lib/plaid/liability.test.ts", "src/app/api/plaid/liabilities/route.ts"],
+      "files_changed": ["src/lib/plaid/adapter.ts", "src/lib/plaid/account.ts"],
+      "note": "Pure normalizeLiabilities joins Plaid credit/student/mortgage arrays to their account balances (by account_id) into domain Liability with provenance + freshness; payment amounts cent-exact. Adapter now does accounts + transactions + liabilities. /api/plaid/liabilities returns the normalized list.",
+      "tests": "tsc + eslint clean; targeted tests pass",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.8",
+      "title": "Approval-expiry sweeper cron (hygiene, follow-up)",
+      "status": "landed",
+      "files_added": ["supabase/migrations/202607140300_expire_stale_approvals.sql"],
+      "files_changed": ["src/app/api/cron/daily/route.ts", "src/lib/supabase/database.types.ts"],
+      "note": "SECURITY DEFINER expire_stale_approvals() (applied+verified; returns 0 today) marks pending approvals past expires_at as 'expired'; folded into /api/cron/daily. Cross-user sweep needs SECURITY DEFINER (cron has no session). Hygiene only — isActionable already refuses expired approvals.",
+      "tests": "tsc + eslint clean; function verified live",
+      "verification": "apply_migration + execute_sql (returns 0) + npx tsc --noEmit"
+    },
+    {
+      "id": "11.3",
+      "title": "Batch quotes — collapse the watchlist N+1 (follow-up)",
+      "status": "landed",
+      "files_added": ["src/lib/markets/quotes.ts", "src/lib/markets/quotes.test.ts", "src/app/api/markets/quotes/route.ts"],
+      "files_changed": ["src/components/fund/FundWatchlistModule.tsx"],
+      "note": "FundWatchlistModule fetched /api/massive/quote once per symbol (N client round-trips, each serialized behind the 280ms Polygon rate limit). New /api/markets/quotes?symbols=A,B,C returns all quotes (via the market adapter, provenance+freshness) in one request; pure parseSymbolList (dedupe/validate/cap) tested. Watchlist now does ONE fetch. Widget batch was already cache-first + parallel (not a naive N+1) — left as-is per 'don't rewrite working systems'.",
+      "tests": "583 tests pass; tsc + eslint clean; next build compiles; bundle 3832KB/87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     }
   ],
   "migrations_applied": {
