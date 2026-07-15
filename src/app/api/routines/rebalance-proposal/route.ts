@@ -8,6 +8,7 @@ import { buildApprovalRequest, validateApprovalCompleteness } from "@/lib/securi
 import { approvalRequestToInsert } from "@/lib/security/approvalPersistence";
 import { getBrokerageAccountId } from "@/lib/env";
 import { emitServerEvent } from "@/lib/observability/events";
+import { explainWithCost } from "@/lib/ai/explain";
 
 /**
  * Rebalance-proposal routine (§15.3, §11) — the first routine that produces
@@ -128,10 +129,27 @@ export async function POST(request: NextRequest) {
     }
     await recordStep("create_approvals", "succeeded", { proposed: proposal.actions.length } as Json, { approvals: created.length, incomplete: incomplete.length } as Json);
 
-    // 5) Pause for approval (or complete if there was nothing to do).
+    // 5) Optional AI narrative — EXPLAINS the deterministic proposal (never
+    // computes it), metered. Skipped gracefully if no model is configured.
+    let narrative: string | null = null;
+    let actualCost = 0;
+    if (proposal.actions.length > 0) {
+      const summary = proposal.actions.map((a) => `${describeOrderTicket(a.ticket)} (now ${(a.currentWeight * 100).toFixed(1)}% -> target ${(a.targetWeight * 100).toFixed(1)}%)`).join("; ");
+      const explained = await explainWithCost({
+        system: "You explain a portfolio rebalance to its owner in 2-3 plain sentences. Do NOT invent or recompute any numbers; only restate and interpret what is given. No advice to buy/sell beyond what is listed.",
+        userMessage: `Proposed trades to reach target weights: ${summary}. Portfolio total ~$${Math.round(proposal.total)}.`,
+      });
+      if (!explained.skipped) {
+        narrative = explained.text;
+        actualCost = explained.estimatedCostUsd;
+      }
+      await recordStep("explain_proposal", "succeeded", { actions: proposal.actions.length } as Json, { skipped: explained.skipped, estimatedCostUsd: actualCost } as Json);
+    }
+
+    // 6) Pause for approval (or complete if there was nothing to do).
     const status = created.length > 0 ? "waiting_for_approval" : "completed";
-    const output = { total: proposal.total, proposed: proposal.actions.length, approvals: created, skipped: proposal.skipped, priceFreshness: freshness } as unknown as Json;
-    await supabase.from("routine_runs").update({ status, output, ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}) }).eq("id", runId);
+    const output = { total: proposal.total, proposed: proposal.actions.length, approvals: created, skipped: proposal.skipped, priceFreshness: freshness, narrative } as unknown as Json;
+    await supabase.from("routine_runs").update({ status, output, actual_cost_usd: actualCost, ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}) }).eq("id", runId);
 
     emitServerEvent("routine.run." + (status === "waiting_for_approval" ? "paused" : "completed"), {
       routine: ROUTINE_KEY, runId, status, proposed: proposal.actions.length, approvals: created.length,

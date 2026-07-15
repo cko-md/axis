@@ -430,6 +430,16 @@
       "note": "Delivers the order-prep boundary + the pausing-for-approval routine (§10 Public prep, §15.5 pause). Pure buildOrderTicket (validated, cent-exact notional; DRAFT only, never submits) + proposeRebalance (deterministic drift->order tickets). /api/routines/rebalance-proposal reads holdings, fetches LIVE prices via the market adapter, runs the skill, and creates one FINANCIAL_EXECUTION approval per proposed order (real numbers, not fabricated), then sets the run status to waiting_for_approval (first genuine pause). Nothing is submitted: approvals are proposals the user reviews (approve + passkey step-up + execute clears the gate; live broker submission deliberately unbuilt = no autonomous execution). This is the first honest populator of the approvals queue.",
       "tests": "594 tests pass (+11); tsc clean; lint clean; next build compiles; bundle 87%",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.5",
+      "title": "LLM-judgment step (explain-only) + cost metering",
+      "status": "landed",
+      "files_added": ["src/lib/ai/cost.ts", "src/lib/ai/cost.test.ts", "src/lib/ai/explain.ts"],
+      "files_changed": ["src/app/api/routines/rebalance-proposal/route.ts"],
+      "note": "Pure cost estimator (estimateTokens ~4ch/tok + per-model MODEL_PRICING -> estimateCostUsd; router returns no usage so cost is ESTIMATED, clearly labeled). explainWithCost wraps aiGenerate: the sanctioned LLM use — EXPLAIN an already-computed result, never compute financial values; returns text + estimated cost or {skipped} (no throw, graceful when no model configured). Wired an optional explain_proposal step into the rebalance routine that narrates the deterministic proposal and records actual_cost_usd on the run (§11 cost visibility). Arithmetic stays deterministic; AI is decorative narrative, not authoritative.",
+      "tests": "599 tests pass (+5); tsc clean; lint clean; next build compiles; bundle 87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     }
   ],
   "migrations_applied": {
