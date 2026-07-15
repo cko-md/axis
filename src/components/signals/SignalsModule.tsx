@@ -26,6 +26,7 @@ import {
   type SignalRoute,
 } from "@/lib/hooks/useSignalRoutes";
 import { triageSignalToTask, useTasks, type TaskCategory, type TaskPriority } from "@/lib/hooks/useTasks";
+import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { normalizeName, triageSignalToPerson, usePeople } from "@/lib/hooks/usePeople";
 import { Modal } from "@/components/ui/Modal";
@@ -404,7 +405,7 @@ export function SignalsModule() {
       const target = normalizeName(triaged.name);
       const matched = people.find((p) => normalizeName(p.name) === target);
       const result = matched
-        ? await updatePerson(matched.id, { last_contact_on: new Date().toISOString().slice(0, 10) })
+        ? await updatePerson(matched.id, { last_contact_on: todayLocalIso() })
         : await addPerson({ name: triaged.name, role: triaged.role, note: triaged.note, tag: triaged.tag });
       if ("error" in result && result.error) throw new Error(result.error);
       return { personId: result.data?.id, personName: result.data?.name ?? triaged.name };

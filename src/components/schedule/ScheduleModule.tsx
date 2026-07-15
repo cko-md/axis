@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { AddCalendarPicker } from "./AddCalendarPicker";
 import { formatCalendarFreshness } from "@/lib/calendar/freshness";
+import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
 
 type ComposioCalState = { active: boolean; email: string | null };
@@ -168,7 +169,7 @@ export function ScheduleModule() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({
     title: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: todayLocalIso(),
     startHour: "9",
     endHour: "10",
     color: "a" as LocalColor,
@@ -597,7 +598,7 @@ export function ScheduleModule() {
     const label = form.recurrence === "none" ? "Event added." : `Event added (${repeatCount + 1} instances — ${form.recurrence}).`;
     toast(label, "success", "Schedule");
     setModalOpen(false);
-    setForm({ title: "", date: new Date().toISOString().slice(0, 10), startHour: "9", endHour: "10", color: "a", recurrence: "none" });
+    setForm({ title: "", date: todayLocalIso(), startHour: "9", endHour: "10", color: "a", recurrence: "none" });
     load();
 
     // Sync to connected external calendars

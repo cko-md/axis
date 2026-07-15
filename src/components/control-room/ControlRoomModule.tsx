@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { ACCENT_PRESETS } from "@/lib/theme/interface-settings";
 import { createClient } from "@/lib/supabase/client";
+import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
@@ -592,7 +593,7 @@ export function ControlRoomModule() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `axis-local-data-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `axis-local-data-${todayLocalIso()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       toast("Local data exported", "success", "Data & Privacy");
