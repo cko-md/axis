@@ -16,12 +16,12 @@ export async function GET() {
 
   const creds = getPlaidCreds();
 
-  const { count, error } = await supabase
+  const { data: connections, error } = await supabase
     .from("fund_connections")
-    .select("id", { count: "exact", head: true })
+    .select("institution, status, updated_at")
     .eq("user_id", user.id)
     .eq("provider", "plaid")
-    .eq("status", "linked");
+    .order("updated_at", { ascending: false });
   if (error) {
     captureRouteError(error, {
       route: "/api/plaid/status",
@@ -33,9 +33,20 @@ export async function GET() {
     return NextResponse.json({ error: "STATUS_UNAVAILABLE", message: "Could not read Plaid connection status." }, { status: 500 });
   }
 
+  const linkedConnections = (connections ?? []).filter((connection) => connection.status === "linked");
+  const latestConnection = connections?.[0] ?? null;
+
   return NextResponse.json({
     configured: !!creds,
-    linked: (count ?? 0) > 0,
+    linked: linkedConnections.length > 0,
+    connectionCount: linkedConnections.length,
+    latestConnection: latestConnection
+      ? {
+          institution: latestConnection.institution,
+          status: latestConnection.status,
+          updatedAt: latestConnection.updated_at,
+        }
+      : null,
     provider: "plaid",
     env: creds?.env ?? null,
     message: creds
