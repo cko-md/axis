@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { localDayIso, todayLocalIso } from "./dates";
+import {
+  getBrowserTimeZone,
+  localDayIso,
+  localDayIsoInTimeZone,
+  resolveTimeZone,
+  todayLocalIso,
+} from "./dates";
 
 describe("localDayIso", () => {
   it("formats a date using local calendar components", () => {
@@ -25,5 +31,48 @@ describe("todayLocalIso", () => {
   it("returns today's local calendar day as yyyy-mm-dd", () => {
     expect(todayLocalIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(todayLocalIso()).toBe(localDayIso(new Date()));
+  });
+});
+
+describe("resolveTimeZone", () => {
+  it("returns a valid IANA string unchanged", () => {
+    expect(resolveTimeZone("America/New_York")).toBe("America/New_York");
+  });
+
+  it("falls back to UTC for empty, whitespace, or non-string values", () => {
+    expect(resolveTimeZone("")).toBe("UTC");
+    expect(resolveTimeZone("   ")).toBe("UTC");
+    expect(resolveTimeZone(undefined)).toBe("UTC");
+    expect(resolveTimeZone(null)).toBe("UTC");
+    expect(resolveTimeZone(42)).toBe("UTC");
+  });
+});
+
+describe("getBrowserTimeZone", () => {
+  it("returns a string or undefined", () => {
+    const tz = getBrowserTimeZone();
+    expect(tz === undefined || typeof tz === "string").toBe(true);
+  });
+});
+
+describe("localDayIsoInTimeZone", () => {
+  it("resolves an instant to the correct day per timezone", () => {
+    // 2026-07-13T02:00:00Z is 2026-07-12 22:00 in America/New_York (UTC-4),
+    // but already 2026-07-13 in UTC — the cross-midnight case.
+    const instant = new Date("2026-07-13T02:00:00.000Z");
+    expect(localDayIsoInTimeZone(instant, "America/New_York")).toBe("2026-07-12");
+    expect(localDayIsoInTimeZone(instant, "UTC")).toBe("2026-07-13");
+  });
+
+  it("handles a positive-offset timezone that rolls forward", () => {
+    // 2026-07-12T20:00:00Z is 2026-07-13 05:00 in Asia/Tokyo (UTC+9).
+    const instant = new Date("2026-07-12T20:00:00.000Z");
+    expect(localDayIsoInTimeZone(instant, "Asia/Tokyo")).toBe("2026-07-13");
+    expect(localDayIsoInTimeZone(instant, "UTC")).toBe("2026-07-12");
+  });
+
+  it("zero-pads month and day", () => {
+    const instant = new Date("2026-01-05T12:00:00.000Z");
+    expect(localDayIsoInTimeZone(instant, "UTC")).toBe("2026-01-05");
   });
 });
