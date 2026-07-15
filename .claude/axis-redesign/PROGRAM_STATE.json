@@ -788,6 +788,22 @@
       "note": "When a widget provider refresh fails, /api/widgets/batch now reads the owner-scoped widget_cache row for that widget and returns it as a stale fallback in the same response. Fresh provider results are still the only rows written back to widget_cache, so a refresh failure cannot overwrite a good cache row with stale/error copy. This extends the existing client cache-first Console behavior to the batch route boundary without new schema.",
       "tests": "692 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
       "verification": "npx vitest run src/lib/widgets/batch.test.ts src/lib/widgets/cache.test.ts src/lib/observability/providerTiming.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "10.10",
+      "title": "Control Room integration risk cards",
+      "status": "landed",
+      "files_added": [
+        "src/lib/integrations/cardView.ts",
+        "src/lib/integrations/cardView.test.ts"
+      ],
+      "files_changed": [
+        "src/components/control-room/ControlRoomModule.tsx",
+        "src/components/control-room/ControlRoom.module.css"
+      ],
+      "note": "Adds a pure integration-card presenter over the registry/risk model and surfaces compact risk, approval, capability-count, and highest-action badges on registry-backed Control Room provider rows. Gmail/Outlook cards now expose capability/risk context from the same security-kernel model routines will use; actions and connection behavior are unchanged.",
+      "tests": "694 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx vitest run src/lib/integrations/cardView.test.ts src/lib/integrations/risk.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
@@ -811,7 +827,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 10 integrations: integration cards UI and per-routine integration enablement.",
+    "Continue Phase 10 integrations: per-routine integration enablement.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {

@@ -65,6 +65,35 @@
   line-height: 1.45;
 }
 
+.integrationMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.integrationMeta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--ink-dim);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+.integrationMeta span[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--clay) 45%, var(--line));
+  color: var(--clay);
+}
+.integrationMeta span[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  color: var(--accent-bright);
+}
+.integrationMeta span[data-tone="info"] {
+  border-color: color-mix(in srgb, var(--up) 35%, var(--line));
+  color: var(--up);
+}
+
 .svcState {
   flex-shrink: 0;
   font-family: var(--mono);

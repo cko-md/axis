@@ -16,6 +16,9 @@ import { Seg } from "@/components/ui/Seg";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import type { AIProviderPref } from "@/lib/ai/router";
+import { integrationCardView, type IntegrationCardView } from "@/lib/integrations/cardView";
+import { getProviderDescriptor } from "@/lib/integrations/registry";
+import type { IntegrationTransport } from "@/lib/integrations/types";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -99,6 +102,7 @@ type ConnectionRow = {
   desc: string;
   state: ConnState;
   detail: string;
+  integration?: IntegrationCardView | null;
   action?: ConnectionAction;
   secondaryAction?: ConnectionAction;
 };
@@ -737,6 +741,12 @@ export function ControlRoomModule() {
   const contactsComposio = pickComposioConnection(composioConnections, ["googlecontacts"]);
   const spotifyComposio = pickComposioConnection(composioConnections, ["spotify"]);
   const stravaComposio = pickComposioConnection(composioConnections, ["strava"]);
+  const mailRisk = (provider: "gmail" | "outlook", transport: IntegrationTransport) => {
+    const descriptor = getProviderDescriptor("mail", provider);
+    return descriptor ? integrationCardView(descriptor, transport) : null;
+  };
+  const gmailTransport: IntegrationTransport = gmailAccount?.via === "composio" || isActiveComposio(gmailComposio) ? "composio" : "direct";
+  const outlookTransport: IntegrationTransport = outlookAccount?.via === "composio" || isActiveComposio(outlookComposio) ? "composio" : "direct";
 
   const gmailState: ConnState =
     gmailAccount || isActiveComposio(gmailComposio)
@@ -793,6 +803,7 @@ export function ControlRoomModule() {
       name: "Gmail",
       desc: "Mail triage, message detail, and send workflows",
       state: gmailState,
+      integration: mailRisk("gmail", gmailTransport),
       detail: gmailAccount
         ? `${gmailAccount.mailEmail} via ${gmailAccount.via === "composio" ? "Composio" : "OAuth"}`
         : gmailState === "pending"
@@ -811,6 +822,7 @@ export function ControlRoomModule() {
       name: "Outlook",
       desc: "Microsoft mail and calendar access",
       state: outlookState,
+      integration: mailRisk("outlook", outlookTransport),
       detail: outlookConnected
         ? `${outlookAccount?.mailEmail ?? calendarStatus?.outlookEmail ?? outlookComposio?.account_label ?? "Microsoft 365"} via ${
             outlookAccount?.via === "composio" || isActiveComposio(outlookComposio) ? "Composio" : "OAuth"
@@ -1129,6 +1141,14 @@ export function ControlRoomModule() {
                 <div className={styles.svcDesc}>
                   {c.desc} — {c.detail}
                 </div>
+                {c.integration ? (
+                  <div className={styles.integrationMeta}>
+                    <span data-tone={c.integration.tone}>{c.integration.riskLabel}</span>
+                    <span>{c.integration.approvalLabel}</span>
+                    <span>{c.integration.capabilityLabel}</span>
+                    <span>{c.integration.highestClassLabel}</span>
+                  </div>
+                ) : null}
               </div>
               {c.action || c.secondaryAction ? (
                 <div className={styles.svcActions}>
