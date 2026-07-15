@@ -102,6 +102,9 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
             amount: txn.amount,
             source: txn.source,
             executed_at: txn.executed_at,
+            // Provenance: capture time is the retrieval anchor for this ledger row.
+            retrieved_at: txn.executed_at,
+            currency: "USD",
           })
           .select()
           .single();

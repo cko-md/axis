@@ -11,7 +11,17 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 // every subroute stays consistent without redundant network round-trips.
 
 export type Holding = { id: string; symbol: string; name: string; shares: number; cost_basis: number; source: string; retrieved_at?: string | null };
-export type AggregatedHolding = { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; retrieved_at?: string | null };
+export type AggregatedHolding = {
+  symbol: string;
+  name: string;
+  shares: number;
+  cost_basis: number;
+  sources: string[];
+  /** Oldest constituent retrieved_at (conservative freshness anchor). */
+  retrieved_at?: string | null;
+  /** Cross-source reconciliation state; null until the symbol has ≥2 sources. */
+  reconciliation_state?: "matched" | "partial" | "conflicting" | "missing" | "stale" | "pending" | null;
+};
 export type Liability = {
   id: string;
   name: string;

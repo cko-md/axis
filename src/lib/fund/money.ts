@@ -25,7 +25,7 @@ const MINOR_UNITS_PER_MAJOR = 100;
  * `roundHalfAwayFromZero(-2.5) === -3` symmetric with `+2.5 -> +3`. This avoids
  * banker's-rounding surprises in user-facing totals.
  */
-function roundHalfAwayFromZero(value: number): number {
+export function roundHalfAwayFromZero(value: number): number {
   return Math.sign(value) * Math.round(Math.abs(value));
 }
 
