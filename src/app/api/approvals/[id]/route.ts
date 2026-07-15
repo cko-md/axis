@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isActionable, validateApprovalCompleteness, isApprovalExpired, isStepUpFresh } from "@/lib/security/approvalRequest";
 import { rowToApprovalRequest } from "@/lib/security/approvalPersistence";
+import { emitServerEvent } from "@/lib/observability/events";
 
 /**
  * Single approval API — decide (approve / deny) and execute.
@@ -60,6 +61,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { data, error } = await supabase
       .from("approvals").update(patch).eq("user_id", user.id).eq("id", id).select(SELECT).single();
     if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+    // Structured decision event — safe metadata only (no proposed_action / PII).
+    // decision_latency_ms measures request→decide time (approval age at decision).
+    emitServerEvent("approval.decided", {
+      approvalId: data.id,
+      decision: patch.status,
+      actionClass: data.action_class,
+      requirement: data.requirement,
+      decisionLatencyMs: data.created_at ? Date.parse(now) - Date.parse(data.created_at) : null,
+    });
     return NextResponse.json({ approval: data });
   }
 
@@ -91,5 +101,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
   // Gate passed. The underlying side-effecting action is intentionally NOT
   // performed here — it is the caller's responsibility (no autonomous execution).
+  emitServerEvent("approval.executed", {
+    approvalId: data.id,
+    actionClass: data.action_class,
+    requirement: data.requirement,
+    stepUpRequired: req.stepUpRequired,
+    // Time from decision (approve) to execute — how long the actionable window sat.
+    executeLatencyMs: data.decided_at ? nowMs - Date.parse(data.decided_at) : null,
+  });
   return NextResponse.json({ approval: data, cleared: true });
 }
