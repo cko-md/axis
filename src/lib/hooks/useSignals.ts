@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
 import type { Database } from "@/lib/supabase/database.types";
 
-type SignalRowInsert = Database["public"]["Tables"]["signals"]["Insert"];
 type SignalRowUpdate = Database["public"]["Tables"]["signals"]["Update"];
 
 export type SignalType = "action" | "awaiting" | "fyi";
@@ -95,13 +94,6 @@ export async function classifySignals(
   return Promise.all(list.map((s) => classifySignal(s)));
 }
 
-const SEED: Omit<Signal, "id" | "user_id" | "created_at" | "updated_at">[] = [
-  { title: "IRB amendment — signature requested", body: "Dr. Adeyemi needs sign-off by EOD", source: "Mail", signal_type: "action", route_target: "agenda", read_at: null, routed_at: null, metadata: {} },
-  { title: "Fine–Gray code review returned", body: "Riku left comments on PR #42", source: "GitHub", signal_type: "awaiting", route_target: "pipeline", read_at: null, routed_at: null, metadata: {} },
-  { title: "Polygon: portfolio digest ready", body: "Daily P&L summary", source: "AI digest", signal_type: "fyi", route_target: "fund", read_at: null, routed_at: null, metadata: {} },
-  { title: "Conference travel — AANS booking window", body: "Book before Friday", source: "Calendar", signal_type: "action", route_target: "schedule", read_at: null, routed_at: null, metadata: {} },
-];
-
 export function useSignals() {
   const supabase = useMemo(() => createClient(), []);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -119,20 +111,16 @@ export function useSignals() {
     }
     const { data, error } = await supabase.from("signals").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
     if (error) {
-      // A failed read must never fall through to the seed path (it would
-      // re-insert demo rows) or silently blank the list — surface it instead.
+      // A failed read must never silently blank the list; preserve last-known
+      // signals and surface the failure to the module.
       setLoadError("Could not load signals.");
       setLoading(false);
       return;
     }
     setLoadError(null);
-    if (!data?.length) {
-      const inserts = SEED.map((s) => ({ ...s, user_id: user.id })) as SignalRowInsert[];
-      const { data: seeded } = await supabase.from("signals").insert(inserts).select();
-      setSignals((seeded ?? []) as Signal[]);
-    } else {
-      setSignals(data as Signal[]);
-    }
+    // An empty inbox is a valid persisted state. Never create demo signals
+    // that could be mistaken for real mail, calendar, or portfolio activity.
+    setSignals((data ?? []) as Signal[]);
     setLoading(false);
   }, [supabase]);
 

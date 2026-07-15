@@ -694,7 +694,11 @@ export function SignalsModule() {
 
       <div className="card">
         {filtered.length === 0 ? (
-          <p className={styles.emptyMini}>No signals match this filter.</p>
+          <p className={styles.emptyMini}>
+            {signals.length === 0
+              ? "No signals yet. Capture one above or scan your connected workspaces when you want a review pass."
+              : "No signals match this filter."}
+          </p>
         ) : grouped ? (
           GROUPS.map((g) => {
             const rows = grouped[g.key];

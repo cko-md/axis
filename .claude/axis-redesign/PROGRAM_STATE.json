@@ -31,7 +31,7 @@
     "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) \u2014 see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
     "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
-    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research now persists cited owner-scoped market-report drafts. Signals UI remains a future wave.",
+    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research persists cited owner-scoped market-report drafts; Signals now preserves an honest empty inbox instead of seeding fabricated activity. Further core-module expansion remains future work.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities (normalized, provenance-aware, positive=inflow cent-exact for transactions), Public order prepare/verify/submit boundary, webhook signature hardening, bounded read-only retries, widget stale-cache fallback, Control Room risk cards, and per-routine integration metadata. Make adapter rearchitecture remains future work.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
@@ -914,6 +914,18 @@
       "note": "Replaces the ephemeral direct-Claude report with a complete saved Research slice: authenticated context read, bounded cited Polygon news metadata, model draft through the shared AI router, owner-scoped ai_insights persistence, saved-report history/detail, source links, and explicit signed-out/loading/error/source-unavailable states. External source titles are untrusted data, URLs are restricted to http(s), model input excludes source URLs, and report copy explicitly remains a review aid rather than investment advice or execution. The additive migration permits ai_insights.kind='market_report'; existing owner RLS policies were verified unchanged on live Supabase.",
       "tests": "728 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles 155 routes; bundle budget passes",
       "verification": "npx vitest run src/lib/fund/marketReport.test.ts src/lib/fund/activityRules.test.ts src/lib/redesign/artifacts.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs + live ai_insights constraint/RLS read-back"
+    },
+    {
+      "id": "8.7",
+      "title": "Signals honest empty-state correction",
+      "status": "landed",
+      "files_changed": [
+        "src/lib/hooks/useSignals.ts",
+        "src/components/signals/SignalsModule.tsx"
+      ],
+      "note": "Removes four static seed signals that were inserted into an authenticated user's empty persisted inbox and could be mistaken for real Mail, GitHub, portfolio, or Calendar activity. Empty signals now remain empty until the user captures a real signal or runs the existing Scan modules workflow; the UI explains that state. Existing owner-scoped signals RLS, capture, scan, triage, routing, archival, and error handling remain unchanged. No schema, provider, or AI behavior changes.",
+      "tests": "targeted Signals tests pass; tsc clean; lint 0 errors / 0 warnings",
+      "verification": "npx vitest run src/lib/signals/severity.test.ts src/lib/signals/aiRequest.test.ts src/lib/redesign/artifacts.test.ts + npx tsc --noEmit + npx eslint src/lib/hooks/useSignals.ts src/components/signals/SignalsModule.tsx"
     }
   ],
   "migrations_applied": {
@@ -938,7 +950,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 8 core-module slices: Signals UI.",
+    "Continue next dependency-ordered redesign work: Phase 11 profiling/code-splitting, then Phase 10 Make adapter rearchitecture or additional core-module verticals as product evidence warrants.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
