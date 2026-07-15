@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { ACTIVITY_CATEGORIES } from "@/lib/fund/activityRules";
 import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 
 type BankTxn = {
@@ -28,10 +29,7 @@ type BankTxn = {
 
 type Budget = { id: string; category: string; monthly_limit: number };
 
-const CATEGORIES = [
-  "FOOD_AND_DRINK", "GROCERIES", "TRANSPORTATION", "MEDICAL", "ENTERTAINMENT",
-  "SUBSCRIPTION", "RENT_AND_UTILITIES", "TRAVEL", "GENERAL_MERCHANDISE", "OTHER",
-];
+const CATEGORIES = ACTIVITY_CATEGORIES;
 
 function fmtAmount(amount: number) {
   const abs = Math.abs(amount).toFixed(2);
@@ -52,7 +50,7 @@ export function FundSpendingModule() {
   const [unreviewedOnly, setUnreviewedOnly] = useState(false);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [addBudgetOpen, setAddBudgetOpen] = useState(false);
-  const [newBudgetCategory, setNewBudgetCategory] = useState(CATEGORIES[0]);
+  const [newBudgetCategory, setNewBudgetCategory] = useState<string>(CATEGORIES[0]);
   const [newBudgetLimit, setNewBudgetLimit] = useState("200");
 
   useEffect(() => {
