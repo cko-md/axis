@@ -32,7 +32,7 @@
     "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
-    "9_agent_runtime": "core done \u2014 durable routine runs + step snapshots, one deterministic Skill/Routine (concentration), and approval-gated resume that replays completed step outputs without recomputing. LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
+    "9_agent_runtime": "core done \u2014 durable routine runs + step snapshots, one deterministic Skill/Routine (concentration), approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, and run-history detail. Routine version compare/restore/clone and routine builder not built.",
     "10_integrations": "in progress \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts, and Plaid transactions (normalized, provenance-aware, positive=inflow cent-exact). /api/markets/quote + /api/plaid/accounts + /api/plaid/transactions/recent use them. Plaid liabilities, Public (orders), and Make adapter rearchitecture still to do.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
     "12_testing": "ongoing \u2014 574 unit tests incl. financial invariants + JSON-artifact guard; authenticated operate.spec.ts (local stack) + a NEW public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
@@ -491,6 +491,21 @@
       "verification": "npx tsc --noEmit + npx vitest run src/lib/routines/executor.test.ts src/lib/routines/runner.test.ts src/lib/routines/runState.test.ts src/lib/skills/concentrationReview.test.ts + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs + local Supabase read-back of routine_runs columns/FK/check/indexes/RLS"
     },
     {
+      "id": "9.9",
+      "title": "Routine run-history detail view (\u00a715.5, follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/routines/runHistoryView.ts",
+        "src/lib/routines/runHistoryView.test.ts"
+      ],
+      "files_changed": [
+        "src/components/tasks/RoutineRunsPanel.tsx"
+      ],
+      "note": "RoutineRunsPanel now opens the existing /api/routines/runs?runId= detail API and renders the persisted run audit trail: routine version/trigger/status, output summary, step timeline, step errors, truncated input/output snapshots, pause metadata, and a resume action for approval-waiting runs. Loading/error/detail states are visible; run list failures no longer silently disappear. Pure presenter helpers route status colors through semantic status tokens and summarize known output shapes without fabricating metrics.",
+      "tests": "674 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx tsc --noEmit + npx vitest run src/lib/routines/runHistoryView.test.ts + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
       "id": "10.4",
       "title": "Plaid transactions adapter (follow-up)",
       "status": "landed",
@@ -713,7 +728,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue per docs/agent-handoff/codex-phase-buildout-prompt.md: Phase 9 LLM-judgment steps with cost metering and routine versioning/run-history detail, then Phases 10/8/6/12/13/14 and program docs.",
+    "Continue per docs/agent-handoff/codex-phase-buildout-prompt.md: Phase 9 routine versioning compare/restore/clone, then Phases 10/8/6/12/13/14 and program docs.",
     "HUMAN: apply supabase/migrations/202607151000_fund_bank_transactions_provenance.sql to prod before relying on fund_bank_transactions.retrieved_at."
   ],
   "artifacts": {
