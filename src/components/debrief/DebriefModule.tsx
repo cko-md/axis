@@ -8,6 +8,7 @@ import { useObjectives } from "@/lib/hooks/useObjectives";
 import { useToast } from "@/components/ui/Toast";
 import { createClient } from "@/lib/supabase/client";
 import { buildAiRequestBody } from "@/lib/ai/actions";
+import { localDayIso } from "@/lib/calendar/event-dates";
 
 const DEBRIEF_FOLDER = "Debrief";
 const REMINDER_KEY   = "debrief-reminder";
