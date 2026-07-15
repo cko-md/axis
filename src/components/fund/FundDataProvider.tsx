@@ -21,6 +21,18 @@ export type Liability = {
   minimum_payment: number | null;
   due_date: string | null;
 };
+// Bank-linked liabilities from the §10 Plaid adapter (/api/plaid/liabilities) —
+// provenance-aware, so each carries a retrieved_at for a FreshnessBadge, unlike
+// manually-tracked liabilities.
+export type PlaidLiability = {
+  accountId: string;
+  type: string;
+  name: string | null;
+  balanceCurrent: number | null;
+  currency: string;
+  nextPaymentDueDate: string | null;
+  retrievedAt: string | null;
+};
 
 type FundData = {
   rows: Holding[];
@@ -34,6 +46,9 @@ type FundData = {
   liabilitiesLoading: boolean;
   liabilitiesError: boolean;
   refreshLiabilities: () => Promise<void>;
+  /** Bank-linked (Plaid) liabilities with provenance/freshness. Empty when unlinked. */
+  plaidLiabilities: PlaidLiability[];
+  refreshPlaidLiabilities: () => Promise<void>;
 };
 
 const FundDataContext = createContext<FundData | null>(null);
@@ -54,6 +69,8 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
   const [liabilities, setLiabilities] = useState<Liability[]>([]);
   const [liabilitiesLoading, setLiabilitiesLoading] = useState(true);
   const [liabilitiesError, setLiabilitiesError] = useState(false);
+
+  const [plaidLiabilities, setPlaidLiabilities] = useState<PlaidLiability[]>([]);
 
   const refreshHoldings = useCallback(async () => {
     setHoldingsLoading(true);
@@ -85,10 +102,41 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshPlaidLiabilities = useCallback(async () => {
+    try {
+      const res = await fetch("/api/plaid/liabilities");
+      // The adapter returns domain Liabilities with provenance nested; flatten
+      // retrievedAt up for the badge. Non-ok / unlinked → empty (soft failure).
+      const data = (await res.json().catch(() => ({}))) as {
+        liabilities?: Array<{
+          accountId: string; type: string; name: string | null;
+          balanceCurrent: number | null; currency: string; nextPaymentDueDate: string | null;
+          provenance?: { retrievedAt?: string | null };
+        }>;
+      };
+      setPlaidLiabilities(
+        res.ok
+          ? (data.liabilities ?? []).map((l) => ({
+              accountId: l.accountId,
+              type: l.type,
+              name: l.name,
+              balanceCurrent: l.balanceCurrent,
+              currency: l.currency,
+              nextPaymentDueDate: l.nextPaymentDueDate,
+              retrievedAt: l.provenance?.retrievedAt ?? null,
+            }))
+          : [],
+      );
+    } catch {
+      setPlaidLiabilities([]);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshHoldings();
     void refreshLiabilities();
-  }, [refreshHoldings, refreshLiabilities]);
+    void refreshPlaidLiabilities();
+  }, [refreshHoldings, refreshLiabilities, refreshPlaidLiabilities]);
 
   return (
     <FundDataContext.Provider
@@ -103,6 +151,8 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
         liabilitiesLoading,
         liabilitiesError,
         refreshLiabilities,
+        plaidLiabilities,
+        refreshPlaidLiabilities,
       }}
     >
       {children}

@@ -595,6 +595,19 @@
    "note": "Wired structured emitServerEvent signals across the operate loop's decision points: approval.decided (decision, actionClass, requirement, decisionLatencyMs) at approve/deny, approval.executed (stepUpRequired, executeLatencyMs) at the isActionable gate clear, and approval.step_up_verified on a verified passkey assertion. Safe fields only (IDs/enums/booleans/durations) \u2014 no proposed_action/prices/balances/PII, enforced structurally by redactSafe. Added docs/axis-redesign/14-observability-dashboards.md: the committed dashboard definition (event catalogue as the contract + copy-pasteable Sentry queries for approval reliability/latency, step-up security, routine reliability, integration+cost health, plus a minimum alert set). Dashboards are Sentry UI artifacts; the spec is the reviewable source they're built from.",
    "tests": "599 tests pass; tsc clean; lint clean",
    "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
+  },
+  {
+   "id": "9.7",
+   "title": "Surface Plaid liabilities (accounts/transactions/liabilities trio) into Net Worth with freshness",
+   "status": "landed",
+   "files_added": [],
+   "files_changed": [
+    "src/components/fund/FundDataProvider.tsx",
+    "src/components/fund/FundNetWorthModule.tsx"
+   ],
+   "note": "The Plaid liabilities adapter + /api/plaid/liabilities route existed but had no UI consumer \u2014 the accounts/transactions/liabilities trio was only 2/3 surfaced. FundDataProvider now fetches /api/plaid/liabilities (soft-fails to empty when unlinked), flattens provenance.retrievedAt for the badge, and exposes plaidLiabilities. FundNetWorthModule renders bank-linked liabilities as freshness-badged rows ('\u00b7 Plaid' + FreshnessBadge on FRESHNESS_SLAS.accountBalance), mirroring how Assets shows per-holding freshness and Cash shows '\u00b7 Plaid'. Net-worth math now sums manual + Plaid liabilities via sumMoney (deterministic minor-units). Financially-material debt data now carries its freshness tier per \u00a717.",
+   "tests": "599 tests pass; tsc clean; lint clean (local next build blocked only by missing NEXT_PUBLIC_SUPABASE_* env on unrelated /agenda prerender \u2014 CI supplies secrets)",
+   "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
   }
  ],
  "migrations_applied": {
