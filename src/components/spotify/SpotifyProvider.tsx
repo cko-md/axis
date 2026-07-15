@@ -28,7 +28,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { openComposioOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 
 export type NowPlaying = {
   track: string | null;
@@ -228,8 +228,16 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     };
   }, [connected]);
 
+  // Direct OAuth — poll() (above) only ever reads the direct-OAuth cookie via
+  // GET /api/spotify/playback, never Composio state. This is the app-wide
+  // provider (sidebar miniplayer, and every module's useSpotify() call reads
+  // from here), so wiring the primary connect action to Composio broke
+  // Spotify's "connected" state everywhere at once: a successful Composio
+  // grant would never be reflected by poll(), leaving connect() feeling like
+  // it silently did nothing. See the matching fix in ControlRoomModule.tsx /
+  // VaultModule.tsx for the full root-cause writeup.
   const connect = useCallback(() => {
-    openComposioOAuthPopup("spotify", (status) => {
+    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
       if (status === "ok") void poll();
     });
   }, [poll]);

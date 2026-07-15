@@ -1,0 +1,704 @@
+{
+  "program": "axis-system-redesign",
+  "branch": "claude/financial-domain-phase-4-9vdhde",
+  "branch_note": "Phase-4 buildout branch (PR #192) on top of merged PR #190. Verified green: tsc clean, lint 0 errors, 624 tests, build + perf gate pass.",
+  "baseline_commit": "f478cde",
+  "revision_reviewed": "f478cde",
+  "updated": "2026-07-15",
+  "governance": {
+    "source": "AGENTS.md",
+    "rules": [
+      "no broad unrelated refactors",
+      "one coherent change per branch/PR",
+      "ship complete vertical slices, not prototypes",
+      "preserve existing behavior unless the wave changes it",
+      "no schema change without migration + RLS review",
+      "no secrets in code/logs/PRs"
+    ]
+  },
+  "baseline_health": {
+    "typecheck": "pass",
+    "lint": "0 errors, 7 pre-existing react-hooks/exhaustive-deps warnings",
+    "unit_tests": "416 passed / 67 files",
+    "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
+  },
+  "phases": {
+    "0_initialization": "done \u2014 branch/baseline/state artifacts + tool map",
+    "1_audit": "substantial \u2014 repo mapped; docs/axis-redesign/01-current-state-audit.md; risk/defect ledgers. Not an exhaustive per-module audit.",
+    "2_product_synthesis": "substantial \u2014 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
+    "3_target_architecture": "substantial \u2014 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs). More ADRs as waves land.",
+    "4_financial_domain": "complete \u2014 deterministic money + multi-currency minor-unit table + FX conversion with provenance (currency.ts/fx.ts), tax lots & corporate actions (taxLots.ts), provenance populated from all write paths (manual holdings/liabilities, order ticket, Plaid txn sync + FundSpendingModule freshness badge), holdings reconciliation wired to /api/fund/holdings + indicator in the holdings table.",
+    "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) \u2014 see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
+    "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
+    "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
+    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
+    "9_agent_runtime": "core done \u2014 durable routine runs + step snapshots, one deterministic Skill/Routine (concentration). LLM-judgment steps, routine builder, subagents, cost metering UI not built.",
+    "10_integrations": "in progress \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts, and Plaid transactions (normalized, provenance-aware, positive=inflow cent-exact). /api/markets/quote + /api/plaid/accounts + /api/plaid/transactions/recent use them. Plaid liabilities, Public (orders), and Make adapter rearchitecture still to do.",
+    "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
+    "12_testing": "ongoing \u2014 574 unit tests incl. financial invariants + JSON-artifact guard; authenticated operate.spec.ts (local stack) + a NEW public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
+    "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
+    "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Deployment/rollback strategy unchanged."
+  },
+  "convergence_note": "This program is NOT a completed 14-phase rewrite \u2014 the initial prompt describes a multi-quarter effort. What is delivered is a coherent, green, end-to-end vertical of the operating loop (observe->task->approval->durable run) on a deterministic financial-safety kernel, plus foundational domain primitives, all additive and behind existing behavior. Remaining phases are honestly tracked above and in next_dependency_ordered_actions. No delivered wave is a broken prototype; every one is tsc/lint/test green and the migrations are applied+verified.",
+  "waves": [
+    {
+      "id": "4.1",
+      "title": "Deterministic money primitive",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/money.ts",
+        "src/lib/fund/money.test.ts"
+      ],
+      "files_changed": [
+        "src/lib/fund/financeNarratorContext.ts"
+      ],
+      "tests": "14 targeted tests pass; full suite green",
+      "adr": "docs/axis-redesign/adr/0001-deterministic-money.md",
+      "verification": "npx vitest run + npx tsc --noEmit"
+    },
+    {
+      "id": "4.2",
+      "title": "Adopt deterministic money primitive across Fund aggregation sites",
+      "status": "landed",
+      "files_changed": [
+        "src/components/fund/OverviewModule.tsx",
+        "src/components/fund/FundNetWorthModule.tsx",
+        "src/components/fund/FundLiabilities.tsx",
+        "src/components/fund/FundRecurringList.tsx",
+        "src/components/fund/FundCashflowModule.tsx",
+        "src/lib/fund/financeDailyJobs.ts",
+        "src/lib/fund/usePlaidConnection.ts"
+      ],
+      "note": "All float reduce(+Number()) money aggregations + net-worth combinations now cent-exact via sumBy/sumMoney. Closes FIN-001. Executed under the owner-authorized System Redesign Override (AGENTS.md 2a).",
+      "tests": "427 tests pass; tsc clean; lint 0 errors",
+      "verification": "npm run test + npx tsc --noEmit + npm run lint"
+    },
+    {
+      "id": "4.3",
+      "title": "Financial provenance + freshness + reconciliation domain (pure)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/provenance.ts",
+        "src/lib/fund/provenance.test.ts"
+      ],
+      "note": "Typed Provenance shape, deterministic classifyFreshness (fresh/delayed/stale/unknown with clock-skew guard), reconcileAmount (matched/partial/conflicting/missing, cent-exact + tolerance). No DB/network \u2014 persistence of provenance columns is a separate migration-gated wave.",
+      "tests": "441 tests pass (+14); tsc clean; lint 0 errors",
+      "verification": "npm run test + npx tsc --noEmit + npm run lint"
+    },
+    {
+      "id": "8.1",
+      "title": "Durable agent-Task state machine (pure)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/tasks/taskState.ts",
+        "src/lib/tasks/taskState.test.ts"
+      ],
+      "note": "FinancialTaskStatus (12 states), TASK_TRANSITIONS graph, canTransition/assertTransition guards, terminal/active/waiting helpers. Approval grant must route through executing; terminal states are dead-ends. Persistence (tasks table + RLS) deferred to a migration-gated wave.",
+      "tests": "453 tests pass (+12); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/tasks"
+    },
+    {
+      "id": "7.1",
+      "title": "Signal Need-to-Know severity tiers + hardened dedup (pure)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/signals/severity.ts",
+        "src/lib/signals/severity.test.ts"
+      ],
+      "files_changed": [
+        "src/lib/signals/scan.ts"
+      ],
+      "note": "SignalSeverity (critical/actionable/informational/noise) derived over persisted signal_type + priority (no schema change); SEVERITY_ORDER + bySeverity comparator; normalizeSignalKey/isDuplicateSignal punctuation+whitespace-insensitive dedup. Adopted normalizeSignalKey in scan.ts, replacing weak exact-lowercase dedup.",
+      "tests": "464 tests pass (+11); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/signals"
+    },
+    {
+      "id": "5.1",
+      "title": "Security kernel \u2014 action taxonomy + approval policy (pure)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/security/actionPolicy.ts",
+        "src/lib/security/actionPolicy.test.ts"
+      ],
+      "note": "ActionClass (READ..DESTRUCTIVE_ADMIN), BASE_REQUIREMENT, decideApproval/requiresApproval. Enforces the combinatorial prompt-injection rule (sensitive data + untrusted external content + outbound/execution => mandatory approval) and forbids downgrading financial execution / destructive admin. Pure; the approval-object persistence + UI cards are later waves.",
+      "tests": "474 tests pass (+10); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
+    },
+    {
+      "id": "5.2",
+      "title": "Approval object \u2014 \u00a711.3 durable approval contract (pure)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/security/approvalRequest.ts",
+        "src/lib/security/approvalRequest.test.ts"
+      ],
+      "note": "ApprovalRequest shape + buildApprovalRequest (derives requirement/reasons/step-up from decideApproval; forces one_time scope for FINANCIAL_EXECUTION/DESTRUCTIVE_ADMIN), validateApprovalCompleteness ('never a bare Allow' \u2014 outbound/executing need freshness+expiry; execution needs amount/account/before+after; destructive needs before-state), isApprovalExpired (fail-safe: unparseable => expired), isActionable (single execution gate: complete + unexpired + step-up satisfied). Pure; this is the typed contract the drafted approvals table + future approval-card UI implement.",
+      "tests": "494 tests pass (+20); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
+    },
+    {
+      "id": "6.1",
+      "title": "Data-freshness badge (pure presenter + UI primitive) wired into net-worth",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/freshnessBadge.ts",
+        "src/lib/fund/freshnessBadge.test.ts",
+        "src/components/ui/FreshnessBadge.tsx"
+      ],
+      "files_changed": [
+        "src/components/fund/NetWorthChart.tsx",
+        "src/app/api/fund/networth/route.ts",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Pure freshnessBadgeView(tier)->{label,tone,description} + relativeTimeShort (null on missing/invalid/future). Tokenized, accessible FreshnessBadge primitive (role=status, aria-label) deriving tier via classifyFreshness. Wired into NetWorthChart driven by the latest snapshot's real computed_at (networth GET now selects it; POST stamps it) with FRESHNESS_SLAS.accountBalance \u2014 shown only when a real snapshot exists (no fabricated 'as of'). database.types.ts: added computed_at to net_worth_snapshots (targeted, not full regen).",
+      "tests": "501 tests pass (+7); tsc clean; lint clean",
+      "verification": "npm run test + npx tsc --noEmit + npx eslint (changed files)"
+    },
+    {
+      "id": "8.2",
+      "title": "Agent-Task persistence wiring (API routes + assertTransition server gate)",
+      "status": "landed",
+      "files_added": [
+        "src/app/api/agent-tasks/route.ts",
+        "src/app/api/agent-tasks/[id]/route.ts"
+      ],
+      "files_changed": [
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Wires src/lib/tasks/taskState.ts to public.agent_tasks. GET/POST collection (auth + RLS + ?status filter; create seeds queued + activity log). [id] GET (task + append-only activity) and PATCH transition \u2014 reads current status, enforces canTransition SERVER-SIDE (illegal => 409 ILLEGAL_TRANSITION, not a Sentry exception), stamps completed_at on terminal, appends status_change activity. database.types.ts: added agent_tasks/agent_task_activity/approvals table types (targeted). Verified live DB check constraints mirror the domain enums exactly (12 statuses, 7 action classes, requirement/scope/status).",
+      "tests": "501 tests pass (taskState transition logic already covered); tsc clean; lint clean. Routes mirror the proven fund/holdings pattern.",
+      "verification": "npx tsc --noEmit + npx eslint src/app/api/agent-tasks + live constraint read-back"
+    },
+    {
+      "id": "8.3",
+      "title": "Tasks workbench \u2014 user-facing agent-Task slice",
+      "status": "landed",
+      "files_added": [
+        "src/lib/hooks/useAgentTasks.ts",
+        "src/lib/tasks/taskStatusView.ts",
+        "src/lib/tasks/taskStatusView.test.ts",
+        "src/components/tasks/TasksModule.tsx",
+        "src/app/tasks/page.tsx"
+      ],
+      "files_changed": [
+        "src/lib/store/nav.ts",
+        "src/lib/icons/nav-icons.ts"
+      ],
+      "note": "Turns wave 8.2 into a user-facing slice. New 'Operate' nav section + /tasks route (status=beta, honestly labeled). TasksModule: create + status filter (Seg) + two-pane list/detail; detail shows activity log and ONLY the legal next statuses (TASK_TRANSITIONS) as move buttons; 409 ILLEGAL_TRANSITION surfaced as a toast. All states handled: loading (Skeleton), empty, error, signed-out (StatusCallout). Pure taskStatusView presenter (label/tone/group/color) unit-tested. Verified: next build compiled successfully; tsc/lint/505 tests green. Manual interactive click-through requires the local Supabase stack (auth) \u2014 listed as the manual validation step.",
+      "tests": "505 tests pass (+4); tsc clean; lint clean; next build compiled successfully",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build (compile)"
+    },
+    {
+      "id": "5.3",
+      "title": "Approvals persistence (isActionable-gated execute path)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/security/approvalPersistence.ts",
+        "src/lib/security/approvalPersistence.test.ts",
+        "src/app/api/approvals/route.ts",
+        "src/app/api/approvals/[id]/route.ts"
+      ],
+      "note": "Persists the \u00a711.3 approval object. Pure approvalPersistence maps ApprovalRequest<->row (round-trip tested). POST /api/approvals builds via buildApprovalRequest and REJECTS auto (nothing to approve) or incomplete (never a bare Allow, returns missing[]). PATCH /api/approvals/[id] approve/deny (pending-only; expired pending -> expired) and execute \u2014 the safety gate: reconstructs the request from the STORED row (never client-supplied) and re-runs isActionable (complete + unexpired + step-up satisfied) before clearing to 'executed'. Records the gate passing only; the side-effecting action is intentionally NOT performed (no autonomous execution, \u00a77/\u00a711.2).",
+      "tests": "508 tests pass (+3); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint src/app/api/approvals + npm run test"
+    },
+    {
+      "id": "5.4",
+      "title": "Approval-card UI + approvals queue (user-facing, \u00a711.3)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/security/approvalCardView.ts",
+        "src/lib/security/approvalCardView.test.ts",
+        "src/lib/hooks/useApprovals.ts",
+        "src/components/approvals/ApprovalCard.tsx",
+        "src/components/approvals/ApprovalsModule.tsx",
+        "src/app/approvals/page.tsx"
+      ],
+      "files_changed": [
+        "src/lib/store/nav.ts",
+        "src/lib/icons/nav-icons.ts"
+      ],
+      "note": "User-facing approval queue on /approvals (Operate section, status=beta). ApprovalCard renders the FULL \u00a711.3 scope \u2014 action class, exact summary, tool, target, amount, before/after, data freshness (FreshnessBadge), requested-by, expiry, and the reasons \u2014 never a bare Allow. Approve/Deny for pending; step-up classes gate Approve behind an explicit step-up confirmation checkbox; 'Clear to execute' for approved (hits the isActionable-gated PATCH). Pure approvalCardView (labels/tones/amount/status) unit-tested. All states handled. Empty until agents/routines create approvals (honest empty state \u2014 no fabricated rows). next build compiles.",
+      "tests": "513 tests pass (+5); tsc clean; lint clean; next build compiled successfully",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build (compile)"
+    },
+    {
+      "id": "9.1",
+      "title": "First deterministic routine \u2014 concentration check creates real Tasks",
+      "status": "landed",
+      "files_added": [
+        "src/lib/skills/concentrationReview.ts",
+        "src/lib/skills/concentrationReview.test.ts",
+        "src/app/api/routines/concentration-check/route.ts"
+      ],
+      "files_changed": [
+        "src/components/tasks/TasksModule.tsx"
+      ],
+      "note": "Closes the observe->significance->task arc with deterministic math (no LLM, no fabricated data). Pure reviewConcentration(positions, maxWeight) computes cent-exact weights, flags positions over target, and returns the trim amount + a stable breachObjective (idempotency key). POST /api/routines/concentration-check reads the user's real fund_holdings, runs the skill, and creates a 'queued' agent-Task per breach \u2014 idempotent (skips breaches whose objective already has a non-terminal task). It never trades or creates a financial-execution approval; output is a task to review. 'Run concentration check' button on the Tasks workbench. Approvals queue intentionally stays empty until a real execution skill with order details exists \u2014 no fabricated trade approvals.",
+      "tests": "519 tests pass (+6); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "9.2",
+      "title": "Durable routine-run execution (\u00a715.5) \u2014 run + step snapshots",
+      "status": "landed",
+      "files_added": [
+        "src/lib/routines/runState.ts",
+        "src/lib/routines/runState.test.ts",
+        "src/app/api/routines/runs/route.ts",
+        "src/components/tasks/RoutineRunsPanel.tsx",
+        "supabase/migrations/202607140100_routine_runs.sql"
+      ],
+      "files_changed": [
+        "src/app/api/routines/concentration-check/route.ts",
+        "src/components/tasks/TasksModule.tsx",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Durable execution backbone. Pure runState (RunStatus/StepStatus + transitions + deriveRunOutcome: all-ok=completed, mixed=partial, all-fail=failed, empty=completed). Migration routine_runs + routine_step_runs (owner-scoped RLS, no-delete audit, applied+verified: 3 policies each). Concentration routine refactored to open a durable run and record each step (load_holdings, review_concentration, create_tasks) with input/output snapshots, deriving the final run status; a thrown step marks the run failed with snapshots intact. GET /api/routines/runs (list + ?runId detail with steps). RoutineRunsPanel shows recent runs on the Tasks workbench (honest empty until a run exists). Cost fields recorded (0 \u2014 deterministic, no model).",
+      "tests": "524 tests pass (+5); tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build + live RLS policy read-back"
+    },
+    {
+      "id": "14.1",
+      "title": "CI/CD PR quality gate (\u00a720)",
+      "status": "landed",
+      "files_added": [
+        ".github/workflows/ci.yml"
+      ],
+      "note": "PR + main CI: npm ci -> lint -> tsc --noEmit -> unit tests -> build (placeholder Supabase env, safe: no network at build). Concurrency-cancels superseded runs. Makes the AGENTS.md minimum bar a real merge gate instead of the once-daily health check. Build step also prints route bundle sizes for \u00a711.",
+      "tests": "n/a (workflow); validated as YAML; build verified locally with placeholder env (exit 0)",
+      "verification": "yaml parse + local build with placeholder env"
+    },
+    {
+      "id": "10.1",
+      "title": "Integration risk model \u2014 capabilities -> action classes (\u00a716)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/integrations/risk.ts",
+        "src/lib/integrations/risk.test.ts"
+      ],
+      "note": "Pure model composing the security kernel: capabilityActionClass (list/read->READ, markRead/archive->INTERNAL_WRITE, send/reply->EXTERNAL_COMMUNICATION, delete->DESTRUCTIVE_ADMIN), capabilitiesRiskProfile/providerRiskProfile -> {read/write/send/destructive caps, highestClass, riskLevel, approvalDefault (from decideApproval), enabledCount}. Lets Control Room organize integrations by capability+risk, and routines inherit approval defaults. Disabled caps never contribute risk.",
+      "tests": "531 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "11.1",
+      "title": "Performance budgets from measured build sizes (\u00a711)",
+      "status": "landed",
+      "files_added": [
+        ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"
+      ],
+      "note": "Measured (not aspirational) budgets: shared first-load 227kB (budget 260), heaviest route /vitality 391kB (budget 420), middleware 156kB (budget 180), /tasks 367kB. CI build prints current sizes each PR; automated enforcement is a follow-up. Watch-list flags the known N+1/cache-first and code-splitting candidates from the audit.",
+      "tests": "n/a (artifact)",
+      "verification": "sizes taken from a real next build on this branch"
+    },
+    {
+      "id": "7.1b",
+      "title": "Command system \u2014 executable run-routine command (\u00a77)",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": [
+        "src/components/nav/command-palette-model.ts",
+        "src/components/nav/CommandPalette.tsx",
+        "src/components/nav/command-palette-model.test.ts"
+      ],
+      "note": "Extends the palette beyond navigation: new run-routine PaletteTarget kind + 'Run Concentration Check' action command that POSTs the routine then lands on /tasks. New Operate routes (/tasks, /approvals) are already palette-covered via ALL_NAV_ITEMS; added guard tests asserting both the route coverage and the executable command.",
+      "tests": "531 tests pass (+ palette coverage tests); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "8.4",
+      "title": "Link approvals to tasks (flesh-out, \u00a78)",
+      "status": "landed",
+      "files_changed": [
+        "src/app/api/approvals/route.ts",
+        "src/components/tasks/TasksModule.tsx"
+      ],
+      "note": "Approvals GET accepts ?taskId to fetch a task's approvals (owner-scoped). Task detail pane now shows a linked 'Approvals' section (action class + summary + status) with a deep link to the review queue, cohering the Tasks and Approvals surfaces. Empty section when a task has no approvals.",
+      "tests": "531 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "13.1",
+      "title": "Structured observability events with redaction guard (\u00a713)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/observability/events.ts",
+        "src/lib/observability/events.test.ts"
+      ],
+      "files_changed": [
+        "src/app/api/routines/concentration-check/route.ts"
+      ],
+      "note": "Pure redactSafe (recursively masks token/secret/password/authorization/cookie/api-key/PII keys, depth-limited) + structuredEvent + emitServerEvent. Wired safe run.completed / run.failed events (counts + status only, no holdings/PII) into the concentration routine. Defensive: fields are redacted regardless of caller discipline.",
+      "tests": "535 tests pass (+4); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "6.2",
+      "title": "Consolidate semantic status tokens (\u00a76)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/design/statusTokens.ts",
+        "src/lib/design/statusTokens.test.ts",
+        "docs/axis-redesign/06-design-system.md"
+      ],
+      "files_changed": [
+        "src/components/ui/FreshnessBadge.tsx",
+        "src/lib/tasks/taskStatusView.ts",
+        "src/lib/security/approvalCardView.ts"
+      ],
+      "note": "Single source of truth for status color (muted/accent/success/warning/alert/danger -> existing theme CSS vars). Freshness, task-status, and approval presenters now resolve their domain tones through it; a test pins the values so the palette can't drift. Consolidation only \u2014 every existing color preserved (consumer tests unchanged, incl. approvalToneColor==var(--down)).",
+      "tests": "537 tests pass (+2); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "12.1",
+      "title": "Testing flesh-out \u2014 artifact guard + Operate e2e smoke (\u00a712)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/redesign/artifacts.test.ts",
+        "tests/e2e/operate.spec.ts"
+      ],
+      "note": "artifacts.test.ts JSON-validates every .claude/axis-redesign/*.json in CI (prevents the source-of-truth corruption a stray comma caused). operate.spec.ts is an authenticated Playwright smoke for /tasks (loads + Run Concentration Check enabled) and /approvals (loads + empty/populated state), matching the existing authenticated project; runs under AXIS_E2E_AUTH with the local Supabase stack (not in unit CI).",
+      "tests": "539 unit tests pass (+2); tsc clean; lint clean; e2e spec authored to the existing pattern (needs the local stack to run)",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.5",
+      "title": "Bind approval step-up to a real WebAuthn passkey assertion (\u00a711.2)",
+      "status": "landed \u2014 NEEDS INDEPENDENT SECURITY REVIEW",
+      "files_added": [
+        "src/app/api/approvals/[id]/step-up/route.ts"
+      ],
+      "files_changed": [
+        "src/app/api/approvals/[id]/route.ts",
+        "src/lib/hooks/useApprovals.ts",
+        "src/components/approvals/ApprovalCard.tsx",
+        "src/components/approvals/ApprovalsModule.tsx"
+      ],
+      "note": "SECURITY FIX + feature. Previously the approve path trusted a client-supplied stepUpVerified boolean (self-attestable). Now step_up_verified_at is set ONLY by /api/approvals/[id]/step-up after a verified passkey assertion by the approval's OWNER (credential must belong to the user; one-time challenge bound to user_id; reuses the verified src/lib/webauthn/server helpers). Removed the boolean from PATCH. ApprovalCard replaces the checkbox with a 'Verify with passkey' ceremony; Approve for step-up classes is gated on step_up_verified_at. No schema change (uses existing approvals column + user_passkeys/webauthn_challenges). Reuses the exact pattern of the login passkey route. MUST get human security review + a manual test with a real authenticator before production.",
+      "tests": "539 tests pass; tsc clean; lint clean; next build compiles. WebAuthn ceremony NOT unit-testable here (no authenticator).",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build; manual authenticator test pending"
+    },
+    {
+      "id": "10.2",
+      "title": "Market-data provider adapter (\u00a710 provider->domain boundary)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/markets/quote.ts",
+        "src/lib/markets/quote.test.ts",
+        "src/lib/markets/adapter.ts",
+        "src/app/api/markets/quote/route.ts"
+      ],
+      "note": "Stable MarketDataAdapter contract (getQuote -> Result<MarketQuote>) with a Polygon/Massive implementation over the existing rate-limited client. Pure normalizeQuote stamps provenance (provider/retrievedAt/effectiveAt/currency) and classifies freshness against FRESHNESS_SLAS.marketPrice \u2014 so a delayed feed reads as delayed/stale, never 'live'. Errors map to the shared IntegrationError taxonomy (not_found/rate_limited/provider_error via failFromException). /api/markets/quote returns the normalized domain quote (feeds FreshnessBadge). Call sites never branch on provider.",
+      "tests": "544 tests pass (+5); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "10.3",
+      "title": "Plaid account adapter \u2014 balances into the provenance model (\u00a710)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/plaid/account.ts",
+        "src/lib/plaid/account.test.ts",
+        "src/lib/plaid/adapter.ts",
+        "src/app/api/plaid/accounts/route.ts"
+      ],
+      "note": "AccountAdapter contract (getAccounts(userId) -> Result<Account[]>) with a Plaid impl. Pure normalizeAccount(s) maps Plaid balances to a domain Account with provenance (provider/retrievedAt/currency) + freshness (accountBalance SLA) \u2014 balances read as fresh right after a live pull. Self-contained in lib (creds via env, reuses getPlaidAccessToken; token never leaves the server). Errors -> IntegrationError taxonomy; not_supported/auth_expired return a soft connect-a-bank state (200), harder failures map to status. /api/plaid/accounts uses it; existing /api/plaid/balances untouched.",
+      "tests": "549 tests pass (+5); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.6",
+      "title": "Step-up security review + hardening",
+      "status": "landed (residual: human sign-off + authenticator test)",
+      "files_added": [
+        "docs/axis-redesign/security/step-up-review.md",
+        "supabase/migrations/202607140200_webauthn_challenges_approval_id.sql"
+      ],
+      "files_changed": [
+        "src/app/api/approvals/[id]/step-up/route.ts",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) \u2014 see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 202607140200, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
+      "tests": "549 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test; live migration verified"
+    },
+    {
+      "id": "5.7",
+      "title": "Step-up freshness window (follow-up PR, post-merge)",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": [
+        "src/lib/security/approvalRequest.ts",
+        "src/app/api/approvals/[id]/route.ts",
+        "src/components/approvals/ApprovalCard.tsx",
+        "src/components/approvals/ApprovalsModule.tsx",
+        "src/lib/security/approvalRequest.test.ts",
+        "src/lib/security/approvalPersistence.test.ts"
+      ],
+      "note": "A step-up verification no longer stays valid indefinitely. isActionable now takes stepUpVerifiedAt (timestamp) not a boolean and requires it within STEP_UP_MAX_AGE_MS (5 min) via the pure isStepUpFresh (fail-safe on missing/unparseable/future). Execute path distinguishes STEP_UP_REQUIRED vs STEP_UP_STALE (409); the card re-shows 'Verify with passkey' when stale and the queue toasts a re-verify prompt. Also verified the #190 production deploy: Vercel READY on ca73d37 + no new Sentry prod errors (24h).",
+      "tests": "563 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "4.4",
+      "title": "Provenance on persisted holdings + freshness badge on Assets (follow-up)",
+      "status": "landed",
+      "files_changed": [
+        "src/app/api/fund/holdings/route.ts",
+        "src/components/fund/FundDataProvider.tsx",
+        "src/components/fund/FundNetWorthModule.tsx",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 202607131700 migration but never typed).",
+      "tests": "563 tests pass; tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.3",
+      "title": "Resumable durable execution + idempotency (\u00a715.5, follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/routines/runner.ts",
+        "src/lib/routines/runner.test.ts"
+      ],
+      "files_changed": [
+        "src/app/api/routines/concentration-check/route.ts"
+      ],
+      "note": "Pure planResume(orderedKeys, existingSteps) -> {toRun, reuse}: succeeded steps are skipped and their output snapshots reused (idempotent replay); order preserved; a key counts done if any record succeeded. isStepAlreadyDone/isRunComplete helpers. Concentration routine now RESUMABLE: POST {runId} resumes a non-terminal run, skipping succeeded steps and reusing their outputs; a step failure now marks the run 'blocked' (non-terminal, resumable) instead of terminal 'failed', emitting routine.run.blocked. The pausing-for-approval routine that fully exercises resume is the next adopter (the framework + storage support it today).",
+      "tests": "569 tests pass (+6); tsc clean; lint clean; next build compiles",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "10.4",
+      "title": "Plaid transactions adapter (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/plaid/transaction.ts",
+        "src/lib/plaid/transaction.test.ts",
+        "src/app/api/plaid/transactions/recent/route.ts"
+      ],
+      "files_changed": [
+        "src/lib/plaid/adapter.ts"
+      ],
+      "note": "Pure normalizeTransaction(s) -> domain Transaction with provenance (provider/providerRecordId/effectiveAt=date/currency) + freshness; amount is cent-exact via parseMoney and sign-flipped so positive=inflow (matches app convention). Adapter gains getTransactions(userId,{days}) hitting /transactions/get (default 30d, count 250). /api/plaid/transactions/recent returns the normalized list; soft connect-a-bank state on not_supported/auth_expired. Distinct from the existing POST /api/plaid/transactions sync path.",
+      "tests": "574 tests pass (+5); tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "11.2_12.2",
+      "title": "Enforced bundle-budget gate + public e2e smoke in CI (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "scripts/check-bundle-budget.mjs",
+        "tests/e2e/ci-smoke.spec.ts"
+      ],
+      "files_changed": [
+        ".github/workflows/ci.yml",
+        ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"
+      ],
+      "note": "PERF GATE: scripts/check-bundle-budget.mjs sums .next/static/chunks/**/*.js (deterministic, not log-parsing) and fails past total_static_js_kb.budget (4400; measured 3826/87%). Wired as a CI step after build. E2E-IN-CI: new e2e-smoke CI job installs Chromium and runs a public ci-smoke.spec.ts that boots the app (placeholder Supabase env) and asserts /login renders its form with no uncaught page errors. Verified locally up to browser-launch (dev server booted; only the container's pre-installed browser version mismatched \u2014 CI's playwright install provides the right one). Watching PR #191 CI to confirm the e2e job is green.",
+      "tests": "574 unit tests pass; bundle gate passes locally (87%); ci.yml valid; e2e job pending first CI run",
+      "verification": "node scripts/check-bundle-budget.mjs + local dev-server boot + CI"
+    },
+    {
+      "id": "10.5",
+      "title": "Plaid liabilities adapter \u2014 completes the adapter trio (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/plaid/liability.ts",
+        "src/lib/plaid/liability.test.ts",
+        "src/app/api/plaid/liabilities/route.ts"
+      ],
+      "files_changed": [
+        "src/lib/plaid/adapter.ts",
+        "src/lib/plaid/account.ts"
+      ],
+      "note": "Pure normalizeLiabilities joins Plaid credit/student/mortgage arrays to their account balances (by account_id) into domain Liability with provenance + freshness; payment amounts cent-exact. Adapter now does accounts + transactions + liabilities. /api/plaid/liabilities returns the normalized list.",
+      "tests": "tsc + eslint clean; targeted tests pass",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test"
+    },
+    {
+      "id": "5.8",
+      "title": "Approval-expiry sweeper cron (hygiene, follow-up)",
+      "status": "landed",
+      "files_added": [
+        "supabase/migrations/202607140300_expire_stale_approvals.sql"
+      ],
+      "files_changed": [
+        "src/app/api/cron/daily/route.ts",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "SECURITY DEFINER expire_stale_approvals() (applied+verified; returns 0 today) marks pending approvals past expires_at as 'expired'; folded into /api/cron/daily. Cross-user sweep needs SECURITY DEFINER (cron has no session). Hygiene only \u2014 isActionable already refuses expired approvals.",
+      "tests": "tsc + eslint clean; function verified live",
+      "verification": "apply_migration + execute_sql (returns 0) + npx tsc --noEmit"
+    },
+    {
+      "id": "11.3",
+      "title": "Batch quotes \u2014 collapse the watchlist N+1 (follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/markets/quotes.ts",
+        "src/lib/markets/quotes.test.ts",
+        "src/app/api/markets/quotes/route.ts"
+      ],
+      "files_changed": [
+        "src/components/fund/FundWatchlistModule.tsx"
+      ],
+      "note": "FundWatchlistModule fetched /api/massive/quote once per symbol (N client round-trips, each serialized behind the 280ms Polygon rate limit). New /api/markets/quotes?symbols=A,B,C returns all quotes (via the market adapter, provenance+freshness) in one request; pure parseSymbolList (dedupe/validate/cap) tested. Watchlist now does ONE fetch. Widget batch was already cache-first + parallel (not a naive N+1) \u2014 left as-is per 'don't rewrite working systems'.",
+      "tests": "583 tests pass; tsc + eslint clean; next build compiles; bundle 3832KB/87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.4",
+      "title": "Order-prep + rebalance skill + pausing routine that creates REAL approvals",
+      "status": "landed",
+      "files_added": [
+        "src/lib/orders/orderTicket.ts",
+        "src/lib/orders/orderTicket.test.ts",
+        "src/lib/skills/rebalanceProposal.ts",
+        "src/lib/skills/rebalanceProposal.test.ts",
+        "src/app/api/routines/rebalance-proposal/route.ts"
+      ],
+      "note": "Delivers the order-prep boundary + the pausing-for-approval routine (\u00a710 Public prep, \u00a715.5 pause). Pure buildOrderTicket (validated, cent-exact notional; DRAFT only, never submits) + proposeRebalance (deterministic drift->order tickets). /api/routines/rebalance-proposal reads holdings, fetches LIVE prices via the market adapter, runs the skill, and creates one FINANCIAL_EXECUTION approval per proposed order (real numbers, not fabricated), then sets the run status to waiting_for_approval (first genuine pause). Nothing is submitted: approvals are proposals the user reviews (approve + passkey step-up + execute clears the gate; live broker submission deliberately unbuilt = no autonomous execution). This is the first honest populator of the approvals queue.",
+      "tests": "594 tests pass (+11); tsc clean; lint clean; next build compiles; bundle 87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.5",
+      "title": "LLM-judgment step (explain-only) + cost metering",
+      "status": "landed",
+      "files_added": [
+        "src/lib/ai/cost.ts",
+        "src/lib/ai/cost.test.ts",
+        "src/lib/ai/explain.ts"
+      ],
+      "files_changed": [
+        "src/app/api/routines/rebalance-proposal/route.ts"
+      ],
+      "note": "Pure cost estimator (estimateTokens ~4ch/tok + per-model MODEL_PRICING -> estimateCostUsd; router returns no usage so cost is ESTIMATED, clearly labeled). explainWithCost wraps aiGenerate: the sanctioned LLM use \u2014 EXPLAIN an already-computed result, never compute financial values; returns text + estimated cost or {skipped} (no throw, graceful when no model configured). Wired an optional explain_proposal step into the rebalance routine that narrates the deterministic proposal and records actual_cost_usd on the run (\u00a711 cost visibility). Arithmetic stays deterministic; AI is decorative narrative, not authoritative.",
+      "tests": "599 tests pass (+5); tsc clean; lint clean; next build compiles; bundle 87%",
+      "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
+    },
+    {
+      "id": "9.6",
+      "title": "Observability events at approval decision points + Sentry dashboard spec",
+      "status": "landed",
+      "files_added": [
+        "docs/axis-redesign/14-observability-dashboards.md"
+      ],
+      "files_changed": [
+        "src/app/api/approvals/[id]/route.ts",
+        "src/app/api/approvals/[id]/step-up/route.ts"
+      ],
+      "note": "Wired structured emitServerEvent signals across the operate loop's decision points: approval.decided (decision, actionClass, requirement, decisionLatencyMs) at approve/deny, approval.executed (stepUpRequired, executeLatencyMs) at the isActionable gate clear, and approval.step_up_verified on a verified passkey assertion. Safe fields only (IDs/enums/booleans/durations) \u2014 no proposed_action/prices/balances/PII, enforced structurally by redactSafe. Added docs/axis-redesign/14-observability-dashboards.md: the committed dashboard definition (event catalogue as the contract + copy-pasteable Sentry queries for approval reliability/latency, step-up security, routine reliability, integration+cost health, plus a minimum alert set). Dashboards are Sentry UI artifacts; the spec is the reviewable source they're built from.",
+      "tests": "599 tests pass; tsc clean; lint clean",
+      "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
+    },
+    {
+      "id": "9.7",
+      "title": "Surface Plaid liabilities (accounts/transactions/liabilities trio) into Net Worth with freshness",
+      "status": "landed",
+      "files_added": [],
+      "files_changed": [
+        "src/components/fund/FundDataProvider.tsx",
+        "src/components/fund/FundNetWorthModule.tsx"
+      ],
+      "note": "The Plaid liabilities adapter + /api/plaid/liabilities route existed but had no UI consumer \u2014 the accounts/transactions/liabilities trio was only 2/3 surfaced. FundDataProvider now fetches /api/plaid/liabilities (soft-fails to empty when unlinked), flattens provenance.retrievedAt for the badge, and exposes plaidLiabilities. FundNetWorthModule renders bank-linked liabilities as freshness-badged rows ('\u00b7 Plaid' + FreshnessBadge on FRESHNESS_SLAS.accountBalance), mirroring how Assets shows per-holding freshness and Cash shows '\u00b7 Plaid'. Net-worth math now sums manual + Plaid liabilities via sumMoney (deterministic minor-units). Financially-material debt data now carries its freshness tier per \u00a717.",
+      "tests": "599 tests pass; tsc clean; lint clean (local next build blocked only by missing NEXT_PUBLIC_SUPABASE_* env on unrelated /agenda prerender \u2014 CI supplies secrets)",
+      "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
+    },
+    {
+      "id": "4.5",
+      "title": "Tax-lot / cost-basis / corporate-actions domain (pure)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/taxLots.ts",
+        "src/lib/fund/taxLots.test.ts"
+      ],
+      "tests": "609 pass (+25)",
+      "verification": "tsc + eslint + full suite"
+    },
+    {
+      "id": "4.6",
+      "title": "Provenance populated from write paths + Activity freshness badge",
+      "status": "landed",
+      "files_added": [
+        "supabase/migrations/202607151000_fund_bank_transactions_provenance.sql"
+      ],
+      "files_changed": [
+        "src/app/api/fund/holdings/route.ts",
+        "src/app/api/fund/liabilities/route.ts",
+        "src/app/api/fund/liabilities/[id]/route.ts",
+        "src/components/fund/FundOrderTicket.tsx",
+        "src/components/fund/FundSpendingModule.tsx",
+        "src/lib/fund/syncPlaidTransactions.ts",
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Migration NOT yet applied to prod (MCP approval unavailable in session) \u2014 apply before production merge; additive single column retrieved_at.",
+      "tests": "609 pass; build compiles",
+      "verification": "tsc + eslint + full suite + build"
+    },
+    {
+      "id": "11.2",
+      "title": "CI performance-budget enforcement",
+      "status": "landed",
+      "files_added": [
+        "scripts/check-perf-budgets.mjs"
+      ],
+      "files_changed": [
+        ".github/workflows/ci.yml",
+        ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"
+      ],
+      "tests": "script validated pass(0)/fail(1); 161 routes within budget",
+      "verification": "real build log + synthetic regression log"
+    },
+    {
+      "id": "4.7",
+      "title": "Holdings reconciliation wired to real data + UI indicator",
+      "status": "landed",
+      "files_added": [
+        "src/lib/fund/reconcileHoldings.ts",
+        "src/lib/fund/reconcileHoldings.test.ts",
+        "src/lib/fund/reconciliationView.ts",
+        "src/lib/fund/reconciliationView.test.ts"
+      ],
+      "files_changed": [
+        "src/app/api/fund/holdings/route.ts",
+        "src/components/fund/FundDataProvider.tsx",
+        "src/components/fund/FundInvestingModule.tsx"
+      ],
+      "note": "Single-source symbols stay NULL (honest absence); mixed-currency -> pending; cent-exact tolerance.",
+      "tests": "624 pass (+15)",
+      "verification": "tsc + eslint + full suite + build + perf gate"
+    }
+  ],
+  "migrations_applied": {
+    "applied": "2026-07-13",
+    "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
+    "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
+    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. Security advisor: no RLS lint on any new table (only a pre-existing auth leaked-password-protection warning, unrelated).",
+    "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
+    "files": [
+      "supabase/migrations/202607131700_fund_provenance_columns.sql",
+      "supabase/migrations/202607131701_tasks_table.sql (creates agent_tasks/agent_task_activity)",
+      "supabase/migrations/202607131702_approvals_table.sql"
+    ]
+  },
+  "governance_override": {
+    "active": true,
+    "authorized_by": "repo owner (c.k.ogonuwe@gmail.com)",
+    "scope": "sweeping cross-module redesign per AGENTS.md 2a; safety rails (secrets, no-silent-fail, financial kernel, migrations+RLS, green gates) remain non-negotiable",
+    "recorded": "AGENTS.md 2a"
+  },
+  "next_dependency_ordered_actions": [
+    "Continue per docs/agent-handoff/codex-phase-buildout-prompt.md: Phase 9 executor (resume-after-approval, idempotency keys, LLM-judgment steps with cost metering), then Phases 10/8/6/12/13/14 and program docs.",
+    "HUMAN: apply supabase/migrations/202607151000_fund_bank_transactions_provenance.sql to prod before relying on fund_bank_transactions.retrieved_at."
+  ],
+  "artifacts": {
+    "docs": "docs/axis-redesign/",
+    "skill": ".claude/skills/axis-system-redesign/",
+    "defect_ledger": ".claude/axis-redesign/DEFECT_LEDGER.json"
+  }
+}

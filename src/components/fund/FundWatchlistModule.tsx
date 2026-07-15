@@ -38,21 +38,21 @@ export function FundWatchlistModule() {
     setQuotesLoading(true);
     setQuotesError(null);
     try {
-      const results = await Promise.all(
-        symbols.map(async (sym) => {
-          const res = await fetch(`/api/massive/quote?symbol=${encodeURIComponent(sym)}`);
-          if (!res.ok) return null;
-          const data = (await res.json()) as { price?: number; chg?: number };
-          if (typeof data.price !== "number") return null;
-          return { sym, price: data.price, chg: data.chg ?? 0 };
-        }),
-      );
+      // One batch request instead of one fetch per symbol (was an N+1 that
+      // serialized behind the provider rate limit).
+      const res = await fetch(`/api/markets/quotes?symbols=${encodeURIComponent(symbols.join(","))}`);
+      if (!res.ok) {
+        setQuotesError("Quotes could not be loaded right now.");
+        return;
+      }
+      const data = (await res.json()) as { quotes?: Record<string, { price?: number; changePct?: number }> };
       const next: QuoteMap = {};
-      for (const row of results) {
-        if (row) next[row.sym] = { price: row.price, chg: row.chg };
+      for (const sym of symbols) {
+        const q = data.quotes?.[sym];
+        if (q && typeof q.price === "number") next[sym] = { price: q.price, chg: q.changePct ?? 0 };
       }
       setQuotes(next);
-      if (results.every((r) => r === null)) {
+      if (Object.keys(next).length === 0) {
         setQuotesError("Quotes could not be loaded right now.");
       }
     } catch {

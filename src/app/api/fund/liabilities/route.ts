@@ -60,6 +60,10 @@ export async function POST(request: NextRequest) {
       minimum_payment: minimumPayment.value,
       due_date: dueDate.value,
       source: "manual",
+      // Provenance: for a manual entry, entry time IS the retrieval time.
+      provider: "manual",
+      retrieved_at: new Date().toISOString(),
+      currency: "USD",
     })
     .select()
     .single();

@@ -29,7 +29,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (Object.keys(body).some((key) => !PATCHABLE.has(key))) {
     return NextResponse.json({ error: "INVALID_FIELD" }, { status: 400 });
   }
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  // A manual edit is a fresh manual observation, so refresh the retrieval anchor.
+  const patch: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+    retrieved_at: new Date().toISOString(),
+  };
   if ("name" in body) {
     const name = String(body.name ?? "").trim();
     if (!name) return NextResponse.json({ error: "INVALID_NAME" }, { status: 400 });

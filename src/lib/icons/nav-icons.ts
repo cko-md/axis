@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
+  Bot,
   Calendar,
   ChefHat,
   ClipboardList,
@@ -18,6 +19,7 @@ import {
   Radio,
   RotateCcw,
   Settings,
+  ShieldCheck,
   Sparkles,
   Target,
   Users,
@@ -43,6 +45,8 @@ export const NAV_ICON_MAP: Record<string, LucideIcon> = {
   library: FolderOpen,
   recipes: ChefHat,
   chart: LineChart,
+  tasks: Bot,
+  approvals: ShieldCheck,
   system: Settings,
   // Command palette action / create keys (not sidebar routes)
   create: Sparkles,

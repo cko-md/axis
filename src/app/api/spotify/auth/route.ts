@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { optionalEnv, hasOptionalEnv } from "@/lib/env";
 
 const SCOPES = [
@@ -31,10 +31,10 @@ export async function GET(req: NextRequest) {
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   if (!clientId && !hasOptionalEnv("COMPOSIO_API_KEY")) {
-    return NextResponse.redirect(new URL("/oauth-done?provider=spotify&status=error", req.url));
+    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=error"));
   }
   if (!clientId) {
-    return NextResponse.redirect(new URL("/api/integrations/composio/connect?toolkit=spotify", req.url));
+    return NextResponse.redirect(buildAppUrl(req, "/api/integrations/composio/connect?toolkit=spotify"));
   }
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const state = crypto.randomUUID();

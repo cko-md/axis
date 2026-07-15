@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePlaidLink, type PlaidLinkOnSuccess } from "react-plaid-link";
 import { useToast } from "@/components/ui/Toast";
+import { sumBy } from "@/lib/fund/money";
 
 export type BankAccount = { name: string; mask: string | null; subtype: string | null; current: number | null };
 
@@ -125,7 +126,7 @@ export function usePlaidConnection() {
     await fetchLinkToken();
   }, [linkToken, plaidLinkReady, openPlaidLink, fetchLinkToken]);
 
-  const cash = bankAccounts.reduce((s, a) => s + (a.current ?? 0), 0);
+  const cash = sumBy(bankAccounts, (a) => a.current ?? 0);
 
   return {
     plaidConfigured,
