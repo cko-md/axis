@@ -1,4 +1,8 @@
 import type { Json } from "@/lib/supabase/database.types";
+import {
+  parseRoutineIntegrationRequirements,
+  type RoutineIntegrationRequirement,
+} from "./integrationRequirements";
 
 export type RoutineVersionStatus = "builtin" | "draft" | "active" | "archived";
 
@@ -10,6 +14,7 @@ export type RoutineDefinition = {
   inputs: Record<string, unknown>;
   steps: string[];
   safety: string[];
+  integrationRequirements?: RoutineIntegrationRequirement[];
 };
 
 export type RoutineVersion = {
@@ -45,6 +50,11 @@ export type RoutineVersionDiff = {
     added: string[];
     removed: string[];
   };
+  integrationChanges: {
+    added: string[];
+    removed: string[];
+    changed: string[];
+  };
 };
 
 export const BUILTIN_ROUTINE_VERSIONS: readonly RoutineVersion[] = [
@@ -64,6 +74,21 @@ export const BUILTIN_ROUTINE_VERSIONS: readonly RoutineVersion[] = [
       inputs: { maxWeight: { type: "number", default: 0.25 } },
       steps: ["load_holdings", "review_concentration", "create_tasks"],
       safety: ["deterministic_math", "no_financial_execution", "creates_agent_tasks"],
+      integrationRequirements: [
+        {
+          key: "supabase.fund_holdings_and_agent_tasks",
+          label: "Supabase portfolio + agent tasks",
+          provider: "supabase",
+          domain: "supabase",
+          required: true,
+          enabledByDefault: false,
+          purpose: "Read owner-scoped fund holdings, persist the routine run, and create agent tasks for concentration breaches.",
+          capabilities: ["read:fund_holdings", "write:routine_runs", "write:agent_tasks"],
+          actionClass: "INTERNAL_WRITE",
+          touchesSensitiveData: true,
+          explicitlyTrusted: true,
+        },
+      ],
     },
   },
   {
@@ -86,6 +111,56 @@ export const BUILTIN_ROUTINE_VERSIONS: readonly RoutineVersion[] = [
       },
       steps: ["load_holdings", "load_prices", "propose_rebalance", "create_approvals", "explain_proposal"],
       safety: ["deterministic_money", "live_price_provenance", "financial_execution_requires_approval_step_up"],
+      integrationRequirements: [
+        {
+          key: "supabase.fund_holdings_and_approvals",
+          label: "Supabase holdings + approval ledger",
+          provider: "supabase",
+          domain: "supabase",
+          required: true,
+          enabledByDefault: false,
+          purpose: "Read owner-scoped holdings and persist routine runs plus approval requests.",
+          capabilities: ["read:fund_holdings", "write:routine_runs", "write:approvals"],
+          actionClass: "INTERNAL_WRITE",
+          touchesSensitiveData: true,
+        },
+        {
+          key: "polygon.market_prices",
+          label: "Polygon/Massive market prices",
+          provider: "polygon",
+          domain: "market_data",
+          required: true,
+          enabledByDefault: false,
+          purpose: "Fetch live quote provenance for each holding and target symbol before sizing any proposal.",
+          capabilities: ["read:quotes"],
+          actionClass: "READ",
+          touchesSensitiveData: false,
+        },
+        {
+          key: "public.order_approval_boundary",
+          label: "Public brokerage order boundary",
+          provider: "public",
+          domain: "brokerage",
+          required: true,
+          enabledByDefault: false,
+          purpose: "Describe broker-compatible order tickets as approval-gated proposals; no broker submission is enabled by the routine.",
+          capabilities: ["draft:order_ticket", "approval:financial_execution"],
+          actionClass: "FINANCIAL_EXECUTION",
+          touchesSensitiveData: true,
+        },
+        {
+          key: "openai.proposal_explanation",
+          label: "OpenAI proposal explanation",
+          provider: "openai",
+          domain: "ai",
+          required: false,
+          enabledByDefault: false,
+          purpose: "Explain the deterministic rebalance output without recomputing or authorizing financial action.",
+          capabilities: ["draft:narrative"],
+          actionClass: "DRAFT",
+          touchesSensitiveData: true,
+        },
+      ],
     },
   },
 ];
@@ -99,10 +174,17 @@ export function compareRoutineVersions(left: RoutineVersion, right: RoutineVersi
   const rightInputs = Object.keys(right.definition.inputs).sort();
   const leftSafety = [...left.definition.safety].sort();
   const rightSafety = [...right.definition.safety].sort();
+  const leftIntegrations = integrationMap(left.definition.integrationRequirements);
+  const rightIntegrations = integrationMap(right.definition.integrationRequirements);
+  const integrationKeys = [...new Set([...leftIntegrations.keys(), ...rightIntegrations.keys()])].sort();
 
   const inputChanged = leftInputs.filter((key) => {
     if (!rightInputs.includes(key)) return false;
     return stableStringify(left.definition.inputs[key]) !== stableStringify(right.definition.inputs[key]);
+  });
+  const integrationChanged = integrationKeys.filter((key) => {
+    if (!leftIntegrations.has(key) || !rightIntegrations.has(key)) return false;
+    return stableStringify(leftIntegrations.get(key)) !== stableStringify(rightIntegrations.get(key));
   });
 
   const changed = [
@@ -112,6 +194,7 @@ export function compareRoutineVersions(left: RoutineVersion, right: RoutineVersi
     hasArrayDelta(left.definition.steps, right.definition.steps) ? "steps" : null,
     hasArrayDelta(leftInputs, rightInputs) || inputChanged.length > 0 ? "inputs" : null,
     hasArrayDelta(leftSafety, rightSafety) ? "safety" : null,
+    hasMapDelta(leftIntegrations, rightIntegrations) || integrationChanged.length > 0 ? "integrationRequirements" : null,
   ].filter((value): value is string => !!value);
 
   return {
@@ -128,6 +211,11 @@ export function compareRoutineVersions(left: RoutineVersion, right: RoutineVersi
     safetyChanges: {
       added: rightSafety.filter((key) => !leftSafety.includes(key)),
       removed: leftSafety.filter((key) => !rightSafety.includes(key)),
+    },
+    integrationChanges: {
+      added: [...rightIntegrations.keys()].filter((key) => !leftIntegrations.has(key)),
+      removed: [...leftIntegrations.keys()].filter((key) => !rightIntegrations.has(key)),
+      changed: integrationChanged,
     },
   };
 }
@@ -168,6 +256,8 @@ export function definitionFromJson(value: Json): RoutineDefinition | null {
   if (!record.inputs || typeof record.inputs !== "object" || Array.isArray(record.inputs)) return null;
   if (!Array.isArray(record.steps) || !record.steps.every((step) => typeof step === "string")) return null;
   if (!Array.isArray(record.safety) || !record.safety.every((item) => typeof item === "string")) return null;
+  const integrationRequirements = parseRoutineIntegrationRequirements(record.integrationRequirements);
+  if (!integrationRequirements) return null;
   return {
     routineKey: record.routineKey,
     version: record.version,
@@ -176,6 +266,7 @@ export function definitionFromJson(value: Json): RoutineDefinition | null {
     inputs: record.inputs as Record<string, unknown>,
     steps: record.steps,
     safety: record.safety,
+    ...(integrationRequirements.length > 0 ? { integrationRequirements } : {}),
   };
 }
 
@@ -190,6 +281,14 @@ function diffArray(left: readonly string[], right: readonly string[]) {
 function hasArrayDelta(left: readonly string[], right: readonly string[]): boolean {
   const diff = diffArray(left, right);
   return diff.added.length > 0 || diff.removed.length > 0;
+}
+
+function integrationMap(requirements: readonly RoutineIntegrationRequirement[] = []): Map<string, RoutineIntegrationRequirement> {
+  return new Map(requirements.map((requirement) => [requirement.key, requirement]));
+}
+
+function hasMapDelta(left: ReadonlyMap<string, unknown>, right: ReadonlyMap<string, unknown>): boolean {
+  return [...left.keys()].some((key) => !right.has(key)) || [...right.keys()].some((key) => !left.has(key));
 }
 
 function stableStringify(value: unknown): string {
