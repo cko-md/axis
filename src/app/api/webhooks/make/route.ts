@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
+import { timingSafeStringEqual, verifyHmacSha256Hex } from "@/lib/security/webhookSignature";
 
 /**
  * POST /api/webhooks/make — inbound receiver for Make scenarios calling
@@ -23,17 +23,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "MAKE_WEBHOOK_SECRET not configured" }, { status: 503 });
   }
 
-  if (request.headers.get("x-make-secret") !== secret) {
+  if (!timingSafeStringEqual(request.headers.get("x-make-secret"), secret)) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
   const rawBody = await request.text();
-  const signature = request.headers.get("x-make-signature") ?? "";
-  const expectedSignature = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  const signatureValid =
-    signature.length === expectedSignature.length &&
-    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
-  if (!signatureValid) {
+  if (!verifyHmacSha256Hex({ secret, rawBody, signature: request.headers.get("x-make-signature") })) {
     return NextResponse.json({ error: "INVALID_SIGNATURE" }, { status: 401 });
   }
 

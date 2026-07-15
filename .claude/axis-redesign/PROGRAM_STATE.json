@@ -690,9 +690,9 @@
         "src/lib/fund/syncPlaidTransactions.ts",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Migration NOT yet applied to prod (MCP approval unavailable in session) \u2014 apply before production merge; additive single column retrieved_at.",
+      "note": "Adds fund_bank_transactions.retrieved_at for Plaid freshness. Live prod read-back on 2026-07-15 confirmed the column exists, so the earlier pending-migration warning is cleared.",
       "tests": "609 pass; build compiles",
-      "verification": "tsc + eslint + full suite + build"
+      "verification": "tsc + eslint + full suite + build; live Supabase read-back confirmed fund_bank_transactions.retrieved_at"
     },
     {
       "id": "11.2",
@@ -742,18 +742,35 @@
       "note": "Removes the dormant Public.com live POST path that was guarded only by TRADE_EXECUTION_ENABLED. /api/brokerage/orders now exposes explicit prepare + verify actions that build deterministic FINANCIAL_EXECUTION drafts and reports configured state, while submit never touches the network and returns APPROVAL_REQUIRED or BROKER_SUBMIT_NOT_ENABLED. A client-provided approval id is not treated as authorization; future submit must originate from the server-side approval kernel after isActionable + fresh step-up.",
       "tests": "684 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
       "verification": "npx vitest run src/lib/brokerage/publicOrderAdapter.test.ts src/lib/orders/orderTicket.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "10.7",
+      "title": "Inbound webhook signature helper + Make route hardening",
+      "status": "landed",
+      "files_added": [
+        "src/lib/security/webhookSignature.ts",
+        "src/lib/security/webhookSignature.test.ts"
+      ],
+      "files_changed": [
+        "src/app/api/webhooks/make/route.ts"
+      ],
+      "note": "Extracts raw-body HMAC-SHA256 verification into a tested helper and switches the Make inbound webhook route to shared verification. Both x-make-secret and x-make-signature now use constant-time comparison semantics; malformed signatures fail closed before JSON parsing or admin-client work.",
+      "tests": "687 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx vitest run src/lib/security/webhookSignature.test.ts src/lib/redesign/artifacts.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
-    "applied": "2026-07-13",
+    "applied": "2026-07-13; updated 2026-07-15",
     "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
-    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. Security advisor: no RLS lint on any new table (only a pre-existing auth leaked-password-protection warning, unrelated).",
+    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata and routine_versions applied via Supabase MCP to twkcvyhmlguipchfetge; read-back confirmed routine_runs pause columns, owner-pair FK/check, indexes, routine_versions columns/indexes/RLS, fund_bank_transactions.retrieved_at already present, and no public-table RLS gaps.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "files": [
       "supabase/migrations/202607131700_fund_provenance_columns.sql",
       "supabase/migrations/202607131701_tasks_table.sql (creates agent_tasks/agent_task_activity)",
-      "supabase/migrations/202607131702_approvals_table.sql"
+      "supabase/migrations/202607131702_approvals_table.sql",
+      "supabase/migrations/202607150900_routine_run_pause_metadata.sql",
+      "supabase/migrations/202607151100_routine_versions.sql"
     ]
   },
   "governance_override": {
@@ -763,8 +780,8 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Ask owner for authorization to apply pending live Supabase migrations for PR #195, then continue Phase 10 integrations: webhook signature verification, rate-limit/retry/backoff, cache-first reads, integration cards UI, and per-routine integration enablement.",
-    "HUMAN: apply supabase/migrations/202607151000_fund_bank_transactions_provenance.sql to prod before relying on fund_bank_transactions.retrieved_at."
+    "Continue Phase 10 integrations: rate-limit/retry/backoff, cache-first reads, integration cards UI, and per-routine integration enablement.",
+    "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",
