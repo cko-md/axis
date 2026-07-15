@@ -31,7 +31,7 @@
     "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) \u2014 see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
     "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
-    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math on minor units. Portfolio view wiring, Accounts connection health, Activity rules, Research, and Signals UI remain future waves.",
+    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math plus Investing allocation/concentration views. Accounts connection health, Activity rules, Research, and Signals UI remain future waves.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities (normalized, provenance-aware, positive=inflow cent-exact for transactions), Public order prepare/verify/submit boundary, webhook signature hardening, bounded read-only retries, widget stale-cache fallback, Control Room risk cards, and per-routine integration metadata. Make adapter rearchitecture remains future work.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
@@ -849,6 +849,19 @@
       "note": "Adds pure portfolio performance primitives for Phase 8: time-weighted return that removes external contributions/withdrawals by period, money-weighted return via dated owner-cash-flow IRR, and allocation slices/weights. All monetary inputs normalize to currency-aware integer minor units; cross-currency inputs return typed mixed_currency errors instead of implicit FX; ratios are derived only after money normalization. No UI, DB, provider, or AI behavior changes in this wave.",
       "tests": "714 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles; bundle budget passes",
       "verification": "npx vitest run src/lib/fund/portfolioPerformance.test.ts src/lib/fund/money.test.ts src/lib/fund/currency.test.ts src/lib/fund/fx.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "8.3",
+      "title": "Portfolio allocation and concentration views",
+      "status": "landed",
+      "files_changed": [
+        "src/app/api/fund/holdings/route.ts",
+        "src/components/fund/FundDataProvider.tsx",
+        "src/components/fund/FundInvestingModule.tsx"
+      ],
+      "note": "Wires the Investing module to the new portfolioPerformance allocation math and existing deterministic concentration review. /api/fund/holdings now carries aggregate currency forward and sums same-currency cost basis with currency-aware minor units; mixed-currency aggregate symbols are marked currency:null. The UI shows allocation weight bars and concentration breach rows for single-currency portfolios, and explicit FX-needed warnings instead of fabricated weights when any aggregate currency is mixed/unknown. No schema, provider, AI, or execution behavior changes.",
+      "tests": "714 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles; bundle budget passes",
+      "verification": "npx vitest run src/lib/fund/portfolioPerformance.test.ts src/lib/fund/reconcileHoldings.test.ts src/lib/skills/concentrationReview.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
@@ -872,7 +885,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 8 core-module slices: wire portfolio allocation/concentration views on top of portfolioPerformance + existing concentrationReview, then Accounts connection health + provenance, then Activity deterministic categorization/anomaly rules.",
+    "Continue Phase 8 core-module slices: Accounts connection health + provenance, then Activity deterministic categorization/anomaly rules.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
