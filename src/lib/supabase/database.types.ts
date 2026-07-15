@@ -1706,13 +1706,16 @@ export type Database = {
       routine_runs: {
         Row: {
           actual_cost_usd: number | null
+          approval_id: string | null
           completed_at: string | null
           created_at: string
           error: string | null
           estimated_cost_usd: number | null
           id: string
+          idempotency_key: string | null
           input_snapshot: Json
           output: Json | null
+          paused_step_key: string | null
           routine_key: string
           routine_version: number
           started_at: string
@@ -1722,13 +1725,16 @@ export type Database = {
         }
         Insert: {
           actual_cost_usd?: number | null
+          approval_id?: string | null
           completed_at?: string | null
           created_at?: string
           error?: string | null
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           input_snapshot?: Json
           output?: Json | null
+          paused_step_key?: string | null
           routine_key: string
           routine_version?: number
           started_at?: string
@@ -1738,13 +1744,16 @@ export type Database = {
         }
         Update: {
           actual_cost_usd?: number | null
+          approval_id?: string | null
           completed_at?: string | null
           created_at?: string
           error?: string | null
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           input_snapshot?: Json
           output?: Json | null
+          paused_step_key?: string | null
           routine_key?: string
           routine_version?: number
           started_at?: string
@@ -1752,7 +1761,15 @@ export type Database = {
           trigger?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "routine_runs_approval_owner_fkey"
+            columns: ["approval_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
       }
       routine_step_runs: {
         Row: {
@@ -2784,4 +2801,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
