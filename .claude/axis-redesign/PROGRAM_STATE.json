@@ -18,8 +18,8 @@
   },
   "baseline_health": {
     "typecheck": "pass",
-    "lint": "0 errors, 7 pre-existing react-hooks/exhaustive-deps warnings",
-    "unit_tests": "416 passed / 67 files",
+    "lint": "pass (0 errors, 0 warnings)",
+    "unit_tests": "704 passed / 109 files",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -33,9 +33,9 @@
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
-    "10_integrations": "in progress \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts, and Plaid transactions (normalized, provenance-aware, positive=inflow cent-exact). /api/markets/quote + /api/plaid/accounts + /api/plaid/transactions/recent use them. Plaid liabilities, Public (orders), and Make adapter rearchitecture still to do.",
+    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities (normalized, provenance-aware, positive=inflow cent-exact for transactions), Public order prepare/verify/submit boundary, webhook signature hardening, bounded read-only retries, widget stale-cache fallback, Control Room risk cards, and per-routine integration metadata. Make adapter rearchitecture remains future work.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
-    "12_testing": "ongoing \u2014 574 unit tests incl. financial invariants + JSON-artifact guard; authenticated operate.spec.ts (local stack) + a NEW public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
+    "12_testing": "ongoing \u2014 704 unit tests incl. financial invariants, provider adapter contract coverage, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + a public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Deployment/rollback strategy unchanged."
   },
@@ -820,6 +820,23 @@
       "note": "Adds typed, JSON-safe integration requirements to routine definitions with required vs optional dependencies, disabled-by-default enablement, provider/domain/capability metadata, and approval posture derived from the action-policy kernel. Built-in concentration review now declares its Supabase holdings/run/task dependency; rebalance proposal declares Supabase holdings/approvals, Polygon/Massive market prices, the Public brokerage approval boundary, and optional OpenAI explanation. This is metadata only: no new provider calls, no schema change, no autonomous financial execution.",
       "tests": "699 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
       "verification": "npx vitest run src/lib/routines/integrationRequirements.test.ts src/lib/routines/versioning.test.ts + npx tsc --noEmit + npm run lint + npm run test + npx vitest run src/lib/redesign/artifacts.test.ts + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "10.12",
+      "title": "Plaid adapter contract coverage + lint cleanup",
+      "status": "landed",
+      "files_added": [
+        "src/lib/plaid/adapter.test.ts"
+      ],
+      "files_changed": [
+        "src/app/api/ai/route.ts",
+        "src/components/debrief/DebriefModule.tsx",
+        "src/components/motion-primitives/text-effect.tsx",
+        "src/components/vitality/WorkoutDetailModal.tsx"
+      ],
+      "note": "Adds mocked-provider contract tests for the Plaid account adapter's transactions and liabilities paths, covering structured not_supported/auth_expired soft failures, normalized success payloads, and rate-limit/network errors behind the shared Result contract. Also clears the repo's lingering lint warnings without behavior changes: fallback AI text now uses its label, Debrief removes an unused callback dependency, text-effect drops transition.exit without a dummy binding, and WorkoutDetailModal includes setLog where callbacks use it.",
+      "tests": "704 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles with no lint warnings; bundle budget passes",
+      "verification": "npx vitest run src/lib/plaid/adapter.test.ts src/lib/plaid/transaction.test.ts src/lib/plaid/liability.test.ts src/lib/plaid/account.test.ts src/lib/redesign/artifacts.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     }
   ],
   "migrations_applied": {
@@ -843,7 +860,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue Phase 10 integrations: reconcile remaining Plaid transaction/liability adapter contract coverage, then move into Phase 8 core-module slices.",
+    "Move into Phase 8 core-module slices: Portfolio TWR/MWR via pure tested math on minor units, allocation/concentration views, Accounts connection health + provenance, then Activity deterministic categorization/anomaly rules.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {

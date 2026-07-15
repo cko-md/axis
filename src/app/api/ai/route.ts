@@ -188,7 +188,7 @@ function heuristicPipelineDraft(
   }
   const label = kind === "conference" ? "conference abstract" : "study abstract";
   return {
-    draft: `Background: ${text} addresses an important clinical question.${meta ? ` ${meta}.` : ""}\nMethods: Retrospective/prospective design with clearly defined cohort and outcomes.\nResults: Primary findings to be populated from analysis.\nConclusion: ${text} may inform practice pending full results.`,
+    draft: `Background: This ${label} addresses an important clinical question: ${text}.${meta ? ` ${meta}.` : ""}\nMethods: Retrospective/prospective design with clearly defined cohort and outcomes.\nResults: Primary findings to be populated from analysis.\nConclusion: ${text} may inform practice pending full results.`,
   };
 }
 
