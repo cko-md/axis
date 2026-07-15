@@ -32,7 +32,7 @@
     "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped. Other modules (Portfolio/Accounts/Activity/Research/Signals UI) not redesigned this program.",
-    "9_agent_runtime": "core done \u2014 durable routine runs + step snapshots, one deterministic Skill/Routine (concentration), approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, and run-history detail. Routine version compare/restore/clone and routine builder not built.",
+    "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "in progress \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts, and Plaid transactions (normalized, provenance-aware, positive=inflow cent-exact). /api/markets/quote + /api/plaid/accounts + /api/plaid/transactions/recent use them. Plaid liabilities, Public (orders), and Make adapter rearchitecture still to do.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs, wave 11.2; /command pinned 450kB measured 434). Profiling/code-splitting still to do.",
     "12_testing": "ongoing \u2014 574 unit tests incl. financial invariants + JSON-artifact guard; authenticated operate.spec.ts (local stack) + a NEW public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
@@ -506,6 +506,25 @@
       "verification": "npx tsc --noEmit + npx vitest run src/lib/routines/runHistoryView.test.ts + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs"
     },
     {
+      "id": "9.10",
+      "title": "Routine versioning compare / clone / restore (\u00a715.5, follow-up)",
+      "status": "landed",
+      "files_added": [
+        "src/lib/routines/versioning.ts",
+        "src/lib/routines/versioning.test.ts",
+        "src/app/api/routines/versions/route.ts",
+        "src/app/api/routines/versions/[id]/route.ts",
+        "src/app/api/routines/versions/compare/route.ts",
+        "supabase/migrations/202607151100_routine_versions.sql"
+      ],
+      "files_changed": [
+        "src/lib/supabase/database.types.ts"
+      ],
+      "note": "Adds code-defined built-in routine versions plus user-owned routine_versions snapshots. APIs: GET /api/routines/versions lists built-ins + user versions; POST /api/routines/versions clones a source version as a draft; GET/PATCH /api/routines/versions/[id] reads and restores a user version by cloning it as active while archiving the previous active version; POST /api/routines/versions/compare returns a deterministic diff across steps, inputs, and safety contracts. Restore/clone are persistence actions only: they do not execute routines or financial actions.",
+      "tests": "678 tests pass; tsc clean; lint 0 errors / 7 pre-existing warnings; next build compiles; bundle budget passes",
+      "verification": "npx tsc --noEmit + npx vitest run src/lib/routines/versioning.test.ts src/lib/routines/runHistoryView.test.ts src/lib/redesign/artifacts.test.ts + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build + node scripts/check-bundle-budget.mjs + local Supabase read-back of routine_versions columns/indexes/RLS"
+    },
+    {
       "id": "10.4",
       "title": "Plaid transactions adapter (follow-up)",
       "status": "landed",
@@ -728,7 +747,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue per docs/agent-handoff/codex-phase-buildout-prompt.md: Phase 9 routine versioning compare/restore/clone, then Phases 10/8/6/12/13/14 and program docs.",
+    "Ask owner for authorization to apply pending live Supabase migrations for PR #195, then continue Phase 10 integrations: Public orders adapter split prep/verify vs submit, webhook signature verification, rate-limit/retry/backoff, cache-first reads, integration cards UI, and per-routine integration enablement.",
     "HUMAN: apply supabase/migrations/202607151000_fund_bank_transactions_provenance.sql to prod before relying on fund_bank_transactions.retrieved_at."
   ],
   "artifacts": {

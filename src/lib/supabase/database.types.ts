@@ -1703,6 +1703,48 @@ export type Database = {
           },
         ]
       }
+      routine_versions: {
+        Row: {
+          created_at: string
+          definition: Json
+          description: string
+          id: string
+          name: string
+          routine_key: string
+          routine_version: number
+          source_version_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          definition?: Json
+          description?: string
+          id?: string
+          name: string
+          routine_key: string
+          routine_version: number
+          source_version_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          definition?: Json
+          description?: string
+          id?: string
+          name?: string
+          routine_key?: string
+          routine_version?: number
+          source_version_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       routine_runs: {
         Row: {
           actual_cost_usd: number | null
