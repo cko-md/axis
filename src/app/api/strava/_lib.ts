@@ -19,8 +19,9 @@ export function isConfigured(): boolean {
 }
 
 /** Returns a valid access token, refreshing via the stored refresh token when needed, or null. */
-export async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken(userId: string): Promise<string | null> {
   const cookieStore = await cookies();
+  if (cookieStore.get("strava_token_owner")?.value !== userId) return null;
   const token = cookieStore.get("strava_access_token")?.value;
   if (token) return token;
 

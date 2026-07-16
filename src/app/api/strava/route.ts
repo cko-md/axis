@@ -116,6 +116,13 @@ export async function GET(req: NextRequest) {
       path: "/",
       sameSite: "lax",
     });
+    cookieStore.set("strava_token_owner", user.id, {
+      httpOnly: true,
+      secure,
+      maxAge: 60 * 60 * 24 * 90,
+      path: "/",
+      sameSite: "lax",
+    });
     if (tokens.refresh_token) {
       cookieStore.set("strava_refresh_token", tokens.refresh_token, {
         httpOnly: true,
@@ -135,6 +142,7 @@ export async function GET(req: NextRequest) {
     const cookieStore = await cookies();
     cookieStore.delete("strava_access_token");
     cookieStore.delete("strava_refresh_token");
+    cookieStore.delete("strava_token_owner");
     return NextResponse.json({ connected: false });
   }
 
@@ -151,7 +159,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const token = await getAccessToken();
+    const token = await getAccessToken(user.id);
     if (!token) return notConnected();
     const athlete = await stravaGet<StravaAthlete>(token, "/athlete");
     return NextResponse.json({
@@ -174,7 +182,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const token = await getAccessToken();
+    const token = await getAccessToken(user.id);
     if (!token) return notConnected();
 
     // Fetch up to 20 most recent activities
@@ -190,7 +198,7 @@ export async function GET(req: NextRequest) {
 
   // ── STATS ──────────────────────────────────────────────────────────────────
   if (action === "stats") {
-    const token = await getAccessToken();
+    const token = await getAccessToken(user.id);
     if (!token) return notConnected();
 
     // We need the athlete id first
