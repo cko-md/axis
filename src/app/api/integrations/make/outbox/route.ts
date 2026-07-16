@@ -22,6 +22,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("integration_delivery_outbox")
     .select(METADATA_SELECT)
+    .eq("user_id", user.id)
     .in("status", ["pending", "failed", "dead_letter"])
     .order("updated_at", { ascending: false })
     .limit(25);
