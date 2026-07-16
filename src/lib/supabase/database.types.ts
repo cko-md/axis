@@ -607,6 +607,99 @@ export type Database = {
         }
         Relationships: []
       }
+      entity_references: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          origin: string
+          relation: string
+          source_id: string
+          source_kind: string
+          target_id: string
+          target_kind: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          origin?: string
+          relation?: string
+          source_id: string
+          source_kind: string
+          target_id: string
+          target_kind: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          origin?: string
+          relation?: string
+          source_id?: string
+          source_kind?: string
+          target_id?: string
+          target_kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      entity_usage: {
+        Row: {
+          command_count: number
+          created_at: string
+          direct_open_count: number
+          entity_id: string
+          entity_kind: string
+          last_action: string
+          last_command_at: string | null
+          last_direct_open_at: string | null
+          last_link_at: string | null
+          last_search_select_at: string | null
+          last_used_at: string
+          link_count: number
+          search_select_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          command_count?: number
+          created_at?: string
+          direct_open_count?: number
+          entity_id: string
+          entity_kind: string
+          last_action: string
+          last_command_at?: string | null
+          last_direct_open_at?: string | null
+          last_link_at?: string | null
+          last_search_select_at?: string | null
+          last_used_at?: string
+          link_count?: number
+          search_select_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          command_count?: number
+          created_at?: string
+          direct_open_count?: number
+          entity_id?: string
+          entity_kind?: string
+          last_action?: string
+          last_command_at?: string | null
+          last_direct_open_at?: string | null
+          last_link_at?: string | null
+          last_search_select_at?: string | null
+          last_used_at?: string
+          link_count?: number
+          search_select_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       feed_cache: {
         Row: {
           feed_url: string
@@ -2951,11 +3044,40 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_entity_reference: {
+        Args: {
+          p_label?: string
+          p_relation?: string
+          p_source_id: string
+          p_source_kind: string
+          p_target_id: string
+          p_target_kind: string
+        }
+        Returns: string
+      }
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      delete_entity_reference: {
+        Args: { p_reference_id: string }
+        Returns: boolean
+      }
       expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
+      record_entity_usage: {
+        Args: {
+          p_action: string
+          p_entity_id: string
+          p_entity_kind: string
+        }
+        Returns: Database["public"]["Tables"]["entity_usage"]["Row"]
+        SetofOptions: {
+          from: "*"
+          to: "entity_usage"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       search_note_embeddings: {
         Args: { p_embedding: string; p_limit?: number }
         Returns: {

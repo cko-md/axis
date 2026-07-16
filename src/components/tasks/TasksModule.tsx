@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Seg } from "@/components/ui/Seg";
@@ -20,6 +21,7 @@ import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 import { RoutineRunsPanel } from "@/components/tasks/RoutineRunsPanel";
 import { actionClassLabel, approvalStatusLabel, type ApprovalStatus } from "@/lib/security/approvalCardView";
 import type { ActionClass } from "@/lib/security/actionPolicy";
+import { resolveTaskSelection, taskSelectionHref } from "@/lib/entities/taskSelection";
 
 type TaskApproval = {
   id: string;
@@ -67,6 +69,11 @@ function StatusChip({ status }: { status: FinancialTaskStatus }) {
 export function TasksModule() {
   const { tasks, loading, error, reload, createTask, transition, getTask } = useAgentTasks();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
+  const taskParam = searchParams.get("task");
 
   const [filter, setFilter] = useState<Filter>("all");
   const [draft, setDraft] = useState("");
@@ -78,6 +85,14 @@ export function TasksModule() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [taskApprovals, setTaskApprovals] = useState<TaskApproval[]>([]);
   const [busy, setBusy] = useState(false);
+  const [selectionError, setSelectionError] = useState<"invalid" | "not_found" | null>(null);
+  const hydratedSelectionRef = useRef<string | null>(null);
+  const detailRequestRef = useRef(0);
+
+  const taskSelection = useMemo(
+    () => resolveTaskSelection(taskParam, tasks.map((task) => task.id), !loading && !error),
+    [taskParam, tasks, loading, error],
+  );
 
   const visible = useMemo(
     () => (filter === "all" ? tasks : tasks.filter((t) => taskStatusGroup(t.status) === filter)),
@@ -86,15 +101,21 @@ export function TasksModule() {
 
   const openTask = useCallback(
     async (id: string) => {
+      const requestId = ++detailRequestRef.current;
       setSelectedId(id);
       setDetailLoading(true);
       setTaskApprovals([]);
       const result = await getTask(id);
+      if (detailRequestRef.current !== requestId) return;
       setDetail(result);
       setDetailLoading(false);
-      if (!result) toast("Could not load task detail.", "error", "Tasks");
+      if (!result) {
+        toast("Could not load task detail.", "error", "Tasks");
+        return;
+      }
       // Linked approvals (best-effort; a failure just leaves the section empty).
       const res = await fetch(`/api/approvals?taskId=${id}`).catch(() => null);
+      if (detailRequestRef.current !== requestId) return;
       if (res?.ok) {
         const data = await res.json();
         setTaskApprovals(Array.isArray(data.approvals) ? data.approvals : []);
@@ -102,6 +123,62 @@ export function TasksModule() {
     },
     [getTask, toast],
   );
+
+  const selectTask = useCallback(
+    (id: string | null) => {
+      router.push(taskSelectionHref(pathname, query, id), { scroll: false });
+    },
+    [pathname, query, router],
+  );
+
+  const handleTaskSelection = useCallback(
+    (id: string) => {
+      if (taskSelection.status === "ready" && taskSelection.ref.id === id) {
+        void openTask(id);
+        return;
+      }
+      selectTask(id);
+    },
+    [openTask, selectTask, taskSelection],
+  );
+
+  useEffect(() => {
+    if (taskSelection.status === "pending") {
+      setSelectedId(taskSelection.ref.id);
+      setDetail(null);
+      setDetailLoading(true);
+      setSelectionError(null);
+      return;
+    }
+
+    if (taskSelection.status === "none" || taskSelection.status === "invalid") {
+      detailRequestRef.current += 1;
+      hydratedSelectionRef.current = null;
+      setSelectedId(null);
+      setDetail(null);
+      setDetailLoading(false);
+      setTaskApprovals([]);
+      setSelectionError(taskSelection.status === "invalid" ? "invalid" : null);
+      return;
+    }
+
+    if (taskSelection.status === "not_found") {
+      detailRequestRef.current += 1;
+      hydratedSelectionRef.current = null;
+      setSelectedId(taskSelection.ref.id);
+      setDetail(null);
+      setDetailLoading(false);
+      setTaskApprovals([]);
+      setSelectionError("not_found");
+      return;
+    }
+
+    setSelectionError(null);
+    setSelectedId(taskSelection.ref.id);
+    if (hydratedSelectionRef.current === taskSelection.ref.id) return;
+    hydratedSelectionRef.current = taskSelection.ref.id;
+    void openTask(taskSelection.ref.id);
+  }, [taskSelection, openTask]);
 
   const submit = useCallback(async () => {
     const objective = draft.trim();
@@ -112,11 +189,11 @@ export function TasksModule() {
     if (task) {
       setDraft("");
       toast("Task created.", "success", "Tasks");
-      void openTask(task.id);
+      selectTask(task.id);
     } else {
       toast("Could not create task.", "error", "Tasks");
     }
-  }, [draft, createTask, toast, openTask]);
+  }, [draft, createTask, toast, selectTask]);
 
   const runConcentrationCheck = useCallback(async () => {
     setRunning(true);
@@ -223,7 +300,7 @@ export function TasksModule() {
             visible.map((t) => (
               <button
                 key={t.id}
-                onClick={() => void openTask(t.id)}
+                onClick={() => handleTaskSelection(t.id)}
                 className="card"
                 style={{
                   textAlign: "left",
@@ -250,7 +327,23 @@ export function TasksModule() {
 
         {/* Detail */}
         <div>
-          {!selectedId ? (
+          {selectionError === "invalid" ? (
+            <StatusCallout kind="error" title="Invalid task link">
+              <span>This link doesn’t identify a valid task.</span>{" "}
+              <button type="button" onClick={() => selectTask(null)} className="underline">
+                Clear the task link
+              </button>
+              .
+            </StatusCallout>
+          ) : selectionError === "not_found" ? (
+            <StatusCallout kind="error" title="Task not found">
+              <span>This task isn’t available.</span>{" "}
+              <button type="button" onClick={() => selectTask(null)} className="underline">
+                Return to the task list
+              </button>
+              .
+            </StatusCallout>
+          ) : !selectedId ? (
             <StatusCallout kind="info" title="Select a task">
               Choose a task to see its activity and move it through its lifecycle.
             </StatusCallout>
