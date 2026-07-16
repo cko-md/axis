@@ -13,6 +13,13 @@ drop policy if exists "agent_tasks_delete_own" on public.agent_tasks;
 drop policy if exists "agent_task_activity_insert_own" on public.agent_task_activity;
 drop policy if exists "approvals_insert_own" on public.approvals;
 drop policy if exists "approvals_update_own" on public.approvals;
+drop policy if exists "Users manage own passkeys" on public.user_passkeys;
+drop policy if exists "Users read own passkeys" on public.user_passkeys;
+
+create policy "Users read own passkeys"
+  on public.user_passkeys
+  for select
+  using ((select auth.uid()) = user_id);
 
 revoke insert, update, delete on public.agent_tasks from anon, authenticated;
 revoke insert on public.agent_task_activity from anon, authenticated;

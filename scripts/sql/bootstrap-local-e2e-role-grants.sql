@@ -70,6 +70,15 @@ begin
 end
 $$;
 
+-- RLS policies define row visibility, but the final lifecycle contract also
+-- uses table privileges to keep browser sessions read-only. Re-assert those
+-- revocations after deriving grants so an older FOR ALL policy can never undo
+-- the contract in a fresh CI database.
+revoke insert, update, delete on public.agent_tasks from anon, authenticated;
+revoke insert on public.agent_task_activity from anon, authenticated;
+revoke insert, update on public.approvals from anon, authenticated;
+revoke insert, update, delete on public.user_passkeys from anon, authenticated;
+
 -- PostgREST does not expose sequences directly. Usage is required only when an
 -- allowed table insert relies on an identity/serial default.
 grant usage, select on all sequences in schema public to anon, authenticated;

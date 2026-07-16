@@ -118,6 +118,9 @@ jobs:
       - name: Derive local Data API grants from RLS policies
         run: supabase db query --local --file scripts/sql/bootstrap-local-e2e-role-grants.sql
 
+      - name: Verify final lifecycle privilege contract
+        run: supabase db query --local --file scripts/sql/verify-20260716-contract.sql
+
       - name: Prepare authenticated E2E environment
         run: node scripts/bootstrap-authenticated-e2e.mjs "$GITHUB_ENV"
 

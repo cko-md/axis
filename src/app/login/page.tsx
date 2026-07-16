@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
@@ -32,6 +32,7 @@ function LoginForm() {
   const [rememberMe, setRememberMe] = useState(true);
   const [agreed, setAgreed] = useState(false);
   const [mfaState, setMfaState] = useState<MFAState | null>(null);
+  const mfaBootstrapStarted = useRef(false);
 
   // Consent applies to account creation only — clear it whenever we leave signup.
   useEffect(() => {
@@ -50,17 +51,17 @@ function LoginForm() {
     localStorage.setItem('axis-remember-me', String(rememberMe));
   }, [rememberMe]);
 
-  function getRedirectUrl() {
+  const getRedirectUrl = useCallback(() => {
     const redirect = searchParams.get('redirect');
     return redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/command';
-  }
+  }, [searchParams]);
 
   function handleMFASuccess() {
     router.push(getRedirectUrl());
     router.refresh();
   }
 
-  async function startMFAIfRequired(): Promise<'not-required' | 'started' | 'error'> {
+  const startMFAIfRequired = useCallback(async (): Promise<'not-required' | 'started' | 'error'> => {
     const { data: aal, error: aalError } =
       await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aalError) {
@@ -92,7 +93,43 @@ function LoginForm() {
 
     setMfaState({ factorId, challengeId: challengeData.id });
     return 'started';
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    if (searchParams.get('authError') === 'assurance_unavailable') {
+      setError('Authentication assurance could not be verified. Please sign in again.');
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (
+      searchParams.get('mfa') !== 'required'
+      || mfaBootstrapStarted.current
+    ) {
+      return;
+    }
+    mfaBootstrapStarted.current = true;
+
+    void (async () => {
+      setLoading(true);
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user) {
+        setLoading(false);
+        setError('Your sign-in session expired. Please sign in again.');
+        return;
+      }
+
+      const result = await startMFAIfRequired();
+      setLoading(false);
+      if (result === 'not-required') {
+        router.replace(getRedirectUrl());
+        router.refresh();
+      }
+    })();
+  }, [getRedirectUrl, router, searchParams, startMFAIfRequired, supabase]);
 
   async function handlePasskeySignIn() {
     setPasskeyLoading(true);

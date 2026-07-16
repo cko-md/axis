@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr/dist/module/createServerClient";
 import { NextResponse, type NextRequest } from "next/server";
 import { buildAppUrl } from "@/lib/auth/getAppOrigin";
+import {
+  isMfaBootstrapApiPath,
+  requireAuthenticatorAssurance,
+  type AuthenticatorAssuranceState,
+} from "@/lib/auth/authenticatorAssurance";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy"];
 
@@ -62,6 +68,7 @@ export async function middleware(request: NextRequest) {
   });
 
   let user = null;
+  let assurance: AuthenticatorAssuranceState = "satisfied";
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error?.code === "refresh_token_not_found" || error?.code === "invalid_refresh_token") {
@@ -77,6 +84,9 @@ export async function middleware(request: NextRequest) {
         });
     }
     user = data.user;
+    if (user) {
+      assurance = await requireAuthenticatorAssurance(supabase);
+    }
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
     if (code === "refresh_token_not_found" || code === "invalid_refresh_token") {
@@ -101,6 +111,36 @@ export async function middleware(request: NextRequest) {
   // Widget routes are intentionally left open. /api/spotify/auth issues its
   // own redirect-to-provider and is guarded below the same as other actions.
   if (pathname.startsWith("/api")) {
+    if (
+      user
+      && assurance !== "satisfied"
+      && !isMfaBootstrapApiPath(pathname)
+    ) {
+      if (assurance === "mfa_required") {
+        return NextResponse.json(
+          {
+            error: "MFA_REQUIRED",
+            message: "Complete two-factor authentication to continue.",
+          },
+          { status: 403 },
+        );
+      }
+      captureRouteError(new Error("Authenticator assurance unavailable"), {
+        route: "middleware",
+        operation: "check_authenticator_assurance",
+        area: "auth",
+        status: 503,
+        code: "AUTH_ASSURANCE_UNAVAILABLE",
+      });
+      return NextResponse.json(
+        {
+          error: "AUTH_ASSURANCE_UNAVAILABLE",
+          message: "Authentication assurance could not be verified.",
+        },
+        { status: 503 },
+      );
+    }
+
     const GUARDED_PREFIXES = [
       "/api/massive",
       "/api/plaid",
@@ -141,7 +181,30 @@ export async function middleware(request: NextRequest) {
     return redirectWithinApp(request, "/login", search);
   }
 
-  if (user && pathname === "/login") {
+  if (user && assurance === "mfa_required" && !isPublic) {
+    const search = new URLSearchParams({
+      mfa: "required",
+      redirect: `${pathname}${request.nextUrl.search}`,
+    });
+    return redirectWithinApp(request, "/login", search);
+  }
+
+  if (user && assurance === "unavailable" && !isPublic) {
+    captureRouteError(new Error("Authenticator assurance unavailable"), {
+      route: "middleware",
+      operation: "check_authenticator_assurance",
+      area: "auth",
+      status: 503,
+      code: "AUTH_ASSURANCE_UNAVAILABLE",
+    });
+    const search = new URLSearchParams({
+      authError: "assurance_unavailable",
+      redirect: `${pathname}${request.nextUrl.search}`,
+    });
+    return redirectWithinApp(request, "/login", search);
+  }
+
+  if (user && assurance === "satisfied" && pathname === "/login") {
     return redirectWithinApp(request, "/command");
   }
 
