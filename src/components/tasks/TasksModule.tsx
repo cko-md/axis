@@ -197,7 +197,7 @@ export function TasksModule() {
       <div className="divider" />
 
       <div style={{ marginBottom: 12 }}>
-        <Seg options={FILTERS} value={filter} onChange={setFilter} />
+        <Seg ariaLabel="Task status filter" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) minmax(300px, 1.1fr)", gap: 16, alignItems: "start" }}>

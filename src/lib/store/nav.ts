@@ -49,6 +49,7 @@ export const DEFAULT_NAV: NavGroup[] = [
   ]},
   { section: "System", items: [
     { href: "/control-room", label: "Control Room", icon: "system", title: "Control Room — settings and integrations", status: "production" },
+    { href: "/design-system", label: "Design System", icon: "palette", title: "Design System — tokens and component reference", status: "production" },
   ]},
 ];
 

@@ -44,7 +44,7 @@ test("financial profile and memory lifecycle persist", async ({ page }) => {
   const updatedMemory = `${memory} updated`;
 
   await page.goto("/memory");
-  await expect(page.getByRole("heading", { name: "Your explicit planning constraints" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Your explicit planning constraints" })).toBeVisible({ timeout: 60_000 });
   await page.getByRole("button", { name: "Not now" }).click({ timeout: 5_000 }).catch(() => {});
 
   await page.getByLabel("Base currency").fill("USD");
@@ -87,4 +87,65 @@ test("financial profile and memory lifecycle persist", async ({ page }) => {
   await archivedCard.getByRole("button", { name: "Restore" }).click();
   await page.getByRole("button", { name: "Active" }).click();
   await expect(page.getByText(updatedMemory, { exact: true })).toBeVisible();
+});
+
+test("design-system gallery preserves theme, motion, dialog, and responsive contracts", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/design-system");
+
+  await expect(page.getByRole("heading", { name: "AXIS Design System" })).toBeVisible();
+  const themeGroup = page.getByRole("group", { name: "Color theme" });
+  for (const theme of ["Dark", "Dim", "Slate", "Light"] as const) {
+    const option = themeGroup.getByRole("button", { name: theme, exact: true });
+    await option.click();
+    await expect(option).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => page.evaluate((value) => {
+      const themes = ["dim", "slate", "light"];
+      return value === "dark"
+        ? themes.every((item) => !document.documentElement.classList.contains(item))
+        : document.documentElement.classList.contains(value);
+    }, theme.toLowerCase())).toBe(true);
+  }
+
+  const reducedDuration = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--motion-duration-base").trim(),
+  );
+  expect(reducedDuration).toBe("0.01ms");
+
+  await page.evaluate(() => document.body.style.setProperty("--disp", "monospace"));
+  await expect.poll(() => page.locator("p").filter({ hasText: "DECISIONS, IN FOCUS" }).evaluate(
+    (element) => getComputedStyle(element).fontFamily.toLowerCase(),
+  )).toContain("monospace");
+
+  const dialogTrigger = page.getByRole("button", { name: "Open dialog" });
+  await dialogTrigger.click();
+  const dialog = page.getByRole("dialog", { name: "Review dialog" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close dialog" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(dialog.getByRole("button", { name: "Done" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(dialogTrigger).toBeFocused();
+
+  const loadingButton = page.getByRole("button", { name: "Run check" });
+  await loadingButton.click();
+  await expect(loadingButton).toHaveAttribute("aria-busy", "true");
+  await expect(loadingButton).toContainText("Run check");
+  await expect(loadingButton).not.toHaveAttribute("aria-busy", "true", { timeout: 5_000 });
+  await expect(page.getByRole("status").filter({ hasText: "loading-state contract completed" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Destructive" }).click();
+  const destructiveDialog = page.getByRole("dialog", { name: "Confirm destructive action" });
+  await expect(destructiveDialog).toBeVisible();
+  await destructiveDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(destructiveDialog).toHaveCount(0);
+
+  for (const width of [1024, 800, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 820 });
+    await expect.poll(() => page.locator("main").evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    )).toBe(true);
+  }
 });

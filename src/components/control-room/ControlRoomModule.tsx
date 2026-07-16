@@ -1217,6 +1217,7 @@ export function ControlRoomModule() {
             setting — switching embedding providers would break existing search results.
           </p>
           <Seg<AIProviderPref>
+            ariaLabel="AI model provider"
             options={[
               { label: "Auto", value: "auto" },
               { label: "Gemini", value: "gemini" },

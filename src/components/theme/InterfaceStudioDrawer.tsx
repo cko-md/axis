@@ -320,7 +320,7 @@ export function InterfaceStudioDrawer() {
           </div>
 
           <div className="dr-sec">Mode</div>
-          <Seg options={modes} value={theme} onChange={setTheme} />
+          <Seg ariaLabel="Interface color mode" options={modes} value={theme} onChange={setTheme} />
 
           <div className="dr-sec">Accent</div>
           <div className="swatches">
@@ -397,6 +397,7 @@ export function InterfaceStudioDrawer() {
 
           <div className="dr-sec">Presence Form</div>
           <Seg<Companion>
+            ariaLabel="Presence form"
             options={[
               { label: "Axiom", value: "monolith" },
               { label: "Codex", value: "deck" },
@@ -408,6 +409,7 @@ export function InterfaceStudioDrawer() {
 
           <div className="dr-sec">Presence Visibility</div>
           <Seg<Presence>
+            ariaLabel="Presence visibility"
             options={[
               { label: "Show", value: "show" },
               { label: "Hide", value: "hide" },
@@ -418,6 +420,7 @@ export function InterfaceStudioDrawer() {
 
           <div className="dr-sec">Location Services</div>
           <Seg<"on" | "off">
+            ariaLabel="Location services"
             options={[
               { label: "On", value: "on" },
               { label: "Off", value: "off" },
@@ -429,6 +432,7 @@ export function InterfaceStudioDrawer() {
 
           <div className="dr-sec">Notifications</div>
           <Seg<"on" | "off">
+            ariaLabel="Notifications"
             options={[
               { label: "On", value: "on" },
               { label: "Off", value: "off" },
@@ -446,6 +450,7 @@ export function InterfaceStudioDrawer() {
             <>
               <div className="dr-sec" style={{ marginTop: 8 }}>Notification Style</div>
               <Seg<NotifType>
+                ariaLabel="Notification style"
                 options={[
                   { label: "Banner", value: "banner" },
                   { label: "Silent", value: "silent" },

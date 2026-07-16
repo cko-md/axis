@@ -189,7 +189,7 @@ export function MemoryCenterModule() {
             <div className="seclabel">Memory Center</div>
             <h2 id="memory-list-heading" className={styles.heading}>Inspectable context</h2>
           </div>
-          <div className={styles.actions}><Seg options={[{ label: "Active", value: "active" }, { label: "Archived", value: "archived" }]} value={filter} onChange={setFilter} /><Button variant="primary" onClick={openCreate}><Plus size={14} />Add memory</Button></div>
+          <div className={styles.actions}><Seg ariaLabel="Memory status filter" options={[{ label: "Active", value: "active" }, { label: "Archived", value: "archived" }]} value={filter} onChange={setFilter} /><Button variant="primary" onClick={openCreate}><Plus size={14} />Add memory</Button></div>
         </div>
         {center.items.length === 0 ? (
           <StatusCallout kind="empty" title={filter === "active" ? "No active memories" : "No archived memories"}>{filter === "active" ? "Add only context you want Axis to retain and inspect later." : "Archived memories remain inspectable here."}</StatusCallout>

@@ -1,10 +1,10 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 8.9 completes the prompt's Phase 8 scope: Dispatch now consumes deterministic Need-to-Know tiers, recognizes the persisted hi priority as critical, and uses archived/dismissed/routed title memory to demote resurfaced duplicates. Tsc is clean, lint has 0 errors / 0 warnings, 794 tests pass, production build succeeds, all 176 route budgets pass, /dispatch remains 362 KB first-load, and total static JS is 3920/4400 KB.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 6.3 completes Phase 6 design-system depth: semantic typography/surface/motion/interaction tokens, theme-safe WCAG contrast, accessible shared controls, and an authenticated production-component gallery with live browser coverage. Tsc and lint are clean, 810 tests pass, the production build succeeds, all 177 route budgets pass, /design-system is 368 KB first-load, and total static JS is 3963/4400 KB.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "246f7646",
-  "updated": "2026-07-15",
+  "revision_reviewed": "845bfac9",
+  "updated": "2026-07-16",
   "governance": {
     "source": "AGENTS.md",
     "rules": [
@@ -19,7 +19,7 @@
   "baseline_health": {
     "typecheck": "pass",
     "lint": "pass (0 errors, 0 warnings)",
-    "unit_tests": "794 passed / 124 files",
+    "unit_tests": "810 passed / 126 files",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -29,13 +29,13 @@
     "3_target_architecture": "substantial \u2014 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs). More ADRs as waves land.",
     "4_financial_domain": "complete \u2014 deterministic money + multi-currency minor-unit table + FX conversion with provenance (currency.ts/fx.ts), tax lots & corporate actions (taxLots.ts), provenance populated from all write paths (manual holdings/liabilities, order ticket, Plaid txn sync + FundSpendingModule freshness badge), holdings reconciliation wired to /api/fund/holdings + indicator in the holdings table.",
     "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) \u2014 see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
-    "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
+    "6_design_system": "complete \u2014 consolidated semantic status plus typography/surface/motion/interaction contracts; runtime font aliases preserve Interface Studio choices; contrast tests cover every theme/accent preset; shared Button/Seg/Modal/ThemeSwitcher/Toast accessibility is hardened; and /design-system is a production component gallery with authenticated keyboard/theme/reduced-motion/responsive browser coverage.",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "complete for the documented redesign scope \u2014 Tasks + Approvals workbenches; pure tested TWR/MWR/allocation math and Investing concentration views; account connection health/provenance; deterministic Activity categorization/anomaly rules; cited owner-scoped Research; approval expiry; inspectable Memory Center + confirmed Financial Operating Profile; and a severity-tiered Need-to-Know queue with task conversion, resolution memory, and honest empty/error states. Additional product depth can proceed as later feature work.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, Make notifications/outbox, and cache-first Mail across direct/Composio transports. Make management list/detail/run/start/stop are schema-validated Results with read-only retry/write-once semantics. Mail now serves owner-scoped header/snippet cache rows before explicit provider revalidation, preserves failed-account rows, and records per-account sync state without caching bodies. The available active Composio Gmail account passed live list/detail adapter validation without exposing content; direct Gmail and both Outlook transports remain unverified because no active hosted connections exist.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB; wave 11.5 code-split Mail from 388kB to 361kB after wave 10.16 removed provider fan-out from first paint; wave 11.6 code-split Dispatch from 378kB to 362kB. Further route profiling remains.",
-    "12_testing": "ongoing \u2014 794 unit tests / 124 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management safety, Mail cache privacy/auth/ownership/sync behavior, portfolio math, Activity rules, cited research provenance, memory/profile contracts and APIs, concentration-profile provenance, and Need-to-Know priority/resolution rules. The seeded local authenticated browser suite passes all 4 Mail/daily-route/redirect/memory-lifecycle workflows; public CI smoke remains. Broader provider-backed and visual-regression coverage remains.",
+    "12_testing": "ongoing \u2014 810 unit tests / 126 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management safety, Mail cache privacy/auth/ownership/sync behavior, portfolio math, Activity rules, cited research provenance, memory/profile contracts/APIs, Need-to-Know rules, and design-token/control accessibility contracts. The seeded local authenticated browser suite includes Mail/daily-route/redirect/memory lifecycle plus the four-theme design-system keyboard/reduced-motion/responsive workflow. Public CI smoke remains; broader provider-backed and visual-regression coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged."
   },
@@ -1111,6 +1111,40 @@
       "note": "Connects the existing deterministic severity model to the real Dispatch workspace instead of leaving it as unused domain code. The queue groups and filters visible unresolved signals as Critical, Actionable, Information, or Noise; keeps routed/snoozed/archived lifecycle views; displays the derived tier on rows and detail; and preserves existing routing, task conversion, AI suggestion, source navigation, and error feedback. The real persisted hi priority now escalates to critical. Titles from routed, dismissed, or archived signals form owner-local resolution memory so punctuation/whitespace variants that resurface are deterministically demoted to noise without new schema or AI authority.",
       "tests": "794 tests pass across 124 files; 20 focused signal/navigation tests pass; tsc clean; lint 0 errors / 0 warnings; production build compiles 160 pages; /dispatch remains 362 KB first-load; all 176 route budgets pass; total static JS 3920/4400 KB",
       "verification": "Focused Vitest + npx tsc --noEmit + npm run lint + npm run test + synthetic local desktop/mobile visual verification of all four tiers and responsive filters (records/account removed afterward) + production build/per-route/total bundle budgets + adversarial diff review"
+    },
+    {
+      "id": "6.3",
+      "title": "Semantic design-system depth and live component gallery",
+      "status": "landed",
+      "files_added": [
+        "src/lib/design/systemTokens.ts",
+        "src/lib/design/systemTokens.test.ts",
+        "src/components/ui/designSystemA11y.test.tsx",
+        "src/components/design-system/DesignSystemGallery.tsx",
+        "src/components/design-system/DesignSystemGallery.module.css",
+        "src/app/design-system/page.tsx",
+        "docs/axis-redesign/component-gallery.md"
+      ],
+      "files_changed": [
+        "src/app/globals.css",
+        "src/components/ui/Button.tsx",
+        "src/components/ui/Modal.tsx",
+        "src/components/ui/Seg.tsx",
+        "src/components/ui/Toast.tsx",
+        "src/components/theme/ThemeSwitcher.tsx",
+        "src/components/theme/InterfaceStudioDrawer.tsx",
+        "src/components/tasks/TasksModule.tsx",
+        "src/components/approvals/ApprovalsModule.tsx",
+        "src/components/memory/MemoryCenterModule.tsx",
+        "src/components/control-room/ControlRoomModule.tsx",
+        "src/lib/store/nav.ts",
+        "tests/e2e/authenticated.spec.ts",
+        "vitest.config.ts",
+        "docs/axis-redesign/06-design-system.md"
+      ],
+      "note": "Completes the scoped Phase 6 contract without replacing AXIS's established visual language. Semantic typography, surface, motion, and interaction variables resolve through the active theme; font-family aliases bind on body so next/font and Interface Studio runtime choices remain authoritative. WCAG tests pin faint-text contrast across every solid theme surface and primary-control contrast across all accent presets; focus indicators no longer depend on selectable accent color. Shared segmented controls require descriptive names, loading buttons retain command names and layout, dialogs trap/restore focus, and the authenticated /design-system route renders only labeled specimens with real feedback and destructive confirmation patterns.",
+      "tests": "810 tests pass across 126 files; 16 focused design/control tests pass; full authenticated Playwright suite 5/5 passes against local Supabase; tsc clean; lint 0 errors / 0 warnings; production build compiles 161 pages; /design-system is 368 KB first-load; all 177 route budgets pass; total static JS 3963/4400 KB",
+      "verification": "npx vitest run src/lib/design/systemTokens.test.ts src/components/ui/designSystemA11y.test.tsx + npx tsc --noEmit + npm run lint + npm run test + authenticated Playwright gallery test across Dark/Dim/Slate/Light, reduced motion, keyboard focus, dialogs, loading, destructive confirmation, and 1024/800/768/390/320px widths + npm run build + per-route/total bundle budgets + adversarial accessibility audit"
     }
   ],
   "migrations_applied": {
@@ -1139,7 +1173,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue next dependency-ordered redesign work: Phase 6 design-system depth (typography/motion/surface tokens, component gallery, theme parity and accessibility), then further Phase 11 route profiling while preserving green budgets.",
+    "Continue next dependency-ordered redesign work: Phase 7 workspace shell and entity model (typed entity references, unified result registry, previews/backlinks, URL-serializable split panes, accessible pane history), then complete observability and re-profile final Phase 11 route topology while preserving green budgets.",
     "External-connection follow-ups remain: connect and live-validate direct Gmail plus direct/Composio Outlook Mail parity; live Make write verification; health-device provider decision.",
     "Human/security/operations follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up sign-off and manual authenticator ceremony, provider-backed e2e/CI credentials, Sentry dashboard/alert creation, and Tembo role decision."
   ],

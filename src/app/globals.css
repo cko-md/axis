@@ -28,7 +28,7 @@
   --ink: #ece8e0;
   --ink-2: #d4cec2;
   --ink-dim: #a09891;
-  --ink-faint: #857e74;   /* 5.1:1 on #0a0b0e — passes WCAG AA */
+  --ink-faint: #969087;   /* AA on every solid dark-theme surface */
 
   /* ── afrofuturist accents — gold primary, marine data, clay warm ── */
   --gold: #c9a463;
@@ -88,7 +88,34 @@
   --sans: "Archivo", -apple-system, sans-serif;
   --mono: "JetBrains Mono", monospace;
 
-  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-bright);
+  /* ── semantic typography — fixed sizes; never viewport-scaled ── */
+  --type-display-size: 44px;
+  --type-title-size: 22px;
+  --type-heading-size: 13px;
+  --type-body-size: 13px;
+  --type-small-size: 12px;
+  --type-label-size: 10px;
+  --type-micro-size: 9px;
+  --type-display-leading: 0.95;
+  --type-heading-leading: 1.25;
+  --type-body-leading: 1.55;
+  --type-label-leading: 1.35;
+
+  /* ── semantic surfaces — aliases preserve every theme/preset ── */
+  --surface-canvas: var(--bg);
+  --surface-chrome: var(--surface);
+  --surface-panel: var(--glass);
+  --surface-panel-raised: var(--glass-2);
+  --surface-input: var(--surface-2);
+  --surface-overlay: var(--surface);
+  --border-subtle: var(--line);
+  --border-strong: var(--line-strong);
+  --shadow-panel: var(--panel-shadow);
+  --ink-muted: var(--ink-dim);
+
+  /* Interaction contrast is independent of the user-selectable accent. */
+  --focus-indicator: var(--ink);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus-indicator);
   --on-accent: #0a0b0e;
 
   /* panel depth — dark themes lean on a deep soft drop; light overrides with a
@@ -123,6 +150,16 @@
   --axis-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --axis-ease-liquid: cubic-bezier(0.19, 1, 0.22, 1);
 
+  /* semantic motion roles; axis-* names remain as compatibility primitives */
+  --motion-duration-instant: 80ms;
+  --motion-duration-fast: var(--axis-motion-fast);
+  --motion-duration-base: var(--axis-motion-base);
+  --motion-duration-deliberate: 320ms;
+  --motion-duration-ambient: var(--axis-motion-slow);
+  --motion-ease-standard: var(--axis-ease-standard);
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
   --axis-loading-sheen-duration: 1400ms;
   --axis-loading-sheen-angle: 110deg;
 
@@ -149,6 +186,7 @@ html.dim {
   --ink: #f0e8d8;
   --ink-2: #d8ccb8;
   --ink-dim: #a89880;
+  --ink-faint: #a89880;
   --status-live: #8fb36a;
   --status-loading: #d0a54a;
   --status-stale: #e8c068;
@@ -176,7 +214,7 @@ html.slate {
   --ink: #e6e9f0;
   --ink-2: #c3cbd9;
   --ink-dim: #8590a3;
-  --ink-faint: #566175;
+  --ink-faint: #8794aa;
   --status-live: #7fa86a;
   --status-loading: #6f9bc7;
   --status-stale: #c9a463;
@@ -210,7 +248,7 @@ html.light {
   --ink: #111820;
   --ink-2: #26313e;
   --ink-dim: #445363;
-  --ink-faint: #657484;
+  --ink-faint: #4f5e6e;
   --gold: #9b7b32;
   --gold-2: #c2a454;
   --gold-deep: #6f561f;
@@ -232,7 +270,6 @@ html.light {
   --blur: saturate(165%) blur(30px);
   --glow: 0 0 16px color-mix(in srgb, #8fa2ba 36%, transparent);
   --glow-soft: 0 0 30px color-mix(in srgb, #8fa2ba 18%, transparent);
-  --on-accent: #fbfcff;
 }
 
 /* light theme only: frosted-white glass panels get a gentle cool drop shadow so
@@ -289,11 +326,19 @@ body {
   --sans: var(--font-sans, "Archivo"), -apple-system, sans-serif;
   --mono: var(--font-mono, "JetBrains Mono"), monospace;
 
+  /* Resolve semantic family aliases on the same element Interface Studio
+     updates, so runtime font choices and next/font variables remain live. */
+  --type-display-family: var(--disp);
+  --type-heading-family: var(--narrow);
+  --type-body-family: var(--sans);
+  --type-label-family: var(--label, var(--narrow));
+  --type-code-family: var(--mono);
+
   font-family: var(--sans);
   background: var(--bg);
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
   font-weight: 300;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -1164,9 +1209,9 @@ html.dim .topbar {
 }
 
 .eyebrow {
-  font-family: var(--label, var(--narrow));
+  font-family: var(--type-label-family);
   font-weight: 600;
-  font-size: 10px;
+  font-size: var(--type-label-size);
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--gold-deep);
@@ -1193,10 +1238,10 @@ html.dim .topbar {
 /* gallery-signage display — tall condensed caps */
 .hero-title,
 h1.hero {
-  font-family: var(--disp);
+  font-family: var(--type-display-family);
   font-weight: 400;
-  font-size: 44px;
-  line-height: 0.95;
+  font-size: var(--type-display-size);
+  line-height: var(--type-display-leading);
   letter-spacing: 0.015em;
   text-transform: uppercase;
   margin-top: 12px;
@@ -1219,7 +1264,7 @@ html.light h1.hero em {
   color: var(--ink-dim);
   margin-top: 8px;
   max-width: 62ch;
-  font-size: 12.5px;
+  font-size: var(--type-small-size);
   font-weight: 300;
   font-family: var(--subhead, var(--sans));
 }
@@ -1230,9 +1275,9 @@ html.light .sub {
 }
 
 h2.sec {
-  font-family: var(--narrow);
+  font-family: var(--type-heading-family);
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--type-small-size);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-2);
@@ -1250,9 +1295,9 @@ h2.sec .count {
 }
 
 .seclabel {
-  font-family: var(--narrow);
+  font-family: var(--type-label-family);
   font-weight: 600;
-  font-size: 10px;
+  font-size: var(--type-label-size);
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -1277,8 +1322,8 @@ h2.sec .count {
 
 .card,
 .axis-reflective-card {
-  background: var(--glass);
-  border: 1px solid var(--line);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--rl);
   padding: var(--card-pad);
   position: relative;
@@ -1286,7 +1331,7 @@ h2.sec .count {
   -webkit-backdrop-filter: var(--blur);
   box-shadow:
     0 1px 0 var(--edge) inset,
-    var(--panel-shadow);
+    var(--shadow-panel);
 }
 
 .card::after,
@@ -1350,7 +1395,7 @@ html.light :is(.card, .axis-reflective-card)::after {
 /* ── AXIS premium surface primitives (tokenized) ───────────────── */
 
 .axis-glass-panel {
-  background: var(--glass);
+  background: var(--surface-panel);
   border: 1px solid var(--axis-glass-border);
   border-radius: var(--rl);
   padding: var(--card-pad);
@@ -1361,7 +1406,7 @@ html.light :is(.card, .axis-reflective-card)::after {
 }
 
 .axis-chrome-panel {
-  background: var(--glass-2);
+  background: var(--surface-panel-raised);
   border: 1px solid var(--axis-glass-border);
   border-radius: var(--rl);
   padding: var(--card-pad);
@@ -2914,8 +2959,8 @@ html.light .cp-ident {
 .feed-manage:hover { color: var(--ink-dim); }
 
 .btn-secondary {
-  background: var(--glass);
-  border: 1px solid var(--line);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
   color: var(--ink-dim);
   border-radius: var(--r);
   padding: 5px 11px;
@@ -2925,7 +2970,7 @@ html.light .cp-ident {
   text-transform: uppercase;
   cursor: pointer;
   white-space: nowrap;
-  transition: 0.15s;
+  transition: color var(--motion-duration-fast) var(--motion-ease-standard), border-color var(--motion-duration-fast) var(--motion-ease-standard), background var(--motion-duration-fast) var(--motion-ease-standard);
 }
 .btn-secondary:hover {
   border-color: var(--line-strong);
@@ -2945,7 +2990,15 @@ html.light .cp-ident {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: 0.15s;
+  transition: color var(--motion-duration-fast) var(--motion-ease-standard), background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.axis-button-spinner {
+  animation: axis-control-spin var(--motion-duration-ambient) linear infinite;
+}
+
+@keyframes axis-control-spin {
+  to { transform: rotate(360deg); }
 }
 
 .capt-go:hover,
@@ -3568,7 +3621,9 @@ html.light .cp-ident {
 @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes modal-bg-in{from{opacity:0}to{opacity:1}}
 @keyframes modal-card-in{from{opacity:0;transform:translateY(-10px) scale(0.97)}to{opacity:1;transform:none}}
-.stagger>*{opacity:0;animation:fade .45s cubic-bezier(.2,.7,.2,1) forwards}
+.modal-backdrop{background:color-mix(in srgb,black 62%,transparent);backdrop-filter:blur(4px);animation:modal-bg-in var(--motion-duration-fast) var(--motion-ease-standard)}
+.modal-surface{animation:modal-card-in var(--motion-duration-base) var(--motion-ease-enter)}
+.stagger>*{opacity:0;animation:fade var(--motion-duration-deliberate) var(--motion-ease-standard) forwards}
 .stagger>*:nth-child(1){animation-delay:.03s}.stagger>*:nth-child(2){animation-delay:.09s}.stagger>*:nth-child(3){animation-delay:.15s}.stagger>*:nth-child(4){animation-delay:.21s}.stagger>*:nth-child(5){animation-delay:.27s}
 @keyframes draw{to{stroke-dashoffset:0}}
 .sparkline{stroke-dasharray:400;stroke-dashoffset:400;animation:draw 1.8s .3s ease forwards}
@@ -3897,8 +3952,8 @@ html.light .pav{background:conic-gradient(from 200deg,#c8d2de,#f8fbff,#b8c3d0,#e
 .switch::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:var(--ink-dim);transition:.2s}
 .switch[data-on="true"]{background:var(--accent);border-color:var(--accent)}.switch[data-on="true"]::after{left:19px;background:var(--on-accent)}
 .switch.locked{opacity:.5;cursor:not-allowed}
-.seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.seg button{flex:1;background:none;border:none;color:var(--ink-dim);font-family:var(--narrow);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:5px 4px;cursor:pointer;transition:.15s}.seg button.on{background:var(--glass-2);color:var(--ink);box-shadow:0 1px 0 var(--edge) inset}
+.seg{display:flex;border:1px solid var(--border-subtle);border-radius:var(--r);overflow:hidden}
+.seg button{flex:1;background:none;border:none;color:var(--ink-dim);font-family:var(--type-label-family);font-size:var(--type-label-size);letter-spacing:.06em;text-transform:uppercase;padding:5px 4px;cursor:pointer;transition:color var(--motion-duration-fast) var(--motion-ease-standard),background var(--motion-duration-fast) var(--motion-ease-standard)}.seg button.on{background:var(--surface-panel-raised);color:var(--ink);box-shadow:0 1px 0 var(--edge) inset}
 .dr-range{width:100%;accent-color:var(--accent)}
 .swatches{display:flex;gap:9px;flex-wrap:wrap}
 .swatches button{width:32px;height:32px;border-radius:var(--r);border:2px solid transparent;cursor:pointer;transition:.15s}.swatches button:hover{transform:scale(1.08)}.swatches button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg),0 0 0 4px currentColor}
@@ -4258,12 +4313,19 @@ html.light .vault-room{--vault-metal:#d9e1eb;--vault-metal-2:#c8d2de;--vault-met
 button:focus-visible,
 a:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-indicator);
   outline-offset: 2px;
   box-shadow: var(--focus-ring);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-instant: 0.01ms;
+    --motion-duration-fast: 0.01ms;
+    --motion-duration-base: 0.01ms;
+    --motion-duration-deliberate: 0.01ms;
+    --motion-duration-ambient: 0.01ms;
+  }
   *,
   *::before,
   *::after {

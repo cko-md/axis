@@ -1,6 +1,6 @@
 {
-  "updated": "2026-07-15",
-  "revision": "wave-8.9",
+  "updated": "2026-07-16",
+  "revision": "wave-6.3",
   "defects": [
     {
       "id": "FIN-001",
@@ -173,6 +173,59 @@
       "status": "fixed",
       "revision_fixed": "wave-8.9",
       "verification": "Focused tests cover hi escalation and punctuation-varied resolution memory; synthetic local desktop/mobile verification showed one row in each tier and responsive filter wrapping"
+    },
+    {
+      "id": "DS-001",
+      "severity": "medium",
+      "source": "Phase 6 adversarial accessibility audit",
+      "summary": "Root-scoped semantic font aliases ignored body-level next/font and Interface Studio runtime choices",
+      "reproduction": "Set --disp or --sans on body and inspect an element consuming --type-display-family or --type-body-family; the root-resolved alias retained the earlier stack.",
+      "affected": [
+        "src/app/globals.css",
+        "src/lib/design/systemTokens.ts"
+      ],
+      "root_cause": "Semantic aliases were declared on :root while runtime font variables are intentionally set on body.",
+      "fix": "Bind semantic family aliases on body alongside the live font variables and retain size/leading roles at :root.",
+      "regression_test": "src/lib/design/systemTokens.test.ts; tests/e2e/authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-6.3",
+      "verification": "Static contract rejects root family aliases and the authenticated gallery verifies a body-level runtime face change through computed style."
+    },
+    {
+      "id": "DS-002",
+      "severity": "high",
+      "source": "Phase 6 WCAG theme/preset audit",
+      "summary": "Light primary controls, accent-derived focus rings, and Slate/Light faint microtext failed required contrast",
+      "reproduction": "Compute WCAG ratios for Light --on-accent against each selectable accent, accent-bright focus against Light canvas, and --ink-faint against Slate/Light surfaces; multiple combinations fall below 4.5:1 text or 3:1 UI contrast.",
+      "affected": [
+        "src/app/globals.css",
+        "src/lib/design/systemTokens.ts",
+        "src/lib/design/systemTokens.test.ts"
+      ],
+      "root_cause": "Interaction foreground/focus colors inherited decorative accent choices, and faint text values were chosen visually against canvas only.",
+      "fix": "Use stable near-black foreground on every selectable accent, derive focus from theme ink, and raise each theme's faint ink to AA across all solid surfaces.",
+      "regression_test": "src/lib/design/systemTokens.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-6.3",
+      "verification": "Automated matrix covers all four themes, four solid surfaces per theme, and all six accent plus hover pairs."
+    },
+    {
+      "id": "DS-003",
+      "severity": "medium",
+      "source": "Phase 6 test/control audit",
+      "summary": "TSX accessibility tests were undiscoverable and shared segmented controls exposed repeated generic group names",
+      "reproduction": "Run Vitest against designSystemA11y.test.tsx under the former include pattern and inspect Tasks/Approvals/Memory/Interface Studio Seg groups in the accessibility tree.",
+      "affected": [
+        "vitest.config.ts",
+        "src/components/ui/Seg.tsx",
+        "src/components/ui/designSystemA11y.test.tsx"
+      ],
+      "root_cause": "Vitest included only .test.ts, while Seg supplied a default 'Options' label instead of requiring caller context.",
+      "fix": "Discover .test.tsx, require ariaLabel or aria-labelledby at the Seg type boundary, and name every production consumer.",
+      "regression_test": "src/components/ui/designSystemA11y.test.tsx",
+      "status": "fixed",
+      "revision_fixed": "wave-6.3",
+      "verification": "Both focused TSX and token files execute (16 tests), all call sites typecheck, and the authenticated gallery exposes named theme/density groups."
     }
   ]
 }

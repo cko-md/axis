@@ -14,13 +14,14 @@ export function ThemeSwitcher() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="theme-switcher">
+    <div className="theme-switcher" role="group" aria-label="Color theme">
       {MODES.map((m) => (
         <button
           key={m.id}
           type="button"
           onClick={() => setTheme(m.id)}
           className={theme === m.id ? "on" : ""}
+          aria-pressed={theme === m.id}
         >
           {m.label}
         </button>

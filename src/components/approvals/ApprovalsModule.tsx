@@ -83,7 +83,7 @@ export function ApprovalsModule() {
       <div className="divider" />
 
       <div style={{ marginBottom: 12 }}>
-        <Seg options={FILTERS} value={filter} onChange={setFilter} />
+        <Seg ariaLabel="Approval status filter" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
 
       {loading ? (
