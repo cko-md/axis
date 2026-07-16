@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
 import { timingSafeStringEqual, verifyHmacSha256Hex } from "@/lib/security/webhookSignature";
+import * as Sentry from "@sentry/nextjs";
 
 /**
  * POST /api/webhooks/make — inbound receiver for Make scenarios calling
@@ -38,20 +39,33 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
   }
-  if (!body.event || !body.user_id || !body.idempotency_key) {
+  if (
+    typeof body.event !== "string" || typeof body.user_id !== "string" ||
+    typeof body.idempotency_key !== "string" ||
+    !body.event || !body.user_id || !body.idempotency_key ||
+    !/^[a-z0-9][a-z0-9_.:-]{0,63}$/i.test(body.event) ||
+    !/^[0-9a-f-]{36}$/i.test(body.user_id) ||
+    body.idempotency_key.length > 200
+  ) {
     return NextResponse.json({ error: "MISSING_FIELDS" }, { status: 400 });
   }
 
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" }, { status: 503 });
 
-  const { data: existing } = await admin
+  const { data: existing, error: lookupError } = await admin
     .from("audit_logs")
     .select("id")
     .eq("user_id", body.user_id)
     .eq("action", `make:${body.event}`)
     .eq("payload->>idempotency_key", body.idempotency_key)
     .maybeSingle();
+  if (lookupError) {
+    Sentry.captureException(lookupError, {
+      tags: { area: "integrations", provider: "make", operation: "webhook_dedupe_lookup" },
+    });
+    return NextResponse.json({ error: "WEBHOOK_PERSISTENCE_UNAVAILABLE" }, { status: 503 });
+  }
 
   if (existing) {
     return NextResponse.json({ ok: true, deduped: true });
@@ -59,13 +73,19 @@ export async function POST(request: NextRequest) {
 
   // Event-specific handling beyond logging is Phase 6 (Workflow design) —
   // this scaffold's job is to make the inbound channel secure and audited.
-  await admin.from("audit_logs").insert({
+  const { error: insertError } = await admin.from("audit_logs").insert({
     user_id: body.user_id,
     actor: "make",
     action: `make:${body.event}`,
     payload: { idempotency_key: body.idempotency_key, data: body.data ?? null },
     result: "success",
   });
+  if (insertError) {
+    Sentry.captureException(insertError, {
+      tags: { area: "integrations", provider: "make", operation: "webhook_audit_insert" },
+    });
+    return NextResponse.json({ error: "WEBHOOK_PERSISTENCE_UNAVAILABLE" }, { status: 503 });
+  }
 
   return NextResponse.json({ ok: true });
 }
