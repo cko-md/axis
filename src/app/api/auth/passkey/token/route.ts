@@ -31,15 +31,19 @@ export async function POST(req: NextRequest) {
   let query = supabase
     .from("user_passkeys")
     .update({ refresh_token_enc: encrypted })
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id");
 
   if (credential_id) {
     query = query.eq("credential_id", credential_id);
   }
 
-  const { error } = await query;
+  const { data: updated, error } = await query;
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Could not store passkey session material" }, { status: 500 });
+  }
+  if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: "Passkey not found" }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true });
