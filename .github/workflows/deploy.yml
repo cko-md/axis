@@ -1,15 +1,22 @@
 name: Deploy to Vercel
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 jobs:
   deploy:
+    # A production deploy must only follow a successful CI run for main.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Deploy to Vercel
         run: npx vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
