@@ -105,13 +105,14 @@ function inferCadence(avgGapDays: number): Cadence {
  * declarations (source='manual') are left untouched.
  */
 export async function detectRecurring(admin: SupabaseClient, userId: string): Promise<void> {
-  const { data: txns } = await admin
+  const { data: txns, error: transactionError } = await admin
     .from("fund_bank_transactions")
     .select("merchant_name, amount, posted_date")
     .eq("user_id", userId)
     .eq("is_transfer", false)
     .lt("amount", 0)
     .order("posted_date");
+  if (transactionError) throw transactionError;
 
   if (!txns || txns.length < 2) return;
 
@@ -131,7 +132,7 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
     const last = group[group.length - 1];
 
-    await admin.from("fund_recurring_transactions").upsert(
+    const { error: recurringError } = await admin.from("fund_recurring_transactions").upsert(
       {
         user_id: userId,
         merchant_name: last.merchant,
@@ -146,6 +147,7 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
       },
       { onConflict: "user_id,merchant_name", ignoreDuplicates: false },
     );
+    if (recurringError) throw recurringError;
   }
 }
 
@@ -156,12 +158,13 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
  * reads from these same deterministic sources.
  */
 export async function writeDailyBrief(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
-  const { data: snapshots } = await admin
+  const { data: snapshots, error: snapshotError } = await admin
     .from("net_worth_snapshots")
     .select("captured_on, net_worth")
     .eq("user_id", userId)
     .order("captured_on", { ascending: false })
     .limit(8);
+  if (snapshotError) throw snapshotError;
 
   if (!snapshots || snapshots.length < 1) return;
   const today = snapshots[0];
@@ -173,7 +176,7 @@ export async function writeDailyBrief(admin: SupabaseClient, userId: string, use
     ? `Net worth is ${change >= 0 ? "up" : "down"} ${Math.abs(changePct).toFixed(1)}% since ${weekAgo.captured_on}, now $${today.net_worth.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`
     : `First snapshot recorded: net worth $${today.net_worth.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`;
 
-  await admin.from("ai_insights").insert({
+  const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "daily_brief",
     title: "Daily brief",
@@ -183,6 +186,7 @@ export async function writeDailyBrief(admin: SupabaseClient, userId: string, use
     confidence: "high",
     requires_review: false,
   });
+  if (insightError) throw insightError;
 
   if (userEmail) {
     await notifyViaMake(admin, {
@@ -206,12 +210,13 @@ export async function sendBillReminders(admin: SupabaseClient, userId: string, u
   if (!userEmail) return;
   const reminderDate = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
 
-  const { data: dueSoon } = await admin
+  const { data: dueSoon, error: recurringError } = await admin
     .from("fund_recurring_transactions")
     .select("merchant_name, expected_amount, next_expected_date")
     .eq("user_id", userId)
     .eq("status", "active")
     .eq("next_expected_date", reminderDate);
+  if (recurringError) throw recurringError;
 
   for (const bill of dueSoon ?? []) {
     await notifyViaMake(admin, {
