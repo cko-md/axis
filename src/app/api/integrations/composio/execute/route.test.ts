@@ -80,4 +80,14 @@ describe("POST /api/integrations/composio/execute", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ successful: true, error: null });
   });
+
+  it("returns a safe non-success response for provider-level failures", async () => {
+    executeTool.mockResolvedValueOnce({
+      successful: false,
+      error: "provider response contains private details",
+    });
+    const res = await POST(request({ toolkit: "gmail", tool: "GMAIL_FETCH_EMAILS", arguments: {} }));
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({ successful: false, error: "Composio tool execution failed." });
+  });
 });
