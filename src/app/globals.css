@@ -1138,6 +1138,11 @@ html.dim .topbar {
   margin-inline: auto;
 }
 
+.view-pad.workspace-view-pad {
+  max-width: none;
+  padding-inline: 20px;
+}
+
 .module-status {
   display: flex;
   justify-content: space-between;

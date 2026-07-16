@@ -55,7 +55,7 @@ describe("GET /api/entities/search", () => {
       candidates: [{
         ref: { kind: "note", id: NOTE_ID },
         title: "Alpha",
-        href: `/notes?note=note%3A${NOTE_ID}`,
+        href: "/notes",
         updatedAt: new Date().toISOString(),
         meta: [],
       }],

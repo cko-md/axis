@@ -16,7 +16,6 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
 import { WebViewer } from "@/components/ui/WebViewer";
 import BiometricGate from "@/components/auth/BiometricGate";
-import { SearchWidget } from "@/components/search/SearchWidget";
 import "./globals.css";
 
 const archivo = Archivo({
@@ -108,7 +107,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ThemeProvider>
             <ToastProvider>
               {children}
-              <SearchWidget />
               <BiometricGate />
             </ToastProvider>
           </ThemeProvider>

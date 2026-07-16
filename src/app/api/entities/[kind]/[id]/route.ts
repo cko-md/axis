@@ -95,30 +95,67 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
   const resolveReferences = async (
     rows: ReferenceRow[],
     direction: "outgoing" | "backlink",
-  ): Promise<ResolvedEntityReference[]> => {
+  ): Promise<{
+    items: ResolvedEntityReference[];
+    incomplete: boolean;
+    unexpectedCode: string | null;
+  }> => {
     const settled = await Promise.allSettled(
       rows.map(async (row) => {
         const reference = rowToReference(row);
         const relatedRef = direction === "outgoing" ? reference.target : reference.source;
         const related = await resolveEntity(supabase, user.id, relatedRef);
-        return related.ok ? { ...reference, entity: related.entity, direction } : null;
+        return related.ok
+          ? { item: { ...reference, entity: related.entity, direction }, code: null }
+          : { item: null, code: related.error.providerCode ?? related.error.code };
       }),
     );
-    return settled.flatMap((result) =>
-      result.status === "fulfilled" && result.value ? [result.value] : [],
-    );
+    const items: ResolvedEntityReference[] = [];
+    let incomplete = false;
+    let unexpectedCode: string | null = null;
+    for (const result of settled) {
+      if (result.status === "rejected") {
+        incomplete = true;
+        unexpectedCode ??= "REFERENCE_RESOLUTION_REJECTED";
+      } else if (result.value.item) {
+        items.push(result.value.item);
+      } else {
+        incomplete = true;
+        if (result.value.code !== "NOT_FOUND") {
+          unexpectedCode ??= result.value.code;
+        }
+      }
+    }
+    return { items, incomplete, unexpectedCode };
   };
 
-  const [outgoing, backlinks] = await Promise.all([
+  const [outgoingResolution, backlinkResolution] = await Promise.all([
     resolveReferences((outgoingResult.data ?? []) as ReferenceRow[], "outgoing"),
     resolveReferences((backlinkResult.data ?? []) as ReferenceRow[], "backlink"),
   ]);
+  const referenceResolutionIncomplete =
+    outgoingResolution.incomplete || backlinkResolution.incomplete;
+  const unexpectedResolutionCode =
+    outgoingResolution.unexpectedCode ?? backlinkResolution.unexpectedCode;
+  if (unexpectedResolutionCode) {
+    captureRouteError(new Error("Related entity resolution unavailable"), {
+      route: "entities.preview",
+      operation: "reference_resolution",
+      area: "workspace",
+      status: 503,
+      code: unexpectedResolutionCode,
+      tags: { entity_kind: ref.kind },
+    });
+  }
 
   const payload: EntityPreviewPayload = {
     entity: resolved.entity,
-    outgoing,
-    backlinks,
-    referencesStatus: referencesUnavailable ? "unavailable" : "ok",
+    outgoing: outgoingResolution.items,
+    backlinks: backlinkResolution.items,
+    referencesStatus:
+      referencesUnavailable || referenceResolutionIncomplete
+        ? "unavailable"
+        : "ok",
   };
   return NextResponse.json(payload);
 }

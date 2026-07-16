@@ -111,7 +111,8 @@ test("design-system gallery preserves theme, motion, dialog, and responsive cont
   const reducedDuration = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--motion-duration-base").trim(),
   );
-  expect(reducedDuration).toBe("0.01ms");
+  expect(reducedDuration.endsWith("ms")).toBe(true);
+  expect(Number.parseFloat(reducedDuration)).toBeCloseTo(0.01, 5);
 
   await page.evaluate(() => document.body.style.setProperty("--disp", "monospace"));
   await expect.poll(() => page.locator("p").filter({ hasText: "DECISIONS, IN FOCUS" }).evaluate(

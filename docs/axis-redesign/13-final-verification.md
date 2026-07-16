@@ -37,7 +37,8 @@ map. Summary:
 - **Done / core done:** 0 (init), 4 (financial domain core), 5 (security kernel), 9 (durable runtime core).
 - **Substantial:** 1 (audit), 2 (synthesis), 3 (target arch — ADR-0001, more to write).
 - **Partial:** 6 (design system — freshness primitive only), 8 (core modules — Tasks only), 12 (testing — units, no new e2e), 13 (observability — error codes only).
-- **Not started this program:** 7 (workspace shell redesign), 10 (integration rearchitecture), 11 (performance), 14 (CI/CD gates). Existing systems retained.
+- **Implemented after this original assessment; external production gate still pending:** 7 (canonical typed entities, owner-scoped references/usage, unified search and previews/backlinks, URL-restorable split panes with pane-local history, and scoped workspace commands).
+- **Not started in this original revision:** 10 (integration rearchitecture), 11 (performance), 14 (CI/CD gates). Existing systems retained.
 
 ## Known loose ends (tracked, not hidden)
 

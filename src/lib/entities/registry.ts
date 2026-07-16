@@ -8,6 +8,7 @@ export type EntityDescriptor = Readonly<{
   route: string;
   queryKey: string;
   searchable: boolean;
+  fullPageSelection: boolean;
 }>;
 
 export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
@@ -19,6 +20,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/notes",
     queryKey: "note",
     searchable: true,
+    fullPageSelection: false,
   },
   task: {
     kind: "task",
@@ -28,6 +30,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/tasks",
     queryKey: "task",
     searchable: true,
+    fullPageSelection: true,
   },
   agenda_task: {
     kind: "agenda_task",
@@ -37,6 +40,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/agenda",
     queryKey: "task",
     searchable: true,
+    fullPageSelection: false,
   },
   person: {
     kind: "person",
@@ -46,6 +50,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/people",
     queryKey: "person",
     searchable: true,
+    fullPageSelection: false,
   },
   signal: {
     kind: "signal",
@@ -55,6 +60,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/dispatch",
     queryKey: "signal",
     searchable: true,
+    fullPageSelection: false,
   },
   approval: {
     kind: "approval",
@@ -64,6 +70,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/approvals",
     queryKey: "approval",
     searchable: true,
+    fullPageSelection: false,
   },
   routine_run: {
     kind: "routine_run",
@@ -73,6 +80,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/tasks",
     queryKey: "run",
     searchable: true,
+    fullPageSelection: false,
   },
   account: {
     kind: "account",
@@ -82,6 +90,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/control-room",
     queryKey: "account",
     searchable: true,
+    fullPageSelection: false,
   },
   holding: {
     kind: "holding",
@@ -91,6 +100,7 @@ export const ENTITY_REGISTRY: Readonly<Record<EntityKind, EntityDescriptor>> = {
     route: "/fund/investing",
     queryKey: "holding",
     searchable: true,
+    fullPageSelection: true,
   },
 };
 
@@ -154,6 +164,7 @@ export function entityHref(ref: EntityRef): string {
     return `/fund/position/${encodeURIComponent(normalized.id)}`;
   }
   const descriptor = ENTITY_REGISTRY[normalized.kind];
+  if (!descriptor.fullPageSelection) return descriptor.route;
   const params = new URLSearchParams({ [descriptor.queryKey]: serializeEntityRef(normalized) });
   return `${descriptor.route}?${params.toString()}`;
 }

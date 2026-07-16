@@ -4,6 +4,7 @@ import {
   MAX_ENCODED_WORKSPACE_STATE_LENGTH,
   MAX_PANE_HISTORY_ENTRIES,
   MAX_PANE_WIDTH_BPS,
+  MAX_TOTAL_SECONDARY_WIDTH_BPS,
   MAX_SECONDARY_PANES,
   MIN_PANE_WIDTH_BPS,
   PRIMARY_PANE_ID,
@@ -217,6 +218,19 @@ describe("workspace URL state codec", () => {
     (invalidWidth.panes as Array<Record<string, unknown>>)[0].widthBps = 17.5;
     expectParseError(invalidWidth, "INVALID_WIDTH");
 
+    const invalidTotalWidth = validWire();
+    invalidTotalWidth.panes = [
+      ...(invalidTotalWidth.panes as unknown[]),
+      {
+        id: "pane-2",
+        widthBps: 3601,
+        current: wireRef("person", "wide-second-pane"),
+        back: [],
+        forward: [],
+      },
+    ];
+    expectParseError(invalidTotalWidth, "INVALID_WIDTH");
+
     const invalidActive = validWire();
     invalidActive.activePaneId = "pane-missing";
     expectParseError(invalidActive, "INVALID_ACTIVE_PANE");
@@ -270,6 +284,19 @@ describe("workspace pane state", () => {
     expect(focusExisting.activePaneId).toBe("pane-1");
   });
 
+  it("keeps two evidence panes within their truthful total-width budget", () => {
+    let state = openWorkspacePane(createWorkspaceState(), ref("note", "wide-one"));
+    state = resizeWorkspacePane(state, "pane-1", MAX_PANE_WIDTH_BPS);
+    state = openWorkspacePane(state, ref("task", "wide-two"));
+    expect(state.panes.map((pane) => pane.widthBps)).toEqual([
+      MAX_TOTAL_SECONDARY_WIDTH_BPS - MIN_PANE_WIDTH_BPS,
+      MIN_PANE_WIDTH_BPS,
+    ]);
+    expect(state.panes.reduce((total, pane) => total + pane.widthBps, 0)).toBe(
+      MAX_TOTAL_SECONDARY_WIDTH_BPS,
+    );
+  });
+
   it("caps and deduplicates history while clearing forward history on a branch", () => {
     let state = createWorkspaceState(ref("note", "zero"));
     for (let index = 1; index <= 20; index += 1) {
@@ -319,7 +346,9 @@ describe("workspace pane state", () => {
     state = resizeWorkspacePane(state, "pane-1", -500);
     state = resizeWorkspacePane(state, "pane-2", 99_999);
     expect(state.panes[0].widthBps).toBe(MIN_PANE_WIDTH_BPS);
-    expect(state.panes[1].widthBps).toBe(MAX_PANE_WIDTH_BPS);
+    expect(state.panes[1].widthBps).toBe(
+      MAX_TOTAL_SECONDARY_WIDTH_BPS - MIN_PANE_WIDTH_BPS,
+    );
     expect(clampPaneWidthBps(Number.NaN)).toBe(3600);
     expect(clampPaneWidthBps(Number.POSITIVE_INFINITY)).toBe(MAX_PANE_WIDTH_BPS);
     expect(clampPaneWidthBps(Number.NEGATIVE_INFINITY)).toBe(MIN_PANE_WIDTH_BPS);
@@ -409,7 +438,7 @@ describe("workspace pane state", () => {
       error: { code: "STATE_TOO_LARGE" },
     });
 
-    const state = resizeWorkspacePane(oversized, "pane-1", 4_000);
+    const state = resizeWorkspacePane(oversized, "pane-1", 3_500);
     const encoded = serializeWorkspaceState(state);
     expect(encoded.ok).toBe(true);
     if (encoded.ok) {

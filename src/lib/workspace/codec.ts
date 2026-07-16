@@ -10,6 +10,7 @@ import {
   MAX_SECONDARY_PANES,
   MAX_WORKSPACE_PANE_ID_LENGTH,
   MAX_PANE_WIDTH_BPS,
+  MAX_TOTAL_SECONDARY_WIDTH_BPS,
   MIN_PANE_WIDTH_BPS,
   PRIMARY_PANE_ID,
   WORKSPACE_STATE_VERSION,
@@ -219,6 +220,12 @@ function parseWireState(value: unknown): WorkspaceCodecResult<WorkspaceState> {
     if (currentRefs.has(currentKey)) return fail("DUPLICATE_ENTITY_REF");
     currentRefs.add(currentKey);
     panes.push(pane.value);
+  }
+  if (
+    panes.reduce((total, pane) => total + pane.widthBps, 0) >
+    MAX_TOTAL_SECONDARY_WIDTH_BPS
+  ) {
+    return fail("INVALID_WIDTH");
   }
 
   if (

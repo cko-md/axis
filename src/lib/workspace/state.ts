@@ -7,6 +7,7 @@ import {
   DEFAULT_PANE_WIDTH_BPS,
   MAX_PANE_HISTORY_ENTRIES,
   MAX_PANE_WIDTH_BPS,
+  MAX_TOTAL_SECONDARY_WIDTH_BPS,
   MAX_SECONDARY_PANES,
   MIN_PANE_WIDTH_BPS,
   PRIMARY_PANE_ID,
@@ -164,10 +165,19 @@ function fitUrlBudget(
   }
 }
 
-export function clampPaneWidthBps(widthBps: number): number {
-  if (Number.isNaN(widthBps)) return DEFAULT_PANE_WIDTH_BPS;
+export function clampPaneWidthBps(
+  widthBps: number,
+  maxWidthBps = MAX_PANE_WIDTH_BPS,
+): number {
+  const boundedMax = Math.max(
+    MIN_PANE_WIDTH_BPS,
+    Math.min(MAX_PANE_WIDTH_BPS, Math.round(maxWidthBps)),
+  );
+  if (Number.isNaN(widthBps)) {
+    return Math.min(DEFAULT_PANE_WIDTH_BPS, boundedMax);
+  }
   return Math.min(
-    MAX_PANE_WIDTH_BPS,
+    boundedMax,
     Math.max(MIN_PANE_WIDTH_BPS, Math.round(widthBps)),
   );
 }
@@ -194,9 +204,26 @@ export function openWorkspacePane(
   if (existing) return focusWorkspacePane(state, existing.id);
   if (state.panes.length >= MAX_SECONDARY_PANES) return state;
 
+  let existingPanes = state.panes;
+  let newPaneWidth = DEFAULT_PANE_WIDTH_BPS;
+  if (existingPanes.length === 1) {
+    const existing = existingPanes[0];
+    newPaneWidth = Math.max(
+      MIN_PANE_WIDTH_BPS,
+      Math.min(
+        DEFAULT_PANE_WIDTH_BPS,
+        MAX_TOTAL_SECONDARY_WIDTH_BPS - existing.widthBps,
+      ),
+    );
+    const existingMax = MAX_TOTAL_SECONDARY_WIDTH_BPS - newPaneWidth;
+    if (existing.widthBps > existingMax) {
+      existingPanes = [{ ...existing, widthBps: existingMax }];
+    }
+  }
+
   const pane: WorkspaceSecondaryPane = {
     id: nextPaneId(state),
-    widthBps: DEFAULT_PANE_WIDTH_BPS,
+    widthBps: newPaneWidth,
     current: ref,
     back: [],
     forward: [],
@@ -204,7 +231,7 @@ export function openWorkspacePane(
   const candidate: WorkspaceState = {
     ...state,
     activePaneId: pane.id,
-    panes: [...state.panes, pane],
+    panes: [...existingPanes, pane],
   };
   return fitUrlBudget(candidate, state);
 }
@@ -309,7 +336,12 @@ export function resizeWorkspacePane(
   paneId: string,
   widthBps: number,
 ): WorkspaceState {
-  const width = clampPaneWidthBps(widthBps);
+  const otherPaneWidth = state.panes.reduce(
+    (total, pane) => total + (pane.id === paneId ? 0 : pane.widthBps),
+    0,
+  );
+  const availableWidth = MAX_TOTAL_SECONDARY_WIDTH_BPS - otherPaneWidth;
+  const width = clampPaneWidthBps(widthBps, availableWidth);
   let found = false;
   let changed = false;
   const panes = state.panes.map((pane) => {

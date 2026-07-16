@@ -121,6 +121,8 @@ export async function middleware(request: NextRequest) {
       "/api/calendar",
       "/api/mail",
       "/api/briefing",
+      "/api/entities",
+      "/api/entity-references",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
     if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {
@@ -131,7 +133,11 @@ export async function middleware(request: NextRequest) {
 
   const isPublic = pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   if (!user && !isPublic) {
-    const search = new URLSearchParams({ redirect: pathname });
+    // Preserve canonical entity selection and the opaque `ws` workspace state
+    // across authentication. The login page re-validates this as a same-origin
+    // relative path before navigating, so query preservation does not widen the
+    // redirect boundary.
+    const search = new URLSearchParams({ redirect: `${pathname}${request.nextUrl.search}` });
     return redirectWithinApp(request, "/login", search);
   }
 

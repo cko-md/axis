@@ -11,6 +11,7 @@ export const MAX_WORKSPACE_PANE_ID_LENGTH = 64;
 export const MIN_PANE_WIDTH_BPS = 1_800;
 export const DEFAULT_PANE_WIDTH_BPS = 3_600;
 export const MAX_PANE_WIDTH_BPS = 6_000;
+export const MAX_TOTAL_SECONDARY_WIDTH_BPS = 7_200;
 
 export type WorkspacePaneId = typeof PRIMARY_PANE_ID | string;
 

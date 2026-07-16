@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
@@ -32,6 +33,24 @@ type TaskApproval = {
 
 type Filter = "all" | TaskStatusGroup;
 
+const ACTION_CLASSES: ReadonlySet<string> = new Set([
+  "READ",
+  "DRAFT",
+  "SIMULATE",
+  "INTERNAL_WRITE",
+  "EXTERNAL_COMMUNICATION",
+  "FINANCIAL_EXECUTION",
+  "DESTRUCTIVE_ADMIN",
+]);
+
+const APPROVAL_STATUSES: ReadonlySet<string> = new Set([
+  "pending",
+  "approved",
+  "denied",
+  "expired",
+  "executed",
+]);
+
 const FILTERS: { label: string; value: Filter }[] = [
   { label: "All", value: "all" },
   { label: "Queued", value: "queued" },
@@ -40,6 +59,44 @@ const FILTERS: { label: string; value: Filter }[] = [
   { label: "Blocked", value: "blocked" },
   { label: "Done", value: "done" },
 ];
+
+function isTaskApproval(value: unknown): value is TaskApproval {
+  if (!value || typeof value !== "object") return false;
+  const approval = value as Record<string, unknown>;
+  const proposedAction = approval.proposed_action;
+  if (
+    proposedAction !== null &&
+    (typeof proposedAction !== "object" ||
+      Array.isArray(proposedAction) ||
+      ("summary" in proposedAction &&
+        (proposedAction as Record<string, unknown>).summary !== undefined &&
+        typeof (proposedAction as Record<string, unknown>).summary !== "string"))
+  ) {
+    return false;
+  }
+  return (
+    typeof approval.id === "string" &&
+    typeof approval.action_class === "string" &&
+    ACTION_CLASSES.has(approval.action_class) &&
+    typeof approval.status === "string" &&
+    APPROVAL_STATUSES.has(approval.status)
+  );
+}
+
+function reportTaskFailure(
+  operation: string,
+  failureKind: "network" | "server" | "invalid_response",
+  status?: number,
+) {
+  Sentry.captureException(new Error(`Tasks ${operation} failed`), {
+    tags: {
+      area: "tasks",
+      operation,
+      failure_kind: failureKind,
+      ...(status == null ? {} : { status: String(status) }),
+    },
+  });
+}
 
 function StatusChip({ status }: { status: FinancialTaskStatus }) {
   const color = taskToneColor(taskStatusTone(status));
@@ -84,10 +141,14 @@ export function TasksModule() {
   const [detail, setDetail] = useState<{ task: AgentTask; activity: AgentTaskActivity[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [taskApprovals, setTaskApprovals] = useState<TaskApproval[]>([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
+  const [approvalsError, setApprovalsError] = useState<string | null>(null);
+  const [routineError, setRoutineError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectionError, setSelectionError] = useState<"invalid" | "not_found" | null>(null);
   const hydratedSelectionRef = useRef<string | null>(null);
   const detailRequestRef = useRef(0);
+  const approvalsRequestRef = useRef(0);
 
   const taskSelection = useMemo(
     () => resolveTaskSelection(taskParam, tasks.map((task) => task.id), !loading && !error),
@@ -99,12 +160,67 @@ export function TasksModule() {
     [tasks, filter],
   );
 
+  const loadTaskApprovals = useCallback(async (id: string, detailRequestId: number) => {
+    const approvalsRequestId = ++approvalsRequestRef.current;
+    const isCurrentRequest = () =>
+      detailRequestRef.current === detailRequestId &&
+      approvalsRequestRef.current === approvalsRequestId;
+
+    setApprovalsLoading(true);
+    setApprovalsError(null);
+    try {
+      const response = await fetch(`/api/approvals?taskId=${encodeURIComponent(id)}`);
+      if (!isCurrentRequest()) return;
+      if (!response.ok) {
+        if (response.status >= 500) {
+          reportTaskFailure("load_linked_approvals", "server", response.status);
+        }
+        setTaskApprovals([]);
+        setApprovalsError("Linked approvals could not be loaded.");
+        return;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        if (!isCurrentRequest()) return;
+        reportTaskFailure("parse_linked_approvals", "invalid_response", response.status);
+        setTaskApprovals([]);
+        setApprovalsError("Linked approvals returned an invalid response.");
+        return;
+      }
+      if (!isCurrentRequest()) return;
+      const approvals =
+        payload && typeof payload === "object"
+          ? (payload as { approvals?: unknown }).approvals
+          : undefined;
+      if (!Array.isArray(approvals) || !approvals.every(isTaskApproval)) {
+        reportTaskFailure("parse_linked_approvals", "invalid_response", response.status);
+        setTaskApprovals([]);
+        setApprovalsError("Linked approvals returned an invalid response.");
+        return;
+      }
+      setTaskApprovals(approvals);
+    } catch {
+      if (!isCurrentRequest()) return;
+      reportTaskFailure("load_linked_approvals", "network");
+      setTaskApprovals([]);
+      setApprovalsError("Linked approvals could not reach AXIS. Check your connection and retry.");
+    } finally {
+      if (isCurrentRequest()) setApprovalsLoading(false);
+    }
+  }, []);
+
   const openTask = useCallback(
     async (id: string) => {
       const requestId = ++detailRequestRef.current;
+      approvalsRequestRef.current += 1;
       setSelectedId(id);
       setDetailLoading(true);
       setTaskApprovals([]);
+      setApprovalsLoading(false);
+      setApprovalsError(null);
       const result = await getTask(id);
       if (detailRequestRef.current !== requestId) return;
       setDetail(result);
@@ -113,15 +229,9 @@ export function TasksModule() {
         toast("Could not load task detail.", "error", "Tasks");
         return;
       }
-      // Linked approvals (best-effort; a failure just leaves the section empty).
-      const res = await fetch(`/api/approvals?taskId=${id}`).catch(() => null);
-      if (detailRequestRef.current !== requestId) return;
-      if (res?.ok) {
-        const data = await res.json();
-        setTaskApprovals(Array.isArray(data.approvals) ? data.approvals : []);
-      }
+      void loadTaskApprovals(id, requestId);
     },
-    [getTask, toast],
+    [getTask, loadTaskApprovals, toast],
   );
 
   const selectTask = useCallback(
@@ -158,6 +268,8 @@ export function TasksModule() {
       setDetail(null);
       setDetailLoading(false);
       setTaskApprovals([]);
+      setApprovalsLoading(false);
+      setApprovalsError(null);
       setSelectionError(taskSelection.status === "invalid" ? "invalid" : null);
       return;
     }
@@ -169,6 +281,8 @@ export function TasksModule() {
       setDetail(null);
       setDetailLoading(false);
       setTaskApprovals([]);
+      setApprovalsLoading(false);
+      setApprovalsError(null);
       setSelectionError("not_found");
       return;
     }
@@ -197,22 +311,87 @@ export function TasksModule() {
 
   const runConcentrationCheck = useCallback(async () => {
     setRunning(true);
-    const res = await fetch("/api/routines/concentration-check", { method: "POST" }).catch(() => null);
-    setRunning(false);
-    if (!res?.ok) {
-      toast("Couldn’t run the concentration check.", "error", "Routines");
-      return;
-    }
-    const data = (await res.json()) as { created?: unknown[]; skipped?: number; breaches?: number };
-    setRunsRefresh((n) => n + 1);
-    const createdCount = Array.isArray(data.created) ? data.created.length : 0;
-    if (createdCount > 0) {
-      toast(`Concentration check: ${createdCount} task(s) created.`, "success", "Routines");
-      void reload();
-    } else if ((data.breaches ?? 0) > 0) {
-      toast("Concentration check: breaches already tracked.", "info", "Routines");
-    } else {
-      toast("Concentration check: no positions over target.", "success", "Routines");
+    setRoutineError(null);
+    try {
+      const response = await fetch("/api/routines/concentration-check", { method: "POST" });
+      if (!response.ok) {
+        if (response.status >= 500) {
+          reportTaskFailure("run_concentration_check", "server", response.status);
+        } else {
+          Sentry.addBreadcrumb({
+            category: "tasks",
+            message: "Concentration check request rejected",
+            level: "info",
+            data: {
+              operation: "run_concentration_check",
+              status: response.status,
+            },
+          });
+        }
+        const message = "Couldn’t run the concentration check. Retry when the service is available.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        reportTaskFailure("parse_concentration_check", "invalid_response", response.status);
+        const message = "The concentration check returned an invalid response. Please retry.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+      if (!payload || typeof payload !== "object") {
+        reportTaskFailure("parse_concentration_check", "invalid_response", response.status);
+        const message = "The concentration check returned an invalid response. Please retry.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+      const data = payload as {
+        status?: unknown;
+        approvalId?: unknown;
+        created?: unknown;
+        skipped?: unknown;
+        breaches?: unknown;
+      };
+      if (data.status === "waiting_for_approval" && typeof data.approvalId === "string") {
+        setRunsRefresh((n) => n + 1);
+        toast("Concentration check is waiting for approval.", "info", "Routines");
+        return;
+      }
+      if (
+        !Array.isArray(data.created) ||
+        typeof data.skipped !== "number" ||
+        typeof data.breaches !== "number"
+      ) {
+        reportTaskFailure("parse_concentration_check", "invalid_response", response.status);
+        const message = "The concentration check returned an invalid response. Please retry.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+
+      setRunsRefresh((n) => n + 1);
+      const createdCount = Array.isArray(data.created) ? data.created.length : 0;
+      if (createdCount > 0) {
+        toast(`Concentration check: ${createdCount} task(s) created.`, "success", "Routines");
+        void reload();
+      } else if (typeof data.breaches === "number" && data.breaches > 0) {
+        toast("Concentration check: breaches already tracked.", "info", "Routines");
+      } else {
+        toast("Concentration check: no positions over target.", "success", "Routines");
+      }
+    } catch {
+      reportTaskFailure("run_concentration_check", "network");
+      const message = "The concentration check could not reach AXIS. Check your connection and retry.";
+      setRoutineError(message);
+      toast(message, "error", "Routines");
+    } finally {
+      setRunning(false);
     }
   }, [toast, reload]);
 
@@ -265,6 +444,29 @@ export function TasksModule() {
             Deterministic review of your holdings — opens a task for any position over target weight.
           </span>
         </div>
+        {routineError && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: "var(--status-error)",
+              fontSize: 12,
+            }}
+          >
+            <span>{routineError}</span>
+            <button
+              type="button"
+              className="underline"
+              onClick={() => void runConcentrationCheck()}
+              disabled={running}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </Card>
 
       <div style={{ marginTop: 16 }}>
@@ -383,22 +585,48 @@ export function TasksModule() {
                 </div>
               )}
 
-              {taskApprovals.length > 0 && (
-                <>
-                  <div className="divider" style={{ margin: "14px 0" }} />
-                  <div className="seclabel" style={{ marginBottom: 8 }}>
-                    Approvals · <a href="/approvals" style={{ color: "var(--accent)" }}>review queue</a>
-                  </div>
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-                    {taskApprovals.map((a) => (
-                      <li key={a.id} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "baseline" }}>
-                        <span style={{ color: "var(--ink-faint)", minWidth: 118 }}>{actionClassLabel(a.action_class)}</span>
-                        <span style={{ color: "var(--ink)", flex: 1 }}>{a.proposed_action?.summary ?? "—"}</span>
-                        <span style={{ color: "var(--ink-dim)", fontWeight: 600 }}>{approvalStatusLabel(a.status)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
+              <div className="divider" style={{ margin: "14px 0" }} />
+              <div className="seclabel" style={{ marginBottom: 8 }}>
+                Approvals · <a href="/approvals" style={{ color: "var(--accent)" }}>review queue</a>
+              </div>
+              {approvalsLoading ? (
+                <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>
+                  Loading linked approvals…
+                </p>
+              ) : approvalsError ? (
+                <div
+                  role="alert"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12,
+                    color: "var(--status-error)",
+                  }}
+                >
+                  <span>{approvalsError}</span>
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => void loadTaskApprovals(detail.task.id, detailRequestRef.current)}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : taskApprovals.length > 0 ? (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {taskApprovals.map((a) => (
+                    <li key={a.id} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "baseline" }}>
+                      <span style={{ color: "var(--ink-faint)", minWidth: 118 }}>{actionClassLabel(a.action_class)}</span>
+                      <span style={{ color: "var(--ink)", flex: 1 }}>{a.proposed_action?.summary ?? "—"}</span>
+                      <span style={{ color: "var(--ink-dim)", fontWeight: 600 }}>{approvalStatusLabel(a.status)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>
+                  No linked approvals.
+                </p>
               )}
 
               <div className="divider" style={{ margin: "14px 0" }} />

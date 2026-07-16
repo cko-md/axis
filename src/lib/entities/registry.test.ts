@@ -37,9 +37,12 @@ describe("entity registry", () => {
     expect(parseEntityRef("note:not-a-uuid")).toBeNull();
   });
 
-  it("builds a module link with the descriptor's canonical selection key", () => {
+  it("uses entity deep links only where the destination consumes them", () => {
     expect(entityHref({ kind: "note", id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })).toBe(
-      "/notes?note=note%3Aaaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "/notes",
+    );
+    expect(entityHref({ kind: "task", id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })).toBe(
+      "/tasks?task=task%3Aaaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     expect(entityHref({ kind: "holding", id: "brk.b" })).toBe("/fund/position/BRK.B");
   });
