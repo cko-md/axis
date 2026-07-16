@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-16",
-  "revision": "wave-6.3",
+  "revision": "wave-7.5",
   "defects": [
     {
       "id": "FIN-001",
@@ -226,6 +226,70 @@
       "status": "fixed",
       "revision_fixed": "wave-6.3",
       "verification": "Both focused TSX and token files execute (16 tests), all call sites typecheck, and the authenticated gallery exposes named theme/density groups."
+    },
+    {
+      "id": "PREF-001",
+      "severity": "high",
+      "source": "Phase 7 production-mode authenticated regression",
+      "summary": "Late or failed remote preference hydration could overwrite a user edit, trigger a blind default upsert, discard timezone/future fields, and persist writes out of order",
+      "affected": [
+        "src/components/theme/ThemeProvider.tsx",
+        "src/lib/theme/preferences.ts"
+      ],
+      "root_cause": "Remote writes were enabled before a successful read, hydration ignored concurrent local edits, the JSON envelope was replaced wholesale, and debounced writes were not serialized",
+      "fix": "Enable sync only after a successful read, guard remote fields with edit epochs, preserve the loaded envelope and timezone, parse metadata separately from interface settings, and serialize remote upserts",
+      "regression_test": "src/lib/theme/preferences.test.ts; tests/e2e/theme-preferences-authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-7.5",
+      "verification": "Pure envelope/ordering tests pass; deterministic delayed-read and failed-read browser tests pass; full authenticated production-mode suite passes 13/13"
+    },
+    {
+      "id": "TASK-002",
+      "severity": "high",
+      "source": "Phase 8 concurrency audit",
+      "summary": "Task and approval lifecycle routes use stale reads followed by unconditional updates, and task activity failures can be hidden",
+      "affected": [
+        "src/app/api/agent-tasks/[id]/route.ts",
+        "src/app/api/approvals/[id]/route.ts"
+      ],
+      "root_cause": "Lifecycle validation and mutation are separate requests without compare-and-swap or a transaction",
+      "fix": "Pending",
+      "regression_test": "Pending concurrent transition, atomic activity, and audit failure coverage",
+      "status": "open",
+      "revision_fixed": null,
+      "verification": "Pending"
+    },
+    {
+      "id": "RUN-002",
+      "severity": "high",
+      "source": "Phase 9 retry/resume audit",
+      "summary": "Routine resume can consume approval before successful resumed work and lacks a complete atomic claim/retry contract",
+      "affected": [
+        "src/app/api/routines/runs/[id]/resume/route.ts",
+        "src/lib/routines/executor.ts"
+      ],
+      "root_cause": "Approval consumption, run claim, pause metadata, execution, and finalization are not coordinated as a retry-safe state transition",
+      "fix": "Pending",
+      "regression_test": "Pending double-submit, failed-resume, successful-retry, and finalization-failure coverage",
+      "status": "open",
+      "revision_fixed": null,
+      "verification": "Pending"
+    },
+    {
+      "id": "AI-002",
+      "severity": "high",
+      "source": "Phase 13 AI boundary audit",
+      "summary": "Model-authored action paths are navigated without an internal allowlist and heuristic fallbacks can be indistinguishable from model success",
+      "affected": [
+        "src/app/api/ai/route.ts",
+        "src/components/console/ConsoleModule.tsx"
+      ],
+      "root_cause": "Untrusted model output crosses the navigation boundary and provider degradation is encoded as a normal success payload",
+      "fix": "Pending",
+      "regression_test": "Pending action-path allowlist, degraded response, and safe observability coverage",
+      "status": "open",
+      "revision_fixed": null,
+      "verification": "Pending"
     }
   ]
 }
