@@ -9,6 +9,7 @@ import { approvalRequestToInsert } from "@/lib/security/approvalPersistence";
 import { getBrokerageAccountId } from "@/lib/env";
 import { emitServerEvent } from "@/lib/observability/events";
 import { explainWithCost } from "@/lib/ai/explain";
+import * as Sentry from "@sentry/nextjs";
 
 /**
  * Rebalance-proposal routine (§15.3, §11) — the first routine that produces
@@ -59,11 +60,12 @@ export async function POST(request: NextRequest) {
 
   async function recordStep(stepKey: string, status: "succeeded" | "failed", input: Json, output: Json, error?: string) {
     ordinal += 1;
-    await supabase.from("routine_step_runs").insert({
+    const { error: stepError } = await supabase.from("routine_step_runs").insert({
       run_id: runId, user_id: user!.id, step_key: stepKey, ordinal, status,
       input_snapshot: input, output_snapshot: output, error: error ?? null,
       started_at: new Date().toISOString(), completed_at: new Date().toISOString(),
     });
+    if (stepError) throw new Error("STEP_RECORD_FAILED");
   }
 
   try {
@@ -120,11 +122,12 @@ export async function POST(request: NextRequest) {
       });
       if (!validateApprovalCompleteness(req).complete) { incomplete.push(action.symbol); continue; }
       const insert = approvalRequestToInsert(req, user.id);
-      const { data: appr } = await supabase
+      const { data: appr, error: approvalError } = await supabase
         .from("approvals")
         .insert({ ...insert, proposed_action: insert.proposed_action as unknown as Json })
         .select("id")
         .single();
+      if (approvalError || !appr) throw new Error("APPROVAL_CREATE_FAILED");
       if (appr) created.push({ id: appr.id, summary: req.summary });
     }
     await recordStep("create_approvals", "succeeded", { proposed: proposal.actions.length } as Json, { approvals: created.length, incomplete: incomplete.length } as Json);
@@ -149,7 +152,12 @@ export async function POST(request: NextRequest) {
     // 6) Pause for approval (or complete if there was nothing to do).
     const status = created.length > 0 ? "waiting_for_approval" : "completed";
     const output = { total: proposal.total, proposed: proposal.actions.length, approvals: created, skipped: proposal.skipped, priceFreshness: freshness, narrative } as unknown as Json;
-    await supabase.from("routine_runs").update({ status, output, actual_cost_usd: actualCost, ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}) }).eq("id", runId);
+    const { error: completeError } = await supabase
+      .from("routine_runs")
+      .update({ status, output, actual_cost_usd: actualCost, ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}) })
+      .eq("user_id", user.id)
+      .eq("id", runId);
+    if (completeError) throw new Error("RUN_COMPLETE_FAILED");
 
     emitServerEvent("routine.run." + (status === "waiting_for_approval" ? "paused" : "completed"), {
       routine: ROUTINE_KEY, runId, status, proposed: proposal.actions.length, approvals: created.length,
@@ -157,7 +165,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ runId, status, proposed: proposal.actions.length, approvals: created, skipped: proposal.skipped });
   } catch (err) {
-    await supabase.from("routine_runs").update({ status: "blocked", error: err instanceof Error ? err.message : "run failed" }).eq("id", runId);
+    const failure = err instanceof Error ? err : new Error("run failed");
+    Sentry.captureException(failure, {
+      tags: { area: "routines", routine: ROUTINE_KEY, operation: "rebalance_proposal" },
+      extra: { runId },
+    });
+    await supabase
+      .from("routine_runs")
+      .update({ status: "blocked", error: failure.message })
+      .eq("user_id", user.id)
+      .eq("id", runId);
     return NextResponse.json({ error: "RUN_BLOCKED", runId, resumable: true }, { status: 500 });
   }
 }
