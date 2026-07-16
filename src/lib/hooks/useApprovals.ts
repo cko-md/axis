@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import type { ActionClass, ApprovalRequirement } from "@/lib/security/actionPolicy";
 import type { StoredProposedAction } from "@/lib/security/approvalPersistence";
 import type { ApprovalStatus } from "@/lib/security/approvalCardView";
@@ -64,11 +65,17 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
       const body = (await optRes?.json().catch(() => ({}))) as { error?: string };
       return { ok: false, reason: body?.error ?? "OPTIONS_FAILED" };
     }
-    const options = await optRes.json();
+    const optionBody = await optRes.json() as {
+      options?: PublicKeyCredentialRequestOptionsJSON;
+      challengeId?: string;
+    };
+    if (!optionBody.options || !optionBody.challengeId) {
+      return { ok: false, reason: "OPTIONS_FAILED" };
+    }
     let assertion;
     try {
       const { startAuthentication } = await import("@simplewebauthn/browser");
-      assertion = await startAuthentication({ optionsJSON: options });
+      assertion = await startAuthentication({ optionsJSON: optionBody.options });
     } catch (err) {
       const msg = err instanceof Error ? err.message.toLowerCase() : "";
       return { ok: false, reason: /cancel|abort|not allowed/.test(msg) ? "Cancelled" : "CEREMONY_FAILED" };
@@ -76,7 +83,10 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
     const verifyRes = await fetch(`/api/approvals/${id}/step-up?action=verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ response: assertion }),
+      body: JSON.stringify({
+        response: assertion,
+        challengeId: optionBody.challengeId,
+      }),
     }).catch(() => null);
     if (!verifyRes?.ok) {
       const body = (await verifyRes?.json().catch(() => ({}))) as { error?: string };
@@ -109,10 +119,17 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
         if (updated) setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, ...updated } : a)));
         return { ok: true };
       }
-      const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string; missing?: string[] };
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        reason?: string;
+        missing?: string[];
+      };
+      if (body.error === "STALE_APPROVAL_STATE") {
+        await reload();
+      }
       return { ok: false, reason: body.reason ?? body.error, missing: body.missing };
     },
-    [],
+    [reload],
   );
 
   return { approvals, loading, error, reload, decide, stepUp };

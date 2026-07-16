@@ -633,9 +633,13 @@ export function ControlRoomModule() {
       body: JSON.stringify({ passkeyId }),
     });
     if (res.ok) {
+      const body = await res.json().catch(() => ({ hasPasskeys: passkeys.length > 1 }));
       setPasskeys((prev) => prev.filter((p) => p.id !== passkeyId));
       toast("Passkey removed", "success", "Security");
-      if (passkeys.length <= 1) setAuthSettings((prev) => (prev ? { ...prev, passkey_enabled: false } : prev));
+      if (!body.hasPasskeys) {
+        localStorage.removeItem("axis-passkey-registered");
+        setAuthSettings((prev) => (prev ? { ...prev, passkey_enabled: false } : prev));
+      }
     } else {
       toast("Failed to remove passkey", "error", "Security");
     }
@@ -1417,7 +1421,7 @@ export function ControlRoomModule() {
                 Passkeys<span className="rule" />
               </h2>
               <p className={styles.note}>
-                Sign in with Face ID, Touch ID, or Windows Hello — no password needed.
+                Sign in with a device passkey or hardware security key — no password needed.
               </p>
               {passkeys.length === 0 ? (
                 <p className={styles.note} style={{ color: "var(--ink-dim)" }}>No passkeys registered.</p>
@@ -1490,7 +1494,7 @@ export function ControlRoomModule() {
               )}
               {authSettings?.passkey_enabled && (
                 <p className={styles.note} style={{ marginTop: 8 }}>
-                  2FA is skipped when signing in with a passkey.
+                  Passkey sign-in still requires your authenticator code when 2FA is enabled.
                 </p>
               )}
             </div>

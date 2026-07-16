@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/database.types";
+import type {
+  RoutineResumeClaims,
+  RoutineResumeFailure,
+} from "@/lib/routines/resumeClaims";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { deriveRunOutcome, type RunStatus, type StepStatus } from "@/lib/routines/runState";
 
 export const PAUSE_FOR_APPROVAL = "pause_for_approval" as const;
@@ -15,6 +20,7 @@ export type RoutineStepContext<TOutputs extends Record<string, unknown>> = {
   userId: string;
   outputs: Partial<TOutputs>;
   resumed: boolean;
+  idempotencyKey: string | null;
 };
 
 export type RoutineStep<TOutputs extends Record<string, unknown>> = {
@@ -60,11 +66,15 @@ type StartStepInput = {
 };
 
 type CompleteStepInput = {
+  runId: string;
+  userId: string;
   stepRunId: string;
   outputSnapshot: Json;
 };
 
 type FailStepInput = {
+  runId: string;
+  userId: string;
   stepRunId: string;
   error: string;
 };
@@ -92,12 +102,21 @@ type PauseRunInput = {
   idempotencyKey: string | null;
 };
 
+type StartedRoutineStep = {
+  id: string;
+  ordinal: number;
+  status: "running" | "succeeded";
+  outputSnapshot: Json | null;
+};
+
 export type RoutineExecutionStore = {
+  resumeMode?: "claimed";
   createRun(input: CreateRunInput): Promise<{ id: string }>;
   listStepRuns(runId: string, userId: string): Promise<RoutineStepRunSnapshot[]>;
-  startStep(input: StartStepInput): Promise<{ id: string; ordinal: number }>;
+  startStep(input: StartStepInput): Promise<StartedRoutineStep>;
   completeStep(input: CompleteStepInput): Promise<void>;
   failStep(input: FailStepInput): Promise<void>;
+  renewRunClaim?(runId: string, userId: string): Promise<void>;
   markRunRunning(runId: string, userId: string): Promise<void>;
   markRunWaitingForApproval(input: PauseRunInput): Promise<void>;
   completeRun(input: CompleteRunInput): Promise<void>;
@@ -158,6 +177,17 @@ export function pauseForApproval(approvalId: string, idempotencyKey?: string): R
   return { kind: PAUSE_FOR_APPROVAL, approvalId, idempotencyKey };
 }
 
+export function routineResumeIdempotencyKey(runId: string, stepKey: string): string {
+  return `routine-resume:${runId}:${stepKey}`;
+}
+
+export function safeRoutineErrorCode(error: unknown): string {
+  const value = error instanceof Error ? error.message : String(error ?? "");
+  return /^[A-Z][A-Z0-9_:-]{0,127}$/.test(value)
+    ? value
+    : "ROUTINE_RESUME_FAILED";
+}
+
 export function isPauseSignal(value: unknown): value is RoutinePauseSignal {
   return (
     !!value &&
@@ -170,8 +200,14 @@ export function isPauseSignal(value: unknown): value is RoutinePauseSignal {
 
 export function createSupabaseRoutineStore(
   supabase: SupabaseClient<Database>,
+  resumeClaim?: {
+    claimToken: string;
+    claims: RoutineResumeClaims;
+    leaseSeconds?: number;
+  },
 ): RoutineExecutionStore {
   return {
+    ...(resumeClaim ? { resumeMode: "claimed" as const } : {}),
     async createRun(input) {
       const { data, error } = await supabase
         .from("routine_runs")
@@ -209,6 +245,24 @@ export function createSupabaseRoutineStore(
     },
 
     async startStep(input) {
+      if (resumeClaim) {
+        const result = await resumeClaim.claims.startStep({
+          userId: input.userId,
+          runId: input.runId,
+          claimToken: resumeClaim.claimToken,
+          stepKey: input.stepKey,
+          ordinal: input.ordinal,
+          inputSnapshot: input.inputSnapshot,
+        });
+        if (!result.ok) throw resumeMutationError(result, "STEP_START_FAILED");
+        return {
+          id: result.value.step.id,
+          ordinal: result.value.step.ordinal,
+          status: result.value.alreadySucceeded ? "succeeded" : "running",
+          outputSnapshot: result.value.step.outputSnapshot,
+        };
+      }
+
       const { data, error } = await supabase
         .from("routine_step_runs")
         .insert({
@@ -223,10 +277,26 @@ export function createSupabaseRoutineStore(
         .select("id, ordinal")
         .single();
       if (error || !data) throw new Error("STEP_START_FAILED");
-      return data;
+      return {
+        ...data,
+        status: "running",
+        outputSnapshot: null,
+      };
     },
 
     async completeStep(input) {
+      if (resumeClaim) {
+        const result = await resumeClaim.claims.completeStep({
+          userId: input.userId,
+          runId: input.runId,
+          claimToken: resumeClaim.claimToken,
+          stepRunId: input.stepRunId,
+          outputSnapshot: input.outputSnapshot,
+        });
+        if (!result.ok) throw resumeMutationError(result, "STEP_COMPLETE_FAILED");
+        return;
+      }
+
       const { error } = await supabase
         .from("routine_step_runs")
         .update({
@@ -239,6 +309,18 @@ export function createSupabaseRoutineStore(
     },
 
     async failStep(input) {
+      if (resumeClaim) {
+        const result = await resumeClaim.claims.failStep({
+          userId: input.userId,
+          runId: input.runId,
+          claimToken: resumeClaim.claimToken,
+          stepRunId: input.stepRunId,
+          errorCode: safeRoutineErrorCode(input.error),
+        });
+        if (!result.ok) throw resumeMutationError(result, "STEP_FAIL_RECORD_FAILED");
+        return;
+      }
+
       const { error } = await supabase
         .from("routine_step_runs")
         .update({
@@ -250,7 +332,19 @@ export function createSupabaseRoutineStore(
       if (error) throw new Error("STEP_FAIL_RECORD_FAILED");
     },
 
+    async renewRunClaim(runId, userId) {
+      if (!resumeClaim) return;
+      const result = await resumeClaim.claims.renew({
+        userId,
+        runId,
+        claimToken: resumeClaim.claimToken,
+        leaseSeconds: resumeClaim.leaseSeconds,
+      });
+      if (!result.ok) throw resumeMutationError(result, "RUN_RESUME_RENEW_FAILED");
+    },
+
     async markRunRunning(runId, userId) {
+      if (resumeClaim) return;
       const { error } = await supabase
         .from("routine_runs")
         .update({ status: "running", error: null })
@@ -260,6 +354,20 @@ export function createSupabaseRoutineStore(
     },
 
     async markRunWaitingForApproval(input) {
+      if (resumeClaim) {
+        const result = await resumeClaim.claims.repause({
+          userId: input.userId,
+          runId: input.runId,
+          claimToken: resumeClaim.claimToken,
+          stepKey: input.pausedStepKey,
+          approvalId: input.approvalId,
+          idempotencyKey: input.idempotencyKey
+            ?? routineResumeIdempotencyKey(input.runId, input.pausedStepKey),
+        });
+        if (!result.ok) throw resumeMutationError(result, "RUN_PAUSE_FAILED");
+        return;
+      }
+
       const { error } = await supabase
         .from("routine_runs")
         .update({
@@ -275,6 +383,22 @@ export function createSupabaseRoutineStore(
     },
 
     async completeRun(input) {
+      if (resumeClaim) {
+        if (input.status !== "completed" && input.status !== "partial") {
+          throw new Error("RUN_RESUME_INVALID_COMPLETION");
+        }
+        const result = await resumeClaim.claims.complete({
+          userId: input.userId,
+          runId: input.runId,
+          claimToken: resumeClaim.claimToken,
+          status: input.status,
+          output: input.output,
+          actualCostUsd: input.actualCostUsd,
+        });
+        if (!result.ok) throw resumeMutationError(result, "RUN_COMPLETE_FAILED");
+        return;
+      }
+
       const { error } = await supabase
         .from("routine_runs")
         .update({
@@ -292,6 +416,17 @@ export function createSupabaseRoutineStore(
     },
 
     async failRun(input) {
+      if (resumeClaim) {
+        const result = await resumeClaim.claims.release({
+          userId: input.userId,
+          runId: input.runId,
+          claimToken: resumeClaim.claimToken,
+          errorCode: safeRoutineErrorCode(input.error),
+        });
+        if (!result.ok) throw resumeMutationError(result, "RUN_RELEASE_FAILED");
+        return;
+      }
+
       const { error } = await supabase
         .from("routine_runs")
         .update({
@@ -330,6 +465,7 @@ export async function executeRoutine<TOutputs extends Record<string, unknown>>(
     actualCostUsd: options.actualCostUsd ?? 0,
     failureStatus: options.failureStatus ?? "failed",
     resumed: false,
+    idempotencyKey: null,
     replayedSteps: [],
     startStepKey: options.steps[0]?.key,
   });
@@ -357,6 +493,7 @@ export async function continueRoutineRun<TOutputs extends Record<string, unknown
     actualCostUsd: options.actualCostUsd ?? 0,
     failureStatus: options.failureStatus ?? "failed",
     resumed: true,
+    idempotencyKey: options.run.idempotency_key,
     replayedSteps,
     startStepKey: options.steps[0]?.key,
   });
@@ -365,15 +502,22 @@ export async function continueRoutineRun<TOutputs extends Record<string, unknown
 export async function resumeRoutine<TOutputs extends Record<string, unknown>>(
   options: ResumeRoutineOptions<TOutputs>,
 ): Promise<RoutineExecutionResult<TOutputs>> {
-  if (options.run.status !== "waiting_for_approval") {
+  const claimed = options.store.resumeMode === "claimed";
+  if (
+    (!claimed && options.run.status !== "waiting_for_approval")
+    || (claimed && options.run.status !== "running")
+  ) {
     throw new RoutineExecutionError("RUN_NOT_WAITING_FOR_APPROVAL", options.run.id);
   }
   if (!options.run.paused_step_key || !options.run.approval_id) {
     throw new RoutineExecutionError("RUN_PAUSE_METADATA_MISSING", options.run.id);
   }
+  if (claimed && !options.run.idempotency_key) {
+    throw new RoutineExecutionError("RUN_PAUSE_METADATA_MISSING", options.run.id);
+  }
 
   const replayedSteps = await options.store.listStepRuns(options.run.id, options.userId);
-  await options.store.markRunRunning(options.run.id, options.userId);
+  if (!claimed) await options.store.markRunRunning(options.run.id, options.userId);
 
   return runRoutineSteps({
     store: options.store,
@@ -384,6 +528,7 @@ export async function resumeRoutine<TOutputs extends Record<string, unknown>>(
     actualCostUsd: options.actualCostUsd ?? 0,
     failureStatus: options.failureStatus ?? "failed",
     resumed: true,
+    idempotencyKey: options.run.idempotency_key,
     replayedSteps,
     startStepKey: options.run.paused_step_key,
   });
@@ -398,6 +543,7 @@ async function runRoutineSteps<TOutputs extends Record<string, unknown>>(options
   actualCostUsd: number;
   failureStatus: "blocked" | "failed";
   resumed: boolean;
+  idempotencyKey: string | null;
   replayedSteps: RoutineStepRunSnapshot[];
   startStepKey: string | undefined;
 }): Promise<RoutineExecutionResult<TOutputs>> {
@@ -405,7 +551,7 @@ async function runRoutineSteps<TOutputs extends Record<string, unknown>>(options
     ? options.steps.findIndex((step) => step.key === options.startStepKey)
     : 0;
   if (startIndex < 0) {
-    await options.store.failRun({
+    await recordRunFailure(options.store, {
       runId: options.runId,
       userId: options.userId,
       status: options.failureStatus,
@@ -429,11 +575,17 @@ async function runRoutineSteps<TOutputs extends Record<string, unknown>>(options
 
   for (let i = startIndex; i < options.steps.length; i += 1) {
     const step = options.steps[i];
+    const stepIdempotencyKey = options.resumed
+      && step.key === options.startStepKey
+      && options.idempotencyKey
+      ? options.idempotencyKey
+      : routineResumeIdempotencyKey(options.runId, step.key);
     const context: RoutineStepContext<TOutputs> = {
       runId: options.runId,
       userId: options.userId,
       outputs,
       resumed: options.resumed,
+      idempotencyKey: stepIdempotencyKey,
     };
     if (Object.prototype.hasOwnProperty.call(outputs, step.key)) continue;
 
@@ -441,71 +593,181 @@ async function runRoutineSteps<TOutputs extends Record<string, unknown>>(options
       (row) => row.step_key === step.key && row.status === "running",
     );
     const inputSnapshot = step.input?.(context) ?? {};
-    let stepRun = runningStep ? { id: runningStep.id, ordinal: runningStep.ordinal } : null;
+    let stepRun: StartedRoutineStep | null = runningStep
+      ? {
+          id: runningStep.id,
+          ordinal: runningStep.ordinal,
+          status: "running" as const,
+          outputSnapshot: runningStep.output_snapshot,
+        }
+      : null;
 
     try {
-      if (!stepRun) {
-        ordinal += 1;
+      if (options.store.renewRunClaim) {
+        await options.store.renewRunClaim(options.runId, options.userId);
+      }
+
+      if (!stepRun || options.store.resumeMode === "claimed") {
+        const stepOrdinal = stepRun?.ordinal ?? ordinal + 1;
+        ordinal = Math.max(ordinal, stepOrdinal);
         stepRun = await options.store.startStep({
           runId: options.runId,
           userId: options.userId,
           stepKey: step.key,
-          ordinal,
+          ordinal: stepOrdinal,
           inputSnapshot,
         });
       }
 
+      if (stepRun.status === "succeeded") {
+        outputs[step.key as keyof TOutputs] =
+          stepRun.outputSnapshot as TOutputs[keyof TOutputs];
+        stepStatuses.push("succeeded");
+        continue;
+      }
+
       const result = await step.run(context);
+      if (options.store.renewRunClaim) {
+        await options.store.renewRunClaim(options.runId, options.userId);
+      }
+
       if (isPauseSignal(result)) {
+        const idempotencyKey = result.idempotencyKey
+          ?? context.idempotencyKey;
         await options.store.markRunWaitingForApproval({
           runId: options.runId,
           userId: options.userId,
           pausedStepKey: step.key,
           approvalId: result.approvalId,
-          idempotencyKey: result.idempotencyKey ?? null,
+          idempotencyKey,
         });
         return {
           status: "waiting_for_approval",
           runId: options.runId,
           pausedStepKey: step.key,
           approvalId: result.approvalId,
-          idempotencyKey: result.idempotencyKey ?? null,
+          idempotencyKey,
           outputs,
         };
       }
 
       outputs[step.key as keyof TOutputs] = result as TOutputs[keyof TOutputs];
       await options.store.completeStep({
+        runId: options.runId,
+        userId: options.userId,
         stepRunId: stepRun.id,
         outputSnapshot: toJson(result),
       });
       stepStatuses.push("succeeded");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "step failed";
-      if (stepRun) await options.store.failStep({ stepRunId: stepRun.id, error: message });
-      await options.store.failRun({
+      const errorCode = safeRoutineErrorCode(err);
+      if (stepRun) {
+        await recordStepFailure(options.store, {
+          runId: options.runId,
+          userId: options.userId,
+          stepRunId: stepRun.id,
+          error: errorCode,
+        });
+      }
+      await recordRunFailure(options.store, {
         runId: options.runId,
         userId: options.userId,
         status: options.failureStatus,
-        error: message,
+        error: errorCode,
       });
-      throw new RoutineExecutionError(message, options.runId);
+      throw new RoutineExecutionError(errorCode, options.runId);
     }
   }
 
-  const output = options.buildRunOutput(outputs);
-  const status = deriveRunOutcome(stepStatuses) as Exclude<RunStatus, "waiting_for_approval">;
-  await options.store.completeRun({
-    runId: options.runId,
-    userId: options.userId,
-    status,
-    output,
-    actualCostUsd: options.actualCostUsd,
-  });
+  try {
+    const output = options.buildRunOutput(outputs);
+    const status = deriveRunOutcome(stepStatuses) as Exclude<RunStatus, "waiting_for_approval">;
+    if (options.store.renewRunClaim) {
+      await options.store.renewRunClaim(options.runId, options.userId);
+    }
+    await options.store.completeRun({
+      runId: options.runId,
+      userId: options.userId,
+      status,
+      output,
+      actualCostUsd: options.actualCostUsd,
+    });
 
-  return { status, runId: options.runId, output, outputs };
+    return { status, runId: options.runId, output, outputs };
+  } catch (err) {
+    const errorCode = safeRoutineErrorCode(err);
+    await recordRunFailure(options.store, {
+      runId: options.runId,
+      userId: options.userId,
+      status: options.failureStatus,
+      error: errorCode,
+    });
+    throw new RoutineExecutionError(errorCode, options.runId);
+  }
+}
+
+async function recordStepFailure(
+  store: RoutineExecutionStore,
+  input: FailStepInput,
+): Promise<void> {
+  try {
+    await store.failStep(input);
+  } catch (error) {
+    captureRoutinePersistenceFailure(error, "record_step_failure", input.runId, store);
+  }
+}
+
+async function recordRunFailure(
+  store: RoutineExecutionStore,
+  input: FailRunInput,
+): Promise<void> {
+  try {
+    await store.failRun(input);
+  } catch (error) {
+    captureRoutinePersistenceFailure(error, "record_run_failure", input.runId, store);
+  }
+}
+
+function captureRoutinePersistenceFailure(
+  error: unknown,
+  operation: "record_step_failure" | "record_run_failure",
+  runId: string,
+  store: RoutineExecutionStore,
+): void {
+  captureRouteError(error, {
+    route: "routine.executor",
+    operation,
+    area: "routines",
+    status: 500,
+    code: safeRoutineErrorCode(error),
+    tags: {
+      runId,
+      claimedResume: store.resumeMode === "claimed",
+    },
+  });
 }
 
 function toJson(value: unknown): Json {
   return (value ?? null) as Json;
+}
+
+function resumeMutationError(
+  failure: RoutineResumeFailure,
+  fallback: string,
+): Error {
+  const codes: Partial<Record<RoutineResumeFailure["code"], string>> = {
+    SERVICE_UNAVAILABLE: "RUN_RESUME_SERVICE_UNAVAILABLE",
+    CLAIM_LOST: "RUN_RESUME_CLAIM_LOST",
+    TERMINAL: "RUN_ALREADY_TERMINAL",
+    PAUSE_METADATA_MISSING: "RUN_PAUSE_METADATA_MISSING",
+    APPROVAL_NOT_APPROVED: "APPROVAL_NOT_APPROVED",
+    APPROVAL_EXPIRED: "APPROVAL_EXPIRED",
+    STEP_UP_STALE: "APPROVAL_STEP_UP_STALE",
+    APPROVAL_NOT_ACTIONABLE: "APPROVAL_NOT_ACTIONABLE",
+    STEPS_INCOMPLETE: "RUN_STEPS_INCOMPLETE",
+    STEP_NOT_FOUND: "RUN_STEP_NOT_FOUND",
+    STEP_CONFLICT: "RUN_STEP_CONFLICT",
+    RECONCILIATION_FAILED: "RUN_COMPLETE_RECONCILIATION_FAILED",
+  };
+  return new Error(codes[failure.code] ?? fallback);
 }

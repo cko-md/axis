@@ -29,7 +29,6 @@ function LoginForm() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
-  const [showPasskeyBtn, setShowPasskeyBtn] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [agreed, setAgreed] = useState(false);
   const [mfaState, setMfaState] = useState<MFAState | null>(null);
@@ -39,13 +38,12 @@ function LoginForm() {
     if (mode !== 'signup') setAgreed(false);
   }, [mode]);
 
-  // Load persisted remember-me preference and passkey availability
+  // Load persisted remember-me preference. Discoverable credentials can be
+  // used from a new browser, so passkey sign-in is shown whenever supported.
   useEffect(() => {
     const stored = localStorage.getItem('axis-remember-me');
     if (stored !== null) setRememberMe(stored === 'true');
-    const passkeyRegistered = localStorage.getItem('axis-passkey-registered');
-    if (passkeyRegistered === 'true' && passkey.isSupported) setShowPasskeyBtn(true);
-  }, [passkey.isSupported]);
+  }, []);
 
   // Persist remember-me preference
   useEffect(() => {
@@ -62,6 +60,40 @@ function LoginForm() {
     router.refresh();
   }
 
+  async function startMFAIfRequired(): Promise<'not-required' | 'started' | 'error'> {
+    const { data: aal, error: aalError } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aalError) {
+      await supabase.auth.signOut({ scope: 'local' });
+      setError('Could not verify two-factor requirements. Please try again.');
+      return 'error';
+    }
+    if (aal?.nextLevel !== 'aal2' || aal.currentLevel === 'aal2') {
+      return 'not-required';
+    }
+
+    const { data: factorsData, error: factorsError } =
+      await supabase.auth.mfa.listFactors();
+    const totp = factorsData?.totp;
+    if (factorsError || !totp || totp.length === 0) {
+      await supabase.auth.signOut({ scope: 'local' });
+      setError('Two-factor authentication is required but no verified factor is available.');
+      return 'error';
+    }
+
+    const factorId = totp[0].id;
+    const { data: challengeData, error: challengeError } =
+      await supabase.auth.mfa.challenge({ factorId });
+    if (challengeError || !challengeData) {
+      await supabase.auth.signOut({ scope: 'local' });
+      setError(challengeError?.message ?? 'Failed to start MFA challenge');
+      return 'error';
+    }
+
+    setMfaState({ factorId, challengeId: challengeData.id });
+    return 'started';
+  }
+
   async function handlePasskeySignIn() {
     setPasskeyLoading(true);
     setError(null);
@@ -73,15 +105,14 @@ function LoginForm() {
       return;
     }
 
-    if (result.refreshToken) {
-      const { error: refreshError } = await supabase.auth.refreshSession({
-        refresh_token: result.refreshToken,
-      });
-      if (refreshError) {
-        setError(refreshError.message);
-        return;
-      }
+    const { data: { user }, error: sessionError } = await supabase.auth.getUser();
+    if (sessionError || !user) {
+      await supabase.auth.signOut({ scope: 'local' });
+      setError('Passkey session restoration failed');
+      return;
     }
+
+    if (await startMFAIfRequired() !== 'not-required') return;
 
     router.push(getRedirectUrl());
     router.refresh();
@@ -147,10 +178,15 @@ function LoginForm() {
     }
 
     // Sign-in
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
       setLoading(false);
       setError(signInError.message);
+      return;
+    }
+    if (!signInData.session) {
+      setLoading(false);
+      setError('Sign-in did not create a session. Please try again.');
       return;
     }
 
@@ -161,22 +197,10 @@ function LoginForm() {
       sessionStorage.removeItem('axis-session-ephemeral');
     }
 
-    // Check MFA requirement
-    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aal?.nextLevel === 'aal2' && aal?.currentLevel !== 'aal2') {
-      const { data: factorsData } = await supabase.auth.mfa.listFactors();
-      const totp = factorsData?.totp;
-      if (totp && totp.length > 0) {
-        const factorId = totp[0].id;
-        const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
-        setLoading(false);
-        if (challengeError || !challengeData) {
-          setError(challengeError?.message ?? 'Failed to start MFA challenge');
-          return;
-        }
-        setMfaState({ factorId, challengeId: challengeData.id });
-        return;
-      }
+    const mfaResult = await startMFAIfRequired();
+    if (mfaResult !== 'not-required') {
+      setLoading(false);
+      return;
     }
 
     setLoading(false);
@@ -200,7 +224,10 @@ function LoginForm() {
           factorId={mfaState.factorId}
           challengeId={mfaState.challengeId}
           onSuccess={handleMFASuccess}
-          onCancel={() => setMfaState(null)}
+          onCancel={() => {
+            void supabase.auth.signOut({ scope: 'local' });
+            setMfaState(null);
+          }}
         />
       </div>
     );
@@ -225,7 +252,7 @@ function LoginForm() {
         </div>
 
         {/* Passkey button */}
-        {showPasskeyBtn && mode === 'signin' && (
+        {passkey.isSupported && mode === 'signin' && (
           <button
             type="button"
             onClick={handlePasskeySignIn}
@@ -233,12 +260,12 @@ function LoginForm() {
             className="mb-4 flex w-full items-center justify-center gap-2 rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--ink)] transition hover:border-[var(--accent)] disabled:opacity-50"
           >
             <span>🔐</span>
-            <span>{passkeyLoading ? 'Authenticating…' : 'Sign in with Face ID / Touch ID'}</span>
+            <span>{passkeyLoading ? 'Authenticating…' : 'Sign in with a passkey'}</span>
           </button>
         )}
 
         {/* Divider when passkey btn is shown */}
-        {showPasskeyBtn && mode === 'signin' && (
+        {passkey.isSupported && mode === 'signin' && (
           <div className="mb-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-[var(--line)]" />
             <span className="text-[11px] text-[var(--ink-faint)]">or</span>

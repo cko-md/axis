@@ -6,6 +6,8 @@ import {
   TASK_STATUSES,
   type FinancialTaskStatus,
 } from "@/lib/tasks/taskState";
+import { transitionAgentTask } from "@/lib/tasks/taskPersistence";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Single agent-Task API — read and lifecycle transition.
@@ -33,12 +35,22 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   if (error) return NextResponse.json({ error: "TASK_UNAVAILABLE" }, { status: 500 });
   if (!task) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const { data: activity } = await supabase
+  const { data: activity, error: activityError } = await supabase
     .from("agent_task_activity")
     .select("id, kind, detail, created_at")
     .eq("user_id", user.id)
     .eq("task_id", id)
     .order("created_at", { ascending: true });
+  if (activityError) {
+    captureRouteError(new Error("Task activity query failed"), {
+      route: "agent_tasks",
+      operation: "detail_activity",
+      area: "tasks",
+      status: 500,
+      code: "TASK_ACTIVITY_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "TASK_ACTIVITY_UNAVAILABLE" }, { status: 500 });
+  }
 
   return NextResponse.json({ task, activity: activity ?? [] });
 }
@@ -77,28 +89,36 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     );
   }
 
-  const patch: { status: FinancialTaskStatus; updated_at: string; completed_at?: string } = {
-    status: to,
-    updated_at: new Date().toISOString(),
-  };
-  if (isTerminal(to)) patch.completed_at = new Date().toISOString();
-
-  const { data: task, error: updateError } = await supabase
-    .from("agent_tasks")
-    .update(patch)
-    .eq("user_id", user.id)
-    .eq("id", id)
-    .select("id, objective, status, context, created_at, updated_at, completed_at")
-    .single();
-
-  if (updateError || !task) return NextResponse.json({ error: "TASK_UPDATE_FAILED" }, { status: 500 });
-
-  await supabase.from("agent_task_activity").insert({
-    task_id: id,
-    user_id: user.id,
-    kind: "status_change",
-    detail: { from, to },
+  const result = await transitionAgentTask({
+    userId: user.id,
+    taskId: id,
+    expectedStatus: from,
+    nextStatus: to,
+    completedAt: isTerminal(to) ? new Date().toISOString() : null,
   });
+  if (!result.ok) {
+    if (result.code === "NOT_FOUND") {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+    if (result.code === "CONFLICT") {
+      return NextResponse.json(
+        { error: "STALE_TRANSITION", from, to, currentStatus: result.currentStatus },
+        { status: 409 },
+      );
+    }
+    const status = result.code === "SERVICE_UNAVAILABLE" ? 503 : 500;
+    const code = result.code === "SERVICE_UNAVAILABLE"
+      ? "TASK_MUTATION_UNAVAILABLE"
+      : "TASK_UPDATE_FAILED";
+    captureRouteError(new Error(code), {
+      route: "agent_tasks",
+      operation: "transition",
+      area: "tasks",
+      status,
+      code,
+    });
+    return NextResponse.json({ error: code }, { status });
+  }
 
-  return NextResponse.json({ task });
+  return NextResponse.json({ task: result.task });
 }

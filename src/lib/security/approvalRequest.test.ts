@@ -4,10 +4,13 @@ import {
   isActionable,
   isApprovalExpired,
   isStepUpFresh,
+  parseApprovalRequestInput,
   validateApprovalCompleteness,
   type ApprovalRequest,
   type ApprovalRequestInput,
 } from "./approvalRequest";
+
+const FIXED_NOW = Date.parse("2026-07-13T17:01:00.000Z");
 
 const baseInput: ApprovalRequestInput = {
   actor: { kind: "agent", id: "agent-1" },
@@ -72,7 +75,7 @@ describe("buildApprovalRequest — derives from the policy kernel", () => {
 describe("validateApprovalCompleteness — never a bare Allow", () => {
   it("accepts a fully-populated financial execution approval", () => {
     const req = buildApprovalRequest(financialInput());
-    expect(validateApprovalCompleteness(req)).toEqual({ complete: true, missing: [] });
+    expect(validateApprovalCompleteness(req, FIXED_NOW)).toEqual({ complete: true, missing: [] });
   });
 
   it("flags a financial execution missing amount, account, and states", () => {
@@ -84,11 +87,34 @@ describe("validateApprovalCompleteness — never a bare Allow", () => {
         afterState: undefined,
       }),
     );
-    const { complete, missing } = validateApprovalCompleteness(req);
+    const { complete, missing } = validateApprovalCompleteness(req, FIXED_NOW);
     expect(complete).toBe(false);
     expect(missing).toEqual(
       expect.arrayContaining(["amount", "target.accountId", "beforeState", "afterState"]),
     );
+  });
+
+  it("rejects malformed financial values and non-object state from persisted rows", () => {
+    const req = buildApprovalRequest(
+      financialInput({
+        actor: { kind: "routine", id: "rebalance", routineVersion: -1 },
+        amount: { value: -1, currency: "usd", quantity: 0 },
+        target: { entityType: "order", accountId: "   " },
+        beforeState: null,
+        afterState: [],
+        dataFreshness: { tier: "unknown", retrievedAt: "2099-01-01T00:00:00.000Z" },
+      }),
+    );
+    const { complete, missing } = validateApprovalCompleteness(req, FIXED_NOW);
+    expect(complete).toBe(false);
+    expect(missing).toEqual(expect.arrayContaining([
+      "actor",
+      "amount",
+      "target.accountId",
+      "beforeState",
+      "afterState",
+      "dataFreshness",
+    ]));
   });
 
   it("requires freshness + expiry for outbound/executing actions", () => {
@@ -160,7 +186,7 @@ describe("isApprovalExpired — fail safe, never fail open", () => {
 });
 
 describe("isActionable — the single execution gate", () => {
-  const now = Date.parse("2026-07-13T17:01:00.000Z");
+  const now = FIXED_NOW;
   const freshStepUp = "2026-07-13T17:00:40.000Z"; // 20s before `now`
 
   it("is actionable when complete, unexpired, and step-up FRESH", () => {
@@ -194,6 +220,70 @@ describe("isActionable — the single execution gate", () => {
   it("does not require step-up for a plain internal write", () => {
     const req = buildApprovalRequest(baseInput);
     expect(isActionable(req, { nowMs: now })).toBe(true);
+  });
+});
+
+describe("parseApprovalRequestInput — untrusted boundary", () => {
+  it("normalizes a valid request without trusting client-derived policy fields", () => {
+    const result = parseApprovalRequestInput(
+      {
+        ...financialInput(),
+        requirement: "approval",
+        actor: { kind: "routine", id: "rebalance", routineVersion: 3 },
+      },
+      FIXED_NOW,
+    );
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      value: expect.objectContaining({
+        actor: { kind: "routine", id: "rebalance", routineVersion: 3 },
+      }),
+    }));
+    if (result.ok) {
+      expect(result.value).not.toHaveProperty("requirement");
+    }
+  });
+
+  it.each([
+    ["unknown actor kind", { actor: { kind: "system", id: "axis" } }],
+    ["routine without a positive integer version", { actor: { kind: "routine", id: "axis", routineVersion: 0 } }],
+    ["routine version on a non-routine actor", { actor: { kind: "agent", id: "axis", routineVersion: 1 } }],
+    ["blank actor id", { actor: { kind: "agent", id: "   " } }],
+    ["overlong tool", { tool: "x".repeat(257) }],
+    ["overlong summary", { summary: "x".repeat(2_001) }],
+    ["blank target", { target: { entityType: "   ", accountId: "acct-1" } }],
+    ["non-boolean action flag", { context: { actionClass: "FINANCIAL_EXECUTION", touchesSensitiveData: "yes" } }],
+    ["non-positive amount", { amount: { value: 0, currency: "USD", quantity: 1 } }],
+    ["non-positive quantity", { amount: { value: 1, currency: "USD", quantity: 0 } }],
+    ["non-ISO currency", { amount: { value: 1, currency: "usd", quantity: 1 } }],
+    ["stale financial tier", { dataFreshness: { tier: "stale", retrievedAt: "2026-07-13T17:00:00.000Z" } }],
+    ["future freshness timestamp", { dataFreshness: { tier: "fresh", retrievedAt: "2026-07-13T17:03:00.000Z" } }],
+    ["too-old financial timestamp", { dataFreshness: { tier: "delayed", retrievedAt: "2026-07-13T16:45:00.000Z" } }],
+    ["null financial before-state", { beforeState: null }],
+    ["array financial after-state", { afterState: [] }],
+    ["expired expiry", { expiresAt: "2026-07-13T17:00:00.000Z" }],
+    ["expiry beyond 24 hours", { expiresAt: "2026-07-14T17:01:00.001Z" }],
+  ])("rejects %s", (_label, patch) => {
+    const input = financialInput();
+    const result = parseApprovalRequestInput(
+      {
+        ...input,
+        ...patch,
+        context: "context" in patch ? patch.context : input.context,
+      },
+      FIXED_NOW,
+    );
+    expect(result).toEqual({ ok: false, code: "INVALID_BODY" });
+  });
+
+  it("rejects invalid calendar timestamps rather than allowing Date rollover", () => {
+    const result = parseApprovalRequestInput(
+      financialInput({
+        dataFreshness: { tier: "fresh", retrievedAt: "2026-02-31T17:00:00.000Z" },
+      }),
+      FIXED_NOW,
+    );
+    expect(result).toEqual({ ok: false, code: "INVALID_BODY" });
   });
 });
 

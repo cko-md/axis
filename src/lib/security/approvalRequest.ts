@@ -103,12 +103,157 @@ export type ApprovalCompleteness = {
   missing: string[];
 };
 
+export const APPROVAL_MAX_LIFETIME_MS = 24 * 60 * 60_000;
+export const APPROVAL_CLOCK_SKEW_MS = 60_000;
+/** Execution requires provider data no older than the market-price stale SLA. */
+export const FINANCIAL_DATA_MAX_AGE_MS = 15 * 60_000;
+
+const ACTOR_ID_MAX = 512;
+const TOOL_MAX = 256;
+const SUMMARY_MAX = 2_000;
+const TARGET_TYPE_MAX = 128;
+const TARGET_ID_MAX = 512;
+const MAX_ROUTINE_VERSION = 2_147_483_647;
+const ACTOR_KINDS = ["user", "agent", "routine"] as const;
+const FRESHNESS_TIERS: readonly FreshnessTier[] = ["fresh", "delayed", "stale", "unknown"];
+const ACTION_CLASSES: readonly ActionClass[] = [
+  "READ",
+  "DRAFT",
+  "SIMULATE",
+  "INTERNAL_WRITE",
+  "EXTERNAL_COMMUNICATION",
+  "FINANCIAL_EXECUTION",
+  "DESTRUCTIVE_ADMIN",
+];
+const ISO_INSTANT =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z$/;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** Classes that reach outside the system or move money/state irreversibly. */
 const OUTBOUND_OR_EXECUTION: ReadonlySet<ActionClass> = new Set([
   "EXTERNAL_COMMUNICATION",
   "FINANCIAL_EXECUTION",
   "DESTRUCTIVE_ADMIN",
 ]);
+
+export type ApprovalRequestParseResult =
+  | { ok: true; value: ApprovalRequestInput }
+  | { ok: false; code: "INVALID_BODY" | "INVALID_ACTION_CLASS" };
+
+/**
+ * Parse the untrusted API payload without asserting it into a trusted type.
+ * Unknown fields are discarded; malformed values are rejected before policy
+ * evaluation or persistence.
+ */
+export function parseApprovalRequestInput(
+  input: unknown,
+  nowMs: number = Date.now(),
+): ApprovalRequestParseResult {
+  if (!isRecord(input) || !isRecord(input.actor) || !isRecord(input.context) || !isRecord(input.target)) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  const actionClass = input.context.actionClass;
+  if (!isActionClass(actionClass)) {
+    return { ok: false, code: "INVALID_ACTION_CLASS" };
+  }
+
+  const actorKind = input.actor.kind;
+  const actorId = input.actor.id;
+  if (
+    !isActorKind(actorKind)
+    || !isBoundedText(actorId, ACTOR_ID_MAX)
+  ) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+  const routineVersion = input.actor.routineVersion;
+  if (
+    (actorKind === "routine" && !isValidRoutineVersion(routineVersion))
+    || (actorKind !== "routine" && routineVersion !== undefined)
+  ) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  if (
+    !isBoundedText(input.tool, TOOL_MAX)
+    || !isBoundedText(input.summary, SUMMARY_MAX)
+    || !isBoundedText(input.target.entityType, TARGET_TYPE_MAX)
+    || !isOptionalBoundedText(input.target.entityId, TARGET_ID_MAX)
+    || !isOptionalBoundedText(input.target.accountId, TARGET_ID_MAX)
+  ) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  const touchesSensitiveData = input.context.touchesSensitiveData;
+  const usesUntrustedExternalContent = input.context.usesUntrustedExternalContent;
+  const explicitlyTrusted = input.context.explicitlyTrusted;
+  if (
+    !isOptionalBoolean(touchesSensitiveData)
+    || !isOptionalBoolean(usesUntrustedExternalContent)
+    || !isOptionalBoolean(explicitlyTrusted)
+  ) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  const amount = parseAmount(input.amount);
+  if (!amount.ok) return { ok: false, code: "INVALID_BODY" };
+
+  const dataFreshness = parseDataFreshness(input.dataFreshness, actionClass, nowMs);
+  if (!dataFreshness.ok) return { ok: false, code: "INVALID_BODY" };
+
+  if (
+    (input.beforeState !== undefined && !isJsonObject(input.beforeState))
+    || (input.afterState !== undefined && !isJsonObject(input.afterState))
+  ) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  const scope = input.scope;
+  if (scope !== undefined && scope !== "one_time" && scope !== "persistent") {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  const expiresAt = input.expiresAt;
+  if (expiresAt !== undefined && !isValidApprovalExpiry(expiresAt, nowMs)) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+  const taskId = input.taskId;
+  if (taskId !== undefined && (typeof taskId !== "string" || !UUID.test(taskId))) {
+    return { ok: false, code: "INVALID_BODY" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      actor: {
+        kind: actorKind,
+        id: actorId.trim(),
+        ...(actorKind === "routine" ? { routineVersion: Number(routineVersion) } : {}),
+      },
+      tool: input.tool.trim(),
+      summary: input.summary.trim(),
+      context: {
+        actionClass,
+        ...(touchesSensitiveData !== undefined ? { touchesSensitiveData } : {}),
+        ...(usesUntrustedExternalContent !== undefined ? { usesUntrustedExternalContent } : {}),
+        ...(explicitlyTrusted !== undefined ? { explicitlyTrusted } : {}),
+      },
+      target: {
+        entityType: input.target.entityType.trim(),
+        ...(typeof input.target.entityId === "string" ? { entityId: input.target.entityId.trim() } : {}),
+        ...(typeof input.target.accountId === "string" ? { accountId: input.target.accountId.trim() } : {}),
+      },
+      ...(amount.value ? { amount: amount.value } : {}),
+      ...(input.beforeState !== undefined ? { beforeState: input.beforeState } : {}),
+      ...(input.afterState !== undefined ? { afterState: input.afterState } : {}),
+      ...(dataFreshness.value ? { dataFreshness: dataFreshness.value } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+      ...(typeof expiresAt === "string" ? { expiresAt } : {}),
+      ...(typeof taskId === "string" ? { taskId } : {}),
+    },
+  };
+}
 
 /**
  * Build a fully-scoped approval object from a proposed action. Derives the
@@ -154,29 +299,87 @@ export function buildApprovalRequest(input: ApprovalRequestInput): ApprovalReque
  *   before/after state;
  * - destructive admin must state before-state (what is being destroyed).
  */
-export function validateApprovalCompleteness(req: ApprovalRequest): ApprovalCompleteness {
+export function validateApprovalCompleteness(
+  req: ApprovalRequest,
+  nowMs: number = Date.now(),
+): ApprovalCompleteness {
   const missing: string[] = [];
+  const addMissing = (field: string) => {
+    if (!missing.includes(field)) missing.push(field);
+  };
 
-  if (!req.actor?.id) missing.push("actor");
-  if (!req.tool) missing.push("tool");
-  if (!isNonEmpty(req.summary)) missing.push("summary");
-  if (!req.target?.entityType) missing.push("target");
+  if (
+    !isActionClass(req.actionClass)
+    || req.context?.actionClass !== req.actionClass
+    || !isValidPersistedPolicy(req)
+  ) {
+    addMissing("policy");
+  }
+  if (
+    !Array.isArray(req.reasons)
+    || req.reasons.length === 0
+    || req.reasons.some((reason) => !isBoundedText(reason, SUMMARY_MAX))
+  ) {
+    addMissing("reasons");
+  }
+  if (req.scope !== "one_time" && req.scope !== "persistent") addMissing("scope");
+
+  if (
+    !req.actor
+    || !ACTOR_KINDS.includes(req.actor.kind)
+    || !isBoundedText(req.actor.id, ACTOR_ID_MAX)
+    || (req.actor.kind === "routine" && !isValidRoutineVersion(req.actor.routineVersion))
+    || (req.actor.kind !== "routine" && req.actor.routineVersion !== undefined)
+  ) {
+    addMissing("actor");
+  }
+  if (!isBoundedText(req.tool, TOOL_MAX)) addMissing("tool");
+  if (!isBoundedText(req.summary, SUMMARY_MAX)) addMissing("summary");
+  if (
+    !req.target
+    || !isBoundedText(req.target.entityType, TARGET_TYPE_MAX)
+    || !isOptionalBoundedText(req.target.entityId, TARGET_ID_MAX)
+    || !isOptionalBoundedText(req.target.accountId, TARGET_ID_MAX)
+  ) {
+    addMissing("target");
+  }
+  if (
+    !isOptionalBoolean(req.context?.touchesSensitiveData)
+    || !isOptionalBoolean(req.context?.usesUntrustedExternalContent)
+    || !isOptionalBoolean(req.context?.explicitlyTrusted)
+  ) {
+    addMissing("context");
+  }
+  if (req.amount !== undefined && !isValidAmount(req.amount)) addMissing("amount");
+  if (req.beforeState !== undefined && !isJsonObject(req.beforeState)) addMissing("beforeState");
+  if (req.afterState !== undefined && !isJsonObject(req.afterState)) addMissing("afterState");
+  if (
+    req.dataFreshness !== undefined
+    && !isValidDataFreshness(req.dataFreshness, req.actionClass, nowMs)
+  ) {
+    addMissing("dataFreshness");
+  }
+  if (req.expiresAt !== undefined && !isValidApprovalExpiry(req.expiresAt, nowMs)) {
+    addMissing("expiresAt");
+  }
 
   if (OUTBOUND_OR_EXECUTION.has(req.actionClass)) {
-    if (!req.dataFreshness) missing.push("dataFreshness");
-    if (!isNonEmpty(req.expiresAt)) missing.push("expiresAt");
+    if (!isValidDataFreshness(req.dataFreshness, req.actionClass, nowMs)) addMissing("dataFreshness");
+    if (!isValidApprovalExpiry(req.expiresAt, nowMs)) addMissing("expiresAt");
   }
 
   if (req.actionClass === "FINANCIAL_EXECUTION") {
-    if (!isValidAmount(req.amount)) missing.push("amount");
-    if (!req.target?.accountId) missing.push("target.accountId");
-    if (req.beforeState === undefined) missing.push("beforeState");
-    if (req.afterState === undefined) missing.push("afterState");
+    if (req.scope !== "one_time") addMissing("scope");
+    if (!isValidAmount(req.amount)) addMissing("amount");
+    if (!isBoundedText(req.target?.accountId, TARGET_ID_MAX)) addMissing("target.accountId");
+    if (!isJsonObject(req.beforeState)) addMissing("beforeState");
+    if (!isJsonObject(req.afterState)) addMissing("afterState");
   }
 
-  if (req.actionClass === "DESTRUCTIVE_ADMIN" && req.beforeState === undefined) {
-    missing.push("beforeState");
+  if (req.actionClass === "DESTRUCTIVE_ADMIN" && !isJsonObject(req.beforeState)) {
+    addMissing("beforeState");
   }
+  if (req.actionClass === "DESTRUCTIVE_ADMIN" && req.scope !== "one_time") addMissing("scope");
 
   return { complete: missing.length === 0, missing };
 }
@@ -188,8 +391,8 @@ export function validateApprovalCompleteness(req: ApprovalRequest): ApprovalComp
  */
 export function isApprovalExpired(req: ApprovalRequest, nowMs: number = Date.now()): boolean {
   if (!req.expiresAt) return false;
-  const expiry = Date.parse(req.expiresAt);
-  if (Number.isNaN(expiry)) return true;
+  const expiry = parseIsoInstant(req.expiresAt);
+  if (expiry === null) return true;
   return nowMs >= expiry;
 }
 
@@ -229,7 +432,7 @@ export function isActionable(
   opts: { stepUpVerifiedAt?: string | null; nowMs?: number; stepUpMaxAgeMs?: number } = {},
 ): boolean {
   const now = opts.nowMs ?? Date.now();
-  if (!validateApprovalCompleteness(req).complete) return false;
+  if (!validateApprovalCompleteness(req, now).complete) return false;
   if (isApprovalExpired(req, now)) return false;
   if (req.stepUpRequired && !isStepUpFresh(opts.stepUpVerifiedAt, opts.stepUpMaxAgeMs ?? STEP_UP_MAX_AGE_MS, now)) {
     return false;
@@ -241,11 +444,161 @@ function isNonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return isRecord(value);
+}
+
+function isBoundedText(value: unknown, max: number): value is string {
+  return isNonEmpty(value) && value.length <= max;
+}
+
+function isOptionalBoundedText(value: unknown, max: number): boolean {
+  return value === undefined || isBoundedText(value, max);
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === "boolean";
+}
+
+function isValidRoutineVersion(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) > 0 && Number(value) <= MAX_ROUTINE_VERSION;
+}
+
+function parseAmount(
+  value: unknown,
+): { ok: true; value?: ApprovalAmount } | { ok: false } {
+  if (value === undefined) return { ok: true };
+  if (!isRecord(value)) return { ok: false };
+  if (
+    typeof value.value !== "number"
+    || typeof value.currency !== "string"
+    || (value.quantity !== undefined && typeof value.quantity !== "number")
+  ) {
+    return { ok: false };
+  }
+  const amount: ApprovalAmount = {
+    value: value.value,
+    currency: value.currency,
+    ...(value.quantity !== undefined ? { quantity: value.quantity } : {}),
+  };
+  return isValidAmount(amount) ? { ok: true, value: amount } : { ok: false };
+}
+
 function isValidAmount(amount: ApprovalAmount | undefined): boolean {
   return (
     !!amount &&
     typeof amount.value === "number" &&
     Number.isFinite(amount.value) &&
-    isNonEmpty(amount.currency)
+    amount.value > 0 &&
+    typeof amount.currency === "string" &&
+    /^[A-Z]{3}$/.test(amount.currency) &&
+    (
+      amount.quantity === undefined
+      || (
+        typeof amount.quantity === "number"
+        && Number.isFinite(amount.quantity)
+        && amount.quantity > 0
+      )
+    )
   );
+}
+
+function parseDataFreshness(
+  value: unknown,
+  actionClass: ActionClass,
+  nowMs: number,
+): { ok: true; value?: ApprovalDataFreshness } | { ok: false } {
+  if (value === undefined) return { ok: true };
+  if (!isRecord(value)) return { ok: false };
+  if (
+    !isFreshnessTier(value.tier)
+    || typeof value.retrievedAt !== "string"
+    || parseIsoInstant(value.retrievedAt) === null
+  ) {
+    return { ok: false };
+  }
+  const parsed = {
+    tier: value.tier,
+    retrievedAt: value.retrievedAt,
+  };
+  if (!isValidDataFreshness(parsed, actionClass, nowMs)) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    value: parsed,
+  };
+}
+
+function isValidDataFreshness(
+  value: ApprovalDataFreshness | undefined,
+  actionClass: ActionClass,
+  nowMs: number,
+): boolean {
+  if (!value || !FRESHNESS_TIERS.includes(value.tier)) {
+    return false;
+  }
+  const retrievedAt = parseIsoInstant(value.retrievedAt);
+  if (retrievedAt === null || retrievedAt > nowMs + APPROVAL_CLOCK_SKEW_MS) return false;
+  if (actionClass !== "FINANCIAL_EXECUTION") return true;
+  return (
+    (value.tier === "fresh" || value.tier === "delayed")
+    && retrievedAt >= nowMs - FINANCIAL_DATA_MAX_AGE_MS
+  );
+}
+
+function isActorKind(value: unknown): value is ApprovalActor["kind"] {
+  return typeof value === "string" && ACTOR_KINDS.some((kind) => kind === value);
+}
+
+function isActionClass(value: unknown): value is ActionClass {
+  return typeof value === "string" && ACTION_CLASSES.some((actionClass) => actionClass === value);
+}
+
+function isFreshnessTier(value: unknown): value is FreshnessTier {
+  return typeof value === "string" && FRESHNESS_TIERS.some((tier) => tier === value);
+}
+
+function isValidPersistedPolicy(req: ApprovalRequest): boolean {
+  return (
+    (
+      (req.actionClass === "INTERNAL_WRITE" || req.actionClass === "EXTERNAL_COMMUNICATION")
+      && req.requirement === "approval"
+      && req.stepUpRequired === false
+    )
+    || (
+      (req.actionClass === "FINANCIAL_EXECUTION" || req.actionClass === "DESTRUCTIVE_ADMIN")
+      && req.requirement === "approval_step_up"
+      && req.stepUpRequired === true
+    )
+  );
+}
+
+function isValidApprovalExpiry(value: unknown, nowMs: number): value is string {
+  if (typeof value !== "string") return false;
+  const expiry = parseIsoInstant(value);
+  return expiry !== null && expiry > nowMs && expiry <= nowMs + APPROVAL_MAX_LIFETIME_MS;
+}
+
+function parseIsoInstant(value: string): number | null {
+  const match = ISO_INSTANT.exec(value);
+  if (!match) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  const date = new Date(parsed);
+  if (
+    date.getUTCFullYear() !== Number(match[1])
+    || date.getUTCMonth() + 1 !== Number(match[2])
+    || date.getUTCDate() !== Number(match[3])
+    || date.getUTCHours() !== Number(match[4])
+    || date.getUTCMinutes() !== Number(match[5])
+    || date.getUTCSeconds() !== Number(match[6])
+  ) {
+    return null;
+  }
+  return parsed;
 }

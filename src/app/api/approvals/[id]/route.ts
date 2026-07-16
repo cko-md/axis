@@ -3,6 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { isActionable, validateApprovalCompleteness, isApprovalExpired, isStepUpFresh } from "@/lib/security/approvalRequest";
 import { rowToApprovalRequest } from "@/lib/security/approvalPersistence";
 import { emitServerEvent } from "@/lib/observability/events";
+import {
+  consumeActionableApproval,
+  transitionApproval,
+  type ApprovalRow as AtomicApprovalRow,
+  type ApprovalConsumeResult,
+  type AtomicApprovalResult,
+} from "@/lib/security/approvalMutations";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Single approval API — decide (approve / deny) and execute.
@@ -17,6 +25,101 @@ import { emitServerEvent } from "@/lib/observability/events";
 
 const SELECT =
   "id, task_id, action_class, requirement, reasons, proposed_action, status, step_up_verified_at, decided_at, expires_at, scope, created_at";
+
+function approvalResponse(row: AtomicApprovalRow) {
+  return {
+    id: row.id,
+    task_id: row.task_id,
+    action_class: row.action_class,
+    requirement: row.requirement,
+    reasons: row.reasons,
+    proposed_action: row.proposed_action,
+    status: row.status,
+    step_up_verified_at: row.step_up_verified_at,
+    decided_at: row.decided_at,
+    expires_at: row.expires_at,
+    scope: row.scope,
+    created_at: row.created_at,
+  };
+}
+
+function mutationFailure(result: Exclude<AtomicApprovalResult, { ok: true }>) {
+  if (result.code === "NOT_FOUND") {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+  if (result.code === "CONFLICT") {
+    return NextResponse.json(
+      { error: "STALE_APPROVAL_STATE", currentStatus: result.currentStatus },
+      { status: 409 },
+    );
+  }
+  const status = result.code === "SERVICE_UNAVAILABLE" ? 503 : 500;
+  const code = result.code === "SERVICE_UNAVAILABLE"
+    ? "APPROVAL_MUTATION_UNAVAILABLE"
+    : "APPROVAL_UPDATE_FAILED";
+  captureRouteError(new Error(code), {
+    route: "approvals",
+    operation: "transition",
+    area: "approvals",
+    status,
+    code,
+  });
+  return NextResponse.json({ error: code }, { status });
+}
+
+function consumeFailure(result: Exclude<ApprovalConsumeResult, { ok: true }>) {
+  if (result.code === "NOT_FOUND") {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+  if (result.code === "CONFLICT") {
+    return NextResponse.json(
+      { error: "STALE_APPROVAL_STATE", currentStatus: result.currentStatus },
+      { status: 409 },
+    );
+  }
+  if (result.code === "ROUTINE_OWNED") {
+    return NextResponse.json({ error: "ROUTINE_RESUME_REQUIRED" }, { status: 409 });
+  }
+  if (result.code === "EXPIRED") {
+    return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
+  }
+  if (result.code === "STEP_UP_REQUIRED" || result.code === "STEP_UP_STALE") {
+    return NextResponse.json(
+      { error: "NOT_ACTIONABLE", reason: result.code },
+      { status: 409 },
+    );
+  }
+  if (result.code === "INVALID_POLICY" || result.code === "NOT_ACTIONABLE") {
+    captureRouteError(new Error("Stored approval policy invariant failed"), {
+      route: "approvals",
+      operation: "execute",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_POLICY_INVALID",
+    });
+    return NextResponse.json(
+      {
+        error: "NOT_ACTIONABLE",
+        reason: result.code === "INVALID_POLICY"
+          ? "POLICY_MISMATCH"
+          : "INCOMPLETE",
+      },
+      { status: 409 },
+    );
+  }
+  const status = result.code === "SERVICE_UNAVAILABLE" ? 503 : 500;
+  const code = result.code === "SERVICE_UNAVAILABLE"
+    ? "APPROVAL_MUTATION_UNAVAILABLE"
+    : "APPROVAL_UPDATE_FAILED";
+  captureRouteError(new Error(code), {
+    route: "approvals",
+    operation: "execute",
+    area: "approvals",
+    status,
+    code,
+  });
+  return NextResponse.json({ error: code }, { status });
+}
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -47,7 +150,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     // An expired pending approval can only be marked expired, never approved.
     if (action === "approve" && isApprovalExpired(rowToApprovalRequest(row), Date.now())) {
-      await supabase.from("approvals").update({ status: "expired", decided_at: now }).eq("user_id", user.id).eq("id", id);
+      const expired = await transitionApproval({
+        userId: user.id,
+        approvalId: id,
+        expectedStatus: "pending",
+        nextStatus: "expired",
+        decidedAt: now,
+      });
+      if (!expired.ok) return mutationFailure(expired);
       return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
     }
 
@@ -58,9 +168,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       decided_at: now,
     };
 
-    const { data, error } = await supabase
-      .from("approvals").update(patch).eq("user_id", user.id).eq("id", id).select(SELECT).single();
-    if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+    const result = await transitionApproval({
+      userId: user.id,
+      approvalId: id,
+      expectedStatus: "pending",
+      nextStatus: patch.status,
+      decidedAt: now,
+    });
+    if (!result.ok) return mutationFailure(result);
+    const data = result.approval;
     // Structured decision event — safe metadata only (no proposed_action / PII).
     // decision_latency_ms measures request→decide time (approval age at decision).
     emitServerEvent("approval.decided", {
@@ -70,7 +186,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       requirement: data.requirement,
       decisionLatencyMs: data.created_at ? Date.parse(now) - Date.parse(data.created_at) : null,
     });
-    return NextResponse.json({ approval: data });
+    return NextResponse.json({ approval: approvalResponse(data) });
   }
 
   // action === "execute" — the isActionable gate.
@@ -83,7 +199,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const stepUpFresh = isStepUpFresh(row.step_up_verified_at, undefined, nowMs);
 
   if (isApprovalExpired(req, nowMs)) {
-    await supabase.from("approvals").update({ status: "expired" }).eq("user_id", user.id).eq("id", id);
+    const expired = await transitionApproval({
+      userId: user.id,
+      approvalId: id,
+      expectedStatus: "approved",
+      nextStatus: "expired",
+    });
+    if (!expired.ok) return mutationFailure(expired);
     return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
   }
   if (!isActionable(req, { stepUpVerifiedAt: row.step_up_verified_at, nowMs })) {
@@ -96,9 +218,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "NOT_ACTIONABLE", reason, missing }, { status: 409 });
   }
 
-  const { data, error } = await supabase
-    .from("approvals").update({ status: "executed" }).eq("user_id", user.id).eq("id", id).select(SELECT).single();
-  if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+  const result = await consumeActionableApproval({
+    userId: user.id,
+    approvalId: id,
+    now,
+  });
+  if (!result.ok) return consumeFailure(result);
+  const data = result.approval;
   // Gate passed. The underlying side-effecting action is intentionally NOT
   // performed here — it is the caller's responsibility (no autonomous execution).
   emitServerEvent("approval.executed", {
@@ -109,5 +235,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     // Time from decision (approve) to execute — how long the actionable window sat.
     executeLatencyMs: data.decided_at ? nowMs - Date.parse(data.decided_at) : null,
   });
-  return NextResponse.json({ approval: data, cleared: true });
+  return NextResponse.json({ approval: approvalResponse(data), cleared: true });
 }

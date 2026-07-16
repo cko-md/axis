@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { sumBy } from "@/lib/fund/money";
@@ -8,6 +9,7 @@ import {
   type Position,
 } from "@/lib/skills/concentrationReview";
 import type { RoutineStep } from "@/lib/routines/executor";
+import { createAgentTaskWithActivity } from "@/lib/tasks/taskPersistence";
 
 const TERMINAL_TASK = ["completed", "failed", "cancelled"];
 
@@ -60,21 +62,57 @@ export function concentrationCheckSteps(input: {
     {
       key: "create_tasks",
       input: ({ outputs }) => ({ breaches: requireReview(outputs).breaches.length }),
-      run: async ({ runId, outputs }) => {
+      run: async ({ runId, outputs, idempotencyKey }) => {
         const review = requireReview(outputs);
         if (review.breaches.length === 0) return { created: [], skipped: 0 };
 
-        const { data: openTasks } = await supabase
-          .from("agent_tasks")
-          .select("objective")
-          .eq("user_id", userId)
-          .not("status", "in", `(${TERMINAL_TASK.join(",")})`);
+        const [openTasksResult, routineTasksResult] = await Promise.all([
+          supabase
+            .from("agent_tasks")
+            .select("objective")
+            .eq("user_id", userId)
+            .not("status", "in", `(${TERMINAL_TASK.join(",")})`),
+          supabase
+            .from("agent_tasks")
+            .select("id, objective, idempotency_key")
+            .eq("user_id", userId)
+            .eq("source_routine_id", runId),
+        ]);
+        const { data: openTasks, error: openTasksError } = openTasksResult;
+        if (openTasksError) throw new Error("TASKS_UNAVAILABLE");
+        if (routineTasksResult.error) throw new Error("TASKS_UNAVAILABLE");
         const open = new Set((openTasks ?? []).map((task) => task.objective));
+        const completedSideEffects = new Map(
+          (routineTasksResult.data ?? [])
+            .filter(
+              (task): task is typeof task & { idempotency_key: string } =>
+                typeof task.idempotency_key === "string"
+                && task.idempotency_key.length > 0,
+            )
+            .map((task) => [
+              task.idempotency_key,
+              { id: task.id, objective: task.objective },
+            ]),
+        );
 
         const created: { id: string; objective: string }[] = [];
         let skipped = 0;
         for (const breach of review.breaches) {
           const objective = breachObjective(breach, maxWeight);
+          const taskIdempotencyKey = routineTaskIdempotencyKey({
+            runId,
+            stepKey: "create_tasks",
+            sideEffectKey: breach.symbol,
+            resumeIdempotencyKey: idempotencyKey,
+          });
+          const completedSideEffect = completedSideEffects.get(taskIdempotencyKey);
+          if (completedSideEffect) {
+            if (completedSideEffect.objective !== objective) {
+              throw new Error("TASK_IDEMPOTENCY_CONFLICT");
+            }
+            created.push(completedSideEffect);
+            continue;
+          }
           if (open.has(objective)) {
             skipped += 1;
             continue;
@@ -83,6 +121,7 @@ export function concentrationCheckSteps(input: {
           const context: Json = {
             skill: CONCENTRATION_CHECK_ROUTINE_KEY,
             run_id: runId,
+            idempotency_key: taskIdempotencyKey,
             evidence: {
               symbol: breach.symbol,
               weight: breach.weight,
@@ -92,32 +131,49 @@ export function concentrationCheckSteps(input: {
               maxWeight,
             },
           };
-          const { data: task } = await supabase
-            .from("agent_tasks")
-            .insert({
-              user_id: userId,
-              objective,
-              status: "queued",
-              context,
-              source_skill: CONCENTRATION_CHECK_ROUTINE_KEY,
-            })
-            .select("id, objective")
-            .single();
-          if (!task) continue;
-
-          await supabase.from("agent_task_activity").insert({
-            task_id: task.id,
-            user_id: userId,
-            kind: "status_change",
-            detail: { from: null, to: "queued", by: CONCENTRATION_CHECK_ROUTINE_KEY },
+          const result = await createAgentTaskWithActivity({
+            userId,
+            objective,
+            context,
+            sourceRoutineId: runId,
+            sourceSkill: CONCENTRATION_CHECK_ROUTINE_KEY,
+            idempotencyKey: taskIdempotencyKey,
+            activityDetail: {
+              by: CONCENTRATION_CHECK_ROUTINE_KEY,
+              idempotency_key: taskIdempotencyKey,
+            },
           });
-          created.push({ id: task.id, objective: task.objective });
+          if (!result.ok) throw new Error("TASK_CREATE_FAILED");
+          const task = result.task;
+          const createdTask = { id: task.id, objective: task.objective };
+          created.push(createdTask);
+          completedSideEffects.set(taskIdempotencyKey, createdTask);
         }
 
         return { created, skipped };
       },
     },
   ];
+}
+
+export function routineTaskIdempotencyKey(input: {
+  runId: string;
+  stepKey: string;
+  sideEffectKey: string;
+  resumeIdempotencyKey: string | null;
+}): string {
+  const executionKey = input.resumeIdempotencyKey
+    ?? `routine:${input.runId}:${input.stepKey}`;
+  const digest = createHash("sha256")
+    .update(JSON.stringify([
+      executionKey,
+      input.runId,
+      input.stepKey,
+      input.sideEffectKey,
+      "agent_task",
+    ]))
+    .digest("hex");
+  return `routine-task:v1:${digest}`;
 }
 
 export function buildConcentrationCheckOutput(outputs: Partial<ConcentrationCheckOutputs>): Json {

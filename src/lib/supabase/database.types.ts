@@ -1920,6 +1920,7 @@ export type Database = {
           created_at: string
           estimated_cost_usd: number | null
           id: string
+          idempotency_key: string | null
           objective: string
           source_routine_id: string | null
           source_skill: string | null
@@ -1934,6 +1935,7 @@ export type Database = {
           created_at?: string
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           objective: string
           source_routine_id?: string | null
           source_skill?: string | null
@@ -1948,6 +1950,7 @@ export type Database = {
           created_at?: string
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           objective?: string
           source_routine_id?: string | null
           source_skill?: string | null
@@ -3044,6 +3047,101 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cas_agent_task_transition: {
+        Args: {
+          p_completed_at?: string | null
+          p_expected_status: string
+          p_next_status: string
+          p_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      cas_approval_transition: {
+        Args: {
+          p_approval_id: string
+          p_decided_at?: string | null
+          p_expected_status: string
+          p_next_status: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      commit_approval_step_up: {
+        Args: {
+          p_approval_id: string
+          p_expected_approval_status: string
+          p_expected_counter: number
+          p_new_counter: number
+          p_passkey_id: string
+          p_user_id: string
+          p_verified_at: string
+        }
+        Returns: Json
+      }
+      commit_passkey_authentication: {
+        Args: {
+          p_expected_counter: number
+          p_expected_last_used_at: string | null
+          p_new_counter: number
+          p_passkey_id: string
+          p_used_at: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      consume_actionable_approval: {
+        Args: {
+          p_approval_id: string
+          p_now?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      consume_approval_authentication_challenge: {
+        Args: {
+          p_approval_id: string
+          p_challenge_id: string
+          p_now?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      consume_webauthn_challenge: {
+        Args: {
+          p_challenge_id: string
+          p_now?: string
+          p_type: string
+          p_user_id: string | null
+        }
+        Returns: Json
+      }
+      create_approval_with_activity: {
+        Args: {
+          p_action_class: string
+          p_expires_at?: string | null
+          p_proposed_action: Json
+          p_reasons: string[]
+          p_requirement: string
+          p_scope?: string
+          p_task_id: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      create_user_passkey: {
+        Args: {
+          p_backed_up: boolean
+          p_counter: number
+          p_credential_id: string
+          p_credential_public_key: string
+          p_device_type: string | null
+          p_name: string
+          p_transports: string[]
+          p_user_id: string
+        }
+        Returns: Json
+      }
       create_entity_reference: {
         Args: {
           p_label?: string
@@ -3055,8 +3153,38 @@ export type Database = {
         }
         Returns: string
       }
+      create_agent_task_with_activity: {
+        Args: {
+          p_activity_detail?: Json
+          p_context?: Json
+          p_objective: string
+          p_source_routine_id?: string | null
+          p_source_skill?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      create_idempotent_agent_task_with_activity: {
+        Args: {
+          p_activity_detail?: Json
+          p_context?: Json
+          p_idempotency_key?: string | null
+          p_objective: string
+          p_source_routine_id?: string | null
+          p_source_skill?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      delete_user_passkey: {
+        Args: {
+          p_passkey_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       delete_entity_reference: {
         Args: { p_reference_id: string }
         Returns: boolean

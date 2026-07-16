@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buildApprovalRequest,
+  parseApprovalRequestInput,
   validateApprovalCompleteness,
-  type ApprovalRequestInput,
 } from "@/lib/security/approvalRequest";
 import { approvalRequestToInsert } from "@/lib/security/approvalPersistence";
-import type { ActionClass } from "@/lib/security/actionPolicy";
-import type { Json } from "@/lib/supabase/database.types";
+import { createApprovalWithActivity } from "@/lib/security/approvalMutations";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Approvals collection API — persists the approval object (§11.3), backed by the
@@ -18,11 +18,6 @@ import type { Json } from "@/lib/supabase/database.types";
  *        no approval is needed (nothing to persist) or if it is incomplete
  *        (never persist a bare "Allow"), then store it as `pending`.
  */
-
-const ACTION_CLASSES: readonly ActionClass[] = [
-  "READ", "DRAFT", "SIMULATE", "INTERNAL_WRITE",
-  "EXTERNAL_COMMUNICATION", "FINANCIAL_EXECUTION", "DESTRUCTIVE_ADMIN",
-];
 
 const APPROVAL_STATUSES = ["pending", "approved", "denied", "expired", "executed"] as const;
 
@@ -55,20 +50,19 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await request.json().catch(() => null)) as Partial<ApprovalRequestInput> | null;
-  if (!body || typeof body !== "object") {
-    return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
+  const body: unknown = await request.json().catch(() => null);
+  const parsed = parseApprovalRequestInput(body);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.code }, { status: 400 });
+  }
+  // This browser-facing boundary represents only the authenticated user. Agent
+  // and routine attribution is reserved for trusted server callers so a client
+  // cannot forge who proposed a privileged action.
+  if (parsed.value.actor.kind !== "user" || parsed.value.actor.id !== user.id) {
+    return NextResponse.json({ error: "INVALID_ACTOR" }, { status: 400 });
   }
 
-  const actionClass = body.context?.actionClass;
-  if (!actionClass || !ACTION_CLASSES.includes(actionClass)) {
-    return NextResponse.json({ error: "INVALID_ACTION_CLASS" }, { status: 400 });
-  }
-  if (!body.actor?.id || typeof body.tool !== "string" || typeof body.summary !== "string" || !body.target?.entityType) {
-    return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
-  }
-
-  const req = buildApprovalRequest(body as ApprovalRequestInput);
+  const req = buildApprovalRequest(parsed.value);
 
   // Nothing to approve — the policy lets this run automatically. Don't persist a
   // meaningless approval row.
@@ -86,13 +80,20 @@ export async function POST(request: NextRequest) {
   }
 
   const insert = approvalRequestToInsert(req, user.id);
-  const { data, error } = await supabase
-    .from("approvals")
-    // proposed_action carries opaque before/after state; it is a jsonb column.
-    .insert({ ...insert, proposed_action: insert.proposed_action as unknown as Json })
-    .select("id, task_id, action_class, requirement, reasons, proposed_action, status, expires_at, scope, created_at")
-    .single();
-
-  if (error || !data) return NextResponse.json({ error: "APPROVAL_CREATE_FAILED" }, { status: 500 });
-  return NextResponse.json({ approval: data }, { status: 201 });
+  const result = await createApprovalWithActivity(insert);
+  if (!result.ok) {
+    const status = result.code === "SERVICE_UNAVAILABLE" ? 503 : 500;
+    const code = result.code === "SERVICE_UNAVAILABLE"
+      ? "APPROVAL_MUTATION_UNAVAILABLE"
+      : "APPROVAL_CREATE_FAILED";
+    captureRouteError(new Error(code), {
+      route: "approvals",
+      operation: "create",
+      area: "approvals",
+      status,
+      code,
+    });
+    return NextResponse.json({ error: code }, { status });
+  }
+  return NextResponse.json({ approval: result.approval }, { status: 201 });
 }

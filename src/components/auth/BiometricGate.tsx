@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import BiometricPrompt from './BiometricPrompt';
 import { usePasskey } from '@/hooks/usePasskey';
+import { useToast } from '@/components/ui/Toast';
 
 export default function BiometricGate() {
   const [show, setShow] = useState(false);
   const { isSupported, register } = usePasskey();
+  const { toast } = useToast();
 
   useEffect(() => {
     let alive = true;
@@ -28,8 +30,16 @@ export default function BiometricGate() {
     <BiometricPrompt
       isSupported={isSupported}
       onEnable={async () => {
+        if (!isSupported) return;
+        const result = await register('This device');
+        if (!result.ok) {
+          if (result.error !== 'Cancelled') {
+            toast(result.error ?? 'Passkey registration failed', 'error', 'Security');
+          }
+          return;
+        }
         setShow(false);
-        if (isSupported) await register('This device');
+        toast('Passkey registered', 'success', 'Security');
       }}
       onDismiss={() => setShow(false)}
     />

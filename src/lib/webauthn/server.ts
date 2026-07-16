@@ -42,9 +42,13 @@ export async function buildRegistrationOptions(
     userID: userIdBytes,
     attestationType: "none",
     authenticatorSelection: {
-      residentKey: "preferred",
-      userVerification: "preferred",
-      authenticatorAttachment: "platform", // prefer device biometric (Face ID / Touch ID / Windows Hello)
+      // Authentication is username-less (no allowCredentials), so every
+      // registered credential must be discoverable.
+      residentKey: "required",
+      requireResidentKey: true,
+      // Verification below requires UV; request it explicitly so the browser
+      // does not offer a ceremony the server must reject.
+      userVerification: "required",
     },
     excludeCredentials: existingCredentialIds.map((id) => ({
       id,
@@ -73,7 +77,7 @@ export async function buildAuthenticationOptions(credentialIds: string[]) {
   const { rpID } = getRpConfig();
   return generateAuthenticationOptions({
     rpID,
-    userVerification: "preferred",
+    userVerification: "required",
     allowCredentials: credentialIds.length
       ? credentialIds.map((id) => ({ id, transports: ["internal"] as AuthenticatorTransport[] }))
       : undefined,

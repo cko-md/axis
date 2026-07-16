@@ -83,6 +83,15 @@ describe("action policy — explicit trust downgrade", () => {
     ).toBe("approval_step_up");
   });
 
+  it("never downgrades external communication", () => {
+    expect(
+      decideApproval({
+        actionClass: "EXTERNAL_COMMUNICATION",
+        explicitlyTrusted: true,
+      }).requirement,
+    ).toBe("approval");
+  });
+
   it("never downgrades an action caught by the combinatorial rule", () => {
     expect(
       decideApproval({

@@ -140,6 +140,7 @@ export function TasksModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ task: AgentTask; activity: AgentTaskActivity[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [taskApprovals, setTaskApprovals] = useState<TaskApproval[]>([]);
   const [approvalsLoading, setApprovalsLoading] = useState(false);
   const [approvalsError, setApprovalsError] = useState<string | null>(null);
@@ -218,17 +219,32 @@ export function TasksModule() {
       approvalsRequestRef.current += 1;
       setSelectedId(id);
       setDetailLoading(true);
+      setDetailError(null);
       setTaskApprovals([]);
       setApprovalsLoading(false);
       setApprovalsError(null);
       const result = await getTask(id);
       if (detailRequestRef.current !== requestId) return;
-      setDetail(result);
       setDetailLoading(false);
-      if (!result) {
-        toast("Could not load task detail.", "error", "Tasks");
+      if (!result.ok) {
+        setDetail(null);
+        const message = result.reason === "NOT_FOUND"
+          ? "This task is no longer available."
+          : result.reason === "NETWORK"
+            ? "Task detail could not reach AXIS. Check your connection and retry."
+            : "Task detail or its activity log could not be loaded. Retry to restore the complete audit trail.";
+        setDetailError(message);
+        if (result.reason === "UNAVAILABLE" || result.reason === "INVALID_RESPONSE") {
+          reportTaskFailure(
+            "load_detail",
+            result.reason === "INVALID_RESPONSE" ? "invalid_response" : "server",
+            result.status,
+          );
+        }
+        toast(message, "error", "Tasks");
         return;
       }
+      setDetail({ task: result.task, activity: result.activity });
       void loadTaskApprovals(id, requestId);
     },
     [getTask, loadTaskApprovals, toast],
@@ -257,6 +273,7 @@ export function TasksModule() {
       setSelectedId(taskSelection.ref.id);
       setDetail(null);
       setDetailLoading(true);
+      setDetailError(null);
       setSelectionError(null);
       return;
     }
@@ -267,6 +284,7 @@ export function TasksModule() {
       setSelectedId(null);
       setDetail(null);
       setDetailLoading(false);
+      setDetailError(null);
       setTaskApprovals([]);
       setApprovalsLoading(false);
       setApprovalsError(null);
@@ -280,6 +298,7 @@ export function TasksModule() {
       setSelectedId(taskSelection.ref.id);
       setDetail(null);
       setDetailLoading(false);
+      setDetailError(null);
       setTaskApprovals([]);
       setApprovalsLoading(false);
       setApprovalsError(null);
@@ -403,13 +422,17 @@ export function TasksModule() {
       if (result.ok) {
         toast(`Moved to “${taskStatusLabel(status)}”.`, "success", "Tasks");
         if (selectedId === id) void openTask(id);
+      } else if (result.reason === "STALE_TRANSITION") {
+        toast("This task changed elsewhere. Reloaded the latest state.", "error", "Tasks");
+        void reload();
+        if (selectedId === id) void openTask(id);
       } else if (result.reason === "ILLEGAL_TRANSITION") {
         toast("That status change isn't allowed from here.", "error", "Tasks");
       } else {
         toast("Could not update the task.", "error", "Tasks");
       }
     },
-    [transition, toast, selectedId, openTask],
+    [transition, toast, selectedId, openTask, reload],
   );
 
   return (
@@ -553,7 +576,15 @@ export function TasksModule() {
             <SkeletonCard rows={5} />
           ) : !detail ? (
             <StatusCallout kind="error" title="Couldn’t load that task">
-              Try selecting it again.
+              <span>{detailError ?? "Task detail is unavailable."}</span>{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => void openTask(selectedId)}
+              >
+                Retry
+              </button>
+              .
             </StatusCallout>
           ) : (
             <Card>
