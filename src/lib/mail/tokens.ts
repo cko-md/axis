@@ -22,7 +22,7 @@ export async function getMailTokens(
   mailEmail: string,
 ): Promise<StoredTokens | null> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("mail_connections")
     .select("access_token_enc, refresh_token_enc, expires_at, mail_email")
     .eq("user_id", userId)
@@ -30,6 +30,7 @@ export async function getMailTokens(
     .eq("mail_email", mailEmail)
     .single();
 
+  if (error && error.code !== "PGRST116") throw error;
   if (!data) return null;
   const accessToken = decrypt(data.access_token_enc);
   if (!accessToken) return null;
@@ -58,7 +59,7 @@ export async function saveMailTokens(
   const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
   const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-  await supabase.from("mail_connections").upsert(
+  const { error } = await supabase.from("mail_connections").upsert(
     {
       user_id: userId,
       provider,
@@ -70,6 +71,7 @@ export async function saveMailTokens(
     },
     { onConflict: "user_id,provider,mail_email" },
   );
+  if (error) throw error;
 }
 
 export async function deleteMailTokens(
