@@ -19,7 +19,7 @@ const SUCCESS_RESPONSE = {
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
   const { success } =
-    (await redisRateLimit(ip, 5, "15 m", "axis:forgot-password")) ??
+    (await redisRateLimit(ip, 5, "15 m", "axis:forgot-password", { failClosed: true })) ??
     memoryRateLimit(`forgot-password:${ip}`, 5, 15 * 60_000);
   if (!success) {
     return NextResponse.json(SUCCESS_RESPONSE); // opaque — don't reveal rate limiting

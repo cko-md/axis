@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
   const { success } =
-    (await redisRateLimit(ip, 10, "10 m", "axis:passkey-verify")) ??
+    (await redisRateLimit(ip, 10, "10 m", "axis:passkey-verify", { failClosed: true })) ??
     memoryRateLimit(`passkey-verify:${ip}`, 10, 10 * 60_000);
   if (!success) {
     return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });

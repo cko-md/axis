@@ -25,9 +25,10 @@ export async function redisRateLimit(
   limit: number,
   window: RateLimitWindow,
   prefix: string,
+  options?: { failClosed?: boolean },
 ): Promise<{ success: boolean } | null> {
   if (!hasOptionalEnv("UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN")) {
-    return null;
+    return options?.failClosed ? { success: false } : null;
   }
 
   const [{ Ratelimit }, { Redis }] = await Promise.all([

@@ -90,7 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Throttle assertion attempts per user (brute-force / abuse guard), matching
   // the login passkey route.
   const { success } =
-    (await redisRateLimit(user.id, 10, "10 m", "axis:approval-step-up")) ??
+    (await redisRateLimit(user.id, 10, "10 m", "axis:approval-step-up", { failClosed: true })) ??
     memoryRateLimit(`approval-step-up:${user.id}`, 10, 10 * 60_000);
   if (!success) {
     return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });

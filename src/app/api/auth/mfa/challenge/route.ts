@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   // Throttle challenge creation too — otherwise an attacker could mint
   // unlimited fresh challenges to widen the brute-force window on /verify.
   const { success } =
-    (await redisRateLimit(user.id, 10, "5 m", "axis:mfa-challenge")) ??
+    (await redisRateLimit(user.id, 10, "5 m", "axis:mfa-challenge", { failClosed: true })) ??
     memoryRateLimit(`mfa-challenge:${user.id}`, 10, 5 * 60_000);
   if (!success) {
     return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });

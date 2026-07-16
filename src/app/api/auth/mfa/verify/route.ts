@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   // A 6-digit TOTP code has only 1,000,000 possibilities — throttle attempts
   // per user so it can't be brute-forced within the code's validity window.
   const { success } =
-    (await redisRateLimit(user.id, 5, "5 m", "axis:mfa-verify")) ??
+    (await redisRateLimit(user.id, 5, "5 m", "axis:mfa-verify", { failClosed: true })) ??
     memoryRateLimit(`mfa-verify:${user.id}`, 5, 5 * 60_000);
   if (!success) {
     return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
