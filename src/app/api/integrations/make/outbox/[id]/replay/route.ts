@@ -58,7 +58,13 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
 
   const result = await replayMakeNotification(admin, owned.data, { store });
   const refreshed = await store.getOwned(id, user.id);
-  const delivery = refreshed.ok && refreshed.data
+  if (!refreshed.ok) {
+    Sentry.captureException(new Error("Make outbox replay confirmation lookup failed"), {
+      tags: { area: "integrations", provider: "make", operation: "outbox_replay_confirmation" },
+    });
+    return NextResponse.json({ error: "OUTBOX_CONFIRMATION_UNAVAILABLE" }, { status: 503 });
+  }
+  const delivery = refreshed.data
     ? toMakeOutboxPublicItem(refreshed.data)
     : toMakeOutboxPublicItem(owned.data);
 
@@ -66,6 +72,16 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     return NextResponse.json(
       { error: result.reason, retryable: result.retryable, delivery },
       { status: responseStatus(result.reason) },
+    );
+  }
+
+  if (!result.outboxRecorded) {
+    Sentry.captureException(new Error("Make replay delivery persistence failed"), {
+      tags: { area: "integrations", provider: "make", operation: "outbox_replay_persist" },
+    });
+    return NextResponse.json(
+      { error: "OUTBOX_CONFIRMATION_UNAVAILABLE", retryable: true, delivery },
+      { status: 503 },
     );
   }
 
