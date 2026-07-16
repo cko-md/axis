@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-15",
-  "revision": "wave-8.8",
+  "revision": "wave-8.9",
   "defects": [
     {
       "id": "FIN-001",
@@ -156,6 +156,23 @@
       "status": "fixed",
       "revision_fixed": "wave-8.8",
       "verification": "Malformed null and unsafe threshold cases return 400 with no profile query or routine execution; valid request/profile/default provenance cases remain covered"
+    },
+    {
+      "id": "SIG-001",
+      "severity": "medium",
+      "source": "Phase 8 Need-to-Know integration review",
+      "summary": "The deterministic signal severity model was not consumed by Dispatch and did not recognize the application's persisted hi priority vocabulary",
+      "reproduction": "Persist an action signal with metadata.ai_priority=hi; the prior UI grouped it as Action and deriveSeverity returned actionable instead of critical. Archive a title and resurface a punctuation variant; the queue did not use that resolution history to demote it.",
+      "affected": [
+        "src/lib/signals/severity.ts",
+        "src/components/signals/SignalsModule.tsx"
+      ],
+      "root_cause": "Phase 7 shipped pure severity and normalized dedup primitives without wiring them into the existing Dispatch filters/groups, and its urgent label set used high but not the repository's hi enum",
+      "fix": "Recognize hi as urgent, derive every queue row's tier from persisted type/priority, group and filter by the four Need-to-Know tiers, and feed resolved routed/dismissed/archived titles into normalized duplicate detection while excluding the current record",
+      "regression_test": "src/lib/signals/severity.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-8.9",
+      "verification": "Focused tests cover hi escalation and punctuation-varied resolution memory; synthetic local desktop/mobile verification showed one row in each tier and responsive filter wrapping"
     }
   ]
 }

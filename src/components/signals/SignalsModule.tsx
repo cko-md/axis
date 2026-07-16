@@ -29,19 +29,21 @@ import { triageSignalToTask, useTasks, type TaskCategory, type TaskPriority } fr
 import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { normalizeName, triageSignalToPerson, usePeople } from "@/lib/hooks/usePeople";
+import { deriveSeverity, normalizeSignalKey, type SignalSeverity } from "@/lib/signals/severity";
 import { Modal } from "@/components/ui/Modal";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import styles from "./SignalsModule.module.css";
 
-const CHIPS = ["All", "Action", "Awaiting", "FYI", "Routed", "Unread", "Snoozed", "Archived"] as const;
+const CHIPS = ["All", "Critical", "Actionable", "Information", "Noise", "Routed", "Unread", "Snoozed", "Archived"] as const;
 type Chip = (typeof CHIPS)[number];
 
-const GROUPS: { key: SignalType | "routed"; label: string }[] = [
-  { key: "action", label: "Action" },
-  { key: "awaiting", label: "Awaiting" },
-  { key: "fyi", label: "FYI" },
+const GROUPS: { key: SignalSeverity | "routed"; label: string }[] = [
+  { key: "critical", label: "Critical" },
+  { key: "actionable", label: "Actionable" },
+  { key: "informational", label: "Information" },
+  { key: "noise", label: "Noise" },
   { key: "routed", label: "Routed" },
 ];
 
@@ -203,7 +205,14 @@ function pillClass(type: SignalType) {
   return "lo";
 }
 
-function applyChip(signals: Signal[], chip: Chip) {
+function severityPillClass(severity: SignalSeverity) {
+  if (severity === "critical") return "hi";
+  if (severity === "actionable") return "med";
+  if (severity === "informational") return "lo";
+  return styles.noisePill;
+}
+
+function applyChip(signals: Signal[], chip: Chip, severityFor: (signal: Signal) => SignalSeverity) {
   switch (chip) {
     case "All":
       return signals.filter((s) => isSignalVisible(s));
@@ -211,12 +220,14 @@ function applyChip(signals: Signal[], chip: Chip) {
       return signals.filter((s) => s.routed_at && isSignalVisible(s));
     case "Unread":
       return signals.filter((s) => !s.read_at && isSignalVisible(s));
-    case "Action":
-      return signals.filter((s) => s.signal_type === "action" && !s.routed_at && isSignalVisible(s));
-    case "Awaiting":
-      return signals.filter((s) => s.signal_type === "awaiting" && !s.routed_at && isSignalVisible(s));
-    case "FYI":
-      return signals.filter((s) => s.signal_type === "fyi" && !s.routed_at && isSignalVisible(s));
+    case "Critical":
+      return signals.filter((s) => !s.routed_at && isSignalVisible(s) && severityFor(s) === "critical");
+    case "Actionable":
+      return signals.filter((s) => !s.routed_at && isSignalVisible(s) && severityFor(s) === "actionable");
+    case "Information":
+      return signals.filter((s) => !s.routed_at && isSignalVisible(s) && severityFor(s) === "informational");
+    case "Noise":
+      return signals.filter((s) => !s.routed_at && isSignalVisible(s) && severityFor(s) === "noise");
     case "Snoozed":
       return signals.filter((s) => !isSignalArchived(s) && isSignalSnoozed(s));
     case "Archived":
@@ -247,19 +258,44 @@ export function SignalsModule() {
   const [routingDestination, setRoutingDestination] = useState<RouteDestination | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
 
-  const filtered = useMemo(() => applyChip(signals, activeChip), [signals, activeChip]);
+  const resolvedTitleOwners = useMemo(() => {
+    const owners = new Map<string, Set<string>>();
+    for (const signal of signals) {
+      if (!signal.routed_at && !signalDismissedAt(signal) && !isSignalArchived(signal)) continue;
+      const key = normalizeSignalKey(signal.title);
+      if (!key) continue;
+      const ids = owners.get(key) ?? new Set<string>();
+      ids.add(signal.id);
+      owners.set(key, ids);
+    }
+    return owners;
+  }, [signals]);
+  const severityFor = useCallback((signal: Signal) => {
+    const resolvedOwners = resolvedTitleOwners.get(normalizeSignalKey(signal.title));
+    return deriveSeverity({
+      signalType: signal.signal_type,
+      priority: typeof signal.metadata?.ai_priority === "string" ? signal.metadata.ai_priority : null,
+      isRedundant: Boolean(resolvedOwners && (resolvedOwners.size > 1 || !resolvedOwners.has(signal.id))),
+    });
+  }, [resolvedTitleOwners]);
+  const filtered = useMemo(
+    () => applyChip(signals, activeChip, severityFor),
+    [signals, activeChip, severityFor],
+  );
 
-  // Group the filtered set for display. When showing "All" we group by classification + routed.
+  // The default queue is ordered by deterministic attention tier, with completed routing separate.
   const grouped = useMemo(() => {
     const grouping = activeChip === "All";
     if (!grouping) return null;
-    const buckets: Record<string, Signal[]> = { action: [], awaiting: [], fyi: [], routed: [] };
+    const buckets: Record<string, Signal[]> = {
+      critical: [], actionable: [], informational: [], noise: [], routed: [],
+    };
     for (const s of filtered) {
       if (s.routed_at || isSignalArchived(s) || isSignalSnoozed(s)) buckets.routed.push(s);
-      else buckets[s.signal_type].push(s);
+      else buckets[severityFor(s)].push(s);
     }
     return buckets;
-  }, [filtered, activeChip]);
+  }, [filtered, activeChip, severityFor]);
 
   // Live count of the always-selected signal (keeps detail panel in sync after edits).
   const live = selected ? signals.find((s) => s.id === selected.id) ?? selected : null;
@@ -612,7 +648,7 @@ export function SignalsModule() {
           </div>
         )}
         <div className="task-meta" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-          <span className={`pill ${pillClass(s.signal_type)}`}>{s.signal_type.toUpperCase()}</span>
+          <span className={`pill ${severityPillClass(severityFor(s))}`}>{severityFor(s).toUpperCase()}</span>
           <span>
             {s.source} · {isSignalArchived(s) ? "archived" : isSignalSnoozed(s) ? `snoozed until ${new Date(signalSnoozedUntil(s) ?? "").toLocaleString()}` : s.route_target ? `routed → ${destLabel(s.route_target)}` : "unrouted"}
           </span>
@@ -725,7 +761,7 @@ export function SignalsModule() {
             <h3 style={{ fontSize: 16, marginBottom: 8 }}>{live.title}</h3>
             <p style={{ color: "var(--ink-dim)", marginBottom: 12, fontSize: 13 }}>{live.body ?? "No additional detail."}</p>
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginBottom: 14 }}>
-              {live.source} · {live.signal_type} · {new Date(live.created_at).toLocaleString()}
+              {live.source} · {severityFor(live)} · {live.signal_type} · {new Date(live.created_at).toLocaleString()}
               {live.routed_at && ` · routed → ${destLabel(live.route_target ?? "")}`}
               {signalArchivedAt(live) && ` · archived ${new Date(signalArchivedAt(live) ?? "").toLocaleString()}`}
               {signalDismissedAt(live) && ` · dismissed`}

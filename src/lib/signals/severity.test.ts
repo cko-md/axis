@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bySeverity,
+  deriveQueueSeverity,
   deriveSeverity,
   isDuplicateSignal,
   normalizeSignalKey,
@@ -26,6 +27,7 @@ describe("deriveSeverity", () => {
     expect(deriveSeverity({ signalType: "action", priority: "P1" })).toBe("critical");
     expect(deriveSeverity({ signalType: "fyi", priority: 0 })).toBe("critical");
     expect(deriveSeverity({ signalType: "fyi", priority: 1 })).toBe("critical");
+    expect(deriveSeverity({ signalType: "action", priority: "hi" })).toBe("critical");
   });
 
   it("does not escalate normal priorities", () => {
@@ -35,6 +37,22 @@ describe("deriveSeverity", () => {
 
   it("treats redundant duplicates as noise, overriding everything else", () => {
     expect(deriveSeverity({ signalType: "action", priority: "urgent", isRedundant: true })).toBe("noise");
+  });
+});
+
+describe("deriveQueueSeverity", () => {
+  it("demotes a resurfaced resolved title to noise", () => {
+    expect(deriveQueueSeverity(
+      { title: "Quarterly rebalance!", signalType: "action", priority: "hi" },
+      ["Quarterly rebalance"],
+    )).toBe("noise");
+  });
+
+  it("keeps novel signals in their deterministic tier", () => {
+    expect(deriveQueueSeverity(
+      { title: "New filing", signalType: "awaiting" },
+      ["Quarterly rebalance"],
+    )).toBe("actionable");
   });
 });
 
