@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 export async function GET() {
   const supabase = await createClient();
@@ -12,7 +13,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("category");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/category-budgets", "list_budgets");
   return NextResponse.json({ budgets: data ?? [] });
 }
 
@@ -37,6 +38,6 @@ export async function POST(request: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/category-budgets", "upsert_budget");
   return NextResponse.json({ budget: data });
 }

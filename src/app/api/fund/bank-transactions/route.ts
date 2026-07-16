@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 /**
  * GET /api/fund/bank-transactions
@@ -42,6 +43,6 @@ export async function GET(request: NextRequest) {
   if (search) query = query.ilike("merchant_name", `%${search}%`);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/bank-transactions", "list_transactions");
   return NextResponse.json({ transactions: data ?? [] });
 }

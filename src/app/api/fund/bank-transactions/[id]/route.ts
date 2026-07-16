@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 const PATCHABLE = [
   "custom_category",
@@ -93,6 +94,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/bank-transactions/:id", "update_transaction");
   return NextResponse.json({ transaction: data });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 export async function GET() {
   const supabase = await createClient();
@@ -12,6 +13,6 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("next_expected_date", { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/recurring", "list_recurring");
   return NextResponse.json({ recurring: data ?? [] });
 }

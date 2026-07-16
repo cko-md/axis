@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
 const MAX_MONEY = 1_000_000_000_000;
@@ -28,7 +29,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("balance", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/liabilities", "list_liabilities");
   return NextResponse.json({ liabilities: data ?? [] });
 }
 
@@ -68,6 +69,6 @@ export async function POST(request: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/liabilities", "create_liability");
   return NextResponse.json({ liability: data });
 }

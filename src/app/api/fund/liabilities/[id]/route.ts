@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 const MAX_MONEY = 1_000_000_000_000;
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
@@ -69,7 +70,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/liabilities/:id", "update_liability");
   return NextResponse.json({ liability: data });
 }
 
@@ -80,6 +81,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const { id } = await params;
   const { error } = await supabase.from("fund_liabilities").delete().eq("id", id).eq("user_id", user.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/liabilities/:id", "delete_liability");
   return NextResponse.json({ ok: true });
 }

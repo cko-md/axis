@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fundApiFailure } from "@/lib/fund/apiError";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient();
@@ -21,7 +22,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/category-budgets/:id", "update_budget");
   return NextResponse.json({ budget: data });
 }
 
@@ -32,6 +33,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const { id } = await params;
   const { error } = await supabase.from("fund_category_budgets").delete().eq("id", id).eq("user_id", user.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return fundApiFailure(error, "/api/fund/category-budgets/:id", "delete_budget");
   return NextResponse.json({ ok: true });
 }
