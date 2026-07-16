@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
@@ -24,14 +24,22 @@ vi.mock("@/lib/observability/captureRouteError", () => ({
 import { middleware } from "./middleware";
 
 describe("middleware authenticator assurance", () => {
+  const ORIGINAL_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.NEXT_PUBLIC_APP_URL;
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "user_1" } },
       error: null,
     });
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_APP_URL === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = ORIGINAL_APP_URL;
   });
 
   it("blocks direct protected API use while an enrolled MFA factor is pending", async () => {
@@ -104,5 +112,40 @@ describe("middleware authenticator assurance", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("keeps unauthenticated preview redirects on the preview origin", async () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://axis.example.com";
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
+
+    const response = await middleware(
+      new NextRequest("https://axis-preview.vercel.app/command"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://axis-preview.vercel.app/login?redirect=%2Fcommand",
+    );
+  });
+
+  it("keeps unauthenticated loopback redirects on the raw request host", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
+
+    const response = await middleware(
+      new NextRequest("http://localhost:3200/command", {
+        headers: { host: "127.0.0.1:3200" },
+      }),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "http://127.0.0.1:3200/login?redirect=%2Fcommand",
+    );
   });
 });

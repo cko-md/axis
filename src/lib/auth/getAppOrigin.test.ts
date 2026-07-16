@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { getAppOrigin } from "./getAppOrigin";
+import { buildAppUrl, getAppOrigin } from "./getAppOrigin";
 
 // Next.js's NextURL rewrites 127.0.0.1/[::1] to the literal string "localhost"
 // inside req.nextUrl regardless of what's passed to the URL — the request URL
@@ -53,10 +53,50 @@ describe("getAppOrigin()", () => {
     ).toBe("https://axis.example.com");
   });
 
+  it("preserves the raw loopback host when nothing is configured", () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    expect(
+      getAppOrigin(request("http://localhost:3200/api/strava", "127.0.0.1:3200")),
+    ).toBe("http://127.0.0.1:3200");
+  });
+
   it("does not use the Host header override for a non-loopback host", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://axis.example.com";
     expect(
       getAppOrigin(request("https://evil.example.com/api/spotify/auth", "evil.example.com")),
     ).toBe("https://axis.example.com");
+  });
+
+  it("keeps same-app redirects on a preview request instead of the configured production origin", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://axis.example.com";
+    expect(
+      buildAppUrl(
+        request("https://axis-preview.vercel.app/command", "axis-preview.vercel.app"),
+        "/login?redirect=%2Fcommand",
+      ).toString(),
+    ).toBe("https://axis-preview.vercel.app/login?redirect=%2Fcommand");
+  });
+
+  it("keeps same-app loopback redirects on the raw request host", () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    expect(
+      buildAppUrl(
+        request("http://localhost:3200/command", "127.0.0.1:3200"),
+        "/login?redirect=%2Fcommand",
+      ).toString(),
+    ).toBe("http://127.0.0.1:3200/login?redirect=%2Fcommand");
+  });
+
+  it("rejects crafted Host values that only begin with a loopback hostname", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://axis.example.com";
+    const crafted = request(
+      "https://axis-preview.vercel.app/command",
+      "127.0.0.1:443@evil.example.com",
+    );
+
+    expect(getAppOrigin(crafted)).toBe("https://axis.example.com");
+    expect(buildAppUrl(crafted, "/login").toString()).toBe(
+      "https://axis-preview.vercel.app/login",
+    );
   });
 });
