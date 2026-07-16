@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import {
   canTransition,
@@ -88,17 +89,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .update(patch)
     .eq("user_id", user.id)
     .eq("id", id)
+    .eq("status", from)
     .select("id, objective, status, context, created_at, updated_at, completed_at")
-    .single();
+    .maybeSingle();
 
-  if (updateError || !task) return NextResponse.json({ error: "TASK_UPDATE_FAILED" }, { status: 500 });
+  if (updateError) return NextResponse.json({ error: "TASK_UPDATE_FAILED" }, { status: 500 });
+  if (!task) return NextResponse.json({ error: "TRANSITION_CONFLICT" }, { status: 409 });
 
-  await supabase.from("agent_task_activity").insert({
+  const { error: activityError } = await supabase.from("agent_task_activity").insert({
     task_id: id,
     user_id: user.id,
     kind: "status_change",
     detail: { from, to },
   });
+  if (activityError) {
+    Sentry.captureException(activityError, {
+      tags: { area: "tasks", operation: "status_activity_insert" },
+      extra: { taskId: id, from, to },
+    });
+    return NextResponse.json({ error: "TASK_ACTIVITY_UPDATE_FAILED", task }, { status: 500 });
+  }
 
   return NextResponse.json({ task });
 }

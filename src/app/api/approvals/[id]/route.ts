@@ -47,7 +47,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     // An expired pending approval can only be marked expired, never approved.
     if (action === "approve" && isApprovalExpired(rowToApprovalRequest(row), Date.now())) {
-      await supabase.from("approvals").update({ status: "expired", decided_at: now }).eq("user_id", user.id).eq("id", id);
+      await supabase.from("approvals").update({ status: "expired", decided_at: now }).eq("user_id", user.id).eq("id", id).eq("status", "pending");
       return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
     }
 
@@ -59,8 +59,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     };
 
     const { data, error } = await supabase
-      .from("approvals").update(patch).eq("user_id", user.id).eq("id", id).select(SELECT).single();
-    if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+      .from("approvals").update(patch).eq("user_id", user.id).eq("id", id).eq("status", "pending").select(SELECT).maybeSingle();
+    if (error) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+    if (!data) return NextResponse.json({ error: "APPROVAL_STATE_CONFLICT" }, { status: 409 });
     // Structured decision event — safe metadata only (no proposed_action / PII).
     // decision_latency_ms measures request→decide time (approval age at decision).
     emitServerEvent("approval.decided", {
@@ -83,7 +84,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const stepUpFresh = isStepUpFresh(row.step_up_verified_at, undefined, nowMs);
 
   if (isApprovalExpired(req, nowMs)) {
-    await supabase.from("approvals").update({ status: "expired" }).eq("user_id", user.id).eq("id", id);
+    await supabase.from("approvals").update({ status: "expired" }).eq("user_id", user.id).eq("id", id).eq("status", "approved");
     return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
   }
   if (!isActionable(req, { stepUpVerifiedAt: row.step_up_verified_at, nowMs })) {
@@ -97,8 +98,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const { data, error } = await supabase
-    .from("approvals").update({ status: "executed" }).eq("user_id", user.id).eq("id", id).select(SELECT).single();
-  if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+    .from("approvals").update({ status: "executed" }).eq("user_id", user.id).eq("id", id).eq("status", "approved").select(SELECT).maybeSingle();
+  if (error) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "APPROVAL_STATE_CONFLICT" }, { status: 409 });
   // Gate passed. The underlying side-effecting action is intentionally NOT
   // performed here — it is the caller's responsibility (no autonomous execution).
   emitServerEvent("approval.executed", {
