@@ -37,8 +37,10 @@ A Routine triggers a Skill and records a durable run. Today:
   concentration skill, and creates a `queued` agent-Task per breach —
   idempotent (skips breaches with an open task).
 - `POST /api/routines/rebalance-proposal` reads holdings, fetches live market
-  prices, runs the deterministic rebalance skill, creates real
-  `FINANCIAL_EXECUTION` approvals, and pauses. It does not submit orders.
+  prices, requires a complete fresh-or-delayed quote set, and persists a
+  completed simulation with unsubmitted order drafts. It creates no execution
+  approval and cannot submit orders; any future submission path must introduce
+  a separate approval + fresh step-up + provider-idempotency boundary.
 - `GET/POST /api/routines/versions`, `GET/PATCH
   /api/routines/versions/[id]`, and `POST /api/routines/versions/compare`
   provide routine version list/clone/restore/compare over code-defined built-ins

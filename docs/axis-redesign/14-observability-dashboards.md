@@ -38,8 +38,7 @@ transitions, not crashes.
 | `approval.executed` | `PATCH /api/approvals/[id]` (execute) | `approvalId`, `actionClass`, `requirement`, `stepUpRequired`, `executeLatencyMs` | Actionable-gate clears; approve→execute window |
 | `approval.step_up_verified` | `POST /api/approvals/[id]/step-up?action=verify` | `approvalId` | Passkey step-up success rate |
 | `routine.run.completed` | `POST /api/routines/concentration-check`, `…/rebalance-proposal` | `routine`, `runId`, `status`, + routine-specific counts | Routine success |
-| `routine.run.paused` | `POST /api/routines/rebalance-proposal` | `routine`, `runId`, `status`, `proposed`, `approvals` | Routine paused waiting for approval |
-| `routine.run.blocked` | `POST /api/routines/concentration-check` | `routine`, `runId`, `error` | Routine step threw (resumable) |
+| `routine.run.blocked` | `POST /api/routines/concentration-check`, `…/rebalance-proposal` | `routine`, `runId`, `error`, optional safe operation/count metadata | Routine step failed or required data was incomplete |
 
 **Invariant:** no event carries `proposed_action`, holdings, prices, balances,
 or any PII. Only IDs, enums (action class / requirement / status), booleans, and

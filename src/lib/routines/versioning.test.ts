@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 import type { Json } from "@/lib/supabase/database.types";
 import {
   BUILTIN_ROUTINE_VERSIONS,
+  REBALANCE_PROPOSAL_CURRENT_VERSION,
   cloneRoutineVersion,
   compareRoutineVersions,
   definitionFromJson,
   definitionToJson,
   nextRoutineVersion,
 } from "./versioning";
+
+function builtin(id: string) {
+  const routine = BUILTIN_ROUTINE_VERSIONS.find((candidate) => candidate.id === id);
+  if (!routine) throw new Error(`Missing builtin routine version: ${id}`);
+  return routine;
+}
 
 describe("routine versioning", () => {
   it("compares routine definitions by steps, inputs, and safety contract", () => {
@@ -33,7 +40,7 @@ describe("routine versioning", () => {
   });
 
   it("compares per-routine integration requirements by key and contract", () => {
-    const left = BUILTIN_ROUTINE_VERSIONS[1];
+    const left = builtin(`builtin:rebalance_proposal:${REBALANCE_PROPOSAL_CURRENT_VERSION}`);
     const right = {
       ...left,
       id: "user-version",
@@ -65,11 +72,12 @@ describe("routine versioning", () => {
     expect(diff.changed).toContain("integrationRequirements");
     expect(diff.integrationChanges.added).toEqual(["plaid.bank_transactions"]);
     expect(diff.integrationChanges.removed).toEqual(["polygon.market_prices"]);
-    expect(diff.integrationChanges.changed).toEqual(["supabase.fund_holdings_and_approvals"]);
+    expect(diff.integrationChanges.changed).toEqual(["supabase.fund_holdings_and_runs"]);
   });
 
   it("allocates the next version per routine key", () => {
     expect(nextRoutineVersion(BUILTIN_ROUTINE_VERSIONS, "concentration_review")).toBe(2);
+    expect(nextRoutineVersion(BUILTIN_ROUTINE_VERSIONS, "rebalance_proposal")).toBe(3);
     expect(nextRoutineVersion(BUILTIN_ROUTINE_VERSIONS, "new_routine")).toBe(1);
   });
 
@@ -85,27 +93,32 @@ describe("routine versioning", () => {
   });
 
   it("round-trips a definition through JSON with validation", () => {
-    const definition = BUILTIN_ROUTINE_VERSIONS[1].definition;
+    const definition = builtin(`builtin:rebalance_proposal:${REBALANCE_PROPOSAL_CURRENT_VERSION}`).definition;
     expect(definitionFromJson(definitionToJson(definition))).toEqual(definition);
     expect(definitionFromJson({ ...definition, integrationRequirements: [{ key: "bad" }] } as unknown as Json)).toBeNull();
     expect(definitionFromJson({ routineKey: "bad" })).toBeNull();
   });
 
-  it("keeps rebalance provider enablement explicit and approval-gated", () => {
-    const rebalance = BUILTIN_ROUTINE_VERSIONS.find((routine) => routine.routineKey === "rebalance_proposal");
-    const requirements = rebalance?.definition.integrationRequirements ?? [];
+  it("preserves historical rebalance v1 and makes v2 the simulation-only contract", () => {
+    const historical = builtin("builtin:rebalance_proposal:1");
+    const current = builtin(`builtin:rebalance_proposal:${REBALANCE_PROPOSAL_CURRENT_VERSION}`);
+    const requirements = current.definition.integrationRequirements ?? [];
 
+    expect(historical.definition.steps).toContain("create_approvals");
+    expect(historical.definition.integrationRequirements?.some(
+      (requirement) => requirement.domain === "brokerage",
+    )).toBe(true);
+    expect(current.routineVersion).toBe(2);
+    expect(current.definition.version).toBe(2);
     expect(requirements.map((requirement) => requirement.key)).toEqual([
-      "supabase.fund_holdings_and_approvals",
+      "supabase.fund_holdings_and_runs",
       "polygon.market_prices",
-      "public.order_approval_boundary",
       "openai.proposal_explanation",
     ]);
-    expect(requirements.find((requirement) => requirement.key === "public.order_approval_boundary")).toMatchObject({
-      provider: "public",
-      required: true,
-      actionClass: "FINANCIAL_EXECUTION",
-      capabilities: ["draft:order_ticket", "approval:financial_execution"],
-    });
+    expect(requirements.some((requirement) => requirement.domain === "brokerage")).toBe(false);
+    expect(current.definition.safety).toEqual(expect.arrayContaining([
+      "simulation_only",
+      "broker_submission_disabled",
+    ]));
   });
 });

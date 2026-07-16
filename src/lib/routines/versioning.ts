@@ -57,6 +57,8 @@ export type RoutineVersionDiff = {
   };
 };
 
+export const REBALANCE_PROPOSAL_CURRENT_VERSION = 2;
+
 export const BUILTIN_ROUTINE_VERSIONS: readonly RoutineVersion[] = [
   {
     id: "builtin:concentration_review:1",
@@ -147,6 +149,72 @@ export const BUILTIN_ROUTINE_VERSIONS: readonly RoutineVersion[] = [
           capabilities: ["draft:order_ticket", "approval:financial_execution"],
           actionClass: "FINANCIAL_EXECUTION",
           touchesSensitiveData: true,
+        },
+        {
+          key: "openai.proposal_explanation",
+          label: "OpenAI proposal explanation",
+          provider: "openai",
+          domain: "ai",
+          required: false,
+          enabledByDefault: false,
+          purpose: "Explain the deterministic rebalance output without recomputing or authorizing financial action.",
+          capabilities: ["draft:narrative"],
+          actionClass: "DRAFT",
+          touchesSensitiveData: true,
+        },
+      ],
+    },
+  },
+  {
+    id: `builtin:rebalance_proposal:${REBALANCE_PROPOSAL_CURRENT_VERSION}`,
+    owner: "builtin",
+    routineKey: "rebalance_proposal",
+    routineVersion: REBALANCE_PROPOSAL_CURRENT_VERSION,
+    name: "Rebalance Proposal",
+    description: "Builds unsubmitted order drafts from target allocations.",
+    status: "builtin",
+    definition: {
+      routineKey: "rebalance_proposal",
+      version: REBALANCE_PROPOSAL_CURRENT_VERSION,
+      title: "Rebalance Proposal",
+      description: "Deterministic simulation that persists order drafts without submitting or authorizing trades.",
+      inputs: {
+        targets: { type: "record", required: true },
+        driftThreshold: { type: "number", default: 0.05 },
+        minTradeValue: { type: "number", default: 1 },
+        includeNarrative: { type: "boolean", default: false },
+      },
+      steps: ["load_holdings", "load_prices", "propose_rebalance", "explain_proposal"],
+      safety: [
+        "deterministic_money",
+        "complete_quote_set_required",
+        "simulation_only",
+        "broker_submission_disabled",
+      ],
+      integrationRequirements: [
+        {
+          key: "supabase.fund_holdings_and_runs",
+          label: "Supabase holdings + routine ledger",
+          provider: "supabase",
+          domain: "supabase",
+          required: true,
+          enabledByDefault: false,
+          purpose: "Read owner-scoped holdings and persist the simulation run and unsubmitted order drafts.",
+          capabilities: ["read:fund_holdings", "write:routine_runs"],
+          actionClass: "INTERNAL_WRITE",
+          touchesSensitiveData: true,
+        },
+        {
+          key: "polygon.market_prices",
+          label: "Polygon/Massive market prices",
+          provider: "polygon",
+          domain: "market_data",
+          required: true,
+          enabledByDefault: false,
+          purpose: "Fetch a complete positive fresh-or-delayed USD quote set before sizing any draft.",
+          capabilities: ["read:quotes"],
+          actionClass: "READ",
+          touchesSensitiveData: false,
         },
         {
           key: "openai.proposal_explanation",
