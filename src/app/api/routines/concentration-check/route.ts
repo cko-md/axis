@@ -19,7 +19,12 @@ import {
   type RoutineRunForResume,
 } from "@/lib/routines/executor";
 import { isRunTerminal, type RunStatus } from "@/lib/routines/runState";
-import { emitServerEvent } from "@/lib/observability/events";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+import {
+  createObservabilityRequestId,
+  emitServerEvent,
+  routineEventErrorCode,
+} from "@/lib/observability/events";
 
 /**
  * Concentration-check routine (program §15.3) — a deterministic trigger that
@@ -45,6 +50,7 @@ const concentrationRequestSchema = z.object({
 }).strict();
 
 export async function POST(request: NextRequest) {
+  const requestId = createObservabilityRequestId();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -129,21 +135,39 @@ export async function POST(request: NextRequest) {
 
     const output = result.output as unknown as ConcentrationResponseOutput;
     emitServerEvent("routine.run.completed", {
+      requestId,
       routine: CONCENTRATION_CHECK_ROUTINE_KEY,
       runId: result.runId,
-      status: result.status,
+      status: "completed",
       breaches: output.breaches,
       tasksCreated: output.created.length,
       tasksSkipped: output.skipped,
+      resumedFromApproval: false,
     });
 
     return NextResponse.json({ runId: result.runId, status: result.status, ...output });
   } catch (err) {
     const runId = err instanceof RoutineExecutionError ? err.runId : body.runId;
+    const errorCode = routineEventErrorCode(err);
+    captureRouteError(new Error(errorCode), {
+      route: "/api/routines/concentration-check",
+      operation: "execute",
+      area: "routines",
+      status: 500,
+      code: errorCode,
+      tags: {
+        requestId,
+        ...(runId ? { runId } : {}),
+        routine: CONCENTRATION_CHECK_ROUTINE_KEY,
+      },
+    });
     emitServerEvent("routine.run.blocked", {
+      requestId,
       routine: CONCENTRATION_CHECK_ROUTINE_KEY,
       runId,
-      error: err instanceof Error ? err.message : "run failed",
+      errorCode,
+      stage: "execute",
+      resumedFromApproval: false,
     });
     return NextResponse.json({ error: "RUN_BLOCKED", runId, resumable: true }, { status: 500 });
   }

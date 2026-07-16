@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isActionable, validateApprovalCompleteness, isApprovalExpired, isStepUpFresh } from "@/lib/security/approvalRequest";
 import { rowToApprovalRequest } from "@/lib/security/approvalPersistence";
-import { emitServerEvent } from "@/lib/observability/events";
+import {
+  approvalEventPolicy,
+  createObservabilityRequestId,
+  emitServerEvent,
+  eventDurationMs,
+} from "@/lib/observability/events";
 import {
   consumeActionableApproval,
   transitionApproval,
@@ -43,7 +48,10 @@ function approvalResponse(row: AtomicApprovalRow) {
   };
 }
 
-function mutationFailure(result: Exclude<AtomicApprovalResult, { ok: true }>) {
+function mutationFailure(
+  result: Exclude<AtomicApprovalResult, { ok: true }>,
+  requestId: string,
+) {
   if (result.code === "NOT_FOUND") {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
@@ -63,11 +71,15 @@ function mutationFailure(result: Exclude<AtomicApprovalResult, { ok: true }>) {
     area: "approvals",
     status,
     code,
+    tags: { requestId },
   });
   return NextResponse.json({ error: code }, { status });
 }
 
-function consumeFailure(result: Exclude<ApprovalConsumeResult, { ok: true }>) {
+function consumeFailure(
+  result: Exclude<ApprovalConsumeResult, { ok: true }>,
+  requestId: string,
+) {
   if (result.code === "NOT_FOUND") {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
@@ -96,6 +108,7 @@ function consumeFailure(result: Exclude<ApprovalConsumeResult, { ok: true }>) {
       area: "approvals",
       status: 500,
       code: "APPROVAL_POLICY_INVALID",
+      tags: { requestId },
     });
     return NextResponse.json(
       {
@@ -117,11 +130,13 @@ function consumeFailure(result: Exclude<ApprovalConsumeResult, { ok: true }>) {
     area: "approvals",
     status,
     code,
+    tags: { requestId },
   });
   return NextResponse.json({ error: code }, { status });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = createObservabilityRequestId();
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -139,17 +154,32 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .eq("user_id", user.id)
     .eq("id", id)
     .maybeSingle();
-  if (readError) return NextResponse.json({ error: "APPROVAL_UNAVAILABLE" }, { status: 500 });
+  if (readError) {
+    captureRouteError(new Error("Approval lookup failed"), {
+      route: "approvals",
+      operation: "read",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_UNAVAILABLE",
+      tags: { requestId },
+    });
+    return NextResponse.json({ error: "APPROVAL_UNAVAILABLE" }, { status: 500 });
+  }
   if (!row) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const now = new Date().toISOString();
+  const storedRequest = rowToApprovalRequest(row);
+  const eventPolicy = approvalEventPolicy(
+    storedRequest.actionClass,
+    storedRequest.requirement,
+  );
 
   if (action === "approve" || action === "deny") {
     if (row.status !== "pending") {
       return NextResponse.json({ error: "NOT_PENDING", status: row.status }, { status: 409 });
     }
     // An expired pending approval can only be marked expired, never approved.
-    if (action === "approve" && isApprovalExpired(rowToApprovalRequest(row), Date.now())) {
+    if (action === "approve" && isApprovalExpired(storedRequest, Date.now())) {
       const expired = await transitionApproval({
         userId: user.id,
         approvalId: id,
@@ -157,14 +187,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         nextStatus: "expired",
         decidedAt: now,
       });
-      if (!expired.ok) return mutationFailure(expired);
+      if (!expired.ok) return mutationFailure(expired, requestId);
       return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
     }
 
     // Step-up is NEVER set here: it is set only by a verified WebAuthn assertion
     // via /api/approvals/[id]/step-up (a client can't self-attest identity).
-    const patch: { status: string; decided_at: string } = {
-      status: action === "approve" ? "approved" : "denied",
+    const decision = action === "approve" ? "approved" : "denied";
+    const patch: { status: typeof decision; decided_at: string } = {
+      status: decision,
       decided_at: now,
     };
 
@@ -175,17 +206,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       nextStatus: patch.status,
       decidedAt: now,
     });
-    if (!result.ok) return mutationFailure(result);
+    if (!result.ok) return mutationFailure(result, requestId);
     const data = result.approval;
     // Structured decision event — safe metadata only (no proposed_action / PII).
     // decision_latency_ms measures request→decide time (approval age at decision).
-    emitServerEvent("approval.decided", {
-      approvalId: data.id,
-      decision: patch.status,
-      actionClass: data.action_class,
-      requirement: data.requirement,
-      decisionLatencyMs: data.created_at ? Date.parse(now) - Date.parse(data.created_at) : null,
-    });
+    if (eventPolicy) {
+      emitServerEvent("approval.decided", {
+        requestId,
+        approvalId: data.id,
+        decision,
+        ...eventPolicy,
+        decisionLatencyMs: eventDurationMs(data.created_at, Date.parse(now)),
+      });
+    } else {
+      captureRouteError(new Error("Stored approval event policy invalid"), {
+        route: "approvals",
+        operation: "decision_event",
+        area: "approvals",
+        status: 500,
+        code: "APPROVAL_POLICY_INVALID",
+        tags: { requestId },
+      });
+    }
     return NextResponse.json({ approval: approvalResponse(data) });
   }
 
@@ -194,7 +236,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "NOT_APPROVED", status: row.status }, { status: 409 });
   }
 
-  const req = rowToApprovalRequest(row);
+  const req = storedRequest;
   const nowMs = Date.now();
   const stepUpFresh = isStepUpFresh(row.step_up_verified_at, undefined, nowMs);
 
@@ -205,7 +247,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       expectedStatus: "approved",
       nextStatus: "expired",
     });
-    if (!expired.ok) return mutationFailure(expired);
+    if (!expired.ok) return mutationFailure(expired, requestId);
     return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
   }
   if (!isActionable(req, { stepUpVerifiedAt: row.step_up_verified_at, nowMs })) {
@@ -223,17 +265,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     approvalId: id,
     now,
   });
-  if (!result.ok) return consumeFailure(result);
+  if (!result.ok) return consumeFailure(result, requestId);
   const data = result.approval;
   // Gate passed. The underlying side-effecting action is intentionally NOT
   // performed here — it is the caller's responsibility (no autonomous execution).
-  emitServerEvent("approval.executed", {
-    approvalId: data.id,
-    actionClass: data.action_class,
-    requirement: data.requirement,
-    stepUpRequired: req.stepUpRequired,
-    // Time from decision (approve) to execute — how long the actionable window sat.
-    executeLatencyMs: data.decided_at ? nowMs - Date.parse(data.decided_at) : null,
-  });
+  if (eventPolicy) {
+    emitServerEvent("approval.executed", {
+      requestId,
+      approvalId: data.id,
+      ...eventPolicy,
+      stepUpRequired: req.stepUpRequired,
+      // Time from decision (approve) to execute — how long the actionable window sat.
+      executeLatencyMs: eventDurationMs(data.decided_at, nowMs),
+    });
+  } else {
+    captureRouteError(new Error("Stored approval event policy invalid"), {
+      route: "approvals",
+      operation: "execution_event",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_POLICY_INVALID",
+      tags: { requestId },
+    });
+  }
   return NextResponse.json({ approval: approvalResponse(data), cleared: true });
 }

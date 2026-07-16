@@ -8,7 +8,12 @@ import { resolveMarketDataAdapter } from "@/lib/markets/adapter";
 import type { MarketQuote } from "@/lib/markets/quote";
 import { classifyFreshness, FRESHNESS_SLAS } from "@/lib/fund/provenance";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
-import { emitServerEvent } from "@/lib/observability/events";
+import {
+  createObservabilityRequestId,
+  emitServerEvent,
+  routineEventErrorCode,
+  routineEventStage,
+} from "@/lib/observability/events";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { explainWithCost } from "@/lib/ai/explain";
 import { REBALANCE_PROPOSAL_CURRENT_VERSION } from "@/lib/routines/versioning";
@@ -181,7 +186,7 @@ function validateQuote(symbol: string, quote: MarketQuote): QuoteBasis | null {
   };
 }
 
-async function isWithinRateLimit(userId: string): Promise<boolean> {
+async function isWithinRateLimit(userId: string, requestId: string): Promise<boolean> {
   try {
     const distributed = await redisRateLimit(userId, 5, "1 m", "axis:rebalance-proposal");
     if (distributed) return distributed.success;
@@ -192,12 +197,14 @@ async function isWithinRateLimit(userId: string): Promise<boolean> {
       area: "routines",
       status: 500,
       code: "RATE_LIMIT_BACKEND_FAILED",
+      tags: { requestId },
     });
   }
   return memoryRateLimit(`rebalance-proposal:${userId}`, 5, 60_000).success;
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = createObservabilityRequestId();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) {
@@ -213,7 +220,7 @@ export async function POST(request: NextRequest) {
   }
   const input = normalized.value;
 
-  const withinRateLimit = await isWithinRateLimit(user.id);
+  const withinRateLimit = await isWithinRateLimit(user.id, requestId);
   if (!withinRateLimit) {
     return NextResponse.json(
       {
@@ -234,6 +241,7 @@ export async function POST(request: NextRequest) {
       provider: adapter.provider,
       status: 503,
       code: "MARKET_DATA_REQUIRED",
+      tags: { requestId },
     });
     return NextResponse.json(
       {
@@ -280,6 +288,7 @@ export async function POST(request: NextRequest) {
       area: "routines",
       status: 500,
       code: "RUN_START_FAILED",
+      tags: { requestId },
     });
     return NextResponse.json(
       { error: "RUN_START_FAILED", message: "The rebalance simulation could not be started." },
@@ -551,10 +560,12 @@ export async function POST(request: NextRequest) {
     }
 
     emitServerEvent("routine.run.completed", {
+      requestId,
       routine: ROUTINE_KEY,
       runId,
       status: "completed",
-      proposed: orderDrafts.length,
+      proposals: orderDrafts.length,
+      simulationOnly: true,
       submissionEnabled: false,
       executionStatus: "not_submitted",
     });
@@ -586,7 +597,7 @@ export async function POST(request: NextRequest) {
           provider: adapter.provider,
           status: 500,
           code: "STEP_PERSISTENCE_FAILED",
-          tags: { failedOperation: blocked.operation },
+          tags: { requestId, failedOperation: blocked.operation },
         });
       }
     }
@@ -604,7 +615,7 @@ export async function POST(request: NextRequest) {
         area: "routines",
         status: 500,
         code: "RUN_BLOCK_PERSISTENCE_FAILED",
-        tags: { failedOperation: blocked.operation },
+        tags: { requestId, failedOperation: blocked.operation },
       });
       responseError = new RebalanceBlockedError({
         code: "RUN_BLOCK_PERSISTENCE_FAILED",
@@ -620,13 +631,15 @@ export async function POST(request: NextRequest) {
       provider: adapter.provider,
       status: blocked.status,
       code: blocked.code,
-      tags: blocked.tags,
+      tags: { ...blocked.tags, requestId },
     });
     emitServerEvent("routine.run.blocked", {
+      requestId,
       routine: ROUTINE_KEY,
       runId,
-      error: blocked.code,
-      operation: blocked.operation,
+      errorCode: routineEventErrorCode(blocked.code),
+      stage: routineEventStage(blocked.operation),
+      resumedFromApproval: false,
     });
 
     return NextResponse.json(

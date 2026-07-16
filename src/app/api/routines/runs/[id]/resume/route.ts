@@ -19,7 +19,11 @@ import {
   type TerminalRoutineResume,
 } from "@/lib/routines/resumeClaims";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
-import { emitServerEvent } from "@/lib/observability/events";
+import {
+  createObservabilityRequestId,
+  emitServerEvent,
+  routineEventErrorCode,
+} from "@/lib/observability/events";
 
 type ConcentrationResponseOutput = {
   total: number;
@@ -39,6 +43,7 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const requestId = createObservabilityRequestId();
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -51,7 +56,7 @@ export async function POST(
     runId: id,
     claimToken,
   });
-  if (!claim.ok) return resumeFailureResponse(claim, id, "claim");
+  if (!claim.ok) return resumeFailureResponse(claim, id, "claim", requestId);
   if (claim.value.kind === "terminal") {
     return NextResponse.json(terminalResponseBody(claim.value));
   }
@@ -65,7 +70,7 @@ export async function POST(
       errorCode: null,
     });
     if (!released.ok) {
-      return resumeFailureResponse(released, claimed.runId, "release_unsupported");
+      return resumeFailureResponse(released, claimed.runId, "release_unsupported", requestId);
     }
     return NextResponse.json(
       { error: "UNSUPPORTED_ROUTINE", routine: claimed.routineKey },
@@ -105,9 +110,10 @@ export async function POST(
 
     const output = result.output as unknown as ConcentrationResponseOutput;
     emitServerEvent("routine.run.completed", {
+      requestId,
       routine: CONCENTRATION_CHECK_ROUTINE_KEY,
       runId: result.runId,
-      status: result.status,
+      status: "completed",
       breaches: output.breaches,
       tasksCreated: output.created.length,
       tasksSkipped: output.skipped,
@@ -117,19 +123,21 @@ export async function POST(
     return NextResponse.json({ runId: result.runId, status: result.status, ...output });
   } catch (err) {
     const runId = err instanceof RoutineExecutionError ? err.runId : id;
-    const errorCode = err instanceof Error ? err.message : "ROUTINE_RESUME_FAILED";
-    captureRouteError(err, {
+    const errorCode = routineEventErrorCode(err);
+    captureRouteError(new Error(errorCode), {
       route: "/api/routines/runs/[id]/resume",
       operation: "execute_claimed_resume",
       area: "routines",
       status: 500,
       code: errorCode,
-      tags: { runId, routine: run.routine_key },
+      tags: { requestId, runId, routine: CONCENTRATION_CHECK_ROUTINE_KEY },
     });
     emitServerEvent("routine.run.blocked", {
-      routine: run.routine_key,
+      requestId,
+      routine: CONCENTRATION_CHECK_ROUTINE_KEY,
       runId,
-      error: errorCode,
+      errorCode,
+      stage: "resume",
       resumedFromApproval: true,
     });
     return NextResponse.json({ error: "RUN_BLOCKED", runId, resumable: true }, { status: 500 });
@@ -140,6 +148,7 @@ function resumeFailureResponse(
   failure: RoutineResumeFailure,
   runId: string,
   operation: string,
+  requestId: string,
 ) {
   const statuses: Record<RoutineResumeFailure["code"], number> = {
     SERVICE_UNAVAILABLE: 503,
@@ -170,7 +179,7 @@ function resumeFailureResponse(
       area: "routines",
       status,
       code: failure.code,
-      tags: { runId },
+      tags: { requestId, runId },
     });
   }
   return NextResponse.json(

@@ -36,6 +36,7 @@ vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: (...args: unknown[]) => mocks.capture(...args),
 }));
 vi.mock("@/lib/observability/events", () => ({
+  createObservabilityRequestId: () => "99999999-9999-4999-8999-999999999999",
   emitServerEvent: (...args: unknown[]) => mocks.emit(...args),
 }));
 
@@ -171,6 +172,10 @@ describe("approval WebAuthn step-up", () => {
       newCounter: 5,
     }), expect.anything());
     expect(mocks.from).toHaveBeenCalledTimes(2);
+    expect(mocks.emit).toHaveBeenCalledWith("approval.step_up_verified", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      approvalId: APPROVAL_ID,
+    });
   });
 
   it("fails closed when challenge consumption cannot be committed", async () => {

@@ -44,7 +44,12 @@ vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: (...args: unknown[]) => mocks.capture(...args),
 }));
 vi.mock("@/lib/observability/events", () => ({
+  createObservabilityRequestId: () => "99999999-9999-4999-8999-999999999999",
   emitServerEvent: (...args: unknown[]) => mocks.emit(...args),
+  routineEventErrorCode: (error: unknown) =>
+    error instanceof Error && error.message === "HOLDINGS_UNAVAILABLE"
+      ? "HOLDINGS_UNAVAILABLE"
+      : "UNEXPECTED_ROUTINE_FAILURE",
 }));
 
 import { POST } from "./route";
@@ -135,6 +140,16 @@ describe("POST /api/routines/runs/[id]/resume", () => {
       }),
     }));
     expect(mocks.release).not.toHaveBeenCalled();
+    expect(mocks.emit).toHaveBeenCalledWith("routine.run.completed", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      routine: "concentration_review",
+      runId: "run-1",
+      status: "completed",
+      breaches: 1,
+      tasksCreated: 0,
+      tasksSkipped: 1,
+      resumedFromApproval: true,
+    });
   });
 
   it("returns a busy conflict for a concurrent submit without starting work", async () => {
@@ -220,6 +235,25 @@ describe("POST /api/routines/runs/[id]/resume", () => {
         code: "RPC_FAILED",
       }),
     );
+  });
+
+  it("normalizes resumed-work failure content before Sentry or structured logs", async () => {
+    const privateText = "person@example.com has balance 9000";
+    mocks.resumeRoutine.mockRejectedValue(new Error(privateText));
+
+    const response = await callRoute();
+
+    expect(response.status).toBe(500);
+    expect(mocks.emit).toHaveBeenCalledWith("routine.run.blocked", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      routine: "concentration_review",
+      runId: "run-1",
+      errorCode: "UNEXPECTED_ROUTINE_FAILURE",
+      stage: "resume",
+      resumedFromApproval: true,
+    });
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain(privateText);
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(privateText);
   });
 
   it("rejects unauthenticated calls before creating a resume claim", async () => {

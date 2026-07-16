@@ -59,7 +59,10 @@ vi.mock("@/lib/ratelimit", () => ({
   memoryRateLimit: (...args: unknown[]) => mocks.memoryRateLimit(...args),
 }));
 vi.mock("@/lib/observability/events", () => ({
+  createObservabilityRequestId: () => "99999999-9999-4999-8999-999999999999",
   emitServerEvent: (...args: unknown[]) => mocks.emit(...args),
+  routineEventErrorCode: (value: unknown) => String(value),
+  routineEventStage: (value: unknown) => String(value),
 }));
 vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: (...args: unknown[]) => mocks.capture(...args),
@@ -268,9 +271,18 @@ describe("POST /api/routines/rebalance-proposal", () => {
           acceptedQuotes: 1,
           failureCount: 1,
           failureCodes: "network",
+          requestId: "99999999-9999-4999-8999-999999999999",
         },
       }),
     );
+    expect(mocks.emit).toHaveBeenCalledWith("routine.run.blocked", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      routine: "rebalance_proposal",
+      runId: "run-1",
+      errorCode: "MARKET_DATA_INCOMPLETE",
+      stage: "load_prices",
+      resumedFromApproval: false,
+    });
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("provider detail");
   });
 
@@ -379,6 +391,16 @@ describe("POST /api/routines/rebalance-proposal", () => {
           allocationIntent: "partial_cash",
         },
       },
+    });
+    expect(mocks.emit).toHaveBeenCalledWith("routine.run.completed", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      routine: "rebalance_proposal",
+      runId: "run-1",
+      status: "completed",
+      proposals: 2,
+      simulationOnly: true,
+      submissionEnabled: false,
+      executionStatus: "not_submitted",
     });
   });
 

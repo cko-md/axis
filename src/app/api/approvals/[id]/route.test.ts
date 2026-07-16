@@ -18,6 +18,12 @@ vi.mock("@/lib/security/approvalMutations", () => ({
   consumeActionableApproval: (...args: unknown[]) => mocks.consume(...args),
 }));
 vi.mock("@/lib/observability/events", () => ({
+  approvalEventPolicy: (actionClass: unknown, requirement: unknown) => ({
+    actionClass,
+    requirement,
+  }),
+  createObservabilityRequestId: () => "99999999-9999-4999-8999-999999999999",
+  eventDurationMs: () => 60_000,
   emitServerEvent: (...args: unknown[]) => mocks.emit(...args),
 }));
 vi.mock("@/lib/observability/captureRouteError", () => ({
@@ -88,6 +94,14 @@ describe("approval CAS lifecycle", () => {
       nextStatus: "approved",
     }));
     expect(mocks.emit).toHaveBeenCalledOnce();
+    expect(mocks.emit).toHaveBeenCalledWith("approval.decided", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      approvalId: APPROVAL_ID,
+      decision: "approved",
+      actionClass: "INTERNAL_WRITE",
+      requirement: "approval",
+      decisionLatencyMs: 60_000,
+    });
   });
 
   it("returns a stale-state conflict when a competing decision wins", async () => {
@@ -158,5 +172,34 @@ describe("approval CAS lifecycle", () => {
       error: "NOT_ACTIONABLE",
       reason: "STEP_UP_STALE",
     });
+  });
+
+  it("emits only the allowlisted execution metadata after atomic consumption", async () => {
+    const approved = {
+      ...ROW,
+      status: "approved",
+      decided_at: "2026-07-16T00:01:00.000Z",
+    };
+    mocks.from.mockReturnValue(approvalQuery(approved));
+    mocks.consume.mockResolvedValue({
+      ok: true,
+      approval: { ...approved, status: "executed" },
+    });
+
+    const response = await PATCH(
+      request("execute"),
+      { params: Promise.resolve({ id: APPROVAL_ID }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.emit).toHaveBeenCalledWith("approval.executed", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      approvalId: APPROVAL_ID,
+      actionClass: "INTERNAL_WRITE",
+      requirement: "approval",
+      stepUpRequired: false,
+      executeLatencyMs: 60_000,
+    });
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("proposed_action");
   });
 });

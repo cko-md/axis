@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   from: vi.fn(),
   executeRoutine: vi.fn(),
+  emit: vi.fn(),
+  capture: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -19,7 +21,17 @@ vi.mock("@/lib/routines/executor", async (importOriginal) => {
     executeRoutine: (...args: unknown[]) => mocks.executeRoutine(...args),
   };
 });
-vi.mock("@/lib/observability/events", () => ({ emitServerEvent: vi.fn() }));
+vi.mock("@/lib/observability/events", () => ({
+  createObservabilityRequestId: () => "99999999-9999-4999-8999-999999999999",
+  emitServerEvent: (...args: unknown[]) => mocks.emit(...args),
+  routineEventErrorCode: (error: unknown) =>
+    error instanceof Error && error.message === "HOLDINGS_UNAVAILABLE"
+      ? "HOLDINGS_UNAVAILABLE"
+      : "UNEXPECTED_ROUTINE_FAILURE",
+}));
+vi.mock("@/lib/observability/captureRouteError", () => ({
+  captureRouteError: (...args: unknown[]) => mocks.capture(...args),
+}));
 
 function profileQuery(profile: { concentration_limit_bps: number; confirmed_at: string } | null) {
   const value: Record<string, unknown> = {};
@@ -61,6 +73,16 @@ describe("concentration-check financial profile", () => {
         },
       },
     }));
+    expect(mocks.emit).toHaveBeenCalledWith("routine.run.completed", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      routine: "concentration_review",
+      runId: "run_1",
+      status: "completed",
+      breaches: 0,
+      tasksCreated: 0,
+      tasksSkipped: 0,
+      resumedFromApproval: false,
+    });
   });
 
   it("preserves an explicit valid request limit and labels its source", async () => {
@@ -90,4 +112,24 @@ describe("concentration-check financial profile", () => {
       expect(mocks.from).not.toHaveBeenCalled();
     },
   );
+
+  it("normalizes unexpected failure content before Sentry or structured logs", async () => {
+    const privateText = "person@example.com has balance 9000";
+    mocks.from.mockReturnValue(profileQuery(null));
+    mocks.executeRoutine.mockRejectedValue(new Error(privateText));
+
+    const response = await POST(request({}));
+
+    expect(response.status).toBe(500);
+    expect(mocks.emit).toHaveBeenCalledWith("routine.run.blocked", {
+      requestId: "99999999-9999-4999-8999-999999999999",
+      routine: "concentration_review",
+      runId: undefined,
+      errorCode: "UNEXPECTED_ROUTINE_FAILURE",
+      stage: "execute",
+      resumedFromApproval: false,
+    });
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain(privateText);
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(privateText);
+  });
 });

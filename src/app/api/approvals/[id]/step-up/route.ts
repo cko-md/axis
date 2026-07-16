@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
-import { emitServerEvent } from "@/lib/observability/events";
+import {
+  createObservabilityRequestId,
+  emitServerEvent,
+} from "@/lib/observability/events";
 import {
   commitApprovalStepUp,
   consumeApprovalAuthenticationChallenge,
@@ -38,6 +41,7 @@ async function loadApproval(
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = createObservabilityRequestId();
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -60,6 +64,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       area: "approvals",
       status: 500,
       code: "APPROVAL_UNAVAILABLE",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "APPROVAL_UNAVAILABLE" }, { status: 500 });
   }
@@ -82,6 +87,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       area: "approvals",
       status: 500,
       code: "PASSKEYS_UNAVAILABLE",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "PASSKEYS_UNAVAILABLE" }, { status: 500 });
   }
@@ -99,6 +105,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       area: "approvals",
       status: 503,
       code: "STEP_UP_UNAVAILABLE",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "STEP_UP_UNAVAILABLE" }, { status: 503 });
   }
@@ -116,6 +123,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       area: "approvals",
       status: 500,
       code: "CHALLENGE_STORE_FAILED",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "CHALLENGE_STORE_FAILED" }, { status: 500 });
   }
@@ -137,6 +145,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       area: "approvals",
       status: 500,
       code: "CHALLENGE_STORE_FAILED",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "CHALLENGE_STORE_FAILED" }, { status: 500 });
   }
@@ -145,6 +154,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = createObservabilityRequestId();
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -180,6 +190,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       area: "approvals",
       status: 500,
       code: "APPROVAL_UNAVAILABLE",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "APPROVAL_UNAVAILABLE" }, { status: 500 });
   }
@@ -205,6 +216,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       area: "approvals",
       status: 500,
       code: "PASSKEYS_UNAVAILABLE",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "PASSKEYS_UNAVAILABLE" }, { status: 500 });
   }
@@ -218,6 +230,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       area: "approvals",
       status: 503,
       code: "STEP_UP_UNAVAILABLE",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "STEP_UP_UNAVAILABLE" }, { status: 503 });
   }
@@ -237,6 +250,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       area: "approvals",
       status: consumedChallenge.code === "SERVICE_UNAVAILABLE" ? 503 : 500,
       code: "CHALLENGE_CONSUME_FAILED",
+      tags: { requestId },
     });
     return NextResponse.json(
       { error: "CHALLENGE_CONSUME_FAILED" },
@@ -289,12 +303,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       area: "approvals",
       status: 500,
       code: "STEP_UP_UPDATE_FAILED",
+      tags: { requestId },
     });
     return NextResponse.json({ error: "STEP_UP_UPDATE_FAILED" }, { status: 500 });
   }
   const updated = result.approval;
 
-  emitServerEvent("approval.step_up_verified", { approvalId: updated.id });
+  emitServerEvent("approval.step_up_verified", {
+    requestId,
+    approvalId: updated.id,
+  });
 
   return NextResponse.json({ verified: true, stepUpVerifiedAt: updated.step_up_verified_at });
 }
