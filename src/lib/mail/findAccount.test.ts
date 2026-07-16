@@ -20,4 +20,14 @@ describe("findMailAccount", () => {
   it("falls back to the sole composio account for placeholder email", () => {
     expect(findMailAccount(accounts, "gmail", "Connected account")?.connectedAccountId).toBe("ca_123");
   });
+
+  it("does not resolve a connected account id across providers", () => {
+    const mixed = [...accounts, {
+      provider: "outlook" as const,
+      mailEmail: "Connected account",
+      via: "composio" as const,
+      connectedAccountId: "ca_outlook",
+    }];
+    expect(findMailAccount(mixed, "gmail", "wrong@example.com", "ca_outlook")).toBeUndefined();
+  });
 });
