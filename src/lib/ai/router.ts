@@ -22,6 +22,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getGeminiApiKey } from "@/lib/env";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 // ── Gemini config ──────────────────────────────────────────────────────────────
 
@@ -148,7 +149,22 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
     } catch (err) {
       // Fall through to Haiku — surface the real cause so a misconfigured/
       // failing Gemini call isn't masked by the generic "no AI client" throw.
-      console.error(`[ai/router] Gemini failed (mode=${mode}):`, err instanceof Error ? err.message : "unknown");
+      const rateLimited = err instanceof Error && /\b429\b|quota|rate.?limit/i.test(err.message);
+      captureRouteError(
+        new Error(rateLimited ? "Gemini provider rate limited" : "Gemini provider generation failed"),
+        {
+          route: "ai.router",
+          operation: "gemini_generate",
+          area: "ai",
+          provider: "gemini",
+          status: rateLimited ? 429 : 502,
+          code: rateLimited ? "PROVIDER_RATE_LIMITED" : "PROVIDER_FALLBACK",
+          tags: {
+            mode,
+            fallback_provider: anthropic ? "anthropic" : "none",
+          },
+        },
+      );
     }
   }
 

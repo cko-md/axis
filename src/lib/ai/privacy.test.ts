@@ -16,6 +16,10 @@ const AI_ROUTE_FILES = [
   "src/app/api/ai/route.ts",
   "src/app/api/signals-ai/route.ts",
 ];
+const SAFE_AI_OBSERVABILITY_FILES = [
+  "src/app/api/ai/route.ts",
+  "src/lib/ai/router.ts",
+];
 const CONSOLE_MODULE = "src/components/console/ConsoleModule.tsx";
 
 // Identifiers that carry user content in these routes.
@@ -36,6 +40,18 @@ describe("AI route logging privacy (AI-4)", () => {
       ).toEqual([]);
     });
   }
+
+  it("uses structured safe observability instead of raw console errors", () => {
+    for (const rel of SAFE_AI_OBSERVABILITY_FILES) {
+      const source = readFileSync(join(REPO, rel), "utf8");
+      expect(source, `${rel} must not write raw provider errors to console`)
+        .not.toMatch(/console\.(log|error|warn|info|debug)\s*\(/);
+      expect(source, `${rel} must use the safe route-error metadata boundary`)
+        .toContain("captureRouteError(");
+      expect(source, `${rel} must not send the raw provider exception to Sentry`)
+        .not.toMatch(/captureRouteError\(\s*err\b/);
+    }
+  });
 });
 
 describe("sensitive AI actions are flagged", () => {

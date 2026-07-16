@@ -17,6 +17,39 @@ describe("AI action registry", () => {
     const modes = Object.values(AI_ACTION_DEFS).map((d) => d.mode);
     expect(new Set(modes).size).toBe(modes.length);
   });
+
+  it("enforces the client-side navigation allowlist for deck cards", () => {
+    const meta = { source: "model", degraded: false, reason: null } as const;
+    expect(AI_ACTION_DEFS.deckInsights.output.safeParse({
+      cards: [{
+        id: "0",
+        title: "Open agenda",
+        body: "Review today's priorities.",
+        actionLabel: "Review",
+        actionPath: "/agenda",
+      }],
+      meta,
+    }).success).toBe(true);
+
+    for (const actionPath of [
+      "javascript:alert(1)",
+      "//evil.example",
+      "/%2f%2fevil.example",
+      "/agenda/child",
+      "/unknown",
+    ]) {
+      expect(AI_ACTION_DEFS.deckInsights.output.safeParse({
+        cards: [{
+          id: "0",
+          title: "Unsafe",
+          body: "Must not navigate.",
+          actionLabel: "Open",
+          actionPath,
+        }],
+        meta,
+      }).success, actionPath).toBe(false);
+    }
+  });
 });
 
 describe("buildAiRequestBody", () => {

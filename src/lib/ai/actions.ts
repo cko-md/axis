@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { aiDeckCardSchema } from "@/lib/ai/navigation";
+import { aiResponseMetadataSchema } from "@/lib/ai/response";
 
 // AI-2: typed AI-action registry. One declaration per client-facing AI action —
 // the `/api/ai` `mode` it maps to, a zod input schema, whether it sends
@@ -17,13 +19,25 @@ import { z } from "zod";
 // can assert against (never log these payloads; surface to the user).
 
 const priority = z.enum(["hi", "med", "lo"]);
+const withResponseMetadata = <T extends z.ZodRawShape>(shape: T) =>
+  z.object({ ...shape, meta: aiResponseMetadataSchema }).strict();
+
+const flashcard = z.object({
+  front: z.string().min(1).max(120),
+  back: z.string().min(1).max(300),
+}).strict();
+
+const quizItem = z.object({
+  question: z.string().min(1).max(160),
+  answer: z.string().min(1).max(400),
+}).strict();
 
 export const AI_ACTION_DEFS = {
   triage: {
     mode: "triage",
     sensitive: true,
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
-    output: z.object({
+    output: withResponseMetadata({
       title: z.string(),
       priority,
       category: z.string(),
@@ -34,7 +48,7 @@ export const AI_ACTION_DEFS = {
     mode: "route",
     sensitive: true,
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
-    output: z.object({
+    output: withResponseMetadata({
       destination: z.enum(["research", "literature", "task"]),
       label: z.string(),
       reason: z.string(),
@@ -45,108 +59,107 @@ export const AI_ACTION_DEFS = {
     mode: "notes-summarize",
     sensitive: true,
     input: z.object({ text: z.string().min(1), title: z.string().optional() }),
-    output: z.object({ summary: z.string() }),
+    output: withResponseMetadata({ summary: z.string() }),
   },
   noteRewrite: {
     mode: "notes-rewrite",
     sensitive: true,
     input: z.object({ text: z.string().min(1) }),
-    output: z.object({ rewritten: z.string() }),
+    output: withResponseMetadata({ rewritten: z.string() }),
   },
   noteTitle: {
     mode: "notes-title",
     sensitive: true,
     input: z.object({ text: z.string().min(1) }),
-    output: z.object({ title: z.string() }),
+    output: withResponseMetadata({ title: z.string() }),
   },
   flashcards: {
     mode: "flashcards",
     sensitive: true,
     input: z.object({ text: z.string().min(1), title: z.string().optional() }),
-    output: z.object({ cards: z.array(z.unknown()) }),
+    output: withResponseMetadata({ cards: z.array(flashcard).max(12) }),
   },
   quiz: {
     mode: "quiz",
     sensitive: true,
     input: z.object({ text: z.string().min(1), title: z.string().optional() }),
-    output: z.object({ items: z.array(z.unknown()) }),
+    output: withResponseMetadata({ items: z.array(quizItem).max(8) }),
   },
   mindmap: {
     mode: "mindmap",
     sensitive: true,
     input: z.object({ text: z.string().min(1), title: z.string().optional() }),
-    output: z.object({ root: z.unknown() }),
+    output: withResponseMetadata({ root: z.object({ label: z.string(), children: z.array(z.unknown()).optional() }).strict() }),
   },
   studySummary: {
     mode: "summary",
     sensitive: true,
     input: z.object({ text: z.string().min(1), title: z.string().optional() }),
-    output: z.object({ summary: z.string() }),
+    output: withResponseMetadata({ summary: z.string() }),
   },
   debriefSummary: {
     mode: "debrief_summary",
     sensitive: true,
     input: z.object({ text: z.string().min(1) }),
-    output: z.object({ summary: z.string() }),
+    output: withResponseMetadata({ summary: z.string() }),
   },
   capture: {
     mode: "capture",
     sensitive: true,
     input: z.object({ text: z.string().min(1) }),
-    output: z.object({ label: z.string(), action: z.string(), priority }),
+    output: withResponseMetadata({ label: z.string(), action: z.string(), priority }),
   },
   meetingSummary: {
     mode: "meeting-summary",
     sensitive: true,
     input: z.object({ text: z.string().min(1), title: z.string().optional() }),
-    output: z.object({ summary: z.string() }),
+    output: withResponseMetadata({ summary: z.string() }),
   },
-  // The next four carry a JSON-string `body` of extra context and have
-  // free-form model outputs; call sites keep their own response parsing +
-  // observability and use buildAiRequestBody() for a validated request, so
-  // their `output` here is intentionally loose (not consumed by callAiAction).
+  // Companion and deck-insights are consumed through callAiAction and therefore
+  // use strict response schemas. Regimen outputs remain loose until their
+  // existing call sites migrate to the typed client.
   companion: {
     mode: "companion",
     sensitive: true,
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
-    output: z.object({ response: z.string() }).passthrough(),
+    output: withResponseMetadata({ response: z.string() }),
   },
   deckInsights: {
     mode: "deck-insights",
     sensitive: true,
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
-    output: z.object({ cards: z.array(z.unknown()) }).passthrough(),
+    output: withResponseMetadata({ cards: z.array(aiDeckCardSchema).max(5) }),
   },
   regimen: {
     mode: "regimen",
     sensitive: true,
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
-    output: z.object({}).passthrough(),
+    output: z.object({ meta: aiResponseMetadataSchema }).passthrough(),
   },
   regimenPlan: {
     mode: "regimenPlan",
     sensitive: true,
     input: z.object({ text: z.string().min(1), body: z.string().optional() }),
-    output: z.object({}).passthrough(),
+    output: z.object({ meta: aiResponseMetadataSchema }).passthrough(),
   },
   musicRecs: {
     mode: "music-recs",
     sensitive: true,
     input: z.object({ text: z.string().min(1) }),
-    output: z.object({
+    output: withResponseMetadata({
       recs: z.array(z.object({
         artist: z.string(),
         track: z.string(),
         reason: z.string(),
         genre: z.string(),
-      })),
+      }).strict()).max(6),
     }),
   },
   mealParse: {
     mode: "meal-parse",
     sensitive: true,
     input: z.object({ text: z.string().min(1) }),
-    output: z.object({
+    output: withResponseMetadata({
       emoji: z.string(),
       title: z.string(),
       timing: z.string(),

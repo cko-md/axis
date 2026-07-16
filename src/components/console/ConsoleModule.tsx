@@ -36,6 +36,7 @@ import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
 import { CONSOLE_SECTION_DRILL_INS, taskRingProgress, type ConsoleDrillInSection } from "@/components/console/widget-grid-model";
 import { callAiAction } from "@/lib/ai/callAction";
+import { aiDegradationLabel } from "@/lib/ai/response";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { isSignalActionable, isSignalVisible, useSignals } from "@/lib/hooks/useSignals";
 import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
@@ -595,24 +596,31 @@ export function ConsoleModule() {
     void callAiAction("capture", { text }).then(async (result) => {
       const d = result.ok ? result.data : null;
       const priority = d?.priority ?? "med";
+      const sourceLabel = d?.meta.degraded
+        ? aiDegradationLabel(d.meta.reason)
+        : null;
 
       // Save to tasks table if captMode is "task"
       if (captMode === "task") {
         await addTask({ title: text, category: "personal", priority });
-        toast(d ? `Task · ${d.label} · ${d.action}` : "Task saved", "success", "Capture");
+        toast(d ? `Task · ${d.label} · ${d.action}${sourceLabel ? ` · ${sourceLabel}` : ""}` : "Task saved", "success", "Capture");
         return;
       }
 
       // Save to notes table if captMode is "note"
       if (captMode === "note") {
         await createNote(text, "Inbox");
-        toast(d ? `Note · ${d.label}` : "Note saved", "success", "Capture");
+        toast(d ? `Note · ${d.label}${sourceLabel ? ` · ${sourceLabel}` : ""}` : "Note saved", "success", "Capture");
         return;
       }
 
       // Default: show AI classification toast
       if (d) {
-        toast(`${d.label} · ${d.action}`, "info", "AI");
+        toast(
+          `${d.label} · ${d.action}${sourceLabel ? ` · ${sourceLabel}` : ""}`,
+          "info",
+          d.meta.degraded ? "Heuristic" : "AI",
+        );
       } else {
         toast("Captured to Signals inbox", "success", "Console");
       }
@@ -625,14 +633,21 @@ export function ConsoleModule() {
       const result = await callAiAction("triage", { text: s.title, body: s.body ?? "" });
       if (result.ok) {
         const d = result.data;
+        const sourceLabel = d.meta.degraded
+          ? aiDegradationLabel(d.meta.reason)
+          : "Model";
         await applyClassification(s.id, {
           signal_type: "action",
           priority: d.priority,
           destination: d.category,
-          reason: `${d.category} · ${d.effort}`,
-          confidence: 0.8,
+          reason: `${d.category} · ${d.effort} · ${sourceLabel}`,
+          confidence: d.meta.degraded ? 0 : 0.8,
         });
-        toast(`Triaged · ${d.priority.toUpperCase()} · ${d.category} · ${d.effort}`, "info", "AI");
+        toast(
+          `Triaged · ${d.priority.toUpperCase()} · ${d.category} · ${d.effort} · ${sourceLabel}`,
+          "info",
+          d.meta.degraded ? "Heuristic" : "AI",
+        );
       } else {
         toast("Triage failed — check connection", "error", "AI");
       }

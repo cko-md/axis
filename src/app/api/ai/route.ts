@@ -5,6 +5,17 @@ import { createClient } from "@/lib/supabase/server";
 import { getGeminiApiKey, optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 import { normalizePayload, parseJsonBody } from "@/lib/ai/request";
+import {
+  AI_INTERNAL_ACTION_PATHS,
+  sanitizeAiDeckCards,
+} from "@/lib/ai/navigation";
+import {
+  MODEL_AI_RESPONSE_METADATA,
+  degradedAiResponseMetadata,
+  withAiResponseMetadata,
+  type AiResponseMetadata,
+} from "@/lib/ai/response";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
@@ -16,6 +27,20 @@ type RouteResult = {
   tags: string[];
 };
 type LiteratureRelevanceResult = { relevance: string };
+
+function aiJson<T extends object>(
+  payload: T,
+  meta: AiResponseMetadata = MODEL_AI_RESPONSE_METADATA,
+) {
+  return NextResponse.json(withAiResponseMetadata(payload, meta));
+}
+
+function degradedAiJson<T extends object>(
+  payload: T,
+  reason: Extract<AiResponseMetadata, { degraded: true }>["reason"],
+) {
+  return aiJson(payload, degradedAiResponseMetadata(reason));
+}
 
 // Strip HTML tags so heuristics + the model see clean prose.
 function stripHtml(s: string): string {
@@ -305,24 +330,25 @@ export async function POST(req: NextRequest) {
 
   // No AI keys at all → heuristics only
   if (!apiKey && !hasGemini) {
-    if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
-    if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
-    if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));
-    if (mode === "flashcards") return NextResponse.json(heuristicFlashcards(text, title));
-    if (mode === "quiz") return NextResponse.json(heuristicQuiz(text));
-    if (mode === "mindmap") return NextResponse.json(heuristicMindMap(text, title));
-    if (mode === "summary") return NextResponse.json(heuristicStudySummary(text, title));
-    if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
-    if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
-    if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
-    if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
+    const reason = "not_configured" as const;
+    if (mode === "notes-summarize") return degradedAiJson(heuristicNoteSummarize(text, title), reason);
+    if (mode === "notes-rewrite") return degradedAiJson(heuristicNoteRewrite(text), reason);
+    if (mode === "notes-title") return degradedAiJson(heuristicNoteTitle(text), reason);
+    if (mode === "flashcards") return degradedAiJson(heuristicFlashcards(text, title), reason);
+    if (mode === "quiz") return degradedAiJson(heuristicQuiz(text), reason);
+    if (mode === "mindmap") return degradedAiJson(heuristicMindMap(text, title), reason);
+    if (mode === "summary") return degradedAiJson(heuristicStudySummary(text, title), reason);
+    if (mode === "meeting-summary") return degradedAiJson(heuristicMeetingSummary(text), reason);
+    if (mode === "triage") return degradedAiJson(heuristicTriage(text, body), reason);
+    if (mode === "triage-person") return degradedAiJson(heuristicTriagePerson(text, body), reason);
+    if (mode === "route") return degradedAiJson(heuristicRoute(text, body), reason);
     if (mode === "literature-relevance") {
       const ctx = parseJsonBody<{ summary?: string; topics?: string[] }>(body, {});
-      return NextResponse.json(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []));
+      return degradedAiJson(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []), reason);
     }
     if (mode === "regimen") {
       const ctx = parseJsonBody<{ kind?: string; duration_min?: number; intensity?: string }>(body, {});
-      return NextResponse.json(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"));
+      return degradedAiJson(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"), reason);
     }
     if (mode === "regimenPlan") {
       const fallbackDays: RegimenPlanDay[] = [
@@ -334,18 +360,18 @@ export async function POST(req: NextRequest) {
         { dow: 5, title: "Long Run", kind: "run", duration_min: 110, intensity: "key", notes: "18 km · Z2", items: [{ name: "Long easy run", dist: "18 km", zone: "Z2" }] },
         { dow: 6, title: "Rest", kind: "rest", duration_min: 0, intensity: "easy", items: [] },
       ];
-      return NextResponse.json({ days: fallbackDays, summary: "A balanced 4-day running week targeting sub-1:30. Add quality sessions progressively and monitor recovery." } as RegimenPlanResult);
+      return degradedAiJson({ days: fallbackDays, summary: "A balanced 4-day running week targeting sub-1:30. Add quality sessions progressively and monitor recovery." } satisfies RegimenPlanResult, reason);
     }
-    if (mode === "companion") return NextResponse.json({ response: "I'm offline right now — check your connection and try again." });
-    if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
-    if (mode === "debrief_summary") return NextResponse.json(heuristicDebriefSummary(text));
+    if (mode === "companion") return degradedAiJson({ response: "I'm offline right now — check your connection and try again." }, reason);
+    if (mode === "deck-insights") return degradedAiJson({ cards: sanitizeAiDeckCards(fallbackDeckCards(text)) }, reason);
+    if (mode === "debrief_summary") return degradedAiJson(heuristicDebriefSummary(text), reason);
     if (mode === "pipeline-draft") {
       const ctx = parseJsonBody<{ kind?: "study" | "conference" | "study-plan"; role?: string; meta?: string }>(body, {});
-      return NextResponse.json(heuristicPipelineDraft(text, ctx.kind ?? "study", ctx.meta));
+      return degradedAiJson(heuristicPipelineDraft(text, ctx.kind ?? "study", ctx.meta), reason);
     }
-    if (mode === "music-recs") return NextResponse.json({ recs: [] });
-    if (mode === "meal-parse") return NextResponse.json({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" });
-    return NextResponse.json(heuristicCapture(text));
+    if (mode === "music-recs") return degradedAiJson({ recs: [] }, reason);
+    if (mode === "meal-parse") return degradedAiJson({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" }, reason);
+    return degradedAiJson(heuristicCapture(text), reason);
   }
 
   // Build Anthropic client only when key is available
@@ -375,7 +401,7 @@ export async function POST(req: NextRequest) {
         conversationHistory: history,
         maxTokens: persona === "nova" ? 120 : 400,
       });
-      return NextResponse.json({ response });
+      return aiJson({ response });
     }
 
     // ── deck-insights ──────────────────────────────────────────────────────────
@@ -386,12 +412,14 @@ export async function POST(req: NextRequest) {
         mode,
         anthropic,
         providerPref,
-        system: `You generate concise contextual intelligence cards for a personal OS. Given the current module and time of day, return ONLY a JSON array of 3–5 objects. Each has: title (string, ≤5 words), body (string, ≤22 words, specific and actionable), optionally: actionLabel (string, ≤3 words), actionPath (string, URL path like "/literature" or "/agenda"). Focus on what the user should pay attention to right now. No markdown, no preamble.`,
+        system: `You generate concise contextual intelligence cards for a personal OS. Given the current module and time of day, return ONLY a JSON array of 3–5 objects. Each has: title (string, ≤5 words), body (string, ≤22 words, specific and actionable), optionally: actionLabel (string, ≤3 words), actionPath (one exact allowlisted module root: ${AI_INTERNAL_ACTION_PATHS.join(", ")}). Omit both action fields if no allowlisted module applies. Focus on what the user should pay attention to right now. No markdown, no preamble.`,
         userMessage: context,
         maxTokens: 500,
       });
-      const cards = JSON.parse(raw.text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()) as Array<{ title: string; body: string; actionLabel?: string; actionPath?: string }>;
-      return NextResponse.json({ cards: cards.map((c, i) => ({ ...c, id: String(i) })) });
+      const cards = sanitizeAiDeckCards(
+        JSON.parse(raw.text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()),
+      );
+      return aiJson({ cards });
     }
 
     // ── music-recs ───────────────────────────────────────────────────────────
@@ -404,7 +432,7 @@ export async function POST(req: NextRequest) {
         userMessage: text,
         maxTokens: 500,
       });
-      return NextResponse.json({ recs: (result.recs ?? []).slice(0, 6) });
+      return aiJson({ recs: (result.recs ?? []).slice(0, 6) });
     }
 
     // ── meal-parse ───────────────────────────────────────────────────────────
@@ -417,7 +445,7 @@ export async function POST(req: NextRequest) {
         userMessage: text,
         maxTokens: 150,
       });
-      return NextResponse.json({
+      return aiJson({
         emoji: result.emoji || "🍽️",
         title: result.title || "",
         timing: result.timing || "Logged",
@@ -436,7 +464,7 @@ export async function POST(req: NextRequest) {
         userMessage: `kind: ${ctx.kind ?? "other"}\nduration: ${ctx.duration_min ?? 45} min\nintensity: ${ctx.intensity ?? "moderate"}\ntitle: ${text}\nnotes: ${ctx.notes ?? "none"}`,
         maxTokens: 600,
       });
-      return NextResponse.json({
+      return aiJson({
         warmup: result.warmup,
         items: result.items,
         cooldown: result.cooldown,
@@ -457,7 +485,7 @@ export async function POST(req: NextRequest) {
         userMessage: `discipline: ${ctx.discipline ?? "general"}\ndays per week: ${ctx.daysPerWeek ?? 4}\ncurrent level: ${ctx.currentLevel ?? "intermediate"}\ngoal: ${ctx.goal ?? "general fitness"}${stravaSection}`,
         maxTokens: 1400,
       });
-      return NextResponse.json({
+      return aiJson({
         days: result.days,
         summary: result.summary,
       } satisfies RegimenPlanResult);
@@ -474,7 +502,7 @@ export async function POST(req: NextRequest) {
         userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
         maxTokens: 500,
       });
-      return NextResponse.json({ summary });
+      return aiJson({ summary });
     }
 
     // ── notes-rewrite ──────────────────────────────────────────────────────────
@@ -487,7 +515,7 @@ export async function POST(req: NextRequest) {
         userMessage: stripHtml(text).slice(0, 6000),
         maxTokens: 1200,
       });
-      return NextResponse.json({ rewritten });
+      return aiJson({ rewritten });
     }
 
     // ── notes-title ────────────────────────────────────────────────────────────
@@ -501,7 +529,7 @@ export async function POST(req: NextRequest) {
         userMessage: stripHtml(text).slice(0, 3000),
         maxTokens: 60,
       });
-      return NextResponse.json({ title: generated });
+      return aiJson({ title: generated });
     }
 
     // ── flashcards (study aid) ───────────────────────────────────────────────────
@@ -516,7 +544,7 @@ export async function POST(req: NextRequest) {
         maxTokens: 1200,
       });
       const cards = Array.isArray(result.cards) ? result.cards : [];
-      return NextResponse.json({ cards });
+      return aiJson({ cards });
     }
 
     // ── quiz (study aid) ─────────────────────────────────────────────────────────
@@ -531,7 +559,7 @@ export async function POST(req: NextRequest) {
         maxTokens: 1200,
       });
       const items = Array.isArray(result.items) ? result.items : [];
-      return NextResponse.json({ items });
+      return aiJson({ items });
     }
 
     // ── mindmap (study aid) ──────────────────────────────────────────────────────
@@ -548,7 +576,7 @@ export async function POST(req: NextRequest) {
       const root: MindMapNode = result.root && typeof result.root === "object"
         ? result.root
         : { label: title || "Note", children: [] };
-      return NextResponse.json({ root });
+      return aiJson({ root });
     }
 
     // ── summary (study aid) ──────────────────────────────────────────────────────
@@ -563,7 +591,7 @@ export async function POST(req: NextRequest) {
         userMessage: `${noteCtx}${stripHtml(text).slice(0, 6000)}`,
         maxTokens: 700,
       });
-      return NextResponse.json({ summary });
+      return aiJson({ summary });
     }
 
     // ── meeting-summary ────────────────────────────────────────────────────────
@@ -577,7 +605,7 @@ export async function POST(req: NextRequest) {
         userMessage: `${noteCtx}Transcript:\n${text.slice(0, 6000)}`,
         maxTokens: 700,
       });
-      return NextResponse.json({ summary });
+      return aiJson({ summary });
     }
 
     // ── route ──────────────────────────────────────────────────────────────────
@@ -591,7 +619,7 @@ export async function POST(req: NextRequest) {
         userMessage: `title: ${text}\nbody: ${stripHtml(body ?? "").slice(0, 4000)}`,
         maxTokens: 250,
       });
-      return NextResponse.json({
+      return aiJson({
         destination: result.destination,
         label: result.label,
         reason: result.reason,
@@ -610,7 +638,7 @@ export async function POST(req: NextRequest) {
         userMessage: `title: ${text}\nbody: ${body ?? ""}`,
         maxTokens: 200,
       });
-      return NextResponse.json({
+      return aiJson({
         title: result.title,
         priority: result.priority,
         category: result.category,
@@ -629,7 +657,7 @@ export async function POST(req: NextRequest) {
         userMessage: `title: ${text}\nbody: ${body ?? ""}`,
         maxTokens: 200,
       });
-      return NextResponse.json({
+      return aiJson({
         name: result.name,
         role: result.role,
         note: result.note,
@@ -675,7 +703,7 @@ export async function POST(req: NextRequest) {
         userMessage: `Reader's saved topics: ${topicsLabel}\n\nArticle title: ${text}\nAuthors: ${ctx.authors ?? "unknown"}\nSource: ${ctx.source ?? "unknown"}\nSummary: ${stripHtml(ctx.summary ?? "").slice(0, 1200)}`,
         maxTokens: 150,
       });
-      return NextResponse.json({
+      return aiJson({
         relevance: result.relevance,
       } satisfies LiteratureRelevanceResult);
     }
@@ -697,7 +725,7 @@ export async function POST(req: NextRequest) {
         userMessage: `kind: ${kind}\ntitle: ${text}\ncontext: ${meta || "none"}`,
         maxTokens: kind === "study-plan" ? 400 : 500,
       });
-      return NextResponse.json({
+      return aiJson({
         draft: typeof result.draft === "string" ? result.draft : "",
       } satisfies PipelineDraftResult);
     }
@@ -712,7 +740,7 @@ export async function POST(req: NextRequest) {
         userMessage: text,
         maxTokens: 350,
       });
-      return NextResponse.json({ summary });
+      return aiJson({ summary });
     }
 
     // ── capture (default) ──────────────────────────────────────────────────────
@@ -724,61 +752,73 @@ export async function POST(req: NextRequest) {
       userMessage: text,
       maxTokens: 150,
     });
-    return NextResponse.json({
+    return aiJson({
       label: result.label,
       action: result.action,
       priority: result.priority,
     } satisfies CaptureResult);
 
   } catch (err) {
-    // Logged server-side only — the client always gets a graceful fallback below,
-    // never a raw 500. Without this, failures (missing/wrong API key, malformed
-    // model output, upstream errors) are invisible and surface only as the
-    // generic fallback strings, making them near-impossible to diagnose.
-    console.error(`[ai/route] mode=${mode} failed:`, err instanceof Error ? err.message : "unknown");
     // A 429 from the model provider means the API key is valid but out of
     // quota — tell the user that specifically so they fix billing rather than
     // retrying into the same wall.
     const rateLimited = err instanceof Error && /\b429\b|quota|rate.?limit/i.test(err.message);
+    const reason = rateLimited ? "provider_rate_limited" as const : "provider_error" as const;
+    captureRouteError(
+      new Error(rateLimited ? "AI provider rate limited" : "AI provider generation failed"),
+      {
+        route: "ai",
+        operation: "generate",
+        area: "ai",
+        provider: providerPref,
+        status: rateLimited ? 429 : 502,
+        code: rateLimited ? "PROVIDER_RATE_LIMITED" : "PROVIDER_ERROR",
+        tags: {
+          mode,
+          degraded: true,
+          degradation_reason: reason,
+        },
+      },
+    );
     // ── Error fallbacks ────────────────────────────────────────────────────────
     if (mode === "companion") {
-      return NextResponse.json({
+      return degradedAiJson({
         response: rateLimited
           ? "AI quota reached — the model provider is rate-limiting requests. Check the API key's billing/quota and try again later."
           : "AI is unavailable right now. Check the model API key in Control Room.",
-      });
+      }, reason);
     }
-    if (mode === "deck-insights") return NextResponse.json({ cards: fallbackDeckCards(text) });
-    if (mode === "music-recs") return NextResponse.json({ recs: [] });
-    if (mode === "meal-parse") return NextResponse.json({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" });
-    if (mode === "notes-summarize") return NextResponse.json(heuristicNoteSummarize(text, title));
-    if (mode === "notes-rewrite") return NextResponse.json(heuristicNoteRewrite(text));
-    if (mode === "notes-title") return NextResponse.json(heuristicNoteTitle(text));
-    if (mode === "flashcards") return NextResponse.json(heuristicFlashcards(text, title));
-    if (mode === "quiz") return NextResponse.json(heuristicQuiz(text));
-    if (mode === "mindmap") return NextResponse.json(heuristicMindMap(text, title));
-    if (mode === "summary") return NextResponse.json(heuristicStudySummary(text, title));
-    if (mode === "meeting-summary") return NextResponse.json(heuristicMeetingSummary(text));
-    if (mode === "triage") return NextResponse.json(heuristicTriage(text, body));
-    if (mode === "triage-person") return NextResponse.json(heuristicTriagePerson(text, body));
-    if (mode === "route") return NextResponse.json(heuristicRoute(text, body));
+    if (mode === "deck-insights") return degradedAiJson({ cards: sanitizeAiDeckCards(fallbackDeckCards(text)) }, reason);
+    if (mode === "music-recs") return degradedAiJson({ recs: [] }, reason);
+    if (mode === "meal-parse") return degradedAiJson({ emoji: "🍽️", title: "", timing: "Logged", macros: "—" }, reason);
+    if (mode === "notes-summarize") return degradedAiJson(heuristicNoteSummarize(text, title), reason);
+    if (mode === "notes-rewrite") return degradedAiJson(heuristicNoteRewrite(text), reason);
+    if (mode === "notes-title") return degradedAiJson(heuristicNoteTitle(text), reason);
+    if (mode === "flashcards") return degradedAiJson(heuristicFlashcards(text, title), reason);
+    if (mode === "quiz") return degradedAiJson(heuristicQuiz(text), reason);
+    if (mode === "mindmap") return degradedAiJson(heuristicMindMap(text, title), reason);
+    if (mode === "summary") return degradedAiJson(heuristicStudySummary(text, title), reason);
+    if (mode === "meeting-summary") return degradedAiJson(heuristicMeetingSummary(text), reason);
+    if (mode === "triage") return degradedAiJson(heuristicTriage(text, body), reason);
+    if (mode === "triage-person") return degradedAiJson(heuristicTriagePerson(text, body), reason);
+    if (mode === "route") return degradedAiJson(heuristicRoute(text, body), reason);
     if (mode === "literature-relevance") {
       const ctx = parseJsonBody<{ summary?: string; topics?: string[] }>(body, {});
-      return NextResponse.json(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []));
+      return degradedAiJson(heuristicLiteratureRelevance(text, ctx.summary ?? "", ctx.topics ?? []), reason);
     }
     if (mode === "regimen") {
       const ctx = parseJsonBody<{ kind?: string; duration_min?: number; intensity?: string }>(body, {});
-      return NextResponse.json(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"));
+      return degradedAiJson(fallbackRegimen(ctx.kind ?? "other", ctx.duration_min ?? 45, ctx.intensity ?? "moderate"), reason);
     }
     if (mode === "regimenPlan") {
-      return NextResponse.json({ days: [], summary: "Could not generate plan — check your API key and try again." } as RegimenPlanResult);
+      return degradedAiJson({ days: [], summary: "Could not generate plan — check your API key and try again." } satisfies RegimenPlanResult, reason);
     }
-    if (mode === "debrief_summary") return NextResponse.json(heuristicDebriefSummary(text));
+    if (mode === "debrief_summary") return degradedAiJson(heuristicDebriefSummary(text), reason);
     if (mode === "pipeline-draft") {
       const ctx = parseJsonBody<{ kind?: "study" | "conference" | "study-plan"; role?: string; meta?: string; next_action?: string; stage?: string }>(body, {});
       const metaParts = [ctx.role, ctx.meta, ctx.stage, ctx.next_action].filter(Boolean);
-      return NextResponse.json(heuristicPipelineDraft(text, ctx.kind ?? "study", metaParts.join(" · ")));
+      return degradedAiJson(heuristicPipelineDraft(text, ctx.kind ?? "study", metaParts.join(" · ")), reason);
     }
-    return NextResponse.json(heuristicCapture(text));
+    return degradedAiJson(heuristicCapture(text), reason);
   }
 }
