@@ -24,6 +24,10 @@
     "desktop:size:check": "node scripts/report-desktop-size.mjs --check",
     "desktop:secrets:check": "node scripts/check-desktop-release-secrets.mjs",
     "desktop:secrets:configure": "node scripts/configure-desktop-release-secrets.mjs",
+    "desktop:apple-signing:check": "node scripts/check-desktop-release-secrets.mjs --platform apple",
+    "desktop:apple-signing:configure": "node scripts/configure-desktop-release-secrets.mjs",
+    "desktop:windows-signing:check": "node scripts/check-desktop-release-secrets.mjs --platform windows",
+    "desktop:windows-signing:configure": "node scripts/configure-windows-signing.mjs",
     "axis": "node scripts/axis.mjs"
   },
   "engines": {

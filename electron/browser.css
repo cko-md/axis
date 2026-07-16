@@ -14,6 +14,7 @@ button {
 button:hover:not(:disabled) { border-color: #638ab8; background: #202733; color: white; }
 button:disabled { opacity: .35; cursor: default; }
 #reader { width: 40px; font-size: 13px; font-weight: 650; }
+#capabilities { font-size: 16px; }
 #address-form {
   height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
   background: #0c0f14; border: 1px solid #303744; border-radius: 10px;
@@ -33,4 +34,9 @@ button:disabled { opacity: .35; cursor: default; }
   opacity: 0; pointer-events: none; transition: opacity .16s;
 }
 #message.visible { opacity: 1; }
+#message.warning {
+  background: #302817;
+  border-color: #8c7130;
+  color: #ffe7a7;
+}
 @keyframes load { to { background-position: -220% 0; } }

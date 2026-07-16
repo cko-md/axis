@@ -17,6 +17,10 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const {
+  compatibilityForUrl,
+  createManagedExtensionManager,
+} = require("./browser-capabilities.cjs");
 const { createDesktopObservability } = require("./desktop-observability.cjs");
 const { resolveRuntimeConfig } = require("./runtime-config.cjs");
 const { createUpdateController } = require("./update-controller.cjs");
@@ -36,6 +40,7 @@ const observability = createDesktopObservability({ crashReporter, runtime });
 let devServer = null;
 let mainWindow = null;
 let updateController = null;
+let extensionManager = null;
 
 function normalizeWebUrl(raw) {
   const value = String(raw || "").trim();
@@ -62,6 +67,7 @@ function isTrustedAxisSender(event) {
 }
 
 function stateFor(record) {
+  const extensionState = extensionManager?.getState();
   return {
     url: record.view.webContents.getURL(),
     title: record.view.webContents.getTitle(),
@@ -69,6 +75,13 @@ function stateFor(record) {
     canGoBack: record.view.webContents.navigationHistory.canGoBack(),
     canGoForward: record.view.webContents.navigationHistory.canGoForward(),
     error: record.lastError,
+    compatibility: compatibilityForUrl(record.view.webContents.getURL(), {
+      passwordForm: record.passwordForm,
+    }),
+    extensions: {
+      loaded: extensionState?.loaded.length || 0,
+      failed: extensionState?.failed.length || 0,
+    },
   };
 }
 
@@ -81,6 +94,66 @@ function sendBrowserState(record) {
 function showBrowserError(record, message) {
   record.lastError = String(message).slice(0, 240);
   sendBrowserState(record);
+}
+
+async function detectPasswordForm(record) {
+  if (record.view.webContents.isDestroyed()) return;
+  const navigationUrl = record.view.webContents.getURL();
+  try {
+    const passwordForm = await record.view.webContents.executeJavaScript(
+      `Boolean(document.querySelector(
+        'input[type="password"],input[autocomplete="current-password"],input[autocomplete="new-password"]'
+      ))`,
+      true,
+    );
+    if (navigationUrl !== record.view.webContents.getURL()) return;
+    record.passwordForm = Boolean(passwordForm);
+  } catch {
+    record.passwordForm = false;
+  }
+  sendBrowserState(record);
+}
+
+async function showBrowserCapabilities(record) {
+  const extensionState = extensionManager?.getState() || { loaded: [], failed: [] };
+  const broadAccessCount = extensionState.loaded.filter((item) => item.broadHostAccess).length;
+  const detail = [
+    `Managed unpacked extensions: ${extensionState.loaded.length} loaded, ${extensionState.failed.length} failed.`,
+    broadAccessCount ? `${broadAccessCount} loaded extension(s) can access all sites.` : "No loaded extension declares access to all sites.",
+    "",
+    "Chrome Web Store: unavailable; Electron supports only a subset of extension APIs.",
+    "Proprietary DRM: Widevine is not bundled in the stock Electron build.",
+    "Passwords: AXIS never captures, stores, syncs, or autofills website credentials.",
+    "",
+    "Use the system-browser action for DRM services, Chrome/Edge Sync, or installed password-manager extensions.",
+  ].join("\n");
+  const result = await dialog.showMessageBox({
+    type: "info",
+    buttons: ["Open extension folder", "Reload extensions", "Open page externally", "Close"],
+    defaultId: 3,
+    cancelId: 3,
+    title: "AXIS Browser capabilities",
+    message: "Browser compatibility and privacy",
+    detail,
+  });
+
+  if (result.response === 0) {
+    await extensionManager?.openFolder();
+  } else if (result.response === 1) {
+    const next = await extensionManager?.reload();
+    sendBrowserState(record);
+    await dialog.showMessageBox({
+      type: next?.failed.length ? "warning" : "info",
+      title: "Browser extensions reloaded",
+      message: `${next?.loaded.length || 0} extension(s) loaded.`,
+      detail: next?.failed.length
+        ? `${next.failed.length} extension(s) failed. Open the extension folder and review enabled.json.`
+        : "Only explicitly enabled unpacked extensions are active.",
+    });
+  } else if (result.response === 2) {
+    const url = record.view.webContents.getURL();
+    if (url) await shell.openExternal(normalizeWebUrl(url));
+  }
 }
 
 function createBrowserWindow(rawUrl, requestedTitle) {
@@ -119,7 +192,7 @@ function createBrowserWindow(rawUrl, requestedTitle) {
   browserViewIds.add(view.webContents.id);
   window.contentView.addChildView(view);
 
-  const record = { window, toolbar, view, lastError: "" };
+  const record = { window, toolbar, view, lastError: "", passwordForm: false };
   browserWindows.set(toolbar.webContents.id, record);
 
   const layout = () => {
@@ -132,6 +205,7 @@ function createBrowserWindow(rawUrl, requestedTitle) {
 
   view.webContents.on("did-start-loading", () => {
     record.lastError = "";
+    record.passwordForm = false;
     sendBrowserState(record);
   });
   for (const eventName of ["did-stop-loading", "did-navigate", "did-navigate-in-page", "page-title-updated"]) {
@@ -139,6 +213,9 @@ function createBrowserWindow(rawUrl, requestedTitle) {
   }
   view.webContents.on("page-title-updated", (_event, title) => {
     window.setTitle(title ? `${title} — AXIS Browser` : "AXIS Browser");
+  });
+  view.webContents.on("dom-ready", () => {
+    void detectPasswordForm(record);
   });
   view.webContents.on("did-fail-load", (_event, errorCode, _description, validatedUrl, isMainFrame) => {
     if (!isMainFrame || errorCode === -3) return;
@@ -193,7 +270,7 @@ function recordFor(event) {
   return browserWindows.get(event.sender.id);
 }
 
-function configureBrowserSession() {
+async function configureBrowserSession() {
   const browserSession = session.fromPartition("persist:axis-browser");
   const promptable = new Set(["media", "geolocation", "notifications", "clipboard-read"]);
   const chromiumUserAgent = browserSession
@@ -227,6 +304,22 @@ function configureBrowserSession() {
     }).then(({ response }) => callback(response === 0));
   });
   browserSession.setDisplayMediaRequestHandler((_request, callback) => callback({}));
+  extensionManager = createManagedExtensionManager({
+    app,
+    browserSession,
+    shell,
+  });
+  try {
+    const extensionState = await extensionManager.initialize();
+    if (extensionState.failed.length) {
+      observability.captureMessage("Managed browser extensions failed to initialize", {
+        failedCount: extensionState.failed.length,
+        operation: "browser-extensions",
+      });
+    }
+  } catch (error) {
+    observability.captureException(error, { operation: "browser-extensions-initialize" });
+  }
 }
 
 function registerIpc() {
@@ -251,6 +344,12 @@ function registerIpc() {
   ipcMain.handle("axis-browser:external", (event) => {
     const url = recordFor(event)?.view.webContents.getURL();
     if (url) return shell.openExternal(normalizeWebUrl(url));
+  });
+  ipcMain.handle("axis-browser:capabilities", async (event) => {
+    const record = recordFor(event);
+    if (!record) throw new Error("Untrusted browser capabilities request");
+    await showBrowserCapabilities(record);
+    return true;
   });
   ipcMain.handle("axis-browser:reader", async (event) => {
     const record = recordFor(event);
@@ -503,7 +602,7 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin" && app.dock && !nativeImage.createFromPath(appIconPath).isEmpty()) {
     app.dock.setIcon(appIconPath);
   }
-  configureBrowserSession();
+  await configureBrowserSession();
   registerIpc();
   updateController = createUpdateController({
     app,

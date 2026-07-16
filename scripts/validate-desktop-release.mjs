@@ -37,4 +37,18 @@ if (process.platform === "darwin") {
   }
 }
 
+if (process.platform === "win32") {
+  for (const name of [
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_TRUSTED_SIGNING_ENDPOINT",
+    "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
+    "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
+    "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
+  ]) {
+    requireEnv(name);
+  }
+}
+
 console.log(`Desktop release ${expectedTag} is configured for ${productionUrl.origin}.`);

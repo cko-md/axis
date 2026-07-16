@@ -66,6 +66,8 @@ workflow. The tag is publishable only when:
 - the production AXIS HTTPS origin and public desktop Sentry DSN are embedded;
 - macOS artifacts are signed with Developer ID Application, notarized, stapled,
   and accepted by Gatekeeper;
+- Windows application and installer executables are Azure Artifact Signed and
+  pass Authenticode publisher verification;
 - custom AXIS icons are present in every platform package;
 - updater installers, blockmaps, and `latest*.yml` metadata are all produced.
 
@@ -73,8 +75,9 @@ The final GitHub Release is created only after macOS, Windows, and Linux jobs
 finish. Installed applications consume that release through `electron-updater`.
 See `docs/desktop.md` for required secrets and verification commands.
 
-While Apple credentials are pending, `desktop-preview-v<version>` can publish a
-clearly labeled unsigned prerelease for controlled evaluation. Preview releases
+While Apple and Azure signing identities are pending,
+`desktop-preview-v<version>` can publish a clearly labeled unsigned prerelease
+for controlled evaluation. Preview releases
 exclude updater manifests and blockmaps and therefore cannot be selected by the
 signed production update channel. They are never a substitute for the signed
 desktop production gate.

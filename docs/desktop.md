@@ -67,8 +67,8 @@ also available.
 
 ### Unsigned evaluation wave
 
-Until Apple credentials are available, a separate prerelease channel can publish
-evaluation installers:
+Until Apple and Microsoft signing identities are available, a separate
+prerelease channel can publish evaluation installers:
 
 ```bash
 git tag desktop-preview-v0.1.0
@@ -76,8 +76,8 @@ git push origin desktop-preview-v0.1.0
 ```
 
 `.github/workflows/desktop-preview.yml` deliberately disables certificate
-discovery, proves the macOS application is unsigned, marks the GitHub Release as
-an unsigned prerelease, and publishes checksums. It does **not** publish
+discovery, proves the macOS and Windows applications are unsigned, marks the
+GitHub Release as an unsigned prerelease, and publishes checksums. It does **not** publish
 `latest*.yml` or blockmap files, so it cannot enter or contaminate the signed
 `desktop-v*` auto-update channel. Gatekeeper and SmartScreen warnings are
 expected. This is an evaluation build, not a final signed release.
@@ -85,9 +85,9 @@ expected. This is an evaluation build, not a final signed release.
 ### Deferred signed production wave
 
 The `desktop-v*` workflow remains the production channel. It will not publish
-until Developer ID signing, Apple notarization, stapling, and Gatekeeper
-verification all pass. The owner-controlled Apple credentials below are the only
-remaining prerequisite for that wave.
+until Developer ID signing, Apple notarization, stapling, Gatekeeper
+verification, Azure Artifact Signing, and Windows Authenticode verification all
+pass. Owner-controlled Apple and Azure identity values are prerequisites.
 
 Required GitHub Actions secrets:
 
@@ -99,6 +99,18 @@ Required GitHub Actions secrets:
 | `APPLE_API_KEY_CONTENT` | Raw App Store Connect API `.p8` key content. |
 | `APPLE_API_KEY_ID` | App Store Connect API key ID. |
 | `APPLE_API_ISSUER` | App Store Connect issuer ID. |
+| `AZURE_TENANT_ID` | Microsoft Entra tenant containing the signing service principal. |
+| `AZURE_CLIENT_ID` | Application/client ID for the signing service principal. |
+| `AZURE_CLIENT_SECRET` | Service-principal secret used only by the Windows release job. |
+
+Required GitHub Actions variables:
+
+| Variable | Purpose |
+|---|---|
+| `AZURE_TRUSTED_SIGNING_ENDPOINT` | Regional Azure Artifact Signing endpoint. |
+| `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME` | Artifact Signing account name. |
+| `AZURE_TRUSTED_SIGNING_CERT_PROFILE` | Public-trust certificate profile. |
+| `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME` | Certificate common name, matched during build and verification. |
 
 Once Apple has issued the Developer ID Application certificate and App Store
 Connect API key, install them without putting their values on the command line
@@ -115,12 +127,67 @@ npm run desktop:secrets:configure -- \
 The command prompts for the `.p12` password with terminal echo disabled,
 validates the certificate, stores the five Apple values directly through the
 GitHub CLI, and prints secret names/status only. Confirm readiness with
-`npm run desktop:secrets:check`.
+`npm run desktop:apple-signing:check`. Use
+`npm run desktop:secrets:check` to verify both production signing platforms.
 
-Release packaging sets `forceCodeSigning`, hardened runtime, and notarization on
-macOS. The workflow then verifies the Developer ID signature, stapled
-notarization ticket, and Gatekeeper assessment before publishing. A missing or
-invalid credential fails the release instead of emitting an unsigned artifact.
+For Windows, create an Azure Artifact Signing account, public-trust certificate
+profile, and an Entra application with the Certificate Profile Signer role.
+Then store the values without printing the client secret:
+
+```bash
+npm run desktop:windows-signing:configure -- \
+  --tenant-id 00000000-0000-0000-0000-000000000000 \
+  --client-id 00000000-0000-0000-0000-000000000000 \
+  --endpoint https://eus.codesigning.azure.net/ \
+  --account axis-signing \
+  --profile public-trust \
+  --publisher "AXIS"
+```
+
+The command prompts for `AZURE_CLIENT_SECRET` with terminal echo disabled.
+Confirm the Windows configuration with
+`npm run desktop:windows-signing:check`.
+
+Release packaging sets `forceCodeSigning` on macOS and Windows. The workflow
+verifies the Developer ID signature, stapled notarization ticket, Gatekeeper
+assessment, Authenticode status, and expected Windows publisher before
+publishing. Missing or invalid credentials fail the release instead of emitting
+an unsigned production artifact.
+
+## Browser compatibility controls
+
+### Managed unpacked extensions
+
+AXIS supports explicitly enabled unpacked extensions through Electron's
+persistent `axis-browser` session. Open the ◫ Browser capabilities control,
+choose **Open extension folder**, place an unpacked extension in one child
+directory, and list that directory in `enabled.json`. Reload from the same
+dialog.
+
+This is not Chrome Web Store compatibility. Electron supports only a subset of
+extension APIs. AXIS rejects symlinks and extensions requesting `debugger`,
+`nativeMessaging`, `proxy`, or `vpnProvider`. It also reports how many enabled
+extensions request access to all sites. Toolbar-dependent password-manager
+extensions and packed `.crx` installers remain unsupported.
+
+### Proprietary DRM
+
+The stock Electron distribution does not bundle Widevine. AXIS identifies
+common DRM streaming hosts and displays an explicit system-browser handoff
+instead of allowing playback to fail without explanation. Full in-app Widevine
+would require a separately reviewed castLabs Electron for Content Security
+build, vendor onboarding, and VMP package signing. That is a distinct
+supply-chain and licensing wave, not a flag that can safely be enabled in the
+stock binary.
+
+### Password managers
+
+AXIS detects the presence of password fields only as a boolean; it never reads
+their values. It does not capture, store, sync, or autofill site credentials.
+When a login form is detected, the browser explains that Chrome/Edge Sync and
+installed password-manager integration require the ↗ system-browser path. This
+avoids creating an unaudited AXIS credential vault while retaining ordinary
+site cookies in the isolated browser profile.
 
 ## Crash reporting
 
@@ -168,10 +235,11 @@ retain ordinary site cookies while keeping all Electron/Node APIs unavailable.
 The session removes Electron’s product token from its user agent to reduce
 unnecessary site rejection.
 
-This is Chromium, not Google Chrome. Chrome extensions, Chrome Sync/password
-manager integration, and proprietary DRM such as Widevine are not promised.
-Sites can also deliberately reject custom Chromium clients. Navigation failures
-show a compatibility message, and the always-available ↗ action moves the
-current HTTPS page to the system browser for those cases. The removed legacy
+This is Chromium, not Google Chrome. AXIS now supports controlled unpacked
+extensions and gives explicit handoffs for proprietary DRM and external password
+managers, but it does not claim Chrome Web Store, Chrome Sync, or Widevine
+parity. Sites can also deliberately reject custom Chromium clients. Navigation
+failures show a compatibility message, and the always-available ↗ action moves
+the current HTTPS page to the system browser. The removed legacy
 `ExternalWindow` iframe must not be restored; `npm run desktop:check` fails if
 the unsafe `allow-scripts` plus `allow-same-origin` sandbox combination returns.

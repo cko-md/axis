@@ -7,6 +7,7 @@ const requiredFiles = [
   "electron/build/icon.ico",
   "electron/build/icon.png",
   "electron/build/icons/512x512.png",
+  "electron/browser-capabilities.cjs",
   "electron/desktop-observability.cjs",
   "electron/electron-builder.cjs",
   "electron/update-controller.cjs",
@@ -18,6 +19,10 @@ const packageJson = JSON.parse(await readFile(path.join(root, "electron/package.
 const mainSource = await readFile(path.join(root, "electron/main.cjs"), "utf8");
 const trustedPreloadSource = await readFile(path.join(root, "electron/axis-preload.cjs"), "utf8");
 const builderSource = await readFile(path.join(root, "electron/electron-builder.cjs"), "utf8");
+const releaseWorkflowSource = await readFile(
+  path.join(root, ".github/workflows/desktop-release.yml"),
+  "utf8",
+);
 async function sourceFilesIn(directory) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true });
   const nested = await Promise.all(entries.map(async (entry) => {
@@ -51,8 +56,23 @@ for (const invariant of [
 ]) {
   if (!mainSource.includes(invariant)) throw new Error(`Missing Electron security invariant: ${invariant}`);
 }
-for (const invariant of ["forceCodeSigning", "hardenedRuntime: isRelease", "notarize: isRelease"]) {
+for (const invariant of [
+  "forceCodeSigning",
+  "hardenedRuntime: isRelease",
+  "notarize: isRelease",
+  "azureSignOptions",
+  "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
+]) {
   if (!builderSource.includes(invariant)) throw new Error(`Missing release invariant: ${invariant}`);
+}
+for (const invariant of [
+  "Verify Windows Authenticode signatures",
+  "AZURE_CLIENT_SECRET",
+  "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
+]) {
+  if (!releaseWorkflowSource.includes(invariant)) {
+    throw new Error(`Missing Windows signing workflow invariant: ${invariant}`);
+  }
 }
 for (const invariant of [".wv-overlay", "/api/proxy", "axis-sidebar", 'hasAttribute("aria-expanded")']) {
   if (!trustedPreloadSource.includes(invariant)) {

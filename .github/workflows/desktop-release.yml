@@ -86,6 +86,14 @@ jobs:
   windows:
     needs: verify
     runs-on: windows-latest
+    env:
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      AZURE_TRUSTED_SIGNING_CERT_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_CERT_PROFILE }}
+      AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,8 +102,45 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm ci --prefix electron
-      - name: Build Windows installer
+      - name: Validate Azure Artifact Signing configuration
+        shell: pwsh
+        run: |
+          $required = @(
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+            "AZURE_TRUSTED_SIGNING_ENDPOINT",
+            "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
+            "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
+            "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name is required for the signed Windows release"
+            }
+          }
+      - name: Build and Azure-sign Windows installer
         run: npm run desktop:release -- --win --x64 --publish never
+      - name: Verify Windows Authenticode signatures
+        shell: pwsh
+        run: |
+          $files = @(
+            Get-ChildItem dist-electron -File -Filter "AXIS-*.exe"
+            Get-ChildItem dist-electron/win-unpacked -File -Filter "AXIS.exe"
+          )
+          if ($files.Count -lt 2) {
+            throw "Expected both the AXIS application and installer executables"
+          }
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "Invalid Authenticode signature for $($file.Name): $($signature.Status)"
+            }
+            $subjectParts = $signature.SignerCertificate.Subject -split ",\s*"
+            if ($subjectParts -notcontains "CN=$env:AZURE_TRUSTED_SIGNING_PUBLISHER_NAME") {
+              throw "Unexpected Windows signer for $($file.Name)"
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-windows

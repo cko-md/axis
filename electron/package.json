@@ -1,6 +1,6 @@
 {
   "name": "axis-desktop-shell",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Secure Chromium desktop browser shell for AXIS",
   "author": "AXIS",
   "private": true,

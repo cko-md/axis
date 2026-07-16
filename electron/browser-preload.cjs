@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("axisBrowser", {
   stop: () => ipcRenderer.invoke("axis-browser:stop"),
   navigate: (url) => ipcRenderer.invoke("axis-browser:navigate", url),
   openExternal: () => ipcRenderer.invoke("axis-browser:external"),
+  showCapabilities: () => ipcRenderer.invoke("axis-browser:capabilities"),
   reader: () => ipcRenderer.invoke("axis-browser:reader"),
   onState: (callback) => {
     const listener = (_event, state) => callback(state);

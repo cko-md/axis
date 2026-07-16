@@ -33,6 +33,8 @@ If either required value is missing or invalid, `src/lib/env.ts` throws a clear 
 | `AXIS_DESKTOP_RELEASE` | desktop build CI | Must equal `1` to enable mandatory signing/notarization release gates. |
 | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD` | desktop build CI | Developer ID Application certificate and password. Store only as GitHub Actions secrets. |
 | `APPLE_API_KEY_CONTENT`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | desktop build CI | App Store Connect API credentials used to notarize and staple macOS releases. |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | Windows desktop build CI | Entra service-principal credentials for Azure Artifact Signing. Store only as GitHub Actions secrets. |
+| `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`, `AZURE_TRUSTED_SIGNING_CERT_PROFILE`, `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME` | Windows desktop build CI | Non-secret Azure Artifact Signing configuration stored as GitHub Actions variables. |
 
 `AXIS_DESKTOP_URL` is a development-only source-build override. Packaged
 applications ignore it so an ambient process environment cannot change the

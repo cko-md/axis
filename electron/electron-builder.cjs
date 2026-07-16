@@ -1,6 +1,13 @@
 const isRelease = process.env.AXIS_DESKTOP_RELEASE === "1";
+const isWindowsRelease = isRelease && process.platform === "win32";
 const productionUrl = process.env.AXIS_DESKTOP_PRODUCTION_URL || "https://axis-cko.vercel.app";
 const sentryDsn = process.env.AXIS_DESKTOP_SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN || "";
+
+function requireReleaseEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required for production desktop signing`);
+  return value;
+}
 
 function requireProductionUrl(value) {
   const url = new URL(value);
@@ -14,6 +21,15 @@ const verifiedProductionUrl = requireProductionUrl(productionUrl);
 if (isRelease && !sentryDsn) {
   throw new Error("AXIS_DESKTOP_SENTRY_DSN is required for release crash reporting");
 }
+const windowsAzureSignOptions = isWindowsRelease ? {
+  publisherName: requireReleaseEnv("AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"),
+  endpoint: requireReleaseEnv("AZURE_TRUSTED_SIGNING_ENDPOINT"),
+  certificateProfileName: requireReleaseEnv("AZURE_TRUSTED_SIGNING_CERT_PROFILE"),
+  codeSigningAccountName: requireReleaseEnv("AZURE_TRUSTED_SIGNING_ACCOUNT_NAME"),
+  fileDigest: "SHA256",
+  timestampDigest: "SHA256",
+  timestampRfc3161: "http://timestamp.acs.microsoft.com",
+} : undefined;
 
 module.exports = {
   appId: "com.axis.desktop",
@@ -24,13 +40,14 @@ module.exports = {
   compression: "maximum",
   removePackageKeywords: true,
   removePackageScripts: true,
-  forceCodeSigning: isRelease && process.platform === "darwin",
+  forceCodeSigning: isRelease && (process.platform === "darwin" || process.platform === "win32"),
   directories: {
     buildResources: "build",
     output: "../dist-electron",
   },
   files: [
     "*.cjs",
+    "!*.test.cjs",
     "*.html",
     "*.css",
     "*.js",
@@ -63,6 +80,8 @@ module.exports = {
     sign: isRelease,
   },
   win: {
+    ...(windowsAzureSignOptions ? { azureSignOptions: windowsAzureSignOptions } : {}),
+    forceCodeSigning: isRelease,
     icon: "build/icon.ico",
     target: "nsis",
   },

@@ -32,6 +32,15 @@ for (const forbidden of [
   "APPLE_API_KEY_CONTENT",
   "APPLE_API_KEY_ID",
   "APPLE_API_ISSUER",
+  "WIN_CSC_LINK",
+  "WIN_CSC_KEY_PASSWORD",
+  "AZURE_TENANT_ID",
+  "AZURE_CLIENT_ID",
+  "AZURE_CLIENT_SECRET",
+  "AZURE_TRUSTED_SIGNING_ENDPOINT",
+  "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
+  "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
+  "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
 ]) {
   if (process.env[forbidden]) {
     throw new Error(`${forbidden} must not be present in the unsigned preview workflow`);

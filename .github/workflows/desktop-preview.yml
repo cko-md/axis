@@ -76,6 +76,22 @@ jobs:
       - run: npm ci --prefix electron
       - name: Build unsigned Windows preview
         run: npm run desktop:dist -- --win --x64 --publish never
+      - name: Prove Windows preview is unsigned
+        shell: pwsh
+        run: |
+          $files = @(
+            Get-ChildItem dist-electron -File -Filter "AXIS-*.exe"
+            Get-ChildItem dist-electron/win-unpacked -File -Filter "AXIS.exe"
+          )
+          if ($files.Count -lt 2) {
+            throw "Expected both the AXIS application and installer executables"
+          }
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($signature.Status -eq "Valid") {
+              throw "Unexpected signed preview executable: $($file.Name)"
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-preview-windows
@@ -129,10 +145,10 @@ jobs:
 
           - macOS Gatekeeper will warn or block normal launch.
           - Windows SmartScreen may show an unknown-publisher warning.
-          - macOS auto-update is disabled until the signed `desktop-v*` production wave.
+          - Production auto-update is disabled until the signed `desktop-v*` wave.
           - No `latest*.yml` or differential-update metadata is published with this preview.
           - Use only for controlled evaluation; do not distribute as a production release.
 
-          Apple Developer ID signing, notarization, stapling, and the signed update
-          channel remain in the deferred production wave.
+          Apple Developer ID signing/notarization, Windows Azure Artifact
+          Signing, and the signed update channel remain in the production wave.
           EOF
