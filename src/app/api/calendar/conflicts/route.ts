@@ -44,7 +44,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Could not check local calendar conflicts" }, { status: 500 });
   }
 
-  const composioAccounts = await listComposioCalendarAccounts(user.id);
+  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>>;
+  try {
+    composioAccounts = await listComposioCalendarAccounts(user.id);
+  } catch (error) {
+    const discoveryError = error instanceof Error ? error : new Error(String(error));
+    Sentry.captureException(discoveryError, {
+      tags: { area: "schedule", route: "/api/calendar/conflicts", op: "list_composio_accounts" },
+    });
+    return NextResponse.json(
+      {
+        conflict: (localOverlaps ?? []).length > 0,
+        conflictingTitles: (localOverlaps ?? []).map((event) => event.title),
+        suggestions: [],
+        externalChecked: false,
+        partial: true,
+        errors: [{ source: "google", transport: "composio", message: "Google Calendar conflicts could not be checked." }],
+      },
+      { status: 503 },
+    );
+  }
   const googleAccount = composioAccounts.find((a) => a.provider === "googlecalendar");
 
   let externalError: string | null = null;
