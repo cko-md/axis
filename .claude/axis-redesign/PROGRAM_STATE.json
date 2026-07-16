@@ -1,9 +1,9 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 11.5 checkpoint complete: Mail is cache-first across direct and Composio transports and its interactive workspace is route-split from the shared shell; tsc clean, lint 0 errors / 0 warnings, 769 tests, authenticated browser smoke 3/3, production build successful, all 172 route budgets passing, /mail first-load JS reduced from 388 KB to 361 KB, and total static JS is 3891/4400 KB.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 11.6 checkpoint complete: Mail is cache-first and live Composio Gmail list/detail validated; Mail and Dispatch workspaces are route-split from the shared shell. Tsc is clean, lint has 0 errors / 0 warnings, 769 tests pass, production build succeeds, all 172 route budgets pass, /dispatch first-load JS fell from 378 KB to 362 KB, and total static JS is 3893/4400 KB.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "3d203117",
+  "revision_reviewed": "c08d4c55",
   "updated": "2026-07-15",
   "governance": {
     "source": "AGENTS.md",
@@ -34,7 +34,7 @@
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research persists cited owner-scoped market-report drafts; Signals now preserves an honest empty inbox instead of seeding fabricated activity. Further core-module expansion remains future work.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, Make notifications/outbox, and cache-first Mail across direct/Composio transports. Make management list/detail/run/start/stop are schema-validated Results with read-only retry/write-once semantics. Mail now serves owner-scoped header/snippet cache rows before explicit provider revalidation, preserves failed-account rows, and records per-account sync state without caching bodies. The available active Composio Gmail account passed live list/detail adapter validation without exposing content; direct Gmail and both Outlook transports remain unverified because no active hosted connections exist.",
-    "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB; wave 11.5 code-split Mail from 388kB to 361kB after wave 10.16 removed provider fan-out from first paint. Further route profiling remains.",
+    "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB; wave 11.5 code-split Mail from 388kB to 361kB after wave 10.16 removed provider fan-out from first paint; wave 11.6 code-split Dispatch from 378kB to 362kB. Further route profiling remains.",
     "12_testing": "ongoing \u2014 769 unit tests / 118 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management config/schema/retry/write safety, Mail cache privacy/auth/ownership/sync/disconnect behavior, portfolio math, Activity rules, cited research provenance, connection-health mapping, and JSON-artifact guard. The seeded local authenticated browser suite passes all 3 Mail/daily-route/redirect tests; public CI smoke remains. Broader provider-backed and visual-regression coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged."
@@ -1051,6 +1051,20 @@
       "note": "Moves the interactive Mail account/message/compose workspace behind the established Next dynamic client boundary while leaving AppShell server-rendered. The loading surface reserves stable vertical space and exposes polite status text. Mail behavior and provider contracts are unchanged; only route loading topology changes.",
       "tests": "769 tests pass across 118 files; tsc clean; lint 0 errors / 0 warnings; production build compiles 157 pages; /mail first-load JS falls from 388 KB to 361 KB; all 172 route budgets pass; total static JS 3891/4400 KB",
       "verification": "npx tsc --noEmit + npm run lint + npm run test + npm run build + node scripts/check-perf-budgets.mjs /tmp/axis-build-phase11-5.log + node scripts/check-bundle-budget.mjs + focused diff review"
+    },
+    {
+      "id": "11.6",
+      "title": "Dispatch route-level workspace split",
+      "status": "landed",
+      "files_added": [
+        "src/components/signals/SignalsModuleLazy.tsx"
+      ],
+      "files_changed": [
+        "src/app/dispatch/page.tsx"
+      ],
+      "note": "Moves the interactive signals triage workspace behind the established Next dynamic client boundary while leaving AppShell server-rendered. The loading surface reserves stable vertical space and exposes polite status text. Dispatch behavior and persistence contracts are unchanged; only route loading topology changes.",
+      "tests": "769 tests pass across 118 files; tsc clean; lint 0 errors / 0 warnings; production build compiles 157 pages; /dispatch first-load JS falls from 378 KB to 362 KB; all 172 route budgets pass; total static JS 3893/4400 KB",
+      "verification": "npx tsc --noEmit + npm run lint + npm run test + npm run build + node scripts/check-perf-budgets.mjs /tmp/axis-build-phase11-6.log + node scripts/check-bundle-budget.mjs + focused diff review"
     }
   ],
   "migrations_applied": {

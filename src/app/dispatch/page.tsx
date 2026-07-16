@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { SignalsModule } from "@/components/signals/SignalsModule";
+import { SignalsModuleLazy } from "@/components/signals/SignalsModuleLazy";
 
 export default function DispatchPage() {
   return (
     <AppShell section="Daily" page="Dispatch">
-      <SignalsModule />
+      <SignalsModuleLazy />
     </AppShell>
   );
 }
