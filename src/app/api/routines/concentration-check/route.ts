@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import {
   buildConcentrationCheckOutput,
   concentrationCheckSteps,
+  concentrationMaxWeightFromBps,
   concentrationMaxWeightFromSnapshot,
   CONCENTRATION_CHECK_ROUTINE_KEY,
+  normalizeConcentrationMaxWeight,
   type ConcentrationCheckOutputs,
 } from "@/lib/routines/concentrationCheck";
 import {
@@ -36,16 +39,25 @@ type ConcentrationResponseOutput = {
   skipped: number;
 };
 
+const concentrationRequestSchema = z.object({
+  maxWeight: z.number().finite().gt(0).max(1).optional(),
+  runId: z.string().uuid().optional(),
+}).strict();
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await request.json().catch(() => ({}))) as { maxWeight?: number; runId?: string };
+  const parsedBody = concentrationRequestSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "INVALID_ROUTINE_INPUT" }, { status: 400 });
+  }
+  const body = parsedBody.data;
   const store = createSupabaseRoutineStore(supabase);
 
   try {
-    let maxWeight = readMaxWeight(body.maxWeight);
+    let maxWeight = normalizeConcentrationMaxWeight(body.maxWeight) ?? 0.25;
     let result: RoutineExecutionResult<ConcentrationCheckOutputs>;
 
     if (typeof body.runId === "string" && body.runId) {
@@ -78,11 +90,29 @@ export async function POST(request: NextRequest) {
         failureStatus: "blocked",
       });
     } else {
+      const explicitMaxWeight = normalizeConcentrationMaxWeight(body.maxWeight);
+      let maxWeightProvenance: { source_type: string; confirmed_at?: string } = { source_type: "routine_default" };
+      if (explicitMaxWeight !== null) {
+        maxWeight = explicitMaxWeight;
+        maxWeightProvenance = { source_type: "request" };
+      } else {
+        const { data: profile, error: profileError } = await supabase
+          .from("financial_operating_profiles")
+          .select("concentration_limit_bps, confirmed_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (profileError) throw new Error("FINANCIAL_PROFILE_UNAVAILABLE");
+        const profileWeight = concentrationMaxWeightFromBps(profile?.concentration_limit_bps);
+        if (profileWeight !== null && profile) {
+          maxWeight = profileWeight;
+          maxWeightProvenance = { source_type: "financial_operating_profile", confirmed_at: profile.confirmed_at };
+        }
+      }
       result = await executeRoutine({
         store,
         userId: user.id,
         routineKey: CONCENTRATION_CHECK_ROUTINE_KEY,
-        inputSnapshot: { maxWeight },
+        inputSnapshot: { maxWeight, maxWeightProvenance },
         steps: concentrationCheckSteps({ supabase, userId: user.id, maxWeight }),
         buildRunOutput: buildConcentrationCheckOutput,
         failureStatus: "blocked",
@@ -117,8 +147,4 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ error: "RUN_BLOCKED", runId, resumable: true }, { status: 500 });
   }
-}
-
-function readMaxWeight(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0.25;
 }

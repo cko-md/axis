@@ -828,6 +828,51 @@ export type Database = {
         }
         Relationships: []
       }
+      financial_operating_profiles: {
+        Row: {
+          base_currency: string
+          concentration_limit_bps: number
+          confirmed_at: string
+          constraints: string[]
+          created_at: string
+          investment_horizon: string
+          liquidity_buffer_months: number
+          priorities: string[]
+          risk_posture: string
+          source_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          base_currency?: string
+          concentration_limit_bps?: number
+          confirmed_at?: string
+          constraints?: string[]
+          created_at?: string
+          investment_horizon?: string
+          liquidity_buffer_months?: number
+          priorities?: string[]
+          risk_posture?: string
+          source_type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          base_currency?: string
+          concentration_limit_bps?: number
+          confirmed_at?: string
+          constraints?: string[]
+          created_at?: string
+          investment_horizon?: string
+          liquidity_buffer_months?: number
+          priorities?: string[]
+          risk_posture?: string
+          source_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       fund_connections: {
         Row: {
           access_token_enc: string | null
@@ -1536,6 +1581,54 @@ export type Database = {
           provider?: string
           refresh_token_enc?: string | null
           updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      memory_items: {
+        Row: {
+          archived_at: string | null
+          confidence_bps: number
+          content: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          kind: string
+          scope: string
+          source_ref: string | null
+          source_type: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          confidence_bps?: number
+          content: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind: string
+          scope: string
+          source_ref?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archived_at?: string | null
+          confidence_bps?: number
+          content?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          scope?: string
+          source_ref?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []

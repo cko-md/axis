@@ -1,9 +1,9 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 11.6 checkpoint complete: Mail is cache-first and live Composio Gmail list/detail validated; Mail and Dispatch workspaces are route-split from the shared shell. Tsc is clean, lint has 0 errors / 0 warnings, 769 tests pass, production build succeeds, all 172 route budgets pass, /dispatch first-load JS fell from 378 KB to 362 KB, and total static JS is 3893/4400 KB.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 8.8 checkpoint complete: the inspectable Memory Center and Financial Operating Profile are owner-scoped, persisted, wired into deterministic concentration-run defaults with snapshotted provenance, and locally plus hosted-RLS verified. Tsc is clean, lint has 0 errors / 0 warnings, 792 tests pass, the authenticated browser suite passes 4/4, production build succeeds, all 176 route budgets pass, and total static JS is 3919/4400 KB.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "c08d4c55",
+  "revision_reviewed": "8d4553ca",
   "updated": "2026-07-15",
   "governance": {
     "source": "AGENTS.md",
@@ -19,7 +19,7 @@
   "baseline_health": {
     "typecheck": "pass",
     "lint": "pass (0 errors, 0 warnings)",
-    "unit_tests": "769 passed / 118 files",
+    "unit_tests": "792 passed / 124 files",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -31,11 +31,11 @@
     "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up bound to a REAL WebAuthn passkey assertion; self-attestable boolean removed; adversarial review done + hardened (per-approval challenge binding, per-user rate limit) \u2014 see docs/axis-redesign/security/step-up-review.md. RESIDUAL (needs a human): independent security sign-off + manual authenticator test.",
     "6_design_system": "partial \u2014 semantic status token layer consolidated (src/lib/design/statusTokens.ts; freshness/task/approval presenters route through it, colors pinned by test) + 06-design-system doc. No typography/motion/surface overhaul (existing AXIS system retained).",
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
-    "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research persists cited owner-scoped market-report drafts; Signals now preserves an honest empty inbox instead of seeding fabricated activity. Further core-module expansion remains future work.",
+    "8_core_modules": "substantial \u2014 Tasks + Approvals workbenches shipped; Portfolio has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance. Activity has deterministic categorization/anomaly rules; Research persists cited owner-scoped reports; Signals preserves an honest empty inbox. The Memory Center now exposes owner-scoped inspectable context and a confirmed Financial Operating Profile whose concentration limit feeds deterministic routine defaults with immutable provenance. Need-to-Know expansion and additional module depth remain.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
     "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, Make notifications/outbox, and cache-first Mail across direct/Composio transports. Make management list/detail/run/start/stop are schema-validated Results with read-only retry/write-once semantics. Mail now serves owner-scoped header/snippet cache rows before explicit provider revalidation, preserves failed-account rows, and records per-account sync state without caching bodies. The available active Composio Gmail account passed live list/detail adapter validation without exposing content; direct Gmail and both Outlook transports remain unverified because no active hosted connections exist.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB; wave 11.5 code-split Mail from 388kB to 361kB after wave 10.16 removed provider fan-out from first paint; wave 11.6 code-split Dispatch from 378kB to 362kB. Further route profiling remains.",
-    "12_testing": "ongoing \u2014 769 unit tests / 118 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management config/schema/retry/write safety, Mail cache privacy/auth/ownership/sync/disconnect behavior, portfolio math, Activity rules, cited research provenance, connection-health mapping, and JSON-artifact guard. The seeded local authenticated browser suite passes all 3 Mail/daily-route/redirect tests; public CI smoke remains. Broader provider-backed and visual-regression coverage remains.",
+    "12_testing": "ongoing \u2014 792 unit tests / 124 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management safety, Mail cache privacy/auth/ownership/sync behavior, portfolio math, Activity rules, cited research provenance, memory/profile contracts and APIs, and concentration-profile provenance. The seeded local authenticated browser suite passes all 4 Mail/daily-route/redirect/memory-lifecycle workflows; public CI smoke remains. Broader provider-backed and visual-regression coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged."
   },
@@ -1065,13 +1065,45 @@
       "note": "Moves the interactive signals triage workspace behind the established Next dynamic client boundary while leaving AppShell server-rendered. The loading surface reserves stable vertical space and exposes polite status text. Dispatch behavior and persistence contracts are unchanged; only route loading topology changes.",
       "tests": "769 tests pass across 118 files; tsc clean; lint 0 errors / 0 warnings; production build compiles 157 pages; /dispatch first-load JS falls from 378 KB to 362 KB; all 172 route budgets pass; total static JS 3893/4400 KB",
       "verification": "npx tsc --noEmit + npm run lint + npm run test + npm run build + node scripts/check-perf-budgets.mjs /tmp/axis-build-phase11-6.log + node scripts/check-bundle-budget.mjs + focused diff review"
+    },
+    {
+      "id": "8.8",
+      "title": "Inspectable Memory Center and Financial Operating Profile",
+      "status": "landed",
+      "files_added": [
+        "src/lib/memory/contracts.ts",
+        "src/lib/memory/contracts.test.ts",
+        "src/lib/hooks/useMemoryCenter.ts",
+        "src/app/api/memory/route.ts",
+        "src/app/api/memory/route.test.ts",
+        "src/app/api/memory/[id]/route.ts",
+        "src/app/api/memory/[id]/route.test.ts",
+        "src/app/api/financial-profile/route.ts",
+        "src/app/api/financial-profile/route.test.ts",
+        "src/components/memory/MemoryCenterModule.tsx",
+        "src/components/memory/MemoryCenter.module.css",
+        "src/app/memory/page.tsx",
+        "supabase/migrations/202607152300_memory_center_profiles.sql",
+        "docs/architecture/memory-center.md"
+      ],
+      "files_changed": [
+        "src/lib/routines/concentrationCheck.ts",
+        "src/app/api/routines/concentration-check/route.ts",
+        "src/lib/supabase/database.types.ts",
+        "src/lib/store/nav.ts",
+        "src/lib/icons/nav-icons.ts",
+        "tests/e2e/authenticated.spec.ts"
+      ],
+      "note": "Adds a user-inspectable context store and one confirmed financial operating profile per owner. Memory records bounded kind/scope/content, immutable provenance, confidence, expiry, and archive lifecycle; authenticated hard delete and anonymous access are denied. Strict APIs and the /memory workspace cover list/create/edit/archive/restore plus profile read/update with visible loading, empty, signed-out, failure, confirmation, busy, and success states. Memory is explicitly context only and cannot satisfy approval, step-up, or execution authority. New concentration runs resolve a valid explicit limit, then the profile's integer-basis-point limit, then the legacy default, and snapshot the selected value plus provenance for deterministic resume.",
+      "tests": "792 tests pass across 124 files; 23 focused contract/API/domain tests pass; authenticated Playwright 4/4 passes; tsc clean; lint 0 errors / 0 warnings; production build compiles 160 pages; /memory is 368 KB first-load; all 176 route budgets pass; total static JS 3919/4400 KB",
+      "verification": "Focused Vitest + npx tsc --noEmit + npm run lint + npm run test + AXIS_E2E_AUTH=1 playwright authenticated suite + desktop/mobile visual inspection + local Docker migration apply/idempotent reapply/exact-grant/two-user RLS checks + hosted Supabase Management API migration/read-back/exact-grant/two-user rollback isolation probe + production build/per-route/total bundle budgets + adversarial diff review"
     }
   ],
   "migrations_applied": {
     "applied": "2026-07-13; updated 2026-07-15",
     "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
-    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata, routine_versions, market_report_insights, integration_delivery_outbox, expire_stale_approvals grant lockdown, and mail_cache_sync applied via Supabase MCP. Local Docker and hosted read-back confirmed applicable constraints/indexes/RLS/grants and owner isolation. Mail cache tables have four owner policies each, no anonymous grants or body/token/payload columns, and passed a hosted two-user isolation transaction.",
+    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata, routine_versions, market_report_insights, integration_delivery_outbox, expire_stale_approvals grant lockdown, mail_cache_sync, and memory_center_profiles applied. Local Docker and hosted read-back confirmed applicable constraints/indexes/RLS/grants and owner isolation. Memory/profile tables expose authenticated select/insert/update only, no authenticated delete or anonymous read, and passed local plus hosted two-user isolation transactions.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "files": [
       "supabase/migrations/202607131700_fund_provenance_columns.sql",
@@ -1082,7 +1114,8 @@
       "supabase/migrations/202607151200_market_report_insights.sql",
       "supabase/migrations/202607151300_make_delivery_outbox.sql",
       "supabase/migrations/202607151310_lock_expire_stale_approvals.sql",
-      "supabase/migrations/202607152100_mail_cache_sync.sql"
+      "supabase/migrations/202607152100_mail_cache_sync.sql",
+      "supabase/migrations/202607152300_memory_center_profiles.sql"
     ]
   },
   "governance_override": {
@@ -1092,8 +1125,9 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue next dependency-ordered redesign work: connect and live-validate direct Gmail plus direct/Composio Outlook Mail parity, then further Phase 11 route profiling or the next core-module vertical as evidence warrants.",
-    "Human/external follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated provider-backed e2e/CI credentials, Sentry dashboard/alert creation, live Make scenario and Outlook/Composio verification, Tembo role decision, and health-device provider decision."
+    "Continue next dependency-ordered redesign work: expand Phase 8 Need-to-Know/context surfaces, then Phase 6 design-system depth or further Phase 11 route profiling while preserving green budgets.",
+    "External-connection follow-ups remain: connect and live-validate direct Gmail plus direct/Composio Outlook Mail parity; live Make write verification; health-device provider decision.",
+    "Human/security/operations follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up sign-off and manual authenticator ceremony, provider-backed e2e/CI credentials, Sentry dashboard/alert creation, and Tembo role decision."
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",

@@ -139,11 +139,25 @@ export function concentrationMaxWeightFromSnapshot(snapshot: Json): number {
     snapshot &&
     typeof snapshot === "object" &&
     !Array.isArray(snapshot) &&
-    typeof snapshot.maxWeight === "number"
+    typeof snapshot.maxWeight === "number" &&
+    snapshot.maxWeight > 0 &&
+    snapshot.maxWeight <= 1
   ) {
     return snapshot.maxWeight;
   }
   return 0.25;
+}
+
+export function concentrationMaxWeightFromBps(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 10000
+    ? value / 10000
+    : null;
+}
+
+export function normalizeConcentrationMaxWeight(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
+    ? value
+    : null;
 }
 
 function requirePositions(outputs: Partial<ConcentrationCheckOutputs>): Position[] {
