@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
 
@@ -17,10 +16,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Use SECURITY DEFINER RPCs (migration 011) so cleanup runs across all users
-  // regardless of RLS. Raw table queries via the anon client would be filtered
-  // to auth.uid() = null and affect zero rows.
-  const supabase = await createClient();
+  // Maintenance RPCs run only through the service role. Their EXECUTE grants
+  // are revoked from browser-facing roles by migration 202607151310.
+  const supabase = createAdminClient();
+  if (!supabase) {
+    return NextResponse.json({ error: "Maintenance database unavailable" }, { status: 503 });
+  }
   const results: Record<string, unknown> = {};
 
   // 1. Mark overdue tasks via SECURITY DEFINER function
@@ -104,10 +105,7 @@ export async function GET(req: NextRequest) {
     supabase_health: results.supabase_health,
     all_ok: !!(results.supabase_health as { ok: boolean }).ok,
   };
-  const admin = createAdminClient();
-  const { error: healthInsertError } = admin
-    ? await admin.from("health_check_runs").insert(runSummary)
-    : { error: new Error("SUPABASE_SERVICE_ROLE_KEY not configured") };
+  const { error: healthInsertError } = await supabase.from("health_check_runs").insert(runSummary);
   if (healthInsertError) {
     console.error("[cron] health_check_runs insert failed:", healthInsertError.message);
   }

@@ -71,6 +71,41 @@
       "status": "fixed",
       "revision_fixed": "wave-10.13",
       "verification": "Secret-bearing response/error fixtures are absent from Results, Sentry messages, and audit rows; independent review found no substantiated regression"
+    },
+    {
+      "id": "MAKE-003",
+      "severity": "high",
+      "source": "Phase 10 outbound integration review",
+      "summary": "Failed Make writes had no durable replay state and duplicate prevention depended entirely on each remote scenario",
+      "reproduction": "Return a provider failure or lose the response after Make accepts a write; the prior implementation retained only audit metadata and could not safely claim or replay the payload",
+      "affected": [
+        "src/lib/fund/notifyViaMake.ts",
+        "src/lib/integrations/makeOutbox.ts",
+        "src/app/api/integrations/make/outbox/[id]/replay/route.ts"
+      ],
+      "root_cause": "No durable encrypted write outbox, local dedupe record, or compare-and-swap replay claim",
+      "fix": "Persist purpose-separated AES-GCM payload envelopes behind metadata-only owner RLS, hash dedupe keys, claim attempts atomically, dead-letter bounded failures, and allow only explicit authenticated operator replay",
+      "regression_test": "src/lib/integrations/makeOutbox.test.ts; src/lib/fund/notifyViaMake.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-10.14",
+      "verification": "17 focused tests pass; local and hosted migrations verify RLS/grants; duplicate, tamper, failed-delivery, third-attempt dead-letter, and replay-success paths are covered"
+    },
+    {
+      "id": "SEC-003",
+      "severity": "high",
+      "source": "Hosted Supabase security advisor after wave 10.14 DDL",
+      "summary": "Anonymous and authenticated Data API roles could execute the SECURITY DEFINER expire_stale_approvals RPC across all users",
+      "reproduction": "has_function_privilege returned true and the advisor reported public/authenticated SECURITY DEFINER execution",
+      "affected": [
+        "src/app/api/cron/daily/route.ts",
+        "supabase/migrations/202607140300_expire_stale_approvals.sql"
+      ],
+      "root_cause": "The cron used a browser-facing Supabase client and the RPC retained default PUBLIC plus authenticated EXECUTE grants",
+      "fix": "Run maintenance RPCs with the service-role client and revoke EXECUTE from PUBLIC, anon, and authenticated while granting service_role only",
+      "regression_test": "Database privilege read-back",
+      "status": "fixed",
+      "revision_fixed": "wave-10.14",
+      "verification": "Local and hosted has_function_privilege: anon=false, authenticated=false, service_role=true; security advisor warning cleared"
     }
   ]
 }

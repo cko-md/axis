@@ -19,6 +19,7 @@ import type { AIProviderPref } from "@/lib/ai/router";
 import { integrationCardView, type IntegrationCardView } from "@/lib/integrations/cardView";
 import { getProviderDescriptor } from "@/lib/integrations/registry";
 import type { IntegrationTransport } from "@/lib/integrations/types";
+import { MakeDeliveryOutboxPanel } from "./MakeDeliveryOutboxPanel";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -1196,6 +1197,13 @@ export function ControlRoomModule() {
               )}
             </div>
           ))}
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <h2 className="sec">
+            Make Delivery Outbox<span className="rule" />
+          </h2>
+          <MakeDeliveryOutboxPanel />
         </div>
 
         <div className="card" style={{ marginTop: 16 }}>

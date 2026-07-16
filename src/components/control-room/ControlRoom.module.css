@@ -136,7 +136,34 @@
   cursor: pointer;
   transition: 0.15s;
 }
+.svcAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.svcAction svg {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
 .svcAction:hover {
+  border-color: var(--accent);
+  color: var(--accent-bright);
+}
+
+.iconAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.iconAction:hover {
   border-color: var(--accent);
   color: var(--accent-bright);
 }

@@ -1567,6 +1567,60 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_delivery_outbox: {
+        Row: {
+          attempt_count: number
+          claim_token: string | null
+          created_at: string
+          dedupe_key_hash: string
+          delivered_at: string | null
+          event_type: string
+          id: string
+          last_error_code: string | null
+          last_http_status: number | null
+          locked_at: string | null
+          payload_ciphertext: string
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          claim_token?: string | null
+          created_at?: string
+          dedupe_key_hash: string
+          delivered_at?: string | null
+          event_type: string
+          id?: string
+          last_error_code?: string | null
+          last_http_status?: number | null
+          locked_at?: string | null
+          payload_ciphertext: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          claim_token?: string | null
+          created_at?: string
+          dedupe_key_hash?: string
+          delivered_at?: string | null
+          event_type?: string
+          id?: string
+          last_error_code?: string | null
+          last_http_status?: number | null
+          locked_at?: string | null
+          payload_ciphertext?: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_tasks: {
         Row: {
           actual_cost_usd: number | null

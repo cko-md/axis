@@ -38,17 +38,26 @@ Make; Make must not alter or infer them.
 - emits safe provider failure metadata without URL paths, response bodies, or
   payload content.
 
-`src/lib/fund/notifyViaMake.ts` writes an immutable
-`pending_confirmation` audit row before calling Make and an immutable
-`success` or `failure` row afterward. A failed preflight audit blocks delivery.
-Failure rows contain only the idempotency key, normalized error code, HTTP
+`src/lib/fund/notifyViaMake.ts` first stores an AES-GCM encrypted payload in
+`integration_delivery_outbox`, then writes an immutable `pending_confirmation`
+audit row before calling Make and an immutable `success` or `failure` row
+afterward. A failed outbox or preflight-audit write blocks delivery. Audit rows
+contain only a SHA-256 dedupe hash, delivery id, normalized error code, HTTP
 status, and retryability flag.
 
 The idempotency key is included in every webhook payload. Each Make scenario
 must reject a key it has already processed before invoking its email module.
-Axis does not automatically retry these writes. A future durable outbox can
-add operator-controlled replay and dead-letter handling without weakening the
-external-communication boundary.
+Axis does not automatically retry these writes. Failed deliveries remain in the
+owner-scoped outbox and can be replayed only by an explicit authenticated action
+in Control Room. A compare-and-swap claim prevents concurrent replay, and the
+third failed provider attempt moves the delivery to `dead_letter` while keeping
+it operator-replayable.
+
+Authenticated Data API clients can select only safe outbox metadata. Column
+grants deny payload ciphertext, owner ids, dedupe hashes, and claim tokens;
+insert/update/delete are service-role-only. The payload key is purpose-derived
+from `PASSKEY_ENCRYPTION_KEY`, and authenticated encryption binds each envelope
+to its owner, event type, and dedupe hash.
 
 ## Runtime verification
 
@@ -58,5 +67,7 @@ For each configured scenario:
 2. Confirm the scenario rejects the same idempotency key on a second request.
 3. Confirm `audit_logs` contains pending plus success/failure rows and no
    recipient, subject, body, webhook URL, or provider response body.
-4. Query Sentry for `provider=make`, `operation=trigger_webhook`; verify a forced
+4. Force one failure, replay it from Control Room, and confirm one attempt is
+   claimed at a time and the row becomes `delivered` only after Make returns 2xx.
+5. Query Sentry for `provider=make`, `operation=trigger_webhook`; verify a forced
    upstream failure records only normalized code/status metadata.
