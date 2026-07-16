@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { ConsoleModule } from "@/components/console/ConsoleModule";
+import { ConsoleModuleLazy } from "@/components/console/ConsoleModuleLazy";
 
 export default function CommandPage() {
   return (
     <AppShell section="Daily" page="Command">
-      <ConsoleModule />
+      <ConsoleModuleLazy />
     </AppShell>
   );
 }
