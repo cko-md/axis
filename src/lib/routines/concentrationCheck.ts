@@ -8,6 +8,7 @@ import {
   type Position,
 } from "@/lib/skills/concentrationReview";
 import type { RoutineStep } from "@/lib/routines/executor";
+import { createAgentTask } from "@/lib/tasks/taskPersistence";
 
 const TERMINAL_TASK = ["completed", "failed", "cancelled"];
 
@@ -26,10 +27,11 @@ export type ConcentrationCheckOutputs = {
 
 export function concentrationCheckSteps(input: {
   supabase: SupabaseClient<Database>;
+  taskAdmin: SupabaseClient<Database>;
   userId: string;
   maxWeight: number;
 }): RoutineStep<ConcentrationCheckOutputs>[] {
-  const { supabase, userId, maxWeight } = input;
+  const { supabase, taskAdmin, userId, maxWeight } = input;
 
   return [
     {
@@ -60,15 +62,16 @@ export function concentrationCheckSteps(input: {
     {
       key: "create_tasks",
       input: ({ outputs }) => ({ breaches: requireReview(outputs).breaches.length }),
-      run: async ({ runId, outputs }) => {
+      run: async ({ runId, outputs, claimToken, assertClaimActive }) => {
         const review = requireReview(outputs);
         if (review.breaches.length === 0) return { created: [], skipped: 0 };
 
-        const { data: openTasks } = await supabase
+        const { data: openTasks, error: openTasksError } = await supabase
           .from("agent_tasks")
           .select("objective")
           .eq("user_id", userId)
           .not("status", "in", `(${TERMINAL_TASK.join(",")})`);
+        if (openTasksError) throw new Error("TASKS_UNAVAILABLE");
         const open = new Set((openTasks ?? []).map((task) => task.objective));
 
         const created: { id: string; objective: string }[] = [];
@@ -92,26 +95,18 @@ export function concentrationCheckSteps(input: {
               maxWeight,
             },
           };
-          const { data: task } = await supabase
-            .from("agent_tasks")
-            .insert({
-              user_id: userId,
-              objective,
-              status: "queued",
-              context,
-              source_skill: CONCENTRATION_CHECK_ROUTINE_KEY,
-            })
-            .select("id, objective")
-            .single();
-          if (!task) continue;
-
-          await supabase.from("agent_task_activity").insert({
-            task_id: task.id,
-            user_id: userId,
-            kind: "status_change",
-            detail: { from: null, to: "queued", by: CONCENTRATION_CHECK_ROUTINE_KEY },
+          await assertClaimActive();
+          const { task } = await createAgentTask(taskAdmin, {
+            userId,
+            objective,
+            context,
+            sourceRoutineId: runId,
+            sourceSkill: CONCENTRATION_CHECK_ROUTINE_KEY,
+            sourceClaimToken: claimToken,
+            estimatedCostUsd: null,
           });
           created.push({ id: task.id, objective: task.objective });
+          open.add(objective);
         }
 
         return { created, skipped };

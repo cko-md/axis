@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import type { ActionClass, ApprovalRequirement } from "@/lib/security/actionPolicy";
 import type { StoredProposedAction } from "@/lib/security/approvalPersistence";
 import type { ApprovalStatus } from "@/lib/security/approvalCardView";
@@ -22,6 +23,11 @@ export type ApprovalRecord = {
 };
 
 export type ApprovalDecision = "approve" | "deny" | "execute";
+
+export function isRoutineResumeUrl(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^\/api\/routines\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/resume$/i.test(value);
+}
 
 export function useApprovals(statusFilter?: ApprovalStatus) {
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
@@ -64,7 +70,13 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
       const body = (await optRes?.json().catch(() => ({}))) as { error?: string };
       return { ok: false, reason: body?.error ?? "OPTIONS_FAILED" };
     }
-    const options = await optRes.json();
+    const { options, ceremonyId } = (await optRes.json()) as {
+      options?: PublicKeyCredentialRequestOptionsJSON;
+      ceremonyId?: string;
+    };
+    if (!options || !ceremonyId) {
+      return { ok: false, reason: "INVALID_OPTIONS" };
+    }
     let assertion;
     try {
       const { startAuthentication } = await import("@simplewebauthn/browser");
@@ -76,7 +88,7 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
     const verifyRes = await fetch(`/api/approvals/${id}/step-up?action=verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ response: assertion }),
+      body: JSON.stringify({ response: assertion, ceremonyId }),
     }).catch(() => null);
     if (!verifyRes?.ok) {
       const body = (await verifyRes?.json().catch(() => ({}))) as { error?: string };
@@ -109,10 +121,35 @@ export function useApprovals(statusFilter?: ApprovalStatus) {
         if (updated) setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, ...updated } : a)));
         return { ok: true };
       }
-      const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string; missing?: string[] };
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        reason?: string;
+        missing?: string[];
+        resumeUrl?: string;
+      };
+      if (
+        action === "execute" &&
+        body.error === "ROUTINE_RESUME_REQUIRED" &&
+        isRoutineResumeUrl(body.resumeUrl)
+      ) {
+        const resumeResponse = await fetch(body.resumeUrl, { method: "POST" }).catch(() => null);
+        if (!resumeResponse) return { ok: false, reason: "NETWORK" };
+        if (resumeResponse.ok) {
+          await reload();
+          return { ok: true };
+        }
+        const resumeBody = (await resumeResponse.json().catch(() => ({}))) as {
+          error?: string;
+          reason?: string;
+        };
+        return {
+          ok: false,
+          reason: resumeBody.reason ?? resumeBody.error ?? "RUN_RESUME_FAILED",
+        };
+      }
       return { ok: false, reason: body.reason ?? body.error, missing: body.missing };
     },
-    [],
+    [reload],
   );
 
   return { approvals, loading, error, reload, decide, stepUp };

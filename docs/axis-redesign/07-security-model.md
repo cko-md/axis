@@ -40,16 +40,33 @@ and destructive admin need `approval_step_up`.
 ## Step-up authentication
 
 `approvals.step_up_verified_at` is set **only** by a verified WebAuthn passkey
-assertion (`/api/approvals/[id]/step-up`), by the approval's owner, against a
-one-time user-bound challenge — reusing the app's verified WebAuthn helpers. The
-old self-attestable client boolean was removed. (Pending: independent security
-review + manual authenticator test.)
+assertion (`/api/approvals/[id]/step-up`), by the approval's owner, against an
+exact one-time ceremony bound to purpose, approval, RP origin, and expiry.
+Delete-returning challenge consumption and expected-counter compare-and-set
+admit one winner. Execution rejects step-up older than five minutes. The old
+self-attestable client boolean was removed.
+
+Passkey login verifies the same exact ceremony boundary, mints a fresh one-time
+Supabase link server-side, consumes it through the SSR client, and verifies the
+resulting session owner. No refresh token is stored with a passkey and no token
+exchange route exists. Automated virtual-platform-authenticator coverage passes;
+physical authenticator testing and independent human sign-off remain open.
 
 ## Data boundaries & least privilege
 
-- Owner-scoped RLS on every new table (`agent_tasks`, `agent_task_activity`,
-  `approvals`, `routine_runs`, `routine_step_runs`); append-only audit tables
-  have no delete policy.
+- Owner-scoped reads remain available for task/approval/run state, but trusted
+  lifecycle mutations use narrow RPCs or authenticated owner-scoped server
+  routes with service-role persistence. Browser DML is revoked for task
+  creation/activity, approvals, routine runs, and routine steps.
+- `user_passkeys` and `webauthn_challenges` intentionally have zero browser
+  policies/grants. Credential counters and pending ceremonies are server-owned
+  authority, not generic owner-write data.
+- Task creation atomically writes the task and initial activity and verifies
+  any routine provenance against the owner, routine key, live claim token,
+  lease, and quarantine state.
+- Approval-resume work uses renewable caller-token leases; routine step writes
+  and task creation are claim-fenced. Stale recovery invalidates the old token,
+  quarantines the run for operator review, and blocks generic retry.
 - Integration risk model (`integrations/risk.ts`) maps provider capabilities to
   action classes → approval defaults, so integrations are organized by
   capability/risk and routines inherit the right defaults.

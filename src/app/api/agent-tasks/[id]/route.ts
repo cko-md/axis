@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   canTransition,
-  isTerminal,
   TASK_STATUSES,
   type FinancialTaskStatus,
 } from "@/lib/tasks/taskState";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+
+const ROUTE = "agent-tasks.item";
 
 /**
  * Single agent-Task API — read and lifecycle transition.
@@ -30,15 +32,34 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     .eq("id", id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: "TASK_UNAVAILABLE" }, { status: 500 });
+  if (error) {
+    captureRouteError(error, {
+      route: ROUTE,
+      operation: "read",
+      area: "tasks",
+      status: 500,
+      code: "TASK_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "TASK_UNAVAILABLE" }, { status: 500 });
+  }
   if (!task) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const { data: activity } = await supabase
+  const { data: activity, error: activityError } = await supabase
     .from("agent_task_activity")
     .select("id, kind, detail, created_at")
     .eq("user_id", user.id)
     .eq("task_id", id)
     .order("created_at", { ascending: true });
+  if (activityError) {
+    captureRouteError(activityError, {
+      route: ROUTE,
+      operation: "read_activity",
+      area: "tasks",
+      status: 500,
+      code: "TASK_ACTIVITY_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "TASK_ACTIVITY_UNAVAILABLE" }, { status: 500 });
+  }
 
   return NextResponse.json({ task, activity: activity ?? [] });
 }
@@ -62,7 +83,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .eq("user_id", user.id)
     .eq("id", id)
     .maybeSingle();
-  if (readError) return NextResponse.json({ error: "TASK_UNAVAILABLE" }, { status: 500 });
+  if (readError) {
+    captureRouteError(readError, {
+      route: ROUTE,
+      operation: "read_transition_state",
+      area: "tasks",
+      status: 500,
+      code: "TASK_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "TASK_UNAVAILABLE" }, { status: 500 });
+  }
   if (!current) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const from = current.status as FinancialTaskStatus;
@@ -77,28 +107,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     );
   }
 
-  const patch: { status: FinancialTaskStatus; updated_at: string; completed_at?: string } = {
-    status: to,
-    updated_at: new Date().toISOString(),
-  };
-  if (isTerminal(to)) patch.completed_at = new Date().toISOString();
-
-  const { data: task, error: updateError } = await supabase
-    .from("agent_tasks")
-    .update(patch)
-    .eq("user_id", user.id)
-    .eq("id", id)
-    .select("id, objective, status, context, created_at, updated_at, completed_at")
-    .single();
-
-  if (updateError || !task) return NextResponse.json({ error: "TASK_UPDATE_FAILED" }, { status: 500 });
-
-  await supabase.from("agent_task_activity").insert({
-    task_id: id,
-    user_id: user.id,
-    kind: "status_change",
-    detail: { from, to },
+  const { data: task, error: updateError } = await supabase.rpc("transition_agent_task", {
+    p_task_id: id,
+    p_expected_status: from,
+    p_next_status: to,
   });
+  if (updateError) {
+    captureRouteError(updateError, {
+      route: ROUTE,
+      operation: "transition",
+      area: "tasks",
+      status: 500,
+      code: "TASK_UPDATE_FAILED",
+      tags: { from, to },
+    });
+    return NextResponse.json({ error: "TASK_UPDATE_FAILED" }, { status: 500 });
+  }
+  if (!task) {
+    return NextResponse.json(
+      { error: "STALE_TRANSITION", from, to },
+      { status: 409 },
+    );
+  }
 
   return NextResponse.json({ task });
 }

@@ -16,10 +16,11 @@ test("tasks workbench loads and exposes the routine trigger", async ({ page }) =
 test("approvals queue loads with its filter and empty/populated state", async ({ page }) => {
   await page.goto("/approvals");
   await expect(page.locator("body")).not.toContainText(/application error|runtime error/i);
-  await expect(page.getByText(/^Approvals$/)).toBeVisible();
+  const main = page.locator("#main-content");
+  await expect(main.getByText("Approvals", { exact: true })).toBeVisible();
   // Either the honest empty state or at least one approval card — never a crash.
   await expect(
-    page.getByText(/nothing to approve|all caught up|pending|approved|executed/i).first(),
+    main.getByText(/nothing to approve|all caught up|pending|approved|executed/i).first(),
   ).toBeVisible();
 });
 

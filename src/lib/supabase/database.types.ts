@@ -1904,6 +1904,9 @@ export type Database = {
           action_class: string
           created_at: string
           decided_at: string | null
+          execution_claim_token: string | null
+          execution_claimed_at: string | null
+          execution_run_id: string | null
           expires_at: string | null
           id: string
           proposed_action: Json
@@ -1919,6 +1922,9 @@ export type Database = {
           action_class: string
           created_at?: string
           decided_at?: string | null
+          execution_claim_token?: string | null
+          execution_claimed_at?: string | null
+          execution_run_id?: string | null
           expires_at?: string | null
           id?: string
           proposed_action: Json
@@ -1934,6 +1940,9 @@ export type Database = {
           action_class?: string
           created_at?: string
           decided_at?: string | null
+          execution_claim_token?: string | null
+          execution_claimed_at?: string | null
+          execution_run_id?: string | null
           expires_at?: string | null
           id?: string
           proposed_action?: Json
@@ -2012,6 +2021,10 @@ export type Database = {
           paused_step_key: string | null
           routine_key: string
           routine_version: number
+          resume_attempt: number
+          resume_claim_expires_at: string | null
+          resume_claim_token: string | null
+          resume_claimed_at: string | null
           started_at: string
           status: string
           trigger: string
@@ -2031,6 +2044,10 @@ export type Database = {
           paused_step_key?: string | null
           routine_key: string
           routine_version?: number
+          resume_attempt?: number
+          resume_claim_expires_at?: string | null
+          resume_claim_token?: string | null
+          resume_claimed_at?: string | null
           started_at?: string
           status?: string
           trigger?: string
@@ -2050,6 +2067,10 @@ export type Database = {
           paused_step_key?: string | null
           routine_key?: string
           routine_version?: number
+          resume_attempt?: number
+          resume_claim_expires_at?: string | null
+          resume_claim_token?: string | null
+          resume_claimed_at?: string | null
           started_at?: string
           status?: string
           trigger?: string
@@ -2951,8 +2972,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_agent_task: {
+        Args: {
+          p_context?: Json
+          p_estimated_cost_usd?: number | null
+          p_objective: string
+          p_source_claim_token?: string | null
+          p_source_routine_id?: string | null
+          p_source_skill?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      execute_approval: {
+        Args: {
+          p_approval_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
@@ -2962,6 +3002,108 @@ export type Database = {
           note_id: string
           similarity: number
         }[]
+      }
+      claim_routine_approval_resume: {
+        Args: {
+          p_approval_id: string
+          p_claim_token: string
+          p_run_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      complete_routine_step_under_claim: {
+        Args: {
+          p_approval_id: string
+          p_claim_token: string
+          p_output_snapshot: Json
+          p_run_id: string
+          p_step_run_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      fail_routine_step_under_claim: {
+        Args: {
+          p_approval_id: string
+          p_claim_token: string
+          p_error: string
+          p_run_id: string
+          p_step_run_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      finalize_routine_approval_resume: {
+        Args: {
+          p_actual_cost_usd: number
+          p_approval_id: string
+          p_claim_token: string
+          p_output: Json
+          p_run_id: string
+          p_status: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      renew_routine_approval_resume: {
+        Args: {
+          p_approval_id: string
+          p_claim_token: string
+          p_run_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      release_routine_approval_resume: {
+        Args: {
+          p_approval_id: string
+          p_claim_token: string
+          p_error: string
+          p_run_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      recover_stale_routine_approval_resume: {
+        Args: {
+          p_approval_id: string
+          p_run_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      repause_routine_approval_resume: {
+        Args: {
+          p_claim_token: string
+          p_idempotency_key: string | null
+          p_new_approval_id: string
+          p_old_approval_id: string
+          p_paused_step_key: string
+          p_run_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      start_routine_step_under_claim: {
+        Args: {
+          p_approval_id: string
+          p_claim_token: string
+          p_input_snapshot: Json
+          p_ordinal: number
+          p_run_id: string
+          p_step_key: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      transition_agent_task: {
+        Args: {
+          p_expected_status: string
+          p_next_status: string
+          p_task_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

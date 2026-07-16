@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
+import type { Json } from "@/lib/supabase/database.types";
 
 // Vercel cron: runs daily at 06:00 UTC (configured in vercel.json)
 // GitHub Actions also triggers this at 07:00 UTC via daily-health.yml.
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
   if (!supabase) {
     return NextResponse.json({ error: "Maintenance database unavailable" }, { status: 503 });
   }
-  const results: Record<string, unknown> = {};
+  const results: Record<string, Json> = {};
 
   // 1. Mark overdue tasks via SECURITY DEFINER function
   const { data: overdueCount, error: tasksError } = await supabase.rpc("mark_overdue_tasks");
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest) {
   } catch {
     /* skip if package.json unreadable */
   }
-  results.dependency_check = depResults;
+  results.dependency_check = depResults as unknown as Json;
 
   // 6. Supabase health check
   try {
@@ -104,6 +105,13 @@ export async function GET(req: NextRequest) {
     dependency_check: results.dependency_check,
     supabase_health: results.supabase_health,
     all_ok: !!(results.supabase_health as { ok: boolean }).ok,
+  } satisfies {
+    ran_at: string;
+    overdue_tasks: Json;
+    old_signals_deleted: Json;
+    dependency_check: Json;
+    supabase_health: Json;
+    all_ok: boolean;
   };
   const { error: healthInsertError } = await supabase.from("health_check_runs").insert(runSummary);
   if (healthInsertError) {

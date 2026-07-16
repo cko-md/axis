@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildConcentrationCheckOutput,
   concentrationCheckSteps,
@@ -18,7 +19,11 @@ import {
   type RoutineExecutionResult,
   type RoutineRunForResume,
 } from "@/lib/routines/executor";
-import { isRunTerminal, type RunStatus } from "@/lib/routines/runState";
+import {
+  isRunTerminal,
+  requiresRoutineOperatorReview,
+  type RunStatus,
+} from "@/lib/routines/runState";
 import { emitServerEvent } from "@/lib/observability/events";
 
 /**
@@ -53,8 +58,12 @@ export async function POST(request: NextRequest) {
   if (!parsedBody.success) {
     return NextResponse.json({ error: "INVALID_ROUTINE_INPUT" }, { status: 400 });
   }
+  const admin = createAdminClient();
+  if (!admin) {
+    return NextResponse.json({ error: "ROUTINE_SERVICE_NOT_CONFIGURED" }, { status: 503 });
+  }
   const body = parsedBody.data;
-  const store = createSupabaseRoutineStore(supabase);
+  const store = createSupabaseRoutineStore(admin);
 
   try {
     let maxWeight = normalizeConcentrationMaxWeight(body.maxWeight) ?? 0.25;
@@ -63,7 +72,9 @@ export async function POST(request: NextRequest) {
     if (typeof body.runId === "string" && body.runId) {
       const { data: run, error } = await supabase
         .from("routine_runs")
-        .select("id, routine_key, routine_version, status, input_snapshot, paused_step_key, approval_id, idempotency_key")
+        .select(
+          "id, routine_key, routine_version, status, input_snapshot, paused_step_key, approval_id, idempotency_key, error, resume_claim_token, resume_claim_expires_at",
+        )
         .eq("user_id", user.id)
         .eq("id", body.runId)
         .eq("routine_key", CONCENTRATION_CHECK_ROUTINE_KEY)
@@ -79,13 +90,24 @@ export async function POST(request: NextRequest) {
           { status: 409 },
         );
       }
+      if (requiresRoutineOperatorReview(run as RoutineRunForResume)) {
+        return NextResponse.json(
+          { error: "RUN_REQUIRES_REVIEW", status: "blocked", resumable: false },
+          { status: 409 },
+        );
+      }
 
       maxWeight = concentrationMaxWeightFromSnapshot(run.input_snapshot);
       result = await continueRoutineRun({
         store,
         userId: user.id,
         run: run as RoutineRunForResume,
-        steps: concentrationCheckSteps({ supabase, userId: user.id, maxWeight }),
+        steps: concentrationCheckSteps({
+          supabase,
+          taskAdmin: admin,
+          userId: user.id,
+          maxWeight,
+        }),
         buildRunOutput: buildConcentrationCheckOutput,
         failureStatus: "blocked",
       });
@@ -113,7 +135,12 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         routineKey: CONCENTRATION_CHECK_ROUTINE_KEY,
         inputSnapshot: { maxWeight, maxWeightProvenance },
-        steps: concentrationCheckSteps({ supabase, userId: user.id, maxWeight }),
+        steps: concentrationCheckSteps({
+          supabase,
+          taskAdmin: admin,
+          userId: user.id,
+          maxWeight,
+        }),
         buildRunOutput: buildConcentrationCheckOutput,
         failureStatus: "blocked",
       });
@@ -140,6 +167,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ runId: result.runId, status: result.status, ...output });
   } catch (err) {
     const runId = err instanceof RoutineExecutionError ? err.runId : body.runId;
+    if (err instanceof RoutineExecutionError && err.message === "RUN_REQUIRES_REVIEW") {
+      return NextResponse.json(
+        { error: "RUN_REQUIRES_REVIEW", status: "blocked", resumable: false },
+        { status: 409 },
+      );
+    }
     emitServerEvent("routine.run.blocked", {
       routine: CONCENTRATION_CHECK_ROUTINE_KEY,
       runId,

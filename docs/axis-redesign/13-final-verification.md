@@ -2,6 +2,19 @@
 
 **Revision:** branch `claude/axis-system-redesign-7986vb` (PR #190) · **Date:** 2026-07-14
 
+> Historical snapshot. Wave 15.1 (2026-07-16) supersedes the WebAuthn and
+> lifecycle loose ends below: approval step-up is now bound to an exact
+> one-time WebAuthn ceremony and counter CAS; passkey login mints a fresh
+> server-side session without stored refresh tokens; browser mutation authority
+> is removed from passkeys, challenges, approvals, and trusted run/step audit
+> rows; task provenance and routine steps are claim-fenced; renewable leases,
+> stale-worker quarantine, and lost-response recovery are locally verified.
+> Automated Chromium virtual-authenticator coverage passes. Hosted migration
+> application/readback, preview validation, and Sentry review remain explicitly
+> blocked because their required credentials or authorized service access are
+> unavailable. Physical-authenticator testing and independent human security
+> sign-off remain open.
+
 This is an honest convergence assessment, not a claim that the full 14-phase
 program in the master prompt is finished. That prompt describes a multi-quarter
 rewrite. What this branch delivers is a **coherent, green, end-to-end vertical of

@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000";
 const authStatePath = process.env.E2E_AUTH_STATE ?? ".auth/e2e-user.json";
+const authenticatedTestMatch = /(?:authenticated|operate)\.spec\.ts/;
 const authProjects = process.env.AXIS_E2E_AUTH
   ? [
       {
@@ -10,7 +11,7 @@ const authProjects = process.env.AXIS_E2E_AUTH
       },
       {
         name: "authenticated",
-        testMatch: /authenticated\.spec\.ts/,
+        testMatch: authenticatedTestMatch,
         dependencies: process.env.E2E_AUTH_STATE ? [] : ["auth-setup"],
         use: { ...devices["Desktop Chrome"], storageState: authStatePath },
       },
@@ -37,7 +38,7 @@ export default defineConfig({
   projects: [
     {
       name: "public",
-      testIgnore: [/auth\.setup\.ts/, /authenticated\.spec\.ts/],
+      testIgnore: [/auth\.setup\.ts/, authenticatedTestMatch],
       use: { ...devices["Desktop Chrome"] },
     },
     ...authProjects,

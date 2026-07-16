@@ -609,7 +609,7 @@ Defined in `src/middleware.ts`:
 
 - **`GUARDED_PREFIXES`** (return 401 if no session): `/api/massive`, `/api/plaid`,
   `/api/brokerage`, `/api/ai`, `/api/signals-ai`, `/api/strava`, `/api/profile`,
-  `/api/auth/passkey/register`, `/api/auth/passkey/token`, `/api/auth/passkey/list`,
+  `/api/auth/passkey/register`, `/api/auth/passkey/list`,
   `/api/auth/passkey/delete`, `/api/auth/settings`, `/api/auth/mfa`,
   `/api/auth/account`, `/api/calendar`, `/api/mail`, `/api/briefing`
 

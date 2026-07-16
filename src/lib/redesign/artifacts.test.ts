@@ -18,6 +18,26 @@ describe("redesign JSON artifacts are valid", () => {
     expect(Array.isArray(parsed.waves)).toBe(true);
   });
 
+  it("keeps the lifecycle authority migration atomic around its data preflight", () => {
+    const migration = readFileSync(
+      path.resolve(
+        process.cwd(),
+        "supabase/migrations/202607161000_lifecycle_claims.sql",
+      ),
+      "utf8",
+    );
+    const beginAt = migration.indexOf("\nbegin;");
+    const preflightAt = migration.indexOf(
+      "duplicate routine approval links must be resolved before lifecycle claims",
+    );
+    const commitAt = migration.lastIndexOf("\ncommit;");
+
+    expect(beginAt).toBeGreaterThanOrEqual(0);
+    expect(preflightAt).toBeGreaterThan(beginAt);
+    expect(commitAt).toBeGreaterThan(preflightAt);
+    expect(migration.slice(commitAt).trim()).toBe("commit;");
+  });
+
   it("every .json artifact in .claude/axis-redesign parses", () => {
     if (!existsSync(DIR)) return; // artifacts optional in a stripped checkout
     const jsonFiles = readdirSync(DIR).filter((f) => f.endsWith(".json"));

@@ -29,6 +29,26 @@
 | Named visual/UX/game/premium/anti-slop/motion/accessibility reviews | 165–168, 1899–1918 | partial | Wave 15.0 synthesis complete; implementation review open |
 | Reusable prompts saved; no AI-baked product copy in shipped assets | 302–306, 780–784 | partial | Prompt manifests complete; final covers/starters open |
 
+## Wave 15.1 integration and lifecycle safety
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Preserve Phase 9 redesign foundations while integrating current `origin/main` and patch-equivalent `c2de9308` without a stacked dependency | complete | Two-parent merge sealed from `960d20f4` and `a029cd58392a75497113685b9363c4f3e617f672`; patch provenance recorded without importing unrelated ancestry |
+| Versioned preference envelope, timezone/unknown-field preservation, failed-read no-write, no hydration echo, account/CAS fencing, visible retry/incompatible state | complete | `src/lib/theme/interface-preferences.ts`, `ThemeProvider.tsx`, drawer UI, and focused tests |
+| Atomic owner-scoped task transitions and stale approval decisions | complete | `transition_agent_task`, route compare-and-set tests, and local SQL transaction probes |
+| Atomic task creation and routine provenance; claimed work requires owner/routine/live-token/lease match | complete | `create_agent_task`, `taskPersistence.ts`, route/executor tests, and SQL old-token/quarantine probes |
+| Fenced approval/routine claim, renewable heartbeat, claim-fenced step/task writes, finalize/release/repause, lost-response recovery | complete | Lifecycle migration, route/executor tests, and local SQL transaction probes |
+| Stale-worker recovery invalidates the old token, quarantines for operator review, and cannot be bypassed by generic retry | complete | `runState.ts`, executor/concentration route tests, trigger/RPC SQL probes |
+| Passkey/session authority: exact ceremony, one-time consumption, counter CAS, zero browser policies/grants, no stored refresh token/token exchange | complete | Passkey routes, deleted token route, authority tests, migration ACL/readback |
+| Real passkey registration → sign-out → fresh session → authenticated API browser flow | complete | `tests/e2e/passkey-authenticated.spec.ts`; virtual CTAP2 platform authenticator 1/1 and three inspected screenshots |
+| Local migration first-apply/replay, exact grants, browser denial, owner isolation, provenance/quarantine, and duplicate-link preflight | complete | `.logs/vector-envoys/wave-15.1-integration-safety.md` |
+| Migration is atomic when the duplicate-link preflight fails | complete | Explicit `BEGIN/COMMIT`, CI boundary guard, and forced local failure preserving pre-migration ACL/data state |
+| Hosted Supabase migration/application/readback | blocked | Service-role REST is data-plane only; no management/DB/DDL credential, linked CLI, or MCP is available |
+| Vercel preview workflow | blocked | Deployment metadata exists through GitHub, but no Vercel CLI/team session/project link is available and the preview is SSO-protected |
+| Post-preview Sentry regression review | blocked | Available token is `org:ci` only; project/issue queries return 403 |
+| Render worker deployment and validation | blocked | No Render credential, linked service, or authorized deployment surface is configured locally |
+| Paid OpenAI live generation and provider-backed validation | blocked | No OpenAI credential or authorized paid-generation service is configured locally |
+
 ## VECTOR platform
 
 | Requirement | Source lines | Status | Evidence needed |
@@ -110,7 +130,7 @@ console-error capture, sustained-play trace, and disposal proof.
 | Shared scores server-validated or labelled unverified personal | 1876–1879 | open | API/UI trust label tests |
 | No OpenAI, service-role, GitHub, or provider secret in browser | 1881–1882 | open | Build/env/network/secret scan |
 | Full per-wave inspect/spec/implementation/review/browser/adversarial/repair/independent-gate/update/commit loop | 1924–2006 | partial | Every wave log/commit |
-| Typecheck, lint, unit each code wave; build for runtime/route/assets; relevant public/auth e2e | 2012–2025 | open | Command logs/counts |
+| Typecheck, lint, unit each code wave; build for runtime/route/assets; relevant public/auth e2e | 2012–2025 | partial | Wave 15.1 local commands/counts recorded; every later code wave remains open |
 | Full platform test matrix | 2027–2039 | open | Named tests |
 | Full persistence test matrix | 2040–2052 | open | Named tests |
 | Every game start/control/score/fail/restart/pause/hydrate/seed/collision/console/mobile/sustained and QA log | 2054–2095 | open | Per-game evidence |
@@ -118,7 +138,7 @@ console-error capture, sustained-play trace, and disposal proof.
 | Preserve budgets; no lobby engines; dynamic game chunks; compressed assets; no leaks; `/command` unaffected; measure JS/tasks/FPS/memory/CPU/IDB/sync/cache | 2098–2127 | open | Build/network/performance logs |
 | VECTOR definition of done | 2133–2148 | open | All VECTOR rows complete |
 | Envoy definition of done | 2150–2166 | open | All Envoy rows complete |
-| Program gates: type/lint/test/build/e2e/perf/migration/RLS/preview/Sentry/docs/state/draft PR/risks | 2168–2185 | open | Direct final evidence |
+| Program gates: type/lint/test/build/e2e/perf/migration/RLS/preview/Sentry/docs/state/draft PR/risks | 2168–2185 | partial | Wave 15.1 local gates complete; unavailable hosted Supabase/Vercel/Sentry/Render/OpenAI gates are explicitly blocked, while later-wave/final implementation gates remain open |
 | Final report includes all 19 named sections and conceals no incomplete work | 2191–2213 | open | Final handoff |
 
 ## Easy-to-miss binding facts

@@ -4,6 +4,61 @@
 > queried against the live Supabase project on 2026-07-03. Re-run the checks in
 > §4 before each production promotion — this is the repeatable gate.
 
+## Wave 15.1 local addendum (2026-07-16)
+
+This addendum supersedes current-state interpretations of the older live audit
+below without rewriting its dated evidence.
+
+- `user_passkeys` and `webauthn_challenges` intentionally have **zero browser
+  policies and zero anon/authenticated grants** after
+  `202607161000_lifecycle_claims.sql`. Credential counters and pending
+  ceremonies are server-only authority. Therefore the historical expectation
+  that every public table has at least one policy, and the named
+  `service_role_only` challenge policy, must not be used after this migration.
+- The current RLS audit must allow exactly those two server-only authority
+  tables to have zero policies while still requiring RLS to be enabled. It must
+  separately verify that anon/authenticated have no table privileges and cannot
+  execute challenge cleanup.
+- RLS-bypass admin use is no longer confined to webhooks, crons, and pre-auth
+  lookup. Authenticated routes first verify the session and owner, then use the
+  service role for atomic task creation, approval decisions/step-up, trusted
+  routine run/step writes, claim RPCs, passkey credentials/challenges, and fresh
+  passkey session minting. Narrow RPC grants, owner predicates, claim tokens,
+  and exact ceremony binding are the authority boundary.
+- Local evidence: migration first-apply and idempotent replay pass; exact RPC
+  ACLs, RLS/browser denial, task provenance, lease renewal, old-token rejection,
+  stale-worker quarantine, and zero-policy passkey/challenge checks pass.
+  The migration is transaction-wrapped: a forced duplicate-link preflight
+  failure preserved deliberately altered pre-migration ACL/data state, proving
+  no partial security change committed.
+  Production-mode browser evidence is 13/13 public, 7/7 authenticated, plus a
+  dedicated 1/1 real virtual-CTAP2 passkey flow.
+- Hosted status remains explicitly blocked: production Supabase DDL/readback
+  lacks management authority; Vercel preview is SSO-protected without a local
+  team session; Sentry has upload-only `org:ci` scope and issue queries return
+  403; Render and OpenAI credentials/services are absent. None of these gates is
+  satisfied by local evidence or read-only metadata access.
+
+Use this post-migration policy check:
+
+```sql
+-- Expect zero rows. The two named authority tables may have zero policies;
+-- every other public table must have at least one.
+select t.tablename, c.relrowsecurity, count(p.polname) policies
+from pg_tables t
+join pg_class c
+  on c.relname = t.tablename
+ and c.relnamespace = 'public'::regnamespace
+left join pg_policy p on p.polrelid = c.oid
+where t.schemaname = 'public'
+group by t.tablename, c.relrowsecurity
+having c.relrowsecurity = false
+   or (
+     count(p.polname) = 0
+     and t.tablename not in ('user_passkeys', 'webauthn_challenges')
+   );
+```
+
 ## 7. Live production audit + rescue patches (2026-07-07)
 
 Authenticated live audit (real signed-in session driven through the app in-browser),

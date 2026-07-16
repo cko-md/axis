@@ -29,7 +29,6 @@ function LoginForm() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
-  const [showPasskeyBtn, setShowPasskeyBtn] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [agreed, setAgreed] = useState(false);
   const [mfaState, setMfaState] = useState<MFAState | null>(null);
@@ -39,13 +38,13 @@ function LoginForm() {
     if (mode !== 'signup') setAgreed(false);
   }, [mode]);
 
-  // Load persisted remember-me preference and passkey availability
+  const showPasskeyBtn = passkey.isSupported;
+
+  // Load persisted remember-me preference.
   useEffect(() => {
     const stored = localStorage.getItem('axis-remember-me');
     if (stored !== null) setRememberMe(stored === 'true');
-    const passkeyRegistered = localStorage.getItem('axis-passkey-registered');
-    if (passkeyRegistered === 'true' && passkey.isSupported) setShowPasskeyBtn(true);
-  }, [passkey.isSupported]);
+  }, []);
 
   // Persist remember-me preference
   useEffect(() => {
@@ -71,16 +70,6 @@ function LoginForm() {
     if (!result.ok) {
       if (result.error !== 'Cancelled') setError(result.error ?? 'Passkey authentication failed');
       return;
-    }
-
-    if (result.refreshToken) {
-      const { error: refreshError } = await supabase.auth.refreshSession({
-        refresh_token: result.refreshToken,
-      });
-      if (refreshError) {
-        setError(refreshError.message);
-        return;
-      }
     }
 
     router.push(getRedirectUrl());

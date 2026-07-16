@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildApprovalRequest,
   validateApprovalCompleteness,
@@ -8,6 +9,7 @@ import {
 import { approvalRequestToInsert } from "@/lib/security/approvalPersistence";
 import type { ActionClass } from "@/lib/security/actionPolicy";
 import type { Json } from "@/lib/supabase/database.types";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Approvals collection API — persists the approval object (§11.3), backed by the
@@ -24,7 +26,15 @@ const ACTION_CLASSES: readonly ActionClass[] = [
   "EXTERNAL_COMMUNICATION", "FINANCIAL_EXECUTION", "DESTRUCTIVE_ADMIN",
 ];
 
-const APPROVAL_STATUSES = ["pending", "approved", "denied", "expired", "executed"] as const;
+const APPROVAL_STATUSES = [
+  "pending",
+  "approved",
+  "executing",
+  "denied",
+  "expired",
+  "executed",
+] as const;
+const ROUTE = "approvals.collection";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -46,7 +56,16 @@ export async function GET(request: NextRequest) {
   if (taskId) query = query.eq("task_id", taskId);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: "APPROVALS_UNAVAILABLE" }, { status: 500 });
+  if (error) {
+    captureRouteError(error, {
+      route: ROUTE,
+      operation: "list",
+      area: "approvals",
+      status: 500,
+      code: "APPROVALS_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "APPROVALS_UNAVAILABLE" }, { status: 500 });
+  }
   return NextResponse.json({ approvals: data ?? [] });
 }
 
@@ -85,14 +104,56 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (req.taskId) {
+    const { data: ownedTask, error: taskError } = await supabase
+      .from("agent_tasks")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("id", req.taskId)
+      .maybeSingle();
+    if (taskError) {
+      captureRouteError(taskError, {
+        route: ROUTE,
+        operation: "verify_task_owner",
+        area: "approvals",
+        status: 500,
+        code: "TASK_UNAVAILABLE",
+      });
+      return NextResponse.json({ error: "TASK_UNAVAILABLE" }, { status: 500 });
+    }
+    if (!ownedTask) {
+      return NextResponse.json({ error: "TASK_NOT_FOUND" }, { status: 404 });
+    }
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return NextResponse.json(
+      {
+        error: "APPROVAL_WRITE_UNAVAILABLE",
+        message: "Approval writes are temporarily unavailable.",
+      },
+      { status: 503 },
+    );
+  }
+
   const insert = approvalRequestToInsert(req, user.id);
-  const { data, error } = await supabase
+  const { data, error } = await admin
     .from("approvals")
     // proposed_action carries opaque before/after state; it is a jsonb column.
     .insert({ ...insert, proposed_action: insert.proposed_action as unknown as Json })
     .select("id, task_id, action_class, requirement, reasons, proposed_action, status, expires_at, scope, created_at")
     .single();
 
-  if (error || !data) return NextResponse.json({ error: "APPROVAL_CREATE_FAILED" }, { status: 500 });
+  if (error || !data) {
+    captureRouteError(error ?? new Error("APPROVAL_CREATE_FAILED"), {
+      route: ROUTE,
+      operation: "create",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_CREATE_FAILED",
+    });
+    return NextResponse.json({ error: "APPROVAL_CREATE_FAILED" }, { status: 500 });
+  }
   return NextResponse.json({ approval: data }, { status: 201 });
 }

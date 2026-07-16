@@ -198,7 +198,16 @@ function FontFacePicker<T extends DisplayFace | BodyFace | LabelFace | SubheadFa
 }
 
 export function InterfaceStudioDrawer() {
-  const { theme, setTheme, interfaceSettings, setInterfaceSettings, interfacePersistence, interfaceStudioOpen, closeInterfaceStudio } = useTheme();
+  const {
+    theme,
+    setTheme,
+    interfaceSettings,
+    setInterfaceSettings,
+    interfacePersistence,
+    retryInterfaceSync,
+    interfaceStudioOpen,
+    closeInterfaceStudio,
+  } = useTheme();
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -275,11 +284,13 @@ export function InterfaceStudioDrawer() {
     ? "Synced"
     : interfacePersistence === "syncing"
       ? "Syncing"
-      : interfacePersistence === "error"
-        ? "Sync error"
-        : interfacePersistence === "loading"
-          ? "Checking sync"
-          : "Local only";
+      : interfacePersistence === "incompatible"
+        ? "Update required"
+        : interfacePersistence === "error"
+          ? "Sync error"
+          : interfacePersistence === "loading"
+            ? "Checking sync"
+            : "Local only";
 
   return (
     <>
@@ -288,7 +299,14 @@ export function InterfaceStudioDrawer() {
         <div className="dr-head">
           <div>
             <div className="dr-title">Interface Studio</div>
-            <div className={`dr-persist ${interfacePersistence}`}>{persistenceLabel}</div>
+            <div className="dr-persist-row" aria-live="polite">
+              <div className={`dr-persist ${interfacePersistence}`}>{persistenceLabel}</div>
+              {interfacePersistence === "error" ? (
+                <button type="button" className="dr-persist-retry" onClick={retryInterfaceSync}>
+                  Retry
+                </button>
+              ) : null}
+            </div>
           </div>
           <button type="button" className="x" onClick={closeInterfaceStudio} aria-label="Close" ref={closeButtonRef}>
             ✕

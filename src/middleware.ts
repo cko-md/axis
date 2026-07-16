@@ -112,7 +112,6 @@ export async function middleware(request: NextRequest) {
       "/api/spotify",
       "/api/profile",
       "/api/auth/passkey/register",
-      "/api/auth/passkey/token",
       "/api/auth/passkey/list",
       "/api/auth/passkey/delete",
       "/api/auth/settings",

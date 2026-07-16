@@ -39,6 +39,7 @@ describe("approvalCardView", () => {
 
   it("labels statuses", () => {
     expect(approvalStatusLabel("pending")).toBe("Pending");
+    expect(approvalStatusLabel("executing")).toBe("Executing");
     expect(approvalStatusLabel("executed")).toBe("Executed");
   });
 });

@@ -1,5 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+} from '@simplewebauthn/browser';
+
 export interface PasskeyRegisterResult {
   ok: boolean;
   passkeyId?: string;
@@ -8,12 +14,15 @@ export interface PasskeyRegisterResult {
 
 export interface PasskeyAuthenticateResult {
   ok: boolean;
-  refreshToken?: string;
   error?: string;
 }
 
 export function usePasskey() {
-  const isSupported = typeof PublicKeyCredential !== 'undefined';
+  const [isSupported, setIsSupported] = useState(false);
+
+  useEffect(() => {
+    setIsSupported(typeof PublicKeyCredential !== 'undefined');
+  }, []);
 
   async function register(deviceName?: string): Promise<PasskeyRegisterResult> {
     try {
@@ -24,7 +33,14 @@ export function usePasskey() {
         const body = await optRes.json().catch(() => ({}));
         return { ok: false, error: body.error ?? 'Failed to get registration options' };
       }
-      const options = await optRes.json();
+      const {
+        options,
+        ceremonyId,
+      }: { options?: PublicKeyCredentialCreationOptionsJSON; ceremonyId?: string } =
+        await optRes.json();
+      if (!options || !ceremonyId) {
+        return { ok: false, error: 'Invalid registration options' };
+      }
 
       const { startRegistration } = await import('@simplewebauthn/browser');
       let attResp;
@@ -45,7 +61,11 @@ export function usePasskey() {
       const verifyRes = await fetch('/api/auth/passkey/register?action=verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ response: attResp, ...(deviceName ? { deviceName } : {}) }),
+        body: JSON.stringify({
+          response: attResp,
+          ceremonyId,
+          ...(deviceName ? { deviceName } : {}),
+        }),
       });
       if (!verifyRes.ok) {
         const body = await verifyRes.json().catch(() => ({}));
@@ -67,7 +87,14 @@ export function usePasskey() {
         const body = await optRes.json().catch(() => ({}));
         return { ok: false, error: body.error ?? 'Failed to get authentication options' };
       }
-      const options = await optRes.json();
+      const {
+        options,
+        ceremonyId,
+      }: { options?: PublicKeyCredentialRequestOptionsJSON; ceremonyId?: string } =
+        await optRes.json();
+      if (!options || !ceremonyId) {
+        return { ok: false, error: 'Invalid authentication options' };
+      }
 
       const { startAuthentication } = await import('@simplewebauthn/browser');
       let authResp;
@@ -88,28 +115,20 @@ export function usePasskey() {
       const verifyRes = await fetch('/api/auth/passkey/authenticate?action=verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ response: authResp }),
+        body: JSON.stringify({ response: authResp, ceremonyId }),
       });
       if (!verifyRes.ok) {
         const body = await verifyRes.json().catch(() => ({}));
         return { ok: false, error: body.error ?? 'Authentication failed' };
       }
-      const { verified, refreshToken } = await verifyRes.json();
+      const { verified } = await verifyRes.json();
       if (!verified) return { ok: false, error: 'Passkey not verified' };
-      return { ok: true, ...(refreshToken ? { refreshToken } : {}) };
+      return { ok: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { ok: false, error: msg };
     }
   }
 
-  async function updateStoredToken(refreshToken: string, credentialId?: string): Promise<void> {
-    await fetch('/api/auth/passkey/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken, ...(credentialId ? { credentialId } : {}) }),
-    });
-  }
-
-  return { isSupported, register, authenticate, updateStoredToken };
+  return { isSupported, register, authenticate };
 }

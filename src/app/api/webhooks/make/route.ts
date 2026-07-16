@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
 import { timingSafeStringEqual, verifyHmacSha256Hex } from "@/lib/security/webhookSignature";
+import type { Json } from "@/lib/supabase/database.types";
 
 /**
  * POST /api/webhooks/make — inbound receiver for Make scenarios calling
@@ -63,7 +64,10 @@ export async function POST(request: NextRequest) {
     user_id: body.user_id,
     actor: "make",
     action: `make:${body.event}`,
-    payload: { idempotency_key: body.idempotency_key, data: body.data ?? null },
+    payload: {
+      idempotency_key: body.idempotency_key,
+      data: (body.data ?? null) as Json,
+    },
     result: "success",
   });
 

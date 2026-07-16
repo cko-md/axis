@@ -26,6 +26,9 @@ const DECISION_ERRORS: Record<string, string> = {
   INCOMPLETE: "This approval is missing required details and can't execute.",
   NOT_APPROVED: "This approval hasn't been approved yet.",
   NOT_PENDING: "This approval has already been decided.",
+  RUN_ALREADY_RESUMING: "This routine is already resuming.",
+  RUN_BLOCKED: "The routine could not resume. Its approval remains available to retry.",
+  RESUME_SERVICE_NOT_CONFIGURED: "Routine resume is temporarily unavailable.",
 };
 
 export function ApprovalsModule() {

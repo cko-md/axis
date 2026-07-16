@@ -22,7 +22,12 @@ If either required value is missing or invalid, `src/lib/env.ts` throws a clear 
 | `NEXT_PUBLIC_APP_URL` | browser + server | Canonical app origin for OAuth redirects and CORS allow-origin. |
 | `NEXT_PUBLIC_SENTRY_DSN` | browser + server | Enables Sentry error/performance capture. Optional locally. |
 | `SENTRY_AUTH_TOKEN` | build/CI | Allows `@sentry/nextjs` to upload source maps during Vercel builds. |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | Trusted server operations such as pre-auth passkey support and webhook writes. |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only | Atomic task creation, trusted approval creation/decision/step-up writes, routine run/step persistence and claim RPCs, all passkey credential/challenge operations, fresh passkey session minting, and webhook writes. |
+
+Task creation, approval/routine mutation, and passkey credential/challenge
+routes require this trusted server boundary. If it is absent they return a
+visible `503` configured/not-configured response; they never fall back to
+session-client writes or weaken lifecycle authority.
 
 ## Optional Provider Keys
 
@@ -41,10 +46,20 @@ Missing optional keys should produce a configured/not-configured response, a set
 | Tavily search | `TAVILY_API_KEY` |
 | Make | `MAKE_API_KEY`, `MAKE_TEAM_ID`, `MAKE_ZONE`, `MAKE_WEBHOOK_SECRET`, `MAKE_WEBHOOK_DAILY_BRIEF_URL`, `MAKE_WEBHOOK_WEEKLY_RECAP_URL`, `MAKE_WEBHOOK_BILL_REMINDER_URL`, `MAKE_WEBHOOK_BUDGET_ALERT_URL`, `MAKE_WEBHOOK_ANOMALY_ALERT_URL`, `MAKE_WEBHOOK_SUBSCRIPTION_AUDIT_URL` |
 | Rate limiting / MFA throttling | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
-| Passkey encryption | `PASSKEY_ENCRYPTION_KEY` |
+| Server token/outbox encryption (legacy variable name) | `PASSKEY_ENCRYPTION_KEY` |
 | Health providers | `GARMIN_CLIENT_ID`, `OURA_CLIENT_ID`, `FITBIT_CLIENT_ID`, `WHOOP_CLIENT_ID` |
 | Brokerage stubs | `APP_PUBLIC_API_KEY` or `PUBLIC_API_KEY` or `BROKERAGE_API_KEY`; `APP_PUBLIC_ACCOUNT_ID` or `PUBLIC_ACCOUNT_ID` or `BROKERAGE_ACCOUNT_ID`; `TRADE_EXECUTION_ENABLED` |
 | Cron protection | `CRON_SECRET`, `FEED_DIGEST_SECRET`, `MAKE_SWEEP_SECRET` |
+
+`PASSKEY_ENCRYPTION_KEY` retains its historical name for deployment
+compatibility, but passkey authentication no longer stores Supabase refresh
+tokens. The key is still used for server-side provider-token and Make outbox
+encryption.
+
+Passkey authentication verifies the assertion and counter, mints a fresh
+one-time Supabase link server-side, and immediately consumes it through the SSR
+client to set a new cookie session. No access token, refresh token, OTP hash, or
+link is returned to the browser, persisted in the passkey row, or logged.
 
 ## Local HTTPS + OAuth Redirect URIs
 
@@ -59,15 +74,22 @@ stop it — it self-heals the cert on first boot if missing).
 
 One local, one-time step an agent cannot complete on your behalf: the
 generated cert isn't trusted by your OS yet (adding a CA to Keychain needs an
-interactive `sudo` password). Run this yourself once:
+interactive `sudo` password). `npx mkcert` resolves to an unrelated npm
+package, not the real tool — use the actual FiloSottile/mkcert binary Next.js
+already downloaded, or install it properly via Homebrew:
 
 ```bash
-npx mkcert -install
+# Option A — the binary next dev --experimental-https already fetched:
+"$HOME/Library/Caches/mkcert/mkcert-v1.4.4-darwin-arm64" -install
+
+# Option B — install mkcert as a real CLI (works for any project):
+brew install mkcert && mkcert -install
 ```
 
 Until you do, `https://localhost:3200` shows a bypassable browser warning —
-click through it, or run the command above for a clean, warning-free
-experience going forward (all local HTTPS dev, not just this project).
+click through it, or run one of the commands above for a clean,
+warning-free experience going forward (all local HTTPS dev, not just this
+project).
 
 `NEXT_PUBLIC_APP_URL` should be `https://localhost:3200` locally to match
 (`getAppOrigin()` in `src/lib/auth/getAppOrigin.ts` actually derives the
@@ -75,15 +97,30 @@ scheme + host from the live request for `localhost`/`127.0.0.1`/`[::1]`, but
 `src/lib/webauthn/server.ts`'s passkey RP origin reads this env var directly,
 so it must match the scheme you're actually serving on).
 
+For automated real-WebAuthn QA, use `http://localhost:<port>` and set
+`NEXT_PUBLIC_APP_URL` to that exact origin. Do not substitute
+`127.0.0.1`: WebAuthn treats the RP ID as a domain, and the virtual platform
+authenticator flow intentionally validates the `localhost` RP boundary.
+
 **Redirect URIs to register on each provider's dashboard** (must be an exact
 string match, scheme included):
-- Spotify ([developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)):
-  `https://localhost:3200/api/spotify/callback`. Spotify's policy (enforced
-  since April 2025) only exempts the *literal loopback IP* `127.0.0.1` from
-  its HTTPS requirement — `http://localhost:...` is rejected outright — so
-  once local dev is genuinely HTTPS this is moot either way.
 - Strava ([strava.com/settings/api](https://www.strava.com/settings/api)):
-  `https://localhost:3200/api/strava?action=callback`.
+  `https://localhost:3200/api/strava?action=callback`. Strava white-lists
+  both `localhost` and `127.0.0.1` over either scheme, so this matches the
+  main HTTPS dev server directly.
+- Spotify ([developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)):
+  `http://127.0.0.1:3210/api/spotify/callback`. Spotify's redirect_uri policy
+  is stricter than Strava's — it rejects `localhost` outright (any scheme)
+  and only exempts the *literal loopback IP* `127.0.0.1`, and only over
+  plain HTTP; HTTPS is not permitted for loopback redirect URIs at all. This
+  can never be satisfied by the HTTPS `axis-dev` server, so Spotify connect
+  specifically requires running the plain-HTTP `axis-dev-verify` config
+  (`npm run dev -- -p 3210`, already the `axis-dev-verify` preview config)
+  alongside `axis-dev`, and visiting `http://127.0.0.1:3210` (not
+  `localhost:3210` — Spotify won't accept the hostname) to connect Spotify.
+  `getAppOrigin()` derives the redirect URI per-request, so no extra config
+  is needed beyond having that second process running and using that exact
+  origin.
 
 ## Runtime Behavior
 

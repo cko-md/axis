@@ -322,9 +322,8 @@ Startup after a cold VM boot:
 1. Start Docker (not auto-started): `sudo dockerd >/var/log/dockerd.log 2>&1 &` then `sudo chmod 666 /var/run/docker.sock`. Docker is v29, so `/etc/docker/daemon.json` must set `storage-driver: fuse-overlayfs` **and** `features.containerd-snapshotter: false` (already configured in the snapshot).
 2. Start Supabase: `cd /tmp/axis-sb && npx supabase start` (see the migration caveat below for why a temp workdir is used). API: `http://127.0.0.1:54321`, Studio: `http://127.0.0.1:54323`, Mailpit: `http://127.0.0.1:54334`, DB: `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, container `supabase_db_axis`.
 
-Two non-obvious defects mean `supabase start` cannot replay `supabase/migrations` cleanly from scratch (repo audit finding A4):
+One non-obvious defect means `supabase start` cannot replay `supabase/migrations` cleanly from scratch (repo audit finding A4):
 - **Duplicate migration version:** `011_avatars_bucket.sql` and `011_cleanup_functions.sql` share version `011` → `duplicate key ... schema_migrations_pkey`.
-- **Policy conflict:** `027_security_definer_lockdown.sql` re-`create`s policy `avatars_select_owner` (already made by `011`) without dropping it first → hard error that aborts the whole start.
 
 Reproducible workaround (keeps the repo pristine — do NOT commit migration edits):
 ```bash
@@ -340,22 +339,66 @@ for sect in ("[db.migrations]", "[db.seed]"):
 p.write_text(s)
 PY
 cd /tmp/axis-sb && npx supabase start          # brings up the stack WITHOUT applying migrations
-# 2. Apply every migration in filename order via psql, tolerating the ONE benign
-#    "policy avatars_select_owner already exists" error from 027:
-for f in $(ls /workspace/supabase/migrations/*.sql | sort); do
-  cat "$f" | docker exec -i supabase_db_axis psql -U postgres -d postgres -v ON_ERROR_STOP=0 -q >/dev/null 2>&1
-done
-# 3. Grant table privileges to the API roles. The new Supabase CLI default does NOT
+# 2. Establish generic API-role privileges before replaying migrations. The new
+#    Supabase CLI default does NOT
 #    auto-expose public tables to anon/authenticated (see auto_expose_new_tables in
-#    config.toml), so without this every REST call 403s with 42501 "permission denied".
+#    config.toml), so without defaults future migration-created tables 403 with
+#    42501 "permission denied".
 docker exec -i supabase_db_axis psql -U postgres -d postgres <<'SQL'
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER
+  ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT USAGE, SELECT, UPDATE
+  ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER
+  ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE
+  ON SEQUENCES TO anon, authenticated, service_role;
+-- Do not grant TRUNCATE or blanket routine EXECUTE. Security-sensitive
+-- migrations own their exact table/RPC ACLs and must be applied after this
+-- generic local API exposure step.
+SQL
+# 3. Apply every migration in filename order via psql. Fail on the first error
+#    and keep diagnostics visible; a partially applied security migration must
+#    never leave the generic grants above as the final authority boundary.
+#    Migrations run last so their exact table and routine ACLs are final.
+set -euo pipefail
+for f in $(ls /workspace/supabase/migrations/*.sql | sort); do
+  docker exec -i supabase_db_axis psql -U postgres -d postgres \
+    -v ON_ERROR_STOP=1 -f - < "$f"
+done
+# 4. Prove the lifecycle hardening migration is safely replayable, then assert
+#    that browser roles did not retain mutation/TRUNCATE authority.
+docker exec -i supabase_db_axis psql -U postgres -d postgres \
+  -v ON_ERROR_STOP=1 -f - \
+  < /workspace/supabase/migrations/202607161000_lifecycle_claims.sql
+docker exec -i supabase_db_axis psql -U postgres -d postgres \
+  -v ON_ERROR_STOP=1 <<'SQL'
+do $$
+declare
+  v_table text;
+  v_privilege text;
+begin
+  foreach v_table in array array[
+    'public.agent_tasks',
+    'public.agent_task_activity',
+    'public.approvals',
+    'public.routine_runs',
+    'public.routine_step_runs',
+    'public.user_passkeys',
+    'public.webauthn_challenges'
+  ] loop
+    foreach v_privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE'] loop
+      if has_table_privilege('anon', v_table, v_privilege)
+         or has_table_privilege('authenticated', v_table, v_privilege) then
+        raise exception 'browser authority leak: % on %', v_privilege, v_table;
+      end if;
+    end loop;
+  end loop;
+end
+$$;
 SQL
 ```
 The Postgres data volume persists on disk, so steps 2–3 are only needed on first init or after `supabase db reset`; a plain restart just needs `npx supabase start` from `/tmp/axis-sb`.

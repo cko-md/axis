@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAndParse } from "@/lib/feeds/rss";
 import { optionalEnv } from "@/lib/env";
+import type { Json } from "@/lib/supabase/database.types";
 
 const CACHE_FRESH_HOURS = 20;
 
@@ -85,7 +86,11 @@ export async function POST(req: NextRequest) {
     }
     const { error } = await supabase
       .from("feed_cache")
-      .upsert({ feed_url: toFetch[i], items: result.value, fetched_at: new Date().toISOString() });
+      .upsert({
+        feed_url: toFetch[i],
+        items: result.value as unknown as Json,
+        fetched_at: new Date().toISOString(),
+      });
     if (error) failed += 1;
     else updated += 1;
   }

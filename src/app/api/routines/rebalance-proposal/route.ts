@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json } from "@/lib/supabase/database.types";
 import { proposeRebalance, type RebalanceAction } from "@/lib/skills/rebalanceProposal";
 import { describeOrderTicket } from "@/lib/orders/orderTicket";
@@ -9,6 +10,7 @@ import { approvalRequestToInsert } from "@/lib/security/approvalPersistence";
 import { getBrokerageAccountId } from "@/lib/env";
 import { emitServerEvent } from "@/lib/observability/events";
 import { explainWithCost } from "@/lib/ai/explain";
+import { normalizeRoutineError } from "@/lib/routines/executor";
 
 /**
  * Rebalance-proposal routine (§15.3, §11) — the first routine that produces
@@ -47,8 +49,19 @@ export async function POST(request: NextRequest) {
   if (!adapter.isConfigured()) {
     return NextResponse.json({ error: "MARKET_DATA_REQUIRED", message: "Live prices are required to size a rebalance." }, { status: 503 });
   }
+  const admin = createAdminClient();
+  if (!admin) {
+    return NextResponse.json(
+      {
+        error: "APPROVAL_WRITE_UNAVAILABLE",
+        message: "Approval writes are temporarily unavailable.",
+      },
+      { status: 503 },
+    );
+  }
+  const persistence = admin;
 
-  const { data: run, error: runError } = await supabase
+  const { data: run, error: runError } = await persistence
     .from("routine_runs")
     .insert({ user_id: user.id, routine_key: ROUTINE_KEY, status: "running", trigger: "manual", input_snapshot: { targets, driftThreshold: body.driftThreshold ?? null } as Json, estimated_cost_usd: 0 })
     .select("id")
@@ -59,11 +72,12 @@ export async function POST(request: NextRequest) {
 
   async function recordStep(stepKey: string, status: "succeeded" | "failed", input: Json, output: Json, error?: string) {
     ordinal += 1;
-    await supabase.from("routine_step_runs").insert({
+    const { error: stepError } = await persistence.from("routine_step_runs").insert({
       run_id: runId, user_id: user!.id, step_key: stepKey, ordinal, status,
       input_snapshot: input, output_snapshot: output, error: error ?? null,
       started_at: new Date().toISOString(), completed_at: new Date().toISOString(),
     });
+    if (stepError) throw new Error("STEP_RECORD_FAILED");
   }
 
   try {
@@ -120,12 +134,13 @@ export async function POST(request: NextRequest) {
       });
       if (!validateApprovalCompleteness(req).complete) { incomplete.push(action.symbol); continue; }
       const insert = approvalRequestToInsert(req, user.id);
-      const { data: appr } = await supabase
+      const { data: appr, error: approvalError } = await persistence
         .from("approvals")
         .insert({ ...insert, proposed_action: insert.proposed_action as unknown as Json })
         .select("id")
         .single();
-      if (appr) created.push({ id: appr.id, summary: req.summary });
+      if (approvalError || !appr) throw new Error("APPROVAL_CREATE_FAILED");
+      created.push({ id: appr.id, summary: req.summary });
     }
     await recordStep("create_approvals", "succeeded", { proposed: proposal.actions.length } as Json, { approvals: created.length, incomplete: incomplete.length } as Json);
 
@@ -149,7 +164,17 @@ export async function POST(request: NextRequest) {
     // 6) Pause for approval (or complete if there was nothing to do).
     const status = created.length > 0 ? "waiting_for_approval" : "completed";
     const output = { total: proposal.total, proposed: proposal.actions.length, approvals: created, skipped: proposal.skipped, priceFreshness: freshness, narrative } as unknown as Json;
-    await supabase.from("routine_runs").update({ status, output, actual_cost_usd: actualCost, ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}) }).eq("id", runId);
+    const { error: completionError } = await persistence
+      .from("routine_runs")
+      .update({
+        status,
+        output,
+        actual_cost_usd: actualCost,
+        ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}),
+      })
+      .eq("user_id", user.id)
+      .eq("id", runId);
+    if (completionError) throw new Error("RUN_COMPLETE_FAILED");
 
     emitServerEvent("routine.run." + (status === "waiting_for_approval" ? "paused" : "completed"), {
       routine: ROUTINE_KEY, runId, status, proposed: proposal.actions.length, approvals: created.length,
@@ -157,7 +182,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ runId, status, proposed: proposal.actions.length, approvals: created, skipped: proposal.skipped });
   } catch (err) {
-    await supabase.from("routine_runs").update({ status: "blocked", error: err instanceof Error ? err.message : "run failed" }).eq("id", runId);
+    const code = normalizeRoutineError(err);
+    await persistence
+      .from("routine_runs")
+      .update({ status: "blocked", error: code })
+      .eq("user_id", user.id)
+      .eq("id", runId);
     return NextResponse.json({ error: "RUN_BLOCKED", runId, resumable: true }, { status: 500 });
   }
 }

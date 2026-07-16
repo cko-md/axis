@@ -56,11 +56,18 @@ export function formatApprovalAmount(amount: ApprovalAmount | undefined): string
   return amount.quantity != null ? `${money} · ${amount.quantity} units` : money;
 }
 
-export type ApprovalStatus = "pending" | "approved" | "denied" | "expired" | "executed";
+export type ApprovalStatus =
+  | "pending"
+  | "approved"
+  | "executing"
+  | "denied"
+  | "expired"
+  | "executed";
 
 const STATUS_LABELS: Readonly<Record<ApprovalStatus, string>> = {
   pending: "Pending",
   approved: "Approved",
+  executing: "Executing",
   denied: "Denied",
   expired: "Expired",
   executed: "Executed",

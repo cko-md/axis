@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-16",
-  "revision": "wave-15.0",
+  "revision": "wave-15.1",
   "defects": [
     {
       "id": "FIN-001",
@@ -182,15 +182,16 @@
       "reproduction": "Make the initial user_preferences read fail while local interface settings exist; remoteReady becomes true and the save effect writes the local envelope. On the Phase 9 branch that envelope is only {theme,settings}, so merging without preservation can also erase timeZone used for server local-day calculations.",
       "affected": [
         "src/components/theme/ThemeProvider.tsx",
-        "src/lib/theme/interface-settings.ts",
+        "src/components/theme/InterfaceStudioDrawer.tsx",
+        "src/lib/theme/interface-preferences.ts",
         "src/lib/dates.ts"
       ],
       "root_cause": "Preference sync treats read completion as read success and replaces the outer JSON envelope instead of versioning/merging known fields while preserving unknown ones",
-      "fix": "Planned Wave 15.1: merge origin/main, gate automatic writes on successful remote read, preserve unknown envelope fields including timeZone, add versioned legacy Envoy migration, expose retry, and add regression tests",
-      "regression_test": "pending Wave 15.1 ThemeProvider preference-sync tests",
-      "status": "open",
-      "planned_wave": "15.1",
-      "verification": "pending"
+      "fix": "Added a validated versioned envelope that preserves unknown outer/nested fields and stored timezone, refuses future versions, gates authenticated writes on a successful owner-matched read, serializes fresh-read CAS writes, preserves pending per-field edits, isolates account caches, and exposes retry/error/incompatible states",
+      "regression_test": "src/lib/theme/interface-preferences.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Preference tests cover failed-read no-write, hydration no-echo, future-version refusal, timezone repair/preservation, unknown-field preservation, account isolation, pending-edit merge, and write queue ordering; full Wave 15.1 gates are recorded in .logs/vector-envoys/wave-15.1-integration-safety.md"
     },
     {
       "id": "RUN-002",
@@ -200,15 +201,15 @@
       "reproduction": "Resume an approval-gated routine and force a transient executor failure after approval consumption. The route returns a resumable failure but the approval remains executed.",
       "affected": [
         "src/app/api/routines/runs/[id]/resume/route.ts",
-        "src/lib/routines/resumeExecutor.ts",
-        "src/lib/routines/resumeExecutor.test.ts"
+        "src/lib/routines/executor.ts",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
       ],
       "root_cause": "Approval consumption precedes retry-safe execution-state persistence and failure handling",
-      "fix": "Canonical repair exists as direct Phase 9 child c2de9308; fast-forward it in Wave 15.1, then retain its retry contract while integrating main",
-      "regression_test": "src/lib/routines/resumeExecutor.test.ts plus route retry tests from c2de9308",
-      "status": "open",
-      "planned_wave": "15.1",
-      "verification": "pending branch integration and independent rerun"
+      "fix": "Integrated patch-equivalent c2de9308, then replaced read/write consumption with caller-token atomic claim/finalize/release/repause RPCs; failures restore approved/waiting state, committed lost responses are recovered from durable state, and terminal retries return persisted output",
+      "regression_test": "src/app/api/routines/runs/[id]/resume/route.test.ts; src/lib/routines/executor.test.ts; local lifecycle SQL transaction suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Route/executor tests cover one-winner claims, exact scope, release, repause, stale recovery, and claim/finalize response loss; local SQL verifies atomic run+approval transitions and service-only grants"
     },
     {
       "id": "TASK-002",
@@ -221,11 +222,257 @@
         "src/app/api/approvals/[id]/route.ts"
       ],
       "root_cause": "Transition validation and persistence are separate operations; updates do not constrain the expected prior status or run in an atomic RPC",
-      "fix": "Planned Wave 15.1: expected-state compare-and-set or fixed-search-path RPC, 409 on conflict, and atomic audit/activity persistence where feasible",
-      "regression_test": "pending Wave 15.1 concurrent transition route/RPC tests",
-      "status": "open",
-      "planned_wave": "15.1",
-      "verification": "pending"
+      "fix": "Moved task status plus activity into a fixed-search-path owner-scoped transition_agent_task RPC and constrained approval decisions/execution with expected-status service-role compare-and-set updates; stale winners return visible 409 responses",
+      "regression_test": "src/app/api/agent-tasks/[id]/route.test.ts; src/app/api/approvals/[id]/route.test.ts; src/app/api/approvals/route.test.ts; local lifecycle SQL transaction suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Focused route tests and SQL concurrency probes verify legal/illegal/stale transitions, atomic activity, terminal timestamps, approval owner binding, and no browser lifecycle mutation"
+    },
+    {
+      "id": "SEC-004",
+      "severity": "high",
+      "source": "Wave 15.1 independent lifecycle review",
+      "summary": "Authenticated browser clients could forge routine run/step audit rows and approval lifecycle writes that later execution trusted",
+      "reproduction": "Use an owner session to insert or update routine_runs/routine_step_runs or approvals, attach an approved approval to fabricated pause metadata, and let replay trust the forged snapshots",
+      "affected": [
+        "src/lib/routines/executor.ts",
+        "src/app/api/approvals/route.ts",
+        "src/app/api/routines/rebalance-proposal/route.ts",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "Owner RLS was treated as sufficient authority for records that are also execution authorization and audit inputs",
+      "fix": "Revoked authenticated/anonymous approval and routine run/step DML, moved trusted persistence behind authenticated service-role routes, retained owner-scoped SELECT, and exposed only narrow service-role lifecycle RPCs",
+      "regression_test": "Local lifecycle SQL transaction suite plus approval/routine route tests",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Local role probes deny browser task-lifecycle, approval, routine-run, and step writes while service-role RPC and owner reads succeed"
+    },
+    {
+      "id": "SEC-005",
+      "severity": "high",
+      "source": "Wave 15.1 WebAuthn concurrency review",
+      "summary": "Concurrent step-up verification could replay one stored challenge or overwrite a newer authenticator counter before approval authority was stamped",
+      "reproduction": "Submit the same approval-bound challenge twice or race two valid assertions that both read the same stored passkey counter",
+      "affected": [
+        "src/app/api/approvals/[id]/step-up/route.ts"
+      ],
+      "root_cause": "Challenge consumption and passkey counter persistence were not one-time compare-and-set gates ahead of the approval update",
+      "fix": "Consume the approval-bound challenge with delete-returning compare-and-set, verify only the winner, persist the passkey counter with expected-counter compare-and-set, and stamp the approval only after both gates succeed",
+      "regression_test": "src/app/api/approvals/[id]/step-up/route.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Focused tests prove challenge replay and stale counter races return 409 without WebAuthn reuse or approval stamping"
+    },
+    {
+      "id": "RUN-003",
+      "severity": "high",
+      "source": "Wave 15.1 independent lifecycle review",
+      "summary": "A crashed approval-resume process could leave the run and approval permanently claimed",
+      "reproduction": "Crash after the atomic claim commits and before finalize, release, or repause; every later request observes running/executing forever",
+      "affected": [
+        "src/app/api/routines/runs/[id]/resume/route.ts",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "Claim timestamps existed without bounded lease recovery",
+      "fix": "Added a token-aware service-only stale-claim recovery RPC with a ten-minute lease; fresh claims are never stolen, the old token is invalidated, the approval expires, and the run is quarantined for operator review",
+      "regression_test": "src/app/api/routines/runs/[id]/resume/route.test.ts; local lifecycle SQL transaction suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Route and SQL tests quarantine stale claims, retain fresh claims, reject the old token, and require operator review before any later execution"
+    },
+    {
+      "id": "RUN-004",
+      "severity": "high",
+      "source": "Wave 15.1 independent lifecycle review",
+      "summary": "A lost repause RPC response could mark a successfully paused step failed and retry approval-producing work",
+      "reproduction": "Commit repause_routine_approval_resume, drop its response, then let the executor catch path fail the still-running step",
+      "affected": [
+        "src/lib/routines/executor.ts",
+        "src/app/api/routines/runs/[id]/resume/route.ts"
+      ],
+      "root_cause": "Transport failure was treated as database failure without inspecting the durable run state",
+      "fix": "Inspect exact persisted pause metadata after a failed RPC response and treat a matching committed repause as success",
+      "regression_test": "src/lib/routines/executor.test.ts; src/app/api/routines/runs/[id]/resume/route.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Focused response-loss tests retain waiting_for_approval with the new approval and do not record a false failed step"
+    },
+    {
+      "id": "RUN-005",
+      "severity": "high",
+      "source": "Wave 15.1 response-loss follow-up review",
+      "summary": "Lost step-completion or terminal-run responses could replay already-completed side effects or report a committed run as failed",
+      "reproduction": "Commit a succeeded step or terminal run update, then drop the database response before the executor receives it",
+      "affected": [
+        "src/lib/routines/executor.ts"
+      ],
+      "root_cause": "The store did not distinguish an unknown transport outcome from a rejected database write",
+      "fix": "Re-read server-owned step/run state after update errors and accept only an exact committed succeeded/terminal state before returning success",
+      "regression_test": "src/lib/routines/executor.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Focused tests simulate lost update responses and prove committed step and run state is recovered without replay"
+    },
+    {
+      "id": "PREF-002",
+      "severity": "high",
+      "source": "Wave 15.1 preference authority review",
+      "summary": "An ownerless local preference cache could be adopted after an account change and expose or overwrite another account's interface state",
+      "reproduction": "Hydrate local interface preferences without an owner identity, then switch authenticated users before the remote read completes",
+      "affected": [
+        "src/components/theme/ThemeProvider.tsx",
+        "src/lib/theme/interface-preferences.ts"
+      ],
+      "root_cause": "Cache identity and async preference work were not fenced by owner plus authentication generation",
+      "fix": "Namespace cache ownership, allow a one-time anonymous-to-first-sign-in claim, reject/reset ownerless or foreign adoption across account changes, and ignore stale async results after an auth-generation change",
+      "regression_test": "src/lib/theme/interface-preferences.test.ts; src/lib/theme/interface-preferences.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Account-isolation, owner-mismatch, pending-edit, and stale-generation tests pass"
+    },
+    {
+      "id": "TASK-003",
+      "severity": "high",
+      "source": "Wave 15.1 task-provenance review",
+      "summary": "Task creation trusted caller-supplied routine provenance and wrote the task and initial activity in separate operations",
+      "reproduction": "Call task creation with another or stale routine id/skill, or lose the activity insert response after the task commits",
+      "affected": [
+        "src/app/api/agent-tasks/route.ts",
+        "src/lib/tasks/taskPersistence.ts",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "No atomic trusted boundary validated owner, routine key, claim token, lease, and audit creation together",
+      "fix": "Create tasks through the service-only create_agent_task RPC, atomically append activity, and require an exact live claim for claimed routine provenance",
+      "regression_test": "src/app/api/agent-tasks/route.test.ts; src/lib/routines/executor.test.ts; local lifecycle SQL suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Wrong-owner/key/token, expired-token, quarantined, response-loss, and atomic activity cases are rejected or recovered"
+    },
+    {
+      "id": "SEC-006",
+      "severity": "high",
+      "source": "Wave 15.1 passkey session-authority review",
+      "summary": "Passkey rows retained encrypted Supabase refresh tokens and a browser token route converted credential possession into reusable session authority",
+      "reproduction": "Register a passkey, inspect refresh_token_enc persistence, then call the token exchange after authentication",
+      "affected": [
+        "src/app/api/auth/passkey/authenticate/route.ts",
+        "src/app/api/auth/passkey/register/route.ts",
+        "src/app/api/auth/passkey/token/route.ts",
+        "src/hooks/usePasskey.ts"
+      ],
+      "root_cause": "Authentication was modeled as retrieval of stored bearer authority instead of minting a fresh server-bound session",
+      "fix": "Delete the token route, stop storing refresh tokens, purge legacy values, mint a one-time Supabase link server-side, consume it through SSR cookies, and verify the final session owner",
+      "regression_test": "src/app/api/auth/passkey/passkey-authority.test.ts; tests/e2e/passkey-authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Authority tests prove no refresh-token writes or token response; real WebAuthn E2E restores a fresh authenticated cookie session"
+    },
+    {
+      "id": "SEC-007",
+      "severity": "high",
+      "source": "Wave 15.1 WebAuthn ceremony review",
+      "summary": "WebAuthn verification could select a ceremony by broad attributes rather than exact identity, permitting substitution/replay races; option issuance lacked the intended abuse boundary",
+      "reproduction": "Create concurrent ceremonies for the same user/purpose and submit a response against a non-exact stored challenge, or repeatedly request options",
+      "affected": [
+        "src/app/api/auth/passkey/authenticate/route.ts",
+        "src/app/api/auth/passkey/register/route.ts",
+        "src/app/api/approvals/[id]/step-up/route.ts"
+      ],
+      "root_cause": "The browser did not return an opaque ceremony identity and consumption was not an exact delete-returning gate",
+      "fix": "Bind every options response to ceremonyId, verify owner/purpose/approval/RP/expiry exactly, consume with delete-returning CAS, and rate-limit options and verification",
+      "regression_test": "src/app/api/auth/passkey/passkey-authority.test.ts; src/app/api/approvals/[id]/step-up/route.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Substitution, replay, expiry, wrong approval, and rate-limit cases fail without stamping authority"
+    },
+    {
+      "id": "SEC-008",
+      "severity": "high",
+      "source": "Wave 15.1 WebAuthn database-authority review",
+      "summary": "Browser policies or grants on passkey and challenge tables could let a session mutate credential counters or pending authentication authority",
+      "reproduction": "Use an authenticated Data API session under legacy owner policies to insert, update, or delete credential/challenge rows",
+      "affected": [
+        "public.user_passkeys",
+        "public.webauthn_challenges",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "Owner RLS was treated as sufficient for authentication authority and bootstrap grants could restore DML",
+      "fix": "Drop every policy dynamically, revoke all anon/authenticated privileges, restrict challenge cleanup to service_role, and keep routes authenticated plus owner-scoped before admin persistence",
+      "regression_test": "Local lifecycle SQL first-apply/replay and ACL suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Both tables have RLS enabled, zero browser policies/grants, no browser cleanup execute, and server routes retain owner isolation"
+    },
+    {
+      "id": "RUN-006",
+      "severity": "high",
+      "source": "Wave 15.1 stale-worker adversarial review",
+      "summary": "After stale-claim recovery, the expired worker could continue writing routine steps or tasks and overlap the replacement execution",
+      "reproduction": "Let a claim expire, recover it, then allow the original process to complete a step or create a task using its old token",
+      "affected": [
+        "src/lib/routines/executor.ts",
+        "src/app/api/routines/runs/[id]/resume/route.ts",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "Recovery changed run status but step/task writes were not fenced by a renewable claim token and lease",
+      "fix": "Add claim renewal heartbeat, claim-fenced step start/complete/fail and task creation RPCs, invalidate old tokens on recovery, and quarantine the run for operator review",
+      "regression_test": "src/lib/routines/executor.test.ts; src/app/api/routines/runs/[id]/resume/route.test.ts; local lifecycle SQL suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Old-token step/task writes fail after recovery, fresh renewal succeeds, and the quarantined run cannot resume automatically"
+    },
+    {
+      "id": "RUN-007",
+      "severity": "high",
+      "source": "Wave 15.1 final adversarial rerun",
+      "summary": "The generic concentration-check retry path could restart a stale-claim quarantined run without claim fencing",
+      "reproduction": "Recover a stale approval resume into blocked quarantine, then submit the run id through the ordinary blocked-run continuation path",
+      "affected": [
+        "src/app/api/routines/concentration-check/route.ts",
+        "src/lib/routines/executor.ts",
+        "src/lib/routines/runState.ts",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "Generic blocked status was treated as sufficient resumability without excluding retained approval, pause, claim, or quarantine metadata",
+      "fix": "Return RUN_REQUIRES_REVIEW, reject quarantined runs in the executor, tighten blocked-run CAS predicates, and enforce the transition refusal in a database trigger",
+      "regression_test": "src/app/api/routines/concentration-check/route.test.ts; src/lib/routines/executor.test.ts; local lifecycle SQL suite",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Quarantined runs cannot restart through API, executor, direct transition, or unfenced task creation; ordinary transient blocked runs remain retryable"
+    },
+    {
+      "id": "SEC-009",
+      "severity": "high",
+      "source": "Wave 15.1 local-bootstrap authority review",
+      "summary": "Fail-open migration/bootstrap behavior could retain unexpected passkey policies or restore broad browser grants after local initialization",
+      "reproduction": "Start from a schema containing a differently named passkey policy, replay the old migration, then apply broad table grants used by local bootstrap",
+      "affected": [
+        "AGENTS.md",
+        "supabase/migrations/202607161000_lifecycle_claims.sql"
+      ],
+      "root_cause": "Repair logic relied on known policy names and local setup granted all public tables to browser roles",
+      "fix": "Dynamically remove every passkey/challenge policy, re-revoke browser authority in the migration, and document a fail-closed local bootstrap sequence with security migration last",
+      "regression_test": "Local lifecycle SQL first-apply and idempotent replay suites",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "Unexpected policy names are removed, exact ACLs survive replay, and browser authority remains denied"
+    },
+    {
+      "id": "SEC-010",
+      "severity": "high",
+      "source": "Wave 15.1 final independent authority review",
+      "summary": "The lifecycle migration ran under psql autocommit, so a duplicate-link preflight failure could leave earlier security DDL, ACL, policy, or data changes durably applied",
+      "reproduction": "Create duplicate routine_runs.approval_id links and apply the migration with psql ON_ERROR_STOP=1; the preflight raises after task and routine authority changes",
+      "affected": [
+        "supabase/migrations/202607161000_lifecycle_claims.sql",
+        "src/lib/redesign/artifacts.test.ts"
+      ],
+      "root_cause": "The migration relied on caller transaction behavior even though the documented replay command did not use a single transaction",
+      "fix": "Wrap the complete migration in BEGIN/COMMIT and add a CI guard that keeps the duplicate-link preflight inside that transaction",
+      "regression_test": "src/lib/redesign/artifacts.test.ts plus forced local duplicate-link rollback proof",
+      "status": "fixed",
+      "revision_fixed": "wave-15.1",
+      "verification": "An intentional preflight failure rolled back the early authenticated task INSERT revoke and service-role create_agent_task grant, preserved the duplicate fixture, then cleanup, successful apply, idempotent replay, and the full lifecycle SQL suite passed"
     },
     {
       "id": "STATUS-001",

@@ -47,10 +47,14 @@ under-scoped approval.
 
 ## Consequences
 
-- Approvals are empty until a real execution skill produces genuine order
+- Approvals remain empty unless a real execution skill produces genuine order
   details — an honest empty state, not fabricated rows.
-- Step-up is currently a timestamp column + gate; binding it to a real WebAuthn
-  challenge is a follow-up.
+- Step-up is bound to an exact, one-time WebAuthn ceremony and authenticator
+  counter compare-and-set. Credential/challenge rows are server-only authority;
+  the browser cannot write them.
+- Passkey sign-in mints and consumes a fresh one-time Supabase session
+  server-side. Passkey rows do not retain refresh tokens and no token-exchange
+  endpoint exists.
 - The execute endpoint deliberately stops at "cleared"; wiring a real broker
   order behind it is a future, separately-reviewed wave.
 

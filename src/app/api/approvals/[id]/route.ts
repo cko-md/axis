@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { isActionable, validateApprovalCompleteness, isApprovalExpired, isStepUpFresh } from "@/lib/security/approvalRequest";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  isApprovalExpired,
+  validateApprovalCompleteness,
+} from "@/lib/security/approvalRequest";
 import { rowToApprovalRequest } from "@/lib/security/approvalPersistence";
 import { emitServerEvent } from "@/lib/observability/events";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Single approval API — decide (approve / deny) and execute.
@@ -17,6 +22,11 @@ import { emitServerEvent } from "@/lib/observability/events";
 
 const SELECT =
   "id, task_id, action_class, requirement, reasons, proposed_action, status, step_up_verified_at, decided_at, expires_at, scope, created_at";
+const ROUTE = "approvals.item";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -36,8 +46,23 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .eq("user_id", user.id)
     .eq("id", id)
     .maybeSingle();
-  if (readError) return NextResponse.json({ error: "APPROVAL_UNAVAILABLE" }, { status: 500 });
+  if (readError) {
+    captureRouteError(readError, {
+      route: ROUTE,
+      operation: "read",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "APPROVAL_UNAVAILABLE" }, { status: 500 });
+  }
   if (!row) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (row.status === "executing") {
+    return NextResponse.json(
+      { error: "APPROVAL_IN_FLIGHT", status: row.status },
+      { status: 409 },
+    );
+  }
 
   const now = new Date().toISOString();
 
@@ -45,9 +70,42 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (row.status !== "pending") {
       return NextResponse.json({ error: "NOT_PENDING", status: row.status }, { status: 409 });
     }
+    const admin = createAdminClient();
+    if (!admin) {
+      return NextResponse.json(
+        {
+          error: "APPROVAL_WRITE_UNAVAILABLE",
+          message: "Approval writes are temporarily unavailable.",
+        },
+        { status: 503 },
+      );
+    }
     // An expired pending approval can only be marked expired, never approved.
     if (action === "approve" && isApprovalExpired(rowToApprovalRequest(row), Date.now())) {
-      await supabase.from("approvals").update({ status: "expired", decided_at: now }).eq("user_id", user.id).eq("id", id);
+      const { data: expired, error: expireError } = await admin
+        .from("approvals")
+        .update({ status: "expired", decided_at: now })
+        .eq("user_id", user.id)
+        .eq("id", id)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+      if (expireError) {
+        captureRouteError(expireError, {
+          route: ROUTE,
+          operation: "expire_pending",
+          area: "approvals",
+          status: 500,
+          code: "APPROVAL_UPDATE_FAILED",
+        });
+        return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+      }
+      if (!expired) {
+        return NextResponse.json(
+          { error: "STALE_APPROVAL", expected: "pending" },
+          { status: 409 },
+        );
+      }
       return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
     }
 
@@ -58,9 +116,31 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       decided_at: now,
     };
 
-    const { data, error } = await supabase
-      .from("approvals").update(patch).eq("user_id", user.id).eq("id", id).select(SELECT).single();
-    if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+    const { data, error } = await admin
+      .from("approvals")
+      .update(patch)
+      .eq("user_id", user.id)
+      .eq("id", id)
+      .eq("status", "pending")
+      .select(SELECT)
+      .maybeSingle();
+    if (error) {
+      captureRouteError(error, {
+        route: ROUTE,
+        operation: "decide",
+        area: "approvals",
+        status: 500,
+        code: "APPROVAL_UPDATE_FAILED",
+        tags: { decision: patch.status },
+      });
+      return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+    }
+    if (!data) {
+      return NextResponse.json(
+        { error: "STALE_APPROVAL", expected: "pending" },
+        { status: 409 },
+      );
+    }
     // Structured decision event — safe metadata only (no proposed_action / PII).
     // decision_latency_ms measures request→decide time (approval age at decision).
     emitServerEvent("approval.decided", {
@@ -78,36 +158,155 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "NOT_APPROVED", status: row.status }, { status: 409 });
   }
 
+  const { data: linkedRun, error: linkedRunError } = await supabase
+    .from("routine_runs")
+    .select("id, status")
+    .eq("user_id", user.id)
+    .eq("approval_id", id)
+    .in("status", ["waiting_for_approval", "running"])
+    .maybeSingle();
+  if (linkedRunError) {
+    captureRouteError(linkedRunError, {
+      route: ROUTE,
+      operation: "read_linked_run",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_LINK_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "APPROVAL_LINK_UNAVAILABLE" }, { status: 500 });
+  }
+  if (linkedRun) {
+    return NextResponse.json(
+      {
+        error: "ROUTINE_RESUME_REQUIRED",
+        runId: linkedRun.id,
+        resumeUrl: `/api/routines/runs/${linkedRun.id}/resume`,
+      },
+      { status: 409 },
+    );
+  }
+
   const req = rowToApprovalRequest(row);
+  const missing = validateApprovalCompleteness(req).missing;
+  if (missing.length > 0) {
+    return NextResponse.json(
+      { error: "NOT_ACTIONABLE", reason: "INCOMPLETE", missing },
+      { status: 409 },
+    );
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    return NextResponse.json(
+      {
+        error: "APPROVAL_WRITE_UNAVAILABLE",
+        message: "Approval writes are temporarily unavailable.",
+      },
+      { status: 503 },
+    );
+  }
+  const { data: executionResult, error } = await admin.rpc("execute_approval", {
+    p_user_id: user.id,
+    p_approval_id: id,
+  });
+  if (error) {
+    captureRouteError(error, {
+      route: ROUTE,
+      operation: "execute",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_UPDATE_FAILED",
+    });
+    return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+  }
+  if (!isRecord(executionResult) || typeof executionResult.ok !== "boolean") {
+    const shapeError = new Error("execute_approval returned an invalid response");
+    captureRouteError(shapeError, {
+      route: ROUTE,
+      operation: "execute_response",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_UPDATE_FAILED",
+    });
+    return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+  }
+  if (!executionResult.ok) {
+    const code = executionResult.code;
+    if (code === "ROUTINE_RESUME_REQUIRED" && typeof executionResult.runId === "string") {
+      return NextResponse.json(
+        {
+          error: code,
+          runId: executionResult.runId,
+          resumeUrl: `/api/routines/runs/${executionResult.runId}/resume`,
+        },
+        { status: 409 },
+      );
+    }
+    if (code === "NOT_FOUND") {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+    if (code === "APPROVAL_IN_FLIGHT") {
+      return NextResponse.json({ error: code, status: "executing" }, { status: 409 });
+    }
+    if (code === "APPROVAL_EXPIRED") {
+      return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
+    }
+    if (code === "APPROVAL_STEP_UP_REQUIRED" || code === "APPROVAL_STEP_UP_STALE") {
+      return NextResponse.json(
+        {
+          error: "NOT_ACTIONABLE",
+          reason: code === "APPROVAL_STEP_UP_REQUIRED" ? "STEP_UP_REQUIRED" : "STEP_UP_STALE",
+          missing: [],
+        },
+        { status: 409 },
+      );
+    }
+    if (code === "APPROVAL_POLICY_MISMATCH") {
+      return NextResponse.json(
+        { error: "NOT_ACTIONABLE", reason: "POLICY_MISMATCH", missing: [] },
+        { status: 409 },
+      );
+    }
+    if (code === "STALE_APPROVAL") {
+      return NextResponse.json(
+        { error: "STALE_APPROVAL", expected: "approved" },
+        { status: 409 },
+      );
+    }
+
+    const outcomeError = new Error(`execute_approval returned unexpected code: ${String(code)}`);
+    captureRouteError(outcomeError, {
+      route: ROUTE,
+      operation: "execute_outcome",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_UPDATE_FAILED",
+    });
+    return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+  }
+  if (!isRecord(executionResult.approval)) {
+    const shapeError = new Error("execute_approval omitted the executed approval");
+    captureRouteError(shapeError, {
+      route: ROUTE,
+      operation: "execute_response",
+      area: "approvals",
+      status: 500,
+      code: "APPROVAL_UPDATE_FAILED",
+    });
+    return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
+  }
+  const data = executionResult.approval;
   const nowMs = Date.now();
-  const stepUpFresh = isStepUpFresh(row.step_up_verified_at, undefined, nowMs);
-
-  if (isApprovalExpired(req, nowMs)) {
-    await supabase.from("approvals").update({ status: "expired" }).eq("user_id", user.id).eq("id", id);
-    return NextResponse.json({ error: "EXPIRED" }, { status: 409 });
-  }
-  if (!isActionable(req, { stepUpVerifiedAt: row.step_up_verified_at, nowMs })) {
-    const missing = validateApprovalCompleteness(req).missing;
-    // Distinguish "never verified" from "verified too long ago" so the UI can
-    // prompt a re-verify rather than a generic error.
-    const reason = req.stepUpRequired && !stepUpFresh
-      ? (row.step_up_verified_at ? "STEP_UP_STALE" : "STEP_UP_REQUIRED")
-      : "INCOMPLETE";
-    return NextResponse.json({ error: "NOT_ACTIONABLE", reason, missing }, { status: 409 });
-  }
-
-  const { data, error } = await supabase
-    .from("approvals").update({ status: "executed" }).eq("user_id", user.id).eq("id", id).select(SELECT).single();
-  if (error || !data) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED" }, { status: 500 });
   // Gate passed. The underlying side-effecting action is intentionally NOT
   // performed here — it is the caller's responsibility (no autonomous execution).
   emitServerEvent("approval.executed", {
-    approvalId: data.id,
-    actionClass: data.action_class,
-    requirement: data.requirement,
+    approvalId: String(data.id),
+    actionClass: typeof data.action_class === "string" ? data.action_class : row.action_class,
+    requirement: typeof data.requirement === "string" ? data.requirement : row.requirement,
     stepUpRequired: req.stepUpRequired,
     // Time from decision (approve) to execute — how long the actionable window sat.
-    executeLatencyMs: data.decided_at ? nowMs - Date.parse(data.decided_at) : null,
+    executeLatencyMs:
+      typeof data.decided_at === "string" ? nowMs - Date.parse(data.decided_at) : null,
   });
   return NextResponse.json({ approval: data, cleared: true });
 }

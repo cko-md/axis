@@ -28,6 +28,25 @@ export const RUN_TERMINAL: ReadonlySet<RunStatus> = new Set([
 
 export const STEP_TERMINAL: ReadonlySet<StepStatus> = new Set(["succeeded", "failed", "skipped"]);
 
+export const STALE_RESUME_CLAIM_ERROR = "STALE_RESUME_CLAIM_REQUIRES_REVIEW";
+
+export function requiresRoutineOperatorReview(run: {
+  status: RunStatus;
+  error?: string | null;
+  paused_step_key?: string | null;
+  approval_id?: string | null;
+  resume_claim_token?: string | null;
+  resume_claim_expires_at?: string | null;
+}): boolean {
+  return run.status === "blocked" && (
+    run.error === STALE_RESUME_CLAIM_ERROR ||
+    run.paused_step_key != null ||
+    run.approval_id != null ||
+    run.resume_claim_token != null ||
+    run.resume_claim_expires_at != null
+  );
+}
+
 const RUN_TRANSITIONS: Readonly<Record<RunStatus, readonly RunStatus[]>> = {
   queued: ["running", "cancelled"],
   running: ["waiting_for_approval", "blocked", "completed", "partial", "failed", "cancelled"],
