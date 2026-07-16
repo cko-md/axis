@@ -1,10 +1,13 @@
 import { optionalEnv } from "@/lib/env";
+import { recordProviderFailure } from "@/lib/observability/providerTiming";
+import { codeFromStatus, fail, makeError, ok, type Result } from "@/lib/integrations/types";
 
 // Server-only Make (integromat) client. Make zones are account-specific —
 // `MAKE_ZONE` defaults to the zone verified live for this account
 // (us2.make.com); override via env if the Make org ever migrates zones.
-const MAKE_ZONE = optionalEnv("MAKE_ZONE") || "us2.make.com";
-const MAKE_BASE = `https://${MAKE_ZONE}/api/v2`;
+const DEFAULT_MAKE_ZONE = "us2.make.com";
+const MAKE_ZONE_PATTERN = /^[a-z0-9-]+\.make\.com$/i;
+const MAKE_WEBHOOK_HOST_PATTERN = /^hook\.[a-z0-9-]+\.make\.com$/i;
 
 export class MakeError extends Error {
   status: number;
@@ -20,8 +23,16 @@ function getApiKey(): string {
   return key;
 }
 
+function getMakeBase(): string {
+  const zone = optionalEnv("MAKE_ZONE") || DEFAULT_MAKE_ZONE;
+  if (!MAKE_ZONE_PATTERN.test(zone)) {
+    throw new MakeError("MAKE_ZONE is invalid", 503);
+  }
+  return `https://${zone}/api/v2`;
+}
+
 async function makeFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${MAKE_BASE}${path}`, {
+  const res = await fetch(`${getMakeBase()}${path}`, {
     ...init,
     headers: {
       Authorization: `Token ${getApiKey()}`,
@@ -31,8 +42,7 @@ async function makeFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new MakeError(`Make ${path} failed: ${res.status} ${text.slice(0, 300)}`, res.status);
+    throw new MakeError(`Make API request failed (${res.status})`, res.status);
   }
   return (await res.json()) as T;
 }
@@ -92,20 +102,79 @@ export async function setScenarioActive(scenarioId: number, active: boolean): Pr
   await makeFetch(`/scenarios/${scenarioId}/${active ? "start" : "stop"}`, { method: "POST" });
 }
 
-// Instant-trigger scenarios run off an opaque webhook URL minted in the Make
-// UI (not the management API) — this just posts to it. Caller is responsible
-// for not leaking the URL (it carries an embedded secret token).
-export async function triggerWebhook(webhookUrl: string, payload: unknown): Promise<unknown> {
-  const res = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(20000),
-  });
-  const text = await res.text();
+export type MakeWebhookReceipt = {
+  accepted: true;
+  status: number;
+};
+
+/** Validate an opaque Make webhook without ever returning/logging its token path. */
+export function validateMakeWebhookUrl(raw: string): Result<URL> {
   try {
-    return JSON.parse(text);
+    const url = new URL(raw);
+    const valid =
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      MAKE_WEBHOOK_HOST_PATTERN.test(url.hostname) &&
+      url.pathname.length > 1;
+    return valid
+      ? ok(url)
+      : fail("invalid_request", "Make webhook URL is invalid", {
+          provider: "make",
+          retryable: false,
+        });
   } catch {
-    return text;
+    return fail("invalid_request", "Make webhook URL is invalid", {
+      provider: "make",
+      retryable: false,
+    });
+  }
+}
+
+/**
+ * Deliver one write event. This intentionally performs one attempt only:
+ * automatic retries of external communication can duplicate delivery.
+ */
+export async function triggerWebhook(
+  webhookUrl: string,
+  payload: unknown,
+): Promise<Result<MakeWebhookReceipt>> {
+  const validated = validateMakeWebhookUrl(webhookUrl);
+  if (!validated.ok) return validated;
+
+  const startedAt = Date.now();
+  try {
+    const res = await fetch(validated.data, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      redirect: "error",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.ok) return ok({ accepted: true, status: res.status });
+
+    const error = makeError(
+      codeFromStatus(res.status),
+      "Make webhook rejected delivery",
+      { provider: "make", status: res.status },
+    );
+    recordProviderFailure(
+      { area: "integrations", provider: "make", operation: "trigger_webhook" },
+      error,
+      Date.now() - startedAt,
+    );
+    return { ok: false, error };
+  } catch {
+    const error = makeError("network", "Make webhook delivery failed", {
+      provider: "make",
+      retryable: true,
+    });
+    recordProviderFailure(
+      { area: "integrations", provider: "make", operation: "trigger_webhook" },
+      error,
+      Date.now() - startedAt,
+    );
+    return { ok: false, error };
   }
 }

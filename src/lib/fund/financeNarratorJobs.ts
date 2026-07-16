@@ -14,8 +14,8 @@ const NARRATOR_GUARDRAIL =
 /**
  * FIN-503: budget-threshold check. Deterministic, no AI — crossing 90% of a
  * category's monthly_limit fires a Make alert directly (no narration step;
- * a threshold crossing doesn't need interpretation). Idempotent per
- * category per month via the audit_logs idempotency_key.
+ * a threshold crossing doesn't need interpretation). Supplies a stable
+ * category/month key for Make-side deduplication.
  */
 export async function checkBudgetThresholds(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
   if (!userEmail) return;

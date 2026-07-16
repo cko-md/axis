@@ -1,7 +1,7 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Latest verified green: tsc clean, lint 0 errors / 0 warnings, 728 tests, build + bundle budget pass.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Latest verified green: tsc clean, lint 0 errors / 0 warnings, 737 tests, build + total/route bundle budgets pass.",
   "baseline_commit": "f478cde",
   "revision_reviewed": "f478cde",
   "updated": "2026-07-15",
@@ -33,7 +33,7 @@
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research persists cited owner-scoped market-report drafts; Signals now preserves an honest empty inbox instead of seeding fabricated activity. Further core-module expansion remains future work.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
-    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities (normalized, provenance-aware, positive=inflow cent-exact for transactions), Public order prepare/verify/submit boundary, webhook signature hardening, bounded read-only retries, widget stale-cache fallback, Control Room risk cards, and per-routine integration metadata. Make adapter rearchitecture remains future work.",
+    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities (normalized, provenance-aware, positive=inflow cent-exact for transactions), Public order prepare/verify/submit boundary, webhook signature hardening, bounded read-only retries, widget stale-cache fallback, Control Room risk cards, per-routine integration metadata, and a structured/allowlisted Make outbound notification boundary. Make management-API migration plus durable outbox/operator replay remain future work.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split the interactive Command Console, reducing /command first-load JS from 433kB to 361kB. Wave 11.4 code-split the Vitality workspace, reducing /vitality first-load JS from 391kB to 361kB. Further profiling remains future work.",
     "12_testing": "ongoing \u2014 728 unit tests incl. financial invariants, provider adapter contract coverage, portfolio return/allocation math, Activity category/anomaly rules, cited market-report provenance, connection-health provenance mapping, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + a public ci-smoke.spec.ts that runs IN CI (boots the app with placeholder env, checks /login renders). Broader browser/visual-regression suite still future.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
@@ -954,6 +954,25 @@
       "note": "Defers the large interactive Vitality workspace behind a next/dynamic client boundary with an accessible, layout-stable in-shell loading state. All existing tabs, provider states, persistence, and detail workflows remain unchanged after hydration. Measured /vitality first-load JS reduced from 391kB to 361kB; shared first-load stayed 227kB, total static JS is 3875kB/4400kB, and all 169 route budgets pass.",
       "tests": "728 tests pass; tsc clean; lint 0 errors / 0 warnings; next build compiles 155 routes; total and route budget gates pass",
       "verification": "npx tsc --noEmit + npx eslint src/components/vitality/VitalityModuleLazy.tsx src/app/vitality/page.tsx + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build 2>&1 | tee /tmp/axis-vitality-build.log + node scripts/check-perf-budgets.mjs /tmp/axis-vitality-build.log + node scripts/check-bundle-budget.mjs"
+    },
+    {
+      "id": "10.13",
+      "title": "Structured Make outbound notification boundary",
+      "status": "landed",
+      "files_added": [
+        "src/lib/integrations/make.test.ts",
+        "src/lib/fund/notifyViaMake.test.ts",
+        "docs/architecture/make-notifications.md"
+      ],
+      "files_changed": [
+        "src/lib/integrations/make.ts",
+        "src/lib/fund/notifyViaMake.ts",
+        "src/lib/fund/financeDailyJobs.ts",
+        "src/lib/fund/financeNarratorJobs.ts"
+      ],
+      "note": "Moves owner-configured Make notification delivery onto the shared structured Result boundary. Webhook destinations are restricted to credential-free HTTPS hook.<zone>.make.com URLs, redirects are disabled, only 2xx is accepted, and external-communication writes are attempted once with no blind retry. Provider response bodies and opaque URL paths never reach errors, Sentry, or audit rows. Notification delivery now fails closed when its preflight append-only audit cannot be written, records normalized outcome metadata only, and reports accepted delivery separately from audit persistence. The event-to-scenario/idempotency contract is documented; Make-side duplicate rejection remains required until a durable outbox/operator replay wave lands. Independent codex review found no substantiated correctness regression.",
+      "tests": "737 tests pass across 115 files; tsc clean; lint 0 errors / 0 warnings; next build compiles 155 routes; total and all 169 route budget gates pass",
+      "verification": "npx vitest run src/lib/integrations/make.test.ts src/lib/fund/notifyViaMake.test.ts src/lib/integrations/types.test.ts src/lib/observability/providerTiming.test.ts + npx tsc --noEmit + npm run lint + npm run test + NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder npm run build 2>&1 | tee /tmp/axis-make-build.log + node scripts/check-perf-budgets.mjs /tmp/axis-make-build.log + node scripts/check-bundle-budget.mjs + codex review -c model=gpt-5.4 --uncommitted"
     }
   ],
   "migrations_applied": {
@@ -978,7 +997,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue next dependency-ordered redesign work: additional Phase 11 profiling/code-splitting (especially /mail or module-internal deferred boundaries), then Phase 10 Make adapter rearchitecture or additional core-module verticals as product evidence warrants.",
+    "Continue next dependency-ordered redesign work: Phase 10 Make durable outbox/operator replay or management-API Result migration, then additional Phase 11 profiling/code-splitting (especially /mail) or core-module verticals as product evidence warrants.",
     "Human follow-ups remain: independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {

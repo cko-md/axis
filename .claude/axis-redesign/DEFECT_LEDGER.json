@@ -1,6 +1,6 @@
 {
-  "updated": "2026-07-13",
-  "revision": "f478cde",
+  "updated": "2026-07-15",
+  "revision": "wave-10.13",
   "defects": [
     {
       "id": "FIN-001",
@@ -37,6 +37,40 @@
       "status": "fixed",
       "revision_fixed": "pending-commit",
       "verification": "existing financeNarratorContext.test.ts still passes"
+    },
+    {
+      "id": "MAKE-001",
+      "severity": "high",
+      "source": "Phase 10 outbound integration review",
+      "summary": "Make webhook delivery treated every HTTP response as success",
+      "reproduction": "Return HTTP 503 from an env-configured Make webhook; the previous triggerWebhook resolved and notifyViaMake wrote result=success",
+      "affected": [
+        "src/lib/integrations/make.ts",
+        "src/lib/fund/notifyViaMake.ts"
+      ],
+      "root_cause": "The outbound helper parsed response text without checking Response.ok and exposed no typed delivery contract",
+      "fix": "Return the shared Result<MakeWebhookReceipt>, accept only 2xx, disable redirects, and write normalized failure audit metadata",
+      "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-10.13",
+      "verification": "HTTP 503 maps to provider_error, no success audit is written, focused tests and full 737-test suite pass"
+    },
+    {
+      "id": "MAKE-002",
+      "severity": "high",
+      "source": "Phase 10 outbound integration review",
+      "summary": "Raw Make response/error content could enter exceptions and persistent audit metadata",
+      "reproduction": "Return a provider body containing a token-like value or throw an error containing the opaque hook path; previous code embedded raw text in MakeError/audit_logs",
+      "affected": [
+        "src/lib/integrations/make.ts",
+        "src/lib/fund/notifyViaMake.ts"
+      ],
+      "root_cause": "Provider response bodies and thrown messages were treated as safe observability content",
+      "fix": "Never read webhook response bodies; emit generic structured errors and persist only code/status/retryability/idempotency metadata",
+      "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-10.13",
+      "verification": "Secret-bearing response/error fixtures are absent from Results, Sentry messages, and audit rows; independent review found no substantiated regression"
     }
   ]
 }

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import * as Sentry from "@sentry/nextjs";
 import { optionalEnv, type OptionalEnvName } from "@/lib/env";
 import { triggerWebhook } from "@/lib/integrations/make";
 
@@ -32,61 +33,102 @@ export type NotifyPayload = {
   meta?: Record<string, unknown>;
 };
 
+export type NotifyResult =
+  | { sent: true; status: number; auditRecorded: boolean }
+  | {
+      sent: false;
+      reason: "WEBHOOK_NOT_CONFIGURED" | "AUDIT_WRITE_FAILED" | "DELIVERY_FAILED";
+      retryable: boolean;
+      auditRecorded: boolean;
+    };
+
+async function appendDeliveryAudit(
+  admin: SupabaseClient,
+  payload: NotifyPayload,
+  result: "success" | "failure" | "pending_confirmation",
+  metadata: Record<string, unknown> = {},
+): Promise<boolean> {
+  const { error } = await admin.from("audit_logs").insert({
+    user_id: payload.userId,
+    actor: "system",
+    action: `notify.${payload.kind}`,
+    payload: { idempotency_key: payload.idempotencyKey, ...metadata },
+    result,
+  });
+  if (!error) return true;
+
+  Sentry.captureException(new Error("Make notification audit write failed"), {
+    tags: {
+      area: "integrations",
+      provider: "make",
+      operation: "notification_audit",
+      notification_kind: payload.kind,
+    },
+  });
+  return false;
+}
+
 /**
- * Fires a Make webhook for one notification event. Always writes an
- * audit_logs row first (result: pending_confirmation on the fire attempt,
- * then success/failure) so a retry of the same cron run can be told apart
- * from a fresh event by idempotencyKey, even though Make delivery itself
- * isn't confirmed back to the app (best-effort — Make's own scenario
- * history is the source of truth for whether the email actually sent).
+ * Fires a Make webhook for one notification event. Writes an immutable
+ * pending audit row before delivery, then an immutable outcome row. If the
+ * preflight audit cannot be persisted, delivery fails closed.
  *
- * No-ops (logs and returns) when the scenario's webhook URL isn't
- * configured yet — FIN-507 (the Make scenarios themselves) is manual
- * Make-UI work, not code, so this stays silent-safe until that's done.
+ * Reports a non-delivery when the scenario's webhook URL isn't configured yet.
+ * FIN-507 (the Make scenarios themselves) is manual Make-UI work, not code.
  */
-export async function notifyViaMake(admin: SupabaseClient, payload: NotifyPayload): Promise<{ sent: boolean; reason?: string }> {
+export async function notifyViaMake(admin: SupabaseClient, payload: NotifyPayload): Promise<NotifyResult> {
   const envVar = WEBHOOK_ENV_BY_KIND[payload.kind];
   const webhookUrl = optionalEnv(envVar);
 
   if (!webhookUrl) {
-    await admin.from("audit_logs").insert({
-      user_id: payload.userId,
-      actor: "system",
-      action: `notify.${payload.kind}`,
-      payload: { idempotency_key: payload.idempotencyKey, reason: "webhook_not_configured" },
-      result: "pending_confirmation",
+    const auditRecorded = await appendDeliveryAudit(admin, payload, "pending_confirmation", {
+      reason: "webhook_not_configured",
     });
-    return { sent: false, reason: "WEBHOOK_NOT_CONFIGURED" };
+    return {
+      sent: false,
+      reason: "WEBHOOK_NOT_CONFIGURED",
+      retryable: false,
+      auditRecorded,
+    };
   }
 
-  try {
-    await triggerWebhook(webhookUrl, {
-      idempotency_key: payload.idempotencyKey,
-      kind: payload.kind,
-      user_id: payload.userId,
-      channel: "email",
-      to: payload.to,
-      subject: payload.subject,
-      body_text: payload.bodyText,
-      body_html: payload.bodyHtml,
-      meta: payload.meta ?? {},
-    });
-    await admin.from("audit_logs").insert({
-      user_id: payload.userId,
-      actor: "system",
-      action: `notify.${payload.kind}`,
-      payload: { idempotency_key: payload.idempotencyKey },
-      result: "success",
-    });
-    return { sent: true };
-  } catch (err) {
-    await admin.from("audit_logs").insert({
-      user_id: payload.userId,
-      actor: "system",
-      action: `notify.${payload.kind}`,
-      payload: { idempotency_key: payload.idempotencyKey, error: err instanceof Error ? err.message : String(err) },
-      result: "failure",
-    });
-    return { sent: false, reason: "DELIVERY_FAILED" };
+  const preflightRecorded = await appendDeliveryAudit(admin, payload, "pending_confirmation");
+  if (!preflightRecorded) {
+    return {
+      sent: false,
+      reason: "AUDIT_WRITE_FAILED",
+      retryable: true,
+      auditRecorded: false,
+    };
   }
+
+  const delivery = await triggerWebhook(webhookUrl, {
+    idempotency_key: payload.idempotencyKey,
+    kind: payload.kind,
+    user_id: payload.userId,
+    channel: "email",
+    to: payload.to,
+    subject: payload.subject,
+    body_text: payload.bodyText,
+    body_html: payload.bodyHtml,
+    meta: payload.meta ?? {},
+  });
+  if (!delivery.ok) {
+    const auditRecorded = await appendDeliveryAudit(admin, payload, "failure", {
+      error_code: delivery.error.code,
+      status: delivery.error.status ?? null,
+      retryable: delivery.error.retryable,
+    });
+    return {
+      sent: false,
+      reason: "DELIVERY_FAILED",
+      retryable: delivery.error.retryable,
+      auditRecorded,
+    };
+  }
+
+  const auditRecorded = await appendDeliveryAudit(admin, payload, "success", {
+    status: delivery.data.status,
+  });
+  return { sent: true, status: delivery.data.status, auditRecorded };
 }
