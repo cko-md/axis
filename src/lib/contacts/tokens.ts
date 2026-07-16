@@ -20,10 +20,11 @@ export async function saveContactsTokens(
 ): Promise<void> {
   const supabase = await createClient();
   const accessEnc = encrypt(accessToken);
+  if (!accessEnc) throw new Error("Contacts token encryption failed — ENCRYPTION_KEY not configured");
   const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
   const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-  await supabase.from("contacts_connections").upsert(
+  const { error } = await supabase.from("contacts_connections").upsert(
     {
       user_id: userId,
       provider: "google",
@@ -35,17 +36,19 @@ export async function saveContactsTokens(
     },
     { onConflict: "user_id,provider" },
   );
+  if (error) throw error;
 }
 
 export async function getContactsTokens(userId: string): Promise<ContactsTokens | null> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("contacts_connections")
     .select("access_token_enc, refresh_token_enc, expires_at, email")
     .eq("user_id", userId)
     .eq("provider", "google")
     .single();
 
+  if (error && error.code !== "PGRST116") throw error;
   if (!data || !data.access_token_enc) return null;
   const accessToken = decrypt(data.access_token_enc);
   if (!accessToken) return null;
