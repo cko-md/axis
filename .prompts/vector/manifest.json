@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updated": "2026-07-16",
+  "prompts": [
+    {
+      "id": "VE-VECTOR-CONCEPT-001",
+      "version": 1,
+      "purpose": "VECTOR lobby, card-system, mobile, and light-mode concept sheet",
+      "tool": "openai-image-generation",
+      "model": "runtime-managed-not-exposed-by-tool",
+      "source_asset_ids": [],
+      "prompt_path": ".prompts/vector/VE-VECTOR-CONCEPT-001.md",
+      "output_paths": [
+        ".logs/vector-envoys/concepts/vector-lobby-concepts-v1.png"
+      ],
+      "output_sha256": [
+        "66c3256e6d85d8e24958f2b51eb414be9990efb82fab54894fd0ce59818ca01b"
+      ],
+      "review_status": "concept-generated-selected-direction-instrument-deck",
+      "wave": "15.0"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "updated": "2026-07-16",
+  "prompts": [
+    {
+      "id": "VE-ENVOY-CONCEPT-001",
+      "version": 1,
+      "purpose": "Eight original Axis Envoy concept sheet",
+      "tool": "openai-image-generation",
+      "model": "runtime-managed-not-exposed-by-tool",
+      "source_asset_ids": [],
+      "prompt_path": ".prompts/envoys/VE-ENVOY-CONCEPT-001.md",
+      "output_paths": [
+        ".logs/vector-envoys/concepts/envoy-concepts-v1.png"
+      ],
+      "output_sha256": [
+        "dcbe90802f1ecfc8832281c56f5136d55fa72cc71722404ecec7be5d2c6e56cd"
+      ],
+      "review_status": "concept-generated-visual-critique-passed-hatch-qa-pending",
+      "wave": "15.0"
+    },
+    {
+      "id": "VE-ENVOY-UX-001",
+      "version": 1,
+      "purpose": "Envoy status HUD, quick picker, and Lab concept sheet",
+      "tool": "openai-image-generation",
+      "model": "runtime-managed-not-exposed-by-tool",
+      "source_asset_ids": [],
+      "prompt_path": ".prompts/envoys/VE-ENVOY-UX-001.md",
+      "output_paths": [
+        ".logs/vector-envoys/concepts/envoy-ux-concepts-v1.png"
+      ],
+      "output_sha256": [
+        "e680d2119f69fe71bc2eff89451a876b29b14ece1274e52f22f4ebdc7f982349"
+      ],
+      "review_status": "concept-generated-work-card-and-lab-direction-selected",
+      "wave": "15.0"
+    }
+  ]
+}

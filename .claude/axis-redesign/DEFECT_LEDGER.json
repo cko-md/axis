@@ -1,6 +1,6 @@
 {
-  "updated": "2026-07-15",
-  "revision": "wave-8.9",
+  "updated": "2026-07-16",
+  "revision": "wave-15.0",
   "defects": [
     {
       "id": "FIN-001",
@@ -173,6 +173,166 @@
       "status": "fixed",
       "revision_fixed": "wave-8.9",
       "verification": "Focused tests cover hi escalation and punctuation-varied resolution memory; synthetic local desktop/mobile verification showed one row in each tier and responsive filter wrapping"
+    },
+    {
+      "id": "PREF-001",
+      "severity": "high",
+      "source": "Phase 15 Envoy preference pre-mortem",
+      "summary": "A transient remote preference read failure enables a later local upsert that can overwrite valid server preferences; the Phase 9 envelope also omits current-main timezone state",
+      "reproduction": "Make the initial user_preferences read fail while local interface settings exist; remoteReady becomes true and the save effect writes the local envelope. On the Phase 9 branch that envelope is only {theme,settings}, so merging without preservation can also erase timeZone used for server local-day calculations.",
+      "affected": [
+        "src/components/theme/ThemeProvider.tsx",
+        "src/lib/theme/interface-settings.ts",
+        "src/lib/dates.ts"
+      ],
+      "root_cause": "Preference sync treats read completion as read success and replaces the outer JSON envelope instead of versioning/merging known fields while preserving unknown ones",
+      "fix": "Planned Wave 15.1: merge origin/main, gate automatic writes on successful remote read, preserve unknown envelope fields including timeZone, add versioned legacy Envoy migration, expose retry, and add regression tests",
+      "regression_test": "pending Wave 15.1 ThemeProvider preference-sync tests",
+      "status": "open",
+      "planned_wave": "15.1",
+      "verification": "pending"
+    },
+    {
+      "id": "RUN-002",
+      "severity": "high",
+      "source": "Phase 15 Envoy approval-status pre-mortem",
+      "summary": "Approval-gated routine resume consumes approval before resumed work succeeds, so a transient failure can strand a resumable run with already-executed authority",
+      "reproduction": "Resume an approval-gated routine and force a transient executor failure after approval consumption. The route returns a resumable failure but the approval remains executed.",
+      "affected": [
+        "src/app/api/routines/runs/[id]/resume/route.ts",
+        "src/lib/routines/resumeExecutor.ts",
+        "src/lib/routines/resumeExecutor.test.ts"
+      ],
+      "root_cause": "Approval consumption precedes retry-safe execution-state persistence and failure handling",
+      "fix": "Canonical repair exists as direct Phase 9 child c2de9308; fast-forward it in Wave 15.1, then retain its retry contract while integrating main",
+      "regression_test": "src/lib/routines/resumeExecutor.test.ts plus route retry tests from c2de9308",
+      "status": "open",
+      "planned_wave": "15.1",
+      "verification": "pending branch integration and independent rerun"
+    },
+    {
+      "id": "TASK-002",
+      "severity": "high",
+      "source": "Phase 15 truthful-status concurrency pre-mortem",
+      "summary": "Agent-task and approval transitions use stale read-then-write updates without expected-state compare-and-set, allowing concurrent valid requests to overwrite one another",
+      "reproduction": "Issue two legal transitions from the same task status, or concurrent approve/deny decisions for one pending approval. Both requests can pass the stale precondition and the later update wins without a 409.",
+      "affected": [
+        "src/app/api/agent-tasks/[id]/route.ts",
+        "src/app/api/approvals/[id]/route.ts"
+      ],
+      "root_cause": "Transition validation and persistence are separate operations; updates do not constrain the expected prior status or run in an atomic RPC",
+      "fix": "Planned Wave 15.1: expected-state compare-and-set or fixed-search-path RPC, 409 on conflict, and atomic audit/activity persistence where feasible",
+      "regression_test": "pending Wave 15.1 concurrent transition route/RPC tests",
+      "status": "open",
+      "planned_wave": "15.1",
+      "verification": "pending"
+    },
+    {
+      "id": "STATUS-001",
+      "severity": "high",
+      "source": "Phase 15 truthful Envoy HUD pre-mortem",
+      "summary": "Task activity, routine steps, and linked approval query failures are discarded, so the UI can present plausible empty or idle data instead of a degraded/error state",
+      "reproduction": "Force the task-activity, routine-step, or linked-approval query to fail while its parent task/run loads. Current handlers/components continue with empty arrays or omit the approval.",
+      "affected": [
+        "src/app/api/agent-tasks/[id]/route.ts",
+        "src/app/api/routines/runs/route.ts",
+        "src/lib/hooks/useAgentTasks.ts",
+        "src/components/tasks/TasksModule.tsx"
+      ],
+      "root_cause": "Best-effort secondary reads have no typed degradation contract and client catches discard safe failure metadata",
+      "fix": "Planned Wave 15.4: one owner-scoped active-work projection with explicit section degradation, bounded refresh, deterministic ranking, exact deep links, visible Sync error, and safe Sentry metadata",
+      "regression_test": "pending Wave 15.4 active-work adapter and browser degradation tests",
+      "status": "open",
+      "planned_wave": "15.4",
+      "verification": "pending"
+    },
+    {
+      "id": "AI-002",
+      "severity": "high",
+      "source": "Phase 15 Focus/Intel/Ask parity pre-mortem",
+      "summary": "Intel passes an unrestricted model-authored actionPath to router.push, while AI provider failures return successful fallback bodies and Intel/Ask lack complete abort parity",
+      "reproduction": "Return an unexpected actionPath from the companion model or force a provider failure during Intel/Ask. The client trusts the path, and provider failure can appear as a successful assistant response without server Sentry capture; in-flight requests can outlive replacement/unmount.",
+      "affected": [
+        "src/app/api/ai/route.ts",
+        "src/components/layout/Mascot.tsx",
+        "src/lib/ai/actions.ts",
+        "src/lib/ai/router.ts"
+      ],
+      "root_cause": "No shared internal-route allowlist, no typed degraded response contract, and abort lifecycle exists only for part of the companion surface",
+      "fix": "Planned Wave 15.4: validate route actions on server and client against one internal registry, return typed degraded/error state with safe telemetry, and add AbortController parity across Focus, Intel, and Ask",
+      "regression_test": "pending Wave 15.4 route allowlist, degraded response, and abort lifecycle tests",
+      "status": "open",
+      "planned_wave": "15.4",
+      "verification": "pending"
+    },
+    {
+      "id": "PLAN-001",
+      "severity": "high",
+      "source": "Wave 15.0 adversarial plan review",
+      "summary": "Initial engine ADR replaced Brickrise's binding Phaser requirement with custom Canvas and required proof of Canvas failure before allowing Phaser",
+      "reproduction": "Compare the initial ADR 0004 decision and VECTOR engine table against the supplied Brickrise contract requiring a full-screen Phaser 2D platformer",
+      "affected": [
+        "docs/axis-redesign/15-vector-arcade-and-envoys.md",
+        "docs/axis-redesign/adr/0004-vector-runtime-and-engine-isolation.md",
+        "docs/vector/PLAN.md"
+      ],
+      "root_cause": "Simplification pass treated a binding technology requirement as an optional architecture choice",
+      "fix": "Use one shared route-isolated Phaser runtime for Brickrise and other suitable 2D action/physics games, one Three.js runtime for 3D, and keep Second Sense engine-free",
+      "regression_test": "Plan search and adversarial rereview against source brief lines 413-429",
+      "status": "fixed",
+      "revision_fixed": "wave-15.0",
+      "verification": "ADR 0004 and VECTOR plan now explicitly require Phaser for Brickrise"
+    },
+    {
+      "id": "PLAN-002",
+      "severity": "high",
+      "source": "Wave 15.0 adversarial plan review",
+      "summary": "Initial VECTOR plan compressed each game into one matrix row and omitted binding mechanics needed for later completion audit",
+      "reproduction": "Read docs/vector/PLAN.md before repair; details such as Time to Fly no-preview and stable retry positions, MiniTown exact shared-block roads, and Paper Glider procedural-room effects were absent",
+      "affected": [
+        "docs/vector/PLAN.md",
+        "docs/axis-redesign/15-vector-arcade-and-envoys.md"
+      ],
+      "root_cause": "Summary matrix was incorrectly treated as the complete acceptance source while the external attachment is not a repository artifact",
+      "fix": "Add complete binding title-specific acceptance sections for all nine games while retaining the matrix as an index",
+      "regression_test": "Requirement-by-requirement comparison against source brief lines 367-580",
+      "status": "fixed",
+      "revision_fixed": "wave-15.0",
+      "verification": "All named game mechanics, originality constraints, inputs, persistence, performance, and sequencing requirements now live in docs/vector/PLAN.md"
+    },
+    {
+      "id": "STATE-001",
+      "severity": "medium",
+      "source": "Wave 15.0 adversarial state review",
+      "summary": "Program state and wave log described Wave 15.0 as landed before its commit existed",
+      "reproduction": "Inspect uncommitted PROGRAM_STATE and wave log while HEAD remains 845bfac9",
+      "affected": [
+        ".claude/axis-redesign/PROGRAM_STATE.json",
+        ".logs/vector-envoys/wave-15.0-program-foundation.md"
+      ],
+      "root_cause": "Landing status was written prospectively instead of following successful commit evidence",
+      "fix": "Keep status in_progress/pending commit through review and first commit; update to landed only after commit succeeds, then amend the same wave commit",
+      "regression_test": "Pre-commit state assertion plus post-commit state assertion",
+      "status": "fixed",
+      "revision_fixed": "wave-15.0",
+      "verification": "Initial wave commit succeeded; landing status was then amended into that same commit so one wave remains one commit"
+    },
+    {
+      "id": "META-001",
+      "severity": "medium",
+      "source": "Wave 15.0 adversarial prompt-provenance review",
+      "summary": "Prompt manifests promised tool/model provenance but omitted the model field",
+      "reproduction": "Compare .prompts README contracts with initial manifest entries",
+      "affected": [
+        ".prompts/vector/manifest.json",
+        ".prompts/envoys/manifest.json"
+      ],
+      "root_cause": "Image-generation tool did not expose an underlying model identifier and the manifest omitted that fact",
+      "fix": "Record model as runtime-managed-not-exposed-by-tool rather than inventing an identifier",
+      "regression_test": "jq assertion that every prompt entry has non-empty tool and model fields",
+      "status": "fixed",
+      "revision_fixed": "wave-15.0",
+      "verification": "All three prompt records include explicit tool and honest model provenance"
     }
   ]
 }

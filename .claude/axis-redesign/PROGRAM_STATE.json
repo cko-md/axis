@@ -1,10 +1,10 @@
 {
   "program": "axis-system-redesign",
-  "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 8.9 completes the prompt's Phase 8 scope: Dispatch now consumes deterministic Need-to-Know tiers, recognizes the persisted hi priority as critical, and uses archived/dismissed/routed title memory to demote resurfaced duplicates. Tsc is clean, lint has 0 errors / 0 warnings, 794 tests pass, production build succeeds, all 176 route budgets pass, /dispatch remains 362 KB first-load, and total static JS is 3920/4400 KB.",
+  "branch": "codex/vector-arcade-envoys",
+  "branch_note": "Owner-authorized Phase 15 VECTOR Arcade + Axis Envoys program. Wave 15.0 records current behavior, accepted pre-mortem controls, simplified target architecture, four ADRs, dependency-ordered plans, three generated concept sheets, reusable prompts/hashes, design review, and evidence indexes. Implementation has not started; every game, Envoy runtime path, worker, migration, live gate, and production claim remains open until its wave supplies direct evidence.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "246f7646",
-  "updated": "2026-07-15",
+  "revision_reviewed": "845bfac9",
+  "updated": "2026-07-16",
   "governance": {
     "source": "AGENTS.md",
     "rules": [
@@ -37,7 +37,8 @@
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB; wave 11.5 code-split Mail from 388kB to 361kB after wave 10.16 removed provider fan-out from first paint; wave 11.6 code-split Dispatch from 378kB to 362kB. Further route profiling remains.",
     "12_testing": "ongoing \u2014 794 unit tests / 124 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management safety, Mail cache privacy/auth/ownership/sync behavior, portfolio math, Activity rules, cited research provenance, memory/profile contracts and APIs, concentration-profile provenance, and Need-to-Know priority/resolution rules. The seeded local authenticated browser suite passes all 4 Mail/daily-route/redirect/memory-lifecycle workflows; public CI smoke remains. Broader provider-backed and visual-regression coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
-    "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged."
+    "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged.",
+    "15_vector_arcade_envoys": "in progress \u2014 Wave 15.0 planning/design foundation landed: accepted risk controls, executable Vector and Envoy plans, ADRs 0004-0007, three generated concept sheets with reusable prompts/hashes, and sequential completion/evidence gates. No implementation or production completion claimed. Next: integrate canonical approval retry plus origin/main, preserve timezone/preferences, then build shared VECTOR platform."
   },
   "convergence_note": "This program is NOT a completed 14-phase rewrite \u2014 the initial prompt describes a multi-quarter effort. What is delivered is a coherent, green, end-to-end vertical of the operating loop (observe->task->approval->durable run) on a deterministic financial-safety kernel, plus foundational domain primitives, all additive and behind existing behavior. Remaining phases are honestly tracked above and in next_dependency_ordered_actions. No delivered wave is a broken prototype; every one is tsc/lint/test green and the migrations are applied+verified.",
   "waves": [
@@ -1111,6 +1112,44 @@
       "note": "Connects the existing deterministic severity model to the real Dispatch workspace instead of leaving it as unused domain code. The queue groups and filters visible unresolved signals as Critical, Actionable, Information, or Noise; keeps routed/snoozed/archived lifecycle views; displays the derived tier on rows and detail; and preserves existing routing, task conversion, AI suggestion, source navigation, and error feedback. The real persisted hi priority now escalates to critical. Titles from routed, dismissed, or archived signals form owner-local resolution memory so punctuation/whitespace variants that resurface are deterministically demoted to noise without new schema or AI authority.",
       "tests": "794 tests pass across 124 files; 20 focused signal/navigation tests pass; tsc clean; lint 0 errors / 0 warnings; production build compiles 160 pages; /dispatch remains 362 KB first-load; all 176 route budgets pass; total static JS 3920/4400 KB",
       "verification": "Focused Vitest + npx tsc --noEmit + npm run lint + npm run test + synthetic local desktop/mobile visual verification of all four tiers and responsive filters (records/account removed afterward) + production build/per-route/total bundle budgets + adversarial diff review"
+    },
+    {
+      "id": "15.0",
+      "title": "VECTOR Arcade + Axis Envoys program foundation",
+      "status": "landed",
+      "files_added": [
+        "docs/axis-redesign/15-vector-arcade-and-envoys.md",
+        "docs/axis-redesign/15-completion-matrix.md",
+        "docs/vector/PLAN.md",
+        "docs/envoys/PLAN.md",
+        "docs/axis-redesign/adr/0004-vector-runtime-and-engine-isolation.md",
+        "docs/axis-redesign/adr/0005-offline-save-sync-and-cache-boundary.md",
+        "docs/axis-redesign/adr/0006-envoy-presence-and-mode-contract.md",
+        "docs/axis-redesign/adr/0007-envoy-generation-control-and-execution-planes.md",
+        ".logs/vector-envoys/INDEX.md",
+        ".logs/vector-envoys/premortem.md",
+        ".logs/vector-envoys/skill-preflight.md",
+        ".logs/vector-envoys/design-review.md",
+        ".logs/vector-envoys/wave-15.0-program-foundation.md",
+        ".logs/vector-envoys/concepts/vector-lobby-concepts-v1.png",
+        ".logs/vector-envoys/concepts/envoy-concepts-v1.png",
+        ".logs/vector-envoys/concepts/envoy-ux-concepts-v1.png",
+        ".prompts/vector/README.md",
+        ".prompts/vector/VE-VECTOR-CONCEPT-001.md",
+        ".prompts/vector/manifest.json",
+        ".prompts/envoys/README.md",
+        ".prompts/envoys/VE-ENVOY-CONCEPT-001.md",
+        ".prompts/envoys/VE-ENVOY-UX-001.md",
+        ".prompts/envoys/manifest.json"
+      ],
+      "files_changed": [
+        ".claude/axis-redesign/PROGRAM_STATE.json",
+        ".claude/axis-redesign/DEFECT_LEDGER.json"
+      ],
+      "note": "Owner accepted every verified pre-mortem mitigation; none were waived. Architecture uses one shared Phaser runtime for required 2D action/physics, one isolated Three.js runtime, engine-free Second Sense, one owner-partitioned IndexedDB/sync path, one allowlist-only service worker, one truthful active-work projection, and one fenced Render worker pipeline. Generated sheets are internal design evidence only, not final UI, covers, or hatch-validated starter packages.",
+      "tests": "Documentation-only wave: JSON parse, prompt-output SHA-256 verification, PNG dimension/type inspection, Markdown local-link audit, and git diff whitespace validation pass. No runtime behavior changed; baseline remains 794 tests / 124 files before planned branch integration.",
+      "verification": "jq empty on all changed JSON + shasum -a 256 on three generated concepts + file dimensions/type + local Markdown link audit + git diff --check + orchestrator review + multi-skill visual/UX/accessibility/reduced-motion synthesis",
+      "adr": "docs/axis-redesign/adr/0004-vector-runtime-and-engine-isolation.md; docs/axis-redesign/adr/0005-offline-save-sync-and-cache-boundary.md; docs/axis-redesign/adr/0006-envoy-presence-and-mode-contract.md; docs/axis-redesign/adr/0007-envoy-generation-control-and-execution-planes.md"
     }
   ],
   "migrations_applied": {
@@ -1139,9 +1178,11 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue next dependency-ordered redesign work: Phase 6 design-system depth (typography/motion/surface tokens, component gallery, theme parity and accessibility), then further Phase 11 route profiling while preserving green budgets.",
+    "Wave 15.1: fast-forward canonical retry-safe approval-resume commit c2de9308, merge current origin/main, preserve timezone and all preference envelope fields, repair preference read/write race plus task/approval compare-and-set races, and run focused/full gates.",
+    "Wave 15.2: implement complete shared VECTOR registry/runtime/lobby, owner-partitioned IndexedDB, authenticated sync APIs and additive owner-RLS schema, deploy-specific offline manifests, safe service-worker upgrade, and browser/performance gates.",
+    "Wave 15.3: ship Second Sense as the first complete playable save/sync/offline vertical slice before any later game begins.",
     "External-connection follow-ups remain: connect and live-validate direct Gmail plus direct/Composio Outlook Mail parity; live Make write verification; health-device provider decision.",
-    "Human/security/operations follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up sign-off and manual authenticator ceremony, provider-backed e2e/CI credentials, Sentry dashboard/alert creation, and Tembo role decision."
+    "Production Phase 15 access is owner-authorized but still needs secure local discovery/configuration for Supabase, Vercel, Render, OpenAI, and Sentry before live gates. Existing human/security follow-ups remain: leaked-password protection, independent WebAuthn sign-off, provider-backed e2e credentials, and Tembo role decision."
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",
