@@ -84,12 +84,40 @@ export async function GET(req: NextRequest) {
         .eq("toolkit", toolkit)
         .neq("connected_account_id", connectedAccountId);
       if (staleRows && staleRows.length > 0) {
-        await Promise.allSettled(staleRows.map((row) => deleteConnectedAccount(row.connected_account_id)));
-        await supabase
-          .from("composio_connections")
-          .delete()
-          .eq("user_id", user.id)
-          .in("id", staleRows.map((row) => row.id));
+        const revocations = await Promise.allSettled(
+          staleRows.map((row) => deleteConnectedAccount(row.connected_account_id)),
+        );
+        const revokedRowIds = staleRows.flatMap((row, index) =>
+          revocations[index]?.status === "fulfilled" ? [row.id] : [],
+        );
+        const failedCount = staleRows.length - revokedRowIds.length;
+
+        if (failedCount > 0) {
+          captureRouteError(new Error("One or more stale Composio connections could not be revoked"), {
+            route: "/api/integrations/composio/connect",
+            operation: "revoke_stale_connections",
+            area: "integrations",
+            provider: "composio",
+            status: 502,
+            code: "PARTIAL_REVOCATION",
+            tags: { toolkit, failed_count: failedCount, stale_count: staleRows.length },
+          });
+        }
+
+        if (revokedRowIds.length > 0) {
+          await supabase
+            .from("composio_connections")
+            .delete()
+            .eq("user_id", user.id)
+            .in("id", revokedRowIds);
+        }
+
+        if (failedCount > 0) {
+          const partialUrl = new URL(buildAppUrl(req, `/oauth-done?provider=composio_${toolkit}&status=partial`));
+          partialUrl.searchParams.set("revoked", String(revokedRowIds.length));
+          partialUrl.searchParams.set("failed", String(failedCount));
+          return NextResponse.redirect(partialUrl);
+        }
       }
     }
 
