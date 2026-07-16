@@ -32,12 +32,13 @@ async function fetchPlaidCash(accessToken: string): Promise<number> {
  * fund_liabilities. Deterministic; no AI involved.
  */
 export async function snapshotNetWorth(admin: SupabaseClient, userId: string): Promise<void> {
-  const { data: connections } = await admin
+  const { data: connections, error: connectionsError } = await admin
     .from("fund_connections")
     .select("access_token_enc")
     .eq("user_id", userId)
     .eq("provider", "plaid")
     .eq("status", "linked");
+  if (connectionsError) throw connectionsError;
 
   let cash = 0;
   for (const c of connections ?? []) {
@@ -46,10 +47,11 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     if (token) cash += await fetchPlaidCash(token);
   }
 
-  const { data: holdings } = await admin
+  const { data: holdings, error: holdingsError } = await admin
     .from("fund_holdings")
     .select("symbol, shares, cost_basis")
     .eq("user_id", userId);
+  if (holdingsError) throw holdingsError;
 
   let invested = 0;
   const polygonConfigured = !!getPolygonApiKey();
@@ -68,14 +70,15 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     invested += costBasis;
   }
 
-  const { data: liabilityRows } = await admin
+  const { data: liabilityRows, error: liabilitiesError } = await admin
     .from("fund_liabilities")
     .select("balance")
     .eq("user_id", userId);
+  if (liabilitiesError) throw liabilitiesError;
   const liabilities = sumBy(liabilityRows ?? [], (l) => l.balance);
 
   const net_worth = sumMoney([cash, invested, -liabilities]);
-  await admin.from("net_worth_snapshots").upsert(
+  const { error: snapshotError } = await admin.from("net_worth_snapshots").upsert(
     {
       user_id: userId,
       captured_on: new Date().toISOString().slice(0, 10),
@@ -86,6 +89,7 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     },
     { onConflict: "user_id,captured_on" },
   );
+  if (snapshotError) throw snapshotError;
 }
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
