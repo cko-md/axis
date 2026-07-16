@@ -98,7 +98,8 @@ export type RoutineExecutionStore = {
   startStep(input: StartStepInput): Promise<{ id: string; ordinal: number }>;
   completeStep(input: CompleteStepInput): Promise<void>;
   failStep(input: FailStepInput): Promise<void>;
-  markRunRunning(runId: string, userId: string): Promise<void>;
+  /** Claim a waiting run. `false` means another resume already claimed it. */
+  markRunRunning(runId: string, userId: string, expectedStatus?: RunStatus): Promise<boolean>;
   markRunWaitingForApproval(input: PauseRunInput): Promise<void>;
   completeRun(input: CompleteRunInput): Promise<void>;
   failRun(input: FailRunInput): Promise<void>;
@@ -250,13 +251,17 @@ export function createSupabaseRoutineStore(
       if (error) throw new Error("STEP_FAIL_RECORD_FAILED");
     },
 
-    async markRunRunning(runId, userId) {
-      const { error } = await supabase
+    async markRunRunning(runId, userId, expectedStatus = "waiting_for_approval") {
+      const { data, error } = await supabase
         .from("routine_runs")
         .update({ status: "running", error: null })
         .eq("user_id", userId)
-        .eq("id", runId);
+        .eq("id", runId)
+        .eq("status", expectedStatus)
+        .select("id")
+        .maybeSingle();
       if (error) throw new Error("RUN_RESUME_FAILED");
+      return !!data;
     },
 
     async markRunWaitingForApproval(input) {
@@ -346,7 +351,10 @@ export async function continueRoutineRun<TOutputs extends Record<string, unknown
   }
 
   const replayedSteps = await options.store.listStepRuns(options.run.id, options.userId);
-  await options.store.markRunRunning(options.run.id, options.userId);
+  const claimed = await options.store.markRunRunning(options.run.id, options.userId, options.run.status);
+  if (claimed === false) {
+    throw new RoutineExecutionError("RUN_ALREADY_RESUMING", options.run.id);
+  }
 
   return runRoutineSteps({
     store: options.store,
@@ -373,7 +381,10 @@ export async function resumeRoutine<TOutputs extends Record<string, unknown>>(
   }
 
   const replayedSteps = await options.store.listStepRuns(options.run.id, options.userId);
-  await options.store.markRunRunning(options.run.id, options.userId);
+  const claimed = await options.store.markRunRunning(options.run.id, options.userId);
+  if (claimed === false) {
+    throw new RoutineExecutionError("RUN_ALREADY_RESUMING", options.run.id);
+  }
 
   return runRoutineSteps({
     store: options.store,

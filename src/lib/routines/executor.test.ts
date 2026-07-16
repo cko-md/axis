@@ -64,7 +64,10 @@ class MemoryRoutineStore implements RoutineExecutionStore {
   }
 
   async markRunRunning(runId: string) {
-    this.requireRun(runId).status = "running";
+    const run = this.requireRun(runId);
+    if (run.status !== "waiting_for_approval") return false;
+    run.status = "running";
+    return true;
   }
 
   async markRunWaitingForApproval(input: Parameters<RoutineExecutionStore["markRunWaitingForApproval"]>[0]) {
@@ -213,5 +216,27 @@ describe("routine executor", () => {
       ["b", "succeeded"],
       ["c", "succeeded"],
     ]);
+  });
+
+  it("rejects a second resume claim before rerunning a paused step", async () => {
+    const store = new MemoryRoutineStore();
+    store.seedRun({
+      id: "run-1",
+      routine_key: "test",
+      routine_version: 1,
+      status: "running",
+      input_snapshot: {},
+      paused_step_key: "b",
+      approval_id: "approval-1",
+      idempotency_key: "idem-1",
+    });
+
+    await expect(resumeRoutine({
+      store,
+      userId: "user-1",
+      run: store.runs.get("run-1") as RoutineRunForResume,
+      steps: [{ key: "b", run: async () => ({ value: 1 }) }],
+      buildRunOutput: buildOutput,
+    })).rejects.toMatchObject({ message: "RUN_NOT_WAITING_FOR_APPROVAL" });
   });
 });

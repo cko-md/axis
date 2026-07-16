@@ -70,7 +70,7 @@ export async function POST(
     return NextResponse.json({ error: "UNSUPPORTED_ROUTINE", routine: run.routine_key }, { status: 409 });
   }
 
-  const approvalCheck = await verifyAndConsumeApproval({
+  const approvalCheck = await verifyApproval({
     supabase,
     userId: user.id,
     approvalId: run.approval_id,
@@ -92,12 +92,17 @@ export async function POST(
     });
 
     if (result.status === "waiting_for_approval") {
+      const consumed = await consumeApproval(supabase, user.id, run.approval_id);
+      if (!consumed) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED", runId: result.runId }, { status: 500 });
       return NextResponse.json({
         runId: result.runId,
         status: result.status,
         approvalId: result.approvalId,
       });
     }
+
+    const consumed = await consumeApproval(supabase, user.id, run.approval_id);
+    if (!consumed) return NextResponse.json({ error: "APPROVAL_UPDATE_FAILED", runId: result.runId }, { status: 500 });
 
     const output = result.output as unknown as ConcentrationResponseOutput;
     emitServerEvent("routine.run.completed", {
@@ -112,6 +117,15 @@ export async function POST(
 
     return NextResponse.json({ runId: result.runId, status: result.status, ...output });
   } catch (err) {
+    // The approval remains approved until the resumed run has completed. Put
+    // a failed claim back into the waiting state so a transient provider/DB
+    // error does not strand the run behind an already-consumed approval.
+    await supabase
+      .from("routine_runs")
+      .update({ status: "waiting_for_approval", error: err instanceof Error ? err.message : "run failed" })
+      .eq("user_id", user.id)
+      .eq("id", id)
+      .in("status", ["running", "blocked"]);
     const runId = err instanceof RoutineExecutionError ? err.runId : id;
     emitServerEvent("routine.run.blocked", {
       routine: run.routine_key,
@@ -123,7 +137,7 @@ export async function POST(
   }
 }
 
-async function verifyAndConsumeApproval(input: {
+async function verifyApproval(input: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
   approvalId: string;
@@ -170,16 +184,21 @@ async function verifyAndConsumeApproval(input: {
     };
   }
 
-  const { data: consumed, error: consumeError } = await input.supabase
+  return { ok: true };
+}
+
+async function consumeApproval(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  approvalId: string,
+): Promise<boolean> {
+  const { data: consumed, error: consumeError } = await supabase
     .from("approvals")
     .update({ status: "executed" })
-    .eq("user_id", input.userId)
-    .eq("id", input.approvalId)
+    .eq("user_id", userId)
+    .eq("id", approvalId)
     .eq("status", "approved")
     .select("id")
     .maybeSingle();
-  if (consumeError) return { ok: false, status: 500, body: { error: "APPROVAL_UPDATE_FAILED" } };
-  if (!consumed) return { ok: false, status: 409, body: { error: "APPROVAL_ALREADY_CONSUMED" } };
-
-  return { ok: true };
+  return !consumeError && !!consumed;
 }
