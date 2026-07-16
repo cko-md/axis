@@ -7,6 +7,8 @@ import { decrypt } from "@/lib/crypto";
 import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 
+const AUTH_CHALLENGE_COOKIE = "axis_passkey_auth_challenge";
+
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -44,7 +46,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to store challenge" }, { status: 500 });
   }
 
-  return NextResponse.json(options);
+  const result = NextResponse.json(options);
+  result.cookies.set(AUTH_CHALLENGE_COOKIE, options.challenge, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 5 * 60,
+    path: "/api/auth/passkey",
+  });
+  return result;
 }
 
 // ── POST ?action=verify ────────────────────────────────────────────────────────
@@ -116,14 +126,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Credential mismatch" }, { status: 400 });
   }
 
-  // Fetch the matching challenge (unbound to user_id since they may not be logged in)
+  // Bind verification to the browser that requested the options. Without this
+  // lookup, concurrent login attempts could consume another user's newest
+  // challenge and verify against the wrong ceremony.
+  const requestedChallenge = req.cookies.get(AUTH_CHALLENGE_COOKIE)?.value;
+  if (!requestedChallenge) {
+    return NextResponse.json({ error: "Authentication ceremony expired" }, { status: 400 });
+  }
+
   const now = new Date().toISOString();
   const { data: challenges } = await supabase
     .from("webauthn_challenges")
     .select("id, challenge")
     .eq("type", "authentication")
+    .eq("challenge", requestedChallenge)
     .gt("expires_at", now)
-    .order("created_at", { ascending: false })
     .limit(1);
 
   const challengeRow = challenges?.[0];
@@ -132,6 +149,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Delete challenge immediately (one-time use)
+  const clearChallengeCookie = (response: NextResponse) => {
+    response.cookies.set(AUTH_CHALLENGE_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 0,
+      path: "/api/auth/passkey",
+    });
+    return response;
+  };
+
   await supabase.from("webauthn_challenges").delete().eq("id", challengeRow.id);
 
   let verified: Awaited<ReturnType<typeof verifyAuthentication>>;
@@ -144,11 +172,11 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Verification failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return clearChallengeCookie(NextResponse.json({ error: message }, { status: 400 }));
   }
 
   if (!verified.verified) {
-    return NextResponse.json({ error: "Authentication not verified" }, { status: 400 });
+    return clearChallengeCookie(NextResponse.json({ error: "Authentication not verified" }, { status: 400 }));
   }
 
   // Update counter and last_used_at
@@ -167,9 +195,9 @@ export async function POST(req: NextRequest) {
     if (decrypted) refreshToken = decrypted;
   }
 
-  return NextResponse.json({
+  return clearChallengeCookie(NextResponse.json({
     verified: true,
     userId: resolvedUserId,
     ...(refreshToken ? { refreshToken } : {}),
-  });
+  }));
 }
