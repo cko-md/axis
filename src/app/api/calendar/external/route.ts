@@ -84,6 +84,7 @@ export async function GET(req: NextRequest) {
   const providers = await listHealthyLegacyProviders(user.id, connections ?? []);
   const displaySource = (toolkit: "googlecalendar" | "outlook") => (toolkit === "googlecalendar" ? "google" : "outlook");
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
+  let cachePersistenceError = false;
   try {
     composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
       (a) => !providers.has(displaySource(a.provider)),
@@ -226,13 +227,15 @@ export async function GET(req: NextRequest) {
     // error/freshness metadata updates, and only if a cache row already
     // exists (nothing to attach an error-only row to on a first-ever fetch).
     for (const update of errorOnlyUpdates) {
-      await supabase
+      const { error: updateError } = await supabase
         .from("calendar_event_cache")
         .update({ error: update.error, updated_at: fetchedAt })
         .eq("user_id", user.id)
         .eq("source", update.source);
+      if (updateError) throw updateError;
     }
   } catch (cacheError) {
+    cachePersistenceError = true;
     Sentry.captureException(cacheError instanceof Error ? cacheError : new Error(String(cacheError)), {
       tags: { area: "schedule", op: "write_calendar_event_cache" },
     });
@@ -240,13 +243,14 @@ export async function GET(req: NextRequest) {
 
   logRouteTiming("/api/calendar/external", routeStartedAt, {
     events: events.length,
-    partial: errors.length > 0,
+    partial: errors.length > 0 || cachePersistenceError,
   });
 
   return NextResponse.json({
     events,
-    partial: errors.length > 0,
+    partial: errors.length > 0 || cachePersistenceError,
     errors,
+    cache: { persisted: !cachePersistenceError },
     fetchedAt,
   });
 }
