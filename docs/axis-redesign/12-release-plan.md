@@ -178,14 +178,15 @@ attached to the PR/release record.
 ## PR #195 pre-production evidence
 
 The redesign branch has green local production gates at revision
-`89705a4a`: 1072 Vitest tests across 166 files, clean typecheck/lint,
+`dad07592`: 1072 Vitest tests across 166 files, clean typecheck/lint,
 `release:validate`, a 163-page production build with all 182 route budgets and
 4017/4400 KB aggregate static JS, public Playwright 13/13, and authenticated
 Playwright 14/14 including auth setup. Hosted expansion migrations are applied
 and read back; the contract migration remains intentionally pending.
 
 Production merge remains blocked until the exact final PR head has green CI and
-an isolated Vercel preview workflow, a Sentry operator records the release- and
-environment-scoped Issues result, required provider/manual security checks are
+an isolated Vercel preview workflow (now passed with a disposable hosted user),
+a Sentry operator records the release- and environment-scoped Issues result,
+required provider/manual security checks are
 signed off, merge authorization is explicit, and the post-live contract stage
 has a named recovery owner.

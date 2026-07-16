@@ -12,7 +12,7 @@
 
 ## Current PR #195 evidence
 
-Reviewed application revision: `89705a4a` on
+Reviewed application revision: `dad07592` on
 `codex/phase9-resume-executor`.
 
 | Gate | Current result |
@@ -24,9 +24,9 @@ Reviewed application revision: `89705a4a` on
 | `npm run build` | 163 pages; 182/182 route budgets; 4017/4400 KB aggregate static JS |
 | Public production-mode Playwright | 13/13 pass |
 | Authenticated production-mode Playwright | 14/14 pass including auth setup |
-| GitHub clean runner | run `29531283377` passed verify, public, and fresh-Supabase authenticated jobs |
-| Vercel preview | `dpl_AgKR1xhhQc4XyqSi4hteZ2ehVW5d` Ready; public 200, guarded APIs 401, unknown 404, preview-local login redirect, 0 queried 5xx/error logs |
-| Sentry | exact release `89705a4a…` exists; Issues query returned 403, so regression review is blocked rather than passed |
+| GitHub clean runner | run `29532017893` passed verify, public, and fresh-Supabase authenticated jobs |
+| Vercel preview | `dpl_DT3YmRASMcVeX6jX8ejZnKT2ffF4` Ready; public 200, guarded APIs 401, unknown 404, preview-local login redirect, 0 queried 5xx/error logs; disposable-user protected browser workflow passed and cleanup was verified |
+| Sentry | exact release `dad07592…` exists (release metadata reports `newGroups=2`); Issues query returned 403, so regression review is blocked rather than passed |
 | Hosted Supabase | expansion migrations applied/read back; contract migration intentionally pending compatible production deploy |
 
 The prior preview exposed an origin-isolation defect: same-app auth redirects

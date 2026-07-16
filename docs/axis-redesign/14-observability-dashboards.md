@@ -218,7 +218,8 @@ but the hosted observability gate remains open.
 ### PR #195 observed access result
 
 The exact release for commit
-`89705a4a507a3e453d9c965452815b01c176ebbb` is registered in Sentry. The
+`dad075921e11fff36c1996bd14d18f95666d3e5a` is registered in Sentry. Release
+metadata reports `newGroups=2`, but the
 release/environment Issues query
 `environment:preview release:<sha> firstSeen:>START_UTC` returned HTTP 403 with
 the available token. That result is an access failure, not evidence of zero
