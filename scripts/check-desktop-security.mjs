@@ -16,6 +16,7 @@ await Promise.all(requiredFiles.map((file) => access(path.join(root, file))));
 
 const packageJson = JSON.parse(await readFile(path.join(root, "electron/package.json"), "utf8"));
 const mainSource = await readFile(path.join(root, "electron/main.cjs"), "utf8");
+const trustedPreloadSource = await readFile(path.join(root, "electron/axis-preload.cjs"), "utf8");
 const builderSource = await readFile(path.join(root, "electron/electron-builder.cjs"), "utf8");
 async function sourceFilesIn(directory) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true });
@@ -52,6 +53,11 @@ for (const invariant of [
 }
 for (const invariant of ["forceCodeSigning", "hardenedRuntime: isRelease", "notarize: isRelease"]) {
   if (!builderSource.includes(invariant)) throw new Error(`Missing release invariant: ${invariant}`);
+}
+for (const invariant of [".wv-overlay", "/api/proxy", "axis-sidebar", 'hasAttribute("aria-expanded")']) {
+  if (!trustedPreloadSource.includes(invariant)) {
+    throw new Error(`Missing hosted rollout compatibility invariant: ${invariant}`);
+  }
 }
 
 for (const file of sourceFiles) {

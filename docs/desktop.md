@@ -32,6 +32,14 @@ IPC requests are accepted only from the configured AXIS origin. Third-party
 pages run in sandboxed `WebContentsView` instances with no preload, Node
 integration, or AXIS IPC bridge.
 
+The trusted preload includes a narrow rolling-deploy compatibility bridge. If
+the hosted AXIS origin is still serving the previous WebViewer implementation,
+it detects that modal, hands its URL to the isolated Chromium window, and closes
+the legacy iframe. It also preserves the two-state sidebar preference until the
+hosted sidebar update reaches production. The bridge disables itself when it
+detects the new hosted controls, so desktop releases do not depend on a
+simultaneous web deployment.
+
 ## Reader behavior
 
 - Desktop: links open in isolated Chromium browser windows with address,
