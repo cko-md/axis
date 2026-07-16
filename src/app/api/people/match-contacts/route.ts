@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiJSON } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
@@ -82,7 +83,19 @@ export async function POST(req: NextRequest) {
   const contacts = Array.isArray(body.contacts) ? body.contacts.filter((c) => c && typeof c.id === "string" && c.name) : [];
   if (contacts.length === 0) return NextResponse.json({ suggestions: [] });
 
-  const { data: peopleRows } = await supabase.from("people").select("id, name, tag").eq("user_id", user.id);
+  const { data: peopleRows, error: peopleError } = await supabase
+    .from("people")
+    .select("id, name, tag")
+    .eq("user_id", user.id);
+  if (peopleError) {
+    Sentry.captureException(peopleError, {
+      tags: { area: "people", route: "/api/people/match-contacts", op: "load_people" },
+    });
+    return NextResponse.json(
+      { error: "People could not be loaded for contact matching.", code: "people_unavailable" },
+      { status: 503 },
+    );
+  }
   const people = (peopleRows ?? []) as ExistingPerson[];
   const peopleByNormName = new Map(people.map((p) => [normalizeName(p.name), p]));
 
@@ -105,11 +118,19 @@ export async function POST(req: NextRequest) {
   if (ambiguous.length > 0 && people.length > 0 && (client || hasGemini)) {
     try {
       const { matches, tags } = await aiMatch(client, people, ambiguous);
+      const ambiguousIds = new Set(ambiguous.map((contact) => contact.id));
       const matchedIds = new Set<string>();
       for (const m of matches) {
+        if (!ambiguousIds.has(m.contactId) || matchedIds.has(m.contactId)) continue;
         const person = people.find((p) => p.id === m.personId);
         if (!person) continue;
-        suggestions.push({ contactId: m.contactId, type: "merge", matchedPersonId: person.id, matchedPersonName: person.name, confidence: m.confidence });
+        suggestions.push({
+          contactId: m.contactId,
+          type: "merge",
+          matchedPersonId: person.id,
+          matchedPersonName: person.name,
+          confidence: Math.max(0, Math.min(1, m.confidence)),
+        });
         matchedIds.add(m.contactId);
       }
       const tagByContact = new Map(tags.map((t) => [t.contactId, t.tag]));
