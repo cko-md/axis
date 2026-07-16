@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { optionalEnv } from "@/lib/env";
 
@@ -23,36 +24,42 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Maintenance database unavailable" }, { status: 503 });
   }
   const results: Record<string, unknown> = {};
+  const maintenanceFailure = (operation: string, error: unknown) => {
+    Sentry.captureException(error instanceof Error ? error : new Error("Maintenance operation failed"), {
+      tags: { area: "cron", route: "/api/cron/daily", operation },
+    });
+    return { ok: false, error: "MAINTENANCE_OPERATION_FAILED", operation };
+  };
 
   // 1. Mark overdue tasks via SECURITY DEFINER function
   const { data: overdueCount, error: tasksError } = await supabase.rpc("mark_overdue_tasks");
   results.overdue_tasks = tasksError
-    ? { error: tasksError.message }
+    ? maintenanceFailure("mark_overdue_tasks", tasksError)
     : { updated: overdueCount ?? 0 };
 
   // 2. Delete old routed signals via SECURITY DEFINER function
   const { data: deletedCount, error: signalsError } = await supabase.rpc("cleanup_old_signals");
   results.old_signals_deleted = signalsError
-    ? { error: signalsError.message }
+    ? maintenanceFailure("cleanup_old_signals", signalsError)
     : { deleted: deletedCount ?? 0 };
 
   // 3. Clean up expired WebAuthn challenges
   const { data: challengesDeleted, error: challengesError } = await supabase.rpc("cleanup_expired_challenges");
   results.expired_challenges_deleted = challengesError
-    ? { error: challengesError.message }
+    ? maintenanceFailure("cleanup_expired_challenges", challengesError)
     : { deleted: challengesDeleted ?? 0 };
 
   // 4. Purge old done tasks (> 6 months, per migration 022)
   const { data: purgedCount, error: purgeError } = await supabase.rpc("purge_old_done_tasks");
   results.old_done_tasks_purged = purgeError
-    ? { error: purgeError.message }
+    ? maintenanceFailure("purge_old_done_tasks", purgeError)
     : { deleted: purgedCount ?? 0 };
 
   // 4b. Expire stale pending approvals (hygiene; the execute gate already
   // refuses expired approvals — this just keeps the queue accurate).
   const { data: expiredApprovals, error: approvalsError } = await supabase.rpc("expire_stale_approvals");
   results.stale_approvals_expired = approvalsError
-    ? { error: approvalsError.message }
+    ? maintenanceFailure("expire_stale_approvals", approvalsError)
     : { updated: expiredApprovals ?? 0 };
 
   // 5. Dependency freshness check (sample 3 key packages)
@@ -91,10 +98,16 @@ export async function GET(req: NextRequest) {
   // 6. Supabase health check
   try {
     const { error } = await supabase.from("notes").select("id").limit(1);
-    results.supabase_health = error ? { ok: false, error: error.message } : { ok: true };
+    results.supabase_health = error
+      ? maintenanceFailure("supabase_health", error)
+      : { ok: true };
   } catch (e) {
-    results.supabase_health = { ok: false, error: String(e) };
+    results.supabase_health = maintenanceFailure("supabase_health", e);
   }
+
+  const hasFailures = Object.values(results).some(
+    (result) => result && typeof result === "object" && "ok" in result && result.ok === false,
+  );
 
   // 7. Store run in health_check_runs (migration 016)
   const runSummary = {
@@ -103,12 +116,15 @@ export async function GET(req: NextRequest) {
     old_signals_deleted: results.old_signals_deleted,
     dependency_check: results.dependency_check,
     supabase_health: results.supabase_health,
-    all_ok: !!(results.supabase_health as { ok: boolean }).ok,
+    all_ok: !hasFailures,
   };
   const { error: healthInsertError } = await supabase.from("health_check_runs").insert(runSummary);
   if (healthInsertError) {
-    console.error("[cron] health_check_runs insert failed:", healthInsertError.message);
+    maintenanceFailure("persist_health_check", healthInsertError);
   }
 
-  return NextResponse.json({ ok: true, message: "Maintenance complete", results });
+  return NextResponse.json(
+    { ok: !hasFailures && !healthInsertError, message: "Maintenance complete", results },
+    { status: hasFailures || healthInsertError ? 502 : 200 },
+  );
 }
