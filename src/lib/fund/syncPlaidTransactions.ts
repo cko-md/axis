@@ -54,7 +54,12 @@ export async function syncPlaidTransactions(
   if (!res) return { error: "PLAID_TXN_FETCH_FAILED" };
   if (!res.ok) return { error: "PLAID_TXN_FETCH_FAILED" };
 
-  const data = await res.json();
+  let data: { transactions?: PlaidTxn[] };
+  try {
+    data = (await res.json()) as { transactions?: PlaidTxn[] };
+  } catch {
+    return { error: "PLAID_INVALID_RESPONSE" };
+  }
   const transactions = (data.transactions ?? []) as PlaidTxn[];
   if (!transactions.length) return { synced: 0 };
 
@@ -84,9 +89,10 @@ export async function syncPlaidTransactions(
     .from("fund_bank_transactions")
     .upsert(rows, { onConflict: "user_id,plaid_transaction_id" });
 
-  if (error) return { error: error.message };
+  if (error) return { error: "PLAID_TRANSACTION_PERSIST_FAILED" };
 
-  await tagTransfers(admin, userId);
+  const transferError = await tagTransfers(admin, userId);
+  if (transferError) return { error: "PLAID_TRANSFER_TAG_PERSIST_FAILED" };
   return { synced: rows.length };
 }
 
@@ -96,15 +102,16 @@ export async function syncPlaidTransactions(
  * window are tagged as transfers and excluded from spend/income totals.
  * Never an AI judgment call.
  */
-async function tagTransfers(admin: SupabaseClient, userId: string) {
+async function tagTransfers(admin: SupabaseClient, userId: string): Promise<string | null> {
   const since = new Date(Date.now() - 35 * 86400000).toISOString().slice(0, 10);
-  const { data: txns } = await admin
+  const { data: txns, error: transactionReadError } = await admin
     .from("fund_bank_transactions")
     .select("id, account_id, amount, posted_date, is_transfer")
     .eq("user_id", userId)
     .gte("posted_date", since);
 
-  if (!txns || txns.length < 2) return;
+  if (transactionReadError) return "PLAID_TRANSFER_SCAN_FAILED";
+  if (!txns || txns.length < 2) return null;
 
   const toTag = new Set<string>();
   for (let i = 0; i < txns.length; i++) {
@@ -126,6 +133,8 @@ async function tagTransfers(admin: SupabaseClient, userId: string) {
   }
 
   if (toTag.size > 0) {
-    await admin.from("fund_bank_transactions").update({ is_transfer: true }).in("id", [...toTag]);
+    const { error } = await admin.from("fund_bank_transactions").update({ is_transfer: true }).in("id", [...toTag]);
+    if (error) return "PLAID_TRANSFER_TAG_PERSIST_FAILED";
   }
+  return null;
 }

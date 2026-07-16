@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/crypto";
 import { verifyPlaidWebhook } from "../_lib";
@@ -33,13 +34,19 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ ok: true, skipped: true }); // no SUPABASE_SERVICE_ROLE_KEY configured
 
-  const { data: connection } = await admin
+  const { data: connection, error: connectionError } = await admin
     .from("fund_connections")
     .select("id, user_id, access_token_enc")
     .eq("provider", "plaid")
     .eq("item_id", body.item_id)
     .eq("status", "linked")
     .maybeSingle();
+  if (connectionError) {
+    Sentry.captureException(connectionError, {
+      tags: { area: "fund", provider: "plaid", operation: "load_webhook_connection" },
+    });
+    return NextResponse.json({ error: "CONNECTION_LOOKUP_FAILED" }, { status: 502 });
+  }
 
   if (!connection?.access_token_enc) return NextResponse.json({ ok: true, skipped: true });
   const accessToken = decrypt(connection.access_token_enc);
@@ -47,7 +54,10 @@ export async function POST(request: NextRequest) {
 
   const result = await syncPlaidTransactions(admin, connection.user_id, connection.id, accessToken);
   if ("error" in result) {
-    console.error("[plaid/webhook] sync failed:", result.error);
+    Sentry.captureMessage("Plaid webhook sync failed", {
+      level: "error",
+      tags: { area: "fund", provider: "plaid", operation: "webhook_sync", error_code: result.error },
+    });
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   }
   return NextResponse.json({ ok: true, synced: result.synced });
