@@ -44,7 +44,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-        run: npm run build 2>&1 | tee build.log
+        # Preserve next-build's exit status through tee; otherwise a failed
+        # prerender can appear green until a later log parser happens to fail.
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee build.log
 
       - name: Bundle budget
         # Deterministic perf gate (§11): fails on a total static-JS regression
