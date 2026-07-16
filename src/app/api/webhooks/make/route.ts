@@ -81,6 +81,9 @@ export async function POST(request: NextRequest) {
     result: "success",
   });
   if (insertError) {
+    if (insertError.code === "23505") {
+      return NextResponse.json({ ok: true, deduped: true });
+    }
     Sentry.captureException(insertError, {
       tags: { area: "integrations", provider: "make", operation: "webhook_audit_insert" },
     });
