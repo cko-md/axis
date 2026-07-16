@@ -2,6 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000";
 const authStatePath = process.env.E2E_AUTH_STATE ?? ".auth/e2e-user.json";
+const webServerCommand =
+  process.env.E2E_WEB_SERVER_COMMAND ??
+  "npm run dev -- --hostname 127.0.0.1";
 const authProjects = process.env.AXIS_E2E_AUTH
   ? [
       {
@@ -29,7 +32,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: "npm run dev -- --hostname 127.0.0.1",
+        command: webServerCommand,
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

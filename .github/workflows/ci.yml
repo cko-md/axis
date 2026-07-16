@@ -34,6 +34,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Release safety manifest
+        run: npm run release:validate
+
       - name: Unit tests
         run: npm run test
 
@@ -80,3 +83,53 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
         run: npx playwright test --project=public tests/e2e/ci-smoke.spec.ts
+
+  e2e-authenticated:
+    # Secret-free authenticated browser gate. A fresh local Supabase instance
+    # applies the complete migration history, then an ephemeral confirmed user
+    # exercises every authenticated Playwright spec against a production build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pin the local database/runtime contract for reproducible migrations.
+          version: 2.109.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start local Supabase and apply migrations
+        # Browser coverage needs Auth, Postgres, PostgREST, Storage, Realtime,
+        # and the API gateway. Exclude development-only services to keep the
+        # clean runner boot bounded without weakening the app-facing stack.
+        run: supabase start -x studio,postgres-meta,imgproxy,mailpit,edge-runtime,vector
+
+      - name: Derive local Data API grants from RLS policies
+        run: supabase db query --local --file scripts/sql/bootstrap-local-e2e-role-grants.sql
+
+      - name: Prepare authenticated E2E environment
+        run: node scripts/bootstrap-authenticated-e2e.mjs "$GITHUB_ENV"
+
+      - name: Build against local Supabase
+        run: npm run build
+
+      - name: Authenticated browser suite
+        env:
+          E2E_WEB_SERVER_COMMAND: npm run start -- --hostname 127.0.0.1 --port 3000
+        run: npx playwright test --project=authenticated
+
+      - name: Tear down local Supabase
+        if: always()
+        run: supabase stop --no-backup
+        continue-on-error: true
