@@ -8,6 +8,7 @@ import { useObjectives } from "@/lib/hooks/useObjectives";
 import { useToast } from "@/components/ui/Toast";
 import { createClient } from "@/lib/supabase/client";
 import { buildAiRequestBody } from "@/lib/ai/actions";
+import { localDayIso } from "@/lib/calendar/event-dates";
 
 const DEBRIEF_FOLDER = "Debrief";
 const REMINDER_KEY   = "debrief-reminder";
@@ -681,7 +682,11 @@ export function DebriefModule() {
 
   const scheduleReminder = async () => {
     const next    = nextOccurrence(reminderDay, reminderHour);
-    const dateStr = next.toISOString().split("T")[0];
+    // Derive the deadline from the LOCAL calendar day. next is a local Date;
+    // toISOString() would roll evening reminders (e.g. 8 PM in a UTC-negative
+    // zone) to the next UTC day, storing a deadline that disagrees with the
+    // day shown to the user and surfacing the task on the wrong Agenda day.
+    const dateStr = localDayIso(next);
     const label   = next.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
     const hourFmt = reminderHour === 0 ? "12 AM" : reminderHour < 12 ? `${reminderHour} AM` : reminderHour === 12 ? "12 PM" : `${reminderHour - 12} PM`;
     const title = `Weekly Debrief · Review + Plan — ${DAY_NAMES[reminderDay]} ${hourFmt}`;
@@ -697,11 +702,23 @@ export function DebriefModule() {
       },
     };
 
-    let task = reminderTaskId && tasks.some((t) => t.id === reminderTaskId)
-      ? await updateTask(reminderTaskId, taskPatch)
-      : null;
+    const hasExistingTask =
+      Boolean(reminderTaskId) && tasks.some((t) => t.id === reminderTaskId);
 
-    if (!task) {
+    let task: Awaited<ReturnType<typeof updateTask>> = null;
+    if (hasExistingTask && reminderTaskId) {
+      // Update the existing reminder in place. A null result here means the
+      // update genuinely failed (transient error / RLS) — the task still
+      // exists, so we must NOT delete it. Surface the error and leave the
+      // existing reminder intact.
+      task = await updateTask(reminderTaskId, taskPatch);
+      if (!task) {
+        toast("Could not update your reminder — it was left unchanged.", "error", "Debrief");
+        return;
+      }
+    } else {
+      // No live task to update (never scheduled, or the stored id is stale).
+      // Clear any stale id, then create a fresh reminder task.
       if (reminderTaskId) await deleteTask(reminderTaskId);
       task = await addTask(taskPatch as Parameters<typeof addTask>[0]);
     }
