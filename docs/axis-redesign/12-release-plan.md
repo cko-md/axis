@@ -52,6 +52,8 @@ prints SHA-256 checksums; paste that output into the release record.
 - `supabase migration list --linked` is captured before mutation.
 - The operator has the Supabase CLI and authorized linked-project access.
   The commands below were validated against Supabase CLI 2.109.1.
+- `SUPABASE_DB_URL` is loaded from the approved secret manager for the intended
+  project and is never echoed, logged, or written to the repository.
 - No one runs `supabase db push`; the repository's historical migration tracking
   differs from lexical filenames. Apply only the named files below.
 
@@ -68,22 +70,27 @@ For each file, execute the SQL, confirm success, then mark only that exact
 version applied:
 
 ```bash
-supabase db query --linked --file supabase/migrations/202607161300_task_approval_atomic.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202607161300_task_approval_atomic.sql
 supabase migration repair 202607161300 --status applied --linked
 
-supabase db query --linked --file supabase/migrations/202607161302_webauthn_atomic.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202607161302_webauthn_atomic.sql
 supabase migration repair 202607161302 --status applied --linked
 
-supabase db query --linked --file supabase/migrations/202607161400_routine_resume_claims.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202607161400_routine_resume_claims.sql
 supabase migration repair 202607161400 --status applied --linked
 ```
 
 Then run:
 
 ```bash
-supabase db query --linked --file scripts/sql/verify-20260716-expand.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/sql/verify-20260716-expand.sql
 supabase migration list --linked
 ```
+
+These files are multi-statement scripts. The prepared-query implementation
+behind `supabase db query --file` is not a valid executor for this release wave.
+Use the controlled `psql` path above or another explicitly validated
+multi-statement-capable PostgreSQL executor.
 
 The expansion verifier intentionally fails if the contract removed the legacy
 owner-write policies too early. Local behavioral validators remain mandatory:
@@ -134,9 +141,9 @@ npm run release:validate -- \
 Apply and verify:
 
 ```bash
-supabase db query --linked --file supabase/migrations/202607161401_task_approval_lockdown.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202607161401_task_approval_lockdown.sql
 supabase migration repair 202607161401 --status applied --linked
-supabase db query --linked --file scripts/sql/verify-20260716-contract.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/sql/verify-20260716-contract.sql
 supabase migration list --linked
 ```
 
@@ -167,3 +174,18 @@ and blocks release completion.
 The release is complete only after the contract read-back, production workflow
 smoke, Sentry review, migration-history capture, and rollback evidence are
 attached to the PR/release record.
+
+## PR #195 pre-production evidence
+
+The redesign branch has green local production gates at revision
+`89705a4a`: 1072 Vitest tests across 166 files, clean typecheck/lint,
+`release:validate`, a 163-page production build with all 182 route budgets and
+4017/4400 KB aggregate static JS, public Playwright 13/13, and authenticated
+Playwright 14/14 including auth setup. Hosted expansion migrations are applied
+and read back; the contract migration remains intentionally pending.
+
+Production merge remains blocked until the exact final PR head has green CI and
+an isolated Vercel preview workflow, a Sentry operator records the release- and
+environment-scoped Issues result, required provider/manual security checks are
+signed off, merge authorization is explicit, and the post-live contract stage
+has a named recovery owner.

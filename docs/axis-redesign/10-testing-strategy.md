@@ -154,6 +154,12 @@ also runs public smoke and a secret-free authenticated suite against a fresh
 local Supabase stack. The workflow result is the authority; a local pass does
 not substitute for a red CI job.
 
+Database bootstrap and verifier files contain multiple statements and must run
+through a script-capable PostgreSQL client. Clean-runner CI uses
+`psql -v ON_ERROR_STOP=1 -f -` inside the local database container. Do not use
+`supabase db query --file` for these files: that path submits the script as one
+prepared statement and rejects valid multi-command SQL.
+
 Environment responsibilities:
 
 | Environment | What it proves |

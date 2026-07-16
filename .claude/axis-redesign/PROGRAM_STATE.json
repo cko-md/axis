@@ -1,9 +1,9 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Phases 9-14 now close the local implementation scope: model navigation and fallback provenance are fail-closed; task/approval/passkey/routine lifecycle mutations use atomic server-owned contracts; enrolled MFA is enforced server-side after passkey or password AAL1 sessions; rebalance proposal v2 is simulation-only while historical v1 semantics remain preserved; Notes is route-split; the operate loop emits a closed typed event catalog; authenticated CI provisions a fresh local Supabase stack and verifies the final lifecycle privilege contract; and release, rollback, migration read-back, deployment ownership, and architecture specifications are explicit. Current local gates are green at 1064 tests / 165 files, clean tsc/lint, release validation, local contract/read-only-role verification, and offline moderate dependency audit. The last completed Phase 11 production build compiled 163 pages with 182/182 route budgets and 4017/4400 KB aggregate static JS; final current-HEAD build/browser revalidation, PR CI, Vercel preview workflows, and post-preview Sentry review remain production gates and are not claimed here.",
+  "branch_note": "Resumed system-redesign branch (PR #195). The documented Phase 0-14 implementation scope is complete at reviewed application revision 89705a4a507a3e453d9c965452815b01c176ebbb: safety-critical lifecycle mutations are atomic and server-owned, enrolled MFA is enforced server-side, rebalance v2 is simulation-only, workspaces and Notes are route-split, telemetry is typed/content-free, CI provisions fresh Supabase and verifies the final privilege contract, and release/rollback/migration ownership is explicit. Local gates are green at 1072 tests / 166 files, clean tsc/lint, release validation, production build, public 13/13, authenticated 14/14, local contract/read-only-role verification, and offline moderate audit. Exact-head GitHub run 29531283377 passed verify/public/authenticated jobs; Vercel preview dpl_AgKR1xhhQc4XyqSi4hteZ2ehVW5d is Ready and keeps auth redirects on the preview origin. Sentry Issues access, dashboard/alerts, manual provider/security checks, merge authorization, and the post-live contract migration remain explicit production blockers.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+  "revision_reviewed": "89705a4a507a3e453d9c965452815b01c176ebbb",
   "updated": "2026-07-16",
   "governance": {
     "source": "AGENTS.md",
@@ -19,11 +19,14 @@
   "baseline_health": {
     "typecheck": "pass",
     "lint": "pass (0 errors, 0 warnings)",
-    "unit_tests": "1064 passed / 165 files",
-    "production_build": "last completed after Phase 11: pass (163 pages); 182/182 route budgets and 4017/4400 KB aggregate budget pass. Final current-HEAD build revalidation is in progress and is not yet claimed.",
-    "authenticated_e2e": "last recorded production-mode suite pass: 13/13. Fresh-stack GitHub CI and current-HEAD local/preview reruns remain pending.",
-    "public_e2e": "last recorded production-mode suite pass: 13/13. Current-HEAD local/preview rerun remains pending.",
+    "unit_tests": "1072 passed / 166 files",
+    "production_build": "pass at reviewed application revision: 163 pages; 182/182 route budgets and 4017/4400 KB aggregate static-JS budget pass",
+    "authenticated_e2e": "pass: local production-mode 14/14 including auth setup; exact-head GitHub fresh-Supabase job passed",
+    "public_e2e": "pass: local production-mode 13/13; exact-head GitHub public-smoke job passed",
     "release_validation": "pass: expansion plan/read-back and authorized contract plan validate; offline npm audit at moderate reports 0 vulnerabilities",
+    "github_ci": "pass: run 29531283377; verify 2m50s, public 1m24s, authenticated 5m40s",
+    "vercel_preview": "pass for automatable unauthenticated scope: dpl_AgKR1xhhQc4XyqSi4hteZ2ehVW5d Ready; public pages 200, /command preview-local 307, guarded APIs 401, unknown route 404, and exact-deployment 5xx/error log queries return 0",
+    "sentry_validation": "blocked: release registration is visible, but the available token receives HTTP 403 for the release/environment Issues query; repository owner or Sentry administrator must record the final result",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -34,16 +37,16 @@
     "4_financial_domain": "complete \u2014 deterministic money + multi-currency minor-unit table + FX conversion with provenance (currency.ts/fx.ts), tax lots & corporate actions (taxLots.ts), provenance populated from all write paths (manual holdings/liabilities, order ticket, Plaid txn sync + FundSpendingModule freshness badge), holdings reconciliation wired to /api/fund/holdings + indicator in the holdings table.",
     "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is bound to a real WebAuthn passkey assertion; self-attestable state is removed; middleware enforces enrolled MFA server-side for AAL1 sessions while allowing only the exact challenge/verify bootstrap; adversarial review is complete with per-approval challenge binding and per-user rate limits. RESIDUAL (needs a human): independent security sign-off + manual authenticator ceremony.",
     "6_design_system": "complete \u2014 consolidated semantic status plus typography/surface/motion/interaction contracts; runtime font aliases preserve Interface Studio choices; contrast tests cover every theme/accent preset; shared Button/Seg/Modal/ThemeSwitcher/Toast accessibility is hardened; and /design-system is a production component gallery with authenticated keyboard/theme/reduced-motion/responsive browser coverage.",
-    "7_workspace_shell": "implemented; external production gate pending \u2014 canonical provider-neutral identities for notes, durable tasks, Agenda tasks, people, signals, approvals, routine runs, accounts, and holdings; owner-scoped resolver projections, typed references/backlinks, aggregate explicit-usage frecency, partial-source search, and safe previews; a strict URL codec for one primary surface plus at most two secondary evidence panes with bounded independent history, truthful total widths, reload/route/auth continuity, accessible desktop separators and compact tabs; separate search and command dialogs with scoped policy metadata and visible failures. Entity-detail links are emitted only where the owning route consumes them; other kinds navigate honestly to their module. Local unit/type/lint/build, route-budget, public, and expanded authenticated Phase 7 workflow gates are green. Vercel preview and post-preview Sentry review remain unclaimed.",
+    "7_workspace_shell": "implemented; hosted observability/manual gate pending \u2014 canonical provider-neutral identities, owner-scoped resolver projections, typed references/backlinks, explicit-usage frecency, partial-source search, safe previews, and strict bounded URL-restorable evidence panes are complete. Local production-mode workspace workflows and exact-head clean-runner browser jobs are green; the exact Vercel preview is Ready and request-local redirects are verified. Full authenticated preview workflow coverage remains constrained by Vercel protection, and Sentry review remains blocked by access.",
     "8_core_modules": "complete for the documented redesign scope \u2014 Tasks + Approvals workbenches; pure tested TWR/MWR/allocation math and Investing concentration views; account connection health/provenance; deterministic Activity categorization/anomaly rules; cited owner-scoped Research; approval expiry; inspectable Memory Center + confirmed Financial Operating Profile; and a severity-tiered Need-to-Know queue with task conversion, resolution memory, and honest empty/error states. Additional product depth can proceed as later feature work.",
     "9_agent_runtime": "complete for the documented implementation scope \u2014 task and approval transitions are versioned compare-and-swap mutations with atomic activity/audit writes; approval scope, challenge binding, expiry, and financial freshness are server-enforced; WebAuthn registration/authentication uses exact one-time challenges and atomic sign counters; routine resume uses leases, fencing tokens, idempotent task materialization, replayed completed outputs, and atomic terminal approval consumption. Rebalance proposal v2 is an explicitly simulation-only, fail-closed draft workflow with strict input/rate/quote/currency/freshness checks, while persisted v1 semantics remain available for historical runs. Manual hardware-authenticator ceremony remains an external human gate.",
     "10_integrations": "complete for the documented code and architecture scope; live-connection evidence remains partial \u2014 integration risk tiers, provider-to-domain adapters, Result contracts, retry/write-once policy, cache-first Mail, encrypted Make outbox, webhook hardening, market/Plaid/Public boundaries, ownership checks, and safe provider errors are implemented and documented. The active Composio Gmail connection passed read-only list/detail validation without exposing content; direct Gmail, direct Outlook, Composio Outlook, live Make writes, and a health-device provider remain external validation/decision gates.",
-    "11_performance": "complete for the scoped profiling pass \u2014 CI enforces aggregate static-JS and per-route first-load budgets; Command, Vitality, Mail, Dispatch, and Notes interactive workspaces are deferred behind route-level client boundaries while AppShell and stable loading surfaces remain server-rendered. The completed Phase 11 build compiled 163 pages, passed 182/182 route budgets, and used 4017/4400 KB aggregate static JS. Final current-HEAD build revalidation remains part of the production gate.",
-    "12_testing": "complete for the automated test-system scope \u2014 1064 unit/integration tests pass across 165 files; tsc and lint are clean; production-mode public and authenticated suites have a recorded 13/13 baseline. PR CI pins Supabase CLI 2.109.1, starts a fresh local stack, derives API-role grants through SQL, reasserts and verifies the final lifecycle privilege contract including authenticated passkey DML denials, provisions a disposable confirmed user, runs a production Next server, and executes auth setup plus all 13 authenticated specifications. The clean-runner PR result, current-HEAD local browser rerun, provider-backed matrix, and visual regression remain external/final gates.",
-    "13_observability": "complete for instrumentation and runbook scope \u2014 model actions use an internal navigation allowlist and heuristic/provider fallbacks carry explicit degraded provenance; the operate loop emits only a closed Zod-validated event catalog with allowlisted enums, identifiers, counts, and durations; rejected telemetry becomes a fixed safe record; approval and routine events use safe request IDs plus normalized stage/error metadata; raw provider/private content is excluded. Release-scoped Sentry/Vercel queries are documented. Actual preview-window query evidence plus dashboard/alert creation remain external operational gates.",
-    "14_cicd": "complete for delivery-system implementation \u2014 Vercel Git integration is the sole production deployment owner; duplicate deploy automation is removed; daily-health commands preserve pipe failures, HTTP 000, step exit status, and Monday schedule isolation; weekly moderate dependency audit blocks regressions; release:validate pins expansion/contract checksums and SQL read-backs; expand/contract/rollback ownership and ordering are documented. The final contract drops the legacy FOR ALL passkey policy, restores owner SELECT only, and revokes browser lifecycle DML; the CI bootstrap reasserts and executes that contract verifier. Hosted expansion migrations 202607161300, 202607161302, and 202607161400 are applied and verified; migration 202607161401 intentionally remains pending until the compatible application revision is live on production. PR CI, preview validation, Sentry review, merge/deploy authorization, and post-deploy contract application/read-back are the remaining production gates."
+    "11_performance": "complete for the scoped profiling pass \u2014 CI enforces aggregate static-JS and per-route first-load budgets; Command, Vitality, Mail, Dispatch, and Notes interactive workspaces are deferred behind route-level client boundaries while AppShell and stable loading surfaces remain server-rendered. The reviewed application build compiled 163 pages, passed 182/182 route budgets, and used 4017/4400 KB aggregate static JS locally and on the exact-head verify job.",
+    "12_testing": "complete for the automated test-system scope \u2014 1072 unit/integration tests pass across 166 files; tsc and lint are clean; local production-mode public 13/13 and authenticated 14/14 pass. Exact-head GitHub run 29531283377 passed verify, public smoke, and a fresh-Supabase authenticated job that applies migrations, derives grants, verifies the final lifecycle privilege contract, provisions a disposable user, builds production Next, and runs all authenticated specifications. Provider-backed, protected-preview authenticated, visual-regression, and manual authenticator gates remain external.",
+    "13_observability": "complete for instrumentation and runbook scope \u2014 model actions use an internal navigation allowlist and heuristic/provider fallbacks carry explicit degraded provenance; the operate loop emits only a closed Zod-validated event catalog with allowlisted enums, identifiers, counts, and durations; rejected telemetry becomes a fixed safe record; approval and routine events use safe request IDs plus normalized stage/error metadata; raw provider/private content is excluded. Exact-preview Vercel runtime-log queries return 0 status-5xx and 0 error-level records. Sentry release registration is visible, but the release/environment Issues query returns HTTP 403 with the available token; dashboard/alert creation and operator-owned regression evidence remain open.",
+    "14_cicd": "complete for delivery-system implementation \u2014 Vercel Git integration is the sole production deployment owner; duplicate deploy automation is removed; daily-health commands preserve pipe failures, HTTP 000, step exit status, and Monday schedule isolation; weekly moderate dependency audit blocks regressions; release:validate pins expansion/contract checksums and SQL read-backs; multi-statement migration/verifier files require a script-capable psql executor; expand/contract/rollback ownership and ordering are documented. Exact-head CI and Vercel preview are green, and preview-local redirect isolation is fixed. Hosted expansions 202607161300, 202607161302, and 202607161400 are applied and verified; 202607161401 intentionally remains pending until the compatible application revision is live. Sentry review, manual/provider sign-offs, merge/deploy authorization, and post-deploy contract application/read-back remain production gates."
   },
-  "convergence_note": "The documented Phase 0-14 implementation scope is complete on this branch and its local unit/type/lint/release/dependency gates are green. This is not yet a production completion claim: the current-HEAD build and browser suites, clean-runner PR CI, Vercel preview workflows, post-preview Sentry regression query, manual WebAuthn ceremony, unavailable live-provider paths, merge/deploy authorization, and the post-compatible-deploy 202607161401 contract migration/read-back remain explicit gates. Expansion migrations are hosted and backward-compatible; the contract migration is deliberately not applied early.",
+  "convergence_note": "The documented Phase 0-14 implementation scope is complete at reviewed application revision 89705a4a507a3e453d9c965452815b01c176ebbb. Local unit/type/lint/release/build/public/authenticated gates, exact-head clean-runner CI, hosted expansion read-back, Vercel Ready status, and preview-origin isolation are green. This is not yet a production completion claim: Sentry Issues access/dashboard evidence, protected-preview authenticated workflows, manual WebAuthn and independent security sign-off, unavailable live-provider paths, merge/deploy authorization, Supabase/Tembo operational decisions, and the post-compatible-deploy 202607161401 contract migration/read-back remain explicit gates. The contract migration is deliberately not applied early.",
   "waves": [
     {
       "id": "4.1",
@@ -1153,7 +1156,7 @@
     {
       "id": "7.2-7.4",
       "title": "Canonical entity search, references, and URL-restorable workspace",
-      "status": "implemented; local production gates green; Vercel preview and post-preview Sentry review pending",
+      "status": "implemented; automated local/CI/preview gates green; protected-preview and Sentry operator gates pending",
       "files_added": [
         "src/lib/entities/types.ts",
         "src/lib/entities/registry.ts",
@@ -1215,7 +1218,7 @@
         "src/lib/supabase/database.types.ts"
       ],
       "note": "Adds a provider-neutral identity overlay across nine existing owner domains without copying private content into a universal table. Cached owner-scoped resolvers expose strict safe projections; search returns inspectable text/usage/freshness ranking and explicit partial-source status; previews show typed outgoing references and backlinks. The only new durable data is user-owned relationship edges plus aggregate explicit-use counters, mutated through auth.uid()-derived ownership-validating RPCs. AppShell now restores a strict bounded ws URL topology with one primary module surface and up to two evidence panes, independent back/forward history, keyboard/pointer resizing, compact keyboard tabs, route/auth continuity, and safe parse recovery. Search and commands are distinct controlled dialogs; previews do not record usage, explicit activation does, links are owner-checked, pane commands are contextual READ actions, and the concentration routine remains an owner-checked INTERNAL_WRITE with visible failure feedback.",
-      "tests": "900 tests pass across 143 files after the main merge and PREF-001 fix; tsc clean; lint 0 errors / 0 warnings; production build compiles 163 pages; 182/182 route budgets and 3996/4400 KB aggregate bundle budget pass; full authenticated production-mode Playwright passes 13/13; public production-mode Playwright passes 13/13. Vercel preview and post-preview Sentry review remain pending.",
+      "tests": "Historical landing evidence: 900 tests across 143 files, production build, route/bundle budgets, and authenticated/public production-mode Playwright green. Current branch evidence: 1072 tests across 166 files, exact-head clean-runner verify/public/authenticated jobs green, local authenticated 14/14, public 13/13, and exact Vercel preview route/log validation green. Protected-preview authenticated sign-off and Sentry Issues review remain pending.",
       "verification": "npm run test + npx tsc --noEmit + npm run lint + npm run build + bundle/per-route budgets + authenticated workspace/Operate Playwright (search/preview/open usage/reference/backlink create-delete/pane and browser history/reload/two-pane sizing and cap/partial and retry errors/keyboard resize/commands/full-page/mobile tabs) + public Playwright + local migration apply/idempotent reapply/db lint/exact grants/two-user isolation + hosted Supabase migration/read-back/exact grants/two-user rollback isolation probe"
     },
     {
@@ -1327,7 +1330,7 @@
     {
       "id": "12.3",
       "title": "Fresh-Supabase authenticated browser gate in PR CI",
-      "status": "landed; first clean-runner PR execution pending",
+      "status": "landed; clean-runner execution green",
       "revision": "0236eac086139d26db3d4baf246225f5e5dcadec",
       "files_added": [
         "scripts/bootstrap-authenticated-e2e.mjs",
@@ -1339,8 +1342,8 @@
         "playwright.config.ts"
       ],
       "note": "PR CI pins Supabase CLI 2.109.1, starts a clean local stack, applies RLS-derived grants, creates a disposable confirmed user, runs a production Next server, executes authentication setup, then runs all authenticated specifications. Playwright accepts an explicit CI web-server command. A regression where bootstrap could set E2E_AUTH_STATE and skip auth setup is covered.",
-      "tests": "3 Playwright configuration tests pass; test discovery lists auth setup plus 13 authenticated specifications (14 total); current full suite passes 1064 tests across 165 files",
-      "verification": "Focused Vitest + Playwright --list + YAML parse + full test/type/lint; GitHub clean-runner result remains a production gate"
+      "tests": "3 Playwright configuration tests pass; test discovery lists auth setup plus 13 authenticated specifications (14 total); GitHub clean-runner public and authenticated jobs pass; current full suite passes 1072 tests across 166 files",
+      "verification": "Focused Vitest + Playwright --list + YAML parse + full test/type/lint + GitHub clean-runner public/authenticated jobs"
     },
     {
       "id": "12.4",
@@ -1363,6 +1366,35 @@
       "note": "Closes SEC-004 and CI-001 from the final independent blocker review. Any authenticated AAL1 session with an enrolled second factor is denied protected APIs and redirected from protected pages until MFA challenge/verify raises assurance; login remains the exact recovery surface and other MFA management routes stay blocked. The pending contract migration replaces the legacy FOR ALL passkey policy with owner SELECT only, the CI grant bootstrap reasserts lifecycle DML revocations, and the contract verifier executes real authenticated passkey insert/update/delete denial probes.",
       "tests": "8 focused assurance/middleware tests pass; local contract migration, CI-equivalent grant bootstrap, catalog read-back, and authenticated insert/update/delete denials pass; full suite passes 1064 tests across 165 files; tsc and lint clean",
       "verification": "Focused Vitest + full npm run test + npx tsc --noEmit + npm run lint + local migration/bootstrap/verify SQL + release:validate"
+    },
+    {
+      "id": "12.5",
+      "title": "Script-capable SQL execution in fresh-stack CI",
+      "status": "landed; exact-head clean-runner green",
+      "revision": "a1fa177496851f2b700fa42c3fdbd66de4104af5",
+      "files_added": [
+        "src/lib/testing/ciWorkflow.test.ts"
+      ],
+      "files_changed": [
+        ".github/workflows/ci.yml"
+      ],
+      "note": "Closes CI-002. Multi-command bootstrap and contract-verifier SQL now run through psql with ON_ERROR_STOP inside the local database container instead of the Supabase prepared-query path, which rejected valid scripts. A workflow regression test pins the executor contract.",
+      "tests": "Exact-head GitHub run 29528783685 passed verify, public smoke, and fresh-Supabase authenticated jobs; current full local suite passes 1072 tests across 166 files",
+      "verification": "Workflow regression Vitest + full local gates + exact-head GitHub clean-runner"
+    },
+    {
+      "id": "14.2",
+      "title": "Preview-local authentication redirects",
+      "status": "landed; exact preview validation green",
+      "revision": "89705a4a507a3e453d9c965452815b01c176ebbb",
+      "files_changed": [
+        "src/lib/auth/getAppOrigin.ts",
+        "src/lib/auth/getAppOrigin.test.ts",
+        "src/middleware.test.ts"
+      ],
+      "note": "Closes DEPLOY-001. Canonical provider callback origins and same-app redirect origins are separate: previews remain on their request deployment, local 127.0.0.1/localhost flows preserve the raw loopback host, and crafted Host/userinfo or out-of-range port values are rejected.",
+      "tests": "15 focused origin/middleware tests pass; full local suite passes 1072 tests across 166 files; public production-mode Playwright passes 13/13 and authenticated production-mode Playwright passes 14/14 including auth setup",
+      "verification": "Focused Vitest + full test/type/lint/release/build + public/authenticated production-mode Playwright + independent Host-injection review + exact Vercel preview /command 307 with relative /login Location"
     },
     {
       "id": "14.1",
@@ -1462,9 +1494,9 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Finish current-HEAD local gates without extrapolation: complete the production build and aggregate/per-route budget checks, then rerun the public and authenticated production-mode browser suites. The local contract migration/bootstrap/read-back and direct authenticated passkey DML denial probes are already green.",
-    "Push PR #195 and require green clean-runner CI, including the fresh-Supabase authenticated job. On the resulting Vercel preview, exercise public plus available authenticated happy/error/reload/mobile/keyboard/approval/routine paths and record the exact deployment SHA.",
-    "Run the documented release/environment-scoped Sentry regression query for the preview window and record the result. Create/verify the specified dashboards and alerts if operational access permits; otherwise retain this as an explicit human-owned production blocker.",
+    "A repository owner or Sentry administrator must run and record the final release/environment-scoped Issues query for PR #195, then create/verify the Axis Operate Loop dashboard and alerts. The available token returns HTTP 403, so no zero-regression claim is permitted.",
+    "An approved Vercel operator must complete authenticated preview happy/error/reload/mobile/keyboard/approval/routine checks through deployment protection. Public routes, guarded API responses, preview-local redirects, Ready status, and runtime-log checks are automated; protection prevents an anonymous browser workflow from substituting for this sign-off.",
+    "Obtain explicit merge/deploy authorization only after the Sentry, protected-preview, provider, and manual security gates below are signed off. Keep PR #195 draft until then.",
     "After the compatible application SHA is merged and live on production, and only with a named recovery owner plus rollback criteria, apply hosted migration 202607161401, run scripts/sql/verify-20260716-contract.sql and the hosted lifecycle validators, then record read-back evidence. Never apply the contract migration before compatible code.",
     "External provider gates remain: live-validate direct Gmail, direct Outlook, and Composio Outlook Mail parity; perform an authorized live Make write/replay check; decide and validate the health-device provider. Existing Composio Gmail read-only evidence does not substitute for these transports.",
     "Human security/operations gates remain: manual hardware WebAuthn registration/authentication/step-up ceremony and independent sign-off, Supabase leaked-password protection decision, Tembo role decision, and any provider/preview credentials needed for the unavailable paths."

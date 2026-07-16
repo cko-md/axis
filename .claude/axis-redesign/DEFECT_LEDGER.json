@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-16",
-  "revision": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+  "revision": "89705a4a507a3e453d9c965452815b01c176ebbb",
   "defects": [
     {
       "id": "FIN-001",
@@ -358,6 +358,46 @@
       "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
       "verification": "Updated migration, CI-equivalent grant bootstrap, catalog verifier, and real authenticated insert/update/delete denial probes pass against local Supabase. release:validate records contract checksum 31291dd9e3a0d9eb5aac3766015036becaebff005d417f8bf16ad3fbd37b78f7. Hosted migration 202607161401 remains intentionally unapplied until the compatible production SHA is live.",
       "similar_code_search": "The same post-bootstrap revocation covers agent_tasks, agent_task_activity, approvals, and user_passkeys so a future broad policy cannot silently restore browser lifecycle writes."
+    },
+    {
+      "id": "CI-002",
+      "severity": "high",
+      "source": "GitHub clean-runner production-gate execution",
+      "summary": "The authenticated CI bootstrap could not execute valid multi-statement SQL through Supabase's prepared-query file path",
+      "reproduction": "Run the fresh-stack authenticated job with `supabase db query --local --file scripts/sql/bootstrap-local-e2e-role-grants.sql`; PostgreSQL rejects the script with `cannot insert multiple commands into a prepared statement`",
+      "affected": [
+        ".github/workflows/ci.yml",
+        "src/lib/testing/ciWorkflow.test.ts",
+        "scripts/sql/bootstrap-local-e2e-role-grants.sql",
+        "scripts/sql/verify-20260716-contract.sql"
+      ],
+      "root_cause": "The CLI query path submitted a multi-command SQL file as one prepared statement instead of using a script-capable PostgreSQL executor",
+      "fix": "Pipe the bootstrap and verifier files into the local database container and execute them with `psql -v ON_ERROR_STOP=1 -f -`; document the same multi-statement requirement for controlled hosted execution.",
+      "regression_test": "src/lib/testing/ciWorkflow.test.ts",
+      "status": "fixed",
+      "revision_fixed": "a1fa177496851f2b700fa42c3fdbd66de4104af5",
+      "verification": "The exact-head clean-runner verify, public, and authenticated jobs passed in GitHub run 29528783685. The current full local suite passes 1072 tests across 166 files; typecheck, lint, release validation, production build, public 13/13, and authenticated 14/14 are green.",
+      "similar_code_search": "Release documentation now requires a multi-statement-capable PostgreSQL executor for every expansion, contract, and read-back SQL script instead of recommending the incompatible prepared-query path."
+    },
+    {
+      "id": "DEPLOY-001",
+      "severity": "high",
+      "source": "Vercel preview production-readiness validation",
+      "summary": "Unauthenticated same-app redirects on a preview deployment escaped to the configured production origin",
+      "reproduction": "Request `/command` on PR #195's protected preview and inspect the 307 Location header; the prior implementation redirected to the production alias because `buildAppUrl` reused the canonical OAuth origin",
+      "affected": [
+        "src/lib/auth/getAppOrigin.ts",
+        "src/lib/auth/getAppOrigin.test.ts",
+        "src/middleware.ts",
+        "src/middleware.test.ts"
+      ],
+      "root_cause": "One origin helper conflated provider-registered canonical OAuth callback URLs with request-local application redirects",
+      "fix": "Keep `getAppOrigin` canonical for OAuth redirect URIs, but build same-app redirects from the actual request origin. Preserve exact loopback hosts for local flows and validate loopback Host syntax and port bounds before trusting it.",
+      "regression_test": "src/lib/auth/getAppOrigin.test.ts; src/middleware.test.ts",
+      "status": "fixed",
+      "revision_fixed": "89705a4a507a3e453d9c965452815b01c176ebbb",
+      "verification": "Fifteen focused origin/middleware tests cover preview isolation, no-config loopback handling, and crafted Host rejection. The current full local suite and both production-mode browser projects are green. Exact new-preview redirect validation remains required before merge.",
+      "similar_code_search": "All same-app redirects using `buildAppUrl`, including middleware and OAuth completion/error surfaces, now remain on the current deployment; provider callback URI construction continues to use the configured canonical helper."
     }
   ]
 }

@@ -10,6 +10,32 @@
 > in `12-release-plan.md`. Do not use the historical counts or loose ends below
 > as the current production-readiness claim.
 
+## Current PR #195 evidence
+
+Reviewed application revision: `89705a4a` on
+`codex/phase9-resume-executor`.
+
+| Gate | Current result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm run lint` | 0 errors / 0 warnings |
+| `npm run test` | 1072 pass / 166 files |
+| `npm run release:validate` | pass; expansion and contract checksums/read-backs pinned |
+| `npm run build` | 163 pages; 182/182 route budgets; 4017/4400 KB aggregate static JS |
+| Public production-mode Playwright | 13/13 pass |
+| Authenticated production-mode Playwright | 14/14 pass including auth setup |
+| GitHub clean runner | run `29531283377` passed verify, public, and fresh-Supabase authenticated jobs |
+| Vercel preview | `dpl_AgKR1xhhQc4XyqSi4hteZ2ehVW5d` Ready; public 200, guarded APIs 401, unknown 404, preview-local login redirect, 0 queried 5xx/error logs |
+| Sentry | exact release `89705a4a…` exists; Issues query returned 403, so regression review is blocked rather than passed |
+| Hosted Supabase | expansion migrations applied/read back; contract migration intentionally pending compatible production deploy |
+
+The prior preview exposed an origin-isolation defect: same-app auth redirects
+used the configured production origin. Revision `89705a4a` separates canonical
+OAuth callback origins from request-local redirects, preserves loopback hosts,
+and rejects crafted Host values. The exact new preview proves the redirect stays
+on its own deployment. Protected authenticated preview workflows and Sentry
+Issues review still require authorized operators before production merge.
+
 This is an honest convergence assessment, not a claim that the full 14-phase
 program in the master prompt is finished. That prompt describes a multi-quarter
 rewrite. What this branch delivers is a **coherent, green, end-to-end vertical of
