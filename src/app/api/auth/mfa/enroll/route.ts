@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { authApiFailure } from "@/lib/auth/apiError";
 
 // ── POST /api/auth/mfa/enroll ──────────────────────────────────────────────────
 // Enrolls a new MFA factor for the authenticated user.
@@ -45,10 +46,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (error || !data) {
-      return NextResponse.json(
-        { error: error?.message ?? "Failed to enroll TOTP factor" },
-        { status: 400 },
-      );
+      return authApiFailure(error ?? new Error("TOTP enrollment failed"), "/api/auth/mfa/enroll", "enroll_totp", 400);
     }
 
     return NextResponse.json({
@@ -76,10 +74,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Failed to enroll phone factor" },
-      { status: 400 },
-    );
+    return authApiFailure(error ?? new Error("Phone enrollment failed"), "/api/auth/mfa/enroll", "enroll_phone", 400);
   }
 
   return NextResponse.json({ id: data.id, type: "phone" });

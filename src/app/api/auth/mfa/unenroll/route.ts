@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { authApiFailure } from "@/lib/auth/apiError";
 
 // ── DELETE /api/auth/mfa/unenroll ─────────────────────────────────────────────
 // Removes an enrolled MFA factor and updates user_auth_settings accordingly.
@@ -29,21 +30,19 @@ export async function DELETE(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message ?? "Failed to unenroll MFA factor" },
-      { status: 400 },
-    );
+    return authApiFailure(error, "/api/auth/mfa/unenroll", "unenroll_factor", 400);
   }
 
   // After unenrolling, check whether any other verified factors remain.
   // If none remain we clear the 2FA flag; otherwise we leave it enabled.
-  const { data: factorsData } = await supabase.auth.mfa.listFactors();
+  const { data: factorsData, error: factorsError } = await supabase.auth.mfa.listFactors();
+  if (factorsError) return authApiFailure(factorsError, "/api/auth/mfa/unenroll", "list_factors");
   const remainingVerified = (factorsData?.all ?? []).filter(
     (f: { id: string; status: string }) =>
       f.id !== body.factorId && f.status === "verified",
   );
 
-  await supabase.from("user_auth_settings").upsert(
+  const { error: settingsError } = await supabase.from("user_auth_settings").upsert(
     {
       user_id: user.id,
       twofa_enabled: remainingVerified.length > 0,
@@ -52,6 +51,7 @@ export async function DELETE(req: NextRequest) {
     },
     { onConflict: "user_id" },
   );
+  if (settingsError) return authApiFailure(settingsError, "/api/auth/mfa/unenroll", "persist_settings");
 
   return NextResponse.json({ ok: true });
 }

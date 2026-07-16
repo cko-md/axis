@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { authApiFailure } from "@/lib/auth/apiError";
 
 // ── POST /api/auth/mfa/verify ──────────────────────────────────────────────────
 // Verifies an MFA challenge code. On success the factor is confirmed and
@@ -50,22 +51,20 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message ?? "MFA verification failed" },
-      { status: 400 },
-    );
+    return authApiFailure(error, "/api/auth/mfa/verify", "verify_factor", 400);
   }
 
   // Determine the factor type from the enrolled factors list and persist the
   // 2FA status so the settings UI reflects the change immediately.
-  const { data: factorsData } = await supabase.auth.mfa.listFactors();
+  const { data: factorsData, error: factorsError } = await supabase.auth.mfa.listFactors();
+  if (factorsError) return authApiFailure(factorsError, "/api/auth/mfa/verify", "list_factors");
   const factor = factorsData?.all?.find(
     (f: { id: string; factor_type: string }) => f.id === factorId,
   );
   const twofaMethod: "totp" | "sms" | "email" =
     factor?.factor_type === "phone" ? "sms" : "totp";
 
-  await supabase.from("user_auth_settings").upsert(
+  const { error: settingsError } = await supabase.from("user_auth_settings").upsert(
     {
       user_id: user.id,
       twofa_enabled: true,
@@ -74,6 +73,7 @@ export async function POST(req: NextRequest) {
     },
     { onConflict: "user_id" },
   );
+  if (settingsError) return authApiFailure(settingsError, "/api/auth/mfa/verify", "persist_settings");
 
   return NextResponse.json({ verified: true });
 }

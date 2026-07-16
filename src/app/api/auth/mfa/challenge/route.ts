@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { authApiFailure } from "@/lib/auth/apiError";
 
 // ── POST /api/auth/mfa/challenge ───────────────────────────────────────────────
 // Creates an MFA challenge for the given factor. The returned challengeId must
@@ -40,10 +41,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Failed to create MFA challenge" },
-      { status: 400 },
-    );
+    return authApiFailure(error ?? new Error("MFA challenge failed"), "/api/auth/mfa/challenge", "create_challenge", 400);
   }
 
   return NextResponse.json({ challengeId: data.id });
