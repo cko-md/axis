@@ -86,7 +86,7 @@ Legend — **Complete**: full create/read/update/delete + persistence + states. 
 | Auth | `/api/auth/{account,settings,forgot-password}`, `/api/auth/mfa/{enroll,verify,challenge,unenroll}`, `/api/auth/passkey/{register,authenticate,list,delete,token}` | Supabase + WebAuthn (`lib/webauthn/server.ts`) |
 | Cron | `/api/cron/{daily,finance-daily,feed-digest,intelligence-sweep}` | **only 2 scheduled (I2)** |
 | Webhooks | `/api/webhooks/make`, `/api/plaid/webhook` | Make (HMAC), Plaid (signed JWT) |
-| Misc | `/api/proxy`, `/api/og-image`, `/api/tavily/extract`, `/api/gallery`, `/api/literature`, `/api/notes/{transcribe,youtube}`, `/api/profile/avatar` | SSRF-guarded fetch, external |
+| Misc | `/api/proxy`, `/api/reader/extract`, `/api/og-image`, `/api/gallery`, `/api/literature`, `/api/notes/{transcribe,youtube}`, `/api/profile/avatar` | SSRF-guarded fetch, local Readability extraction, external |
 
 ### 1.3 Supabase tables (≈50, from `supabase/migrations`)
 

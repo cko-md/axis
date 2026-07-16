@@ -7,6 +7,14 @@ import { createClient } from "@/lib/supabase/client";
 const FAVS_KEY = "axis-wv-favorites";
 type Fav = { url: string; title: string };
 type Tab = { id: string; url: string; title: string; back: string[]; forward: string[] };
+type ReaderData = {
+  url: string;
+  title: string;
+  html: string;
+  excerpt?: string | null;
+  byline?: string | null;
+  siteName?: string | null;
+};
 
 function loadFavs(): Fav[] {
   if (typeof window === "undefined") return [];
@@ -47,12 +55,12 @@ export function WebViewer() {
   const [inputUrl, setInputUrl] = useState("");
   const [favs, setFavs] = useState<Fav[]>([]);
   const [showFavs, setShowFavs] = useState(false);
-  const [captured, setCaptured] = useState(false);
+  const [captureState, setCaptureState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ok" | "blocked">("idle");
+  const [reloadNonce, setReloadNonce] = useState(0);
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reader view (via Tavily) — shown when the iframe can't embed a page/PDF.
-  type ReaderData = { url: string; title: string; html: string };
+  // Local reader view — shown when a page cannot be usefully embedded.
   const [readerState, setReaderState] = useState<"off" | "loading" | "ok" | "error">("off");
   const [readerData, setReaderData] = useState<ReaderData | null>(null);
   const [readerError, setReaderError] = useState<string>("");
@@ -95,7 +103,6 @@ export function WebViewer() {
     setTabs((prev) => [...prev, { id, url, title: url ? "Loading…" : "New Tab", back: [], forward: [] }]);
     setActiveTabId(id);
     setInputUrl(url);
-    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
   };
   const addTab = useCallback((url = "") => addTabRef.current(url), []);
 
@@ -108,7 +115,6 @@ export function WebViewer() {
         const nextTab = next[Math.min(idx, next.length - 1)];
         setActiveTabId(nextTab.id);
         setInputUrl(nextTab.url);
-        if (iframeRef.current) iframeRef.current.src = nextTab.url ? `/api/proxy?url=${encodeURIComponent(nextTab.url)}` : "about:blank";
       }
       return next;
     });
@@ -120,7 +126,6 @@ export function WebViewer() {
       if (!tab) return prev;
       setActiveTabId(id);
       setInputUrl(tab.url);
-      if (iframeRef.current) iframeRef.current.src = tab.url ? `/api/proxy?url=${encodeURIComponent(tab.url)}` : "about:blank";
       return prev;
     });
   }, []);
@@ -139,7 +144,7 @@ export function WebViewer() {
           : t
       )
     );
-    if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
+    setReloadNonce((value) => value + 1);
     // New navigation supersedes any in-flight reader fetch and clears reader UI.
     readerTokenRef.current += 1;
     setReaderState("off");
@@ -155,7 +160,7 @@ export function WebViewer() {
     }
   }, [activeTabId]);
 
-  // Fetch clean readable content via Tavily and switch to reader view.
+  // Fetch clean readable content through the local Mozilla Readability route.
   const openReader = useCallback(async (rawUrl?: string, reason?: string) => {
     const url = (rawUrl ?? activeUrl).trim();
     if (!url) return;
@@ -166,7 +171,7 @@ export function WebViewer() {
     setReaderData(null);
     setReaderReason(reason ?? "");
     try {
-      const res = await fetch(`/api/tavily/extract?url=${encodeURIComponent(url)}`);
+      const res = await fetch(`/api/reader/extract?url=${encodeURIComponent(url)}`);
       if (token !== readerTokenRef.current) return; // superseded
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -188,6 +193,10 @@ export function WebViewer() {
   // Handle navigation + reader-handoff messages posted by the proxy's injected script
   useEffect(() => {
     function onProxyMsg(e: MessageEvent) {
+      // The frame deliberately has an opaque origin (no allow-same-origin).
+      // Trust only messages from the exact iframe window, never another tab,
+      // popup, or page in the parent application.
+      if (e.source !== iframeRef.current?.contentWindow) return;
       if (e.data?.type === 'proxy-navigate') {
         const url = e.data.url as string;
         if (url) navigate(url);
@@ -218,7 +227,7 @@ export function WebViewer() {
       if (!tab || !tab.back.length) return prev;
       const url = tab.back[tab.back.length - 1];
       setInputUrl(url);
-      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
+      setReloadNonce((value) => value + 1);
       return prev.map((t) =>
         t.id === activeTabId
           ? { ...t, url, back: t.back.slice(0, -1), forward: [t.url, ...t.forward] }
@@ -233,7 +242,7 @@ export function WebViewer() {
       if (!tab || !tab.forward.length) return prev;
       const url = tab.forward[0];
       setInputUrl(url);
-      if (iframeRef.current) iframeRef.current.src = url ? `/api/proxy?url=${encodeURIComponent(url)}` : "about:blank";
+      setReloadNonce((value) => value + 1);
       return prev.map((t) =>
         t.id === activeTabId
           ? { ...t, url, back: [...t.back, t.url], forward: t.forward.slice(1) }
@@ -254,23 +263,38 @@ export function WebViewer() {
 
   const captureToNotes = useCallback(async () => {
     if (!activeUrl) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const title = (activeTab?.title && activeTab.title !== "Loading…" && activeTab.title !== "New Tab")
-      ? activeTab.title : activeUrl;
-    const timestamp = new Date().toLocaleString();
-    const body = `<p><a href="${activeUrl}">${activeUrl}</a></p><p style="font-size:12px;color:#888;"><em>Captured from WebViewer · ${timestamp}</em></p>`;
-    await supabase.from("notes").insert({
-      user_id: user.id,
-      title: title.slice(0, 120),
-      body,
-      folder: "All Notes",
-      tags: ["web-capture"],
-      sort_order: 0,
-    });
-    setCaptured(true);
-    setTimeout(() => setCaptured(false), 2500);
+    setCaptureState("saving");
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) throw authError ?? new Error("Sign in to save this page.");
+      const title = (activeTab?.title && activeTab.title !== "Loading…" && activeTab.title !== "New Tab")
+        ? activeTab.title : activeUrl;
+      const timestamp = new Date().toLocaleString();
+      const body = `<p><a href="${activeUrl}">${activeUrl}</a></p><p style="font-size:12px;color:#888;"><em>Captured from WebViewer · ${timestamp}</em></p>`;
+      const { error } = await supabase.from("notes").insert({
+        user_id: user.id,
+        title: title.slice(0, 120),
+        body,
+        folder: "All Notes",
+        tags: ["web-capture"],
+        sort_order: 0,
+      });
+      if (error) throw error;
+      setCaptureState("saved");
+    } catch {
+      setCaptureState("error");
+    }
+    setTimeout(() => setCaptureState("idle"), 3000);
   }, [supabase, activeUrl, activeTab]);
+
+  useEffect(() => {
+    if (!current) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [current, close]);
 
   // Global link interceptor — capture-phase click on absolute external links
   useEffect(() => {
@@ -334,7 +358,7 @@ export function WebViewer() {
   const canForward = (activeTab?.forward.length ?? 0) > 0;
 
   return (
-    <div className="wv-overlay" role="dialog" aria-label="In-platform browser">
+    <div className="wv-overlay" role="dialog" aria-modal="true" aria-label="In-platform browser">
       <div className="wv-modal">
 
         {/* Tab bar */}
@@ -384,7 +408,11 @@ export function WebViewer() {
                 <polyline points="6,3 11,8 6,13" />
               </svg>
             </button>
-            <button type="button" className="wv-navbtn" title="Reload" onClick={() => { if (iframeRef.current && activeUrl) iframeRef.current.src = `/api/proxy?url=${encodeURIComponent(activeUrl)}`; }}>
+            <button type="button" className="wv-navbtn" title="Reload" onClick={() => {
+              if (!activeUrl) return;
+              setLoadState("loading");
+              setReloadNonce((value) => value + 1);
+            }}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M13.5 2.5 A6.5 6.5 0 1 1 6.5 1.5"/><polyline points="13.5,2.5 13.5,6 10,6"/>
               </svg>
@@ -411,11 +439,21 @@ export function WebViewer() {
           </form>
 
           <div className="wv-actions">
-            <button type="button" className="wv-navbtn" title={captured ? "Saved to Notes!" : "Save page to Notes"} onClick={captureToNotes} style={{ color: captured ? "var(--sage)" : undefined }}>
-              {captured ? (
+            <button
+              type="button"
+              className="wv-navbtn"
+              title={captureState === "saved" ? "Saved to Notes" : captureState === "error" ? "Could not save to Notes" : "Save page to Notes"}
+              aria-label={captureState === "error" ? "Could not save page to Notes; try again" : "Save page to Notes"}
+              disabled={captureState === "saving"}
+              onClick={captureToNotes}
+              style={{ color: captureState === "saved" ? "var(--sage)" : captureState === "error" ? "var(--clay-2)" : undefined }}
+            >
+              {captureState === "saved" ? (
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="3,8 6.5,12 13,4"/>
                 </svg>
+              ) : captureState === "error" ? (
+                <span aria-hidden>!</span>
               ) : (
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/>
@@ -458,11 +496,12 @@ export function WebViewer() {
         {/* Browser frame */}
         <div className="wv-frame-wrap">
           <iframe
+            key={`${activeTabId}:${reloadNonce}`}
             ref={iframeRef}
             src={activeUrl ? `/api/proxy?url=${encodeURIComponent(activeUrl)}` : undefined}
             title={activeTab?.title ?? "Browser"}
             className="wv-frame"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+            sandbox="allow-scripts allow-forms allow-popups"
             onLoad={() => {
               if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
               setLoadState("ok");
@@ -487,7 +526,7 @@ export function WebViewer() {
           {loadState === "blocked" && readerState === "off" && (
             <div className="wv-blocked-hint">
               <span>This page is taking too long to load — it may be blocking embedding.</span>
-              <button type="button" onClick={() => void openReader()}>Reader view (via Tavily) →</button>
+              <button type="button" onClick={() => void openReader()}>Open reader view →</button>
               <button type="button" onClick={() => window.open(activeUrl, "_blank", "noopener")}>Open in browser →</button>
             </div>
           )}
@@ -496,7 +535,7 @@ export function WebViewer() {
             <div className="wv-reader">
               <div className="wv-reader-bar">
                 <div className="wv-reader-badge-group">
-                  <span className="wv-reader-badge">Reader view · via Tavily</span>
+                  <span className="wv-reader-badge">Reader view · local extraction</span>
                   {readerReason && <span className="wv-reader-reason">{readerReason}</span>}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -530,6 +569,11 @@ export function WebViewer() {
                   <h1 className="wv-reader-title">
                     {readerData.title}
                   </h1>
+                  {(readerData.byline || readerData.siteName) && (
+                    <p className="wv-reader-byline">
+                      {[readerData.byline, readerData.siteName].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
                   <div
                     className="wv-reader-content"
                     dangerouslySetInnerHTML={{ __html: readerData.html }}

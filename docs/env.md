@@ -24,6 +24,20 @@ If either required value is missing or invalid, `src/lib/env.ts` throws a clear 
 | `SENTRY_AUTH_TOKEN` | build/CI | Allows `@sentry/nextjs` to upload source maps during Vercel builds. |
 | `SUPABASE_SERVICE_ROLE_KEY` | server only | Trusted server operations such as pre-auth passkey support and webhook writes. |
 
+## Desktop release
+
+| Variable | Runtime | Purpose |
+|---|---|---|
+| `AXIS_DESKTOP_PRODUCTION_URL` | desktop build CI | HTTPS origin embedded into signed desktop releases. The release workflow pins this to `https://axis-cko.vercel.app`. |
+| `AXIS_DESKTOP_SENTRY_DSN` | desktop build CI | Public Sentry DSN embedded for Crashpad minidumps and scrubbed Electron-process errors. Required by release validation. |
+| `AXIS_DESKTOP_RELEASE` | desktop build CI | Must equal `1` to enable mandatory signing/notarization release gates. |
+| `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD` | desktop build CI | Developer ID Application certificate and password. Store only as GitHub Actions secrets. |
+| `APPLE_API_KEY_CONTENT`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | desktop build CI | App Store Connect API credentials used to notarize and staple macOS releases. |
+
+`AXIS_DESKTOP_URL` is a development-only source-build override. Packaged
+applications ignore it so an ambient process environment cannot change the
+trusted IPC origin after signing.
+
 ## Optional Provider Keys
 
 Missing optional keys should produce a configured/not-configured response, a setup message, or a graceful fallback. They must not crash preview builds.
@@ -38,7 +52,6 @@ Missing optional keys should produce a configured/not-configured response, a set
 | Spotify | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` |
 | Strava | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` |
 | AI routing | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY` |
-| Tavily search | `TAVILY_API_KEY` |
 | Make | `MAKE_API_KEY`, `MAKE_TEAM_ID`, `MAKE_ZONE`, `MAKE_WEBHOOK_SECRET`, `MAKE_WEBHOOK_DAILY_BRIEF_URL`, `MAKE_WEBHOOK_WEEKLY_RECAP_URL`, `MAKE_WEBHOOK_BILL_REMINDER_URL`, `MAKE_WEBHOOK_BUDGET_ALERT_URL`, `MAKE_WEBHOOK_ANOMALY_ALERT_URL`, `MAKE_WEBHOOK_SUBSCRIPTION_AUDIT_URL` |
 | Rate limiting / MFA throttling | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
 | Passkey encryption | `PASSKEY_ENCRYPTION_KEY` |

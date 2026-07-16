@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useState } from "react";
+import { openDesktopBrowser } from "@/lib/desktop-browser";
 
 type ViewerEntry = { url: string; title?: string };
 type WebViewerCtx = {
@@ -13,7 +14,11 @@ const Ctx = createContext<WebViewerCtx | null>(null);
 
 export function WebViewerProvider({ children }: { children: React.ReactNode }) {
   const [current, setCurrent] = useState<ViewerEntry | null>(null);
-  const open = useCallback((url: string, title?: string) => setCurrent({ url, title }), []);
+  const open = useCallback((url: string, title?: string) => {
+    void openDesktopBrowser(url, title).then((openedNatively) => {
+      if (!openedNatively) setCurrent({ url, title });
+    });
+  }, []);
   const close = useCallback(() => setCurrent(null), []);
   return <Ctx.Provider value={{ open, close, current }}>{children}</Ctx.Provider>;
 }

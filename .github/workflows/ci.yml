@@ -37,6 +37,9 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      - name: Desktop security and release checks
+        run: npm run desktop:check
+
       - name: Build
         # Build validates the whole app compiles and reports route bundle sizes
         # (perf budgets, §11). Supabase public env is required at module load;

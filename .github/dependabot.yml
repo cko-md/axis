@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      electron-tooling:
+        patterns:
+          - electron
+          - electron-builder
+
+  - package-ecosystem: npm
+    directory: /electron
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      desktop-runtime:
+        patterns:
+          - electron-updater

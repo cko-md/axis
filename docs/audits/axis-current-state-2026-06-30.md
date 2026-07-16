@@ -87,7 +87,7 @@ The most current surfaced module status source is `src/lib/store/nav.ts`. README
 | Auth | `/api/auth/account`, `/settings`, `/forgot-password`, MFA routes, and passkey routes. |
 | Spotify / Strava / health | Spotify OAuth/playback/library/search routes, `/api/strava`, and health-provider connect routes for Oura, Whoop, Fitbit, and Garmin. |
 | Cron | `/api/cron/daily`, `/finance-daily`, `/feed-digest`, `/intelligence-sweep`; only daily and finance-daily are scheduled in `vercel.json`. |
-| Misc | `/api/gallery`, `/api/literature`, `/api/notes/transcribe`, `/api/notes/youtube`, `/api/og-image`, `/api/profile/avatar`, `/api/proxy`, `/api/tavily/extract`, `/api/webhooks/make`, `/api/plaid/webhook`. |
+| Misc | `/api/gallery`, `/api/literature`, `/api/notes/transcribe`, `/api/notes/youtube`, `/api/og-image`, `/api/profile/avatar`, `/api/proxy`, `/api/reader/extract`, `/api/webhooks/make`, `/api/plaid/webhook`. |
 
 ## Current Commands And Tests
 

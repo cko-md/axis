@@ -30,11 +30,24 @@ type Props = {
 
 type SidebarMode = "open" | "icons" | "hidden";
 
-const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
-  open: "icons",
-  icons: "hidden",
-  hidden: "open",
-};
+const SIDEBAR_PREF_KEY = "axis-sidebar";
+
+function loadSidebarPreference(): Exclude<SidebarMode, "hidden"> {
+  if (typeof window === "undefined") return "open";
+  try {
+    return window.localStorage.getItem(SIDEBAR_PREF_KEY) === "icons" ? "icons" : "open";
+  } catch {
+    return "open";
+  }
+}
+
+function saveSidebarPreference(mode: Exclude<SidebarMode, "hidden">) {
+  try {
+    window.localStorage.setItem(SIDEBAR_PREF_KEY, mode);
+  } catch {
+    // Device preferences are best-effort; the control still works in memory.
+  }
+}
 
 export function AppShell({ section, page, children }: Props) {
   const pathname = usePathname();
@@ -43,6 +56,7 @@ export function AppShell({ section, page, children }: Props) {
   const [isNight, setIsNight] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const autoCollapsedRef = useRef(false);
+  const desktopPreferenceRef = useRef<Exclude<SidebarMode, "hidden">>("open");
   const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
 
   useEffect(() => {
@@ -53,6 +67,12 @@ export function AppShell({ section, page, children }: Props) {
     check();
     const id = setInterval(check, 60000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const preference = loadSidebarPreference();
+    desktopPreferenceRef.current = preference;
+    if (window.innerWidth >= 860) setSidebarMode(preference);
   }, []);
 
   useEffect(() => {
@@ -98,7 +118,7 @@ export function AppShell({ section, page, children }: Props) {
         });
       } else if (autoCollapsedRef.current) {
         autoCollapsedRef.current = false;
-        setSidebarMode("open");
+        setSidebarMode(desktopPreferenceRef.current);
       }
     };
     onResize();
@@ -108,7 +128,12 @@ export function AppShell({ section, page, children }: Props) {
 
   const cycleMode = () => {
     autoCollapsedRef.current = false;
-    setSidebarMode((m) => NEXT_MODE[m]);
+    setSidebarMode((mode) => {
+      const next = mode === "open" ? "icons" : "open";
+      desktopPreferenceRef.current = next;
+      saveSidebarPreference(next);
+      return next;
+    });
   };
 
   return (
@@ -140,15 +165,17 @@ export function AppShell({ section, page, children }: Props) {
         <button
           className="sb-toggle"
           onClick={cycleMode}
-          aria-label={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
-          title={sidebarMode === "hidden" ? "Show sidebar" : "Collapse sidebar"}
+          aria-label={sidebarMode === "open" ? "Collapse sidebar to icons" : "Expand sidebar"}
+          aria-expanded={sidebarMode === "open"}
+          title={sidebarMode === "open" ? "Collapse sidebar" : "Expand sidebar"}
         >
           <svg
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="1.8"
-            style={{ width: 14, height: 14, transform: sidebarMode === "open" ? undefined : "rotate(180deg)" }}
+            className="sb-toggle-icon"
+            style={{ transform: sidebarMode === "open" ? undefined : "rotate(180deg)" }}
           >
             <path d="M15 6l-6 6 6 6" />
           </svg>

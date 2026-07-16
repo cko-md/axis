@@ -25,8 +25,8 @@ const NAV_INTERCEPT = `<script>(function(){
 /**
  * Tiny document served into the iframe when the upstream content cannot be
  * embedded (PDF, X-Frame-Options/CSP framebusting, or a fetch error). It posts
- * a `proxy-reader` message to the parent WebViewer, which then loads the Tavily
- * reader view. The visible text is a fallback for the brief moment before the
+ * a `proxy-reader` message to the parent WebViewer, which then loads the local
+ * reader extraction route. The visible text is a fallback for the brief moment before the
  * parent swaps in reader mode.
  */
 function readerFallbackDoc(targetUrl: string, reason: string): string {
@@ -77,6 +77,10 @@ export async function GET(req: NextRequest) {
       redirect: 'follow',
     });
 
+    if (isBlockedUrl(upstream.url)) {
+      return new NextResponse('Redirected to a forbidden URL', { status: 403 });
+    }
+
     const ct = upstream.headers.get('content-type') ?? 'text/html';
 
     if (!ct.includes('text/html')) {
@@ -89,7 +93,7 @@ export async function GET(req: NextRequest) {
         });
       }
       // PDFs and other binary content can't render usefully in the sandboxed
-      // iframe — hand off to the Tavily reader view.
+      // iframe — hand off to reader view.
       const label = ct.includes('pdf') ? 'PDF document' : 'Unsupported content type';
       return new NextResponse(readerFallbackDoc(url, label), {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -128,7 +132,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     // Fetch failed (timeout, DNS, TLS, upstream refusal). Hand off to reader
-    // mode so the user still gets the content via Tavily.
+    // mode so the user still gets a readable fallback when possible.
     const msg = err instanceof Error ? err.message : 'Fetch failed';
     return new NextResponse(readerFallbackDoc(url, `Could not load page: ${msg}`), {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },

@@ -18,7 +18,7 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
 
 - Preview build runs on Node.js 24.x.
 - Preview build succeeds with required Supabase env present.
-- Preview build succeeds when optional provider keys are absent: `COMPOSIO_API_KEY`, `POLYGON_API_KEY`/`MASSIVE_API_KEY`, `PLAID_*`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `MAKE_*`, `UPSTASH_*`, health provider IDs, and brokerage keys.
+- Preview build succeeds when optional provider keys are absent: `COMPOSIO_API_KEY`, `POLYGON_API_KEY`/`MASSIVE_API_KEY`, `PLAID_*`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `MAKE_*`, `UPSTASH_*`, health provider IDs, and brokerage keys.
 - Optional provider keys that are absent show setup/not-configured UI or API responses instead of crashing.
 - Check optional-provider probes on the preview URL:
   - `GET /api/massive/status` returns configured status without throwing.
@@ -54,3 +54,27 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
 ## Production Readiness
 
 Merging to `main` triggers the Vercel production deployment. Production readiness requires completed local checks, a healthy preview build, preview validation evidence, Supabase/Tembo impact notes, and post-preview Sentry review. Sentry review can happen after the PR is opened; it cannot be skipped before production merge.
+
+## Desktop Distribution Gate
+
+Desktop distribution is independent of the Vercel production deployment. A
+`desktop-v<electron/package.json version>` tag starts the desktop release
+workflow. The tag is publishable only when:
+
+- desktop security/runtime tests and the exact-current Electron stable check pass;
+- root and desktop runtime dependency audits have no high-severity findings;
+- the production AXIS HTTPS origin and public desktop Sentry DSN are embedded;
+- macOS artifacts are signed with Developer ID Application, notarized, stapled,
+  and accepted by Gatekeeper;
+- custom AXIS icons are present in every platform package;
+- updater installers, blockmaps, and `latest*.yml` metadata are all produced.
+
+The final GitHub Release is created only after macOS, Windows, and Linux jobs
+finish. Installed applications consume that release through `electron-updater`.
+See `docs/desktop.md` for required secrets and verification commands.
+
+While Apple credentials are pending, `desktop-preview-v<version>` can publish a
+clearly labeled unsigned prerelease for controlled evaluation. Preview releases
+exclude updater manifests and blockmaps and therefore cannot be selected by the
+signed production update channel. They are never a substitute for the signed
+desktop production gate.

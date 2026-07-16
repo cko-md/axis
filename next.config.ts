@@ -32,7 +32,7 @@ const CSP = [
     // Sentry error/perf ingest
     "https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io",
   ].join(" "),
-  // 'self' allows the in-app WebViewer's same-origin /api/proxy iframe; cdn.plaid.com
+  // 'self' allows the in-app WebViewer's /api/proxy iframe; cdn.plaid.com
   // for Plaid Link; open.spotify.com for the Listening Vault's official embed player;
   // youtube.com/-nocookie for the Vault's Video Lounge embed player (mirrors the
   // Spotify pattern — direct official embed iframe instead of page-scraping proxy)
@@ -101,9 +101,10 @@ const nextConfig: NextConfig = {
       // and the relayed page's OWN scripts/styles/connects must not be blocked by
       // our app's strict CSP (they aren't 'self', so the blanket CSP above would
       // silently break any proxied site with real client-side JS). The iframe's
-      // sandbox attribute (allow-scripts allow-same-origin allow-forms allow-popups)
-      // is the actual security boundary for this content, not CSP — so the CSP here
-      // is intentionally permissive. object-src stays locked down regardless.
+      // sandbox attribute (allow-scripts allow-forms allow-popups, deliberately
+      // excluding allow-same-origin) is the primary browser boundary for this
+      // content, so this response CSP stays permissive enough for compatibility.
+      // object-src remains locked down regardless.
       {
         source: "/api/proxy",
         headers: [

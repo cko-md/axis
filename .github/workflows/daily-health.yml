@@ -32,6 +32,11 @@ jobs:
           echo "exit_code=$?" >> $GITHUB_OUTPUT
         continue-on-error: true
 
+      - name: Electron maintenance baseline
+        id: electron
+        run: npm run desktop:check && npm run desktop:check:current && npm audit --prefix electron --audit-level=high
+        continue-on-error: true
+
       - name: Trigger Vercel cron health check
         id: vercron
         run: |
@@ -43,7 +48,7 @@ jobs:
         continue-on-error: true
 
       - name: Post failure issue
-        if: steps.tsc.outputs.exit_code != '0' || steps.audit.outputs.exit_code != '0' || steps.vercron.outputs.status != '200'
+        if: steps.tsc.outputs.exit_code != '0' || steps.audit.outputs.exit_code != '0' || steps.electron.outcome == 'failure' || steps.vercron.outputs.status != '200'
         uses: actions/github-script@v7
         with:
           script: |
@@ -55,12 +60,14 @@ jobs:
             const tscStatus = ${{ steps.tsc.outputs.exit_code }} === 0 ? '✅ Pass' : '❌ Fail';
             const auditStatus = ${{ steps.audit.outputs.exit_code }} === 0 ? '✅ Pass' : '❌ Fail';
             const cronStatus = '${{ steps.vercron.outputs.status }}';
+            const electronStatus = '${{ steps.electron.outcome }}' === 'success' ? '✅ Pass' : '❌ Fail';
 
             const body = [
               `## Daily Health Check Failed — ${new Date().toISOString().slice(0,10)}`,
               '',
               `**TypeScript**: ${tscStatus}`,
               `**npm audit**: ${auditStatus}`,
+              `**Electron baseline**: ${electronStatus}`,
               `**Vercel cron**: HTTP ${cronStatus}`,
               '',
               '### TypeScript errors',

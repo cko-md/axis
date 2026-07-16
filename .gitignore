@@ -53,3 +53,6 @@ next-env.d.ts
 # personal scratch scripts — not part of the app, not meant to be checked in
 agent.py
 test-results
+dist-electron/
+electron/build/icon.iconset/
+electron/node_modules/
