@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * GET /api/fund/insights — persisted daily brief / weekly recap (replaces
@@ -24,6 +25,9 @@ export async function GET(request: NextRequest) {
   if (kind) query = query.eq("kind", kind);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    captureRouteError(error, { route: "/api/fund/insights", operation: "list_insights", area: "fund", status: 500 });
+    return NextResponse.json({ error: "INSIGHTS_UNAVAILABLE", message: "Could not load finance insights." }, { status: 500 });
+  }
   return NextResponse.json({ insights: data ?? [] });
 }

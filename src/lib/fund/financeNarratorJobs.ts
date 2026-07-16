@@ -24,7 +24,7 @@ export async function checkBudgetThresholds(admin: SupabaseClient, userId: strin
   const since = monthStart.toISOString().slice(0, 10);
   const monthKey = since.slice(0, 7);
 
-  const [{ data: budgets }, { data: txns }] = await Promise.all([
+  const [{ data: budgets, error: budgetError }, { data: txns, error: transactionError }] = await Promise.all([
     admin.from("fund_category_budgets").select("category, monthly_limit").eq("user_id", userId),
     admin
       .from("fund_bank_transactions")
@@ -35,6 +35,8 @@ export async function checkBudgetThresholds(admin: SupabaseClient, userId: strin
       .lt("amount", 0)
       .gte("posted_date", since),
   ]);
+  if (budgetError) throw budgetError;
+  if (transactionError) throw transactionError;
 
   const spendByCategory = new Map<string, number>();
   for (const t of txns ?? []) {
@@ -70,7 +72,7 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
   const since90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data: history } = await admin
+  const { data: history, error: historyError } = await admin
     .from("fund_bank_transactions")
     .select("id, merchant_name, amount, iso_currency_code, posted_date, is_transfer, pending")
     .eq("user_id", userId)
@@ -78,13 +80,15 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
     .lt("amount", 0)
     .gte("posted_date", since90);
 
-  const { data: todays } = await admin
+  const { data: todays, error: todayError } = await admin
     .from("fund_bank_transactions")
     .select("id, merchant_name, amount, iso_currency_code, posted_date, is_transfer, pending")
     .eq("user_id", userId)
     .eq("is_transfer", false)
     .lt("amount", 0)
     .eq("posted_date", today);
+  if (historyError) throw historyError;
+  if (todayError) throw todayError;
 
   if (!todays || todays.length === 0) return;
 
@@ -133,7 +137,7 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
       }
     }
 
-    await admin.from("ai_insights").insert({
+    const { error: insightError } = await admin.from("ai_insights").insert({
       user_id: userId,
       kind: "anomaly",
       title: `Unusual transaction: ${merchant}`,
@@ -145,6 +149,7 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
       confidence: "medium",
       requires_review: true,
     });
+    if (insightError) throw insightError;
   }
 }
 
@@ -154,7 +159,7 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
  * AI narrates strictly from those numbers.
  */
 export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, userEmail: string | null, anthropic: Anthropic | null): Promise<void> {
-  const { data: lastRecap } = await admin
+  const { data: lastRecap, error: lastRecapError } = await admin
     .from("ai_insights")
     .select("created_at")
     .eq("user_id", userId)
@@ -162,14 +167,16 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (lastRecapError) throw lastRecapError;
   if (lastRecap && Date.now() - new Date(lastRecap.created_at).getTime() < 7 * 86400000) return;
 
-  const { data: snapshots } = await admin
+  const { data: snapshots, error: snapshotError } = await admin
     .from("net_worth_snapshots")
     .select("captured_on, net_worth")
     .eq("user_id", userId)
     .order("captured_on", { ascending: false })
     .limit(8);
+  if (snapshotError) throw snapshotError;
   if (!snapshots || snapshots.length < 2) return;
 
   const today = snapshots[0];
@@ -177,13 +184,14 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
   const netWorthChange = today.net_worth - weekAgo.net_worth;
 
   const since = weekAgo.captured_on;
-  const { data: txns } = await admin
+  const { data: txns, error: transactionError } = await admin
     .from("fund_bank_transactions")
     .select("custom_category, plaid_category, amount")
     .eq("user_id", userId)
     .eq("is_transfer", false)
     .lt("amount", 0)
     .gte("posted_date", since);
+  if (transactionError) throw transactionError;
   const spendByCategory = new Map<string, number>();
   for (const t of txns ?? []) {
     const cat = cleanFinanceLabel(t.custom_category ?? t.plaid_category, "uncategorized");
@@ -191,11 +199,12 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
   }
   const topCategories = [...spendByCategory.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
 
-  const { data: newRecurring } = await admin
+  const { data: newRecurring, error: recurringError } = await admin
     .from("fund_recurring_transactions")
     .select("merchant_name, expected_amount")
     .eq("user_id", userId)
     .gte("created_at", since);
+  if (recurringError) throw recurringError;
 
   const dataPayload = {
     net_worth_change: netWorthChange,
@@ -222,7 +231,7 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
     }
   }
 
-  await admin.from("ai_insights").insert({
+  const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "weekly_recap",
     title: "Weekly recap",
@@ -232,6 +241,7 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
     confidence: "high",
     requires_review: false,
   });
+  if (insightError) throw insightError;
 
   if (userEmail) {
     await notifyViaMake(admin, {
@@ -253,7 +263,7 @@ export async function writeWeeklyRecap(admin: SupabaseClient, userId: string, us
  * the same ~7-day cadence as the weekly recap.
  */
 export async function writeSubscriptionAudit(admin: SupabaseClient, userId: string, userEmail: string | null, anthropic: Anthropic | null): Promise<void> {
-  const { data: lastAudit } = await admin
+  const { data: lastAudit, error: lastAuditError } = await admin
     .from("ai_insights")
     .select("created_at")
     .eq("user_id", userId)
@@ -261,13 +271,15 @@ export async function writeSubscriptionAudit(admin: SupabaseClient, userId: stri
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (lastAuditError) throw lastAuditError;
   if (lastAudit && Date.now() - new Date(lastAudit.created_at).getTime() < 7 * 86400000) return;
 
-  const { data: recurring } = await admin
+  const { data: recurring, error: recurringError } = await admin
     .from("fund_recurring_transactions")
     .select("merchant_name, expected_amount, cadence, last_seen_date")
     .eq("user_id", userId)
     .eq("status", "active");
+  if (recurringError) throw recurringError;
   if (!recurring || recurring.length === 0) return;
 
   const stale = recurring.filter((r) => {
@@ -296,7 +308,7 @@ export async function writeSubscriptionAudit(admin: SupabaseClient, userId: stri
     }
   }
 
-  await admin.from("ai_insights").insert({
+  const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "subscription_audit",
     title: "Subscription audit",
@@ -306,6 +318,7 @@ export async function writeSubscriptionAudit(admin: SupabaseClient, userId: stri
     confidence: "medium",
     requires_review: true,
   });
+  if (insightError) throw insightError;
 
   if (userEmail) {
     await notifyViaMake(admin, {
