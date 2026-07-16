@@ -10,7 +10,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return notConnected();
 
   const { id } = await params;

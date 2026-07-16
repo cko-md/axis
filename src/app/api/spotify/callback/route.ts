@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { optionalEnv } from "@/lib/env";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=error"));
   const url = req.nextUrl;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -42,6 +46,13 @@ export async function GET(req: NextRequest) {
     secure,
     sameSite: "lax",
     maxAge: tokens.expires_in ?? 3600,
+    path: "/",
+  });
+  cookieStore.set("spotify_token_owner", user.id, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30,
     path: "/",
   });
   if (tokens.refresh_token) {

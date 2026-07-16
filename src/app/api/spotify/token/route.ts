@@ -11,7 +11,7 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return NextResponse.json({ error: 'No token' }, { status: 404 });
   return NextResponse.json({ access_token: token });
 }
