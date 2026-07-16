@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-15",
-  "revision": "wave-10.13",
+  "revision": "wave-10.15",
   "defects": [
     {
       "id": "FIN-001",
@@ -106,6 +106,22 @@
       "status": "fixed",
       "revision_fixed": "wave-10.14",
       "verification": "Local and hosted has_function_privilege: anon=false, authenticated=false, service_role=true; security advisor warning cleared"
+    },
+    {
+      "id": "MAKE-004",
+      "severity": "high",
+      "source": "Phase 10 Make management API review plus current official scenario API reference",
+      "summary": "Make management helpers threw unstructured errors, trusted unvalidated provider data, retried no reads, accepted invalid configuration, and sent scenario inputs under the wrong field",
+      "reproduction": "Call runScenario with input and inspect the old request body: it used `input`, while Make API v2 requires `data`; malformed team ids became NaN and every management failure escaped as MakeError",
+      "affected": [
+        "src/lib/integrations/make.ts"
+      ],
+      "root_cause": "The older management client predated the shared Result contract, runtime response schemas, provider timing policy, and the current Make scenario-input API",
+      "fix": "Return schema-validated Result values for list/detail/run/start/stop; validate configuration and ids; reject redirects; retry reads at most three times; attempt writes once; use `{responsive:true,data}`; require id/state activation confirmation; emit only normalized safe failures",
+      "regression_test": "src/lib/integrations/make.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-10.15",
+      "verification": "49 focused tests pass; 757-test full suite passes; configured Make list/detail reads passed live id/team/state shape checks without exposing scenario content; no live write performed"
     }
   ]
 }

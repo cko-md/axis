@@ -1,9 +1,9 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 10.14 checkpoint: tsc clean, lint 0 errors / 0 warnings, 745 tests, production build, 171 route budgets, and total bundle budget pass.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 10.15 checkpoint complete: tsc clean, lint 0 errors / 0 warnings, 757 tests, configured Make management reads verified live, production build successful, all 171 route budgets passing, and total static JS 3886/4400 KB.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "3356bcbb",
+  "revision_reviewed": "d35f7741",
   "updated": "2026-07-15",
   "governance": {
     "source": "AGENTS.md",
@@ -19,7 +19,7 @@
   "baseline_health": {
     "typecheck": "pass",
     "lint": "pass (0 errors, 0 warnings)",
-    "unit_tests": "745 passed / 116 files",
+    "unit_tests": "757 passed / 116 files",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -33,9 +33,9 @@
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research persists cited owner-scoped market-report drafts; Signals now preserves an honest empty inbox instead of seeding fabricated activity. Further core-module expansion remains future work.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
-    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, and Make notifications. Make now has a hosted+local verified encrypted durable outbox, hashed dedupe keys, compare-and-swap claims, dead-letter state, metadata-only owner RLS reads, server-only mutation, and explicit Control Room replay. Management-API Result migration, Composio cache synchronization, and live provider scenario validation remain.",
+    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, and Make notifications/outbox. Make management list/detail/run/start/stop now return schema-validated Results, reject redirects/invalid configuration, retry reads only, attempt writes once, send the documented scenario `data` field, and require activation confirmation. Configured list/detail reads are verified live without exposing scenario content. Composio cache synchronization and live authenticated provider workflow validation remain.",
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split the interactive Command Console, reducing /command first-load JS from 433kB to 361kB. Wave 11.4 code-split the Vitality workspace, reducing /vitality first-load JS from 391kB to 361kB. Further profiling remains future work.",
-    "12_testing": "ongoing \u2014 745 unit tests / 116 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, portfolio math, Activity rules, cited research provenance, connection-health mapping, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + public CI smoke. Broader authenticated browser and visual-regression coverage remains.",
+    "12_testing": "ongoing \u2014 757 unit tests / 116 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management config/schema/retry/write safety, portfolio math, Activity rules, cited research provenance, connection-health mapping, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + public CI smoke. Broader authenticated browser and visual-regression coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged."
   },
@@ -999,6 +999,21 @@
       "note": "Adds a durable AES-GCM encrypted external-communication outbox with purpose-derived keys, hashed dedupe keys, one-at-a-time compare-and-swap claims, bounded attempts/dead-letter state, no autonomous replay, authenticated owner metadata reads, column-level secret denial, and service-only mutation. Control Room exposes unresolved metadata and explicit replay with visible loading/success/error states. Local Docker migration verification was restored; local and hosted read-back prove owner RLS, column grants, and mutation boundaries. The same advisor pass found and closed public/anon/authenticated execution of the SECURITY DEFINER approval-expiry RPC; daily maintenance now uses service role.",
       "tests": "745 tests pass across 116 files; tsc clean; lint 0 errors / 0 warnings; production build compiles 156 pages; all 171 route budgets pass; total static JS 3886/4400 KB",
       "verification": "17 focused tests + npx tsc --noEmit + npm run lint + npm run test + local Docker migration apply/idempotent reapply/RLS owner-isolation/grant checks + hosted Supabase MCP migration/read-back/advisors + production build/bundle budgets. Independent Codex review was attempted but interrupted by the separate CLI usage limit; no review result is claimed."
+    },
+    {
+      "id": "10.15",
+      "title": "Structured Make management API boundary",
+      "status": "landed",
+      "files_added": [
+        "docs/architecture/make-management.md"
+      ],
+      "files_changed": [
+        "src/lib/integrations/make.ts",
+        "src/lib/integrations/make.test.ts"
+      ],
+      "note": "Removes the remaining MakeError/throw boundary from list/detail/run/start/stop and team resolution. Every management operation now returns the shared Result contract, validates zone/team/scenario ids before fetch, rejects redirects, schema-validates 2xx payloads, records safe normalized provider failures, and never surfaces response bodies or thrown messages. GET reads use at most three bounded attempts; run/start/stop writes use exactly one. Scenario execution now sends Make's documented `data` field instead of the ineffective legacy `input` field, rejects non-serializable input, and returns a validated execution receipt. Activation/deactivation returns and verifies Make's id/state confirmation. Low-level writes remain authority-free and require a future authenticated caller to satisfy Axis action policy. Configured Make list/detail reads passed live shape checks without printing scenario names or payloads; no live write was performed.",
+      "tests": "757 tests pass across 116 files; 49 focused Make/Result/observability tests pass; tsc clean; lint 0 errors / 0 warnings; production build succeeds; all 171 route budgets pass; total static JS 3886/4400 KB",
+      "verification": "npx vitest run src/lib/integrations/make.test.ts src/lib/integrations/types.test.ts src/lib/observability/providerTiming.test.ts + npx tsc --noEmit + npm run lint + npm run test + configured read-only listScenarios/getScenario shape verification + production build/budget gates + adversarial diff review"
     }
   ],
   "migrations_applied": {
@@ -1025,7 +1040,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue next dependency-ordered redesign work: Phase 10 management-API Result migration and Composio cache synchronization/live validation, then additional Phase 11 profiling/code-splitting (especially /mail) or core-module verticals as product evidence warrants.",
+    "Continue next dependency-ordered redesign work: Phase 10 Composio cache synchronization and live validation, then additional Phase 11 profiling/code-splitting (especially /mail) or core-module verticals as product evidence warrants.",
     "Human/external follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Make scenario and Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
