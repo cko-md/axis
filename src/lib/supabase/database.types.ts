@@ -1447,6 +1447,66 @@ export type Database = {
         }
         Relationships: []
       }
+      mail_message_cache: {
+        Row: {
+          account_email: string
+          account_ref: string
+          connected_account_id: string | null
+          fetched_at: string
+          is_unread: boolean
+          message_date: string
+          provider: string
+          provider_message_id: string
+          received_at: string | null
+          sender: string
+          snippet: string
+          subject: string
+          sync_generation: string
+          thread_id: string
+          transport: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email: string
+          account_ref: string
+          connected_account_id?: string | null
+          fetched_at?: string
+          is_unread?: boolean
+          message_date: string
+          provider: string
+          provider_message_id: string
+          received_at?: string | null
+          sender?: string
+          snippet?: string
+          subject?: string
+          sync_generation: string
+          thread_id?: string
+          transport: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_email?: string
+          account_ref?: string
+          connected_account_id?: string | null
+          fetched_at?: string
+          is_unread?: boolean
+          message_date?: string
+          provider?: string
+          provider_message_id?: string
+          received_at?: string | null
+          sender?: string
+          snippet?: string
+          subject?: string
+          sync_generation?: string
+          thread_id?: string
+          transport?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mail_connections: {
         Row: {
           access_token_enc: string
@@ -1563,6 +1623,51 @@ export type Database = {
           id?: string
           image_url?: string
           sort_order?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      integration_sync_state: {
+        Row: {
+          account_label: string
+          account_ref: string
+          domain: string
+          last_attempted_at: string
+          last_error_code: string | null
+          last_status: string
+          last_synced_at: string | null
+          provider: string
+          sync_generation: string | null
+          transport: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_label: string
+          account_ref: string
+          domain: string
+          last_attempted_at: string
+          last_error_code?: string | null
+          last_status: string
+          last_synced_at?: string | null
+          provider: string
+          sync_generation?: string | null
+          transport: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_label?: string
+          account_ref?: string
+          domain?: string
+          last_attempted_at?: string
+          last_error_code?: string | null
+          last_status?: string
+          last_synced_at?: string | null
+          provider?: string
+          sync_generation?: string | null
+          transport?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []

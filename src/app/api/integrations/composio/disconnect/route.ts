@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { deleteConnectedAccount, isSupportedToolkit } from "@/lib/integrations/composio";
+import { deleteMailCacheForAccount } from "@/lib/mail/cache";
 
 // DELETE /api/integrations/composio/disconnect?toolkit=gmail|outlook
 export async function DELETE(req: NextRequest) {
@@ -29,15 +30,43 @@ export async function DELETE(req: NextRequest) {
   const targets = rows ?? [];
   if (targets.length === 0) return NextResponse.json({ ok: true, disconnected: 0 });
 
-  const results = await Promise.allSettled(
-    targets.map((row) => deleteConnectedAccount(row.connected_account_id)),
-  );
+  const results = await Promise.allSettled(targets.map(async (row) => {
+    try {
+      await deleteConnectedAccount(row.connected_account_id);
+    } catch (error) {
+      if (error && typeof error === "object" && "status" in error && error.status === 404) return;
+      throw error;
+    }
+  }));
   const deletedIds = targets
     .filter((_, index) => results[index]?.status === "fulfilled")
     .map((row) => row.id);
   const failures = results.filter((result) => result.status === "rejected");
 
   if (deletedIds.length > 0) {
+    if (toolkit === "gmail" || toolkit === "outlook") {
+      const disconnectedRows = targets.filter((row) => deletedIds.includes(row.id));
+      try {
+        await Promise.all(disconnectedRows.map((row) => deleteMailCacheForAccount(
+          supabase,
+          user.id,
+          {
+            provider: toolkit,
+            mailEmail: "Connected account",
+            via: "composio",
+            connectedAccountId: row.connected_account_id,
+          },
+        )));
+      } catch (cacheError) {
+        Sentry.captureException(cacheError, {
+          tags: { area: "integrations", provider: "composio", operation: "disconnect_cache_cleanup", toolkit },
+        });
+        return NextResponse.json(
+          { error: "Mailbox disconnected, but saved inbox cleanup failed" },
+          { status: 500 },
+        );
+      }
+    }
     const { error: deleteError } = await supabase
       .from("composio_connections")
       .delete()

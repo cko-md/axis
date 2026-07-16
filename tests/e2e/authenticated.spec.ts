@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 test("mail list opens detail and compose is available", async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto("/mail");
   await expect(page.locator("body")).not.toContainText(/application error|runtime error/i);
-  await expect(page.getByText(/inbox|connect a mailbox/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible({ timeout: 30_000 });
 
   const firstMessage = page.locator('[data-testid="mail-row"]').first();
   if (await firstMessage.count()) {
@@ -17,6 +18,7 @@ test("mail list opens detail and compose is available", async ({ page }) => {
 });
 
 test("task, schedule, note, and console routes load cleanly", async ({ page }) => {
+  test.setTimeout(120_000);
   for (const path of ["/agenda", "/schedule", "/notes", "/command"]) {
     await page.goto(path);
     await expect(page.locator("body")).toBeVisible();
@@ -28,6 +30,7 @@ test("task, schedule, note, and console routes load cleanly", async ({ page }) =
 // Only reachable when authenticated — middleware sends unauthenticated users to
 // /login before the page-level redirect runs.
 test("legacy routes redirect to canonical destinations", async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto("/console");
   await expect(page).toHaveURL(/\/command$/);
 

@@ -1,9 +1,9 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/phase9-resume-executor",
-  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 10.15 checkpoint complete: tsc clean, lint 0 errors / 0 warnings, 757 tests, configured Make management reads verified live, production build successful, all 171 route budgets passing, and total static JS 3886/4400 KB.",
+  "branch_note": "Resumed system-redesign buildout branch (PR #195). Wave 10.16 checkpoint complete: Mail is cache-first across direct and Composio transports; tsc clean, lint 0 errors / 0 warnings, 768 tests, authenticated browser smoke 3/3, production build successful, all 172 route budgets passing, total static JS 3889/4400 KB, and local/hosted migration plus owner-isolation verification passed.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "d35f7741",
+  "revision_reviewed": "6f3bfb6",
   "updated": "2026-07-15",
   "governance": {
     "source": "AGENTS.md",
@@ -19,7 +19,7 @@
   "baseline_health": {
     "typecheck": "pass",
     "lint": "pass (0 errors, 0 warnings)",
-    "unit_tests": "757 passed / 116 files",
+    "unit_tests": "768 passed / 118 files",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -33,9 +33,9 @@
     "7_workspace_shell": "started \u2014 command system extended: new Operate routes are palette-covered (guard-tested) and an executable 'Run Concentration Check' run-routine command added. Split-panes / entity-references / hover-previews not attempted.",
     "8_core_modules": "partial \u2014 Tasks + Approvals workbenches shipped; Portfolio now has pure tested TWR/MWR/allocation math, Investing allocation/concentration views, and Fund provider connection health/provenance in the shell. Activity has deterministic provider-category normalization and same-currency anomaly rules; Research persists cited owner-scoped market-report drafts; Signals now preserves an honest empty inbox instead of seeding fabricated activity. Further core-module expansion remains future work.",
     "9_agent_runtime": "complete for the current redesign scope \u2014 durable routine runs + step snapshots, deterministic routines, approval-gated resume that replays completed step outputs without recomputing, explain-only LLM narration with cost metering, observability events, run-history detail, and routine version compare/clone/restore. Conversational routine builder and subagent execution remain future program work.",
-    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, and Make notifications/outbox. Make management list/detail/run/start/stop now return schema-validated Results, reject redirects/invalid configuration, retry reads only, attempt writes once, send the documented scenario `data` field, and require activation confirmation. Configured list/detail reads are verified live without exposing scenario content. Composio cache synchronization and live authenticated provider workflow validation remain.",
-    "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split the interactive Command Console, reducing /command first-load JS from 433kB to 361kB. Wave 11.4 code-split the Vitality workspace, reducing /vitality first-load JS from 391kB to 361kB. Further profiling remains future work.",
-    "12_testing": "ongoing \u2014 757 unit tests / 116 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management config/schema/retry/write safety, portfolio math, Activity rules, cited research provenance, connection-health mapping, and JSON-artifact guard; authenticated operate.spec.ts (local stack) + public CI smoke. Broader authenticated browser and visual-regression coverage remains.",
+    "10_integrations": "substantial \u2014 integration risk model + provider->domain adapters behind the shared Result contract: market-data (Polygon), Plaid accounts/transactions/liabilities, Public order boundary, webhook hardening, bounded read retries, widget stale-cache fallback, Control Room risk cards, Make notifications/outbox, and cache-first Mail across direct/Composio transports. Make management list/detail/run/start/stop are schema-validated Results with read-only retry/write-once semantics. Mail now serves owner-scoped header/snippet cache rows before explicit provider revalidation, preserves failed-account rows, and records per-account sync state without caching bodies. Live authenticated provider workflow validation remains.",
+    "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB. Wave 10.16 removed live provider fan-out from Mail first paint via an owner-scoped cache; /mail remains 388kB and is the next code-splitting candidate. Further profiling remains.",
+    "12_testing": "ongoing \u2014 768 unit tests / 118 files incl. financial invariants, provider adapter contracts, encrypted outbox/tamper/dedupe/replay behavior, Make management config/schema/retry/write safety, Mail cache privacy/auth/ownership/sync/disconnect behavior, portfolio math, Activity rules, cited research provenance, connection-health mapping, and JSON-artifact guard. The seeded local authenticated browser suite passes all 3 Mail/daily-route/redirect tests; public CI smoke remains. Broader provider-backed and visual-regression coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
     "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged."
   },
@@ -1014,13 +1014,36 @@
       "note": "Removes the remaining MakeError/throw boundary from list/detail/run/start/stop and team resolution. Every management operation now returns the shared Result contract, validates zone/team/scenario ids before fetch, rejects redirects, schema-validates 2xx payloads, records safe normalized provider failures, and never surfaces response bodies or thrown messages. GET reads use at most three bounded attempts; run/start/stop writes use exactly one. Scenario execution now sends Make's documented `data` field instead of the ineffective legacy `input` field, rejects non-serializable input, and returns a validated execution receipt. Activation/deactivation returns and verifies Make's id/state confirmation. Low-level writes remain authority-free and require a future authenticated caller to satisfy Axis action policy. Configured Make list/detail reads passed live shape checks without printing scenario names or payloads; no live write was performed.",
       "tests": "757 tests pass across 116 files; 49 focused Make/Result/observability tests pass; tsc clean; lint 0 errors / 0 warnings; production build succeeds; all 171 route budgets pass; total static JS 3886/4400 KB",
       "verification": "npx vitest run src/lib/integrations/make.test.ts src/lib/integrations/types.test.ts src/lib/observability/providerTiming.test.ts + npx tsc --noEmit + npm run lint + npm run test + configured read-only listScenarios/getScenario shape verification + production build/budget gates + adversarial diff review"
+    },
+    {
+      "id": "10.16",
+      "title": "Cache-first Mail synchronization across direct and Composio transports",
+      "status": "landed",
+      "files_added": [
+        "src/lib/mail/cache.ts",
+        "src/lib/mail/cache.test.ts",
+        "src/app/api/mail/sync/route.ts",
+        "src/app/api/mail/sync/route.test.ts",
+        "supabase/migrations/202607152100_mail_cache_sync.sql",
+        "docs/architecture/mail-cache-sync.md"
+      ],
+      "files_changed": [
+        "src/app/api/mail/inbox/route.ts",
+        "src/app/api/mail/message/[id]/action/route.ts",
+        "src/components/mail/MailModule.tsx",
+        "src/lib/supabase/database.types.ts",
+        "tests/e2e/authenticated.spec.ts"
+      ],
+      "note": "Separates Mail first paint from live provider fan-out. GET /api/mail/inbox is now an owner-scoped cache-only read; the workspace renders saved normalized list metadata and explicitly POSTs /api/mail/sync to revalidate direct Gmail, direct Outlook, Composio Gmail, and Composio Outlook through the existing adapter Result contract. The cache stores sender/subject/snippet/flags/dates only, never bodies, attachments, tokens, raw payloads, or provider error bodies. Per-account sync state keeps last success plus normalized failure codes. Successful first-page generations reconcile only their covered date window; pagination appends; failed accounts retain and visibly surface last-known rows. Provider actions reconcile cached unread/removal state and return a visible warning if only the secondary cache update fails. Supabase is the store; Tembo remains unused pending a role decision.",
+      "tests": "768 tests pass across 118 files; focused Mail/cache/adapter/disconnect tests pass; seeded local authenticated Playwright 3/3 passes; tsc clean; lint 0 errors / 0 warnings; production build compiles 157 pages; all 172 route budgets pass; total static JS 3889/4400 KB",
+      "verification": "npx vitest run src/lib/mail/cache.test.ts src/app/api/mail/sync/route.test.ts src/lib/mail/adapters + npx tsc --noEmit + npm run lint + npm run test + AXIS_E2E_AUTH=1 npx playwright test --project=authenticated (local Supabase, 3 passed) + local Docker migration apply/idempotent reapply/two-user RLS/grant checks + hosted Supabase MCP migration/schema/owner-isolation/advisor read-back + production build/per-route/total bundle budgets"
     }
   ],
   "migrations_applied": {
     "applied": "2026-07-13; updated 2026-07-15",
     "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
-    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata, routine_versions, market_report_insights, integration_delivery_outbox, and expire_stale_approvals grant lockdown applied via Supabase MCP. Local Docker and hosted read-back confirmed outbox constraints/indexes/RLS, authenticated metadata-only column grants, owner isolation, browser mutation denial, service-role mutation, and service-only approval-expiry execution.",
+    "status": "applied + verified. Tables agent_tasks / agent_task_activity / approvals created; fund provenance columns + net_worth_snapshots.computed_at added. 2026-07-15: routine_run_pause_metadata, routine_versions, market_report_insights, integration_delivery_outbox, expire_stale_approvals grant lockdown, and mail_cache_sync applied via Supabase MCP. Local Docker and hosted read-back confirmed applicable constraints/indexes/RLS/grants and owner isolation. Mail cache tables have four owner policies each, no anonymous grants or body/token/payload columns, and passed a hosted two-user isolation transaction.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "files": [
       "supabase/migrations/202607131700_fund_provenance_columns.sql",
@@ -1030,7 +1053,8 @@
       "supabase/migrations/202607151100_routine_versions.sql",
       "supabase/migrations/202607151200_market_report_insights.sql",
       "supabase/migrations/202607151300_make_delivery_outbox.sql",
-      "supabase/migrations/202607151310_lock_expire_stale_approvals.sql"
+      "supabase/migrations/202607151310_lock_expire_stale_approvals.sql",
+      "supabase/migrations/202607152100_mail_cache_sync.sql"
     ]
   },
   "governance_override": {
@@ -1040,8 +1064,8 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Continue next dependency-ordered redesign work: Phase 10 Composio cache synchronization and live validation, then additional Phase 11 profiling/code-splitting (especially /mail) or core-module verticals as product evidence warrants.",
-    "Human/external follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated e2e with seeded credentials, Sentry dashboard/alert creation, live Make scenario and Outlook/Composio verification, Tembo role decision, and health-device provider decision."
+    "Continue next dependency-ordered redesign work: live authenticated provider validation for direct/Composio Mail and Outlook parity, then Phase 11 /mail code-splitting/profile work or the next core-module vertical as evidence warrants.",
+    "Human/external follow-ups remain: enable Supabase leaked-password protection, independent WebAuthn step-up security sign-off, manual authenticator ceremony test, authenticated provider-backed e2e/CI credentials, Sentry dashboard/alert creation, live Make scenario and Outlook/Composio verification, Tembo role decision, and health-device provider decision."
   ],
   "artifacts": {
     "docs": "docs/axis-redesign/",

@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-15",
-  "revision": "wave-10.15",
+  "revision": "wave-10.16",
   "defects": [
     {
       "id": "FIN-001",
@@ -122,6 +122,24 @@
       "status": "fixed",
       "revision_fixed": "wave-10.15",
       "verification": "49 focused tests pass; 757-test full suite passes; configured Make list/detail reads passed live id/team/state shape checks without exposing scenario content; no live write performed"
+    },
+    {
+      "id": "MAIL-001",
+      "severity": "high",
+      "source": "Platform audit L2/I4 and Phase 10 Composio cache synchronization review",
+      "summary": "Mail first paint blocked on live provider fan-out and a failed account could not retain durable last-known inbox state",
+      "reproduction": "Open /mail with multiple direct or Composio accounts while one provider is slow or unavailable; the prior GET /api/mail/inbox waited on every provider and had no persistent rows to render offline",
+      "affected": [
+        "src/app/api/mail/inbox/route.ts",
+        "src/components/mail/MailModule.tsx",
+        "src/lib/mail/cache.ts"
+      ],
+      "root_cause": "Inbox list metadata had no owner-scoped cache or per-account sync state; provider refresh and first paint were the same request",
+      "fix": "Serve normalized header/snippet metadata from owner-RLS cache, revalidate explicitly through POST /api/mail/sync, retain failed-account rows during partial refresh, record normalized sync outcomes, and keep message bodies live-only",
+      "regression_test": "src/lib/mail/cache.test.ts; src/app/api/mail/sync/route.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-10.16",
+      "verification": "Focused Mail/cache/sync/disconnect tests pass; 768-test full suite and seeded authenticated Mail smoke pass; local and hosted migration/RLS/owner-isolation checks pass"
     }
   ]
 }

@@ -5,6 +5,7 @@ import { listMailAccounts } from "@/lib/mail/tokens";
 import { findMailAccount } from "@/lib/mail/findAccount";
 import { adapterForAccount, mailErrorStatus, toMailContext } from "@/lib/mail/adapters";
 import type { MailProvider } from "@/lib/mail/tokens";
+import { updateCachedMessageAfterAction } from "@/lib/mail/cache";
 import {
   ProviderTimeoutError,
   logRouteTiming,
@@ -121,13 +122,22 @@ export async function POST(
   })();
 
   if (result.ok) {
+    let warning: string | undefined;
+    try {
+      await updateCachedMessageAfterAction(supabase, user.id, account, id, action);
+    } catch (cacheError) {
+      warning = "The mailbox was updated, but the saved inbox will refresh on the next sync.";
+      Sentry.captureException(cacheError, {
+        tags: { area: "mail", route: "/api/mail/message/[id]/action", op: "update_cache", provider, transport },
+      });
+    }
     logRouteTiming("/api/mail/message/[id]/action", routeStartedAt, {
       provider,
       transport,
       action,
       ok: true,
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, warning });
   }
 
   const status = result.error.status ?? mailErrorStatus(result.error.code);

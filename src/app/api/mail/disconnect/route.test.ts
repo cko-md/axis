@@ -3,10 +3,14 @@ import { NextRequest } from "next/server";
 import { DELETE } from "./route";
 
 const deleteMailTokens = vi.fn();
+const deleteMailCacheForAccount = vi.fn();
 const getUser = vi.fn();
 
 vi.mock("@/lib/mail/tokens", () => ({
   deleteMailTokens: (...args: unknown[]) => deleteMailTokens(...args),
+}));
+vi.mock("@/lib/mail/cache", () => ({
+  deleteMailCacheForAccount: (...args: unknown[]) => deleteMailCacheForAccount(...args),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -29,6 +33,7 @@ describe("DELETE /api/mail/disconnect", () => {
 
   it("returns success when the direct token row is deleted", async () => {
     deleteMailTokens.mockResolvedValueOnce(null);
+    deleteMailCacheForAccount.mockResolvedValueOnce(undefined);
 
     const res = await DELETE(request());
     const body = await res.json();
@@ -36,6 +41,9 @@ describe("DELETE /api/mail/disconnect", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual({ ok: true });
     expect(deleteMailTokens).toHaveBeenCalledWith("user_1", "gmail", "user@example.com");
+    expect(deleteMailCacheForAccount).toHaveBeenCalledWith(
+      expect.anything(), "user_1", { provider: "gmail", mailEmail: "user@example.com" },
+    );
   });
 
   it("returns non-OK when the direct token delete fails", async () => {
@@ -53,5 +61,16 @@ describe("DELETE /api/mail/disconnect", () => {
 
     expect(res.status).toBe(400);
     expect(deleteMailTokens).not.toHaveBeenCalled();
+  });
+
+  it("surfaces cache cleanup failure after provider disconnect", async () => {
+    deleteMailTokens.mockResolvedValueOnce(null);
+    deleteMailCacheForAccount.mockRejectedValueOnce(new Error("cache unavailable"));
+
+    const res = await DELETE(request());
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.error).toMatch(/saved inbox cleanup failed/i);
   });
 });

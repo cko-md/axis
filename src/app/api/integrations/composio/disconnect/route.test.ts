@@ -3,12 +3,16 @@ import { NextRequest } from "next/server";
 import { DELETE } from "./route";
 
 const deleteConnectedAccount = vi.fn();
+const deleteMailCacheForAccount = vi.fn();
 const from = vi.fn();
 const getUser = vi.fn();
 
 vi.mock("@/lib/integrations/composio", () => ({
   deleteConnectedAccount: (...args: unknown[]) => deleteConnectedAccount(...args),
   isSupportedToolkit: (toolkit: string) => ["gmail", "outlook", "googlecalendar", "googlecontacts", "strava", "spotify"].includes(toolkit),
+}));
+vi.mock("@/lib/mail/cache", () => ({
+  deleteMailCacheForAccount: (...args: unknown[]) => deleteMailCacheForAccount(...args),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -44,6 +48,7 @@ describe("DELETE /api/integrations/composio/disconnect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getUser.mockResolvedValue({ data: { user: { id: "user_1" } } });
+    deleteMailCacheForAccount.mockResolvedValue(undefined);
   });
 
   it("does not delete the local connection when Composio revocation fails", async () => {
@@ -85,6 +90,22 @@ describe("DELETE /api/integrations/composio/disconnect", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual({ ok: true, disconnected: 1 });
+    expect(deleteIn).toHaveBeenCalledWith("id", ["row_1"]);
+    expect(deleteMailCacheForAccount).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      expect.objectContaining({ provider: "gmail", via: "composio", connectedAccountId: "ca_1" }),
+    );
+  });
+
+  it("treats an already-removed provider account as disconnected so cleanup can retry", async () => {
+    const { deleteIn } = mockSupabase([{ id: "row_1", connected_account_id: "ca_1" }]);
+    deleteConnectedAccount.mockRejectedValueOnce(Object.assign(new Error("not found"), { status: 404 }));
+
+    const res = await DELETE(request());
+
+    expect(res.status).toBe(200);
+    expect(deleteMailCacheForAccount).toHaveBeenCalledOnce();
     expect(deleteIn).toHaveBeenCalledWith("id", ["row_1"]);
   });
 });
