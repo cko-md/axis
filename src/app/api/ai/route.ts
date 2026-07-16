@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getGeminiApiKey, optionalEnv } from "@/lib/env";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 import { normalizePayload, parseJsonBody } from "@/lib/ai/request";
+import { safeActionPath } from "@/lib/ai/actionPath";
 
 type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
@@ -391,7 +392,11 @@ export async function POST(req: NextRequest) {
         maxTokens: 500,
       });
       const cards = JSON.parse(raw.text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()) as Array<{ title: string; body: string; actionLabel?: string; actionPath?: string }>;
-      return NextResponse.json({ cards: cards.map((c, i) => ({ ...c, id: String(i) })) });
+      return NextResponse.json({ cards: cards.map((c, i) => ({
+        ...c,
+        id: String(i),
+        actionPath: safeActionPath(c.actionPath),
+      })) });
     }
 
     // ── music-recs ───────────────────────────────────────────────────────────
