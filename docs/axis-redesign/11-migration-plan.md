@@ -56,7 +56,7 @@ The dependency order is lexical and semantic:
 | Expansion 2 | [`202607161302_webauthn_atomic.sql`](../../supabase/migrations/202607161302_webauthn_atomic.sql) | Exact one-time WebAuthn challenge consumption, passkey creation/counter commit/deletion, service-only ceremony RPCs. |
 | Expansion 3 | [`202607161400_routine_resume_claims.sql`](../../supabase/migrations/202607161400_routine_resume_claims.sql) | Fenced routine resume leases/steps, atomic terminal approval consumption, task idempotency, compatibility policies. |
 | Application | Compatible application revision | Routes use the atomic RPCs and no longer depend on direct browser Task/approval/passkey writes. Vercel Git integration is the sole production deploy owner. |
-| Contract | [`202607161401_task_approval_lockdown.sql`](../../supabase/migrations/202607161401_task_approval_lockdown.sql) | Removes legacy authenticated insert/update/delete policies/grants after the compatible application is confirmed live. |
+| Contract | [`202607161401_task_approval_lockdown.sql`](../../supabase/migrations/202607161401_task_approval_lockdown.sql) | Removes legacy authenticated Task/approval/passkey insert/update/delete policies/grants, replaces the passkey `FOR ALL` policy with owner SELECT only, and runs only after the compatible application is confirmed live. |
 
 The contract migration must never run merely because the preview is green. It
 runs only after the compatible revision is on production, expansion checks are
@@ -154,7 +154,8 @@ After the production revision and external gates are verified:
    [`202607161401_task_approval_lockdown.sql`](../../supabase/migrations/202607161401_task_approval_lockdown.sql);
 3. run [`verify-20260716-contract.sql`](../../scripts/sql/verify-20260716-contract.sql);
 4. prove authenticated direct Task/activity/approval/passkey writes fail while
-   service RPC paths still work;
+   service RPC paths still work; the verifier performs real authenticated
+   passkey insert/update/delete denial probes in addition to catalog checks;
 5. repeat owner-isolation and core production smoke checks;
 6. record post-contract Sentry/Vercel/database evidence.
 

@@ -57,7 +57,10 @@ Schema work is not complete when SQL parses. Tests must prove:
   scope fail closed;
 - audit/activity writes commit with the state change;
 - contract migrations remove legacy direct browser writes only after the
-  compatible application is live.
+  compatible application is live;
+- any policy-derived local grant bootstrap preserves the final privilege
+  contract, and authenticated passkey insert/update/delete attempts fail at the
+  table-privilege boundary.
 
 Dedicated executable checks:
 
@@ -65,6 +68,10 @@ Dedicated executable checks:
 - [`validate-webauthn-atomic.mjs`](../../scripts/validate-webauthn-atomic.mjs)
 - [`validate-routine-resume-claims.mjs`](../../scripts/validate-routine-resume-claims.mjs)
 - release read-back SQL under [`scripts/sql`](../../scripts/sql)
+
+PR CI runs the contract read-back immediately after deriving local Data API
+grants. This ordering is intentional: the fresh stack must test the final
+migration state and prove that bootstrap logic cannot re-grant lifecycle DML.
 
 These validators create temporary users/data and clean them up or run inside
 rollback transactions. They must refuse an unintended hosted target unless the

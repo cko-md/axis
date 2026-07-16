@@ -34,8 +34,9 @@ Contract:
 
 **NEVER apply the contract migration before the compatible application revision
 is confirmed live in production.** It removes browser DML policies/grants used
-by the older application. A green preview is necessary but is not proof that
-the production revision is live.
+by the older application and replaces the legacy passkey `FOR ALL` policy with
+owner SELECT only. A green preview is necessary but is not proof that the
+production revision is live.
 
 Run `npm run release:validate` before starting. It checks file ordering,
 transaction wrappers, safety markers, read-back scripts, documentation, and
@@ -140,9 +141,11 @@ supabase migration list --linked
 ```
 
 Repeat the authenticated write-path smoke and Sentry review immediately. The
-contract migration is transaction-wrapped; a SQL error rolls the migration
-back. A successful contract plus a failed read-back is an incident and blocks
-release completion.
+contract verifier checks policy/grant catalogs and executes authenticated
+passkey insert/update/delete probes that must fail at the table-privilege
+boundary. The contract migration is transaction-wrapped; a SQL error rolls the
+migration back. A successful contract plus a failed read-back is an incident
+and blocks release completion.
 
 ## Rollback and recovery
 

@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-16",
-  "revision": "wave-7.5",
+  "revision": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
   "defects": [
     {
       "id": "FIN-001",
@@ -250,14 +250,19 @@
       "summary": "Task and approval lifecycle routes use stale reads followed by unconditional updates, and task activity failures can be hidden",
       "affected": [
         "src/app/api/agent-tasks/[id]/route.ts",
-        "src/app/api/approvals/[id]/route.ts"
+        "src/app/api/approvals/[id]/route.ts",
+        "src/lib/tasks/taskPersistence.ts",
+        "src/lib/security/approvalMutations.ts",
+        "supabase/migrations/202607161300_task_approval_atomic.sql",
+        "supabase/migrations/202607161401_task_approval_lockdown.sql"
       ],
       "root_cause": "Lifecycle validation and mutation are separate requests without compare-and-swap or a transaction",
-      "fix": "Pending",
-      "regression_test": "Pending concurrent transition, atomic activity, and audit failure coverage",
-      "status": "open",
-      "revision_fixed": null,
-      "verification": "Pending"
+      "fix": "Route lifecycle changes through owner-derived SECURITY DEFINER RPCs that require the expected status and lifecycle version, update the row with compare-and-swap semantics, and append task activity or approval audit in the same transaction. Enforce stored approval scope, challenge id, expiry, action class, and financial freshness server-side. Stage a separate contract migration that revokes legacy direct client mutation only after compatible code is live.",
+      "regression_test": "src/app/api/agent-tasks/[id]/route.test.ts; src/app/api/approvals/[id]/route.test.ts; src/lib/tasks/taskPersistence.test.ts; src/lib/security/approvalMutations.test.ts; scripts/validate-task-approval-cas.mjs",
+      "status": "fixed",
+      "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+      "verification": "Focused route/domain tests and the local task/approval SQL validator pass concurrent stale-version rejection, atomic activity/audit failure rollback, ownership, strict scope/challenge, expiry/freshness, and successful transition checks. Hosted expansion migration 202607161300 is applied and read back; contract migration 202607161401 remains intentionally pending until the compatible application revision is production-live.",
+      "similar_code_search": "The same stale-read/unconditional-update pattern was reviewed across task transitions, approval decisions/step-up/execution, WebAuthn counters, and routine resume. WebAuthn and routine resume received their own atomic RPC contracts in the same revision."
     },
     {
       "id": "RUN-002",
@@ -266,14 +271,34 @@
       "summary": "Routine resume can consume approval before successful resumed work and lacks a complete atomic claim/retry contract",
       "affected": [
         "src/app/api/routines/runs/[id]/resume/route.ts",
-        "src/lib/routines/executor.ts"
+        "src/lib/routines/executor.ts",
+        "src/lib/routines/resumeClaims.ts",
+        "supabase/migrations/202607161400_routine_resume_claims.sql"
       ],
       "root_cause": "Approval consumption, run claim, pause metadata, execution, and finalization are not coordinated as a retry-safe state transition",
-      "fix": "Pending",
-      "regression_test": "Pending double-submit, failed-resume, successful-retry, and finalization-failure coverage",
-      "status": "open",
-      "revision_fixed": null,
-      "verification": "Pending"
+      "fix": "Claim resumable runs through an owner-derived lease and fencing-token RPC, replay completed step outputs, materialize resumed tasks with stable idempotency keys, renew/release only with the active fence, and atomically finalize the run while consuming the terminal approval. Failed work releases or expires the claim without consuming approval, allowing a safe retry.",
+      "regression_test": "src/app/api/routines/runs/[id]/resume/route.test.ts; src/lib/routines/executor.test.ts; src/lib/routines/resumeClaims.test.ts; scripts/validate-routine-resume-claims.mjs",
+      "status": "fixed",
+      "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+      "verification": "Focused route/executor/claim tests and the 50-check local SQL validator pass double-submit exclusion, stale-fence rejection, lease expiry and reclaim, failed-resume retry, idempotent task materialization, replayed completed outputs, finalization-failure rollback, and atomic terminal approval consumption. Hosted expansion migration 202607161400 is applied and read back."
+    },
+    {
+      "id": "RUN-003",
+      "severity": "high",
+      "source": "Phase 9 financial-safety and routine-version adversarial review",
+      "summary": "Changing the rebalance proposal in place could reinterpret persisted v1 runs with new simulation semantics, while approval/broker placeholders made a non-executing workflow appear closer to financial execution than it was",
+      "reproduction": "Resolve a historical rebalance-proposal v1 run after replacing the registered definition in place, or run the previous route and observe approval/waiting constructs despite no authorized broker execution path",
+      "affected": [
+        "src/app/api/routines/rebalance-proposal/route.ts",
+        "src/lib/routines/versioning.ts",
+        "docs/axis-redesign/08-agent-runtime.md"
+      ],
+      "root_cause": "The routine behavior changed without an immutable version boundary, and the proposal path mixed simulation output with approval/execution-shaped state",
+      "fix": "Restore the historical approval-producing v1 definition for persisted-run interpretation, register a new v2 definition, and stamp all new route runs as v2. Make v2 strictly simulation-only: create no approvals, broker placeholders, or waiting state; enforce bounded inputs/rates and a complete positive USD fresh-or-delayed quote set; fail closed on missing/unsafe data; emit only complete explicitly unsubmitted order drafts.",
+      "regression_test": "src/app/api/routines/rebalance-proposal/route.test.ts; src/lib/routines/versioning.test.ts",
+      "status": "fixed",
+      "revision_fixed": "cb138215b87b9cad65be764cd3ea67d54f6fc82c",
+      "verification": "Focused route/versioning tests cover historical v1 resolution, v2 stamping, no approval creation, no broker placeholder/waiting state, rate and request limits, quote completeness/currency/freshness rejection, blocked-run persistence, and complete unsubmitted drafts. Full 1064-test suite, tsc, lint, and independent financial-safety review are green."
     },
     {
       "id": "AI-002",
@@ -282,14 +307,57 @@
       "summary": "Model-authored action paths are navigated without an internal allowlist and heuristic fallbacks can be indistinguishable from model success",
       "affected": [
         "src/app/api/ai/route.ts",
-        "src/components/console/ConsoleModule.tsx"
+        "src/components/console/ConsoleModule.tsx",
+        "src/lib/ai/navigation.ts",
+        "src/lib/ai/response.ts"
       ],
       "root_cause": "Untrusted model output crosses the navigation boundary and provider degradation is encoded as a normal success payload",
-      "fix": "Pending",
-      "regression_test": "Pending action-path allowlist, degraded response, and safe observability coverage",
-      "status": "open",
-      "revision_fixed": null,
-      "verification": "Pending"
+      "fix": "Normalize model actions through a strict internal-route allowlist before rendering or navigation, reject external/protocol-relative/unknown paths, and attach explicit provider/source/degraded provenance to heuristic or unavailable-provider fallbacks. Keep observability metadata bounded and content-free.",
+      "regression_test": "src/lib/ai/navigation.test.ts; src/lib/ai/response.test.ts; src/lib/ai/actions.test.ts; src/lib/ai/privacy.test.ts; src/app/api/ai/route.test.ts",
+      "status": "fixed",
+      "revision_fixed": "d40cab6ad48ca6ca69981781e6443d5ad26b90d1",
+      "verification": "72 focused AI boundary tests pass, including unsafe action paths, normalized internal paths, provider failure/degraded provenance, heuristic fallback labeling, and privacy-safe telemetry. Current full suite passes 1064 tests across 165 files; tsc and lint are clean.",
+      "similar_code_search": "Console and mascot action consumers now share the normalized contract; provider fallbacks returned by the AI route are discriminated from model success instead of relying on display text."
+    },
+    {
+      "id": "SEC-004",
+      "severity": "high",
+      "source": "Final independent production-blocker review",
+      "summary": "An enrolled TOTP factor could be bypassed after passkey login because the restored Supabase session was AAL1 and MFA enforcement existed only in client login code",
+      "reproduction": "Complete passkey verification for a user with an enrolled TOTP factor, retain the server-issued magic-link cookie, then call a protected API directly without running the login page's client-side assurance check",
+      "affected": [
+        "src/app/api/auth/passkey/authenticate/route.ts",
+        "src/app/login/page.tsx",
+        "src/middleware.ts",
+        "src/lib/auth/authenticatorAssurance.ts"
+      ],
+      "root_cause": "Passkey possession restored a valid Supabase cookie, but middleware and API entry points checked only getUser(); the AAL1-to-AAL2 requirement was initiated exclusively by client-side login code",
+      "fix": "Evaluate authenticator assurance in middleware for every authenticated protected request. Deny protected APIs with MFA_REQUIRED, redirect protected pages to the login ceremony, allow only the exact MFA challenge/verify bootstrap routes, keep other MFA management blocked, and fail closed when assurance is unavailable. The login page resumes the server-directed MFA ceremony without redirect loops.",
+      "regression_test": "src/lib/auth/authenticatorAssurance.test.ts; src/middleware.test.ts",
+      "status": "fixed",
+      "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+      "verification": "Eight focused assurance/middleware tests prove direct protected API denial at aal1, exact challenge/verify access, login recovery, and protected access at aal2. The full 1064-test suite, tsc, and lint pass. A real hardware authenticator plus TOTP ceremony remains an explicit human gate.",
+      "similar_code_search": "All middleware-protected and route-owned APIs now pass through the same assurance boundary; unenroll and other MFA management routes are intentionally not bootstrap exceptions."
+    },
+    {
+      "id": "CI-001",
+      "severity": "high",
+      "source": "Final independent production-blocker review",
+      "summary": "Fresh-stack authenticated CI could undo the final passkey privilege contract by converting a surviving FOR ALL policy back into browser insert/update/delete grants",
+      "reproduction": "Apply migration 202607161401, then run scripts/sql/bootstrap-local-e2e-role-grants.sql; the former policy-derived grant loop mapped the legacy Users manage own passkeys policy to full DML, contradicting the contract revokes",
+      "affected": [
+        ".github/workflows/ci.yml",
+        "scripts/sql/bootstrap-local-e2e-role-grants.sql",
+        "scripts/sql/verify-20260716-contract.sql",
+        "supabase/migrations/202607161401_task_approval_lockdown.sql"
+      ],
+      "root_cause": "The contract revoked table privileges without replacing the older FOR ALL passkey RLS policy, while the local CI bootstrap assumed every policy command should regenerate matching table privileges",
+      "fix": "The pending contract migration drops the legacy FOR ALL policy and creates owner-scoped SELECT only. The CI bootstrap reasserts lifecycle DML revocations after policy-derived grants, and CI immediately runs the contract verifier. The verifier checks policy/grant catalogs and executes authenticated passkey insert/update/delete attempts that must fail at the privilege boundary.",
+      "regression_test": "scripts/sql/verify-20260716-contract.sql; .github/workflows/ci.yml",
+      "status": "fixed",
+      "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+      "verification": "Updated migration, CI-equivalent grant bootstrap, catalog verifier, and real authenticated insert/update/delete denial probes pass against local Supabase. release:validate records contract checksum 31291dd9e3a0d9eb5aac3766015036becaebff005d417f8bf16ad3fbd37b78f7. Hosted migration 202607161401 remains intentionally unapplied until the compatible production SHA is live.",
+      "similar_code_search": "The same post-bootstrap revocation covers agent_tasks, agent_task_activity, approvals, and user_passkeys so a future broad policy cannot silently restore browser lifecycle writes."
     }
   ]
 }

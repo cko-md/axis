@@ -2,6 +2,14 @@
 
 **Revision:** branch `claude/axis-system-redesign-7986vb` (PR #190) · **Date:** 2026-07-14
 
+> Historical snapshot: this document records the original PR #190 convergence
+> point. The redesign has since advanced through Phases 6–14 on
+> `codex/phase9-resume-executor` (PR #195). The authoritative current revision,
+> gate evidence, hosted migration state, and remaining external checks are in
+> `.claude/axis-redesign/PROGRAM_STATE.json`; release ordering and rollback are
+> in `12-release-plan.md`. Do not use the historical counts or loose ends below
+> as the current production-readiness claim.
+
 This is an honest convergence assessment, not a claim that the full 14-phase
 program in the master prompt is finished. That prompt describes a multi-quarter
 rewrite. What this branch delivers is a **coherent, green, end-to-end vertical of
