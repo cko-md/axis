@@ -527,7 +527,7 @@ Security tab exposes TOTP 2FA setup (`MFASetup.tsx`) and passkey management
 | Layer | Service | Notes |
 |-------|---------|-------|
 | **Database + Auth + Storage** | Supabase | Project env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` |
-| **Hosting + Edge** | Vercel | Auto-deploy on push to `main` via GitHub Actions (`.github/workflows/`) |
+| **Hosting + Edge** | Vercel | Auto-deploy on push to `main` through the Vercel Git integration |
 | **Cache / Rate limiting** | Upstash Redis | `@upstash/ratelimit` + `@upstash/redis`. Env: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
 | **Framework** | Next.js 15 (App Router) | TypeScript, Tailwind CSS v4, `next-pwa` |
 | **Rich text** | TipTap | Used in Notes module |

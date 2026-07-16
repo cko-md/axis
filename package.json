@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test --project=public",
     "test:e2e:auth": "AXIS_E2E_AUTH=1 playwright test --project=authenticated",
+    "release:validate": "node scripts/validate-release-wave.mjs",
     "axis": "node scripts/axis.mjs"
   },
   "engines": {
