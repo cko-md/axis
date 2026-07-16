@@ -115,10 +115,9 @@ export function failFromException<T = never>(
     e && typeof e === "object" && "status" in e && typeof (e as { status: unknown }).status === "number"
       ? (e as { status: number }).status
       : undefined;
-  const message = e instanceof Error && e.message ? e.message : fallbackMessage;
   if (typeof status === "number") {
-    return fail<T>(codeFromStatus(status), message, { ...extra, status });
+    return fail<T>(codeFromStatus(status), fallbackMessage, { ...extra, status });
   }
   // No status → almost always a fetch/timeout/abort.
-  return fail<T>("network", message, extra);
+  return fail<T>("network", fallbackMessage, extra);
 }

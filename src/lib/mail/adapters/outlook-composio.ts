@@ -74,7 +74,7 @@ export const outlookComposioAdapter: MailAdapter = {
     if (!acct.ok) return acct;
     try {
       const res = await sendComposioMail("outlook", acct.data, ctx.userId, input.to, input.subject, input.body);
-      if (!res.ok) return fail("provider_error", res.error ?? "Send failed", { provider: "outlook", transport: "composio" });
+      if (!res.ok) return fail("provider_error", "Outlook send failed.", { provider: "outlook", transport: "composio" });
       return ok({});
     } catch (e) {
       return failFromException(e, "Send failed", { provider: "outlook", transport: "composio" });

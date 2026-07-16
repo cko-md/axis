@@ -71,7 +71,7 @@ export const gmailComposioAdapter: MailAdapter = {
     if (!acct.ok) return acct;
     try {
       const res = await sendComposioMail("gmail", acct.data, ctx.userId, input.to, input.subject, input.body);
-      if (!res.ok) return fail("provider_error", res.error ?? "Send failed", { provider: "gmail", transport: "composio" });
+      if (!res.ok) return fail("provider_error", "Gmail send failed.", { provider: "gmail", transport: "composio" });
       return ok({});
     } catch (e) {
       return failFromException(e, "Send failed", { provider: "gmail", transport: "composio" });
@@ -95,7 +95,7 @@ export const gmailComposioAdapter: MailAdapter = {
     if (!acct.ok) return acct;
     try {
       const res = await markComposioGmailReadState(acct.data, ctx.userId, messageId, false);
-      if (!res.ok) return fail("provider_error", res.error ?? "Mark read failed", { provider: "gmail", transport: "composio" });
+      if (!res.ok) return fail("provider_error", "Gmail mark-read failed.", { provider: "gmail", transport: "composio" });
       return ok(undefined);
     } catch (e) {
       return failFromException(e, "Mark read failed", { provider: "gmail", transport: "composio" });
@@ -107,7 +107,7 @@ export const gmailComposioAdapter: MailAdapter = {
     if (!acct.ok) return acct;
     try {
       const res = await markComposioGmailReadState(acct.data, ctx.userId, messageId, true);
-      if (!res.ok) return fail("provider_error", res.error ?? "Mark unread failed", { provider: "gmail", transport: "composio" });
+      if (!res.ok) return fail("provider_error", "Gmail mark-unread failed.", { provider: "gmail", transport: "composio" });
       return ok(undefined);
     } catch (e) {
       return failFromException(e, "Mark unread failed", { provider: "gmail", transport: "composio" });
@@ -119,7 +119,7 @@ export const gmailComposioAdapter: MailAdapter = {
     if (!acct.ok) return acct;
     try {
       const res = await archiveComposioGmailMessage(acct.data, ctx.userId, messageId);
-      if (!res.ok) return fail("provider_error", res.error ?? "Archive failed", { provider: "gmail", transport: "composio" });
+      if (!res.ok) return fail("provider_error", "Gmail archive failed.", { provider: "gmail", transport: "composio" });
       return ok(undefined);
     } catch (e) {
       return failFromException(e, "Archive failed", { provider: "gmail", transport: "composio" });
@@ -131,7 +131,7 @@ export const gmailComposioAdapter: MailAdapter = {
     if (!acct.ok) return acct;
     try {
       const res = await trashComposioGmailMessage(acct.data, ctx.userId, messageId);
-      if (!res.ok) return fail("provider_error", res.error ?? "Move to trash failed", { provider: "gmail", transport: "composio" });
+      if (!res.ok) return fail("provider_error", "Gmail move-to-trash failed.", { provider: "gmail", transport: "composio" });
       return ok(undefined);
     } catch (e) {
       return failFromException(e, "Move to trash failed", { provider: "gmail", transport: "composio" });

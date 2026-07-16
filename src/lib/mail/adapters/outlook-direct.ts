@@ -47,8 +47,8 @@ async function graphCall(
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return failFromStatus(res.status, `Outlook error: ${text.slice(0, 200) || res.statusText}`, { provider: "outlook", transport: "direct" });
+      await res.text().catch(() => undefined);
+      return failFromStatus(res.status, "Outlook provider request failed.", { provider: "outlook", transport: "direct" });
     }
     return ok(res.status === 204 || res.status === 202 ? null : await res.json().catch(() => null));
   } catch (e) {
