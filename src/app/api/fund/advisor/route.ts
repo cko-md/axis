@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit } from "@/lib/ratelimit";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import type { Json } from "@/lib/supabase/database.types";
 import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
 
@@ -29,6 +30,11 @@ import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
 
 const MODEL = "claude-haiku-4-5-20251001";
 const MAX_TOOL_CALLS = 6;
+
+function advisorFailure(error: unknown, operation: string) {
+  captureRouteError(error, { route: "/api/fund/advisor", operation, area: "fund", status: 500 });
+  return NextResponse.json({ error: "ADVISOR_UNAVAILABLE" }, { status: 500 });
+}
 
 const SYSTEM_PROMPT = `You are the financial advisor inside Axis, a personal operating system. You help the user understand their own spending, holdings, liabilities, and cash position.
 
@@ -62,7 +68,8 @@ export async function POST(req: NextRequest) {
 
   let conversationId = conversation_id;
   if (conversationId) {
-    const { data: conv } = await supabase.from("ai_conversations").select("id").eq("id", conversationId).eq("user_id", user.id).maybeSingle();
+    const { data: conv, error: conversationLookupError } = await supabase.from("ai_conversations").select("id").eq("id", conversationId).eq("user_id", user.id).maybeSingle();
+    if (conversationLookupError) return advisorFailure(conversationLookupError, "load_conversation");
     if (!conv) return NextResponse.json({ error: "CONVERSATION_NOT_FOUND" }, { status: 404 });
   } else {
     const { data: conv, error } = await supabase
@@ -70,7 +77,7 @@ export async function POST(req: NextRequest) {
       .insert({ user_id: user.id, title: userMessage.slice(0, 80) })
       .select("id")
       .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return advisorFailure(error, "create_conversation");
     conversationId = conv.id;
   }
 
@@ -78,13 +85,14 @@ export async function POST(req: NextRequest) {
   // turns, not raw tool_use blocks — if an earlier answer needs re-checking
   // this turn, the model just calls the tool again rather than reusing a
   // stale value. Keeps cross-request replay simple without losing safety.
-  const { data: priorMessages } = await supabase
+  const { data: priorMessages, error: priorMessagesError } = await supabase
     .from("ai_messages")
     .select("role, content")
     .eq("conversation_id", conversationId)
     .in("role", ["user", "assistant"])
     .order("created_at")
     .limit(20);
+  if (priorMessagesError) return advisorFailure(priorMessagesError, "load_messages");
 
   const anthropic = new Anthropic({ apiKey });
   const messages: Anthropic.MessageParam[] = [
@@ -94,7 +102,8 @@ export async function POST(req: NextRequest) {
     { role: "user", content: userMessage },
   ];
 
-  await supabase.from("ai_messages").insert({ conversation_id: conversationId, user_id: user.id, role: "user", content: userMessage });
+  const { error: userMessageError } = await supabase.from("ai_messages").insert({ conversation_id: conversationId, user_id: user.id, role: "user", content: userMessage });
+  if (userMessageError) return advisorFailure(userMessageError, "persist_user_message");
 
   const allTools = [...TOOLS, CITATION_TOOL];
   let toolCallCount = 0;
@@ -140,13 +149,13 @@ export async function POST(req: NextRequest) {
       let isError = false;
       try {
         output = await executeTool(block.name, block.input as Record<string, unknown>, { supabase, userId: user.id });
-      } catch (err) {
+      } catch {
         isError = true;
-        output = { error: err instanceof Error ? err.message : "Tool execution failed" };
+        output = { error: "TOOL_EXECUTION_FAILED" };
       }
       const latencyMs = Date.now() - startedAt;
 
-      await supabase.from("ai_tool_calls").insert({
+      const { error: toolCallError } = await supabase.from("ai_tool_calls").insert({
         user_id: user.id,
         conversation_id: conversationId,
         tool_name: block.name,
@@ -154,6 +163,7 @@ export async function POST(req: NextRequest) {
         output: output as Json,
         latency_ms: latencyMs,
       });
+      if (toolCallError) return advisorFailure(toolCallError, "persist_tool_call");
 
       toolResults.push({
         type: "tool_result",
@@ -177,7 +187,7 @@ export async function POST(req: NextRequest) {
     tool_call_count: toolCallCount,
   };
 
-  const { data: savedAssistant } = await supabase
+  const { data: savedAssistant, error: assistantError } = await supabase
     .from("ai_messages")
     .insert({
       conversation_id: conversationId,
@@ -188,8 +198,10 @@ export async function POST(req: NextRequest) {
     })
     .select("id, created_at")
     .single();
+  if (assistantError || !savedAssistant) return advisorFailure(assistantError ?? new Error("Assistant message was not persisted"), "persist_assistant_message");
 
-  await supabase.from("ai_conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+  const { error: conversationUpdateError } = await supabase.from("ai_conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+  if (conversationUpdateError) return advisorFailure(conversationUpdateError, "touch_conversation");
 
   return NextResponse.json({
     conversation_id: conversationId,
