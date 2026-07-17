@@ -1,11 +1,16 @@
 # Claude continuation context — AXIS VECTOR Arcade + Envoys
 
 You are continuing the owner-authorized AXIS System Redesign program from the
-`codex/vector-arcade-envoys` branch. Read `AGENTS.md`, the pasted owner brief at
-`/Users/ogo.ko/.codex/attachments/564c9212-79a7-49ce-8c97-0596857e1bed/pasted-text-1.txt`,
+`codex/vector-phase15-convergence` branch (VECTOR platform reconciled onto the
+phase9 redesign base). The portable, tracked sources of truth are `AGENTS.md`,
 `docs/axis-redesign/15-vector-arcade-and-envoys.md`, `docs/vector/PLAN.md`,
-`.claude/axis-redesign/PROGRAM_STATE.json`, and the latest wave log before
-editing. The owner explicitly authorized the cross-module redesign override and
+`docs/axis-redesign/15.2-convergence-execution-log.md`,
+`docs/axis-redesign/15.2-lifecycle-invariant-matrix.md`,
+`docs/axis-redesign/15.2-migration-reconciliation.md`,
+`.claude/axis-redesign/PROGRAM_STATE.json`, and the latest wave log — read these
+before editing. (A machine-local owner brief may exist under
+`~/.codex/attachments/...`; it is a secondary, optional source only. Do not fail
+or invent content if it is absent — the tracked docs above are authoritative.) The owner explicitly authorized the cross-module redesign override and
 accepted all recommended premortem mitigations. Preserve the financial safety
 kernel, owner/RLS boundaries, no-secret/no-PII rules, visible failures, and
 truthful local-only/blocked states.
@@ -22,7 +27,12 @@ cross-game/production convergence.
 
 ## Current checkpoint
 
-Wave 15.2 is implemented and checkpoint-ready on `codex/vector-arcade-envoys`:
+Wave 15.2 is implemented and **converged** onto the phase9 redesign base. The
+canonical branch is now `codex/vector-phase15-convergence` (base
+`origin/codex/phase9-resume-executor@84cc5ca6`; VECTOR platform commit `4e44e245`
+cherry-picked; VECTOR lifecycle migration dropped; arcade migration renumbered to
+`202607170001`). The original `codex/vector-arcade-envoys@a72f3da7` is preserved
+as the immutable Wave 15.2 source checkpoint. Converged platform surface:
 
 - `/vector` and `/vector/[game]` Instrument Deck shell; nine catalog entries are
   visibly planned/disabled and no engine is in the lobby bundle.
@@ -99,8 +109,15 @@ log, and a new wave prompt before committing.
 
 ## Immediate handoff facts
 
-The current checkpoint commit base is `0753eada924eafeb19cee3e5068f997d78871e2a`.
-The working tree contains the Wave 15.2 implementation and documentation edits;
-verify status before staging. Keep the branch name unchanged. Push the checkpoint
-and leave its PR unmerged; then begin Wave 15.3 only after the checkpoint is
-reviewable and the local gates are recorded.
+The convergence branch `codex/vector-phase15-convergence` carries three commits on
+top of `84cc5ca6`: the platform port (`4d4c245c`), the sidebar test reconciliation
+(`7b6abfa8`), and the reconciliation docs (`64dec9cd`), plus this checkpoint-doc
+repair. Local gates recorded green: tsc, eslint, 1257/184 unit tests,
+release:validate, production build (175 pages), bundle 4321/4400 KB, 187/187 route
+budgets. NOT executable in a CLI-only env and therefore NOT GREEN: fresh-Supabase
+authenticated Playwright, the VECTOR authenticated browser suite, and any hosted
+Supabase RLS/grant readback for `202607170001` — these stay owner/CI gates.
+
+Do NOT push, merge, or apply the hosted arcade migration without explicit owner
+authorization. Begin Wave 15.3 (Second Sense) only after independent review and
+after the fresh-Supabase authenticated gates pass on this convergence head.
