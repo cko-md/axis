@@ -53,3 +53,9 @@ next-env.d.ts
 # personal scratch scripts — not part of the app, not meant to be checked in
 agent.py
 test-results
+
+# desktop preview (Electron) — build output + source live on the
+# codex/electron-preview-release branch (PR #227), not on main. dist-electron/
+# is generated installers (~800MB); electron/ is that branch's working tree.
+dist-electron/
+electron/
