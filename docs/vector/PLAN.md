@@ -1,6 +1,6 @@
 # VECTOR Arcade — executable plan
 
-- Status: active
+- Status: active — shared platform delivered; all nine games remain planned
 - Owner program: Phase 15
 - Primary route: `/vector`
 - Game route: `/vector/[game]`
@@ -16,6 +16,16 @@ mechanic-relevant art—not fake CRT noise, illegible pixel type, or dead switch
 Every enabled tile supports a complete `Play | Resume | Restart | Install
 Offline | Remove Offline` flow where applicable. Planned games remain clearly
 labelled and disabled until their wave passes all completion gates.
+
+## Delivered platform baseline
+
+Wave 15.2 delivers the shared lobby, route-safe serializable registry, isolated
+runtime host, owner-partitioned IndexedDB repository, compare-and-set local and
+cloud saves, profile/event merge policies, conflict preservation and explicit
+resolution, migration quarantine/retry, bounded authenticated APIs, additive
+RLS schema, and allowlist-only protocol-v3 offline installation. The lobby is
+truthful: every game remains disabled and labelled `Planned` until its own wave
+ships an interactive vertical slice and compatible loader.
 
 ## Selected console direction
 
@@ -104,17 +114,21 @@ Original bytes remain until user resolves or exports them.
 
 ## Cloud schema and API
 
-Planned additive tables:
+Delivered additive tables:
 
 - `game_profiles`
 - `game_saves`
 - `game_events`
 - `game_scores`
 - `game_achievements`
+- `game_save_conflicts`
 
-All rows carry `user_id`; owner RLS applies. API derives owner from session,
-validates game/version/JSON with Zod, caps request and row bytes, checks checksum
-and monotonic revision, and records idempotency keys. `/api/vector` receives both
+All rows carry `user_id`; owner RLS applies. Browser roles have owner-scoped
+`SELECT` only, while mutation is confined to service-role RPC boundaries. API
+derives owner from session, validates game/version/bounded JSON with Zod, caps
+request, document, row, and bootstrap-response bytes, checks checksum and
+monotonic revision, scopes state-bearing bootstrap pulls to one game, and binds
+idempotency keys to immutable request fingerprints. `/api/vector` receives both
 middleware protection and handler-local auth/ownership checks.
 
 Shared scores are authoritative only where server validation is deterministic.
@@ -151,11 +165,11 @@ Never cache `/api`, Supabase URLs, auth callbacks, RSC requests, HTML navigation
 private/signed Envoy assets, responses with `Set-Cookie`, or opaque third-party
 responses.
 
-Build generates game/build manifests from Next loadable output plus explicit
-assets. Install downloads into a staging cache, verifies every response and
-declared digest/size, then atomically marks it current. Failed update leaves the
-prior cache usable. UI shows estimate, installed bytes, update, removal, quota,
-and pending saves.
+Build generates protocol-v3 game/build manifests from Next loadable output plus
+explicit assets. Install downloads into a staging cache, verifies every response
+and declared digest/size, then atomically marks it current. Failed update leaves
+the prior cache usable. UI shows estimate, installed bytes, update, removal,
+quota, and pending saves.
 
 ## Game completion matrix
 

@@ -26,6 +26,7 @@ type Props = {
   section: string;
   page: string;
   children: ReactNode;
+  suppressPresence?: boolean;
 };
 
 type SidebarMode = "open" | "icons" | "hidden";
@@ -36,7 +37,7 @@ const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
   hidden: "open",
 };
 
-export function AppShell({ section, page, children }: Props) {
+export function AppShell({ section, page, children, suppressPresence = false }: Props) {
   const pathname = usePathname();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -155,7 +156,7 @@ export function AppShell({ section, page, children }: Props) {
         </button>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      <Mascot />
+      {!suppressPresence ? <Mascot /> : null}
       <InterfaceStudioDrawer />
     </SpotifyProvider>
   );

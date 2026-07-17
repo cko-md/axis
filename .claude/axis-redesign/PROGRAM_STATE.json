@@ -1,10 +1,10 @@
 {
   "program": "axis-system-redesign",
   "branch": "codex/vector-arcade-envoys",
-  "branch_note": "Owner-authorized Phase 15 VECTOR Arcade + Axis Envoys program. Wave 15.0 planning/design is landed. Wave 15.1 integrates current origin/main and patch-equivalent c2de9308 into the Phase 9 foundation, hardens preference synchronization plus task/approval/routine lifecycle concurrency, and passes local code, SQL, browser, build, and budget gates. No VECTOR route/game, Envoy runtime, generation worker, hosted migration, preview, Sentry review, or production completion is claimed.",
+  "branch_note": "Owner-authorized Phase 15 VECTOR Arcade + Axis Envoys program. Waves 15.0 and 15.1 are landed. Wave 15.2 shared VECTOR platform is checkpoint-ready with local implementation/evidence; hosted preview, production schema/readback, Sentry review, and later worker/game gates remain explicitly BLOCKED. All nine games remain truthfully planned and disabled. No playable game, Envoy runtime, generation worker, hosted migration, preview, Sentry review, or production completion is claimed.",
   "baseline_commit": "f478cde",
   "revision_reviewed": "a029cd58392a75497113685b9363c4f3e617f672",
-  "updated": "2026-07-16",
+  "updated": "2026-07-17",
   "governance": {
     "source": "AGENTS.md",
     "rules": [
@@ -17,10 +17,44 @@
     ]
   },
   "baseline_health": {
+    "scope": "local-only code, unit, SQL-Docker, build, and browser evidence; these pass values are not hosted-service readiness",
     "typecheck": "pass",
     "lint": "pass (0 errors, 0 warnings)",
     "unit_tests": "919 passed / 134 files",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
+  },
+  "hosted_service_gates": {
+    "policy": "Only GitHub is operational for gate execution. Production promotion is BLOCKED; local tests, historical hosted evidence, GitHub deployment metadata, data-plane responses, and source-map upload permission cannot satisfy these gates.",
+    "production_supabase": {
+      "status": "BLOCKED",
+      "missing_access": "No production management/DB/DDL authority; service-role REST is data-plane only.",
+      "exact_check": "Apply 202607161000_lifecycle_claims.sql then 202607161200_vector_arcade_persistence.sql; read back migration history, schema/checks, RLS, grants, RPC ACLs; run two-user isolation, concurrent CAS, and advisor checks.",
+      "human_owner": "Repository owner acting as Supabase project administrator"
+    },
+    "vercel": {
+      "status": "BLOCKED",
+      "missing_access": "No authorized team/project session or SSO-bypass access.",
+      "exact_check": "Validate the current-SHA branch preview build, environment parity, public/auth browser matrix, logs, and route/bundle budgets.",
+      "human_owner": "Repository owner acting as Vercel team/release administrator"
+    },
+    "sentry": {
+      "status": "BLOCKED",
+      "missing_access": "No project issue/event-read authority; upload-only scope does not qualify.",
+      "exact_check": "Query the exact preview release, environment, and deployment window; verify no new regressions and no PII in intentional error events.",
+      "human_owner": "Repository owner acting as Sentry project administrator"
+    },
+    "render": {
+      "status": "BLOCKED",
+      "missing_access": "No credential or linked worker service; implementation is a later wave.",
+      "exact_check": "After worker implementation, deploy the current release and verify health/capability heartbeat, lease lifecycle, logs, and one live job.",
+      "human_owner": "Repository owner acting as Render workspace administrator"
+    },
+    "openai": {
+      "status": "BLOCKED",
+      "missing_access": "No budget-limited worker-only project key or authorized paid-generation access.",
+      "exact_check": "After worker implementation, run one paid generation and a separate cancellation smoke; verify private usage/cost/request records and final QA.",
+      "human_owner": "Repository owner acting as OpenAI project administrator"
+    }
   },
   "phases": {
     "0_initialization": "done \u2014 branch/baseline/state artifacts + tool map",
@@ -37,8 +71,8 @@
     "11_performance": "in progress \u2014 CI enforces BOTH a total static-JS bundle budget (check-bundle-budget.mjs, from #191) and per-route first-load budgets (check-perf-budgets.mjs). Wave 11.3 code-split Command from 433kB to 361kB; wave 11.4 code-split Vitality from 391kB to 361kB; wave 11.5 code-split Mail from 388kB to 361kB after wave 10.16 removed provider fan-out from first paint; wave 11.6 code-split Dispatch from 378kB to 362kB. Further route profiling remains.",
     "12_testing": "ongoing \u2014 919 unit tests / 134 files. Wave 15.1 adds preference migration/CAS, task provenance, approval stale-state, exact WebAuthn/session authority, renewable routine claims, stale-worker quarantine, idempotency, migration atomicity, and response-loss coverage; 13 public and 7 authenticated production-mode browser tests plus a dedicated 1/1 real virtual-CTAP2 passkey flow pass. Broader provider-backed, visual-regression, game, offline, Envoy, and worker coverage remains.",
     "13_observability": "started \u2014 structured API error codes + a redacted structured-event helper (src/lib/observability/events.ts) with a tested secret/PII redaction guard, emitting safe run.completed/run.failed events from the concentration routine. No new Sentry dashboards.",
-    "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored and the hosted Supabase migration/read-back gate is active. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged.",
-    "15_vector_arcade_envoys": "in progress \u2014 Wave 15.0 planning/design foundation landed. Wave 15.1 preserves Phase 9 and current-main fixes, integrates c2de9308 patch-equivalent repair, closes preference/task/passkey/lifecycle authority defects, and establishes safe server-owned truthful-status foundations. Next: build the shared VECTOR registry/runtime/lobby, IndexedDB/sync schema, and offline shell. No game, Envoy runtime, worker, hosted gate, or production completion is claimed."
+    "14_cicd": "core done \u2014 .github/workflows/ci.yml gates lint + typecheck + unit tests + build on every PR (program \u00a720). Local Docker migration verification is restored; the hosted Supabase migration/read-back gate is required but currently BLOCKED without production DDL authority. The daily cron now uses service-role RPC access; public/anon/authenticated execution of expire_stale_approvals is revoked. Deployment/rollback strategy is otherwise unchanged.",
+    "15_vector_arcade_envoys": "checkpoint-ready \u2014 Waves 15.0 and 15.1 are landed; Wave 15.2 shared registry/runtime/lobby, owner-partitioned IndexedDB and cloud CAS/conflicts, bounded authenticated APIs/RLS schema, and protocol-v3 offline shell are implemented with local evidence. Wave 15.3 Second Sense is next. All nine games remain planned and disabled. No Envoy runtime, worker, hosted gate, or production completion is claimed."
   },
   "convergence_note": "This program is NOT a completed rewrite. The delivered operating loop remains coherent and locally green, and Wave 15.1 strengthens its preference and lifecycle concurrency boundaries before VECTOR/Envoy feature work. The new lifecycle migration is applied and adversarially verified only on the local Docker Supabase target; it is not recorded as hosted-applied. Remaining implementation and production gates are tracked below.",
   "waves": [
@@ -1247,13 +1281,14 @@
       "verification": "See .logs/vector-envoys/wave-15.1-integration-safety.md for commands, migration/RLS/grant evidence, browser scope, review findings, and hosted blockers"
     }
   ],
-  "migrations_applied": {
+  "migration_history_and_pending_gates": {
     "applied": "2026-07-13; updated 2026-07-15",
     "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
-    "status": "Hosted-applied history through 2026-07-15 is unchanged. Tables agent_tasks / agent_task_activity / approvals, fund provenance, routine metadata/versions, market insights, Make outbox, approval-expiry lockdown, mail cache sync, and memory/profile schema were previously applied and verified. Wave 15.1 lifecycle claims are not included in that hosted-applied claim.",
+    "status": "HISTORICAL ONLY: hosted-applied history through 2026-07-15 is unchanged. Tables agent_tasks / agent_task_activity / approvals, fund provenance, routine metadata/versions, market insights, Make outbox, approval-expiry lockdown, mail cache sync, and memory/profile schema were previously applied and verified. Neither the Wave 15.1 lifecycle migration nor the Wave 15.2 VECTOR migration is included in that hosted-applied claim.",
     "wave_15_1_local_validation": "supabase/migrations/202607161000_lifecycle_claims.sql is transaction-wrapped and passes first apply plus idempotent replay on local Docker; a forced duplicate-link preflight failure preserved deliberately altered pre-migration ACL/data state, proving rollback. Transactional task/approval/routine claim tests, owner isolation, exact RPC ACLs, browser DML denial, passkey/challenge zero-policy authority, task provenance, lease renewal, old-token rejection, stale-worker quarantine, generic-retry refusal, legacy-token purge, and lost-response recovery pass",
-    "pending_hosted": "Apply and read back 202607161000_lifecycle_claims.sql on the authorized production Supabase target before production merge. Hosted service-role REST is available only as data-plane access; no management/DB/DDL credential, linked CLI, or MCP is configured, so migration/application/readback remains explicitly blocked.",
+    "wave_15_2_local_validation": "supabase/migrations/202607161200_vector_arcade_persistence.sql is applied only to isolated/local Docker targets and passes first-apply, schema/check, owner-RLS, exact-grant/RPC-ACL, two-session CAS, profile rollback, idempotency, and selected-branch conflict fingerprint probes. This is local-only evidence.",
+    "pending_hosted": "BLOCKED: apply and read back 202607161000_lifecycle_claims.sql then 202607161200_vector_arcade_persistence.sql on the authorized production Supabase target before production merge. Service-role REST is data-plane access only; no management/DB/DDL credential, linked CLI, or MCP is configured.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "files": [
       "supabase/migrations/202607131700_fund_provenance_columns.sql",
@@ -1266,7 +1301,8 @@
       "supabase/migrations/202607151310_lock_expire_stale_approvals.sql",
       "supabase/migrations/202607152100_mail_cache_sync.sql",
       "supabase/migrations/202607152300_memory_center_profiles.sql",
-      "supabase/migrations/202607161000_lifecycle_claims.sql (local-validated; hosted apply blocked)"
+      "supabase/migrations/202607161000_lifecycle_claims.sql (local-validated; production apply BLOCKED)",
+      "supabase/migrations/202607161200_vector_arcade_persistence.sql (local-validated; production apply BLOCKED)"
     ]
   },
   "governance_override": {
@@ -1276,7 +1312,7 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Wave 15.2: implement complete shared VECTOR registry/runtime/lobby, owner-partitioned IndexedDB, authenticated sync APIs and additive owner-RLS schema, deploy-specific offline manifests, safe service-worker upgrade, and browser/performance gates.",
+    "Wave 15.2: commit/push the checkpoint-ready shared VECTOR registry/runtime/lobby, owner-partitioned IndexedDB, authenticated sync APIs and additive owner-RLS schema, deploy-specific offline manifests, safe service-worker upgrade, and local evidence; keep hosted gates BLOCKED until human access is supplied.",
     "Wave 15.3: ship Second Sense as the first complete playable save/sync/offline vertical slice before any later game begins.",
     "External-connection follow-ups remain: connect and live-validate direct Gmail plus direct/Composio Outlook Mail parity; live Make write verification; health-device provider decision.",
     "Only GitHub is operational for this session: direct authenticated API checks identify cko-md and confirm admin/push permission despite a contradictory gh auth status warning. Production Supabase has data-plane but no DDL authority; Vercel lacks a local team session and its preview is SSO-protected; Sentry has org:ci upload scope only and issue queries return 403; Render and OpenAI credentials/services are absent. Hosted migration/readback, preview, post-preview Sentry review, worker deployment, paid live generation, and production promotion remain explicitly blocked. Existing human/security follow-ups remain: physical-authenticator validation, independent WebAuthn sign-off, provider-backed e2e credentials, and Tembo role decision."

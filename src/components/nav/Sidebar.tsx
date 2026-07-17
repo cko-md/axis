@@ -248,6 +248,7 @@ function SortableNavItem({
     >
       <Link
         href={item.href}
+        prefetch={false}
         className={`navitem${active ? " active" : ""}`}
         title={item.title ?? item.label}
         onClick={renaming ? (e) => e.preventDefault() : undefined}
@@ -585,7 +586,7 @@ export function Sidebar({ collapsed }: Props) {
       </nav>
 
       {/* Spotify strip */}
-      <Link href="/listening-vault" className="spotify" title="Open Listening Vault">
+      <Link href="/listening-vault" prefetch={false} className="spotify" title="Open Listening Vault">
         <div className="sp-art">
           {spotify.connected && spotify.now.art ? (
             <Image

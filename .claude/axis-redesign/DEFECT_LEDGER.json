@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-16",
-  "revision": "wave-15.1",
+  "revision": "wave-15.2-in-progress",
   "defects": [
     {
       "id": "FIN-001",
@@ -580,6 +580,256 @@
       "status": "fixed",
       "revision_fixed": "wave-15.0",
       "verification": "All three prompt records include explicit tool and honest model provenance"
+    },
+    {
+      "id": "VEC-001",
+      "severity": "high",
+      "source": "Wave 15.2 offline/cache adversarial review",
+      "summary": "A broad game cache could retain API, auth, RSC, navigation, private, opaque, or mutable responses",
+      "reproduction": "Send an undeclared route, Set-Cookie response, opaque third-party response, or mismatched asset through an install/fetch request",
+      "affected": [
+        "public/sw.js",
+        "src/lib/vector/offline.ts",
+        "scripts/generate-vector-offline-manifests.mjs"
+      ],
+      "root_cause": "Offline installation needs a positive, build-bound asset contract rather than URL-pattern caching",
+      "fix": "Added protocol-v3 generated allowlists, declared digest/size validation, staging-cache promotion, rollback, and explicit rejection of private or mutable response classes",
+      "regression_test": "src/lib/vector/offline.test.ts; src/lib/vector/offline-generator.test.ts; src/lib/vector/offline-artifacts.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Worker syntax and focused allowlist, digest, staging, rollback, upgrade, and forbidden-request tests pass; final wave gate pending"
+    },
+    {
+      "id": "VEC-002",
+      "severity": "critical",
+      "source": "Wave 15.2 local-owner isolation review",
+      "summary": "Async local operations could continue against a prior anonymous or authenticated IndexedDB namespace after auth changed",
+      "reproduction": "Begin a save/sync, change owner, then let the stale continuation read or acknowledge the old namespace",
+      "affected": [
+        "src/lib/vector/persistence.ts",
+        "src/hooks/useVectorPlatform.ts",
+        "src/components/vector/GameRuntimeHost.tsx"
+      ],
+      "root_cause": "Owner identity was data rather than an epoch-fenced capability, and teardown did not wait for the final checkpoint",
+      "fix": "Added owner epochs, active-owner checks inside transactions, sign-out freezing, explicit anonymous adoption, and checkpoint/disposal transition barriers",
+      "regression_test": "src/lib/vector/persistence.test.ts; src/hooks/useVectorPlatform.test.ts; src/lib/vector/runtime.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Focused owner change, account isolation, adoption/decline, in-flight response, and finalization tests pass; final wave gate pending"
+    },
+    {
+      "id": "VEC-003",
+      "severity": "critical",
+      "source": "Wave 15.2 save-concurrency review",
+      "summary": "Concurrent local or cloud campaign writers could silently overwrite a newer branch",
+      "reproduction": "Hydrate revision A twice, save B from one runtime, then save C from the stale runtime or push both against one server revision",
+      "affected": [
+        "src/lib/vector/persistence.ts",
+        "src/hooks/useVectorPlatform.ts",
+        "supabase/migrations/202607161200_vector_arcade_persistence.sql"
+      ],
+      "root_cause": "Revision increments alone do not prove the writer descended from the current checksum/revision",
+      "fix": "Require exact local ancestor revision/checksum, use server-revision CAS, preserve losing branches, and enforce one open conflict per owner/game/slot",
+      "regression_test": "src/lib/vector/persistence.test.ts; supabase/tests/vector_arcade_concurrency.sql",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Focused local CAS and SQL concurrent-save winner/loser/conflict probes pass; final wave gate pending"
+    },
+    {
+      "id": "VEC-004",
+      "severity": "high",
+      "source": "Wave 15.2 corruption/migration review",
+      "summary": "Checksum-invalid or unmigratable saves could be hydrated, discarded, or quarantined after a newer save replaced them",
+      "reproduction": "Load a bad-checksum save or fail a migrator for revision A while revision B is written before quarantine",
+      "affected": [
+        "src/lib/vector/persistence.ts",
+        "src/components/vector/VectorGamePlatform.tsx",
+        "src/components/vector/VectorConflictModal.tsx"
+      ],
+      "root_cause": "Recovery lacked exact source ancestry and a durable user-controlled branch workflow",
+      "fix": "Verify before hydrate, bind quarantine to exact ancestor, preserve source bytes in conflict storage, expose export/discard/branch choice, and load migrators only for explicit compatible retry",
+      "regression_test": "src/lib/vector/persistence.test.ts; src/components/vector/VectorConflictModal.test.ts; tests/e2e/vector-authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Focused checksum, superseded-source, migration-retry, export, and discard tests pass; final browser rerun pending"
+    },
+    {
+      "id": "VEC-005",
+      "severity": "critical",
+      "source": "Wave 15.2 API/database authority review",
+      "summary": "Unbounded or browser-mutable game state could exhaust responses, forge authoritative rows, or cross owner boundaries",
+      "reproduction": "Submit deep/large JSON, too many slots/events, oversized profile documents, or direct browser DML against game tables/RPCs",
+      "affected": [
+        "src/lib/vector/contracts.ts",
+        "src/app/api/vector",
+        "supabase/migrations/202607161200_vector_arcade_persistence.sql"
+      ],
+      "root_cause": "Owner RLS alone is insufficient for authoritative event/save/conflict mutation and does not bound resource use",
+      "fix": "Added session-derived ownership, rate limits, bounded JSON/body/document/response schemas, owner SELECT-only RLS, exact grants, and narrow service-role mutation RPCs",
+      "regression_test": "src/app/api/vector/routes.test.ts; src/lib/vector/contracts.test.ts; supabase/tests/vector_arcade_persistence.sql",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: focused API/contract and local RLS/grant/payload suites pass. Production application/readback remains explicitly BLOCKED under PROGRAM_STATE.hosted_service_gates.production_supabase."
+    },
+    {
+      "id": "VEC-006",
+      "severity": "high",
+      "source": "Wave 15.2 offline protocol review",
+      "summary": "Install messages and cached manifests could mix builds or accept incomplete asset sets",
+      "reproduction": "Replay an old message, omit an asset, change bytes without the declared digest, or fail midway through an update",
+      "affected": [
+        "public/sw.js",
+        "src/lib/vector/offline.ts",
+        "src/lib/vector/offline-deployment.ts"
+      ],
+      "root_cause": "Cache names alone did not bind message schema, build identity, content digest, size, and atomic current-version selection",
+      "fix": "Versioned the protocol, validate deployment maps/messages, verify every declared response, and promote a staging cache only after complete validation",
+      "regression_test": "src/lib/vector/offline.test.ts; src/lib/vector/offline-deployment.test.ts; src/lib/vector/offline-generator.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Protocol, build mismatch, tamper, partial update, prior-cache retention, remove, and status tests pass; final wave gate pending"
+    },
+    {
+      "id": "VEC-007",
+      "severity": "high",
+      "source": "Wave 15.2 runtime lifecycle review",
+      "summary": "Route exit, owner change, pointer input, or failed final checkpoint could leave stale runtime work active",
+      "reproduction": "Change owner during a deferred checkpoint, route away after checkpoint failure, or start pointer input on one surface and release on another",
+      "affected": [
+        "src/lib/vector/runtime.ts",
+        "src/components/vector/GameRuntimeHost.tsx"
+      ],
+      "root_cause": "Lifecycle disposal, save completion, and input ownership were separate best-effort operations",
+      "fix": "Added finalization barriers with route-exit retry, idempotent disposal, surface-owned pointer capture, fixed-step scheduling, and visibility/context suspension",
+      "regression_test": "src/lib/vector/runtime.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Focused deferred/failing checkpoint, disposal, pointer, scheduler, visibility, and context-loss tests pass; final wave gate pending"
+    },
+    {
+      "id": "VEC-008",
+      "severity": "high",
+      "source": "Wave 15.2 privacy/observability review",
+      "summary": "Arbitrary runtime event metadata could send save identifiers, seeds, state, or user-derived strings to telemetry",
+      "reproduction": "Report a runtime event containing an arbitrary slot, seed, identifier, or nested save payload",
+      "affected": [
+        "src/lib/vector/runtime.ts",
+        "src/components/vector/GameRuntimeHost.tsx"
+      ],
+      "root_cause": "A generic metadata object makes privacy dependent on every future game caller",
+      "fix": "Replaced generic metadata with a fixed event and controlled-enum allowlist; expected conflict/migration failures are warning breadcrumbs and unexpected failures use safe fixed tags",
+      "regression_test": "src/lib/vector/runtime.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: focused telemetry allow/reject and error-classification tests pass. Hosted Sentry ingestion/event review remains explicitly BLOCKED under PROGRAM_STATE.hosted_service_gates.sentry."
+    },
+    {
+      "id": "VEC-009",
+      "severity": "high",
+      "source": "Wave 15.2 accessibility/adversarial modal review",
+      "summary": "Focus could escape a dialog and Escape/backdrop/close could dismiss it during a destructive busy operation",
+      "reproduction": "Open a conflict or clear-data modal, move focus outside, then press Escape or activate backdrop while the mutation is pending",
+      "affected": [
+        "src/components/ui/Modal.tsx",
+        "src/components/vector/VectorConflictModal.tsx",
+        "src/components/vector/VectorAdoptionModal.tsx"
+      ],
+      "root_cause": "The shared modal relied on ordinary bubbling key events and did not make busy state a close guard",
+      "fix": "Added document capture-phase focus/Tab containment, inert background, initial/returned focus, aria-busy, and busy guards for every close path",
+      "regression_test": "src/components/vector/VectorConflictModal.test.ts; tests/e2e/vector-authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "Focused modal contract tests pass; final production-mode keyboard browser rerun pending"
+    },
+    {
+      "id": "VEC-010",
+      "severity": "critical",
+      "source": "Wave 15.2 final sync adversarial review",
+      "summary": "Truncated refreshes, response loss, or post-resolution rereads could falsely acknowledge a branch or apply a different conflict winner",
+      "reproduction": "Resolve a conflict, mutate the selected slot before the route rereads it, truncate bootstrap state, or replay one idempotency key with different content",
+      "affected": [
+        "src/lib/vector/sync.ts",
+        "src/lib/vector/persistence.ts",
+        "src/app/api/vector/conflicts/[id]/route.ts",
+        "supabase/migrations/202607161200_vector_arcade_persistence.sql"
+      ],
+      "root_cause": "Refresh data was treated as mutation authority and response bounds/ack coverage were not exact",
+      "fix": "Return an atomic selected-branch fingerprint from the RPC, validate it before local resolution, scope state pulls per game, cap serialized responses, bind idempotency to payload hashes, and keep partial/truncated outcomes visible",
+      "regression_test": "src/lib/vector/sync.test.ts; src/lib/vector/persistence.test.ts; src/app/api/vector/routes.test.ts; supabase/tests/vector_arcade_persistence.sql",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: focused branch-fingerprint, replay, truncation, scoped-bootstrap, and response-loss tests pass; hosted production migration/readback remains explicitly BLOCKED under PROGRAM_STATE.hosted_service_gates.production_supabase."
+    },
+    {
+      "id": "VEC-011",
+      "severity": "high",
+      "source": "Wave 15.2 RPC contract review",
+      "summary": "Non-counter event RPC outcomes emitted authoritativeValue as null, violating the strict optional-number response contract",
+      "reproduction": "Apply a successful settings or score event and validate the returned result against the response schema",
+      "affected": [
+        "supabase/migrations/202607161200_vector_arcade_persistence.sql",
+        "supabase/tests/vector_arcade_persistence.sql"
+      ],
+      "root_cause": "The shared RPC result constructor always serialized the counter-only field instead of omitting it for non-counter events",
+      "fix": "Build the JSON result incrementally and append authoritativeValue only for counter events",
+      "regression_test": "supabase/tests/vector_arcade_persistence.sql; src/app/api/vector/routes.test.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: settings/score RPC response-shape assertions pass; production Supabase application/readback remains explicitly BLOCKED."
+    },
+    {
+      "id": "VEC-012",
+      "severity": "medium",
+      "source": "Wave 15.2 shell/auth performance review",
+      "summary": "Unresolved profile state and persistent-link prefetch multiplied authenticated middleware traffic, while loopback origin handling ignored a trusted raw Host",
+      "reproduction": "Open an authenticated shell before profile resolution or prefetch persistent sidebar links on a 127.0.0.1 origin",
+      "affected": [
+        "src/components/nav/ProfileSection.tsx",
+        "src/components/nav/Sidebar.tsx",
+        "src/lib/auth/getAppOrigin.ts",
+        "src/lib/security/platform-shell.test.ts"
+      ],
+      "root_cause": "The shell rendered login links during an unresolved auth request, prefetched auth-sensitive routes, and gated trusted loopback Host support on configured app URL",
+      "fix": "Added explicit loading/signed-out/ready/error account states, disabled persistent-link prefetch, and honored trusted loopback Host values without weakening server auth",
+      "regression_test": "src/lib/security/platform-shell.test.ts; src/lib/auth/getAppOrigin.test.ts; tests/e2e/vector-authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: shell/origin tests and authenticated browser happy-path assertions pass; hosted Vercel/Sentry validation remains explicitly BLOCKED."
+    },
+    {
+      "id": "VEC-013",
+      "severity": "high",
+      "source": "Wave 15.2 corruption recovery review",
+      "summary": "Valid game/slot checksum corruption incorrectly triggered a platform-wide recovery stop",
+      "reproduction": "Tamper a valid save envelope and observe global data-state classification",
+      "affected": [
+        "src/lib/vector/persistence.ts",
+        "src/hooks/useVectorPlatform.ts",
+        "tests/e2e/vector-authenticated.spec.ts"
+      ],
+      "root_cause": "All quarantined records were treated as unscoped owner corruption, even when game and slot identity were safely recoverable",
+      "fix": "Separated game-scoped quarantines from malformed-identity quarantines; only the latter stop the whole platform",
+      "regression_test": "src/lib/vector/persistence.test.ts; src/hooks/useVectorPlatform.test.ts; tests/e2e/vector-authenticated.spec.ts",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: scoped corruption remains an explicit conflict workflow while malformed identity remains fail-closed; hosted gates are unchanged."
+    },
+    {
+      "id": "VEC-014",
+      "severity": "medium",
+      "source": "Wave 15.2 bootstrap latency review",
+      "summary": "Empty-account refresh fetched private state for every catalog game",
+      "reproduction": "Open the lobby with no pending local work, remote saves, or conflicts and trace bootstrap requests",
+      "affected": [
+        "src/hooks/useVectorPlatform.ts",
+        "src/hooks/useVectorPlatform.test.ts"
+      ],
+      "root_cause": "State-bearing bootstrap was selected for every registered game regardless of whether reconciliation work existed",
+      "fix": "Use one list-only bootstrap, then fetch state only for games with pending work, remote saves, or remote conflicts",
+      "regression_test": "src/hooks/useVectorPlatform.test.ts; local authenticated browser request trace",
+      "status": "fixed",
+      "revision_fixed": "wave-15.2-pending-commit",
+      "verification": "LOCAL ONLY: selection/order tests pass and the empty-account trace shows list-only bootstrap; hosted preview/performance validation remains explicitly BLOCKED."
     }
   ]
 }

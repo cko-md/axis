@@ -33,7 +33,7 @@ below without rewriting its dated evidence.
   no partial security change committed.
   Production-mode browser evidence is 13/13 public, 7/7 authenticated, plus a
   dedicated 1/1 real virtual-CTAP2 passkey flow.
-- Hosted status remains explicitly blocked: production Supabase DDL/readback
+- Hosted status remains explicitly `BLOCKED`: production Supabase DDL/readback
   lacks management authority; Vercel preview is SSO-protected without a local
   team session; Sentry has upload-only `org:ci` scope and issue queries return
   403; Render and OpenAI credentials/services are absent. None of these gates is
@@ -198,7 +198,13 @@ Run before promoting `main` to production:
 
 ## 6. Adversarial codebase audit (2026-07-06)
 
-Full-codebase adversarial review across UI/UX, security/privacy, design, code, bugs, and module maturity. **No exploitable defects or fake-data honesty violations found** — the platform is production-mature. Checks and results:
+> **Historical local/code audit only.** “Green” and “production-mature” below
+> describe the 2026-07-06 inspected revision; they are not current-head
+> production readiness. Current Wave 15.1/15.2 production Supabase, Vercel,
+> Sentry, Render, and OpenAI gates remain explicitly `BLOCKED` where authorized
+> credentials or service access are unavailable.
+
+Full-codebase adversarial review across UI/UX, security/privacy, design, code, bugs, and module maturity. **No exploitable defects or fake-data honesty violations were found in that historical local/code audit**; this was not a current hosted production-readiness decision. Checks and results:
 
 **Security / privacy (thorough):**
 - **AuthZ / IDOR** — all 10 dynamic `[id]`/`[symbol]` API routes scope by `user_id`/`getUser()`. No IDOR. Of 114 routes, the 13 without a user check are legitimately public (market-data proxy, academic literature feed, provider-status, webhooks, pre-auth passkey).

@@ -25,5 +25,11 @@ Current:
   local migration/replay/RLS/WebAuthn evidence (two-parent merge landed from
   `960d20f4` + `a029cd58392a75497113685b9363c4f3e617f672`).
   Hosted Supabase DDL/readback, Vercel protected-preview access, Sentry
-  project/event read, Render, and OpenAI gates remain explicitly blocked.
+  project/event read, Render, and OpenAI gates remain explicitly `BLOCKED`.
+- `wave-15.2-platform.md` — shared VECTOR lobby/runtime, owner-partitioned local
+  persistence, cloud-path code plus local SQL evidence, and protocol-v3 offline
+  installation (local validation in progress). All nine games remain truthfully
+  planned. Its canonical hosted-gate table records production Supabase, Vercel,
+  Sentry, Render, and OpenAI as explicitly `BLOCKED`, with the exact checks and
+  human owners required to clear them.
 - `final-completion-audit.md` — requirement-by-requirement proof (pending)

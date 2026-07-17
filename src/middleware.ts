@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr/dist/module/createServerClient";
 import { NextResponse, type NextRequest } from "next/server";
 import { buildAppUrl } from "@/lib/auth/getAppOrigin";
+import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy"];
 
@@ -18,6 +19,12 @@ function redirectWithinApp(request: NextRequest, pathname: string, search?: URLS
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Offline executable/art manifests are public, immutable inputs. They must
+  // bypass session refresh so install verification never receives Set-Cookie.
+  if (isPublicVectorArtifactPath(pathname)) {
+    return NextResponse.next({ request });
+  }
 
   // Skip auth entirely for purely public/keyless routes — avoids a DB round-trip
   const PUBLIC_API_PREFIXES = [
@@ -120,6 +127,7 @@ export async function middleware(request: NextRequest) {
       "/api/calendar",
       "/api/mail",
       "/api/briefing",
+      "/api/vector",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
     if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {

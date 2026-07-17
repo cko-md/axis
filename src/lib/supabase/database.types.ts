@@ -1,7 +1,6 @@
-// Generated Supabase schema types (PROD-2). Source of truth: live DB via
-// `supabase gen types typescript`. Reference artifact — NOT yet wired into
-// createClient() (that would type-check every existing .from() call and is a
-// separate adoption pass). Regenerate after migrations.
+// Generated Supabase schema types (PROD-2), extended alongside unapplied local
+// migrations so typed clients fail closed during implementation. Regenerate
+// from the configured Supabase target after migrations are applied.
 
 export type Json =
   | string
@@ -1720,6 +1719,318 @@ export type Database = {
         }
         Relationships: []
       }
+      game_achievements: {
+        Row: {
+          achievement_id: string
+          created_at: string
+          game_id: string
+          id: string
+          source_event_id: string
+          unlocked_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement_id: string
+          created_at?: string
+          game_id: string
+          id?: string
+          source_event_id: string
+          unlocked_at: string
+          user_id: string
+        }
+        Update: {
+          achievement_id?: string
+          created_at?: string
+          game_id?: string
+          id?: string
+          source_event_id?: string
+          unlocked_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      game_events: {
+        Row: {
+          client_revision: number
+          created_at: string
+          device_id: string
+          event_kind: string
+          game_id: string
+          id: string
+          idempotency_key: string
+          occurred_at: string
+          outcome: Json | null
+          payload_hash: string
+          request_payload: Json
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_revision: number
+          created_at?: string
+          device_id: string
+          event_kind: string
+          game_id: string
+          id?: string
+          idempotency_key: string
+          occurred_at: string
+          outcome?: Json | null
+          payload_hash: string
+          request_payload?: Json
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_revision?: number
+          created_at?: string
+          device_id?: string
+          event_kind?: string
+          game_id?: string
+          id?: string
+          idempotency_key?: string
+          occurred_at?: string
+          outcome?: Json | null
+          payload_hash?: string
+          request_payload?: Json
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      game_profiles: {
+        Row: {
+          counters: Json
+          created_at: string
+          last_device_id: string | null
+          profile_version: number
+          server_revision: number
+          setting_clocks: Json
+          settings: Json
+          unlocks: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          counters?: Json
+          created_at?: string
+          last_device_id?: string | null
+          profile_version?: number
+          server_revision?: number
+          setting_clocks?: Json
+          settings?: Json
+          unlocks?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          counters?: Json
+          created_at?: string
+          last_device_id?: string | null
+          profile_version?: number
+          server_revision?: number
+          setting_clocks?: Json
+          settings?: Json
+          unlocks?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      game_save_conflicts: {
+        Row: {
+          conflict_version: number
+          created_at: string
+          game_id: string
+          id: string
+          local_checksum: string
+          local_device_id: string
+          local_game_version: string
+          local_revision: number
+          local_save_schema_version: number
+          local_seed: string | null
+          local_state: Json
+          local_updated_at: string
+          reason: string
+          resolution: string | null
+          resolved_at: string | null
+          resolved_event_id: string | null
+          server_checksum: string | null
+          server_game_version: string | null
+          server_revision: number
+          server_save_schema_version: number | null
+          server_seed: string | null
+          server_state: Json | null
+          server_updated_at: string | null
+          slot_id: string
+          source_event_id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          conflict_version?: number
+          created_at?: string
+          game_id: string
+          id?: string
+          local_checksum: string
+          local_device_id: string
+          local_game_version: string
+          local_revision: number
+          local_save_schema_version: number
+          local_seed?: string | null
+          local_state: Json
+          local_updated_at: string
+          reason: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_event_id?: string | null
+          server_checksum?: string | null
+          server_game_version?: string | null
+          server_revision?: number
+          server_save_schema_version?: number | null
+          server_seed?: string | null
+          server_state?: Json | null
+          server_updated_at?: string | null
+          slot_id: string
+          source_event_id: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          conflict_version?: number
+          created_at?: string
+          game_id?: string
+          id?: string
+          local_checksum?: string
+          local_device_id?: string
+          local_game_version?: string
+          local_revision?: number
+          local_save_schema_version?: number
+          local_seed?: string | null
+          local_state?: Json
+          local_updated_at?: string
+          reason?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_event_id?: string | null
+          server_checksum?: string | null
+          server_game_version?: string | null
+          server_revision?: number
+          server_save_schema_version?: number | null
+          server_seed?: string | null
+          server_state?: Json | null
+          server_updated_at?: string | null
+          slot_id?: string
+          source_event_id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      game_saves: {
+        Row: {
+          checksum: string
+          client_revision: number
+          client_updated_at: string
+          created_at: string
+          deleted_at: string | null
+          device_id: string
+          game_id: string
+          game_version: string
+          id: string
+          save_schema_version: number
+          seed: string | null
+          server_revision: number
+          slot_id: string
+          source_event_id: string
+          state: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          checksum: string
+          client_revision: number
+          client_updated_at: string
+          created_at?: string
+          deleted_at?: string | null
+          device_id: string
+          game_id: string
+          game_version: string
+          id?: string
+          save_schema_version: number
+          seed?: string | null
+          server_revision: number
+          slot_id: string
+          source_event_id: string
+          state: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          checksum?: string
+          client_revision?: number
+          client_updated_at?: string
+          created_at?: string
+          deleted_at?: string | null
+          device_id?: string
+          game_id?: string
+          game_version?: string
+          id?: string
+          save_schema_version?: number
+          seed?: string | null
+          server_revision?: number
+          slot_id?: string
+          source_event_id?: string
+          state?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      game_scores: {
+        Row: {
+          challenge_id: string | null
+          challenge_key: string
+          created_at: string
+          game_id: string
+          id: string
+          mode: string
+          score: number
+          source_event_id: string
+          updated_at: string
+          user_id: string
+          verification_status: string
+        }
+        Insert: {
+          challenge_id?: string | null
+          challenge_key: string
+          created_at?: string
+          game_id: string
+          id?: string
+          mode: string
+          score: number
+          source_event_id: string
+          updated_at?: string
+          user_id: string
+          verification_status?: string
+        }
+        Update: {
+          challenge_id?: string | null
+          challenge_key?: string
+          created_at?: string
+          game_id?: string
+          id?: string
+          mode?: string
+          score?: number
+          source_event_id?: string
+          updated_at?: string
+          user_id?: string
+          verification_status?: string
+        }
+        Relationships: []
+      }
       integration_sync_state: {
         Row: {
           account_label: string
@@ -2972,6 +3283,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_vector_event: {
+        Args: {
+          p_client_revision: number
+          p_device_id: string
+          p_event_kind: string
+          p_game_id: string
+          p_idempotency_key: string
+          p_occurred_at: string
+          p_payload: Json
+          p_payload_hash: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       create_agent_task: {
         Args: {
           p_context?: Json
@@ -2996,12 +3321,43 @@ export type Database = {
       expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
+      resolve_vector_conflict: {
+        Args: {
+          p_conflict_id: string
+          p_expected_conflict_version: number
+          p_idempotency_key: string
+          p_payload_hash: string
+          p_resolution: string
+          p_target_slot_id?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
       search_note_embeddings: {
         Args: { p_embedding: string; p_limit?: number }
         Returns: {
           note_id: string
           similarity: number
         }[]
+      }
+      sync_vector_save: {
+        Args: {
+          p_checksum: string
+          p_client_revision: number
+          p_device_id: string
+          p_expected_server_revision: number
+          p_game_id: string
+          p_game_version: string
+          p_idempotency_key: string
+          p_payload_hash: string
+          p_save_schema_version: number
+          p_seed: string | null
+          p_slot_id: string
+          p_state: Json
+          p_updated_at: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       claim_routine_approval_resume: {
         Args: {

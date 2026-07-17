@@ -22,7 +22,7 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 export function getAppOrigin(req: NextRequest): string {
   const configured = optionalEnv("NEXT_PUBLIC_APP_URL")?.replace(/\/$/, "");
   const rawHost = req.headers.get("host");
-  if (configured && rawHost) {
+  if (rawHost) {
     const hostname = rawHost.startsWith("[")
       ? rawHost.slice(0, rawHost.indexOf("]") + 1)
       : rawHost.split(":")[0];

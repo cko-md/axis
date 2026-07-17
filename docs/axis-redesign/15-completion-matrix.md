@@ -5,7 +5,8 @@
   `ab7dccf6d91c88941273b4975dee00ba1c89c8295f3587cd7e2cf66593057cd9`
 - Rule: `complete` requires direct evidence in named path; code presence alone is
   insufficient
-- Status vocabulary: `open | partial | blocked | complete`
+- Status vocabulary: `open | partial | complete`; hosted gates use uppercase
+  `BLOCKED` so local evidence cannot be mistaken for production readiness
 
 ## Program controls
 
@@ -43,19 +44,34 @@
 | Real passkey registration → sign-out → fresh session → authenticated API browser flow | complete | `tests/e2e/passkey-authenticated.spec.ts`; virtual CTAP2 platform authenticator 1/1 and three inspected screenshots |
 | Local migration first-apply/replay, exact grants, browser denial, owner isolation, provenance/quarantine, and duplicate-link preflight | complete | `.logs/vector-envoys/wave-15.1-integration-safety.md` |
 | Migration is atomic when the duplicate-link preflight fails | complete | Explicit `BEGIN/COMMIT`, CI boundary guard, and forced local failure preserving pre-migration ACL/data state |
-| Hosted Supabase migration/application/readback | blocked | Service-role REST is data-plane only; no management/DB/DDL credential, linked CLI, or MCP is available |
-| Vercel preview workflow | blocked | Deployment metadata exists through GitHub, but no Vercel CLI/team session/project link is available and the preview is SSO-protected |
-| Post-preview Sentry regression review | blocked | Available token is `org:ci` only; project/issue queries return 403 |
-| Render worker deployment and validation | blocked | No Render credential, linked service, or authorized deployment surface is configured locally |
-| Paid OpenAI live generation and provider-backed validation | blocked | No OpenAI credential or authorized paid-generation service is configured locally |
+| Hosted Supabase migration/application/readback | BLOCKED | See canonical hosted-gate table below; local Docker and data-plane responses do not satisfy production DDL/readback |
+| Vercel preview workflow | BLOCKED | See canonical hosted-gate table below; GitHub deployment metadata does not satisfy preview access |
+| Post-preview Sentry regression review | BLOCKED | See canonical hosted-gate table below; source-map upload scope does not satisfy issue/event review |
+| Render worker deployment and validation | BLOCKED | See canonical hosted-gate table below; worker implementation is a later wave |
+| Paid OpenAI live generation and provider-backed validation | BLOCKED | See canonical hosted-gate table below; worker implementation is a later wave |
+
+## Canonical hosted-service gates
+
+Only GitHub is operational for gate execution. Production promotion remains
+`BLOCKED`; local tests, historical hosted evidence, GitHub deployment metadata,
+data-plane responses, and source-map upload permission cannot satisfy these
+gates.
+
+| Gate | Status / missing access | Exact check | Human owner |
+|---|---|---|---|
+| Production Supabase | `BLOCKED` — no production management/DB/DDL authority; service-role REST is data-plane only | Apply `202607161000_lifecycle_claims.sql` then `202607161200_vector_arcade_persistence.sql`; read back migration history, schema/checks, RLS, grants, RPC ACLs; run two-user isolation, concurrent CAS, and advisor checks | Repository owner acting as Supabase project administrator |
+| Vercel | `BLOCKED` — no authorized team/project session or SSO-bypass access | Validate the current-SHA branch preview build, environment parity, public/auth browser matrix, logs, and route/bundle budgets | Repository owner acting as Vercel team/release administrator |
+| Sentry | `BLOCKED` — no project issue/event-read authority; upload-only scope does not qualify | Query the exact preview release, environment, and deployment window; verify no new regressions and no PII in intentional error events | Repository owner acting as Sentry project administrator |
+| Render | `BLOCKED` — no credential or linked worker service; implementation is a later wave | After worker implementation, deploy the current release and verify health/capability heartbeat, lease lifecycle, logs, and one live job | Repository owner acting as Render workspace administrator |
+| OpenAI | `BLOCKED` — no budget-limited worker-only project key or authorized paid-generation access | After worker implementation, run one paid generation and a separate cancellation smoke; verify private usage/cost/request records and final QA | Repository owner acting as OpenAI project administrator |
 
 ## VECTOR platform
 
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|
-| `/vector`, `/vector/[game]`, Labs nav, typed registry, runtime, persistence/sync, shared pause/settings/controls/audio/offline UI | 234–251 | open | Route/runtime code, tests, browser QA |
-| Lobby featured actions, library metadata, Continue/pending/conflict rail, utility controls, detail view; every control works | 253–306 | open | Interaction matrix and Playwright logs |
-| Complete manifest fields, lifecycle, private-safe events, dynamic chunks, justified/measured engines | 308–360 | open | Registry/runtime tests, network/bundle/disposal evidence |
+| `/vector`, `/vector/[game]`, Labs nav, typed registry, runtime, persistence/sync, shared pause/settings/controls/audio/offline UI | 234–251 | partial | Wave 15.2 implementation, focused/full unit evidence, typecheck, lint, local SQL, and source-complete build evidence are recorded in `.logs/vector-envoys/wave-15.2-platform.md`; hosted preview remains `BLOCKED` |
+| Lobby featured actions, library metadata, Continue/pending/conflict rail, utility controls, detail view; every control works | 253–306 | partial | Truthful planned lobby and authenticated browser evidence exist; two rerun cases exposed local Supabase transport instability through the visible fail-closed state |
+| Complete manifest fields, lifecycle, private-safe events, dynamic chunks, justified/measured engines | 308–360 | partial | Registry/runtime/telemetry/disposal tests and local bundle evidence exist; no engine is installed in this platform wave; real game cold launch remains Wave 15.3 |
 | Binding game order and one complete game before next | 582–599 | open | Sequential wave commits/logs |
 
 Full title contracts are preserved in `docs/vector/PLAN.md` under **Binding
@@ -80,12 +96,12 @@ console-error capture, sustained-play trace, and disposal proof.
 
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|
-| Network-independent gameplay; typed IndexedDB, versioned snapshots/outbox/idempotency/device/game/save versions/revisions/checksum/timestamps/sync state; no save localStorage | 605–625 | open | Local DB code and offline tests |
-| Save on checkpoints, completion, bounded interval, pause, visibilitychange, pagehide; not beforeunload-only | 627–635 | open | Lifecycle integration tests |
-| Additive owner-RLS schema; Zod and payload limits; compact seed+deltas | 637–652 | open | Applied migration, generated types, API/RLS tests |
-| Type-specific deterministic merge; preserve both campaigns and original failed migrations; never discard newer local | 654–670 | open | Pure merge/migrator tests and conflict UI |
-| Per-game offline install for shell/chunk/fonts/cover/assets/minimal route; estimate/install/update/remove/quota/pending UI | 672–692 | open | Worker/cache tests and offline cold launches |
-| Reconnect flush/pull/merge with honest Synced/Pending/Conflict/Error/Local Only | 693–697 | open | Network-transition e2e |
+| Network-independent gameplay; typed IndexedDB, versioned snapshots/outbox/idempotency/device/game/save versions/revisions/checksum/timestamps/sync state; no save localStorage | 605–625 | partial | Owner-partitioned Dexie repository and offline tests exist; first real game integration remains Wave 15.3 |
+| Save on checkpoints, completion, bounded interval, pause, visibilitychange, pagehide; not beforeunload-only | 627–635 | partial | Shared runtime lifecycle and finalization-barrier tests exist; real-game checkpoint proof remains Wave 15.3 |
+| Additive owner-RLS schema; Zod and payload limits; compact seed+deltas | 637–652 | partial | Local migration, generated types, API/RLS/grant/concurrency tests exist; production Supabase application/readback is explicitly blocked |
+| Type-specific deterministic merge; preserve both campaigns and original failed migrations; never discard newer local | 654–670 | partial | Pure merge, local/cloud CAS, conflict, corruption, and migration-quarantine tests/UI exist; real-game migration proof remains open |
+| Per-game offline install for shell/chunk/fonts/cover/assets/minimal route; estimate/install/update/remove/quota/pending UI | 672–692 | partial | Protocol-v3 worker/generator/deployment tests and UI exist; cold launch of an enabled game remains Wave 15.3 |
+| Reconnect flush/pull/merge with honest Synced/Pending/Conflict/Error/Local Only | 693–697 | partial | Sync orchestrator and partial/truncation/owner-change tests exist; final browser network-transition rerun is pending |
 
 ## Envoy core
 

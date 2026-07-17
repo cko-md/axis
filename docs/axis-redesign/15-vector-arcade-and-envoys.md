@@ -131,7 +131,7 @@ Owner accepted all mitigations on 2026-07-16. No high risk was waived.
 | VE-RISK-018 | SDK retries and local-only intermediates can multiply cost after crash. | OpenAI `maxRetries: 0`, explicit abort timeout, persisted attempt before call, bounded app retry, private hashed checkpoint after each accepted expensive result, resumable stage manifest. | Wave 15.7 |
 | VE-RISK-019 | Production QA needs independent model judgments and all calls affect cost. | Three stateless blind reviewers, separate labeled final QA, deterministic validators authoritative, all model calls included in reservation/usage accounting. | Wave 15.7 |
 | VE-RISK-020 | Existing CI ignores a separate Node/Python/container worker. | Worker lockfile and scripts; CI install/typecheck/unit/integration, vendored hash, Python fixtures, Docker build, Node 24/Pillow/WebP verification, production-impossible fixture provider. | Wave 15.7 |
-| VE-RISK-021 | Production services are authorized but credentials/tooling are not yet present in this worktree. | Discover secure existing project access; install pinned CLIs only when required; never print secrets. Live gates remain explicitly open until Supabase, Vercel, Render, OpenAI, and Sentry evidence exists. | Wave 15.16 |
+| VE-RISK-021 | Only GitHub is operational for gate execution; the other hosted services lack the required credentials or authorized sessions. | Production Supabase, Vercel, Render, OpenAI, and Sentry gates remain explicitly `BLOCKED` until the named human owner completes the recorded check. Discover secure access without printing secrets; pinned CLIs may be installed only when required. | Wave 15.16 |
 
 ## Simplification pass
 

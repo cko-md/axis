@@ -61,4 +61,16 @@ describe("command palette model", () => {
     const hrefs = specs.filter((c) => c.target.kind === "route").map((c) => (c.target as { href: string }).href);
     expect(hrefs).toEqual(expect.arrayContaining(["/tasks", "/approvals"]));
   });
+
+  it("exposes VECTOR as a Labs navigation command", () => {
+    const vector = specs.find((command) =>
+      command.target.kind === "route" && command.target.href === "/vector",
+    );
+    expect(vector).toMatchObject({
+      group: "navigate",
+      icon: "vector",
+      label: "VECTOR",
+      hint: "Navigate · Labs",
+    });
+  });
 });

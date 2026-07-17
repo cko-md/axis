@@ -10,7 +10,8 @@ const PROTECTED_ROUTES = [
   "/command", "/dispatch", "/schedule", "/agenda", "/mail", "/notes",
   "/objectives", "/debrief", "/pipeline", "/literature", "/people",
   "/briefing", "/fund", "/vitality", "/atelier", "/listening-vault",
-  "/library", "/supper-club", "/control-room",
+  "/library", "/supper-club", "/vector", "/vector/second-sense",
+  "/control-room",
 ];
 
 const LEGACY_ROUTES = ["/console", "/signals"];

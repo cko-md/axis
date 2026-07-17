@@ -9,11 +9,11 @@
 > is removed from passkeys, challenges, approvals, and trusted run/step audit
 > rows; task provenance and routine steps are claim-fenced; renewable leases,
 > stale-worker quarantine, and lost-response recovery are locally verified.
-> Automated Chromium virtual-authenticator coverage passes. Hosted migration
-> application/readback, preview validation, and Sentry review remain explicitly
-> blocked because their required credentials or authorized service access are
-> unavailable. Physical-authenticator testing and independent human security
-> sign-off remain open.
+> Automated Chromium virtual-authenticator coverage passes. Only GitHub is
+> operational. Production Supabase, Vercel, Sentry, Render, and OpenAI remain
+> explicitly `BLOCKED`; see `docs/axis-redesign/15-completion-matrix.md` for
+> missing access, exact checks, and human owners. Physical-authenticator testing
+> and independent human security sign-off remain open.
 
 This is an honest convergence assessment, not a claim that the full 14-phase
 program in the master prompt is finished. That prompt describes a multi-quarter
@@ -30,8 +30,8 @@ behavior.
 | `npm run lint` | 0 errors (7 pre-existing warnings, untouched files) |
 | `npx vitest run` | 524 pass / 79 files |
 | `npm run build` | compiles (static export of some existing pages needs Supabase env not present in the CI sandbox) |
-| Vercel preview | green on prior heads |
-| Migrations | applied + verified on the live project; no RLS lint on any new table |
+| Vercel preview | **HISTORICAL ONLY** — green on prior heads; current Wave 15.1/15.2 preview validation is `BLOCKED` without an authorized Vercel session or preview bypass |
+| Migrations | **HISTORICAL ONLY** — older migrations were applied on a live project; `202607161000_lifecycle_claims.sql` and `202607161200_vector_arcade_persistence.sql` remain production-`BLOCKED` without Supabase DDL authority |
 
 ## The operating loop, end to end
 
