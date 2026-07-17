@@ -17,6 +17,8 @@ Per-wave logs live here. Each log records:
 Current:
 
 - `premortem.md` — deep pre-mortem and owner decision
+- `../../docs/axis-redesign/PROGRAM_BRIEF.md` — portable repository copy of the
+  original owner attachment; continuation agents must use this path
 - `skill-preflight.md` — required skill source/read/use evidence
 - `design-review.md` — concept selection and multi-skill review
 - `wave-15.0-program-foundation.md` — planning/design foundation (landed)

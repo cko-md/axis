@@ -1,14 +1,18 @@
 # Claude continuation context — AXIS VECTOR Arcade + Envoys
 
 You are continuing the owner-authorized AXIS System Redesign program from the
-`codex/vector-arcade-envoys` branch. Read `AGENTS.md`, the pasted owner brief at
-`/Users/ogo.ko/.codex/attachments/564c9212-79a7-49ce-8c97-0596857e1bed/pasted-text-1.txt`,
+`codex/vector-arcade-envoys` branch. Read `AGENTS.md`, the portable owner brief
+at `docs/axis-redesign/PROGRAM_BRIEF.md`,
 `docs/axis-redesign/15-vector-arcade-and-envoys.md`, `docs/vector/PLAN.md`,
 `.claude/axis-redesign/PROGRAM_STATE.json`, and the latest wave log before
 editing. The owner explicitly authorized the cross-module redesign override and
 accepted all recommended premortem mitigations. Preserve the financial safety
 kernel, owner/RLS boundaries, no-secret/no-PII rules, visible failures, and
 truthful local-only/blocked states.
+
+`docs/axis-redesign/PROGRAM_BRIEF.md` is the repository copy of the original
+owner attachment. Do not depend on any `/Users/.../.codex/attachments/...` path;
+GitHub-based agents must use the committed file.
 
 ## Objective
 

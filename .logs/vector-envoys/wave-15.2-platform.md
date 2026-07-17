@@ -69,6 +69,7 @@ Program and documentation:
 - `.prompts/vector/VE-WAVE-15.2-PLATFORM.md`
 - `.prompts/vector/VE-CONTINUE-CLAUDE.md`
 - `docs/axis-redesign/13-final-verification.md`
+- `docs/axis-redesign/PROGRAM_BRIEF.md`
 - `docs/axis-redesign/15-vector-arcade-and-envoys.md`
 - `docs/axis-redesign/15-completion-matrix.md`
 - `docs/production-readiness.md`
