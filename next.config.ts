@@ -6,8 +6,8 @@ const CSP = [
   // Next.js App Router requires unsafe-inline for hydration scripts;
   // cdn.plaid.com loads the Plaid Link iframe initializer
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.plaid.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com data:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com",
+  "font-src 'self' https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com data:",
   // blob: needed for gallery image previews; data: for inline SVGs
   "img-src 'self' data: blob: https:",
   // external audio/video previews (briefing/literature) need media from any https host
@@ -41,7 +41,12 @@ const CSP = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
-  "upgrade-insecure-requests",
+  ...(
+    process.env.VERCEL === "1"
+    || process.env.NEXT_PUBLIC_APP_URL?.startsWith("https://")
+      ? ["upgrade-insecure-requests"]
+      : []
+  ),
 ].join("; ");
 
 const SECURITY_HEADERS = [
@@ -96,6 +101,19 @@ const nextConfig: NextConfig = {
     return [
       { source: "/(.*)", headers: SECURITY_HEADERS },
       { source: "/api/(.*)", headers: apiHeaders },
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
+        source: "/vector-offline.html",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+        ],
+      },
       // /api/proxy relays arbitrary third-party HTML chosen by the user into the
       // WebViewer iframe — it must be framable by our own origin (X-Frame-Options),
       // and the relayed page's OWN scripts/styles/connects must not be blocked by

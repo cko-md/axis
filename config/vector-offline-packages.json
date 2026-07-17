@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "games": [
+    { "gameId": "second-sense", "enabled": false },
+    { "gameId": "brickrise", "enabled": false },
+    { "gameId": "time-to-fly", "enabled": false },
+    { "gameId": "paper-glider", "enabled": false },
+    { "gameId": "envoy-arena", "enabled": false },
+    { "gameId": "phantasy-axis", "enabled": false },
+    { "gameId": "biome-lab", "enabled": false },
+    { "gameId": "mini-town", "enabled": false },
+    { "gameId": "neon-rift", "enabled": false }
+  ]
+}

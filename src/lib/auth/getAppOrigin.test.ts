@@ -46,6 +46,13 @@ describe("getAppOrigin()", () => {
     ).toBe("http://127.0.0.1:3200");
   });
 
+  it("trusts a raw loopback Host even when no app origin is configured", () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    expect(
+      getAppOrigin(request("http://localhost:3200/vector", "127.0.0.1:3200")),
+    ).toBe("http://127.0.0.1:3200");
+  });
+
   it("falls back to the request origin when nothing is configured", () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
     expect(
