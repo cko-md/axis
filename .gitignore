@@ -54,8 +54,7 @@ next-env.d.ts
 agent.py
 test-results
 
-# desktop preview (Electron) — build output + source live on the
-# codex/electron-preview-release branch (PR #227), not on main. dist-electron/
-# is generated installers (~800MB); electron/ is that branch's working tree.
+# desktop preview (Electron) build output — regenerated installers (~800MB).
+# The electron/ source itself lives on codex/electron-preview-release (PR #227)
+# and will track normally when that branch lands.
 dist-electron/
-electron/
