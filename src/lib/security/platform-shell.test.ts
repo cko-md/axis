@@ -36,11 +36,13 @@ describe("platform shell production headers", () => {
   });
 
   it("does not fan out authenticated middleware checks from persistent sidebar links", () => {
+    // Convergence: nav links keep prefetch={false} but use phase9's
+    // workspace-scoped href (hrefWithWorkspace), not VECTOR's raw item.href.
     expect(sidebar).toContain(
-      "href={item.href}\n        prefetch={false}",
+      "href={href}\n        prefetch={false}",
     );
     expect(sidebar).toContain(
-      '<Link href="/listening-vault" prefetch={false}',
+      'href={hrefWithWorkspace("/listening-vault")}\n        prefetch={false}',
     );
   });
 });
