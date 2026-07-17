@@ -4,10 +4,11 @@
 -- (pg_get_functiondef) on 2026-07-17.
 --
 -- Supersedes the function originally created in
--- 20260714200800_202607140300_expire_stale_approvals.sql (whose original
--- body could not be recovered — see that file). This version expires
--- pending approvals past expires_at in a single UPDATE ... RETURNING CTE
--- (implicitly row-locking, no separate SELECT-then-UPDATE race window) and
+-- 202607140300_expire_stale_approvals.sql (EXECUTE granted to
+-- `authenticated`, plain UPDATE, no activity log). This version tightens
+-- EXECUTE to service_role only, expires pending approvals past expires_at in
+-- a single UPDATE ... RETURNING CTE (implicitly row-locking, no separate
+-- SELECT-then-UPDATE race window), and
 -- logs each transition to agent_task_activity.
 
 create or replace function public.expire_stale_approvals()
