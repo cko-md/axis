@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Maintenance RPCs run only through the service role. Their EXECUTE grants
-  // are revoked from browser-facing roles by migration 202607151310.
+  // are revoked from browser-facing roles by migration 20260716002837.
   const supabase = createAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: "Maintenance database unavailable" }, { status: 503 });

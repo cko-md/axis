@@ -254,7 +254,7 @@
         "src/lib/routines/runState.test.ts",
         "src/app/api/routines/runs/route.ts",
         "src/components/tasks/RoutineRunsPanel.tsx",
-        "supabase/migrations/202607140100_routine_runs.sql"
+        "supabase/migrations/20260714022018_routine_runs.sql"
       ],
       "files_changed": [
         "src/app/api/routines/concentration-check/route.ts",
@@ -421,7 +421,7 @@
       "status": "landed (residual: human sign-off + authenticator test)",
       "files_added": [
         "docs/axis-redesign/security/step-up-review.md",
-        "supabase/migrations/202607140200_webauthn_challenges_approval_id.sql"
+        "supabase/migrations/20260714145829_webauthn_challenges_approval_id.sql"
       ],
       "files_changed": [
         "src/app/api/approvals/[id]/step-up/route.ts",
@@ -458,7 +458,7 @@
         "src/components/fund/FundNetWorthModule.tsx",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 202607131700 migration but never typed).",
+      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 20260713190519 migration but never typed).",
       "tests": "563 tests pass; tsc clean; lint clean; next build compiles",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     },
@@ -585,7 +585,7 @@
       "title": "Approval-expiry sweeper cron (hygiene, follow-up)",
       "status": "landed",
       "files_added": [
-        "supabase/migrations/202607140300_expire_stale_approvals.sql"
+        "supabase/migrations/20260714200800_expire_stale_approvals.sql"
       ],
       "files_changed": [
         "src/app/api/cron/daily/route.ts",
