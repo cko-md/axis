@@ -2,7 +2,28 @@
 
 Use this workflow when authenticated Playwright tests need a real Supabase session without using a production account.
 
-## Local Stack
+## No-Docker Fallback (sandboxed sessions)
+
+Some agent sessions can't run Docker/Colima at all (no permission to start containers), so `npx supabase start` is not an option even though the CLI installs fine. In that case, substitute the **Supabase MCP connector** (already attached to this project — look for `apply_migration`, `execute_sql`, `list_migrations`, `get_advisors`, `create_branch`, `merge_branch`, `delete_branch` via ToolSearch) for both halves of this doc:
+
+**Migration verification (replaces "Local Stack" SQL replay below):**
+1. `create_branch` off `twkcvyhmlguipchfetge` — a real isolated Postgres branch, not a local container. **This is a billed resource; get explicit user confirmation before calling `create_branch`** (call `confirm_cost` first and show the user the amount).
+2. `apply_migration` the pending migration(s) on the branch.
+3. `execute_sql` to sanity-check the resulting schema/data; `get_advisors` (type: security) to catch missing RLS policies.
+4. `merge_branch` to promote once satisfied, or `delete_branch` to discard and stop paying for it.
+
+This satisfies AGENTS.md §8's "Automate migration application/verification... Use the configured Supabase CLI/API/connector" clause — the MCP connector counts as the connector.
+
+**Authenticated E2E (replaces "Create Auth State" below):**
+There's no way to fake Supabase Auth without Docker. Instead, point a locally-built app (`npm run build && npx next start`) at a real, disposable Supabase target — the branch created above, or a dedicated dev/staging project — rather than `127.0.0.1:54321`:
+1. Get that target's URL/anon key (branch `project_ref`, or `get_project_url`/`get_publishable_keys`).
+2. Create a disposable **confirmed** test user via the service-role admin API (through MCP `execute_sql`, or a direct admin API call) so there's no email-confirmation step to fake.
+3. Run `npm run test:e2e:auth` with `E2E_BASE_URL`, `E2E_USER_EMAIL`, `E2E_USER_PASSWORD` pointed at that build, same as the "production build" section below.
+4. Delete the disposable user (and the branch, if one was created) afterward.
+
+This only needs outbound network to the real Supabase Auth/API — no Docker, no Colima.
+
+## Local Stack (when Docker is available)
 
 AXIS can run authenticated E2E against the Supabase CLI local stack.
 
