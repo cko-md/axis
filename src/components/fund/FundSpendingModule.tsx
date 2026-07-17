@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 
 type BankTxn = {
   id: string;
@@ -20,6 +22,8 @@ type BankTxn = {
   reviewed: boolean;
   pending: boolean;
   posted_date: string;
+  /** Provenance: when this row was last pulled from Plaid (null until synced). */
+  retrieved_at?: string | null;
 };
 
 type Budget = { id: string; category: string; monthly_limit: number };
@@ -98,6 +102,19 @@ export function FundSpendingModule() {
       map.set(cat, (map.get(cat) ?? 0) + Math.abs(t.amount));
     }
     return map;
+  }, [txns]);
+
+  // Most recent real retrieval time across the loaded rows, for the freshness
+  // badge. Only defined once at least one row actually carries a retrieved_at —
+  // no fabricated "as of" (mirrors NetWorthChart's honest-signal rule).
+  const latestRetrievedAt = useMemo(() => {
+    let latest: number | null = null;
+    for (const t of txns) {
+      if (!t.retrieved_at) continue;
+      const ms = Date.parse(t.retrieved_at);
+      if (Number.isFinite(ms) && (latest === null || ms > latest)) latest = ms;
+    }
+    return latest === null ? null : new Date(latest).toISOString();
   }, [txns]);
 
   async function patchTxn(id: string, patch: Partial<BankTxn>) {
@@ -194,7 +211,16 @@ export function FundSpendingModule() {
       </div>
 
       <Card tick>
-        <h2 className="sec">Transactions<span className="rule" /><span className="count">{txns.length}</span></h2>
+        <h2 className="sec">
+          Transactions
+          <span className="rule" />
+          {latestRetrievedAt && (
+            <span style={{ marginRight: 8 }}>
+              <FreshnessBadge retrievedAt={latestRetrievedAt} sla={FRESHNESS_SLAS.accountBalance} />
+            </span>
+          )}
+          <span className="count">{txns.length}</span>
+        </h2>
         <div style={{ marginTop: 10 }}>
           {refreshing && txns.length > 0 && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Refreshing…</p>}
           {notice && <p style={{ fontSize: 12, color: "var(--clay)" }}>{notice}</p>}

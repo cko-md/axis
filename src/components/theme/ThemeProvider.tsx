@@ -9,6 +9,7 @@ import {
   DEFAULT_INTERFACE_SETTINGS,
   type InterfaceSettings,
 } from "@/lib/theme/interface-settings";
+import { getBrowserTimeZone } from "@/lib/dates";
 
 export type InterfacePersistenceState = "loading" | "local" | "syncing" | "synced" | "error";
 
@@ -173,7 +174,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from("user_preferences").upsert(
         {
           user_id: user.id,
-          interface_settings: { theme, settings: interfaceSettings },
+          // Capture the browser IANA timezone alongside theme/settings so server code
+          // can compute this user's local day (see resolveTimeZone/localDayIsoInTimeZone).
+          interface_settings: { theme, settings: interfaceSettings, timeZone: getBrowserTimeZone() },
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },

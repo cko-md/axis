@@ -10,6 +10,7 @@ import { FundOrderTicket } from "@/components/fund/FundOrderTicket";
 import { FundSparkline } from "@/components/fund/FundSparkline";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
+import { reconciliationView } from "@/lib/fund/reconciliationView";
 
 export function FundInvestingModule() {
   const { toast } = useToast();
@@ -100,7 +101,23 @@ export function FundInvestingModule() {
                         <td>{h.name}</td>
                         <td>{h.shares}</td>
                         <td>{fmtUsd(h.cost_basis)}</td>
-                        <td style={{ fontSize: 10, color: "var(--ink-faint)" }}>{h.sources.join(" + ")}</td>
+                        <td style={{ fontSize: 10, color: "var(--ink-faint)" }}>
+                          {h.sources.join(" + ")}
+                          {(() => {
+                            const recon = reconciliationView(h.reconciliation_state);
+                            if (!recon) return null;
+                            return (
+                              <span
+                                role="status"
+                                aria-label={`${recon.label}: ${recon.description}`}
+                                title={recon.description}
+                                style={{ marginLeft: 6, color: recon.color, fontWeight: recon.tone === "danger" ? 600 : 400 }}
+                              >
+                                {recon.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td>
                           {rowIds.map((id) => (
                             <button key={id} type="button" title="Remove" onClick={() => removeHolding(id)} style={{ background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer" }}>×</button>

@@ -720,6 +720,7 @@ export type Database = {
           id: string
           is_transfer: boolean
           iso_currency_code: string
+          retrieved_at: string | null
           merchant_name: string | null
           notes: string | null
           pending: boolean
@@ -744,6 +745,7 @@ export type Database = {
           id?: string
           is_transfer?: boolean
           iso_currency_code?: string
+          retrieved_at?: string | null
           merchant_name?: string | null
           notes?: string | null
           pending?: boolean
@@ -768,6 +770,7 @@ export type Database = {
           id?: string
           is_transfer?: boolean
           iso_currency_code?: string
+          retrieved_at?: string | null
           merchant_name?: string | null
           notes?: string | null
           pending?: boolean
@@ -872,8 +875,14 @@ export type Database = {
           connection_id: string | null
           cost_basis: number
           created_at: string
+          currency: string
+          effective_at: string | null
           id: string
           name: string
+          provider: string | null
+          provider_record_id: string | null
+          reconciliation_state: string | null
+          retrieved_at: string | null
           shares: number
           sort_order: number
           source: string
@@ -885,8 +894,14 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
@@ -898,8 +913,14 @@ export type Database = {
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
+          currency?: string
+          effective_at?: string | null
           id?: string
           name?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          reconciliation_state?: string | null
+          retrieved_at?: string | null
           shares?: number
           sort_order?: number
           source?: string
@@ -929,6 +950,12 @@ export type Database = {
           minimum_payment: number | null
           name: string
           source: string
+          provider: string | null
+          provider_record_id: string | null
+          retrieved_at: string | null
+          effective_at: string | null
+          currency: string
+          reconciliation_state: string | null
           updated_at: string
           user_id: string
         }
@@ -943,6 +970,12 @@ export type Database = {
           minimum_payment?: number | null
           name: string
           source?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          effective_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           updated_at?: string
           user_id: string
         }
@@ -957,6 +990,12 @@ export type Database = {
           minimum_payment?: number | null
           name?: string
           source?: string
+          provider?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          effective_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1029,6 +1068,10 @@ export type Database = {
           shares: number
           source: string
           symbol: string | null
+          provider_record_id: string | null
+          retrieved_at: string | null
+          currency: string
+          reconciliation_state: string | null
           user_id: string
         }
         Insert: {
@@ -1044,6 +1087,10 @@ export type Database = {
           shares?: number
           source?: string
           symbol?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           user_id: string
         }
         Update: {
@@ -1059,6 +1106,10 @@ export type Database = {
           shares?: number
           source?: string
           symbol?: string | null
+          provider_record_id?: string | null
+          retrieved_at?: string | null
+          currency?: string
+          reconciliation_state?: string | null
           user_id?: string
         }
         Relationships: []
@@ -2591,6 +2642,7 @@ export type Database = {
     Functions: {
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
       search_note_embeddings: {

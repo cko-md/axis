@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { emitServerEvent } from "@/lib/observability/events";
 
 /**
  * WebAuthn step-up for a FINANCIAL_EXECUTION / DESTRUCTIVE_ADMIN approval
@@ -157,6 +158,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .select("id, step_up_verified_at")
     .maybeSingle();
   if (updateError || !updated) return NextResponse.json({ error: "STEP_UP_UPDATE_FAILED" }, { status: 500 });
+
+  emitServerEvent("approval.step_up_verified", { approvalId: updated.id });
 
   return NextResponse.json({ verified: true, stepUpVerifiedAt: updated.step_up_verified_at });
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
 import { useToast } from "@/components/ui/Toast";
+import { activateOnEnterSpace } from "@/lib/a11y";
 
 // "Figures & Images" collection in Library — same bucket LibraryModule files
 // photo uploads into, so anything added from either surface ends up in the
@@ -64,7 +65,7 @@ export function FeaturedPhotos() {
           role="button"
           tabIndex={0}
           onClick={() => toast("Apple Photos / Google Photos integration — Phase 4 stub. Use Add to upload locally.", "info", "Photos")}
-        >
+         onKeyDown={activateOnEnterSpace}>
           Connect Apple Photos / Google Photos →
         </span>
       </div>
@@ -91,7 +92,7 @@ export function FeaturedPhotos() {
           role="button"
           tabIndex={0}
           onClick={() => inputRef.current?.click()}
-        >
+         onKeyDown={activateOnEnterSpace}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M12 5v14M5 12h14" />
           </svg>

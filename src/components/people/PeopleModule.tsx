@@ -8,6 +8,7 @@ import { SkeletonCard } from "@/components/ui/Skeleton";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { usePeople, personFootLabel, personIsDue, type Person, type PersonTag } from "@/lib/hooks/usePeople";
 import { createClient } from "@/lib/supabase/client";
+import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { AddAccountPicker } from "@/components/mail/AddAccountPicker";
 import { AddContactsPicker } from "./AddContactsPicker";
 
@@ -284,7 +285,7 @@ export function PeopleModule() {
   }, [loading, contactsLoaded, contacts]);
 
   const mergeContact = async (s: Extract<ContactSuggestion, { type: "merge" }>) => {
-    const result = await updatePerson(s.matchedPersonId, { last_contact_on: new Date().toISOString().slice(0, 10) });
+    const result = await updatePerson(s.matchedPersonId, { last_contact_on: todayLocalIso() });
     if (result.error) { toast(result.error, "error", "People"); return; }
     toast(`Marked contact with ${s.matchedPersonName}.`, "success", "People");
     setSuggestions((prev) => prev.filter((x) => x.contactId !== s.contactId));

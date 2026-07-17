@@ -46,9 +46,9 @@ describe("approvalPersistence round-trip", () => {
     expect(req.actionClass).toBe("FINANCIAL_EXECUTION");
     expect(req.stepUpRequired).toBe(true);
     const now = Date.parse("2026-07-13T17:02:00.000Z");
-    expect(isActionable(req, { stepUpVerified: true, nowMs: now })).toBe(true);
+    expect(isActionable(req, { stepUpVerifiedAt: "2026-07-13T17:01:00.000Z", nowMs: now })).toBe(true);
     // Without step-up verification it must not be actionable.
-    expect(isActionable(req, { stepUpVerified: false, nowMs: now })).toBe(false);
+    expect(isActionable(req, { stepUpVerifiedAt: null, nowMs: now })).toBe(false);
   });
 
   it("preserves scope downgrade (persistent never survives for execution)", () => {

@@ -22,6 +22,7 @@ const FILTERS: { label: string; value: Filter }[] = [
 const DECISION_ERRORS: Record<string, string> = {
   EXPIRED: "This approval has expired.",
   STEP_UP_REQUIRED: "Step-up verification is required before this can execute.",
+  STEP_UP_STALE: "Your passkey verification expired — verify again to execute.",
   INCOMPLETE: "This approval is missing required details and can't execute.",
   NOT_APPROVED: "This approval hasn't been approved yet.",
   NOT_PENDING: "This approval has already been decided.",

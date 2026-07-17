@@ -5,6 +5,7 @@ import { useLibraryFiles, type LibraryFile } from "@/lib/hooks/useLibraryFiles";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
 import Link from "next/link";
+import { activateOnEnterSpace } from "@/lib/a11y";
 
 const COLLECTIONS = [
   { name: "All Files",       icon: <path d="M3 7l2-3h6l2 3h6v13H3z" /> },
@@ -130,7 +131,7 @@ export function LibraryModule() {
                 key={c.name}
                 className={`coll${activeColl === i ? " on" : ""}`}
                 onClick={() => setActiveColl(i)}
-              >
+               role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   {c.icon}
                 </svg>
@@ -149,7 +150,7 @@ export function LibraryModule() {
             onDrop={onDrop}
             role="button"
             tabIndex={0}
-          >
+           onKeyDown={activateOnEnterSpace}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M12 16V4M8 8l4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
             </svg>

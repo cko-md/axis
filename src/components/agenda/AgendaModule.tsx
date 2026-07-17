@@ -22,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { fetchTodayMergedEvents } from "@/lib/calendar/today-events";
+import { todayLocalIso } from "@/lib/calendar/event-dates";
 import {
   useTasks,
   rankTasks,
@@ -38,6 +39,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { buildTodayRanking, type TodayItem } from "@/components/agenda/today-ranking";
 import type { ScheduleEvent } from "@/lib/types";
+import { activateOnEnterSpace } from "@/lib/a11y";
 
 type RoutineStep = { id: string; time: string; title: string; sub: string };
 
@@ -63,7 +65,7 @@ const DEFAULT_ROUTINE: RoutineStep[] = [
 
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalIso();
 }
 
 const SortableRow = memo(function SortableRow({ step, checked, onToggle }: { step: RoutineStep; checked: boolean; onToggle: () => void }) {
@@ -924,7 +926,7 @@ export function AgendaModule() {
           style={{ cursor: "pointer" }}
           onClick={() => setStatFilter(statFilter === null ? null : null)}
           title="Show open tasks"
-        >
+         role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
           <div className="sv">{open.length}</div>
           <div className="sk">Open</div>
         </div>
@@ -933,7 +935,7 @@ export function AgendaModule() {
           style={{ cursor: "pointer" }}
           onClick={() => setStatFilter((f) => f === "overdue" ? null : "overdue")}
           title="Show overdue tasks"
-        >
+         role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
           <div className="sv">{overdue.length}</div>
           <div className="sk">Overdue</div>
         </div>
@@ -942,7 +944,7 @@ export function AgendaModule() {
           style={{ cursor: "pointer" }}
           onClick={() => setStatFilter((f) => f === "done" ? null : "done")}
           title="Show tasks completed today"
-        >
+         role="button" tabIndex={0} onKeyDown={activateOnEnterSpace}>
           <div className="sv">{doneToday.length}</div>
           <div className="sk">Done today</div>
         </div>

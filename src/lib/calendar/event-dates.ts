@@ -1,7 +1,8 @@
-/** Local calendar day as yyyy-mm-dd. */
-export function localDayIso(day: Date): string {
-  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-}
+import { localDayIso, todayLocalIso } from "@/lib/dates";
+
+// The general-purpose local-day helpers now live in `@/lib/dates`. They are
+// re-exported here so existing `@/lib/calendar/event-dates` imports keep working.
+export { localDayIso, todayLocalIso };
 
 export function startOfLocalDay(day = new Date()): Date {
   const start = new Date(day);
