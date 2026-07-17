@@ -1,5 +1,3 @@
-"use client";
-
 import type { LucideIcon, LucideProps } from "lucide-react";
 import { resolveNavIcon } from "@/lib/icons/nav-icons";
 

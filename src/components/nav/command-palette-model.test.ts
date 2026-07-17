@@ -195,4 +195,16 @@ describe("command palette registry", () => {
       );
     }
   });
+
+  it("exposes VECTOR as a Labs navigation command", () => {
+    const vector = specs.find((command) =>
+      command.target.kind === "route" && command.target.href === "/vector",
+    );
+    expect(vector).toMatchObject({
+      group: "navigate",
+      icon: "vector",
+      label: "VECTOR",
+      hint: "Navigate · Labs",
+    });
+  });
 });

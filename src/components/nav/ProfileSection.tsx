@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/client";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -17,14 +18,25 @@ type Props = {
 
 type ProfileForm = { name: string; role: string; bio: string; photo: string };
 type SaveState = "idle" | "saving" | "saved" | "error";
+type AccountState = "loading" | "signed-out" | "ready" | "error";
 
 const AUTOSAVE_DEBOUNCE_MS = 600;
+
+function captureProfileLookupFailure(operation: "identity" | "profile") {
+  Sentry.captureException(new Error("Profile account lookup failed"), {
+    tags: {
+      area: "navigation",
+      operation: `load_${operation}`,
+    },
+  });
+}
 
 export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const { toast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
   const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
+  const [accountState, setAccountState] = useState<AccountState>("loading");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm>({ name: "", role: "", bio: "", photo: "" });
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -45,30 +57,66 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setProfile(null); return; }
-      const { data } = await supabase
-        .from("profiles")
-        .select("display_name, role_title, bio, avatar_url")
-        .eq("id", user.id)
-        .maybeSingle();
-      const name = data?.display_name || user.email?.split("@")[0] || "Account";
-      const role = data?.role_title || user.email || "";
-      setProfile({ name, role });
-      onProfileName?.(name);
-      setProfileForm({
-        name,
-        role,
-        bio: data?.bio ?? "",
-        photo: data?.avatar_url ?? "",
-      });
-      // Mark loaded on the next tick so the form-hydration state update above
-      // does not fire the auto-save effect.
-      loadedRef.current = false;
-      requestAnimationFrame(() => { loadedRef.current = true; });
+    let active = true;
+    let hydrationFrame: number | null = null;
+
+    void (async () => {
+      try {
+        const { data: { user }, error: identityError } = await supabase.auth.getUser();
+        if (!active) return;
+        if (identityError) {
+          captureProfileLookupFailure("identity");
+          setAccountState("error");
+          toast("Could not verify the current account", "error", "Profile");
+          return;
+        }
+        if (!user) {
+          setProfile(null);
+          setAccountState("signed-out");
+          return;
+        }
+
+        const { data, error: profileError } = await supabase
+          .from("profiles")
+          .select("display_name, role_title, bio, avatar_url")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (!active) return;
+        if (profileError) {
+          captureProfileLookupFailure("profile");
+          toast("Profile details are temporarily unavailable", "error", "Profile");
+        }
+
+        const name = data?.display_name || user.email?.split("@")[0] || "Account";
+        const role = data?.role_title || user.email || "";
+        setProfile({ name, role });
+        setAccountState("ready");
+        onProfileName?.(name);
+        setProfileForm({
+          name,
+          role,
+          bio: data?.bio ?? "",
+          photo: data?.avatar_url ?? "",
+        });
+        // Mark loaded on the next frame so form hydration does not schedule a
+        // needless profile write.
+        loadedRef.current = false;
+        hydrationFrame = requestAnimationFrame(() => {
+          if (active) loadedRef.current = true;
+        });
+      } catch {
+        if (!active) return;
+        captureProfileLookupFailure("identity");
+        setAccountState("error");
+        toast("Could not verify the current account", "error", "Profile");
+      }
     })();
-  }, [supabase, onProfileName]);
+
+    return () => {
+      active = false;
+      if (hydrationFrame !== null) cancelAnimationFrame(hydrationFrame);
+    };
+  }, [supabase, onProfileName, toast]);
 
   const persistProfile = useCallback(async (form: ProfileForm) => {
     setSaveState("saving");
@@ -170,7 +218,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   return (
     <>
       <div className="sidefoot">
-        {profile ? (
+        {accountState === "ready" && profile ? (
           <div className="profile" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => setProfileOpen(true)} title="Edit profile">
             {profileForm.photo ? (
               <Image src={profileForm.photo} alt={profile.name} width={32} height={32} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} unoptimized={profileForm.photo.startsWith("blob:")} />
@@ -193,14 +241,36 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
               </svg>
             </button>
           </div>
-        ) : (
-          <Link href="/login" className="profile">
+        ) : accountState === "signed-out" ? (
+          <Link href="/login" prefetch={false} className="profile">
             <div className="avatar">→</div>
             <div className="pmeta">
               <div className="pn">Sign in</div>
               <div className="pr">Sync across devices</div>
             </div>
           </Link>
+        ) : accountState === "error" ? (
+          <button
+            type="button"
+            className="profile"
+            onClick={() => window.location.reload()}
+            title="Reload to retry account lookup"
+            style={{ width: "100%", textAlign: "left" }}
+          >
+            <div className="avatar">!</div>
+            <div className="pmeta">
+              <div className="pn">Account unavailable</div>
+              <div className="pr">Reload to retry</div>
+            </div>
+          </button>
+        ) : (
+          <div className="profile" aria-busy="true" aria-label="Loading account">
+            <div className="avatar" aria-hidden>…</div>
+            <div className="pmeta">
+              <div className="pn">Loading account</div>
+              <div className="pr">Checking session</div>
+            </div>
+          </div>
         )}
       </div>
 

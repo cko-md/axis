@@ -41,6 +41,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/fund", label: "Fund", icon: "chart", title: "Fund — portfolio and cash flow", status: "production" },
   ]},
   { section: "Labs", items: [
+    { href: "/vector", label: "VECTOR", icon: "vector", title: "VECTOR — interactive systems, simulations, and games", status: "lab", statusReason: "The shared VECTOR platform is present, but all nine catalog titles remain explicitly planned and disabled until each complete game wave lands.", statusAction: "Validate owner-scoped saves, offline boundaries, runtime isolation, and each complete game before promotion." },
     { href: "/vitality", label: "Vitality", icon: "fitness", title: "Vitality — training and nutrition", status: "lab", statusReason: "Training, nutrition, and health-device areas mix live Strava with local-only and coming-soon flows.", statusAction: "Keep wearable metrics and manual logs labelled lab until Supabase-backed persistence is complete." },
     { href: "/atelier", label: "Atelier", icon: "atelier", status: "lab", statusReason: "Creative discovery remains exploratory and provider-dependent.", statusAction: "Validate source availability, pin persistence, and empty/error states before promotion." },
     { href: "/listening-vault", label: "Listening Vault", icon: "vault", title: "Listening Vault — music room", status: "lab", statusReason: "Music-room workflows depend on Spotify availability and exploratory listening UI.", statusAction: "Validate connect/disconnect, playback fallbacks, and saved state before promotion." },

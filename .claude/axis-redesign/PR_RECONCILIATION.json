@@ -1,0 +1,62 @@
+{
+  "generated_by": "convergence coordinator — reconciliation analysis only (no writes to shared branches)",
+  "as_of_local_date": "2026-07-17",
+  "fetch_performed": true,
+  "verified_remote_heads": {
+    "origin/main": "a029cd58392a75497113685b9363c4f3e617f672",
+    "origin/codex/phase9-resume-executor": "84cc5ca6a5e7a13db066765149ab5dccf0423620",
+    "origin/codex/vector-arcade-envoys": "a72f3da78424a3b5602f2b8141b612bd16d5ac10",
+    "origin/codex/electron-preview-release": "180fad35e7776bfad7cb106cc0e82d74c9358b8c"
+  },
+  "brief_vs_reality": {
+    "pr236_head_asserted": "4e44e245c771d2766ad87d7de114efee03b09e13",
+    "pr236_head_actual": "a72f3da78424a3b5602f2b8141b612bd16d5ac10",
+    "note": "a72f3da7 is one docs commit ('make redesign brief portable') on top of 4e44e245; both are in the object store; nothing lost.",
+    "local_phase9_worktree_head": "cf99860d476daaaffb27c9b12167039dde78d859",
+    "local_phase9_is_stale": true
+  },
+  "canonical_base": {
+    "branch": "origin/codex/phase9-resume-executor",
+    "head": "84cc5ca6a5e7a13db066765149ab5dccf0423620",
+    "rationale": "PR #195 is the final Phase 6-14 implementation and owns the expand->application->contract release contract; its expansion migrations are already hosted."
+  },
+  "migration_identity_resolution": {
+    "collision": {
+      "version": "202607161200",
+      "phase9_file": "202607161200_entity_workspace.sql",
+      "phase9_tables": ["public.entity_references", "public.entity_usage"],
+      "vector_file": "202607161200_vector_arcade_persistence.sql",
+      "vector_tables": ["public.game_profiles", "public.game_events", "public.game_saves", "public.game_scores", "public.game_achievements", "public.game_save_conflicts"],
+      "vector_functions": ["public.sync_vector_save", "public.apply_vector_event", "public.resolve_vector_conflict"]
+    },
+    "decision": "phase9 202607161200_entity_workspace.sql KEEPS the version (it is on the canonical base and hosted-track). VECTOR arcade persistence is local-only/not-hosted and must be RENUMBERED.",
+    "vector_rename": {
+      "from": "202607161200_vector_arcade_persistence.sql",
+      "to_proposed": "202607170001_vector_arcade_persistence.sql",
+      "reason": "next unused slot after the max existing version 202607161401; sorts after the entire phase9 lifecycle+contract sequence; arcade tables are additive and independent, so ordering-after is safe.",
+      "must_update": ["migration filename", "SQL test harnesses referencing the version", "docs/vector/OFFLINE_PACKAGES.md + PLAN.md", "15-completion-matrix.md", "PROGRAM_STATE.json", "release manifest / checksums", "VE-CONTINUE-CLAUDE.md and related prompts", "any migration-history assertion / snapshot test"]
+    },
+    "unchanged": "Do NOT rename 202607161300 / 202607161302 / 202607161400 — recorded as hosted-applied (expand). Do NOT apply 202607161401 (contract) early."
+  },
+  "lifecycle_reconciliation": {
+    "finding": "ZERO function-name overlap between VECTOR 202607161000_lifecycle_claims and phase9 1300/1302/1400/1401. Applying both would NOT raise a SQL error; it would silently install two contradictory task/approval/routine authorities.",
+    "vector_lifecycle_functions": ["create_agent_task", "transition_agent_task", "execute_approval", "claim_routine_approval_resume", "renew_routine_approval_resume", "start_routine_step_under_claim", "complete_routine_step_under_claim", "fail_routine_step_under_claim", "finalize_routine_approval_resume", "release_routine_approval_resume", "repause_routine_approval_resume", "recover_stale_routine_approval_resume", "guard_routine_resume_claim"],
+    "phase9_lifecycle_functions": ["create_agent_task_with_activity", "create_idempotent_agent_task_with_activity", "create_approval_with_activity", "cas_agent_task_transition", "cas_approval_transition", "consume_actionable_approval", "is_approval_scope_complete", "expire_stale_approvals", "consume_webauthn_challenge", "consume_approval_authentication_challenge", "commit_passkey_authentication", "commit_approval_step_up", "create_user_passkey", "delete_user_passkey", "claim_routine_resume", "renew_routine_resume_claim", "release_routine_resume_claim", "start_claimed_routine_step", "complete_claimed_routine_step", "fail_claimed_routine_step", "complete_routine_resume", "repause_routine_resume", "guard_claimed_routine_run_browser_write", "guard_claimed_routine_step_browser_write"],
+    "vector_gaps_vs_canonical": ["no WebAuthn/passkey functions at all (defines none; text mentions webauthn 3x but no DDL)", "no explicit idempotent task creation function", "no is_approval_scope_complete", "no browser-DML lockdown guards (guard_routine_resume_claim guards the claim, NOT browser writes)"],
+    "decision": "phase9 lifecycle (1300/1302/1400/1401) is CANONICAL. DROP VECTOR 202607161000_lifecycle_claims from convergence. Rewire VECTOR application call-sites to phase9 RPC names during the port. Before deletion, per-invariant confirm no VECTOR-unique semantics (esp. recover_stale_routine_approval_resume) are lost vs phase9's stale-worker path.",
+    "vector_callsite_rewire_scope": {
+      "create_agent_task": "4 src files",
+      "transition_agent_task": "3 src files",
+      "execute_approval": "3 src files",
+      "claim_routine_approval_resume": "3 src files",
+      "finalize_routine_approval_resume": "2 src files",
+      "recover_stale_routine_approval_resume": "3 src files"
+    }
+  },
+  "canonical_release_order": "expand (202607161200_entity_workspace, 202607161300_task_approval_atomic, 202607161302_webauthn_atomic, 202607161400_routine_resume_claims) -> compatible application live -> contract (202607161401_task_approval_lockdown) -> additive VECTOR (202607170001_vector_arcade_persistence, renumbered). 202607161401 remains BLOCKED pending the exact compatible production SHA + named recovery owner.",
+  "not_covered_this_session": {
+    "rescue_pr_stack_196_235": "Per-PR three-dot/git-cherry classification of the ~40 rescue branches is a separate fan-out deliverable (needs per-PR fetch). Deferred; not required for the #195<->#236 + migration decision.",
+    "function_body_byte_diff": "This analysis maps by concept/name and identifies WHERE bodies must be compared; exact body-diff confirmation belongs to the actual port slice, not this read-only analysis."
+  },
+  "authorization_gates_untouched": "No merge, no branch creation, no rename applied, no migration applied, no push. All findings read-only."
+}

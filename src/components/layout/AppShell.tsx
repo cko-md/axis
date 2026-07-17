@@ -41,6 +41,7 @@ type Props = {
   section: string;
   page: string;
   children: ReactNode;
+  suppressPresence?: boolean;
 };
 
 type SidebarMode = "open" | "icons" | "hidden";
@@ -51,17 +52,17 @@ const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
   hidden: "open",
 };
 
-export function AppShell({ section, page, children }: Props) {
+export function AppShell({ section, page, children, suppressPresence = false }: Props) {
   return (
     <WorkspaceProvider>
-      <AppShellContent section={section} page={page}>
+      <AppShellContent section={section} page={page} suppressPresence={suppressPresence}>
         {children}
       </AppShellContent>
     </WorkspaceProvider>
   );
 }
 
-function AppShellContent({ section, page, children }: Props) {
+function AppShellContent({ section, page, children, suppressPresence = false }: Props) {
   const pathname = usePathname();
   const { hasWorkspace } = useWorkspace();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
@@ -217,7 +218,7 @@ function AppShellContent({ section, page, children }: Props) {
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <SearchWidget open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <Mascot />
+      {!suppressPresence ? <Mascot /> : null}
       <InterfaceStudioDrawer />
     </SpotifyProvider>
   );
