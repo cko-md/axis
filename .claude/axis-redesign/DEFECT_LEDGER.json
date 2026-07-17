@@ -98,7 +98,7 @@
       "reproduction": "has_function_privilege returned true and the advisor reported public/authenticated SECURITY DEFINER execution",
       "affected": [
         "src/app/api/cron/daily/route.ts",
-        "supabase/migrations/202607140300_expire_stale_approvals.sql"
+        "supabase/migrations/20260714200800_expire_stale_approvals.sql"
       ],
       "root_cause": "The cron used a browser-facing Supabase client and the RPC retained default PUBLIC plus authenticated EXECUTE grants",
       "fix": "Run maintenance RPCs with the service-role client and revoke EXECUTE from PUBLIC, anon, and authenticated while granting service_role only",

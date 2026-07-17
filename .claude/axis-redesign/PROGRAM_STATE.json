@@ -254,7 +254,7 @@
         "src/lib/routines/runState.test.ts",
         "src/app/api/routines/runs/route.ts",
         "src/components/tasks/RoutineRunsPanel.tsx",
-        "supabase/migrations/202607140100_routine_runs.sql"
+        "supabase/migrations/20260714022018_routine_runs.sql"
       ],
       "files_changed": [
         "src/app/api/routines/concentration-check/route.ts",
@@ -421,13 +421,13 @@
       "status": "landed (residual: human sign-off + authenticator test)",
       "files_added": [
         "docs/axis-redesign/security/step-up-review.md",
-        "supabase/migrations/202607140200_webauthn_challenges_approval_id.sql"
+        "supabase/migrations/20260714145829_webauthn_challenges_approval_id.sql"
       ],
       "files_changed": [
         "src/app/api/approvals/[id]/step-up/route.ts",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) \u2014 see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 202607140200, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
+      "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) \u2014 see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 20260714145829, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
       "tests": "549 tests pass; tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test; live migration verified"
     },
@@ -458,7 +458,7 @@
         "src/components/fund/FundNetWorthModule.tsx",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 202607131700 migration but never typed).",
+      "note": "Manual holdings POST now stamps provider/retrieved_at/currency; GET returns retrieved_at (oldest across sources = conservative aggregate freshness). FundNetWorthModule Assets card shows a per-holding FreshnessBadge (holdings SLA: 12h fresh / 48h stale). Existing rows have null retrieved_at -> reads 'unknown' honestly until re-synced; new/updated holdings read fresh and age. Added the provenance columns (provider/retrieved_at/effective_at/currency/reconciliation_state/provider_record_id) to database.types.ts fund_holdings (were applied to the DB in the 20260713190519 migration but never typed).",
       "tests": "563 tests pass; tsc clean; lint clean; next build compiles",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     },
@@ -486,7 +486,7 @@
         "src/lib/routines/executor.test.ts",
         "src/lib/routines/concentrationCheck.ts",
         "src/app/api/routines/runs/[id]/resume/route.ts",
-        "supabase/migrations/202607150900_routine_run_pause_metadata.sql"
+        "supabase/migrations/20260715224141_routine_run_pause_metadata.sql"
       ],
       "files_changed": [
         "src/app/api/routines/concentration-check/route.ts",
@@ -522,7 +522,7 @@
         "src/app/api/routines/versions/route.ts",
         "src/app/api/routines/versions/[id]/route.ts",
         "src/app/api/routines/versions/compare/route.ts",
-        "supabase/migrations/202607151100_routine_versions.sql"
+        "supabase/migrations/20260715224156_routine_versions.sql"
       ],
       "files_changed": [
         "src/lib/supabase/database.types.ts"
@@ -585,7 +585,7 @@
       "title": "Approval-expiry sweeper cron (hygiene, follow-up)",
       "status": "landed",
       "files_added": [
-        "supabase/migrations/202607140300_expire_stale_approvals.sql"
+        "supabase/migrations/20260714200800_expire_stale_approvals.sql"
       ],
       "files_changed": [
         "src/app/api/cron/daily/route.ts",
@@ -912,7 +912,7 @@
       "files_added": [
         "src/lib/fund/marketReport.ts",
         "src/lib/fund/marketReport.test.ts",
-        "supabase/migrations/202607151200_market_report_insights.sql"
+        "supabase/migrations/20260715235237_market_report_insights.sql"
       ],
       "files_changed": [
         "src/app/api/fund/report/route.ts",
@@ -991,8 +991,8 @@
         "src/app/api/integrations/make/outbox/route.ts",
         "src/app/api/integrations/make/outbox/[id]/replay/route.ts",
         "src/components/control-room/MakeDeliveryOutboxPanel.tsx",
-        "supabase/migrations/202607151300_make_delivery_outbox.sql",
-        "supabase/migrations/202607151310_lock_expire_stale_approvals.sql"
+        "supabase/migrations/20260716002727_make_delivery_outbox.sql",
+        "supabase/migrations/20260716002837_lock_expire_stale_approvals.sql"
       ],
       "files_changed": [
         "src/lib/fund/notifyViaMake.ts",
@@ -1031,7 +1031,7 @@
         "src/lib/mail/cache.test.ts",
         "src/app/api/mail/sync/route.ts",
         "src/app/api/mail/sync/route.test.ts",
-        "supabase/migrations/202607152100_mail_cache_sync.sql",
+        "supabase/migrations/20260716010134_mail_cache_sync.sql",
         "docs/architecture/mail-cache-sync.md"
       ],
       "files_changed": [
@@ -1199,7 +1199,7 @@
         "src/components/search/SearchWidget.module.css",
         "src/components/search/SearchWidget.test.ts",
         "tests/e2e/workspace-authenticated.spec.ts",
-        "supabase/migrations/202607161200_entity_workspace.sql",
+        "supabase/migrations/20260716053709_entity_workspace.sql",
         "docs/axis-redesign/adr/0004-canonical-entity-workspace.md"
       ],
       "files_changed": [
@@ -1444,7 +1444,7 @@
     "status": "All earlier migrations remain applied and verified. On 2026-07-16 the Phase 9 expansion migrations 202607161300 (task/approval atomic RPCs), 202607161302 (WebAuthn atomic RPCs), and 202607161400 (routine resume claims) were applied to hosted project twkcvyhmlguipchfetge and recorded in migration history after SQL read-back. These expansions preserve legacy grants for compatible rollout. The 202607161401 task/approval privilege-contract migration is applied and validated only on local Docker; it is intentionally pending on hosted production until the exact compatible application revision is live, after which its grant/read-back checks must pass before the production gate closes.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
     "entity_workspace": {
-      "migration": "supabase/migrations/202607161200_entity_workspace.sql",
+      "migration": "supabase/migrations/20260716053709_entity_workspace.sql",
       "applied": "2026-07-16 to the local Docker stack and hosted project twkcvyhmlguipchfetge",
       "schema": "entity_references stores typed user/system relationship edges; entity_usage stores aggregate explicit-use counters/timestamps only",
       "rls_review": "RLS enabled on both tables. Authenticated select is restricted to auth.uid() = user_id; anon has no read; authenticated and anon have no direct mutation grants. create_entity_reference, delete_entity_reference, and record_entity_usage derive auth.uid(), validate authoritative owner rows, and use fixed empty search paths. Internal resolver and cleanup functions are not executable by client roles.",
@@ -1470,17 +1470,17 @@
       }
     },
     "files": [
-      "supabase/migrations/202607131700_fund_provenance_columns.sql",
-      "supabase/migrations/202607131701_tasks_table.sql (creates agent_tasks/agent_task_activity)",
-      "supabase/migrations/202607131702_approvals_table.sql",
-      "supabase/migrations/202607150900_routine_run_pause_metadata.sql",
-      "supabase/migrations/202607151100_routine_versions.sql",
-      "supabase/migrations/202607151200_market_report_insights.sql",
-      "supabase/migrations/202607151300_make_delivery_outbox.sql",
-      "supabase/migrations/202607151310_lock_expire_stale_approvals.sql",
-      "supabase/migrations/202607152100_mail_cache_sync.sql",
+      "supabase/migrations/20260713190519_fund_provenance_columns.sql",
+      "supabase/migrations/20260713190547_agent_tasks_table.sql (creates agent_tasks/agent_task_activity)",
+      "supabase/migrations/20260713190604_approvals_table.sql",
+      "supabase/migrations/20260715224141_routine_run_pause_metadata.sql",
+      "supabase/migrations/20260715224156_routine_versions.sql",
+      "supabase/migrations/20260715235237_market_report_insights.sql",
+      "supabase/migrations/20260716002727_make_delivery_outbox.sql",
+      "supabase/migrations/20260716002837_lock_expire_stale_approvals.sql",
+      "supabase/migrations/20260716010134_mail_cache_sync.sql",
       "supabase/migrations/202607152300_memory_center_profiles.sql",
-      "supabase/migrations/202607161200_entity_workspace.sql",
+      "supabase/migrations/20260716053709_entity_workspace.sql",
       "supabase/migrations/202607161300_task_approval_atomic.sql (hosted expansion applied)",
       "supabase/migrations/202607161302_webauthn_atomic.sql (hosted expansion applied)",
       "supabase/migrations/202607161400_routine_resume_claims.sql (hosted expansion applied)",

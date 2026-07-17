@@ -133,7 +133,7 @@ metadata.
 
 ## Consequences
 
-- The migration `202607161200_entity_workspace.sql` must be applied before
+- The migration `20260716053709_entity_workspace.sql` must be applied before
   reference creation or frecency persistence can succeed. Search and previews
   still surface explicit partial/error states if those optional reads fail.
 - Entity ids in `ws` are encoded but not secret. A copied URL can disclose the
