@@ -1,6 +1,15 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import * as Sentry from "@sentry/nextjs";
 import type { ThemeMode } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
@@ -10,6 +19,14 @@ import {
   type InterfaceSettings,
 } from "@/lib/theme/interface-settings";
 import { getBrowserTimeZone } from "@/lib/dates";
+import type { Json } from "@/lib/supabase/database.types";
+import {
+  buildPreferenceEnvelope,
+  createSerialExecutor,
+  fieldWasEditedSince,
+  parsePreferenceEnvelope,
+  type PreferenceEnvelope,
+} from "@/lib/theme/preferences";
 
 export type InterfacePersistenceState = "loading" | "local" | "syncing" | "synced" | "error";
 
@@ -57,19 +74,6 @@ function parseStoredSettings(raw: string | null): InterfaceSettings | null {
   }
 }
 
-function parseRemoteInterfaceSettings(value: unknown): { theme?: ThemeMode; settings?: InterfaceSettings } | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  if (Object.keys(record).length === 0) return null;
-  const maybeSettings = record.settings && typeof record.settings === "object"
-    ? record.settings as Partial<InterfaceSettings>
-    : record;
-  return {
-    theme: isThemeMode(record.theme) ? record.theme : undefined,
-    settings: { ...DEFAULT_INTERFACE_SETTINGS, ...maybeSettings },
-  };
-}
-
 function capturePreferenceError(operation: "load" | "save", error: unknown) {
   Sentry.captureException(error instanceof Error ? error : new Error(`Interface preference ${operation} failed`), {
     tags: {
@@ -89,6 +93,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [remoteSyncEnabled, setRemoteSyncEnabled] = useState(false);
   const [interfaceStudioOpen, setInterfaceStudioOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const themeEditEpochRef = useRef(0);
+  const settingsEditEpochRef = useRef(0);
+  const remoteUserIdRef = useRef<string | null>(null);
+  const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
+  const writeVersionRef = useRef(0);
+  const writeExecutorRef = useRef(createSerialExecutor());
 
   useEffect(() => {
     const stored = readStorage(THEME_KEY) as ThemeMode | null;
@@ -98,6 +108,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setMounted(true);
 
     let cancelled = false;
+    const themeEpochAtHydration = themeEditEpochRef.current;
+    const settingsEpochAtHydration = settingsEditEpochRef.current;
     const loadRemotePreferences = async () => {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (cancelled) return;
@@ -108,7 +120,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setRemoteReady(true);
         return;
       }
-      setRemoteSyncEnabled(true);
 
       const { data, error } = await supabase
         .from("user_preferences")
@@ -119,14 +130,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (error) {
         capturePreferenceError("load", error);
         setInterfacePersistence("error");
+        setRemoteSyncEnabled(false);
         setRemoteReady(true);
         return;
       }
 
-      const remote = parseRemoteInterfaceSettings(data?.interface_settings);
-      if (remote?.theme) setThemeState(remote.theme);
-      if (remote?.settings) setInterfaceSettingsState(remote.settings);
+      const remote = parsePreferenceEnvelope(data?.interface_settings);
+      remoteUserIdRef.current = user.id;
+      remoteEnvelopeRef.current = remote.envelope;
+      if (
+        remote.theme &&
+        !fieldWasEditedSince(
+          themeEpochAtHydration,
+          themeEditEpochRef.current,
+        )
+      ) {
+        setThemeState(remote.theme);
+      }
+      if (
+        remote.settings &&
+        !fieldWasEditedSince(
+          settingsEpochAtHydration,
+          settingsEditEpochRef.current,
+        )
+      ) {
+        setInterfaceSettingsState(remote.settings);
+      }
       setInterfacePersistence("synced");
+      setRemoteSyncEnabled(true);
       setRemoteReady(true);
     };
 
@@ -134,6 +165,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!cancelled) {
         capturePreferenceError("load", new Error("Interface preference load failed"));
         setInterfacePersistence("error");
+        setRemoteSyncEnabled(false);
         setRemoteReady(true);
       }
     });
@@ -161,29 +193,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!mounted || !remoteReady || !remoteSyncEnabled) return;
     let cancelled = false;
+    const userId = remoteUserIdRef.current;
+    if (!userId) return;
+    const writeVersion = ++writeVersionRef.current;
+    const envelope = buildPreferenceEnvelope(
+      remoteEnvelopeRef.current,
+      theme,
+      interfaceSettings,
+      getBrowserTimeZone(),
+    );
     const persistRemotePreferences = async () => {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (cancelled) return;
-      if (authError || !user) {
-        if (authError) capturePreferenceError("save", authError);
-        setInterfacePersistence("local");
-        setRemoteSyncEnabled(false);
-        return;
-      }
       setInterfacePersistence("syncing");
-      const { error } = await supabase.from("user_preferences").upsert(
-        {
-          user_id: user.id,
-          // Capture the browser IANA timezone alongside theme/settings so server code
-          // can compute this user's local day (see resolveTimeZone/localDayIsoInTimeZone).
-          interface_settings: { theme, settings: interfaceSettings, timeZone: getBrowserTimeZone() },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
+      const { error } = await writeExecutorRef.current.enqueue(async () =>
+        await supabase.from("user_preferences").upsert(
+          {
+            user_id: userId,
+            interface_settings: envelope as Json,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" },
+        ),
       );
       if (!cancelled) {
         if (error) capturePreferenceError("save", error);
-        setInterfacePersistence(error ? "error" : "synced");
+        if (!error) remoteEnvelopeRef.current = envelope;
+        if (writeVersion === writeVersionRef.current) {
+          setInterfacePersistence(error ? "error" : "synced");
+        }
       }
     };
 
@@ -202,9 +239,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
   }, [interfaceSettings, mounted, remoteReady, remoteSyncEnabled, supabase, theme]);
 
-  const setTheme = (t: ThemeMode) => setThemeState(t);
+  const setTheme = useCallback((t: ThemeMode) => {
+    themeEditEpochRef.current += 1;
+    setThemeState(t);
+  }, []);
   const setInterfaceSettings = useCallback(
     (s: InterfaceSettings | ((prev: InterfaceSettings) => InterfaceSettings)) => {
+      settingsEditEpochRef.current += 1;
       setInterfaceSettingsState(s);
     },
     [],

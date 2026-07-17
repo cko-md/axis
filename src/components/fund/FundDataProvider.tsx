@@ -17,6 +17,8 @@ export type AggregatedHolding = {
   shares: number;
   cost_basis: number;
   sources: string[];
+  /** Shared currency for this symbol, or null when constituent rows differ. */
+  currency?: string | null;
   /** Oldest constituent retrieved_at (conservative freshness anchor). */
   retrieved_at?: string | null;
   /** Cross-source reconciliation state; null until the symbol has ≥2 sources. */

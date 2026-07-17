@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   if (runId) {
     const { data: run, error } = await supabase
       .from("routine_runs")
-      .select("id, routine_key, routine_version, status, trigger, input_snapshot, output, error, actual_cost_usd, started_at, completed_at")
+      .select("id, routine_key, routine_version, status, trigger, input_snapshot, output, error, actual_cost_usd, paused_step_key, approval_id, idempotency_key, started_at, completed_at")
       .eq("user_id", user.id)
       .eq("id", runId)
       .maybeSingle();
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("routine_runs")
-    .select("id, routine_key, status, trigger, output, actual_cost_usd, started_at, completed_at")
+    .select("id, routine_key, status, trigger, output, actual_cost_usd, paused_step_key, approval_id, idempotency_key, started_at, completed_at")
     .eq("user_id", user.id)
     .order("started_at", { ascending: false })
     .limit(20);

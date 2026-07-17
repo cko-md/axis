@@ -23,6 +23,7 @@ export const DEFAULT_NAV: NavGroup[] = [
   { section: "Operate", items: [
     { href: "/tasks", label: "Tasks", icon: "tasks", title: "Tasks — the assistant's durable work queue", status: "beta", statusReason: "New agent-Task workbench from the Axis System Redesign; backed by agent_tasks with server-enforced lifecycle transitions.", statusAction: "Validate create, status transitions, activity log, and empty/error/signed-out states before promotion." },
     { href: "/approvals", label: "Approvals", icon: "approvals", title: "Approvals — review and authorize gated actions", status: "beta", statusReason: "New approval queue from the Axis System Redesign; every gated action shows full scope (§11.3) and financial execution requires step-up. Empty until routines/agents create approvals.", statusAction: "Validate approve/deny/execute, step-up gating, expiry, and empty/error/signed-out states before promotion." },
+    { href: "/memory", label: "Memory", icon: "memory", title: "Memory — inspect retained context and financial constraints", status: "beta", statusReason: "Structured user-controlled memory and the Financial Operating Profile are new redesign surfaces. Memory is context only and cannot authorize execution.", statusAction: "Validate profile confirmation, memory edit/archive/restore, expiry, and owner isolation before promotion." },
   ]},
   { section: "Plan", items: [
     { href: "/objectives", label: "Objectives", icon: "goals", status: "production", title: "Objectives — goals and key results" },
@@ -48,6 +49,7 @@ export const DEFAULT_NAV: NavGroup[] = [
   ]},
   { section: "System", items: [
     { href: "/control-room", label: "Control Room", icon: "system", title: "Control Room — settings and integrations", status: "production" },
+    { href: "/design-system", label: "Design System", icon: "palette", title: "Design System — tokens and component reference", status: "production" },
   ]},
 ];
 

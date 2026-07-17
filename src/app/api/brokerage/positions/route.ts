@@ -32,7 +32,7 @@ export async function GET() {
     const res = await timedProviderFetch(`${PUBLIC_API_BASE}/accounts/${creds.accountId}/portfolio`, {
       headers: { Authorization: `Bearer ${creds.apiKey}`, Accept: "application/json" },
       next: { revalidate: 0 },
-    }, { area: "fund", provider: "public", operation: "positions", timeoutMs: 7_000, slowMs: 2_000 });
+    }, { area: "fund", provider: "public", operation: "positions", timeoutMs: 7_000, slowMs: 2_000, retry: { maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 1_500 } });
 
     if (!res.ok) {
       logRouteTiming("/api/brokerage/positions", routeStartedAt, { configured: true, ok: false, status: res.status });

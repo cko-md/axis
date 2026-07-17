@@ -35,7 +35,7 @@ export async function GET() {
         Accept: "application/json",
       },
       next: { revalidate: 0 },
-    }, { area: "fund", provider: "public", operation: "accounts", timeoutMs: 7_000, slowMs: 2_000 });
+    }, { area: "fund", provider: "public", operation: "accounts", timeoutMs: 7_000, slowMs: 2_000, retry: { maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 1_500 } });
 
     if (!res.ok) {
       logRouteTiming("/api/brokerage/accounts", routeStartedAt, { configured: true, ok: false, status: res.status });

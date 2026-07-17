@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { NotesModule } from "@/components/notes/NotesModule";
+import { NotesModuleLazy } from "@/components/notes/NotesModuleLazy";
 
 export default function NotesPage() {
   return (
     <AppShell section="Daily" page="Notes">
-      <NotesModule />
+      <NotesModuleLazy />
     </AppShell>
   );
 }

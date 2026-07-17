@@ -26,7 +26,7 @@ export const SEVERITY_ORDER: Readonly<Record<SignalSeverity, number>> = {
 /** Persisted signal_type values (see src/lib/signals/scan.ts). */
 type SignalTypeLike = "action" | "awaiting" | "fyi" | string | null | undefined;
 
-const URGENT_PRIORITIES = new Set(["urgent", "critical", "high", "p0", "p1"]);
+const URGENT_PRIORITIES = new Set(["urgent", "critical", "high", "hi", "p0", "p1"]);
 
 export type SeverityInput = {
   /** The persisted signal_type. */
@@ -85,6 +85,17 @@ export function isDuplicateSignal(title: string, existingTitles: Iterable<string
     if (normalizeSignalKey(existing) === key) return true;
   }
   return false;
+}
+
+/** Derive queue severity while remembering titles the user already resolved. */
+export function deriveQueueSeverity(
+  input: SeverityInput & { title: string },
+  resolvedTitles: Iterable<string>,
+): SignalSeverity {
+  return deriveSeverity({
+    ...input,
+    isRedundant: Boolean(input.isRedundant) || isDuplicateSignal(input.title, resolvedTitles),
+  });
 }
 
 /** Stable comparator that orders a signal list by severity (most urgent first). */

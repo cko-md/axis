@@ -1,189 +1,174 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import type { Json } from "@/lib/supabase/database.types";
-import { sumBy } from "@/lib/fund/money";
-import { breachObjective, reviewConcentration, type Position } from "@/lib/skills/concentrationReview";
-import { deriveRunOutcome, isRunTerminal, type StepStatus } from "@/lib/routines/runState";
-import { planResume, type ExistingStep } from "@/lib/routines/runner";
-import { emitServerEvent } from "@/lib/observability/events";
+import {
+  buildConcentrationCheckOutput,
+  concentrationCheckSteps,
+  concentrationMaxWeightFromBps,
+  concentrationMaxWeightFromSnapshot,
+  CONCENTRATION_CHECK_ROUTINE_KEY,
+  normalizeConcentrationMaxWeight,
+  type ConcentrationCheckOutputs,
+} from "@/lib/routines/concentrationCheck";
+import {
+  continueRoutineRun,
+  createSupabaseRoutineStore,
+  executeRoutine,
+  RoutineExecutionError,
+  type RoutineExecutionResult,
+  type RoutineRunForResume,
+} from "@/lib/routines/executor";
+import { isRunTerminal, type RunStatus } from "@/lib/routines/runState";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+import {
+  createObservabilityRequestId,
+  emitServerEvent,
+  routineEventErrorCode,
+} from "@/lib/observability/events";
 
 /**
  * Concentration-check routine (program §15.3) — a deterministic trigger that
  * turns a real portfolio into agent-Tasks and records a DURABLE, auditable run
- * (§15.5): a routine_runs row plus a routine_step_runs row per step, each with
- * input/output snapshots. No model, no fabricated data; it never trades.
+ * (§15.5). No model, no fabricated data; it never trades.
  *
- * Idempotent in two ways: a breach whose objective already has a non-terminal
- * task is skipped; and a run can be RESUMED (POST { runId }) — succeeded steps
- * are not recomputed, their recorded outputs are reused, and only the remaining
- * steps run. A step failure marks the run `blocked` (non-terminal) so it can be
- * resumed rather than lost.
+ * Existing behavior is preserved: POST without a runId opens a new run; POST
+ * with a blocked/non-terminal runId resumes it by replaying succeeded step
+ * snapshots and only running unfinished steps. Approval pauses resume through
+ * POST /api/routines/runs/[id]/resume so the isActionable gate is centralized.
  */
 
-const TERMINAL_TASK = ["completed", "failed", "cancelled"];
-const ROUTINE_KEY = "concentration_review";
-const ORDERED_KEYS = ["load_holdings", "review_concentration", "create_tasks"] as const;
+type ConcentrationResponseOutput = {
+  total: number;
+  breaches: number;
+  created: { id: string; objective: string }[];
+  skipped: number;
+};
+
+const concentrationRequestSchema = z.object({
+  maxWeight: z.number().finite().gt(0).max(1).optional(),
+  runId: z.string().uuid().optional(),
+}).strict();
 
 export async function POST(request: NextRequest) {
+  const requestId = createObservabilityRequestId();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await request.json().catch(() => ({}))) as { maxWeight?: number; runId?: string };
-
-  // ── Resume an existing run, or open a new one ──────────────────────────────
-  let runId: string;
-  let maxWeight: number;
-  let reuse: Record<string, unknown> = {};
-
-  if (typeof body.runId === "string" && body.runId) {
-    const { data: existingRun } = await supabase
-      .from("routine_runs")
-      .select("id, status, input_snapshot")
-      .eq("user_id", user.id)
-      .eq("id", body.runId)
-      .eq("routine_key", ROUTINE_KEY)
-      .maybeSingle();
-    if (!existingRun) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    if (isRunTerminal(existingRun.status as never)) {
-      return NextResponse.json({ error: "CANNOT_RESUME", status: existingRun.status }, { status: 409 });
-    }
-    runId = existingRun.id;
-    maxWeight = readMaxWeight((existingRun.input_snapshot as { maxWeight?: number } | null)?.maxWeight);
-    const { data: steps } = await supabase
-      .from("routine_step_runs")
-      .select("step_key, status, output_snapshot")
-      .eq("user_id", user.id)
-      .eq("run_id", runId);
-    reuse = planResume(ORDERED_KEYS, (steps ?? []) as ExistingStep[]).reuse;
-    await supabase.from("routine_runs").update({ status: "running" }).eq("id", runId);
-  } else {
-    maxWeight = readMaxWeight(body.maxWeight);
-    const { data: run, error: runError } = await supabase
-      .from("routine_runs")
-      .insert({ user_id: user.id, routine_key: ROUTINE_KEY, status: "running", trigger: "manual", input_snapshot: { maxWeight }, estimated_cost_usd: 0 })
-      .select("id")
-      .single();
-    if (runError || !run) return NextResponse.json({ error: "RUN_START_FAILED" }, { status: 500 });
-    runId = run.id;
+  const parsedBody = concentrationRequestSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "INVALID_ROUTINE_INPUT" }, { status: 400 });
   }
-
-  const stepStatuses: StepStatus[] = [];
-
-  /**
-   * Run one durable step — unless its output was already recorded (reuse), in
-   * which case it is skipped and the recorded output is returned (idempotent
-   * resume). Records running -> succeeded/failed with snapshots otherwise.
-   */
-  async function step<T>(stepKey: (typeof ORDERED_KEYS)[number], input: Json, fn: () => Promise<T>): Promise<T> {
-    if (stepKey in reuse) {
-      stepStatuses.push("succeeded");
-      return reuse[stepKey] as T;
-    }
-    const ordinal = ORDERED_KEYS.indexOf(stepKey) + 1;
-    const { data: stepRow } = await supabase
-      .from("routine_step_runs")
-      .insert({ run_id: runId, user_id: user!.id, step_key: stepKey, ordinal, status: "running", input_snapshot: input, started_at: new Date().toISOString() })
-      .select("id")
-      .single();
-    try {
-      const result = await fn();
-      await supabase
-        .from("routine_step_runs")
-        .update({ status: "succeeded", output_snapshot: (result ?? null) as Json, completed_at: new Date().toISOString() })
-        .eq("id", stepRow?.id ?? "");
-      stepStatuses.push("succeeded");
-      return result;
-    } catch (err) {
-      await supabase
-        .from("routine_step_runs")
-        .update({ status: "failed", error: err instanceof Error ? err.message : "step failed", completed_at: new Date().toISOString() })
-        .eq("id", stepRow?.id ?? "");
-      stepStatuses.push("failed");
-      throw err;
-    }
-  }
+  const body = parsedBody.data;
+  const store = createSupabaseRoutineStore(supabase);
 
   try {
-    const positions = await step("load_holdings", {}, async () => {
-      const { data, error } = await supabase
-        .from("fund_holdings")
-        .select("symbol, cost_basis")
-        .eq("user_id", user.id);
-      if (error) throw new Error("HOLDINGS_UNAVAILABLE");
-      const bySymbol = new Map<string, number>();
-      for (const row of data ?? []) bySymbol.set(row.symbol, (bySymbol.get(row.symbol) ?? 0) + Number(row.cost_basis));
-      return [...bySymbol.entries()].map(([symbol, value]) => ({ symbol, value })) as Position[];
-    });
+    let maxWeight = normalizeConcentrationMaxWeight(body.maxWeight) ?? 0.25;
+    let result: RoutineExecutionResult<ConcentrationCheckOutputs>;
 
-    const review = await step("review_concentration", { maxWeight, positions: positions.length }, async () =>
-      reviewConcentration(positions, maxWeight),
-    );
-
-    const outcome = await step("create_tasks", { breaches: review.breaches.length }, async () => {
-      if (review.breaches.length === 0) return { created: [] as { id: string; objective: string }[], skipped: 0 };
-      const { data: openTasks } = await supabase
-        .from("agent_tasks")
-        .select("objective")
+    if (typeof body.runId === "string" && body.runId) {
+      const { data: run, error } = await supabase
+        .from("routine_runs")
+        .select("id, routine_key, routine_version, status, input_snapshot, paused_step_key, approval_id, idempotency_key")
         .eq("user_id", user.id)
-        .not("status", "in", `(${TERMINAL_TASK.join(",")})`);
-      const open = new Set((openTasks ?? []).map((t) => t.objective));
-
-      const created: { id: string; objective: string }[] = [];
-      let skipped = 0;
-      for (const breach of review.breaches) {
-        const objective = breachObjective(breach, maxWeight);
-        if (open.has(objective)) { skipped += 1; continue; }
-        const context: Json = {
-          skill: ROUTINE_KEY,
-          run_id: runId,
-          evidence: { symbol: breach.symbol, weight: breach.weight, value: breach.value, overByValue: breach.overByValue, portfolioTotal: review.total, maxWeight },
-        };
-        const { data: task } = await supabase
-          .from("agent_tasks")
-          .insert({ user_id: user.id, objective, status: "queued", context, source_skill: ROUTINE_KEY })
-          .select("id, objective")
-          .single();
-        if (!task) continue;
-        await supabase.from("agent_task_activity").insert({ task_id: task.id, user_id: user.id, kind: "status_change", detail: { from: null, to: "queued", by: ROUTINE_KEY } });
-        created.push({ id: task.id, objective: task.objective });
+        .eq("id", body.runId)
+        .eq("routine_key", CONCENTRATION_CHECK_ROUTINE_KEY)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: "RUN_UNAVAILABLE" }, { status: 500 });
+      if (!run) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+      if (isRunTerminal(run.status as RunStatus)) {
+        return NextResponse.json({ error: "CANNOT_RESUME", status: run.status }, { status: 409 });
       }
-      return { created, skipped };
-    });
+      if (run.status === "waiting_for_approval") {
+        return NextResponse.json(
+          { error: "APPROVAL_REQUIRED", resumeUrl: `/api/routines/runs/${run.id}/resume` },
+          { status: 409 },
+        );
+      }
 
-    const output = { total: sumBy(positions, (p) => p.value), breaches: review.breaches.length, created: outcome.created, skipped: outcome.skipped };
-    const status = deriveRunOutcome(stepStatuses);
-    await supabase
-      .from("routine_runs")
-      .update({ status, output: output as Json, actual_cost_usd: 0, completed_at: new Date().toISOString() })
-      .eq("id", runId);
+      maxWeight = concentrationMaxWeightFromSnapshot(run.input_snapshot);
+      result = await continueRoutineRun({
+        store,
+        userId: user.id,
+        run: run as RoutineRunForResume,
+        steps: concentrationCheckSteps({ supabase, userId: user.id, maxWeight }),
+        buildRunOutput: buildConcentrationCheckOutput,
+        failureStatus: "blocked",
+      });
+    } else {
+      const explicitMaxWeight = normalizeConcentrationMaxWeight(body.maxWeight);
+      let maxWeightProvenance: { source_type: string; confirmed_at?: string } = { source_type: "routine_default" };
+      if (explicitMaxWeight !== null) {
+        maxWeight = explicitMaxWeight;
+        maxWeightProvenance = { source_type: "request" };
+      } else {
+        const { data: profile, error: profileError } = await supabase
+          .from("financial_operating_profiles")
+          .select("concentration_limit_bps, confirmed_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (profileError) throw new Error("FINANCIAL_PROFILE_UNAVAILABLE");
+        const profileWeight = concentrationMaxWeightFromBps(profile?.concentration_limit_bps);
+        if (profileWeight !== null && profile) {
+          maxWeight = profileWeight;
+          maxWeightProvenance = { source_type: "financial_operating_profile", confirmed_at: profile.confirmed_at };
+        }
+      }
+      result = await executeRoutine({
+        store,
+        userId: user.id,
+        routineKey: CONCENTRATION_CHECK_ROUTINE_KEY,
+        inputSnapshot: { maxWeight, maxWeightProvenance },
+        steps: concentrationCheckSteps({ supabase, userId: user.id, maxWeight }),
+        buildRunOutput: buildConcentrationCheckOutput,
+        failureStatus: "blocked",
+      });
+    }
 
+    if (result.status === "waiting_for_approval") {
+      return NextResponse.json({
+        runId: result.runId,
+        status: result.status,
+        approvalId: result.approvalId,
+      });
+    }
+
+    const output = result.output as unknown as ConcentrationResponseOutput;
     emitServerEvent("routine.run.completed", {
-      routine: ROUTINE_KEY,
-      runId,
-      status,
-      breaches: review.breaches.length,
-      tasksCreated: outcome.created.length,
-      tasksSkipped: outcome.skipped,
+      requestId,
+      routine: CONCENTRATION_CHECK_ROUTINE_KEY,
+      runId: result.runId,
+      status: "completed",
+      breaches: output.breaches,
+      tasksCreated: output.created.length,
+      tasksSkipped: output.skipped,
+      resumedFromApproval: false,
     });
 
-    return NextResponse.json({ runId, status, ...output });
+    return NextResponse.json({ runId: result.runId, status: result.status, ...output });
   } catch (err) {
-    // A step threw — mark the run `blocked` (non-terminal) so it can be RESUMED,
-    // leaving the recorded step snapshots intact for inspection.
-    await supabase
-      .from("routine_runs")
-      .update({ status: "blocked", error: err instanceof Error ? err.message : "run failed" })
-      .eq("id", runId);
+    const runId = err instanceof RoutineExecutionError ? err.runId : body.runId;
+    const errorCode = routineEventErrorCode(err);
+    captureRouteError(new Error(errorCode), {
+      route: "/api/routines/concentration-check",
+      operation: "execute",
+      area: "routines",
+      status: 500,
+      code: errorCode,
+      tags: {
+        requestId,
+        ...(runId ? { runId } : {}),
+        routine: CONCENTRATION_CHECK_ROUTINE_KEY,
+      },
+    });
     emitServerEvent("routine.run.blocked", {
-      routine: ROUTINE_KEY,
+      requestId,
+      routine: CONCENTRATION_CHECK_ROUTINE_KEY,
       runId,
-      error: err instanceof Error ? err.message : "run failed",
+      errorCode,
+      stage: "execute",
+      resumedFromApproval: false,
     });
     return NextResponse.json({ error: "RUN_BLOCKED", runId, resumable: true }, { status: 500 });
   }
-}
-
-function readMaxWeight(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0.25;
 }

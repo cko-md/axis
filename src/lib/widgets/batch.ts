@@ -1,4 +1,10 @@
 import type { WidgetDataSource, WidgetStatus } from "@/lib/widgets/types";
+import {
+  widgetCacheRowMatchesDefinition,
+  widgetStaleHint,
+  type WidgetCacheRow,
+} from "@/lib/widgets/cache";
+import { getWidgetDefinition } from "@/lib/widgets/registry";
 
 export const maxWidgetsPerBatch = 24;
 
@@ -16,6 +22,17 @@ export type BatchWidgetError = {
   message: string;
   retryable: boolean;
   status?: number;
+};
+
+export type BatchWidget = {
+  id: string;
+  status: WidgetStatus;
+  value: string;
+  hint: string;
+  raw?: Record<string, unknown>;
+  fallback?: boolean;
+  fetchedAt: string;
+  source: WidgetDataSource;
 };
 
 export function dedupeWidgetIds(ids: string[]) {
@@ -43,4 +60,20 @@ export function safeWidgetBatchError(
   status?: number,
 ): BatchWidgetError {
   return { code, message, retryable, ...(status !== undefined ? { status } : {}) };
+}
+
+export function cachedWidgetRowToBatchWidget(row: WidgetCacheRow): BatchWidget | null {
+  if (!widgetCacheRowMatchesDefinition(row)) return null;
+  const definition = getWidgetDefinition(row.widget_id);
+  if (!definition) return null;
+  return {
+    id: row.widget_id,
+    status: "stale",
+    value: row.value ?? definition.label,
+    hint: widgetStaleHint(row.hint ?? "Showing last cached value"),
+    raw: row.raw ?? undefined,
+    fallback: true,
+    fetchedAt: row.fetched_at,
+    source: definition.source,
+  };
 }

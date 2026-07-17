@@ -42,6 +42,12 @@ type MailInboxResponse = {
   nextPageToken?: string;
   hasMore?: boolean;
   skip?: number;
+  fromCache?: boolean;
+  syncState?: Array<{
+    status: "success" | "error";
+    lastSyncedAt: string | null;
+    errorCode: string | null;
+  }>;
 };
 type MailStatusResponse = {
   accounts?: MailAccount[];
@@ -416,6 +422,8 @@ export function MailModule() {
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [showingCached, setShowingCached] = useState(false);
   const [inboxNotice, setInboxNotice] = useState<string | null>(null);
   const [inboxHasMore, setInboxHasMore] = useState(false);
   const [inboxPageToken, setInboxPageToken] = useState<string | undefined>();
@@ -436,12 +444,20 @@ export function MailModule() {
   const [cursorActive, setCursorActive] = useState(false);
   const mountedRef = useRef(true);
   const messagesRef = useRef<MailMessage[]>([]);
+  const accountsRef = useRef<MailAccount[]>([]);
+  const accountFilterRef = useRef<AccountFilter>("all");
+  const inboxPageTokenRef = useRef<string | undefined>(undefined);
+  const inboxSkipRef = useRef(0);
   const addBtnRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<MailMessage[]>([]);
   const cursorRef = useRef(0);
   cursorRef.current = cursor;
+  accountsRef.current = accounts;
+  accountFilterRef.current = accountFilter;
+  inboxPageTokenRef.current = inboxPageToken;
+  inboxSkipRef.current = inboxSkip;
 
   useEffect(() => {
     setInboxHasMore(false);
@@ -494,23 +510,33 @@ export function MailModule() {
       });
   }, [toast]);
 
-  const fetchInbox = useCallback(async (opts?: { loadMore?: boolean }) => {
-    setLoading(true);
+  const fetchInbox = useCallback(async (opts?: { loadMore?: boolean; refresh?: boolean }) => {
+    const live = Boolean(opts?.refresh || opts?.loadMore);
+    if (live) setSyncing(true);
+    else setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (accountFilter !== "all") {
-        const acct = accounts.find((a) => a.mailEmail === accountFilter);
+      const filter = accountFilterRef.current;
+      const currentAccounts = accountsRef.current;
+      if (filter !== "all") {
+        const acct = currentAccounts.find((a) => a.mailEmail === filter);
         if (acct) {
           params.set("account", acct.mailEmail);
           params.set("provider", acct.provider);
           if (opts?.loadMore) {
-            if (inboxPageToken) params.set("pageToken", inboxPageToken);
-            else if (inboxSkip > 0) params.set("skip", String(inboxSkip));
+            if (inboxPageTokenRef.current) params.set("pageToken", inboxPageTokenRef.current);
+            else if (inboxSkipRef.current > 0) params.set("skip", String(inboxSkipRef.current));
           }
         }
       }
       const qs = params.toString();
-      const res = await fetch(`/api/mail/inbox${qs ? `?${qs}` : ""}`);
+      const res = live
+        ? await fetch("/api/mail/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(Object.fromEntries(params)),
+          })
+        : await fetch(`/api/mail/inbox${qs ? `?${qs}` : ""}`, { cache: "no-store" });
       const data = (await res.json().catch(() => ({}))) as MailInboxResponse;
       if (!mountedRef.current) return;
       if (!res.ok) {
@@ -519,16 +545,34 @@ export function MailModule() {
         toast(message, "error", "Mail");
         return;
       }
-      setMessages((prev) => (opts?.loadMore ? [...prev, ...(data.messages ?? [])] : (data.messages ?? [])));
+      setMessages((prev) => {
+        const incoming = data.messages ?? [];
+        const retained = data.partial && data.errors?.length
+          ? prev.filter((message) => data.errors!.some(
+              (error) => error.provider === message.provider && error.accountEmail === message.accountEmail,
+            ))
+          : [];
+        const combined = opts?.loadMore ? [...prev, ...incoming] : [...incoming, ...retained];
+        const unique = new Map(combined.map((message) => [
+          `${message.provider}:${message.accountEmail}:${message.id}`,
+          message,
+        ]));
+        return [...unique.values()].sort(compareMailDateDesc);
+      });
       if (data.accounts) setAccounts(data.accounts);
-      setLastFetchedAt(data.fetchedAt ?? new Date().toISOString());
-      setInboxHasMore(Boolean(data.hasMore));
-      setInboxPageToken(data.nextPageToken);
-      setInboxSkip(typeof data.skip === "number" ? data.skip : 0);
+      setLastFetchedAt(data.fetchedAt ?? null);
+      setShowingCached(Boolean(data.fromCache && (data.messages?.length || data.fetchedAt)));
+      if (live) {
+        setInboxHasMore(Boolean(data.hasMore));
+        setInboxPageToken(data.nextPageToken);
+        setInboxSkip(typeof data.skip === "number" ? data.skip : 0);
+      }
       if (data.partial && data.errors?.length) {
         const label = data.errors.length === 1 ? "1 mailbox" : `${data.errors.length} mailboxes`;
         setInboxNotice(`Inbox partially refreshed — ${label} could not be reached.`);
         toast(`Inbox partially refreshed — ${label} skipped.`, "warn", "Mail");
+      } else if (data.syncState?.some((state) => state.status === "error")) {
+        setInboxNotice("Showing saved inbox. One or more mailboxes need another sync attempt.");
       } else {
         setInboxNotice(null);
       }
@@ -538,9 +582,12 @@ export function MailModule() {
       setInboxNotice(messagesRef.current.length ? `Showing last loaded inbox — ${message}` : message);
       toast(message, "error", "Mail");
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current) {
+        if (live) setSyncing(false);
+        else setLoading(false);
+      }
     }
-  }, [toast, accountFilter, accounts, inboxPageToken, inboxSkip]);
+  }, [toast]);
 
   const refreshMailStatus = useCallback(() => {
     return fetch("/api/mail/status")
@@ -569,7 +616,7 @@ export function MailModule() {
       provider,
       async () => {
         await refreshMailStatus();
-        if (mountedRef.current) await fetchInbox();
+        if (mountedRef.current) await fetchInbox({ refresh: true });
       },
       () => {
         if (!mountedRef.current) return;
@@ -581,9 +628,15 @@ export function MailModule() {
   const isConnected = statusLoaded && accounts.length > 0;
 
   useEffect(() => {
-    if (isConnected) fetchInbox();
+    if (!isConnected) return;
+    let cancelled = false;
+    void (async () => {
+      await fetchInbox();
+      if (!cancelled) await fetchInbox({ refresh: true });
+    })();
+    return () => { cancelled = true; };
     // accounts.length (not just isConnected) so connecting a 2nd+ account re-fetches the inbox
-  }, [isConnected, accounts.length, fetchInbox]);
+  }, [isConnected, accounts.length, accountFilter, fetchInbox]);
 
   // Handle ?connected=gmail|outlook on return from OAuth
   useEffect(() => {
@@ -655,8 +708,8 @@ export function MailModule() {
         }),
       });
 
+      const detail = await res.json().catch(() => ({} as { error?: string; warning?: string }));
       if (!res.ok) {
-        const detail = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(typeof detail.error === "string" ? detail.error : "Provider action failed.");
       }
 
@@ -667,6 +720,7 @@ export function MailModule() {
               : action === "archive" ? "Archived"
                 : "Moved to trash";
         toast(verb, "success", "Mail");
+        if (typeof detail.warning === "string") toast(detail.warning, "warn", "Mail");
       }
       return true;
     } catch {
@@ -1191,16 +1245,16 @@ export function MailModule() {
           {/* Refresh */}
           <button
             type="button"
-            onClick={() => fetchInbox()}
-            disabled={loading}
+            onClick={() => fetchInbox({ refresh: true })}
+            disabled={loading || syncing}
             style={{
               background: "none",
               border: "none",
               color: "var(--ink-dim)",
-              cursor: loading ? "default" : "pointer",
+              cursor: loading || syncing ? "default" : "pointer",
               fontSize: "14px",
               padding: "2px 4px",
-              opacity: loading ? 0.4 : 1,
+              opacity: loading || syncing ? 0.4 : 1,
               flexShrink: 0,
             }}
             title="Refresh"
@@ -1209,7 +1263,7 @@ export function MailModule() {
           </button>
         </div>
 
-        {(inboxNotice || (loading && messages.length > 0)) && (
+        {(inboxNotice || showingCached || ((loading || syncing) && messages.length > 0)) && (
           <div
             style={{
               padding: "7px 16px",
@@ -1219,8 +1273,8 @@ export function MailModule() {
               background: "var(--glass)",
             }}
           >
-            {inboxNotice ?? "Refreshing inbox…"}
-            {lastFetchedAt && !loading && (
+            {inboxNotice ?? (syncing ? "Refreshing inbox..." : showingCached ? "Showing saved inbox." : "Loading inbox...")}
+            {lastFetchedAt && !loading && !syncing && (
               <span style={{ color: "var(--ink-faint)" }}>
                 {" "}Last updated {new Date(lastFetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
               </span>
@@ -1230,7 +1284,7 @@ export function MailModule() {
 
         {/* Message list */}
         <div ref={listRef} style={{ flex: 1, overflow: "auto" }}>
-          {loading && visibleMessages.length === 0 ? (
+          {(loading || syncing) && visibleMessages.length === 0 ? (
             <InboxSkeleton rows={8} />
           ) : inboxNotice && messages.length === 0 ? (
             <div style={{ padding: 32, textAlign: "center", color: "var(--clay)", fontSize: "13px" }}>
@@ -1256,10 +1310,10 @@ export function MailModule() {
               <button
                 type="button"
                 className="feed-manage"
-                disabled={loading}
+                disabled={loading || syncing}
                 onClick={() => void fetchInbox({ loadMore: true })}
               >
-                {loading ? "Loading…" : "Load more messages"}
+                {loading || syncing ? "Loading..." : "Load more messages"}
               </button>
             </div>
           )}

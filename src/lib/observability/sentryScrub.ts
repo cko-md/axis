@@ -2,7 +2,8 @@ import type { Event } from "@sentry/nextjs";
 
 type SentryRequest = NonNullable<Event["request"]>;
 
-const SECRET_KEY_RE = /(?:authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|client[-_]?secret|body|html|messageText|messageHtml|mailBody|emailBody|rawEmail)/i;
+const SECRET_KEY_RE = /(?:authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|client[-_]?secret|body|html|messageText|messageHtml|mailBody|emailBody|rawEmail|challenge|credential|clientDataJSON|attestationObject|authenticatorData|signature|userHandle|rawId)/i;
+const WEBAUTHN_ROUTE_RE = /\/api\/(?:auth\/passkey\/|approvals\/[^/?]+\/step-up(?:[/?]|$))/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const REDACTED = "[REDACTED]";
 
@@ -26,6 +27,8 @@ function scrubValue(value: unknown, depth = 0): unknown {
 function scrubRequest(event: Event): void {
   const request = event.request;
   if (!request) return;
+  const isWebAuthnRoute = typeof request.url === "string"
+    && WEBAUTHN_ROUTE_RE.test(request.url);
 
   if (request.headers) {
     const safeHeaders: Record<string, unknown> = {};
@@ -36,7 +39,9 @@ function scrubRequest(event: Event): void {
   }
 
   request.cookies = undefined;
-  request.data = scrubValue(request.data) as SentryRequest["data"];
+  request.data = (
+    isWebAuthnRoute ? REDACTED : scrubValue(request.data)
+  ) as SentryRequest["data"];
   request.query_string = scrubValue(request.query_string) as SentryRequest["query_string"];
   if (request.url) request.url = redactString(request.url);
 }

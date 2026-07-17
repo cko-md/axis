@@ -45,11 +45,23 @@ one-time user-bound challenge — reusing the app's verified WebAuthn helpers. T
 old self-attestable client boolean was removed. (Pending: independent security
 review + manual authenticator test.)
 
+Application-session MFA is also server-enforced. A passkey establishes
+possession, but the Supabase session it restores starts at AAL1. When the user
+has an enrolled second factor (`currentLevel=aal1`, `nextLevel=aal2`),
+middleware denies protected APIs with `MFA_REQUIRED` and redirects protected
+pages to the login ceremony. Only the exact MFA challenge and verify endpoints
+remain available before AAL2; unenroll and other management operations do not.
+The browser initiates the ceremony, but it cannot bypass the server boundary by
+calling a protected API directly.
+
 ## Data boundaries & least privilege
 
 - Owner-scoped RLS on every new table (`agent_tasks`, `agent_task_activity`,
   `approvals`, `routine_runs`, `routine_step_runs`); append-only audit tables
   have no delete policy.
+- The post-deploy contract makes `user_passkeys` browser-read-only: owner SELECT
+  remains, while insert/update/delete are available only through reviewed
+  atomic server RPCs.
 - Integration risk model (`integrations/risk.ts`) maps provider capabilities to
   action classes → approval defaults, so integrations are organized by
   capability/risk and routines inherit the right defaults.

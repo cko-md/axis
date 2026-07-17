@@ -1,7 +1,19 @@
 import { type NextRequest } from "next/server";
 import { optionalEnv } from "@/lib/env";
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::([0-9]{1,5}))?$/i;
+
+function getRawLoopbackOrigin(req: NextRequest): string | null {
+  const rawHost = req.headers.get("host");
+  const match = rawHost?.match(LOOPBACK_HOST);
+  if (!rawHost || !match) return null;
+  if (match[1] && Number(match[1]) > 65_535) return null;
+  return `${req.nextUrl.protocol}//${rawHost}`;
+}
+
+function getRequestOrigin(req: NextRequest): string {
+  return getRawLoopbackOrigin(req) ?? req.nextUrl.origin;
+}
 
 // OAuth providers require an EXACT string match on redirect_uri, and several
 // (Spotify's April 2025 policy, notably) only exempt the literal loopback IP
@@ -21,20 +33,12 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 // what the browser's address bar actually said.
 export function getAppOrigin(req: NextRequest): string {
   const configured = optionalEnv("NEXT_PUBLIC_APP_URL")?.replace(/\/$/, "");
-  const rawHost = req.headers.get("host");
-  if (configured && rawHost) {
-    const hostname = rawHost.startsWith("[")
-      ? rawHost.slice(0, rawHost.indexOf("]") + 1)
-      : rawHost.split(":")[0];
-    if (LOOPBACK_HOSTS.has(hostname)) {
-      return `${req.nextUrl.protocol}//${rawHost}`;
-    }
-  }
-  return configured ?? req.nextUrl.origin;
+  return getRawLoopbackOrigin(req) ?? configured ?? req.nextUrl.origin;
 }
 
-// Builds an absolute same-app URL (path + optional query) for a redirect,
-// e.g. `new URL("/oauth-done?status=ok", getAppOrigin(req))`.
+// Builds an absolute same-app URL (path + optional query) for a redirect.
+// Unlike getAppOrigin's canonical OAuth callback origin, this intentionally
+// stays on the current request origin so previews never bounce into production.
 //
 // This is NOT equivalent to `new URL(pathAndQuery, req.url)`, the pattern
 // used throughout the OAuth callback routes — req.url suffers the exact same
@@ -46,5 +50,5 @@ export function getAppOrigin(req: NextRequest): string {
 // popup's window.opener postMessage handshake and dropping any origin-scoped
 // session state). Always build redirect targets from this helper instead.
 export function buildAppUrl(req: NextRequest, pathAndQuery: string): URL {
-  return new URL(pathAndQuery, getAppOrigin(req));
+  return new URL(pathAndQuery, getRequestOrigin(req));
 }

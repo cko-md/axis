@@ -82,4 +82,50 @@ describe("scrubSentryEvent", () => {
       "Provider failed for [REDACTED_EMAIL]",
     );
   });
+
+  it("removes complete WebAuthn request bodies and nested authentication artifacts", () => {
+    const event: Event = {
+      request: {
+        url: "https://axis.local/api/auth/passkey/authenticate?action=verify",
+        data: {
+          challengeId: "challenge-secret",
+          response: {
+            id: "credential-secret",
+            rawId: "credential-secret",
+            response: {
+              clientDataJSON: "client-data",
+              authenticatorData: "authenticator-data",
+              signature: "assertion-signature",
+              userHandle: "user-handle",
+            },
+          },
+        },
+      },
+      extra: {
+        challenge: "opaque-challenge",
+        credentialId: "credential-secret",
+        safeCode: "PASSKEY_COMMIT_FAILED",
+      },
+    };
+
+    const scrubbed = scrubSentryEvent(event);
+
+    expect(scrubbed.request?.data).toBe("[REDACTED]");
+    expect(scrubbed.extra).toEqual({
+      challenge: "[REDACTED]",
+      credentialId: "[REDACTED]",
+      safeCode: "PASSKEY_COMMIT_FAILED",
+    });
+  });
+
+  it("also removes approval step-up WebAuthn request bodies", () => {
+    const event: Event = {
+      request: {
+        url: "https://axis.local/api/approvals/approval_1/step-up?action=verify",
+        data: { response: { signature: "secret" } },
+      },
+    };
+
+    expect(scrubSentryEvent(event).request?.data).toBe("[REDACTED]");
+  });
 });

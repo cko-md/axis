@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { VitalityModule } from "@/components/vitality/VitalityModule";
+import { VitalityModuleLazy } from "@/components/vitality/VitalityModuleLazy";
 
 export default function VitalityPage() {
   return (
     <AppShell section="Life" page="Vitality">
-      <VitalityModule />
+      <VitalityModuleLazy />
     </AppShell>
   );
 }

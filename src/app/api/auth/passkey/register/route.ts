@@ -2,151 +2,241 @@ import { NextRequest, NextResponse } from "next/server";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import {
+  consumeWebAuthnChallenge,
+  createUserPasskey,
+  normalizeAuthenticatorAttachment,
+} from "@/lib/security/passkeyMutations";
 import { buildRegistrationOptions, verifyRegistration } from "@/lib/webauthn/server";
+
+const ROUTE = "passkey_register";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isRegistrationResponse(
+  value: unknown,
+): value is RegistrationResponseJSON {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as {
+    id?: unknown;
+    response?: unknown;
+  };
+  return typeof candidate.id === "string"
+    && candidate.id.length > 0
+    && Boolean(candidate.response)
+    && typeof candidate.response === "object";
+}
+
+async function withinRateLimit(userId: string, operation: "options" | "verify") {
+  return (
+    (await redisRateLimit(userId, 10, "10 m", `axis:passkey-register-${operation}`))
+    ?? memoryRateLimit(`passkey-register-${operation}:${userId}`, 10, 10 * 60_000)
+  ).success;
+}
+
+function safeDeviceName(value: unknown) {
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 100)
+    : "My device";
+}
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const action = req.nextUrl.searchParams.get("action");
-  if (action !== "options") {
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  if (req.nextUrl.searchParams.get("action") !== "options") {
+    return NextResponse.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
   }
 
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  if (authError || !user) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  if (!(await withinRateLimit(user.id, "options"))) {
+    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
+  }
 
-  // Fetch existing credential IDs to exclude from options (prevent re-registering same device)
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("user_passkeys")
     .select("credential_id")
     .eq("user_id", user.id);
-
-  const existingIds = (existing ?? []).map((row) => row.credential_id as string);
-
-  const options = await buildRegistrationOptions(user.id, user.email ?? "", existingIds);
-
-  // webauthn_challenges is service-role-only (RLS on, no policies). Use the
-  // admin client when configured; fall back to the anon client otherwise.
-  const admin = createAdminClient() ?? supabase;
-
-  // Store challenge — delete any stale registration challenges for this user first
-  await admin
-    .from("webauthn_challenges")
-    .delete()
-    .eq("user_id", user.id)
-    .eq("type", "registration");
-
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-  const { error: challengeError } = await admin.from("webauthn_challenges").insert({
-    challenge: options.challenge,
-    type: "registration",
-    user_id: user.id,
-    email: user.email,
-    expires_at: expiresAt,
-  });
-
-  if (challengeError) {
-    return NextResponse.json({ error: "Failed to store challenge" }, { status: 500 });
+  if (existingError) {
+    captureRouteError(new Error("Passkey registration credential lookup failed"), {
+      route: ROUTE,
+      operation: "load_credentials",
+      area: "auth",
+      status: 500,
+      code: "PASSKEYS_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEYS_UNAVAILABLE" }, { status: 500 });
   }
 
-  return NextResponse.json(options);
+  let options: Awaited<ReturnType<typeof buildRegistrationOptions>>;
+  try {
+    options = await buildRegistrationOptions(
+      user.id,
+      user.email ?? user.id,
+      (existing ?? []).map((row) => row.credential_id),
+    );
+  } catch {
+    captureRouteError(new Error("Passkey registration options generation failed"), {
+      route: ROUTE,
+      operation: "build_options",
+      area: "auth",
+      status: 500,
+      code: "PASSKEY_OPTIONS_FAILED",
+    });
+    return NextResponse.json({ error: "PASSKEY_OPTIONS_FAILED" }, { status: 500 });
+  }
+
+  const admin = createAdminClient();
+  if (!admin) {
+    captureRouteError(new Error("Passkey registration service role unavailable"), {
+      route: ROUTE,
+      operation: "store_challenge",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SERVICE_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SERVICE_UNAVAILABLE" }, { status: 503 });
+  }
+
+  const { data: challengeRow, error: challengeError } = await admin
+    .from("webauthn_challenges")
+    .insert({
+      challenge: options.challenge,
+      type: "registration",
+      user_id: user.id,
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (challengeError || !challengeRow) {
+    captureRouteError(new Error("Passkey registration challenge insert failed"), {
+      route: ROUTE,
+      operation: "store_challenge",
+      area: "auth",
+      status: 500,
+      code: "CHALLENGE_STORE_FAILED",
+    });
+    return NextResponse.json({ error: "CHALLENGE_STORE_FAILED" }, { status: 500 });
+  }
+
+  return NextResponse.json({ options, challengeId: challengeRow.id });
 }
 
-// ── POST ?action=verify ────────────────────────────────────────────────────────
+// ── POST ?action=verify ───────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const action = req.nextUrl.searchParams.get("action");
-  if (action !== "verify") {
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  if (req.nextUrl.searchParams.get("action") !== "verify") {
+    return NextResponse.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
   }
 
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-
-  let body: { response: RegistrationResponseJSON; deviceName?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  if (authError || !user) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  if (!(await withinRateLimit(user.id, "verify"))) {
+    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
   }
 
-  const { response, deviceName } = body;
-  if (!response) {
-    return NextResponse.json({ error: "Missing response" }, { status: 400 });
+  const body = (await req.json().catch(() => null)) as {
+    response?: RegistrationResponseJSON;
+    deviceName?: unknown;
+    challengeId?: unknown;
+  } | null;
+  if (!isRegistrationResponse(body?.response)) {
+    return NextResponse.json({ error: "INVALID_RESPONSE" }, { status: 400 });
+  }
+  if (typeof body.challengeId !== "string" || !UUID_RE.test(body.challengeId)) {
+    return NextResponse.json({ error: "MISSING_CHALLENGE_ID" }, { status: 400 });
   }
 
-  // webauthn_challenges is service-role-only (RLS on, no policies). Use the
-  // admin client when configured; fall back to the anon client otherwise.
-  const admin = createAdminClient() ?? supabase;
-
-  // Fetch and immediately delete challenge (one-time use)
-  const now = new Date().toISOString();
-  const { data: challenges } = await admin
-    .from("webauthn_challenges")
-    .select("id, challenge")
-    .eq("user_id", user.id)
-    .eq("type", "registration")
-    .gt("expires_at", now)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  const challengeRow = challenges?.[0];
-  if (!challengeRow) {
-    return NextResponse.json({ error: "Challenge not found or expired" }, { status: 400 });
+  const admin = createAdminClient();
+  if (!admin) {
+    captureRouteError(new Error("Passkey registration service role unavailable"), {
+      route: ROUTE,
+      operation: "verify",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SERVICE_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SERVICE_UNAVAILABLE" }, { status: 503 });
   }
 
-  // Delete before verifying so it can't be replayed even on error
-  await admin.from("webauthn_challenges").delete().eq("id", challengeRow.id);
+  const consumed = await consumeWebAuthnChallenge({
+    challengeId: body.challengeId,
+    type: "registration",
+    userId: user.id,
+    now: new Date().toISOString(),
+  }, admin);
+  if (!consumed.ok) {
+    if (consumed.code === "NOT_FOUND") {
+      return NextResponse.json({ error: "CHALLENGE_EXPIRED" }, { status: 400 });
+    }
+    captureRouteError(new Error("Passkey registration challenge consume failed"), {
+      route: ROUTE,
+      operation: "consume_challenge",
+      area: "auth",
+      status: consumed.code === "SERVICE_UNAVAILABLE" ? 503 : 500,
+      code: "CHALLENGE_CONSUME_FAILED",
+    });
+    return NextResponse.json(
+      { error: "CHALLENGE_CONSUME_FAILED" },
+      { status: consumed.code === "SERVICE_UNAVAILABLE" ? 503 : 500 },
+    );
+  }
 
   let verified: Awaited<ReturnType<typeof verifyRegistration>>;
   try {
-    verified = await verifyRegistration(response, challengeRow.challenge);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Verification failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    verified = await verifyRegistration(body.response, consumed.challenge);
+  } catch {
+    return NextResponse.json({ error: "PASSKEY_VERIFICATION_FAILED" }, { status: 400 });
   }
-
   if (!verified.verified || !verified.registrationInfo) {
-    return NextResponse.json({ error: "Registration not verified" }, { status: 400 });
+    return NextResponse.json({ error: "PASSKEY_VERIFICATION_FAILED" }, { status: 400 });
   }
 
   const { registrationInfo } = verified;
-  const publicKeyBase64 = Buffer.from(registrationInfo.credential.publicKey).toString("base64url");
-
-  const { data: inserted, error: insertError } = await supabase
-    .from("user_passkeys")
-    .insert({
-      user_id: user.id,
-      credential_id: registrationInfo.credential.id,
-      credential_public_key: publicKeyBase64,
-      counter: registrationInfo.credential.counter,
-      device_type: registrationInfo.credentialDeviceType,
-      backed_up: registrationInfo.credentialBackedUp,
-      transports: response.response.transports ?? [],
-      name: deviceName?.trim() || "My device",
-    })
-    .select("id")
-    .single();
-
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+  const publicKeyBase64 = Buffer.from(
+    registrationInfo.credential.publicKey,
+  ).toString("base64url");
+  const created = await createUserPasskey({
+    userId: user.id,
+    credentialId: registrationInfo.credential.id,
+    credentialPublicKey: publicKeyBase64,
+    counter: registrationInfo.credential.counter,
+    deviceType: normalizeAuthenticatorAttachment(
+      body.response.authenticatorAttachment,
+    ),
+    backedUp: registrationInfo.credentialBackedUp,
+    transports: body.response.response.transports ?? [],
+    name: safeDeviceName(body.deviceName),
+  }, admin);
+  if (!created.ok) {
+    if (created.code === "CREDENTIAL_EXISTS") {
+      return NextResponse.json({ error: "PASSKEY_ALREADY_REGISTERED" }, { status: 409 });
+    }
+    captureRouteError(new Error("Atomic passkey registration failed"), {
+      route: ROUTE,
+      operation: "create_passkey",
+      area: "auth",
+      status: created.code === "SERVICE_UNAVAILABLE" ? 503 : 500,
+      code: "PASSKEY_CREATE_FAILED",
+    });
+    return NextResponse.json(
+      { error: "PASSKEY_CREATE_FAILED" },
+      { status: created.code === "SERVICE_UNAVAILABLE" ? 503 : 500 },
+    );
   }
 
-  // Mark passkey as enabled in user auth settings
-  await supabase.from("user_auth_settings").upsert(
-    {
-      user_id: user.id,
-      passkey_enabled: true,
-      biometric_prompted: true,
-    },
-    { onConflict: "user_id" },
-  );
-
-  return NextResponse.json({ verified: true, passkeyId: inserted.id });
+  return NextResponse.json({ verified: true, passkeyId: created.passkeyId });
 }

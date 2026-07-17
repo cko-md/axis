@@ -4,7 +4,16 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import * as Sentry from "@sentry/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { buildAiRequestBody } from "@/lib/ai/actions";
+import { callAiAction } from "@/lib/ai/callAction";
+import {
+  normalizeAiActionPath,
+  sanitizeAiDeckCards,
+  type AiDeckCard,
+} from "@/lib/ai/navigation";
+import {
+  aiDegradationLabel,
+  type AiResponseMetadata,
+} from "@/lib/ai/response";
 
 // ── Module context ─────────────────────────────────────────────────────────────
 const MODULE_CONTEXTS: Record<string, string> = {
@@ -40,10 +49,9 @@ function captureCompanionError(
   companion: "axiom" | "codex" | "nova",
   operation: "brief" | "chat" | "cards" | "ask",
   pathname: string,
-  error: unknown,
   status?: number,
 ) {
-  Sentry.captureException(error instanceof Error ? error : new Error("Companion request failed"), {
+  Sentry.captureException(new Error("Companion request failed"), {
     tags: {
       feature: "companion",
       companion,
@@ -55,8 +63,22 @@ function captureCompanionError(
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type Msg  = { role: "user" | "assistant"; content: string };
-type Card = { id: string; title: string; body: string; actionLabel?: string; actionPath?: string };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  meta?: AiResponseMetadata;
+};
+type Card = AiDeckCard;
+
+function AiDegradedNote({ meta }: { meta: AiResponseMetadata | null | undefined }) {
+  if (!meta?.degraded) return null;
+  return (
+    <div className="cp-privacy" role="status">
+      <span />
+      {aiDegradationLabel(meta.reason)}
+    </div>
+  );
+}
 
 // ── SVG characters ─────────────────────────────────────────────────────────────
 
@@ -338,25 +360,24 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
     briefAbortRef.current = controller;
     setLoading(true);
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildAiRequestBody("companion", {
-          text: `Deliver a 2-sentence strategic situation brief. ${context}. ${focus ? `User's active focus: "${focus}".` : "No active focus set — prompt them to set one."} Be direct. Field advisor tone, not chatbot. Surface one actionable priority.`,
-          body: JSON.stringify({ context, history: [], persona: "axiom" }),
-        })),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        captureCompanionError("axiom", "brief", pathname, new Error("Axiom brief request failed"), res.status);
+      const result = await callAiAction("companion", {
+        text: `Deliver a 2-sentence strategic situation brief. ${context}. ${focus ? `User's active focus: "${focus}".` : "No active focus set — prompt them to set one."} Be direct. Field advisor tone, not chatbot. Surface one actionable priority.`,
+        body: JSON.stringify({ context, history: [], persona: "axiom" }),
+      }, { signal: controller.signal });
+      if (!result.ok) {
+        if (result.error === "aborted") return;
+        captureCompanionError("axiom", "brief", pathname);
         setMessages([{ role: "assistant", content: "Briefing service is unavailable. Try again shortly." }]);
         return;
       }
-      const data = await res.json() as { response?: string };
-      setMessages([{ role: "assistant", content: data.response ?? "Situation nominal. Set a focus for a targeted brief." }]);
+      setMessages([{
+        role: "assistant",
+        content: result.data.response || "Situation nominal. Set a focus for a targeted brief.",
+        meta: result.data.meta,
+      }]);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
-      captureCompanionError("axiom", "brief", pathname, err);
+      captureCompanionError("axiom", "brief", pathname);
       setMessages([{ role: "assistant", content: "Offline. Reconnect to receive briefing." }]);
     } finally {
       if (briefAbortRef.current === controller) setLoading(false);
@@ -396,22 +417,28 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
     setMessages((p) => [...p, { role: "user", content: q }]);
     setLoading(true);
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildAiRequestBody("companion", { text: q, body: JSON.stringify({ context, history: messages.slice(-8), persona: "axiom" }) })),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        captureCompanionError("axiom", "chat", pathname, new Error("Axiom chat request failed"), res.status);
+      const result = await callAiAction("companion", {
+        text: q,
+        body: JSON.stringify({
+          context,
+          history: messages.slice(-8).map(({ role, content }) => ({ role, content })),
+          persona: "axiom",
+        }),
+      }, { signal: controller.signal });
+      if (!result.ok) {
+        if (result.error === "aborted") return;
+        captureCompanionError("axiom", "chat", pathname);
         setMessages((p) => [...p, { role: "assistant", content: "Connection reached AXIS, but the companion service returned an error." }]);
         return;
       }
-      const data = await res.json() as { response?: string };
-      setMessages((p) => [...p, { role: "assistant", content: data.response ?? "…" }]);
+      setMessages((p) => [...p, {
+        role: "assistant",
+        content: result.data.response || "…",
+        meta: result.data.meta,
+      }]);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
-      captureCompanionError("axiom", "chat", pathname, err);
+      captureCompanionError("axiom", "chat", pathname);
       setMessages((p) => [...p, { role: "assistant", content: "Connection lost." }]);
     } finally {
       if (sendAbortRef.current === controller) {
@@ -474,7 +501,14 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
               </div>
             ) : messages.map((m, i) => (
               <div key={i} className={`cp-msg ${m.role === "user" ? "cp-you" : "cp-ai"}`}>
-                <span>{m.content}</span>
+                <span>
+                  {m.content}
+                  {m.role === "assistant" && m.meta?.degraded ? (
+                    <small style={{ display: "block", marginTop: 7, fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)" }}>
+                      {aiDegradationLabel(m.meta.reason)}
+                    </small>
+                  ) : null}
+                </span>
               </div>
             ))}
             {loading && messages.length > 0 && (
@@ -513,30 +547,37 @@ function CodexChar({ onHide }: { onHide: () => void }) {
   const [cards, setCards]         = useState<Card[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [loading, setLoading]     = useState(false);
+  const [responseMeta, setResponseMeta] = useState<AiResponseMetadata | null>(null);
 
   const loadCards = useCallback(async () => {
     setLoading(true);
     setDismissed(new Set());
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildAiRequestBody("deckInsights", { text: context, body: JSON.stringify({ context }) })),
+      const result = await callAiAction("deckInsights", {
+        text: context,
+        body: JSON.stringify({ context }),
       });
-      if (!res.ok) {
-        captureCompanionError("codex", "cards", pathname, new Error("Codex cards request failed"), res.status);
+      if (!result.ok) {
+        captureCompanionError("codex", "cards", pathname);
+        setResponseMeta(null);
         setCards([{ id: "e", title: "Unavailable", body: "Context cards are unavailable right now. Try refresh shortly." }]);
         return;
       }
-      const data = await res.json() as { cards?: Card[] };
-      setCards((data.cards ?? []).map((c, i) => ({ ...c, id: c.id ?? String(i) })));
-    } catch (err) {
-      captureCompanionError("codex", "cards", pathname, err);
+      setResponseMeta(result.data.meta);
+      setCards(sanitizeAiDeckCards(result.data.cards));
+    } catch {
+      captureCompanionError("codex", "cards", pathname);
+      setResponseMeta(null);
       setCards([{ id: "e", title: "Offline", body: "Couldn't reach the AI. Check your connection." }]);
     } finally {
       setLoading(false);
     }
   }, [context, pathname]);
+
+  const navigateToCardAction = useCallback((actionPath: string) => {
+    const safePath = normalizeAiActionPath(actionPath);
+    if (safePath) router.push(safePath);
+  }, [router]);
 
   useEffect(() => {
     if (open && cards.length === 0) void loadCards();
@@ -582,6 +623,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
         >
           <div className="cp-context-tag">{context.split(". ").pop()}</div>
           <CompanionPrivacyNote mode="cards" />
+          <AiDegradedNote meta={responseMeta} />
           <div className="cp-cards">
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => <div key={i} className="cp-card cp-skel" />)
@@ -594,7 +636,7 @@ function CodexChar({ onHide }: { onHide: () => void }) {
                   <div className="cp-card-title">{card.title}</div>
                   <div className="cp-card-body">{card.body}</div>
                   {card.actionLabel && card.actionPath && (
-                    <button type="button" className="cp-card-act" onClick={() => router.push(card.actionPath!)}>
+                    <button type="button" className="cp-card-act" onClick={() => navigateToCardAction(card.actionPath!)}>
                       {card.actionLabel} →
                     </button>
                   )}
@@ -614,7 +656,7 @@ function NovaChar({ onHide }: { onHide: () => void }) {
   const context  = useMemo(() => buildContext(pathname), [pathname]);
   const [open, setOpen]         = useState(false);
   const [query, setQuery]       = useState("");
-  const [response, setResponse] = useState<string | null>(null);
+  const [response, setResponse] = useState<{ content: string; meta?: AiResponseMetadata } | null>(null);
   const [loading, setLoading]   = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -635,22 +677,23 @@ function NovaChar({ onHide }: { onHide: () => void }) {
     setLoading(true);
     setResponse(null);
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildAiRequestBody("companion", { text: q, body: JSON.stringify({ context, history: [], persona: "nova" }) })),
+      const result = await callAiAction("companion", {
+        text: q,
+        body: JSON.stringify({ context, history: [], persona: "nova" }),
       });
-      if (!res.ok) {
-        captureCompanionError("nova", "ask", pathname, new Error("Nova request failed"), res.status);
-        setResponse("Nova is unavailable right now. Try again shortly.");
+      if (!result.ok) {
+        captureCompanionError("nova", "ask", pathname);
+        setResponse({ content: "Nova is unavailable right now. Try again shortly." });
         return;
       }
-      const data = await res.json() as { response?: string };
-      setResponse(data.response ?? "…");
+      setResponse({
+        content: result.data.response || "…",
+        meta: result.data.meta,
+      });
       setQuery("");
-    } catch (err) {
-      captureCompanionError("nova", "ask", pathname, err);
-      setResponse("Connection lost — try again.");
+    } catch {
+      captureCompanionError("nova", "ask", pathname);
+      setResponse({ content: "Connection lost — try again." });
     } finally {
       setLoading(false);
     }
@@ -679,7 +722,8 @@ function NovaChar({ onHide }: { onHide: () => void }) {
           onClose={() => { setOpen(false); setResponse(null); }}
         >
           <CompanionPrivacyNote mode="oracle" />
-          {response && <div className="cp-nova-resp">{response}</div>}
+          <AiDegradedNote meta={response?.meta} />
+          {response && <div className="cp-nova-resp">{response.content}</div>}
           <div className="cp-input-bar" style={response ? { borderTop: "1px solid var(--line)" } : undefined}>
             <input
               ref={inputRef}

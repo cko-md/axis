@@ -56,7 +56,7 @@ export default function BiometricPrompt({ onDismiss, onEnable, isSupported }: Pr
           className="hero-title"
           style={{ textAlign: 'center', fontSize: 17, marginBottom: 8 }}
         >
-          Use Face ID / Touch ID for faster sign-in?
+          Use a passkey for faster sign-in?
         </h2>
 
         <p
@@ -64,8 +64,8 @@ export default function BiometricPrompt({ onDismiss, onEnable, isSupported }: Pr
           style={{ textAlign: 'center', marginBottom: 20, fontSize: 13 }}
         >
           {isSupported
-            ? "Sign in with your device’s biometrics next time — no password needed."
-            : "Biometric login isn’t available on this browser/device."}
+            ? "Sign in with your device biometrics or a security key next time — no password needed."
+            : "Passkey sign-in isn’t available on this browser/device."}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

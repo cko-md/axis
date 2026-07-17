@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
+  Brain,
   Bot,
   Calendar,
   ChefHat,
@@ -47,6 +48,7 @@ export const NAV_ICON_MAP: Record<string, LucideIcon> = {
   chart: LineChart,
   tasks: Bot,
   approvals: ShieldCheck,
+  memory: Brain,
   system: Settings,
   // Command palette action / create keys (not sidebar routes)
   create: Sparkles,

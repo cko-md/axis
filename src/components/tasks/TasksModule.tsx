@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Seg } from "@/components/ui/Seg";
@@ -20,6 +22,7 @@ import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 import { RoutineRunsPanel } from "@/components/tasks/RoutineRunsPanel";
 import { actionClassLabel, approvalStatusLabel, type ApprovalStatus } from "@/lib/security/approvalCardView";
 import type { ActionClass } from "@/lib/security/actionPolicy";
+import { resolveTaskSelection, taskSelectionHref } from "@/lib/entities/taskSelection";
 
 type TaskApproval = {
   id: string;
@@ -30,6 +33,24 @@ type TaskApproval = {
 
 type Filter = "all" | TaskStatusGroup;
 
+const ACTION_CLASSES: ReadonlySet<string> = new Set([
+  "READ",
+  "DRAFT",
+  "SIMULATE",
+  "INTERNAL_WRITE",
+  "EXTERNAL_COMMUNICATION",
+  "FINANCIAL_EXECUTION",
+  "DESTRUCTIVE_ADMIN",
+]);
+
+const APPROVAL_STATUSES: ReadonlySet<string> = new Set([
+  "pending",
+  "approved",
+  "denied",
+  "expired",
+  "executed",
+]);
+
 const FILTERS: { label: string; value: Filter }[] = [
   { label: "All", value: "all" },
   { label: "Queued", value: "queued" },
@@ -38,6 +59,44 @@ const FILTERS: { label: string; value: Filter }[] = [
   { label: "Blocked", value: "blocked" },
   { label: "Done", value: "done" },
 ];
+
+function isTaskApproval(value: unknown): value is TaskApproval {
+  if (!value || typeof value !== "object") return false;
+  const approval = value as Record<string, unknown>;
+  const proposedAction = approval.proposed_action;
+  if (
+    proposedAction !== null &&
+    (typeof proposedAction !== "object" ||
+      Array.isArray(proposedAction) ||
+      ("summary" in proposedAction &&
+        (proposedAction as Record<string, unknown>).summary !== undefined &&
+        typeof (proposedAction as Record<string, unknown>).summary !== "string"))
+  ) {
+    return false;
+  }
+  return (
+    typeof approval.id === "string" &&
+    typeof approval.action_class === "string" &&
+    ACTION_CLASSES.has(approval.action_class) &&
+    typeof approval.status === "string" &&
+    APPROVAL_STATUSES.has(approval.status)
+  );
+}
+
+function reportTaskFailure(
+  operation: string,
+  failureKind: "network" | "server" | "invalid_response",
+  status?: number,
+) {
+  Sentry.captureException(new Error(`Tasks ${operation} failed`), {
+    tags: {
+      area: "tasks",
+      operation,
+      failure_kind: failureKind,
+      ...(status == null ? {} : { status: String(status) }),
+    },
+  });
+}
 
 function StatusChip({ status }: { status: FinancialTaskStatus }) {
   const color = taskToneColor(taskStatusTone(status));
@@ -67,6 +126,11 @@ function StatusChip({ status }: { status: FinancialTaskStatus }) {
 export function TasksModule() {
   const { tasks, loading, error, reload, createTask, transition, getTask } = useAgentTasks();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
+  const taskParam = searchParams.get("task");
 
   const [filter, setFilter] = useState<Filter>("all");
   const [draft, setDraft] = useState("");
@@ -76,32 +140,178 @@ export function TasksModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ task: AgentTask; activity: AgentTaskActivity[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [taskApprovals, setTaskApprovals] = useState<TaskApproval[]>([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
+  const [approvalsError, setApprovalsError] = useState<string | null>(null);
+  const [routineError, setRoutineError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectionError, setSelectionError] = useState<"invalid" | "not_found" | null>(null);
+  const hydratedSelectionRef = useRef<string | null>(null);
+  const detailRequestRef = useRef(0);
+  const approvalsRequestRef = useRef(0);
+
+  const taskSelection = useMemo(
+    () => resolveTaskSelection(taskParam, tasks.map((task) => task.id), !loading && !error),
+    [taskParam, tasks, loading, error],
+  );
 
   const visible = useMemo(
     () => (filter === "all" ? tasks : tasks.filter((t) => taskStatusGroup(t.status) === filter)),
     [tasks, filter],
   );
 
+  const loadTaskApprovals = useCallback(async (id: string, detailRequestId: number) => {
+    const approvalsRequestId = ++approvalsRequestRef.current;
+    const isCurrentRequest = () =>
+      detailRequestRef.current === detailRequestId &&
+      approvalsRequestRef.current === approvalsRequestId;
+
+    setApprovalsLoading(true);
+    setApprovalsError(null);
+    try {
+      const response = await fetch(`/api/approvals?taskId=${encodeURIComponent(id)}`);
+      if (!isCurrentRequest()) return;
+      if (!response.ok) {
+        if (response.status >= 500) {
+          reportTaskFailure("load_linked_approvals", "server", response.status);
+        }
+        setTaskApprovals([]);
+        setApprovalsError("Linked approvals could not be loaded.");
+        return;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        if (!isCurrentRequest()) return;
+        reportTaskFailure("parse_linked_approvals", "invalid_response", response.status);
+        setTaskApprovals([]);
+        setApprovalsError("Linked approvals returned an invalid response.");
+        return;
+      }
+      if (!isCurrentRequest()) return;
+      const approvals =
+        payload && typeof payload === "object"
+          ? (payload as { approvals?: unknown }).approvals
+          : undefined;
+      if (!Array.isArray(approvals) || !approvals.every(isTaskApproval)) {
+        reportTaskFailure("parse_linked_approvals", "invalid_response", response.status);
+        setTaskApprovals([]);
+        setApprovalsError("Linked approvals returned an invalid response.");
+        return;
+      }
+      setTaskApprovals(approvals);
+    } catch {
+      if (!isCurrentRequest()) return;
+      reportTaskFailure("load_linked_approvals", "network");
+      setTaskApprovals([]);
+      setApprovalsError("Linked approvals could not reach AXIS. Check your connection and retry.");
+    } finally {
+      if (isCurrentRequest()) setApprovalsLoading(false);
+    }
+  }, []);
+
   const openTask = useCallback(
     async (id: string) => {
+      const requestId = ++detailRequestRef.current;
+      approvalsRequestRef.current += 1;
       setSelectedId(id);
       setDetailLoading(true);
+      setDetailError(null);
       setTaskApprovals([]);
+      setApprovalsLoading(false);
+      setApprovalsError(null);
       const result = await getTask(id);
-      setDetail(result);
+      if (detailRequestRef.current !== requestId) return;
       setDetailLoading(false);
-      if (!result) toast("Could not load task detail.", "error", "Tasks");
-      // Linked approvals (best-effort; a failure just leaves the section empty).
-      const res = await fetch(`/api/approvals?taskId=${id}`).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        setTaskApprovals(Array.isArray(data.approvals) ? data.approvals : []);
+      if (!result.ok) {
+        setDetail(null);
+        const message = result.reason === "NOT_FOUND"
+          ? "This task is no longer available."
+          : result.reason === "NETWORK"
+            ? "Task detail could not reach AXIS. Check your connection and retry."
+            : "Task detail or its activity log could not be loaded. Retry to restore the complete audit trail.";
+        setDetailError(message);
+        if (result.reason === "UNAVAILABLE" || result.reason === "INVALID_RESPONSE") {
+          reportTaskFailure(
+            "load_detail",
+            result.reason === "INVALID_RESPONSE" ? "invalid_response" : "server",
+            result.status,
+          );
+        }
+        toast(message, "error", "Tasks");
+        return;
       }
+      setDetail({ task: result.task, activity: result.activity });
+      void loadTaskApprovals(id, requestId);
     },
-    [getTask, toast],
+    [getTask, loadTaskApprovals, toast],
   );
+
+  const selectTask = useCallback(
+    (id: string | null) => {
+      router.push(taskSelectionHref(pathname, query, id), { scroll: false });
+    },
+    [pathname, query, router],
+  );
+
+  const handleTaskSelection = useCallback(
+    (id: string) => {
+      if (taskSelection.status === "ready" && taskSelection.ref.id === id) {
+        void openTask(id);
+        return;
+      }
+      selectTask(id);
+    },
+    [openTask, selectTask, taskSelection],
+  );
+
+  useEffect(() => {
+    if (taskSelection.status === "pending") {
+      setSelectedId(taskSelection.ref.id);
+      setDetail(null);
+      setDetailLoading(true);
+      setDetailError(null);
+      setSelectionError(null);
+      return;
+    }
+
+    if (taskSelection.status === "none" || taskSelection.status === "invalid") {
+      detailRequestRef.current += 1;
+      hydratedSelectionRef.current = null;
+      setSelectedId(null);
+      setDetail(null);
+      setDetailLoading(false);
+      setDetailError(null);
+      setTaskApprovals([]);
+      setApprovalsLoading(false);
+      setApprovalsError(null);
+      setSelectionError(taskSelection.status === "invalid" ? "invalid" : null);
+      return;
+    }
+
+    if (taskSelection.status === "not_found") {
+      detailRequestRef.current += 1;
+      hydratedSelectionRef.current = null;
+      setSelectedId(taskSelection.ref.id);
+      setDetail(null);
+      setDetailLoading(false);
+      setDetailError(null);
+      setTaskApprovals([]);
+      setApprovalsLoading(false);
+      setApprovalsError(null);
+      setSelectionError("not_found");
+      return;
+    }
+
+    setSelectionError(null);
+    setSelectedId(taskSelection.ref.id);
+    if (hydratedSelectionRef.current === taskSelection.ref.id) return;
+    hydratedSelectionRef.current = taskSelection.ref.id;
+    void openTask(taskSelection.ref.id);
+  }, [taskSelection, openTask]);
 
   const submit = useCallback(async () => {
     const objective = draft.trim();
@@ -112,30 +322,95 @@ export function TasksModule() {
     if (task) {
       setDraft("");
       toast("Task created.", "success", "Tasks");
-      void openTask(task.id);
+      selectTask(task.id);
     } else {
       toast("Could not create task.", "error", "Tasks");
     }
-  }, [draft, createTask, toast, openTask]);
+  }, [draft, createTask, toast, selectTask]);
 
   const runConcentrationCheck = useCallback(async () => {
     setRunning(true);
-    const res = await fetch("/api/routines/concentration-check", { method: "POST" }).catch(() => null);
-    setRunning(false);
-    if (!res?.ok) {
-      toast("Couldn’t run the concentration check.", "error", "Routines");
-      return;
-    }
-    const data = (await res.json()) as { created?: unknown[]; skipped?: number; breaches?: number };
-    setRunsRefresh((n) => n + 1);
-    const createdCount = Array.isArray(data.created) ? data.created.length : 0;
-    if (createdCount > 0) {
-      toast(`Concentration check: ${createdCount} task(s) created.`, "success", "Routines");
-      void reload();
-    } else if ((data.breaches ?? 0) > 0) {
-      toast("Concentration check: breaches already tracked.", "info", "Routines");
-    } else {
-      toast("Concentration check: no positions over target.", "success", "Routines");
+    setRoutineError(null);
+    try {
+      const response = await fetch("/api/routines/concentration-check", { method: "POST" });
+      if (!response.ok) {
+        if (response.status >= 500) {
+          reportTaskFailure("run_concentration_check", "server", response.status);
+        } else {
+          Sentry.addBreadcrumb({
+            category: "tasks",
+            message: "Concentration check request rejected",
+            level: "info",
+            data: {
+              operation: "run_concentration_check",
+              status: response.status,
+            },
+          });
+        }
+        const message = "Couldn’t run the concentration check. Retry when the service is available.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        reportTaskFailure("parse_concentration_check", "invalid_response", response.status);
+        const message = "The concentration check returned an invalid response. Please retry.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+      if (!payload || typeof payload !== "object") {
+        reportTaskFailure("parse_concentration_check", "invalid_response", response.status);
+        const message = "The concentration check returned an invalid response. Please retry.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+      const data = payload as {
+        status?: unknown;
+        approvalId?: unknown;
+        created?: unknown;
+        skipped?: unknown;
+        breaches?: unknown;
+      };
+      if (data.status === "waiting_for_approval" && typeof data.approvalId === "string") {
+        setRunsRefresh((n) => n + 1);
+        toast("Concentration check is waiting for approval.", "info", "Routines");
+        return;
+      }
+      if (
+        !Array.isArray(data.created) ||
+        typeof data.skipped !== "number" ||
+        typeof data.breaches !== "number"
+      ) {
+        reportTaskFailure("parse_concentration_check", "invalid_response", response.status);
+        const message = "The concentration check returned an invalid response. Please retry.";
+        setRoutineError(message);
+        toast(message, "error", "Routines");
+        return;
+      }
+
+      setRunsRefresh((n) => n + 1);
+      const createdCount = Array.isArray(data.created) ? data.created.length : 0;
+      if (createdCount > 0) {
+        toast(`Concentration check: ${createdCount} task(s) created.`, "success", "Routines");
+        void reload();
+      } else if (typeof data.breaches === "number" && data.breaches > 0) {
+        toast("Concentration check: breaches already tracked.", "info", "Routines");
+      } else {
+        toast("Concentration check: no positions over target.", "success", "Routines");
+      }
+    } catch {
+      reportTaskFailure("run_concentration_check", "network");
+      const message = "The concentration check could not reach AXIS. Check your connection and retry.";
+      setRoutineError(message);
+      toast(message, "error", "Routines");
+    } finally {
+      setRunning(false);
     }
   }, [toast, reload]);
 
@@ -147,13 +422,17 @@ export function TasksModule() {
       if (result.ok) {
         toast(`Moved to “${taskStatusLabel(status)}”.`, "success", "Tasks");
         if (selectedId === id) void openTask(id);
+      } else if (result.reason === "STALE_TRANSITION") {
+        toast("This task changed elsewhere. Reloaded the latest state.", "error", "Tasks");
+        void reload();
+        if (selectedId === id) void openTask(id);
       } else if (result.reason === "ILLEGAL_TRANSITION") {
         toast("That status change isn't allowed from here.", "error", "Tasks");
       } else {
         toast("Could not update the task.", "error", "Tasks");
       }
     },
-    [transition, toast, selectedId, openTask],
+    [transition, toast, selectedId, openTask, reload],
   );
 
   return (
@@ -188,6 +467,29 @@ export function TasksModule() {
             Deterministic review of your holdings — opens a task for any position over target weight.
           </span>
         </div>
+        {routineError && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: "var(--status-error)",
+              fontSize: 12,
+            }}
+          >
+            <span>{routineError}</span>
+            <button
+              type="button"
+              className="underline"
+              onClick={() => void runConcentrationCheck()}
+              disabled={running}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </Card>
 
       <div style={{ marginTop: 16 }}>
@@ -197,7 +499,7 @@ export function TasksModule() {
       <div className="divider" />
 
       <div style={{ marginBottom: 12 }}>
-        <Seg options={FILTERS} value={filter} onChange={setFilter} />
+        <Seg ariaLabel="Task status filter" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) minmax(300px, 1.1fr)", gap: 16, alignItems: "start" }}>
@@ -223,7 +525,7 @@ export function TasksModule() {
             visible.map((t) => (
               <button
                 key={t.id}
-                onClick={() => void openTask(t.id)}
+                onClick={() => handleTaskSelection(t.id)}
                 className="card"
                 style={{
                   textAlign: "left",
@@ -250,7 +552,23 @@ export function TasksModule() {
 
         {/* Detail */}
         <div>
-          {!selectedId ? (
+          {selectionError === "invalid" ? (
+            <StatusCallout kind="error" title="Invalid task link">
+              <span>This link doesn’t identify a valid task.</span>{" "}
+              <button type="button" onClick={() => selectTask(null)} className="underline">
+                Clear the task link
+              </button>
+              .
+            </StatusCallout>
+          ) : selectionError === "not_found" ? (
+            <StatusCallout kind="error" title="Task not found">
+              <span>This task isn’t available.</span>{" "}
+              <button type="button" onClick={() => selectTask(null)} className="underline">
+                Return to the task list
+              </button>
+              .
+            </StatusCallout>
+          ) : !selectedId ? (
             <StatusCallout kind="info" title="Select a task">
               Choose a task to see its activity and move it through its lifecycle.
             </StatusCallout>
@@ -258,7 +576,15 @@ export function TasksModule() {
             <SkeletonCard rows={5} />
           ) : !detail ? (
             <StatusCallout kind="error" title="Couldn’t load that task">
-              Try selecting it again.
+              <span>{detailError ?? "Task detail is unavailable."}</span>{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => void openTask(selectedId)}
+              >
+                Retry
+              </button>
+              .
             </StatusCallout>
           ) : (
             <Card>
@@ -290,22 +616,48 @@ export function TasksModule() {
                 </div>
               )}
 
-              {taskApprovals.length > 0 && (
-                <>
-                  <div className="divider" style={{ margin: "14px 0" }} />
-                  <div className="seclabel" style={{ marginBottom: 8 }}>
-                    Approvals · <a href="/approvals" style={{ color: "var(--accent)" }}>review queue</a>
-                  </div>
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-                    {taskApprovals.map((a) => (
-                      <li key={a.id} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "baseline" }}>
-                        <span style={{ color: "var(--ink-faint)", minWidth: 118 }}>{actionClassLabel(a.action_class)}</span>
-                        <span style={{ color: "var(--ink)", flex: 1 }}>{a.proposed_action?.summary ?? "—"}</span>
-                        <span style={{ color: "var(--ink-dim)", fontWeight: 600 }}>{approvalStatusLabel(a.status)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
+              <div className="divider" style={{ margin: "14px 0" }} />
+              <div className="seclabel" style={{ marginBottom: 8 }}>
+                Approvals · <a href="/approvals" style={{ color: "var(--accent)" }}>review queue</a>
+              </div>
+              {approvalsLoading ? (
+                <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>
+                  Loading linked approvals…
+                </p>
+              ) : approvalsError ? (
+                <div
+                  role="alert"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12,
+                    color: "var(--status-error)",
+                  }}
+                >
+                  <span>{approvalsError}</span>
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => void loadTaskApprovals(detail.task.id, detailRequestRef.current)}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : taskApprovals.length > 0 ? (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {taskApprovals.map((a) => (
+                    <li key={a.id} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "baseline" }}>
+                      <span style={{ color: "var(--ink-faint)", minWidth: 118 }}>{actionClassLabel(a.action_class)}</span>
+                      <span style={{ color: "var(--ink)", flex: 1 }}>{a.proposed_action?.summary ?? "—"}</span>
+                      <span style={{ color: "var(--ink-dim)", fontWeight: 600 }}>{approvalStatusLabel(a.status)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>
+                  No linked approvals.
+                </p>
               )}
 
               <div className="divider" style={{ margin: "14px 0" }} />

@@ -200,7 +200,7 @@ export async function writeDailyBrief(admin: SupabaseClient, userId: string, use
 /**
  * FIN-503/506: bill-reminder check. Fires 2 days before a recurring
  * charge's next_expected_date — deterministic, no AI needed for "this bill
- * is due soon." Idempotent per merchant per due-date via audit_logs.
+ * is due soon." Supplies a stable merchant/date key for Make-side deduplication.
  */
 export async function sendBillReminders(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
   if (!userEmail) return;

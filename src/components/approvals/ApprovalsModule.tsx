@@ -26,6 +26,9 @@ const DECISION_ERRORS: Record<string, string> = {
   INCOMPLETE: "This approval is missing required details and can't execute.",
   NOT_APPROVED: "This approval hasn't been approved yet.",
   NOT_PENDING: "This approval has already been decided.",
+  STALE_APPROVAL_STATE: "This approval changed elsewhere. The latest state has been loaded.",
+  ROUTINE_RESUME_REQUIRED: "Resume the linked routine to complete this approval safely.",
+  POLICY_MISMATCH: "This stored approval no longer matches the safety policy and cannot execute.",
 };
 
 export function ApprovalsModule() {
@@ -83,7 +86,7 @@ export function ApprovalsModule() {
       <div className="divider" />
 
       <div style={{ marginBottom: 12 }}>
-        <Seg options={FILTERS} value={filter} onChange={setFilter} />
+        <Seg ariaLabel="Approval status filter" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
 
       {loading ? (

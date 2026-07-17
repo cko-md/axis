@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { deleteMailTokens, type MailProvider } from "@/lib/mail/tokens";
+import { deleteMailCacheForAccount } from "@/lib/mail/cache";
 
 // DELETE /api/mail/disconnect?provider=gmail|outlook&email=user@example.com
 export async function DELETE(req: NextRequest) {
@@ -27,6 +28,17 @@ export async function DELETE(req: NextRequest) {
       tags: { area: "mail", operation: "disconnect", provider, transport: "direct" },
     });
     return NextResponse.json({ error: "Could not disconnect mailbox" }, { status: 500 });
+  }
+  try {
+    await deleteMailCacheForAccount(supabase, user.id, { provider, mailEmail: email });
+  } catch (cacheError) {
+    Sentry.captureException(cacheError, {
+      tags: { area: "mail", operation: "disconnect_cache_cleanup", provider, transport: "direct" },
+    });
+    return NextResponse.json(
+      { error: "Mailbox disconnected, but saved inbox cleanup failed" },
+      { status: 500 },
+    );
   }
   return NextResponse.json({ ok: true });
 }

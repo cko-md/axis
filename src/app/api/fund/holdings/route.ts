@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { reconcileHoldings } from "@/lib/fund/reconcileHoldings";
 import type { ReconciliationState } from "@/lib/fund/provenance";
+import { toMajorUnitsIn, toMinorUnitsIn } from "@/lib/fund/currency";
 
 type HoldingRow = {
   id: string;
@@ -21,6 +22,11 @@ function olderOf(a: string | null, b: string | null): string | null {
   if (!a) return b;
   if (!b) return a;
   return Date.parse(a) <= Date.parse(b) ? a : b;
+}
+
+function normalizeCurrency(currency: string | null | undefined): string {
+  const code = (currency ?? "").trim().toUpperCase();
+  return code === "" ? "USD" : code;
 }
 
 /**
@@ -49,13 +55,22 @@ export async function GET() {
   // Reconcile per symbol across sources (pure, deterministic, minor-unit).
   const reconciliation = reconcileHoldings(rows);
 
-  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; reconciliation_state: ReconciliationState | null; retrieved_at: string | null }>();
+  const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[]; currency: string | null; reconciliation_state: ReconciliationState | null; retrieved_at: string | null }>();
   for (const r of rows) {
+    const currency = normalizeCurrency(r.currency);
     const existing = bySymbol.get(r.symbol);
     if (existing) {
       existing.shares += Number(r.shares);
-      existing.cost_basis += Number(r.cost_basis);
       if (!existing.sources.includes(r.source)) existing.sources.push(r.source);
+      if (existing.currency === currency) {
+        existing.cost_basis = toMajorUnitsIn(
+          toMinorUnitsIn(existing.cost_basis, currency) + toMinorUnitsIn(r.cost_basis, currency),
+          currency,
+        );
+      } else {
+        existing.cost_basis += Number(r.cost_basis);
+        existing.currency = null;
+      }
       // Aggregate freshness = the oldest constituent (most conservative).
       existing.retrieved_at = olderOf(existing.retrieved_at, r.retrieved_at);
     } else {
@@ -65,6 +80,7 @@ export async function GET() {
         shares: Number(r.shares),
         cost_basis: Number(r.cost_basis),
         sources: [r.source],
+        currency,
         reconciliation_state: reconciliation.get(r.symbol)?.state ?? null,
         retrieved_at: r.retrieved_at,
       });

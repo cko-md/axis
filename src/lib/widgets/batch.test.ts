@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
+  cachedWidgetRowToBatchWidget,
   dedupeWidgetIds,
   maxWidgetsPerBatch,
   safeWidgetBatchError,
   statusForWidgetPayload,
   widgetProviderTimeoutMs,
 } from "@/lib/widgets/batch";
+import type { WidgetCacheRow } from "@/lib/widgets/cache";
+
+const cachedWeather: WidgetCacheRow = {
+  widget_id: "weather",
+  cache_key: "weather",
+  status: "fresh",
+  value: "72°F",
+  hint: "Home",
+  raw: { temp: 72 },
+  error: null,
+  fetched_at: "2026-07-01T11:59:00Z",
+  expires_at: "2026-07-01T12:10:00Z",
+};
 
 describe("widget batch contract", () => {
   it("dedupes, trims, drops empty ids, and caps batch size", () => {
@@ -42,5 +56,19 @@ describe("widget batch contract", () => {
     expect(safeWidgetBatchError("PROVIDER_TIMEOUT", "Widget provider timed out", true, 504)).toMatchObject({
       status: 504,
     });
+  });
+
+  it("maps cached rows to stale batch widgets after a refresh failure", () => {
+    expect(cachedWidgetRowToBatchWidget(cachedWeather)).toMatchObject({
+      id: "weather",
+      status: "stale",
+      value: "72°F",
+      hint: "Home · refresh failed",
+      raw: { temp: 72 },
+      fallback: true,
+      fetchedAt: "2026-07-01T11:59:00Z",
+      source: expect.objectContaining({ cacheKey: "weather" }),
+    });
+    expect(cachedWidgetRowToBatchWidget({ ...cachedWeather, cache_key: "wrong" })).toBeNull();
   });
 });

@@ -4,15 +4,11 @@ import { expect, test } from "@playwright/test";
 
 test("login page exposes terms gate before signup", async ({ page }) => {
   await page.goto("/login", { waitUntil: "domcontentloaded" });
-  const submit = page.getByRole("button", { name: /sign up|create account/i });
-  if (await submit.count()) {
-    await expect(submit.first()).toBeDisabled();
-    const terms = page.getByRole("checkbox");
-    if (await terms.count()) {
-      await terms.first().check();
-      await expect(submit.first()).toBeEnabled();
-    }
-  }
+  await page.getByRole("button", { name: "Need an account? Sign up" }).click();
+  const submit = page.getByRole("button", { name: "Create account", exact: true });
+  await expect(submit).toBeDisabled();
+  await page.getByRole("checkbox").check();
+  await expect(submit).toBeEnabled();
 });
 
 test("command palette route resolves pre-auth without crash", async ({ page }) => {

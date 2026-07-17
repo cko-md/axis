@@ -371,7 +371,7 @@ export function DebriefModule() {
     } finally {
       setDailyLoading(false);
     }
-  }, [reviewDate, selectedBounds.end, selectedBounds.start, supabase, toast]);
+  }, [reviewDate, selectedBounds.end, selectedBounds.start, supabase]);
 
   useEffect(() => {
     void loadDailyReview();

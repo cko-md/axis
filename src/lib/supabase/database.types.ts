@@ -607,6 +607,99 @@ export type Database = {
         }
         Relationships: []
       }
+      entity_references: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          origin: string
+          relation: string
+          source_id: string
+          source_kind: string
+          target_id: string
+          target_kind: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          origin?: string
+          relation?: string
+          source_id: string
+          source_kind: string
+          target_id: string
+          target_kind: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          origin?: string
+          relation?: string
+          source_id?: string
+          source_kind?: string
+          target_id?: string
+          target_kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      entity_usage: {
+        Row: {
+          command_count: number
+          created_at: string
+          direct_open_count: number
+          entity_id: string
+          entity_kind: string
+          last_action: string
+          last_command_at: string | null
+          last_direct_open_at: string | null
+          last_link_at: string | null
+          last_search_select_at: string | null
+          last_used_at: string
+          link_count: number
+          search_select_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          command_count?: number
+          created_at?: string
+          direct_open_count?: number
+          entity_id: string
+          entity_kind: string
+          last_action: string
+          last_command_at?: string | null
+          last_direct_open_at?: string | null
+          last_link_at?: string | null
+          last_search_select_at?: string | null
+          last_used_at?: string
+          link_count?: number
+          search_select_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          command_count?: number
+          created_at?: string
+          direct_open_count?: number
+          entity_id?: string
+          entity_kind?: string
+          last_action?: string
+          last_command_at?: string | null
+          last_direct_open_at?: string | null
+          last_link_at?: string | null
+          last_search_select_at?: string | null
+          last_used_at?: string
+          link_count?: number
+          search_select_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       feed_cache: {
         Row: {
           feed_url: string
@@ -823,6 +916,51 @@ export type Database = {
           created_at?: string
           id?: string
           monthly_limit?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      financial_operating_profiles: {
+        Row: {
+          base_currency: string
+          concentration_limit_bps: number
+          confirmed_at: string
+          constraints: string[]
+          created_at: string
+          investment_horizon: string
+          liquidity_buffer_months: number
+          priorities: string[]
+          risk_posture: string
+          source_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          base_currency?: string
+          concentration_limit_bps?: number
+          confirmed_at?: string
+          constraints?: string[]
+          created_at?: string
+          investment_horizon?: string
+          liquidity_buffer_months?: number
+          priorities?: string[]
+          risk_posture?: string
+          source_type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          base_currency?: string
+          concentration_limit_bps?: number
+          confirmed_at?: string
+          constraints?: string[]
+          created_at?: string
+          investment_horizon?: string
+          liquidity_buffer_months?: number
+          priorities?: string[]
+          risk_posture?: string
+          source_type?: string
           updated_at?: string
           user_id?: string
         }
@@ -1447,6 +1585,66 @@ export type Database = {
         }
         Relationships: []
       }
+      mail_message_cache: {
+        Row: {
+          account_email: string
+          account_ref: string
+          connected_account_id: string | null
+          fetched_at: string
+          is_unread: boolean
+          message_date: string
+          provider: string
+          provider_message_id: string
+          received_at: string | null
+          sender: string
+          snippet: string
+          subject: string
+          sync_generation: string
+          thread_id: string
+          transport: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email: string
+          account_ref: string
+          connected_account_id?: string | null
+          fetched_at?: string
+          is_unread?: boolean
+          message_date: string
+          provider: string
+          provider_message_id: string
+          received_at?: string | null
+          sender?: string
+          snippet?: string
+          subject?: string
+          sync_generation: string
+          thread_id?: string
+          transport: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_email?: string
+          account_ref?: string
+          connected_account_id?: string | null
+          fetched_at?: string
+          is_unread?: boolean
+          message_date?: string
+          provider?: string
+          provider_message_id?: string
+          received_at?: string | null
+          sender?: string
+          snippet?: string
+          subject?: string
+          sync_generation?: string
+          thread_id?: string
+          transport?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mail_connections: {
         Row: {
           access_token_enc: string
@@ -1476,6 +1674,54 @@ export type Database = {
           provider?: string
           refresh_token_enc?: string | null
           updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      memory_items: {
+        Row: {
+          archived_at: string | null
+          confidence_bps: number
+          content: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          kind: string
+          scope: string
+          source_ref: string | null
+          source_type: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          confidence_bps?: number
+          content: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind: string
+          scope: string
+          source_ref?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archived_at?: string | null
+          confidence_bps?: number
+          content?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          scope?: string
+          source_ref?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1567,6 +1813,105 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_sync_state: {
+        Row: {
+          account_label: string
+          account_ref: string
+          domain: string
+          last_attempted_at: string
+          last_error_code: string | null
+          last_status: string
+          last_synced_at: string | null
+          provider: string
+          sync_generation: string | null
+          transport: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_label: string
+          account_ref: string
+          domain: string
+          last_attempted_at: string
+          last_error_code?: string | null
+          last_status: string
+          last_synced_at?: string | null
+          provider: string
+          sync_generation?: string | null
+          transport: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_label?: string
+          account_ref?: string
+          domain?: string
+          last_attempted_at?: string
+          last_error_code?: string | null
+          last_status?: string
+          last_synced_at?: string | null
+          provider?: string
+          sync_generation?: string | null
+          transport?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      integration_delivery_outbox: {
+        Row: {
+          attempt_count: number
+          claim_token: string | null
+          created_at: string
+          dedupe_key_hash: string
+          delivered_at: string | null
+          event_type: string
+          id: string
+          last_error_code: string | null
+          last_http_status: number | null
+          locked_at: string | null
+          payload_ciphertext: string
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          claim_token?: string | null
+          created_at?: string
+          dedupe_key_hash: string
+          delivered_at?: string | null
+          event_type: string
+          id?: string
+          last_error_code?: string | null
+          last_http_status?: number | null
+          locked_at?: string | null
+          payload_ciphertext: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          claim_token?: string | null
+          created_at?: string
+          dedupe_key_hash?: string
+          delivered_at?: string | null
+          event_type?: string
+          id?: string
+          last_error_code?: string | null
+          last_http_status?: number | null
+          locked_at?: string | null
+          payload_ciphertext?: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_tasks: {
         Row: {
           actual_cost_usd: number | null
@@ -1575,6 +1920,7 @@ export type Database = {
           created_at: string
           estimated_cost_usd: number | null
           id: string
+          idempotency_key: string | null
           objective: string
           source_routine_id: string | null
           source_skill: string | null
@@ -1589,6 +1935,7 @@ export type Database = {
           created_at?: string
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           objective: string
           source_routine_id?: string | null
           source_skill?: string | null
@@ -1603,6 +1950,7 @@ export type Database = {
           created_at?: string
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           objective?: string
           source_routine_id?: string | null
           source_skill?: string | null
@@ -1703,16 +2051,61 @@ export type Database = {
           },
         ]
       }
+      routine_versions: {
+        Row: {
+          created_at: string
+          definition: Json
+          description: string
+          id: string
+          name: string
+          routine_key: string
+          routine_version: number
+          source_version_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          definition?: Json
+          description?: string
+          id?: string
+          name: string
+          routine_key: string
+          routine_version: number
+          source_version_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          definition?: Json
+          description?: string
+          id?: string
+          name?: string
+          routine_key?: string
+          routine_version?: number
+          source_version_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       routine_runs: {
         Row: {
           actual_cost_usd: number | null
+          approval_id: string | null
           completed_at: string | null
           created_at: string
           error: string | null
           estimated_cost_usd: number | null
           id: string
+          idempotency_key: string | null
           input_snapshot: Json
           output: Json | null
+          paused_step_key: string | null
           routine_key: string
           routine_version: number
           started_at: string
@@ -1722,13 +2115,16 @@ export type Database = {
         }
         Insert: {
           actual_cost_usd?: number | null
+          approval_id?: string | null
           completed_at?: string | null
           created_at?: string
           error?: string | null
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           input_snapshot?: Json
           output?: Json | null
+          paused_step_key?: string | null
           routine_key: string
           routine_version?: number
           started_at?: string
@@ -1738,13 +2134,16 @@ export type Database = {
         }
         Update: {
           actual_cost_usd?: number | null
+          approval_id?: string | null
           completed_at?: string | null
           created_at?: string
           error?: string | null
           estimated_cost_usd?: number | null
           id?: string
+          idempotency_key?: string | null
           input_snapshot?: Json
           output?: Json | null
+          paused_step_key?: string | null
           routine_key?: string
           routine_version?: number
           started_at?: string
@@ -1752,7 +2151,15 @@ export type Database = {
           trigger?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "routine_runs_approval_owner_fkey"
+            columns: ["approval_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
       }
       routine_step_runs: {
         Row: {
@@ -2640,11 +3047,165 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cas_agent_task_transition: {
+        Args: {
+          p_completed_at?: string | null
+          p_expected_status: string
+          p_next_status: string
+          p_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      cas_approval_transition: {
+        Args: {
+          p_approval_id: string
+          p_decided_at?: string | null
+          p_expected_status: string
+          p_next_status: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      commit_approval_step_up: {
+        Args: {
+          p_approval_id: string
+          p_expected_approval_status: string
+          p_expected_counter: number
+          p_new_counter: number
+          p_passkey_id: string
+          p_user_id: string
+          p_verified_at: string
+        }
+        Returns: Json
+      }
+      commit_passkey_authentication: {
+        Args: {
+          p_expected_counter: number
+          p_expected_last_used_at: string | null
+          p_new_counter: number
+          p_passkey_id: string
+          p_used_at: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      consume_actionable_approval: {
+        Args: {
+          p_approval_id: string
+          p_now?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      consume_approval_authentication_challenge: {
+        Args: {
+          p_approval_id: string
+          p_challenge_id: string
+          p_now?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      consume_webauthn_challenge: {
+        Args: {
+          p_challenge_id: string
+          p_now?: string
+          p_type: string
+          p_user_id: string | null
+        }
+        Returns: Json
+      }
+      create_approval_with_activity: {
+        Args: {
+          p_action_class: string
+          p_expires_at?: string | null
+          p_proposed_action: Json
+          p_reasons: string[]
+          p_requirement: string
+          p_scope?: string
+          p_task_id: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      create_user_passkey: {
+        Args: {
+          p_backed_up: boolean
+          p_counter: number
+          p_credential_id: string
+          p_credential_public_key: string
+          p_device_type: string | null
+          p_name: string
+          p_transports: string[]
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      create_entity_reference: {
+        Args: {
+          p_label?: string
+          p_relation?: string
+          p_source_id: string
+          p_source_kind: string
+          p_target_id: string
+          p_target_kind: string
+        }
+        Returns: string
+      }
+      create_agent_task_with_activity: {
+        Args: {
+          p_activity_detail?: Json
+          p_context?: Json
+          p_objective: string
+          p_source_routine_id?: string | null
+          p_source_skill?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      create_idempotent_agent_task_with_activity: {
+        Args: {
+          p_activity_detail?: Json
+          p_context?: Json
+          p_idempotency_key?: string | null
+          p_objective: string
+          p_source_routine_id?: string | null
+          p_source_skill?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      delete_user_passkey: {
+        Args: {
+          p_passkey_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      delete_entity_reference: {
+        Args: { p_reference_id: string }
+        Returns: boolean
+      }
       expire_stale_approvals: { Args: never; Returns: number }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
+      record_entity_usage: {
+        Args: {
+          p_action: string
+          p_entity_id: string
+          p_entity_kind: string
+        }
+        Returns: Database["public"]["Tables"]["entity_usage"]["Row"]
+        SetofOptions: {
+          from: "*"
+          to: "entity_usage"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       search_note_embeddings: {
         Args: { p_embedding: string; p_limit?: number }
         Returns: {
@@ -2784,4 +3345,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

@@ -3,6 +3,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { aiGenerate } from "@/lib/ai/router";
 import { notifyViaMake } from "@/lib/fund/notifyViaMake";
 import { cleanFinanceLabel, safeMoney, shapeRecurringForNarration } from "@/lib/fund/financeNarratorContext";
+import { activityAnomalyReason, assessActivityAnomaly } from "@/lib/fund/activityRules";
+import { toMajorUnits } from "@/lib/fund/money";
 
 const CADENCE_DAYS: Record<string, number> = { weekly: 7, biweekly: 14, monthly: 30, quarterly: 91, annual: 365 };
 
@@ -12,8 +14,8 @@ const NARRATOR_GUARDRAIL =
 /**
  * FIN-503: budget-threshold check. Deterministic, no AI — crossing 90% of a
  * category's monthly_limit fires a Make alert directly (no narration step;
- * a threshold crossing doesn't need interpretation). Idempotent per
- * category per month via the audit_logs idempotency_key.
+ * a threshold crossing doesn't need interpretation). Supplies a stable
+ * category/month key for Make-side deduplication.
  */
 export async function checkBudgetThresholds(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
   if (!userEmail) return;
@@ -60,11 +62,9 @@ export async function checkBudgetThresholds(admin: SupabaseClient, userId: strin
 }
 
 /**
- * FIN-503: anomaly detection. An "anomaly" is either (a) a transaction at
- * an established merchant for more than 2x that merchant's trailing
- * average, or (b) a first-time merchant charging more than $200. Fired
- * immediately (not batched into the daily brief) since timeliness matters
- * for catching fraud — then narrated into ai_insights for FIN-504.
+ * FIN-503: anomaly detection. Policy lives in activityRules so the result is
+ * deterministic, typed, and minor-unit exact. This job only fetches history
+ * and delivers a review signal; it never authorizes a financial action.
  */
 export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: string, userEmail: string | null, anthropic: Anthropic | null): Promise<void> {
   const since90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
@@ -72,7 +72,7 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
 
   const { data: history } = await admin
     .from("fund_bank_transactions")
-    .select("merchant_name, amount, posted_date")
+    .select("id, merchant_name, amount, iso_currency_code, posted_date, is_transfer, pending")
     .eq("user_id", userId)
     .eq("is_transfer", false)
     .lt("amount", 0)
@@ -80,7 +80,7 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
 
   const { data: todays } = await admin
     .from("fund_bank_transactions")
-    .select("id, merchant_name, amount, posted_date")
+    .select("id, merchant_name, amount, iso_currency_code, posted_date, is_transfer, pending")
     .eq("user_id", userId)
     .eq("is_transfer", false)
     .lt("amount", 0)
@@ -88,29 +88,22 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
 
   if (!todays || todays.length === 0) return;
 
-  const merchantHistory = new Map<string, number[]>();
-  for (const t of history ?? []) {
-    if (!t.merchant_name || t.posted_date === today) continue;
-    const merchant = cleanFinanceLabel(t.merchant_name, "Unknown merchant");
-    const arr = merchantHistory.get(merchant) ?? [];
-    arr.push(Math.abs(safeMoney(t.amount)));
-    merchantHistory.set(merchant, arr);
-  }
-
   for (const t of todays) {
-    if (!t.merchant_name) continue;
+    const assessment = assessActivityAnomaly({
+      id: t.id,
+      merchantName: t.merchant_name,
+      amount: t.amount,
+      currency: t.iso_currency_code,
+      isTransfer: t.is_transfer,
+      pending: t.pending,
+    }, (history ?? []).filter((entry) => entry.posted_date !== today));
+    const reason = activityAnomalyReason(assessment);
+    if (!reason) continue;
+
     const merchant = cleanFinanceLabel(t.merchant_name, "Unknown merchant");
-    const amount = Math.abs(safeMoney(t.amount));
-    const priorAmounts = merchantHistory.get(merchant) ?? [];
-    const isNewMerchant = priorAmounts.length === 0;
-    const avg = priorAmounts.length ? priorAmounts.reduce((s, a) => s + a, 0) / priorAmounts.length : 0;
-
-    const isAnomaly = isNewMerchant ? amount > 200 : amount > avg * 2;
-    if (!isAnomaly) continue;
-
-    const reason = isNewMerchant
-      ? `first-ever transaction at this merchant, $${amount.toFixed(2)}`
-      : `$${amount.toFixed(2)} vs. a trailing average of $${avg.toFixed(2)} at this merchant`;
+    const amount = toMajorUnits(assessment.amountMinor);
+    const avg = assessment.baselineAverageMinor === null ? 0 : toMajorUnits(assessment.baselineAverageMinor);
+    const isNewMerchant = assessment.reason === "new_merchant_high_amount";
 
     if (userEmail) {
       await notifyViaMake(admin, {
@@ -120,18 +113,18 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
         to: userEmail,
         subject: `Unusual transaction: ${merchant}`,
         bodyText: `Flagged ${reason} at ${merchant} on ${t.posted_date}.`,
-        meta: { transaction_id: t.id, merchant, amount, reason },
+        meta: { transaction_id: t.id, amount, reason: assessment.reason },
       });
     }
 
-    let body = `Flagged a transaction at ${merchant} for $${amount.toFixed(2)} on ${t.posted_date} — ${reason}.`;
+    let body = `Flagged a transaction at ${merchant} for ${amount.toFixed(2)} ${assessment.currency} on ${t.posted_date} — ${reason}.`;
     if (anthropic) {
       try {
         const { text } = await aiGenerate({
           mode: "anomaly-explain",
           anthropic,
           system: NARRATOR_GUARDRAIL,
-          userMessage: `Data: merchant=${merchant}, amount=$${amount.toFixed(2)}, date=${t.posted_date}, is_new_merchant=${isNewMerchant}, trailing_average=$${avg.toFixed(2)}. Briefly explain why this transaction was flagged and suggest the user check it's legitimate.`,
+          userMessage: `Data: merchant=${merchant}, amount=${amount.toFixed(2)} ${assessment.currency}, date=${t.posted_date}, is_new_merchant=${isNewMerchant}, trailing_average=${avg.toFixed(2)} ${assessment.currency}. Briefly explain why this transaction was flagged and suggest the user check it's legitimate.`,
           maxTokens: 200,
         });
         if (text.trim()) body = text.trim();
@@ -145,10 +138,10 @@ export async function detectAndExplainAnomalies(admin: SupabaseClient, userId: s
       kind: "anomaly",
       title: `Unusual transaction: ${merchant}`,
       body,
-      data_used: { transaction_id: t.id, merchant, amount, is_new_merchant: isNewMerchant, trailing_average: avg },
+      data_used: { transaction_id: t.id, merchant, amount, currency: assessment.currency, is_new_merchant: isNewMerchant, trailing_average: avg },
       assumptions: isNewMerchant
-        ? "Flagged because no prior transaction exists for this merchant in the last 90 days."
-        : "Flagged because the amount exceeds 2x the merchant's 90-day trailing average.",
+        ? "Flagged because no comparable prior transaction exists for this merchant and currency in the last 90 days."
+        : "Flagged because the amount exceeds 2x the merchant's same-currency 90-day trailing average.",
       confidence: "medium",
       requires_review: true,
     });

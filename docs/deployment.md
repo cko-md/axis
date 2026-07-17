@@ -2,6 +2,11 @@
 
 AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches and open PRs after local checks pass. Human Sentry review is not a pre-push blocker; Sentry is reviewed after the Vercel preview exists and before production readiness/merge.
 
+Vercel's Git integration is the only production deployment owner. Merging to
+`main` creates the production deploy; GitHub Actions must not also run
+`vercel deploy --prod`. Manual CLI production deploys are reserved for
+documented incident recovery.
+
 ## PR Flow
 
 1. Confirm the Linear issue and branch name.
@@ -49,8 +54,16 @@ AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches
 - Confirm required Supabase env exists in Vercel Preview and Production.
 - Confirm any changed table has owner-scoped RLS before merge.
 - For no-migration PRs, state "no Supabase schema change" in the PR.
+- For the 2026-07-16 RPC cutover, follow the deterministic
+  [expand → application → contract runbook](axis-redesign/12-release-plan.md).
+  The contract migration is forbidden until the compatible Git SHA is Ready in
+  production.
 - Do not assume Tembo usage. Current AXIS runtime code does not use Tembo; if that changes, document its role before routing data to it.
 
 ## Production Readiness
 
-Merging to `main` triggers the Vercel production deployment. Production readiness requires completed local checks, a healthy preview build, preview validation evidence, Supabase/Tembo impact notes, and post-preview Sentry review. Sentry review can happen after the PR is opened; it cannot be skipped before production merge.
+Merging to `main` triggers one Vercel Git-integration production deployment.
+Production readiness requires completed local checks, a healthy preview build,
+preview validation evidence, Supabase/Tembo impact notes, and post-preview
+Sentry review. Sentry review can happen after the PR is opened; it cannot be
+skipped before production merge.

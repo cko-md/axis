@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 
 type ToastType = "success" | "info" | "warn" | "error";
 
@@ -83,7 +84,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               aria-label="Dismiss"
               className="ml-1 cursor-pointer border-none bg-transparent p-0 leading-none text-[var(--ink-faint)] hover:text-[var(--ink)]"
             >
-              ✕
+              <X size={14} strokeWidth={1.6} aria-hidden />
             </button>
           </div>
         ))}

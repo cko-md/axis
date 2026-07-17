@@ -1,175 +1,340 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
-import { decrypt } from "@/lib/crypto";
-import { optionalEnv } from "@/lib/env";
+import { createClient } from "@/lib/supabase/server";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import {
+  commitPasskeyAuthentication,
+  consumeWebAuthnChallenge,
+} from "@/lib/security/passkeyMutations";
+import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
+
+const ROUTE = "passkey_authenticate";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isAuthenticationResponse(
+  value: unknown,
+): value is AuthenticationResponseJSON {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as {
+    id?: unknown;
+    response?: unknown;
+  };
+  return typeof candidate.id === "string"
+    && candidate.id.length > 0
+    && Boolean(candidate.response)
+    && typeof candidate.response === "object";
+}
+
+function requestIp(req: NextRequest) {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || req.headers.get("x-real-ip")?.trim()
+    || "anonymous";
+}
+
+async function withinRateLimit(
+  ip: string,
+  operation: "options" | "verify",
+  limit: number,
+) {
+  return (
+    (await redisRateLimit(ip, limit, "10 m", `axis:passkey-auth-${operation}`))
+    ?? memoryRateLimit(`passkey-auth-${operation}:${ip}`, limit, 10 * 60_000)
+  ).success;
+}
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const action = req.nextUrl.searchParams.get("action");
-  if (action !== "options") {
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  if (req.nextUrl.searchParams.get("action") !== "options") {
+    return NextResponse.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
+  }
+  if (!(await withinRateLimit(requestIp(req), "options", 20))) {
+    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
+  }
+  const admin = createAdminClient();
+  if (!admin) {
+    captureRouteError(new Error("Passkey authentication service role unavailable"), {
+      route: ROUTE,
+      operation: "options",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SERVICE_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SERVICE_UNAVAILABLE" }, { status: 503 });
   }
 
-  const email = req.nextUrl.searchParams.get("email") ?? undefined;
+  let options: Awaited<ReturnType<typeof buildAuthenticationOptions>>;
+  try {
+    options = await buildAuthenticationOptions([]);
+  } catch {
+    captureRouteError(new Error("Passkey authentication options generation failed"), {
+      route: ROUTE,
+      operation: "build_options",
+      area: "auth",
+      status: 500,
+      code: "PASSKEY_OPTIONS_FAILED",
+    });
+    return NextResponse.json({ error: "PASSKEY_OPTIONS_FAILED" }, { status: 500 });
+  }
 
-  // Pre-auth flow: no session exists, so RLS on user_passkeys/webauthn_challenges
-  // would block these reads/writes. Use the service-role client when configured;
-  // fall back to the anon client until SUPABASE_SERVICE_ROLE_KEY is set.
-  const supabase = createAdminClient() ?? (await createClient());
-
-  // Clean up stale authentication challenges before creating a new one
-  await supabase
+  const { data: challengeRow, error: challengeError } = await admin
     .from("webauthn_challenges")
-    .delete()
-    .eq("type", "authentication")
-    .lt("expires_at", new Date().toISOString());
-
-  // Discoverable credential flow — empty allowCredentials lets any resident key respond
-  const options = await buildAuthenticationOptions([]);
-
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-  const { error: challengeError } = await supabase.from("webauthn_challenges").insert({
-    challenge: options.challenge,
-    type: "authentication",
-    ...(email ? { email } : {}),
-    expires_at: expiresAt,
-  });
-
-  if (challengeError) {
-    return NextResponse.json({ error: "Failed to store challenge" }, { status: 500 });
+    .insert({
+      challenge: options.challenge,
+      type: "authentication",
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (challengeError || !challengeRow) {
+    captureRouteError(new Error("Passkey authentication challenge insert failed"), {
+      route: ROUTE,
+      operation: "store_challenge",
+      area: "auth",
+      status: 500,
+      code: "CHALLENGE_STORE_FAILED",
+    });
+    return NextResponse.json({ error: "CHALLENGE_STORE_FAILED" }, { status: 500 });
   }
 
-  return NextResponse.json(options);
+  return NextResponse.json({ options, challengeId: challengeRow.id });
 }
 
-// ── POST ?action=verify ────────────────────────────────────────────────────────
+// ── POST ?action=verify ───────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const action = req.nextUrl.searchParams.get("action");
-  if (action !== "verify") {
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  if (req.nextUrl.searchParams.get("action") !== "verify") {
+    return NextResponse.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
+  }
+  if (!(await withinRateLimit(requestIp(req), "verify", 10))) {
+    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
+  }
+  const body = (await req.json().catch(() => null)) as {
+    response?: AuthenticationResponseJSON;
+    challengeId?: unknown;
+  } | null;
+  if (!isAuthenticationResponse(body?.response)) {
+    return NextResponse.json({ error: "INVALID_RESPONSE" }, { status: 400 });
+  }
+  if (typeof body.challengeId !== "string" || !UUID_RE.test(body.challengeId)) {
+    return NextResponse.json({ error: "MISSING_CHALLENGE_ID" }, { status: 400 });
   }
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "anonymous";
-  const { success } =
-    (await redisRateLimit(ip, 10, "10 m", "axis:passkey-verify")) ??
-    memoryRateLimit(`passkey-verify:${ip}`, 10, 10 * 60_000);
-  if (!success) {
-    return NextResponse.json({ error: "Too many attempts. Please wait before trying again." }, { status: 429 });
+  const admin = createAdminClient();
+  if (!admin) {
+    captureRouteError(new Error("Passkey authentication service role unavailable"), {
+      route: ROUTE,
+      operation: "verify",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SERVICE_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SERVICE_UNAVAILABLE" }, { status: 503 });
   }
 
-  if (!optionalEnv("PASSKEY_ENCRYPTION_KEY")) {
-    console.warn("[passkey] PASSKEY_ENCRYPTION_KEY not set — refresh token decryption unavailable");
+  const consumed = await consumeWebAuthnChallenge({
+    challengeId: body.challengeId,
+    type: "authentication",
+    userId: null,
+    now: new Date().toISOString(),
+  }, admin);
+  if (!consumed.ok) {
+    if (consumed.code === "NOT_FOUND") {
+      return NextResponse.json({ error: "CHALLENGE_EXPIRED" }, { status: 400 });
+    }
+    captureRouteError(new Error("Passkey authentication challenge consume failed"), {
+      route: ROUTE,
+      operation: "consume_challenge",
+      area: "auth",
+      status: consumed.code === "SERVICE_UNAVAILABLE" ? 503 : 500,
+      code: "CHALLENGE_CONSUME_FAILED",
+    });
+    return NextResponse.json(
+      { error: "CHALLENGE_CONSUME_FAILED" },
+      { status: consumed.code === "SERVICE_UNAVAILABLE" ? 503 : 500 },
+    );
   }
 
-  let body: { response: AuthenticationResponseJSON; email?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  const { data: passkey, error: passkeyError } = await admin
+    .from("user_passkeys")
+    .select(
+      "id, user_id, credential_id, credential_public_key, counter, transports, last_used_at",
+    )
+    .eq("credential_id", body.response.id)
+    .maybeSingle();
+  if (passkeyError) {
+    captureRouteError(new Error("Passkey authentication credential lookup failed"), {
+      route: ROUTE,
+      operation: "load_passkey",
+      area: "auth",
+      status: 500,
+      code: "PASSKEYS_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEYS_UNAVAILABLE" }, { status: 500 });
+  }
+  if (!passkey) {
+    return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
   }
 
-  const { response } = body;
-  if (!response) {
-    return NextResponse.json({ error: "Missing response" }, { status: 400 });
-  }
-
-  // Pre-auth flow: no session exists, so RLS on user_passkeys/webauthn_challenges
-  // would block these reads/writes. Use the service-role client when configured;
-  // fall back to the anon client until SUPABASE_SERVICE_ROLE_KEY is set.
-  const supabase = createAdminClient() ?? (await createClient());
-
-  // Decode userHandle from the assertion response to get userId
-  const userHandleB64 = response.response.userHandle;
-  let userId: string | null = null;
-  if (userHandleB64) {
+  const userHandle = body.response.response.userHandle;
+  if (userHandle !== undefined && userHandle !== null) {
+    if (typeof userHandle !== "string") {
+      return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
+    }
+    let decodedUserId: string;
     try {
-      userId = Buffer.from(userHandleB64, "base64url").toString("utf8");
+      decodedUserId = Buffer.from(userHandle, "base64url").toString("utf8");
     } catch {
-      // Will still look up by credential_id below
+      return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
+    }
+    if (decodedUserId !== passkey.user_id) {
+      return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
     }
   }
 
-  // Look up the passkey by credential_id (response.id is the credential ID)
-  const { data: passkey, error: passkeyError } = await supabase
-    .from("user_passkeys")
-    .select(
-      "id, user_id, credential_id, credential_public_key, counter, transports, refresh_token_enc",
-    )
-    .eq("credential_id", response.id)
-    .single();
-
-  if (passkeyError || !passkey) {
-    return NextResponse.json({ error: "Passkey not found" }, { status: 404 });
-  }
-
-  // Reconcile userId: prefer the decoded userHandle, fall back to passkey.user_id
-  const resolvedUserId: string = userId ?? passkey.user_id;
-
-  // Sanity check: decoded userId must match the passkey's owner
-  if (userId && userId !== passkey.user_id) {
-    return NextResponse.json({ error: "Credential mismatch" }, { status: 400 });
-  }
-
-  // Fetch the matching challenge (unbound to user_id since they may not be logged in)
-  const now = new Date().toISOString();
-  const { data: challenges } = await supabase
-    .from("webauthn_challenges")
-    .select("id, challenge")
-    .eq("type", "authentication")
-    .gt("expires_at", now)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  const challengeRow = challenges?.[0];
-  if (!challengeRow) {
-    return NextResponse.json({ error: "Challenge not found or expired" }, { status: 400 });
-  }
-
-  // Delete challenge immediately (one-time use)
-  await supabase.from("webauthn_challenges").delete().eq("id", challengeRow.id);
-
   let verified: Awaited<ReturnType<typeof verifyAuthentication>>;
   try {
-    verified = await verifyAuthentication(response, challengeRow.challenge, {
+    verified = await verifyAuthentication(body.response, consumed.challenge, {
       credentialId: passkey.credential_id,
       credentialPublicKey: passkey.credential_public_key,
       counter: passkey.counter,
       transports: passkey.transports ?? [],
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Verification failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+  } catch {
+    return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
   }
-
   if (!verified.verified) {
-    return NextResponse.json({ error: "Authentication not verified" }, { status: 400 });
+    return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
   }
 
-  // Update counter and last_used_at
-  await supabase
-    .from("user_passkeys")
-    .update({
-      counter: verified.authenticationInfo.newCounter,
-      last_used_at: new Date().toISOString(),
-    })
-    .eq("id", passkey.id);
-
-  // Optionally return a decrypted refresh token so the client can restore Supabase session
-  let refreshToken: string | undefined;
-  if (passkey.refresh_token_enc) {
-    const decrypted = decrypt(passkey.refresh_token_enc);
-    if (decrypted) refreshToken = decrypted;
+  const committed = await commitPasskeyAuthentication({
+    userId: passkey.user_id,
+    passkeyId: passkey.id,
+    expectedCounter: passkey.counter,
+    newCounter: verified.authenticationInfo.newCounter,
+    expectedLastUsedAt: passkey.last_used_at,
+    usedAt: new Date().toISOString(),
+  }, admin);
+  if (!committed.ok) {
+    if (committed.code === "COUNTER_CONFLICT") {
+      return NextResponse.json({ error: "PASSKEY_COUNTER_CONFLICT" }, { status: 409 });
+    }
+    if (committed.code === "PASSKEY_NOT_FOUND") {
+      return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
+    }
+    captureRouteError(new Error("Passkey authentication commit failed"), {
+      route: ROUTE,
+      operation: "commit_authentication",
+      area: "auth",
+      status: committed.code === "SERVICE_UNAVAILABLE" ? 503 : 500,
+      code: "PASSKEY_COMMIT_FAILED",
+    });
+    return NextResponse.json(
+      { error: "PASSKEY_COMMIT_FAILED" },
+      { status: committed.code === "SERVICE_UNAVAILABLE" ? 503 : 500 },
+    );
   }
 
-  return NextResponse.json({
-    verified: true,
-    userId: resolvedUserId,
-    ...(refreshToken ? { refreshToken } : {}),
-  });
+  // WebAuthn establishes possession; Supabase Auth remains the session issuer.
+  // Generate a server-only one-time magic-link hash for the credential owner,
+  // then redeem it directly into server-managed cookies. No link/hash/session
+  // token is returned to or accepted from the browser.
+  const { data: ownerData, error: ownerError } =
+    await admin.auth.admin.getUserById(passkey.user_id);
+  const owner = ownerData.user;
+  if (ownerError || !owner || !owner.email) {
+    captureRouteError(new Error("Passkey owner lookup failed"), {
+      route: ROUTE,
+      operation: "load_session_owner",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SESSION_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SESSION_UNAVAILABLE" }, { status: 503 });
+  }
+
+  const { data: linkData, error: linkError } =
+    await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email: owner.email,
+    });
+  const tokenHash = linkData.properties?.hashed_token;
+  if (
+    linkError
+    || linkData.user?.id !== passkey.user_id
+    || typeof tokenHash !== "string"
+    || !tokenHash
+  ) {
+    captureRouteError(new Error("Passkey session link issuance failed"), {
+      route: ROUTE,
+      operation: "issue_session",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SESSION_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SESSION_UNAVAILABLE" }, { status: 503 });
+  }
+
+  const cookieClient = await createClient();
+  const { data: cookieSessionData, error: cookieSessionError } =
+    await cookieClient.auth.verifyOtp({
+      type: "magiclink",
+      token_hash: tokenHash,
+    });
+  if (
+    cookieSessionError
+    || !cookieSessionData.session
+    || cookieSessionData.session.user.id !== passkey.user_id
+  ) {
+    const { error: clearError } = await cookieClient.auth.signOut({ scope: "local" });
+    if (clearError) {
+      captureRouteError(new Error("Passkey failed session cookie cleanup"), {
+        route: ROUTE,
+        operation: "clear_session",
+        area: "auth",
+        status: 500,
+        code: "PASSKEY_SESSION_CLEANUP_FAILED",
+      });
+    }
+    captureRouteError(new Error("Passkey session cookie issuance failed"), {
+      route: ROUTE,
+      operation: "redeem_session",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SESSION_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SESSION_UNAVAILABLE" }, { status: 503 });
+  }
+
+  // Re-open the cookie-backed client and ask Supabase Auth to verify the user;
+  // do not report success based only on the OTP redemption return value.
+  const verificationClient = await createClient();
+  const {
+    data: { user: cookieUser },
+    error: cookieUserError,
+  } = await verificationClient.auth.getUser();
+  if (cookieUserError || !cookieUser || cookieUser.id !== passkey.user_id) {
+    const { error: clearError } = await cookieClient.auth.signOut({ scope: "local" });
+    if (clearError) {
+      captureRouteError(new Error("Passkey failed invalid-session cookie cleanup"), {
+        route: ROUTE,
+        operation: "clear_session",
+        area: "auth",
+        status: 500,
+        code: "PASSKEY_SESSION_CLEANUP_FAILED",
+      });
+    }
+    captureRouteError(new Error("Passkey cookie-backed identity verification failed"), {
+      route: ROUTE,
+      operation: "verify_cookie_session",
+      area: "auth",
+      status: 503,
+      code: "PASSKEY_SESSION_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEY_SESSION_UNAVAILABLE" }, { status: 503 });
+  }
+
+  return NextResponse.json({ verified: true });
 }

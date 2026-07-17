@@ -31,6 +31,10 @@ export type AgentTaskActivity = {
   created_at: string;
 };
 
+export type AgentTaskDetailResult =
+  | { ok: true; task: AgentTask; activity: AgentTaskActivity[] }
+  | { ok: false; reason: "NETWORK" | "UNAVAILABLE" | "NOT_FOUND" | "INVALID_RESPONSE"; status?: number };
+
 export function useAgentTasks() {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,11 +106,24 @@ export function useAgentTasks() {
   );
 
   const getTask = useCallback(
-    async (id: string): Promise<{ task: AgentTask; activity: AgentTaskActivity[] } | null> => {
+    async (id: string): Promise<AgentTaskDetailResult> => {
       const res = await fetch(`/api/agent-tasks/${id}`).catch(() => null);
-      if (!res?.ok) return null;
-      const data = await res.json();
-      return { task: data.task as AgentTask, activity: (data.activity ?? []) as AgentTaskActivity[] };
+      if (!res) return { ok: false, reason: "NETWORK" };
+      if (!res.ok) {
+        return {
+          ok: false,
+          reason: res.status === 404 ? "NOT_FOUND" : "UNAVAILABLE",
+          status: res.status,
+        };
+      }
+      const data = await res.json().catch(() => null) as {
+        task?: AgentTask;
+        activity?: AgentTaskActivity[];
+      } | null;
+      if (!data?.task || !Array.isArray(data.activity)) {
+        return { ok: false, reason: "INVALID_RESPONSE", status: res.status };
+      }
+      return { ok: true, task: data.task, activity: data.activity };
     },
     [],
   );

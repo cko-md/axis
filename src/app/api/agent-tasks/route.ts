@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/database.types";
 import { TASK_STATUSES, type FinancialTaskStatus } from "@/lib/tasks/taskState";
+import { createAgentTaskWithActivity } from "@/lib/tasks/taskPersistence";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Durable agent-Task collection API — the persistence wiring for the pure state
@@ -14,6 +17,10 @@ import { TASK_STATUSES, type FinancialTaskStatus } from "@/lib/tasks/taskState";
  */
 
 const MAX_OBJECTIVE = 2000;
+const taskCreateSchema = z.object({
+  objective: z.string().trim().min(1).max(MAX_OBJECTIVE),
+  context: z.record(z.string(), z.unknown()).optional(),
+}).strict();
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -42,41 +49,32 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const objective = String(body.objective ?? "").trim();
-  if (!objective || objective.length > MAX_OBJECTIVE) {
+  const parsed = taskCreateSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
     return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
   }
-  const context: Json =
-    body.context && typeof body.context === "object" && !Array.isArray(body.context)
-      ? (body.context as Json)
-      : {};
-  const sourceSkill = body.source_skill == null ? null : String(body.source_skill);
-  const sourceRoutineId = body.source_routine_id == null ? null : String(body.source_routine_id);
+  const objective = parsed.data.objective;
+  const context = (parsed.data.context ?? {}) as Json;
 
-  const { data: task, error } = await supabase
-    .from("agent_tasks")
-    .insert({
-      user_id: user.id,
-      objective,
-      status: "queued",
-      context,
-      source_skill: sourceSkill,
-      source_routine_id: sourceRoutineId,
-    })
-    .select("id, objective, status, context, source_routine_id, source_skill, created_at, updated_at, completed_at")
-    .single();
-
-  if (error || !task) return NextResponse.json({ error: "TASK_CREATE_FAILED" }, { status: 500 });
-
-  // Seed the append-only activity log with the initial state (best-effort; the
-  // task already exists, so a log failure must not fail the request).
-  await supabase.from("agent_task_activity").insert({
-    task_id: task.id,
-    user_id: user.id,
-    kind: "status_change",
-    detail: { from: null, to: "queued" },
+  const result = await createAgentTaskWithActivity({
+    userId: user.id,
+    objective,
+    context,
   });
+  if (!result.ok) {
+    const status = result.code === "SERVICE_UNAVAILABLE" ? 503 : 500;
+    const code = result.code === "SERVICE_UNAVAILABLE"
+      ? "TASK_MUTATION_UNAVAILABLE"
+      : "TASK_CREATE_FAILED";
+    captureRouteError(new Error(code), {
+      route: "agent_tasks",
+      operation: "create",
+      area: "tasks",
+      status,
+      code,
+    });
+    return NextResponse.json({ error: code }, { status });
+  }
 
-  return NextResponse.json({ task }, { status: 201 });
+  return NextResponse.json({ task: result.task }, { status: 201 });
 }

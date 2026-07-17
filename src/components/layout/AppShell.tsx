@@ -1,16 +1,31 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
 import { AxisAtmosphere } from "@/components/ui/axis/AxisAtmosphere";
+import {
+  WorkspaceProvider,
+  useWorkspace,
+} from "@/components/workspace/WorkspaceProvider";
+import { WorkspaceSurface } from "@/components/workspace/WorkspaceSurface";
 import { ALL_NAV_ITEMS } from "@/lib/store/nav";
 
 const CommandPalette = dynamic(
   () => import("@/components/nav/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+  { ssr: false },
+);
+const SearchWidget = dynamic(
+  () => import("@/components/search/SearchWidget").then((m) => ({ default: m.SearchWidget })),
   { ssr: false },
 );
 const Mascot = dynamic(
@@ -37,9 +52,21 @@ const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
 };
 
 export function AppShell({ section, page, children }: Props) {
+  return (
+    <WorkspaceProvider>
+      <AppShellContent section={section} page={page}>
+        {children}
+      </AppShellContent>
+    </WorkspaceProvider>
+  );
+}
+
+function AppShellContent({ section, page, children }: Props) {
   const pathname = usePathname();
+  const { hasWorkspace } = useWorkspace();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("open");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [isNight, setIsNight] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const autoCollapsedRef = useRef(false);
@@ -67,7 +94,17 @@ export function AppShell({ section, page, children }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        setSearchOpen(false);
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        (e.key === "/" || e.code === "Slash")
+      ) {
+        e.preventDefault();
+        setPaletteOpen(false);
+        setSearchOpen((open) => !open);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -118,19 +155,43 @@ export function AppShell({ section, page, children }: Props) {
       <div className={`app-shell mode-${sidebarMode}`}>
         <Sidebar collapsed={sidebarMode === "icons"} />
         <div className="main-scroll">
-          <Topbar section={section} page={page} onOpenPalette={() => setPaletteOpen(true)} />
-          <main id="main-content" className="view-pad">
-            {navStatus && navStatus.status && navStatus.status !== "production" && (
-              <section className={`module-status module-status-${navStatus.status}`} aria-label={`${navStatus.label} ${navStatus.status} status`}>
-                <div>
-                  <div className="module-status-kicker">{navStatus.status === "lab" ? "Lab module" : "Beta module"}</div>
-                  <strong>{navStatus.label} is intentionally marked non-production.</strong>
-                  {navStatus.statusReason && <p>{navStatus.statusReason}</p>}
-                </div>
-                {navStatus.statusAction && <span>{navStatus.statusAction}</span>}
-              </section>
-            )}
-            {children}
+          <Topbar
+            section={section}
+            page={page}
+            onOpenSearch={() => {
+              setPaletteOpen(false);
+              setSearchOpen(true);
+            }}
+            onOpenPalette={() => {
+              setSearchOpen(false);
+              setPaletteOpen(true);
+            }}
+          />
+          <main
+            id="main-content"
+            className={`view-pad${hasWorkspace ? " workspace-view-pad" : ""}`}
+          >
+            <WorkspaceSurface>
+              {navStatus && navStatus.status && navStatus.status !== "production" && (
+                <section className={`module-status module-status-${navStatus.status}`} aria-label={`${navStatus.label} ${navStatus.status} status`}>
+                  <div>
+                    <div className="module-status-kicker">{navStatus.status === "lab" ? "Lab module" : "Beta module"}</div>
+                    <strong>{navStatus.label} is intentionally marked non-production.</strong>
+                    {navStatus.statusReason && <p>{navStatus.statusReason}</p>}
+                  </div>
+                  {navStatus.statusAction && <span>{navStatus.statusAction}</span>}
+                </section>
+              )}
+              <Suspense
+                fallback={
+                  <div className="card" role="status" aria-live="polite">
+                    Loading {page}…
+                  </div>
+                }
+              >
+                {children}
+              </Suspense>
+            </WorkspaceSurface>
           </main>
         </div>
         {/* Single sidebar toggle — rendered inside .app-shell so it can read the
@@ -155,6 +216,7 @@ export function AppShell({ section, page, children }: Props) {
         </button>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <SearchWidget open={searchOpen} onClose={() => setSearchOpen(false)} />
       <Mascot />
       <InterfaceStudioDrawer />
     </SpotifyProvider>

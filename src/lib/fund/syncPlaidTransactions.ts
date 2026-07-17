@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
+import { categorizeProviderActivity } from "@/lib/fund/activityRules";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 type PlaidTxn = {
@@ -69,7 +70,9 @@ export async function syncPlaidTransactions(
     merchant_name: t.merchant_name ?? t.name,
     raw_name: t.name,
     amount: -t.amount, // Plaid: positive = debit; flip so positive = inflow (matches existing convention)
-    plaid_category: t.personal_finance_category?.primary ?? "OTHER",
+    // Provider categories enter the persisted ledger through one stable,
+    // auditable taxonomy. User-set custom_category values remain untouched.
+    plaid_category: categorizeProviderActivity(t.personal_finance_category?.primary),
     posted_date: t.date,
     authorized_date: t.authorized_date ?? null,
     pending: t.pending ?? false,

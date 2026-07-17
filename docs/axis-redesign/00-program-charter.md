@@ -1,7 +1,7 @@
 # Axis System Redesign — Program Charter
 
-> Status: **active** · Owner: redesign program · Branch: `claude/axis-system-redesign-cifxlw`
-> Baseline commit: `f478cde` · Established: 2026-07-13
+> Status: **production-gate validation** · Owner: redesign program · Branch: `codex/phase9-resume-executor` (PR #195)
+> Baseline commit: `f478cde` · Established: 2026-07-13 · Current state: `.claude/axis-redesign/PROGRAM_STATE.json`
 
 ## 1. What this program is
 
@@ -20,7 +20,9 @@ visual imitation of either reference product.
 ## 2. Governance reconciliation (important)
 
 This program runs **inside** an existing, mature codebase with its own binding
-rules in `AGENTS.md`. Those rules take precedence over any instinct to churn:
+rules in `AGENTS.md`. The owner-authorized System Redesign Override in §2a
+permits the coordinated cross-module waves recorded here; every security,
+financial-safety, migration, observability, and green-gate rule remains binding:
 
 - **No broad unrelated refactors.** Change only what a wave requires.
 - **One coherent change → one branch → one PR.** Ship complete vertical slices,
@@ -70,16 +72,25 @@ Observe → Normalize → Determine significance → Surface a signal / create a
 
 ## 6. Phase map & where we are
 
-| Phase | Name                                   | State        |
-| ----- | -------------------------------------- | ------------ |
-| 0     | Program initialization + baseline      | done         |
-| 1     | Forensic repository audit              | in progress (`01-current-state-audit.md`) |
-| 2     | Product synthesis (Macro+Town matrix)  | started (`02-product-synthesis.md`) |
-| 3     | Target architecture                    | started (`04-target-architecture.md`) |
-| 4     | Financial domain & data foundation     | **first wave landed** — deterministic money primitive (`src/lib/fund/money.ts`) |
-| 5–14  | Security kernel → design → shell → modules → runtime → integrations → perf → testing → observability → CI/CD | planned |
+| Phase | Name | State |
+| ----- | ---- | ----- |
+| 0 | Program initialization + baseline | done |
+| 1–3 | Audit, product synthesis, target architecture | substantial; source-of-truth documents and ADRs complete for the implemented scope |
+| 4 | Financial domain & data foundation | complete for the documented redesign scope |
+| 5 | Security kernel | core complete; independent sign-off and a manual hardware-authenticator ceremony remain external gates |
+| 6 | Design system | complete |
+| 7 | Workspace shell | implemented; preview validation remains |
+| 8 | Core modules | complete for the documented redesign scope |
+| 9 | Agent runtime | implementation complete; final production gates remain |
+| 10 | Integration rearchitecture | code/architecture scope complete; unavailable live-provider paths remain external gates |
+| 11 | Performance | scoped profiling and route budgets complete |
+| 12 | Testing | automated system complete; current PR clean-runner and browser evidence remain |
+| 13 | Observability | instrumentation/runbook complete; preview-window Sentry evidence and operational alert setup remain |
+| 14 | CI/CD and production readiness | delivery implementation complete; preview, merge/deploy authorization, and post-deploy contract migration remain |
 
-Machine-readable state: `.claude/axis-redesign/PROGRAM_STATE.json`.
+The machine-readable state is authoritative for exact revisions, migrations,
+test counts, and remaining production gates:
+`.claude/axis-redesign/PROGRAM_STATE.json`.
 
 ## 7. Resume protocol for future sessions
 

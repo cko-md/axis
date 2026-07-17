@@ -1,6 +1,7 @@
 "use client";
 
-import { type ButtonHTMLAttributes } from "react";
+import React, { type ButtonHTMLAttributes } from "react";
+import { Loader2 } from "lucide-react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -26,11 +27,13 @@ export function Button({
 }: Props) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 text-xs font-medium transition disabled:opacity-50 ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 text-xs font-medium transition disabled:opacity-50 ${loading ? "[&>svg:not(.axis-button-spinner)]:hidden" : ""} ${variants[variant]} ${className}`}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
-      {loading ? "…" : children}
+      {loading ? <Loader2 size={14} strokeWidth={1.6} className="axis-button-spinner shrink-0" aria-hidden /> : null}
+      {children}
     </button>
   );
 }

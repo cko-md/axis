@@ -28,6 +28,7 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection";
 import { UrlModules } from "@/components/nav/UrlModules";
 import { Icon } from "@/components/ui/Icon";
+import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
 const NAV_ORDER_KEY       = "axis-nav-order";
@@ -217,12 +218,14 @@ function SortableNavItem({
   active,
   collapsed,
   label,
+  href,
   onRename,
 }: {
   item: NavItem;
   active: boolean;
   collapsed: boolean;
   label: string;
+  href: string;
   onRename: (href: string, newLabel: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -247,7 +250,7 @@ function SortableNavItem({
       onMouseLeave={() => setHovered(false)}
     >
       <Link
-        href={item.href}
+        href={href}
         className={`navitem${active ? " active" : ""}`}
         title={item.title ?? item.label}
         onClick={renaming ? (e) => e.preventDefault() : undefined}
@@ -294,6 +297,7 @@ function SortableNavGroup({
   onItemRename,
   onGroupRename,
   pathname,
+  hrefWithWorkspace,
 }: {
   group: NavGroup;
   collapsed: boolean;
@@ -303,6 +307,7 @@ function SortableNavGroup({
   onItemRename: (href: string, newLabel: string) => void;
   onGroupRename: (section: string, newLabel: string) => void;
   pathname: string;
+  hrefWithWorkspace: (href: string) => string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: group.section });
@@ -386,6 +391,7 @@ function SortableNavGroup({
                 active={active}
                 collapsed={collapsed}
                 label={navLabels[item.href] ?? item.label}
+                href={hrefWithWorkspace(item.href)}
                 onRename={onItemRename}
               />
             );
@@ -404,6 +410,7 @@ type Props = {
 export function Sidebar({ collapsed }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const { hrefWithWorkspace } = useWorkspace();
 
   const { open: openWebViewer } = useWebViewer();
   const spotify = useSpotify();
@@ -576,6 +583,7 @@ export function Sidebar({ collapsed }: Props) {
                 onItemRename={handleItemRename}
                 onGroupRename={handleGroupRename}
                 pathname={pathname}
+                hrefWithWorkspace={hrefWithWorkspace}
               />
             ))}
           </SortableContext>
@@ -585,7 +593,11 @@ export function Sidebar({ collapsed }: Props) {
       </nav>
 
       {/* Spotify strip */}
-      <Link href="/listening-vault" className="spotify" title="Open Listening Vault">
+      <Link
+        href={hrefWithWorkspace("/listening-vault")}
+        className="spotify"
+        title="Open Listening Vault"
+      >
         <div className="sp-art">
           {spotify.connected && spotify.now.art ? (
             <Image

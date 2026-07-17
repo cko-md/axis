@@ -118,8 +118,7 @@ export function decideApproval(context: ActionContext): ApprovalDecision {
   const canDowngrade =
     context.explicitlyTrusted &&
     !combinatorialRisk &&
-    context.actionClass !== "FINANCIAL_EXECUTION" &&
-    context.actionClass !== "DESTRUCTIVE_ADMIN";
+    context.actionClass === "INTERNAL_WRITE";
 
   if (canDowngrade && requirement === "approval") {
     requirement = "auto";

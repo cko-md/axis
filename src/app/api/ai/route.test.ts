@@ -1,5 +1,76 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+import { ALLOWED_AI_MODES } from "@/lib/ai/modes";
 import { normalizePayload, parseJsonBody } from "@/lib/ai/request";
+
+const mocks = vi.hoisted(() => ({
+  getUser: vi.fn(),
+  maybeSingle: vi.fn(),
+  optionalEnv: vi.fn(),
+  getGeminiApiKey: vi.fn(),
+  redisRateLimit: vi.fn(),
+  memoryRateLimit: vi.fn(),
+  aiGenerate: vi.fn(),
+  aiJSON: vi.fn(),
+  captureRouteError: vi.fn(),
+}));
+
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: class Anthropic {},
+}));
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => ({
+    auth: { getUser: mocks.getUser },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: mocks.maybeSingle,
+        }),
+      }),
+    }),
+  }),
+}));
+vi.mock("@/lib/env", () => ({
+  optionalEnv: mocks.optionalEnv,
+  getGeminiApiKey: mocks.getGeminiApiKey,
+}));
+vi.mock("@/lib/ratelimit", () => ({
+  redisRateLimit: mocks.redisRateLimit,
+  memoryRateLimit: mocks.memoryRateLimit,
+}));
+vi.mock("@/lib/ai/router", () => ({
+  aiGenerate: mocks.aiGenerate,
+  aiJSON: mocks.aiJSON,
+}));
+vi.mock("@/lib/observability/captureRouteError", () => ({
+  captureRouteError: mocks.captureRouteError,
+}));
+
+import { POST } from "./route";
+
+function aiRequest(payload: Record<string, unknown>) {
+  return new NextRequest("http://axis.test/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.getUser.mockResolvedValue({
+    data: { user: { id: "user_1" } },
+    error: null,
+  });
+  mocks.maybeSingle.mockResolvedValue({
+    data: { ai_provider: "anthropic" },
+    error: null,
+  });
+  mocks.optionalEnv.mockReturnValue(undefined);
+  mocks.getGeminiApiKey.mockReturnValue(undefined);
+  mocks.redisRateLimit.mockResolvedValue({ success: true });
+  mocks.memoryRateLimit.mockReturnValue({ success: true });
+});
 
 describe("AI route request parsing", () => {
   it("rejects malformed outer payloads before mode handling", () => {
@@ -64,5 +135,147 @@ describe("AI route request parsing", () => {
   it("uses fallback context when nested body JSON is invalid", () => {
     expect(parseJsonBody<{ topics: string[] }>("{not json", { topics: [] })).toEqual({ topics: [] });
     expect(parseJsonBody<{ topics: string[] }>("{\"topics\":[\"dbs\"]}", { topics: [] })).toEqual({ topics: ["dbs"] });
+  });
+});
+
+describe("POST /api/ai response provenance", () => {
+  it("marks every no-key fallback as an explicit not-configured heuristic", async () => {
+    for (const mode of ALLOWED_AI_MODES) {
+      const response = await POST(aiRequest({
+        mode,
+        text: "Review the IRB amendment",
+        body: "{}",
+      }));
+
+      expect(response.status, mode).toBe(200);
+      expect((await response.json()).meta, mode).toEqual({
+        source: "heuristic",
+        degraded: true,
+        reason: "not_configured",
+      });
+    }
+    expect(mocks.aiJSON).not.toHaveBeenCalled();
+    expect(mocks.aiGenerate).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes model-authored cards and marks model success", async () => {
+    mocks.optionalEnv.mockReturnValue("configured");
+    mocks.aiGenerate.mockResolvedValue({
+      model: "claude/haiku",
+      text: JSON.stringify([
+        {
+          title: "  Open\u0000 agenda ",
+          body: " Review\n priorities. ",
+          actionLabel: " Review ",
+          actionPath: "/agenda/",
+          secretModelField: "must not cross boundary",
+        },
+        {
+          title: "Unsafe action",
+          body: "The content remains, but navigation is removed.",
+          actionLabel: "Open",
+          actionPath: "javascript:alert(1)",
+        },
+      ]),
+    });
+
+    const response = await POST(aiRequest({
+      mode: "deck-insights",
+      text: "Agenda context",
+      body: "{}",
+    }));
+
+    expect(await response.json()).toEqual({
+      cards: [
+        {
+          id: "0",
+          title: "Open agenda",
+          body: "Review priorities.",
+          actionLabel: "Review",
+          actionPath: "/agenda",
+        },
+        {
+          id: "1",
+          title: "Unsafe action",
+          body: "The content remains, but navigation is removed.",
+        },
+      ],
+      meta: {
+        source: "model",
+        degraded: false,
+        reason: null,
+      },
+    });
+  });
+
+  it("uses a provider-error heuristic and records only safe observability metadata", async () => {
+    const privateText = "private patient and research details";
+    mocks.optionalEnv.mockReturnValue("configured");
+    mocks.aiJSON.mockRejectedValue(new Error(`provider failed while processing ${privateText}`));
+
+    const response = await POST(aiRequest({
+      mode: "triage",
+      text: privateText,
+    }));
+    const body = await response.json();
+
+    expect(body.meta).toEqual({
+      source: "heuristic",
+      degraded: true,
+      reason: "provider_error",
+    });
+    expect(mocks.captureRouteError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "AI provider generation failed" }),
+      expect.objectContaining({
+        route: "ai",
+        operation: "generate",
+        area: "ai",
+        status: 502,
+        code: "PROVIDER_ERROR",
+        tags: expect.objectContaining({
+          mode: "triage",
+          degraded: true,
+          degradation_reason: "provider_error",
+        }),
+      }),
+    );
+    expect(JSON.stringify(mocks.captureRouteError.mock.calls)).not.toContain(privateText);
+  });
+
+  it("marks every provider-failure fallback as degraded", async () => {
+    mocks.optionalEnv.mockReturnValue("configured");
+    mocks.aiGenerate.mockRejectedValue(new Error("provider unavailable"));
+    mocks.aiJSON.mockRejectedValue(new Error("provider unavailable"));
+
+    for (const mode of ALLOWED_AI_MODES) {
+      const response = await POST(aiRequest({
+        mode,
+        text: "Private user content",
+        body: "{}",
+      }));
+
+      expect(response.status, mode).toBe(200);
+      expect((await response.json()).meta, mode).toEqual({
+        source: "heuristic",
+        degraded: true,
+        reason: "provider_error",
+      });
+    }
+  });
+
+  it("distinguishes provider rate limiting from a generic provider error", async () => {
+    mocks.optionalEnv.mockReturnValue("configured");
+    mocks.aiJSON.mockRejectedValue(new Error("provider returned 429 rate limit"));
+
+    const response = await POST(aiRequest({
+      mode: "capture",
+      text: "Follow up tomorrow",
+    }));
+
+    expect((await response.json()).meta).toEqual({
+      source: "heuristic",
+      degraded: true,
+      reason: "provider_rate_limited",
+    });
   });
 });

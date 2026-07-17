@@ -14,7 +14,7 @@
 | 2 | **IDOR** — verifying step-up on another user's approval | `loadApproval` + the update are scoped `user_id = auth.uid()`; the passkey lookup is scoped to the user + `credential_id`. | Safe. |
 | 3 | **Foreign credential** — asserting with someone else's passkey | Passkey must match `user_id = auth.uid()` AND `credential_id = response.id`. | Safe. |
 | 4 | **Challenge replay** | Challenge is one-time (deleted on use) and 5-min TTL. | Safe. |
-| 5 | **Confused-deputy across the user's own approvals** — a challenge minted for approval A used to verify approval B | Both are the same authenticated user, so not a privilege escalation, but weak binding. | **Hardened** — challenge now carries `approval_id`; verify requires the challenge to match this approval (migration `202607140200`). |
+| 5 | **Confused-deputy across the user's own approvals** — a challenge minted for approval A used to verify approval B | Both are the same authenticated user, so not a privilege escalation, but weak binding. | **Hardened** — challenge now carries `approval_id`; verify requires the challenge to match this approval (migration `20260714145829`). |
 | 6 | **Brute force / abuse of verify** | No throttle originally. | **Hardened** — per-user rate limit (10 / 10 min), matching the login passkey route. |
 | 7 | **User verification (biometric/PIN)** | `verifyAuthentication` uses `requireUserVerification: true`. | Correct — this is what makes it "step-up". |
 | 8 | **Cloned-authenticator detection** | Counter is updated from `authenticationInfo.newCounter`. | Correct. |

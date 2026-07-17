@@ -175,25 +175,25 @@ export function WorkoutDetailModal({ session, onClose, onToggleComplete }: Props
     } finally {
       setAiLoading(false);
     }
-  }, [session]);
+  }, [session, setLog]);
 
   const patchItem = useCallback(
     (idx: number, patch: Partial<RegimenItem>) =>
       setLog((l) =>
         l ? { ...l, items: l.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)) } : l,
       ),
-    [],
+    [setLog],
   );
 
   const removeItem = useCallback(
     (idx: number) =>
       setLog((l) => (l ? { ...l, items: l.items.filter((_, i) => i !== idx) } : l)),
-    [],
+    [setLog],
   );
 
   const addItem = useCallback(
     () => setLog((l) => (l ? { ...l, items: [...l.items, { name: "" }] } : l)),
-    [],
+    [setLog],
   );
 
   const saveLog = useCallback(async () => {
