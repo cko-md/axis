@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import * as Sentry from "@sentry/nextjs";
 import {
   cloneRoutineVersion,
   definitionFromJson,
@@ -52,12 +53,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const existing = await listUserVersions(supabase, user.id);
   const restored = cloneRoutineVersion(source, nextRoutineVersion(existing, source.routineKey), "active");
 
-  const { error: archiveError } = await supabase
+  const { data: archivedRows, error: archiveError } = await supabase
     .from("routine_versions")
     .update({ status: "archived", updated_at: new Date().toISOString() })
     .eq("user_id", user.id)
     .eq("routine_key", source.routineKey)
-    .eq("status", "active");
+    .eq("status", "active")
+    .select("id");
   if (archiveError) return NextResponse.json({ error: "ROUTINE_VERSION_RESTORE_FAILED" }, { status: 500 });
 
   const { data, error } = await supabase
@@ -74,7 +76,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     })
     .select(SELECT)
     .single();
-  if (error || !data) return NextResponse.json({ error: "ROUTINE_VERSION_RESTORE_FAILED" }, { status: 500 });
+  if (error || !data) {
+    const restoreIds = (archivedRows ?? []).map((row) => row.id);
+    const { error: rollbackError } = restoreIds.length > 0
+      ? await supabase
+          .from("routine_versions")
+          .update({ status: "active", updated_at: new Date().toISOString() })
+          .eq("user_id", user.id)
+          .in("id", restoreIds)
+      : { error: null };
+    Sentry.captureException(error ?? new Error("ROUTINE_VERSION_RESTORE_INSERT_FAILED"), {
+      tags: { area: "routines", operation: "restore_version" },
+      extra: { rollbackSucceeded: !rollbackError },
+    });
+    return NextResponse.json({ error: "ROUTINE_VERSION_RESTORE_FAILED" }, { status: 500 });
+  }
   return NextResponse.json({ version: rowToVersion(data) });
 }
 
