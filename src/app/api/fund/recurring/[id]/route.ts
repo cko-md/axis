@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 const VALID_STATUS = ["active", "cancelled", "irregular"];
 
@@ -23,6 +24,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/recurring/[id]", area: "fund" });
   return NextResponse.json({ recurring: data });
 }

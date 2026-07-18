@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 // ── DELETE /api/auth/mfa/unenroll ─────────────────────────────────────────────
 // Removes an enrolled MFA factor and updates user_auth_settings accordingly.
@@ -29,10 +30,12 @@ export async function DELETE(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message ?? "Failed to unenroll MFA factor" },
-      { status: 400 },
-    );
+    return redactRouteError(error, {
+      route: "auth/mfa/unenroll",
+      area: "auth",
+      status: 400,
+      message: "Failed to unenroll MFA factor",
+    });
   }
 
   // After unenrolling, check whether any other verified factors remain.

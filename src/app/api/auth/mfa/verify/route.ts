@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 // ── POST /api/auth/mfa/verify ──────────────────────────────────────────────────
 // Verifies an MFA challenge code. On success the factor is confirmed and
@@ -50,10 +51,12 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message ?? "MFA verification failed" },
-      { status: 400 },
-    );
+    return redactRouteError(error, {
+      route: "auth/mfa/verify",
+      area: "auth",
+      status: 400,
+      message: "MFA verification failed",
+    });
   }
 
   // Determine the factor type from the enrolled factors list and persist the

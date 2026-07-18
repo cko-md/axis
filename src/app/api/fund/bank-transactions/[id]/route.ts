@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 const PATCHABLE = [
   "custom_category",
@@ -93,6 +94,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/bank-transactions/[id]", area: "fund" });
   return NextResponse.json({ transaction: data });
 }
