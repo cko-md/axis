@@ -66,8 +66,8 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Exclude browser-only packages from the server bundle (SSR/prerendering)
-  serverExternalPackages: ["@simplewebauthn/browser"],
-  webpack(config) {
+  serverExternalPackages: ["@simplewebauthn/browser", "jsdom"],
+  webpack(config, { isServer }) {
     config.cache = false;
     config.ignoreWarnings = [
       ...(config.ignoreWarnings ?? []),
@@ -76,6 +76,17 @@ const nextConfig: NextConfig = {
     // Keep a native (non-WASM) digest to avoid intermittent wasm-hash crashes
     // observed in single-process webpack builds.
     config.output.hashFunction = "sha256";
+    // jsdom (used by the reader route via @mozilla/readability) ships a
+    // default-stylesheet.css it reads relative to __dirname; bundling it breaks
+    // `next build` page-data collection. Keep it external so it's require()d
+    // from node_modules at runtime (route pins runtime = 'nodejs').
+    if (isServer) {
+      const prev = config.externals;
+      config.externals = [
+        ...(Array.isArray(prev) ? prev : prev ? [prev] : []),
+        "jsdom",
+      ];
+    }
     return config;
   },
   images: {
