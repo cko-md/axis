@@ -17,13 +17,14 @@ interface StoredTokens {
 
 export async function getTokens(userId: string, provider: CalendarProvider): Promise<StoredTokens | null> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("calendar_connections")
     .select("access_token_enc, refresh_token_enc, expires_at, calendar_email")
     .eq("user_id", userId)
     .eq("provider", provider)
     .single();
 
+  if (error && error.code !== "PGRST116") throw error;
   if (!data) return null;
   const accessToken = decrypt(data.access_token_enc);
   if (!accessToken) return null;
@@ -52,7 +53,7 @@ export async function saveTokens(
   const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
   const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-  await supabase.from("calendar_connections").upsert(
+  const { error } = await supabase.from("calendar_connections").upsert(
     {
       user_id: userId,
       provider,
@@ -64,6 +65,7 @@ export async function saveTokens(
     },
     { onConflict: "user_id,provider" },
   );
+  if (error) throw error;
 }
 
 export async function deleteTokens(userId: string, provider: CalendarProvider): Promise<PostgrestError | null> {
