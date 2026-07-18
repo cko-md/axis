@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "This page is too large for reader view." }, { status: 413 });
     }
 
-    const article = extractReadableArticle(html, upstream.url || url.href);
+    const article = await extractReadableArticle(html, upstream.url || url.href);
     if (!article) {
       return NextResponse.json({ error: "No readable article content was found." }, { status: 422 });
     }

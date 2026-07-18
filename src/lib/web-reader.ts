@@ -1,6 +1,9 @@
 import DOMPurify from "isomorphic-dompurify";
-import { JSDOM } from "jsdom";
-import { Readability } from "@mozilla/readability";
+
+// jsdom and @mozilla/readability are imported lazily inside the function so this
+// module can be evaluated at build time (Next.js "collect page data") without
+// eagerly loading jsdom's filesystem assets (default-stylesheet.css), which
+// breaks the server bundle. They load on first request instead.
 
 export type ReaderArticle = {
   title: string;
@@ -16,7 +19,10 @@ const ALLOWED_TAGS = [
   "tbody", "tr", "th", "td", "figure", "figcaption",
 ];
 
-export function extractReadableArticle(html: string, url: string): ReaderArticle | null {
+export async function extractReadableArticle(html: string, url: string): Promise<ReaderArticle | null> {
+  const { JSDOM } = await import("jsdom");
+  const { Readability } = await import("@mozilla/readability");
+
   const dom = new JSDOM(html, { url });
   const parsed = new Readability(dom.window.document, {
     maxElemsToParse: 50_000,

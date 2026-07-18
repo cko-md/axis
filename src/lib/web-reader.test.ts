@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { extractReadableArticle } from "@/lib/web-reader";
 
 describe("extractReadableArticle", () => {
-  it("extracts article content and resolves relative URLs", () => {
-    const article = extractReadableArticle(`
+  it("extracts article content and resolves relative URLs", async () => {
+    const article = await extractReadableArticle(`
       <!doctype html><html><head><title>Axis Test</title></head><body>
         <nav>Navigation noise</nav>
         <main><article>
@@ -19,8 +19,8 @@ describe("extractReadableArticle", () => {
     expect(article?.html).toContain("https://example.com/more");
   });
 
-  it("sanitizes scripts, event handlers, and embedded frames", () => {
-    const article = extractReadableArticle(`
+  it("sanitizes scripts, event handlers, and embedded frames", async () => {
+    const article = await extractReadableArticle(`
       <html><head><title>Unsafe article</title></head><body><article>
         <h1>Unsafe article</h1>
         <p>${"Enough safe content for extraction. ".repeat(10)}</p>
@@ -34,7 +34,7 @@ describe("extractReadableArticle", () => {
     expect(article?.html).not.toContain("onerror");
   });
 
-  it("returns null when there is no meaningful readable content", () => {
-    expect(extractReadableArticle("<html><body><p>Short.</p></body></html>", "https://example.com")).toBeNull();
+  it("returns null when there is no meaningful readable content", async () => {
+    expect(await extractReadableArticle("<html><body><p>Short.</p></body></html>", "https://example.com")).toBeNull();
   });
 });
