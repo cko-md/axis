@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/crypto";
+import * as Sentry from "@sentry/nextjs";
 
 /**
  * Plaid access-token storage, modeled on src/lib/calendar/tokens.ts.
@@ -22,7 +23,7 @@ const PROVIDER = "plaid";
  */
 export async function getPlaidAccessToken(userId: string): Promise<string | null> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("fund_connections")
     .select("access_token_enc")
     .eq("user_id", userId)
@@ -32,6 +33,12 @@ export async function getPlaidAccessToken(userId: string): Promise<string | null
     .limit(1)
     .maybeSingle();
 
+  if (error) {
+    Sentry.captureException(error, {
+      tags: { area: "fund", provider: "plaid", operation: "load_token" },
+    });
+    throw error;
+  }
   if (!data?.access_token_enc) return null;
   return decrypt(data.access_token_enc);
 }
@@ -53,7 +60,9 @@ export async function savePlaidConnection(
 ): Promise<boolean> {
   const accessEnc = encrypt(accessToken);
   if (!accessEnc) {
-    console.error("[plaidTokens] encrypt() returned null — PASSKEY_ENCRYPTION_KEY missing/invalid");
+    Sentry.captureException(new Error("Plaid token encryption failed"), {
+      tags: { area: "fund", provider: "plaid", operation: "save_token", code: "encryption_failed" },
+    });
     return false;
   }
 
@@ -72,7 +81,9 @@ export async function savePlaidConnection(
   );
 
   if (error) {
-    console.error("[plaidTokens] savePlaidConnection upsert failed:", error.message);
+    Sentry.captureException(error, {
+      tags: { area: "fund", provider: "plaid", operation: "save_token" },
+    });
     return false;
   }
   return true;
@@ -81,10 +92,16 @@ export async function savePlaidConnection(
 /** Marks a Plaid connection as revoked (soft delete, mirrors status check constraint). */
 export async function revokePlaidConnection(userId: string, itemId: string): Promise<void> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("fund_connections")
     .update({ status: "revoked", updated_at: new Date().toISOString() })
     .eq("user_id", userId)
     .eq("provider", PROVIDER)
     .eq("item_id", itemId);
+  if (error) {
+    Sentry.captureException(error, {
+      tags: { area: "fund", provider: "plaid", operation: "revoke_token" },
+    });
+    throw error;
+  }
 }
