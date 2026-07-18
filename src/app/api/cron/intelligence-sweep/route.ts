@@ -4,6 +4,7 @@ import { scanPlatformForUser } from "@/lib/signals/scan";
 import { scanForObjectives } from "@/lib/objectives/scan";
 import { scanForNewPapers } from "@/lib/literature/watch";
 import { optionalEnv } from "@/lib/env";
+import * as Sentry from "@sentry/nextjs";
 
 const DEBRIEF_STALE_DAYS = 6;
 const OBJECTIVE_DEDUP_WINDOW_DAYS = 30;
@@ -45,12 +46,23 @@ export async function POST(req: NextRequest) {
   // Enumerate all users via the admin auth API (service-role only). Paginate
   // defensively — listUsers defaults to 50/page and this account will likely
   // never have that many, but a personal-OS deployment could grow.
+  let failures = 0;
+  const sweepFailure = (operation: string) => {
+    failures += 1;
+    Sentry.captureMessage("Intelligence sweep operation failed", {
+      level: "error",
+      tags: { area: "cron", route: "/api/cron/intelligence-sweep", operation },
+    });
+    return { error: "SWEEP_OPERATION_FAILED", operation };
+  };
+
   const userIds: string[] = [];
   let page = 1;
   for (;;) {
     const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
     if (error) {
-      return NextResponse.json({ error: `listUsers failed: ${error.message}` }, { status: 500 });
+      sweepFailure("list_users");
+      return NextResponse.json({ error: "SWEEP_USER_ENUMERATION_FAILED" }, { status: 502 });
     }
     userIds.push(...data.users.map((u) => u.id));
     if (data.users.length < 200) break;
@@ -65,8 +77,8 @@ export async function POST(req: NextRequest) {
     // (a) Platform scan — surfaces new actionable signals from tasks context.
     try {
       userResult.platform_scan = await scanPlatformForUser(userId, supabase);
-    } catch (e) {
-      userResult.platform_scan = { error: String(e) };
+    } catch {
+      userResult.platform_scan = sweepFailure("platform_scan");
     }
 
     // (b) Objectives scan — scanForObjectives only returns suggestions (same as
@@ -78,14 +90,19 @@ export async function POST(req: NextRequest) {
     try {
       const { results: suggestions, error: scanError } = await scanForObjectives(userId, supabase);
       if (scanError) {
-        userResult.objectives_scan = { error: scanError, inserted: 0 };
+        userResult.objectives_scan = sweepFailure("objectives_scan");
       } else {
         const windowStart = new Date(Date.now() - OBJECTIVE_DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
-        const { data: recentSignals } = await supabase
+        const { data: recentSignals, error: recentSignalsError } = await supabase
           .from("signals")
           .select("title")
           .eq("user_id", userId)
           .gte("created_at", windowStart);
+        if (recentSignalsError) {
+          userResult.objectives_scan = sweepFailure("load_objective_signal_history");
+          results[userId] = userResult;
+          continue;
+        }
         const recentLower = (recentSignals ?? []).map((s) => (s.title as string).toLowerCase());
 
         let inserted = 0;
@@ -100,20 +117,22 @@ export async function POST(req: NextRequest) {
             source: "Objectives",
             signal_type: "fyi",
           });
-          if (!error) {
+          if (error) {
+            sweepFailure("insert_objective_signal");
+          } else {
             inserted += 1;
             recentLower.push(targetLower);
           }
         }
         userResult.objectives_scan = { suggested: suggestions.length, inserted };
       }
-    } catch (e) {
-      userResult.objectives_scan = { error: String(e) };
+    } catch {
+      userResult.objectives_scan = sweepFailure("objectives_scan");
     }
 
     // (c) Debrief staleness — only nudge users who have used the feature before.
     try {
-      const { data: lastDebrief } = await supabase
+      const { data: lastDebrief, error: debriefReadError } = await supabase
         .from("notes")
         .select("created_at")
         .eq("user_id", userId)
@@ -121,6 +140,11 @@ export async function POST(req: NextRequest) {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (debriefReadError) {
+        userResult.debrief = sweepFailure("load_debrief");
+        results[userId] = userResult;
+        continue;
+      }
 
       if (!lastDebrief) {
         userResult.debrief = { inserted: false, reason: "no debrief notes yet — skipped" };
@@ -134,13 +158,13 @@ export async function POST(req: NextRequest) {
             source: "Debrief",
             signal_type: "action",
           });
-          userResult.debrief = error ? { inserted: false, reason: error.message } : { inserted: true };
+          userResult.debrief = error ? sweepFailure("insert_debrief_signal") : { inserted: true };
         } else {
           userResult.debrief = { inserted: false, reason: `last debrief ${Math.floor(ageDays)}d ago — not stale yet` };
         }
       }
-    } catch (e) {
-      userResult.debrief = { error: String(e) };
+    } catch {
+      userResult.debrief = sweepFailure("debrief_scan");
     }
 
     // (d) Literature paper-watch — surfaces new papers matching the user's
@@ -161,10 +185,10 @@ export async function POST(req: NextRequest) {
           source: "Literature",
           signal_type: "fyi",
         });
-        userResult.literature_watch = error ? { inserted: false, reason: error.message } : { inserted: true, newPapers: newPapers.length };
+        userResult.literature_watch = error ? sweepFailure("insert_literature_signal") : { inserted: true, newPapers: newPapers.length };
       }
-    } catch (e) {
-      userResult.literature_watch = { error: String(e) };
+    } catch {
+      userResult.literature_watch = sweepFailure("literature_scan");
     }
 
     // (e) Pipeline deadline watch — nudges when a conference's abstract is due
@@ -174,11 +198,16 @@ export async function POST(req: NextRequest) {
     // per-conference dedup below means this can only ever fire once — better
     // a one-time late nudge than silently never notifying about a missed date.
     try {
-      const { data: conferences } = await supabase
+      const { data: conferences, error: conferenceError } = await supabase
         .from("conferences")
         .select("id, name, abstract_due_date")
         .eq("user_id", userId)
         .not("abstract_due_date", "is", null);
+      if (conferenceError) {
+        userResult.pipeline_deadlines = sweepFailure("load_pipeline_deadlines");
+        results[userId] = userResult;
+        continue;
+      }
 
       const upcoming = (conferences ?? []).filter((c) => {
         const due = new Date(c.abstract_due_date as string).getTime();
@@ -188,7 +217,7 @@ export async function POST(req: NextRequest) {
 
       let inserted = 0;
       for (const c of upcoming) {
-        const { data: existing } = await supabase
+        const { data: existing, error: existingError } = await supabase
           .from("signals")
           .select("id")
           .eq("user_id", userId)
@@ -196,6 +225,10 @@ export async function POST(req: NextRequest) {
           .contains("metadata", { conference_id: c.id })
           .limit(1)
           .maybeSingle();
+        if (existingError) {
+          sweepFailure("check_pipeline_signal");
+          continue;
+        }
         if (existing) continue;
 
         const isOverdue = new Date(c.abstract_due_date as string).getTime() < Date.now();
@@ -207,15 +240,19 @@ export async function POST(req: NextRequest) {
           signal_type: "action",
           metadata: { conference_id: c.id },
         });
-        if (!error) inserted += 1;
+        if (error) sweepFailure("insert_pipeline_signal");
+        else inserted += 1;
       }
       userResult.pipeline_deadlines = { inserted };
-    } catch (e) {
-      userResult.pipeline_deadlines = { error: String(e) };
+    } catch {
+      userResult.pipeline_deadlines = sweepFailure("pipeline_scan");
     }
 
     results[userId] = userResult;
   }
 
-  return NextResponse.json({ ok: true, results });
+  return NextResponse.json(
+    { ok: failures === 0, failures, results },
+    { status: failures === 0 ? 200 : 502 },
+  );
 }

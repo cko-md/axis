@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAndParse } from "@/lib/feeds/rss";
 import { optionalEnv } from "@/lib/env";
+import * as Sentry from "@sentry/nextjs";
 
 const CACHE_FRESH_HOURS = 20;
 
@@ -49,6 +50,12 @@ export async function POST(req: NextRequest) {
   }
 
   const urls = new Set<string>([...VITALITY_RUN_FEEDS, ...ATELIER_FEEDS]);
+  let discoveryFailed = false;
+  const reportFailure = (operation: string, error: unknown) => {
+    Sentry.captureException(error instanceof Error ? error : new Error("Feed digest operation failed"), {
+      tags: { area: "cron", route: "/api/cron/feed-digest", operation },
+    });
+  };
 
   // Paginate defensively — a personal-OS deployment could grow past one page
   // of subscribed feeds across all users (same caution as intelligence-sweep's
@@ -57,17 +64,22 @@ export async function POST(req: NextRequest) {
   const PAGE_SIZE = 1000;
   for (;;) {
     const { data, error } = await supabase.from("briefing_feeds").select("url").range(from, from + PAGE_SIZE - 1);
-    if (error || !data) break;
+    if (error || !data) {
+      discoveryFailed = true;
+      reportFailure("discover_subscribed_feeds", error ?? new Error("Feed discovery returned no data"));
+      break;
+    }
     data.forEach((row) => urls.add(row.url as string));
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
 
   const freshCutoff = new Date(Date.now() - CACHE_FRESH_HOURS * 3600_000).toISOString();
-  const { data: cachedRows } = await supabase
+  const { data: cachedRows, error: cacheReadError } = await supabase
     .from("feed_cache")
     .select("feed_url, fetched_at")
     .in("feed_url", [...urls]);
+  if (cacheReadError) reportFailure("read_feed_cache", cacheReadError);
   const freshUrls = new Set(
     (cachedRows ?? []).filter((r) => (r.fetched_at as string) > freshCutoff).map((r) => r.feed_url as string),
   );
@@ -90,5 +102,9 @@ export async function POST(req: NextRequest) {
     else updated += 1;
   }
 
-  return NextResponse.json({ ok: true, totalFeeds: urls.size, alreadyFresh: freshUrls.size, updated, failed });
+  const failures = failed + (discoveryFailed ? 1 : 0) + (cacheReadError ? 1 : 0);
+  return NextResponse.json(
+    { ok: failures === 0, totalFeeds: urls.size, alreadyFresh: freshUrls.size, updated, failed: failures },
+    { status: failures === 0 ? 200 : 502 },
+  );
 }
