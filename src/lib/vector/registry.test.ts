@@ -20,9 +20,10 @@ describe("VECTOR game registry", () => {
     expect(VECTOR_GAME_REGISTRY).toHaveLength(9);
   });
 
-  it("keeps every game honestly planned and disabled in Wave 15.2", () => {
-    expect(VECTOR_GAME_LOADERS).toEqual({});
+  it("keeps every remaining game honestly planned and disabled after Wave 15.3", () => {
+    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual(["second-sense"]);
     for (const game of VECTOR_GAME_REGISTRY) {
+      if (game.slug === "second-sense") continue;
       expect(game.status).toBe("planned");
       expect(game.version).toBe("0.0.0");
       expect(game.cover.status).toBe("planned");
@@ -34,6 +35,25 @@ describe("VECTOR game registry", () => {
       expect(game.audio.channels).toEqual([]);
       expect(game.availabilityReason).toMatch(/planned/i);
     }
+  });
+
+  it("ships Second Sense as the first complete, available VECTOR title (Wave 15.3)", () => {
+    const secondSense = getVectorGame("second-sense");
+    expect(secondSense?.status).toBe("available");
+    expect(secondSense?.version).toBe("1.0.0");
+    expect(secondSense?.loaderKey).toBe("second-sense");
+    expect(secondSense?.engine).toBe("native");
+    expect(secondSense?.cover.status).toBe("ready");
+    expect(secondSense?.preview.status).toBe("ready");
+    expect(secondSense?.offline.available).toBe(true);
+    expect(secondSense?.offline.assetIds.length).toBeGreaterThan(0);
+    expect(secondSense?.offline.estimatedBytes).toBeGreaterThan(0);
+    expect(secondSense?.save).toEqual({
+      local: true,
+      cloud: true,
+      slots: "single",
+      deterministicSeed: true,
+    });
   });
 
   it("validates without importing any loader into the registry", () => {
@@ -71,7 +91,10 @@ describe("VECTOR game registry", () => {
   });
 
   it("rejects duplicate, impossible, and falsely available manifests", () => {
-    const base = VECTOR_GAME_REGISTRY[0];
+    // Use a still-planned game as the base so this generic-badness fixture
+    // stays decoupled from Second Sense's real (now "available", ready
+    // artwork) manifest shape.
+    const base = VECTOR_GAME_REGISTRY.find((game) => game.slug === "brickrise")!;
     const badAvailable: VectorGameManifest = {
       ...base,
       status: "available",
@@ -86,7 +109,7 @@ describe("VECTOR game registry", () => {
       },
     };
     const issues = getVectorRegistryIssues([badAvailable, badAvailable], {
-      "second-sense": "three",
+      brickrise: "three",
     });
     const codes = issues.map((issue) => issue.code);
 
@@ -109,8 +132,13 @@ describe("VECTOR game registry", () => {
   });
 
   it("fails visibly when a planned game has no runtime loader", async () => {
-    await expect(loadVectorGame("second-sense")).rejects.toBeInstanceOf(
+    await expect(loadVectorGame("brickrise")).rejects.toBeInstanceOf(
       VectorGameLoaderUnavailableError,
     );
+  });
+
+  it("loads the real Second Sense game module through its route-isolated loader", async () => {
+    const gameModule = await loadVectorGame("second-sense");
+    expect(typeof gameModule.createGame).toBe("function");
   });
 });

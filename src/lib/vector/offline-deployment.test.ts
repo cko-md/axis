@@ -25,8 +25,47 @@ describe("VECTOR offline deployment mapping", () => {
       schemaVersion: 1,
       buildId: "fixture-build",
       games: [{
+        gameId: "brickrise",
+        gameVersion: "1.0.0",
+        buildId: "fixture-build",
+        manifestUrl: "/vector-assets/manifests/brickrise-fixture-build.json",
+        manifestSha256: "a".repeat(64),
+        offlineEntryUrl: "/vector-assets/offline/brickrise.html",
+        estimatedBytes: 100,
+      }],
+    }, BASE)).toEqual({
+      ok: false,
+      error: "VECTOR_OFFLINE_BUILD_MAP_REGISTRY_MISMATCH",
+    });
+  });
+
+  it("accepts a genuine Second Sense deployment record (Wave 15.3, the first available+offline title)", () => {
+    const parsed = parseVectorOfflineBuildMap({
+      schemaVersion: 1,
+      buildId: "fixture-build",
+      games: [{
         gameId: "second-sense",
         gameVersion: "1.0.0",
+        buildId: "fixture-build",
+        manifestUrl: "/vector-assets/manifests/second-sense-fixture-build.json",
+        manifestSha256: "a".repeat(64),
+        offlineEntryUrl: "/vector-assets/offline/second-sense.html",
+        estimatedBytes: 100,
+      }],
+    }, BASE);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(indexVectorOfflineDeployments(parsed.map)["second-sense"]?.gameVersion).toBe("1.0.0");
+    }
+  });
+
+  it("still rejects a deployment record whose declared version does not match the registry", () => {
+    expect(parseVectorOfflineBuildMap({
+      schemaVersion: 1,
+      buildId: "fixture-build",
+      games: [{
+        gameId: "second-sense",
+        gameVersion: "9.9.9",
         buildId: "fixture-build",
         manifestUrl: "/vector-assets/manifests/second-sense-fixture-build.json",
         manifestSha256: "a".repeat(64),

@@ -1,0 +1,33 @@
+<svg viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ss-cover-title">
+  <title id="ss-cover-title">A radial timing dial artwork for Second Sense</title>
+  <defs>
+    <radialGradient id="ss-cover-bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#1b2030"/>
+      <stop offset="100%" stop-color="#0a0c12"/>
+    </radialGradient>
+    <linearGradient id="ss-cover-sweep" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0c388"/>
+      <stop offset="100%" stop-color="#7fb0ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#ss-cover-bg)"/>
+  <g transform="translate(480,270)">
+    <circle r="210" fill="none" stroke="#2a2f3f" stroke-width="2"/>
+    <circle r="180" fill="none" stroke="#33384a" stroke-width="14"/>
+    <path d="M 0 -180 A 180 180 0 1 1 -127 127" fill="none" stroke="url(#ss-cover-sweep)" stroke-width="14" stroke-linecap="round"/>
+    <g stroke="#454b60" stroke-width="3">
+      <line x1="0" y1="-198" x2="0" y2="-186"/>
+      <line x1="0" y1="198" x2="0" y2="186"/>
+      <line x1="-198" y1="0" x2="-186" y2="0"/>
+      <line x1="198" y1="0" x2="186" y2="0"/>
+      <line x1="-140" y1="-140" x2="-131.5" y2="-131.5"/>
+      <line x1="140" y1="-140" x2="131.5" y2="-131.5"/>
+      <line x1="-140" y1="140" x2="-131.5" y2="131.5"/>
+      <line x1="140" y1="140" x2="131.5" y2="131.5"/>
+    </g>
+    <circle r="96" fill="#12141c" stroke="#e0c388" stroke-width="2" opacity="0.9"/>
+    <circle r="8" fill="#e0c388"/>
+  </g>
+  <text x="60" y="480" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" letter-spacing="3" fill="#8f8a7d">SECOND SENSE</text>
+  <text x="60" y="500" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#5c584d">MEASURE TIME WITHOUT SEEING IT</text>
+</svg>

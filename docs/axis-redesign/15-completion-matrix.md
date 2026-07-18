@@ -71,36 +71,67 @@ gates.
 |---|---:|---|---|
 | `/vector`, `/vector/[game]`, Labs nav, typed registry, runtime, persistence/sync, shared pause/settings/controls/audio/offline UI | 234–251 | partial | Wave 15.2 implementation, focused/full unit evidence, typecheck, lint, local SQL, and source-complete build evidence are recorded in `.logs/vector-envoys/wave-15.2-platform.md`; hosted preview remains `BLOCKED` |
 | Lobby featured actions, library metadata, Continue/pending/conflict rail, utility controls, detail view; every control works | 253–306 | partial | Truthful planned lobby and authenticated browser evidence exist; two rerun cases exposed local Supabase transport instability through the visible fail-closed state |
-| Complete manifest fields, lifecycle, private-safe events, dynamic chunks, justified/measured engines | 308–360 | partial | Registry/runtime/telemetry/disposal tests and local bundle evidence exist; no engine is installed in this platform wave; real game cold launch remains Wave 15.3 |
-| Binding game order and one complete game before next | 582–599 | open | Sequential wave commits/logs |
+| Complete manifest fields, lifecycle, private-safe events, dynamic chunks, justified/measured engines | 308–360 | partial | Registry/runtime/telemetry/disposal tests and local bundle evidence exist; Second Sense (native DOM/Canvas, Wave 15.3) is the first installed engine, route-isolated via `src/lib/vector/loaders.ts`'s dynamic import; the remaining eight games are still unengined |
+| Binding game order and one complete game before next | 582–599 | partial | Second Sense (Wave 15.3) is complete and shipped first per the binding order; 8 titles remain |
 
 Full title contracts are preserved in `docs/vector/PLAN.md` under **Binding
-title-specific acceptance**. Completion remains open for:
+title-specific acceptance**. Second Sense (source 367–391) is **complete** —
+see the dedicated table below. Completion remains open for:
 
-1. Second Sense (source 367–391)
-2. Brickrise, including mandatory Phaser (413–430)
-3. Time to Fly (431–453)
-4. Paper Glider (455–477)
-5. Envoy Arena (479–504)
-6. Phantasy Axis (529–552)
-7. Biome Lab (506–527)
-8. MiniTown (554–580)
-9. Neon Rift (393–411)
-10. cross-game controller/offline/achievement polish (595–596)
+1. Brickrise, including mandatory Phaser (413–430)
+2. Time to Fly (431–453)
+3. Paper Glider (455–477)
+4. Envoy Arena (479–504)
+5. Phantasy Axis (529–552)
+6. Biome Lab (506–527)
+7. MiniTown (554–580)
+8. Neon Rift (393–411)
+9. cross-game controller/offline/achievement polish (595–596)
 
 Each title needs its separate wave commit, game-specific unit coverage, final
 mechanic cover, interactive play log, mobile/desktop evidence, offline/save/sync,
 console-error capture, sustained-play trace, and disposal proof.
 
+## Wave 15.3: Second Sense (complete)
+
+| Requirement (PLAN.md source 194–206) | Status | Evidence |
+|---|---|---|
+| Present five durations, ask reproduction from memory | complete | `src/lib/vector/games/second-sense/game.ts` five-trial loop; `game.test.ts` full-run integration test |
+| Hide timer during reproduction | complete | Input state machine `demonstrating -> armed -> holding` (`inputState.ts`); dial redraws with no numeric readout while armed/holding |
+| Score both absolute and proportional error | complete | `scoring.ts` (`absoluteErrorMs`, `proportionalError`, `aggregateSecondSenseTrials`); `scoring.test.ts` (8 unit tests incl. empty-run refusal) |
+| Easy and Hard modes | complete | `rng.ts` `SECOND_SENSE_DIFFICULTY_CONFIG` (1.5–4s / 0.5–2.2s); documented in-UI at mode select |
+| Responsive press-and-hold or start/stop interaction | complete | One normalized `inputState.ts` reducer driving keyboard (Space), pointer, and touch (via Pointer Events) in `game.ts` |
+| Satisfying, restrained timing feedback | complete | Canvas dial sweep + reveal comparison; reduced-motion quantizes to 10 discrete steps rather than a continuous sweep (semantics — the real-time interval — unchanged) |
+| Solo mode and deterministic daily challenge | complete | `secondSenseDailyChallengeKey`/`secondSenseSeedForChallenge` (UTC-day contract, explicitly tested against a timezone-crossing date in `rng.test.ts`); practice uses a fresh `crypto.randomUUID()` seed per run |
+| Local best and cloud-synced best | complete | `recordScore`/`getBestScore` added to `VectorGameCreateContext` (`types.ts`) and threaded through `GameRuntimeHost` -> `VectorGameShell` -> `VectorGamePlatform` -> `useVectorPlatform.recordScore`/`getBestScore`, which call the existing `enqueueEvent`/`loadProfile` persistence path (`sync_vector_save`/`apply_vector_event` RPCs) — no schema change |
+| Optional async challenge link | not built | Explicitly optional per PLAN.md ("only after base platform is sound"); out of scope this wave |
+| Keyboard, pointer, and touch | complete | Space key, Pointer Events (mouse/touch unified), ≥44px target sizing in CSS |
+| No copied Dialed branding, layout, effects, or text | complete | Original dial-motif SVG artwork (`public/vector-assets/second-sense/*.svg`), original copy, no third-party asset reuse |
+| Full state set (loading/local-only/pending/syncing/synced/conflict/quota/unavailable/error) | complete | `VectorSyncState` + `VectorLocalDataState` cover this at the shared platform layer (`VectorSyncBadge`, `VectorGameShell`, `VectorGamePlatform`); Second Sense adds no separate state model, reusing the shared one |
+| Bounded autosave; refresh persistence | complete | `serialize()`/`hydrate()` round-trip trial index + results; `game.test.ts` "serializes and rehydrates mid-run state" |
+| Offline install + cold launch (manifest 0→1) | complete | `config/vector-offline-packages.json` flips `second-sense` to `enabled:true`; real production build verified a 5-asset, 285,952-byte manifest (webpack loader chunk + standalone `offline-bootstrap.ts` esbuild bundle + offline HTML + both SVGs) — see `docs/vector/OFFLINE_PACKAGES.md` |
+| Reconnect push/pull/merge | complete (reuses existing platform contract) | Offline bootstrap and online path share the same `"axis-vector"` IndexedDB DB and owner key; a save made offline is picked up by the existing reconnect flow with no separate data silo |
+| Route-isolated loader out of lobby bundle | complete | `src/lib/vector/loaders.ts` dynamic `import()` with `webpackChunkName: "second-sense"`; `registry.test.ts` asserts the registry/lobby import graphs stay loader-free |
+| No fake anything | complete | Every score, save, and sync state is real; "Personal best is unavailable in this session" shown honestly if `getBestScore` is ever unwired for a future host |
+
+Unit evidence: 4 new test files (`rng.test.ts`, `scoring.test.ts`,
+`inputState.test.ts`, `game.test.ts`) plus updates to `registry.test.ts` and
+`offline-deployment.test.ts` — 30 new/changed test cases, all passing
+alongside the full 1298-test suite. Browser/interactive play evidence and the
+authenticated Playwright spec update (`tests/e2e/vector-authenticated.spec.ts`)
+are recorded but **NOT executable in this environment** (no local Supabase
+stack) — the exact-head `e2e-authenticated` CI job is the actual gate; treat
+its result as authoritative, not this local reasoning.
+
 ## Offline-first save and sync
 
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|
-| Network-independent gameplay; typed IndexedDB, versioned snapshots/outbox/idempotency/device/game/save versions/revisions/checksum/timestamps/sync state; no save localStorage | 605–625 | partial | Owner-partitioned Dexie repository and offline tests exist; first real game integration remains Wave 15.3 |
-| Save on checkpoints, completion, bounded interval, pause, visibilitychange, pagehide; not beforeunload-only | 627–635 | partial | Shared runtime lifecycle and finalization-barrier tests exist; real-game checkpoint proof remains Wave 15.3 |
-| Additive owner-RLS schema; Zod and payload limits; compact seed+deltas | 637–652 | partial | Local migration, generated types, API/RLS/grant/concurrency tests exist; production Supabase application/readback is explicitly blocked |
+| Network-independent gameplay; typed IndexedDB, versioned snapshots/outbox/idempotency/device/game/save versions/revisions/checksum/timestamps/sync state; no save localStorage | 605–625 | complete for Second Sense; partial overall | Owner-partitioned Dexie repository, offline tests, and now a real first-game integration (Wave 15.3) exist; the remaining 8 titles still need their own integration |
+| Save on checkpoints, completion, bounded interval, pause, visibilitychange, pagehide; not beforeunload-only | 627–635 | complete for Second Sense; partial overall | Shared runtime lifecycle/finalization-barrier tests plus `game.ts`'s pause-cancels-in-flight-hold behavior and `game.test.ts` coverage; remaining titles still need their own proof |
+| Additive owner-RLS schema; Zod and payload limits; compact seed+deltas | 637–652 | partial | No schema change was needed for Second Sense (existing `score`/`achievement`/`counter`/`settings` event kinds already expressed its deterministic score); local migration, generated types, API/RLS/grant/concurrency tests exist; production Supabase application/readback is explicitly blocked |
 | Type-specific deterministic merge; preserve both campaigns and original failed migrations; never discard newer local | 654–670 | partial | Pure merge, local/cloud CAS, conflict, corruption, and migration-quarantine tests/UI exist; real-game migration proof remains open |
-| Per-game offline install for shell/chunk/fonts/cover/assets/minimal route; estimate/install/update/remove/quota/pending UI | 672–692 | partial | Protocol-v3 worker/generator/deployment tests and UI exist; cold launch of an enabled game remains Wave 15.3 |
+| Per-game offline install for shell/chunk/fonts/cover/assets/minimal route; estimate/install/update/remove/quota/pending UI | 672–692 | complete for Second Sense; partial overall | Protocol-v3 worker/generator/deployment tests and UI exist; a real production build now verifies a real 5-asset offline manifest for Second Sense (manifest 0→1); the remaining 8 titles are still disabled |
 | Reconnect flush/pull/merge with honest Synced/Pending/Conflict/Error/Local Only | 693–697 | partial | Sync orchestrator and partial/truncation/owner-change tests exist; final browser network-transition rerun is pending |
 
 ## Envoy core

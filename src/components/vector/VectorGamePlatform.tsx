@@ -206,6 +206,17 @@ export function VectorGamePlatform({ gameId }: { gameId: VectorGameSlug }) {
             code,
           });
         }}
+        onRecordScore={async (input) => {
+          if (platform.ownerEpoch === null) return;
+          try {
+            await platform.recordScore(manifest.id, input);
+          } catch {
+            // Failure is already surfaced via platform.operationError and a
+            // toast (see the effect above); a score that fails to record
+            // locally must not crash the game's own completion screen.
+          }
+        }}
+        onGetBestScore={(input) => platform.getBestScore(manifest.id, input.mode, input.challengeId)}
         onSave={async (save, reason) => {
           if (platform.ownerEpoch === null) {
             throw new Error("VECTOR_OWNER_CHANGED");

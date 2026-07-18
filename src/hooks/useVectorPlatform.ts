@@ -14,6 +14,7 @@ import {
   openVectorRepository,
   VectorPersistenceError,
   vectorAnonymousOwner,
+  vectorScoreKey,
   type VectorMigrationFailureReason,
   type VectorPersistence,
   type VectorSaveAncestor,
@@ -35,6 +36,7 @@ import {
   DEFAULT_VECTOR_RUNTIME_SETTINGS,
   VECTOR_GAME_SLUGS,
   type VectorGamePersistenceSummary,
+  type VectorGameScoreInput,
   type VectorGameSlug,
   type VectorLocalDataState,
   type VectorRuntimeSettings,
@@ -981,6 +983,56 @@ export function useVectorPlatform({
     }
   }, [refresh]);
 
+  const recordScore = useCallback(async (
+    gameId: VectorGameSlug,
+    input: VectorGameScoreInput,
+  ): Promise<void> => {
+    const repository = repositoryRef.current;
+    const ownerKey = ownerKeyRef.current;
+    if (!repository || !ownerKey) throw new Error("VECTOR_REPOSITORY_NOT_READY");
+    try {
+      await repository.enqueueEvent(ownerKey, gameId, {
+        kind: "score",
+        idempotencyKey: crypto.randomUUID(),
+        localRevision: Date.now(),
+        occurredAt: new Date().toISOString(),
+        payload: {
+          mode: input.mode,
+          challengeId: input.challengeId,
+          value: input.value,
+        },
+      });
+      if (mountedRef.current && ownerKeyRef.current === ownerKey) {
+        await refresh();
+      }
+    } catch (error) {
+      const code = vectorPlatformErrorCode(error);
+      capturePlatformError("record_score", error, code);
+      if (mountedRef.current && ownerKeyRef.current === ownerKey) {
+        setView((current) => ({ ...current, operationError: code }));
+      }
+      throw error;
+    }
+  }, [refresh]);
+
+  const getBestScore = useCallback(async (
+    gameId: VectorGameSlug,
+    mode: string,
+    challengeId: string | null,
+  ): Promise<number | null> => {
+    const repository = repositoryRef.current;
+    const ownerKey = ownerKeyRef.current;
+    if (!repository || !ownerKey) return null;
+    try {
+      const profile = await repository.loadProfile(ownerKey);
+      if (!profile) return null;
+      return profile.scores[vectorScoreKey({ gameId, mode, challengeId })] ?? null;
+    } catch (error) {
+      capturePlatformError("get_best_score", error);
+      return null;
+    }
+  }, []);
+
   const registerOwnerTransitionBarrier = useCallback((
     barrier: VectorOwnerTransitionBarrier,
   ) => {
@@ -1182,6 +1234,8 @@ export function useVectorPlatform({
     declineAnonymousData,
     clearOwnerData,
     saveGame,
+    recordScore,
+    getBestScore,
     quarantineSaveMigrationFailure,
     retrySaveMigration,
     registerOwnerTransitionBarrier,

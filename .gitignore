@@ -62,3 +62,16 @@ dist-electron/
 # electron sub-package install + generated icons (built locally / in CI)
 electron/node_modules/
 electron/build/icon.iconset/
+
+# VECTOR per-build offline manifests (scripts/generate-vector-offline-manifests.mjs
+# regenerates these fresh on every real build, keyed by that build's exact
+# buildId; only the committed development-empty build-map.json is tracked)
+/public/vector-assets/manifests/*.json
+!/public/vector-assets/manifests/build-map.json
+
+# VECTOR offline standalone bootstrap bundle(s) — esbuild output regenerated
+# by scripts/build-vector-offline-bootstrap.mjs on every `npm run build`
+# (source: src/lib/vector/games/*/offline-bootstrap.ts). The static HTML
+# shell next to these files (offline/*.html) IS hand-authored source and
+# stays tracked.
+/public/vector-assets/offline/*.js
