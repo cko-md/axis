@@ -58,3 +58,7 @@ test-results
 # The electron/ source itself lives on codex/electron-preview-release (PR #227)
 # and will track normally when that branch lands.
 dist-electron/
+
+# electron sub-package install + generated icons (built locally / in CI)
+electron/node_modules/
+electron/build/icon.iconset/

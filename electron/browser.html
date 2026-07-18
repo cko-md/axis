@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AXIS Browser</title>
+    <link rel="stylesheet" href="./browser.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="nav">
+        <button id="back" aria-label="Back">‹</button>
+        <button id="forward" aria-label="Forward">›</button>
+        <button id="reload" aria-label="Reload">↻</button>
+      </div>
+      <form id="address-form">
+        <span class="secure" aria-hidden="true">◇</span>
+        <input id="address" aria-label="Address" autocomplete="off" spellcheck="false" />
+      </form>
+      <div class="actions">
+        <button id="reader" title="Reader view">Aa</button>
+        <button id="capabilities" title="Extensions, DRM, and password compatibility">◫</button>
+        <button id="external" title="Open in system browser for extensions, DRM, password managers, or incompatible sites">↗</button>
+      </div>
+    </header>
+    <div id="status" role="status" aria-live="polite"></div>
+    <div id="message" role="alert"></div>
+    <script src="./browser.js"></script>
+  </body>
+</html>
