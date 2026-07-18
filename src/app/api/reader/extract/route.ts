@@ -4,6 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { isBlockedUrl } from "@/lib/security/ssrf";
 import { extractReadableArticle } from "@/lib/web-reader";
 
+// jsdom requires the Node.js runtime (not edge) and must not be bundled — see
+// serverExternalPackages in next.config.ts.
+export const runtime = "nodejs";
+
 const MAX_HTML_BYTES = 5_000_000;
 
 export async function GET(req: NextRequest) {

@@ -66,7 +66,7 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Exclude browser-only packages from the server bundle (SSR/prerendering)
-  serverExternalPackages: ["@simplewebauthn/browser"],
+  serverExternalPackages: ["@simplewebauthn/browser", "jsdom"],
   webpack(config) {
     config.cache = false;
     config.ignoreWarnings = [
