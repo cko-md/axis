@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME_TO_EXT: Record<string, string> = {
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
     .from("avatars")
     .upload(path, file, { upsert: true, contentType: file.type });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "profile/avatar", area: "profile" });
 
   const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
 

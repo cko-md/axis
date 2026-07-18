@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { reconcileHoldings } from "@/lib/fund/reconcileHoldings";
 import type { ReconciliationState } from "@/lib/fund/provenance";
 import { toMajorUnitsIn, toMinorUnitsIn } from "@/lib/fund/currency";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 type HoldingRow = {
   id: string;
@@ -49,7 +50,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("sort_order");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/holdings", area: "fund" });
   const rows = (data ?? []) as HoldingRow[];
 
   // Reconcile per symbol across sources (pure, deterministic, minor-unit).
@@ -159,6 +160,6 @@ export async function POST(request: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/holdings", area: "fund" });
   return NextResponse.json({ holding: data });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 export async function GET() {
   const supabase = await createClient();
@@ -12,6 +13,6 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("next_expected_date", { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/recurring", area: "fund" });
   return NextResponse.json({ recurring: data ?? [] });
 }

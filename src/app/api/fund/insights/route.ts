@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 /**
  * GET /api/fund/insights — persisted daily brief / weekly recap (replaces
@@ -24,6 +25,6 @@ export async function GET(request: NextRequest) {
   if (kind) query = query.eq("kind", kind);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/insights", area: "fund" });
   return NextResponse.json({ insights: data ?? [] });
 }

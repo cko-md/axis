@@ -5,6 +5,7 @@ import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit } from "@/lib/ratelimit";
 import type { Json } from "@/lib/supabase/database.types";
 import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 /**
  * FIN-502: Advisor chat — the only conversational entry point with real
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
       .insert({ user_id: user.id, title: userMessage.slice(0, 80) })
       .select("id")
       .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return redactRouteError(error, { route: "fund/advisor", area: "fund" });
     conversationId = conv.id;
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchNews, fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
 
 /** GET /api/fund/position/:symbol — cost basis, P/L, portfolio weight, quote, news. */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ symbol: string }> }) {
@@ -16,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     .select("shares, cost_basis, source")
     .eq("user_id", user.id)
     .eq("symbol", symbol);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return redactRouteError(error, { route: "fund/position/[symbol]", area: "fund" });
 
   const { data: allHoldings } = await supabase
     .from("fund_holdings")
