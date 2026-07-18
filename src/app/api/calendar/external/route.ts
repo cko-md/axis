@@ -193,6 +193,7 @@ export async function GET(req: NextRequest) {
     fetched_at: string; updated_at: string;
   }> = [];
   const errorOnlyUpdates: Array<{ source: CalendarSource; error: ExternalCalendarError }> = [];
+  let cachePersistenceError: { code: "cache_write_failed"; message: string } | undefined;
 
   for (const [source, resolved] of [["google", googleTransport], ["outlook", outlookTransport]] as const) {
     if (resolved.transport === "none") continue;
@@ -226,16 +227,21 @@ export async function GET(req: NextRequest) {
     // error/freshness metadata updates, and only if a cache row already
     // exists (nothing to attach an error-only row to on a first-ever fetch).
     for (const update of errorOnlyUpdates) {
-      await supabase
+      const { error: updateError } = await supabase
         .from("calendar_event_cache")
         .update({ error: update.error, updated_at: fetchedAt })
         .eq("user_id", user.id)
         .eq("source", update.source);
+      if (updateError) throw updateError;
     }
   } catch (cacheError) {
     Sentry.captureException(cacheError instanceof Error ? cacheError : new Error(String(cacheError)), {
       tags: { area: "schedule", op: "write_calendar_event_cache" },
     });
+    cachePersistenceError = {
+      code: "cache_write_failed",
+      message: "Calendar results loaded, but the refresh cache could not be updated.",
+    };
   }
 
   logRouteTiming("/api/calendar/external", routeStartedAt, {
@@ -247,6 +253,7 @@ export async function GET(req: NextRequest) {
     events,
     partial: errors.length > 0,
     errors,
+    ...(cachePersistenceError ? { cacheError: cachePersistenceError } : {}),
     fetchedAt,
   });
 }
