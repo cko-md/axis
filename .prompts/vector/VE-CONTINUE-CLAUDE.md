@@ -1,66 +1,98 @@
 # Claude continuation context — AXIS VECTOR Arcade + Envoys
 
-You are continuing the owner-authorized AXIS System Redesign program from the
-`codex/vector-phase15-convergence` branch (VECTOR platform reconciled onto the
-phase9 redesign base). The portable, tracked sources of truth are `AGENTS.md`,
-`docs/axis-redesign/15-vector-arcade-and-envoys.md`, `docs/vector/PLAN.md`,
-`docs/axis-redesign/15.2-convergence-execution-log.md`,
+You are continuing the owner-authorized AXIS System Redesign program on
+`main` — the sole canonical branch. Convergence is complete: PR #195 (phase9
+redesign base), PR #239 (VECTOR Wave 15.2 arcade platform), PR #237/#238
+(migration-filename drift reconciliation to prod), and the rescue-stack
+kernel extractions #240–#249 are all merged. There is no separate
+`codex/vector-phase15-convergence` branch to work from any longer — branch off
+`main` for the next wave. The portable, tracked sources of truth are
+`AGENTS.md`, `docs/axis-redesign/15-vector-arcade-and-envoys.md`,
+`docs/vector/PLAN.md`, `docs/axis-redesign/15.2-convergence-execution-log.md`,
 `docs/axis-redesign/15.2-lifecycle-invariant-matrix.md`,
 `docs/axis-redesign/15.2-migration-reconciliation.md`,
-`.claude/axis-redesign/PROGRAM_STATE.json`, and the latest wave log — read these
-before editing. (A machine-local owner brief may exist under
-`~/.codex/attachments/...`; it is a secondary, optional source only. Do not fail
-or invent content if it is absent — the tracked docs above are authoritative.) The owner explicitly authorized the cross-module redesign override and
-accepted all recommended premortem mitigations. Preserve the financial safety
-kernel, owner/RLS boundaries, no-secret/no-PII rules, visible failures, and
-truthful local-only/blocked states.
+`docs/axis-redesign/15-completion-matrix.md`,
+`.claude/axis-redesign/PROGRAM_STATE.json`, and
+`.claude/axis-redesign/DEFECT_LEDGER.json` — read these before editing. The
+owner explicitly authorized the cross-module redesign override and accepted
+all recommended premortem mitigations. Preserve the financial safety kernel,
+owner/RLS boundaries, no-secret/no-PII rules, visible failures, and truthful
+local-only/blocked states.
 
 ## Objective
 
 Deliver the full dependency-ordered VECTOR Arcade + Axis Envoys program as
 complete vertical slices. Do not present a game, worker, hosted deployment,
-score, install, sync, or generation result as real until its own evidence exists.
-The binding order is Wave 15.2 platform, 15.3 Second Sense, 15.4 Envoy core,
-15.5 starter hatch-pet packages, 15.6 generation control plane, 15.7 vendored
-worker/OpenAI/Render, then games 15.8–15.15 in the plan, and 15.16 final
-cross-game/production convergence.
+score, install, sync, or generation result as real until its own evidence
+exists. The binding order is Wave 15.2 platform (done), 15.3 Second Sense,
+15.4 Envoy core, 15.5 starter hatch-pet packages, 15.6 generation control
+plane, 15.7 vendored worker/OpenAI/Render, then games 15.8–15.15 in the plan,
+and 15.16 final cross-game/production convergence.
 
-## Current checkpoint
+**Binding-order amendment (owner-authorized, recorded 2026-07-18):** Phase 16
+(Archive Bay — a user-owned local emulator/native-port launcher, desktop-only)
+runs as an explicitly authorized track PARALLEL to this 15.x sequence, not
+strictly after it. It touches no web bundle, no shared schema, no cloud
+service, and none of the 9 `VectorGameSlug` entries, so it neither blocks nor
+is blocked by Second Sense or later 15.x waves. Only Phase 16.2+ (distributing
+a managed emulator runtime) is gated — on Phase 16.0's licensing ADR, not on
+15.x progress. See `.claude/axis-redesign/PROGRAM_STATE.json` ->
+`binding_order_amendment` for the full record.
 
-Wave 15.2 is implemented and **converged** onto the phase9 redesign base. The
-canonical branch is now `codex/vector-phase15-convergence` (base
-`origin/codex/phase9-resume-executor@84cc5ca6`; VECTOR platform commit `4e44e245`
-cherry-picked; VECTOR lifecycle migration dropped; arcade migration renumbered to
-`202607170001`). The original `codex/vector-arcade-envoys@a72f3da7` is preserved
-as the immutable Wave 15.2 source checkpoint. Converged platform surface:
+## Current checkpoint (2026-07-18)
 
-- `/vector` and `/vector/[game]` Instrument Deck shell; nine catalog entries are
-  visibly planned/disabled and no engine is in the lobby bundle.
+Wave 15.2 is implemented, converged, **and merged to main** (PR #239,
+2026-07-17). Live surface on `main` (head `a8c7be32` at last checkpoint —
+verify the exact current head before starting):
+
+- `/vector` and `/vector/[game]` Instrument Deck shell; nine catalog entries
+  are visibly planned/disabled and no engine is in the lobby bundle.
 - Typed registry/loaders, runtime lifecycle host, owner-partitioned Dexie
   persistence, checksum/migration quarantine, local CAS, cloud CAS/conflicts,
   bounded authenticated API/RLS migration, protocol-v3 offline worker, modal
   focus safety, shell auth-loading states, and scoped bootstrap fanout.
-- The local SQL migration and RLS/grant/concurrency suites, focused tests,
-  TypeScript, lint, diff check, and prior source-complete production build have
-  passed. `public/vector-assets/manifests/build-map.json` must remain the empty
-  development marker until a real build generator is run.
-- The full Vitest gate now passes 1,104/1,104 after the intentionally heavy
-  65-event IndexedDB test received a bounded 15-second timeout.
-- Browser evidence includes an earlier 6/6 authenticated VECTOR pass and a later
-  4/6 pass where two cases exposed the intended fail-closed owner-record error
-  state during local Supabase Auth→Postgres transport timeouts. Do not weaken
-  `getUser` to `getSession` or add retries that hide the upstream error; rerun
-  with a healthy local stack and retain visible error evidence if it recurs.
+- Migration `202607170001_vector_arcade_persistence` (6 `game_*` tables, RLS
+  on, 3 RPCs: `sync_vector_save` / `apply_vector_event` /
+  `resolve_vector_conflict`) is **applied to hosted Supabase**
+  (`twkcvyhmlguipchfetge`) and was verified by a rolled-back live round-trip
+  including conflict create+resolve.
+- All 89 repo-tracked migration files match prod's 89 recorded versions
+  (`supabase db push --dry-run` clean) — the pre-July filename drift and the
+  `202607161401` task/approval privilege-contract migration were reconciled
+  and applied via PR #237/#238.
+- Local gates on the merged head: `npx tsc --noEmit` clean, `npm run lint` 0
+  errors/0 warnings, `npm run test` 1265 passed / 187 files,
+  `npm run build` 175 pages, 187/187 route budgets pass, aggregate static JS
+  4322/4400 KB (98.2% — budget headroom is tight; watch this on the next
+  route addition). Postbuild VECTOR offline-manifest generator correctly
+  emits 0 enabled games (all 9 titles remain planned/disabled).
+- GitHub CI run `29659456809` on `main@a8c7be32` passed all three jobs
+  (`verify`, `e2e-smoke`, `e2e-authenticated` — the latter is the
+  fresh-Supabase authenticated Playwright suite including the VECTOR arcade
+  spec). This closes the prior "browser gate NOT GREEN" blocker.
 
-## Hosted gate truth
+## Hosted gate truth (owner-only, unchanged by this checkpoint)
 
-Only GitHub is operational. Production Supabase, Vercel, Sentry, Render, and
-OpenAI are all explicitly `BLOCKED`, not passed. The canonical table in
-`docs/axis-redesign/15-completion-matrix.md` records, for each service, the
-missing access, exact validation still required, and human owner. Never infer a
-hosted pass from local Docker, data-plane REST, GitHub deployment metadata,
-source-map upload scope, or a local Next build. Do not mutate production or
-invoke paid OpenAI generation. Tembo remains unused until its role is decided.
+- **Sentry**: release is registered, but the available token receives HTTP
+  403 on the Issues/dashboard query. Repository owner or a Sentry
+  administrator must record the final result.
+- **Render**: no worker deployed yet — implementation is Wave 15.7.
+- **OpenAI paid generation**: gated on Wave 15.6/15.7 (generation control
+  plane + vendored worker), not yet built; also needs explicit owner
+  authorization for paid usage.
+- **Manual hardware WebAuthn ceremony**: needs a human with a real
+  authenticator.
+- **Live Gmail/Outlook/Make provider parity**: needs owner-side live
+  credentials.
+- **Vercel preview on the exact current SHA**: re-verify per deploy; do not
+  infer a pass from an earlier SHA's evidence.
+- **Tembo role decision** and **leaked-password protection decision**: both
+  remain open owner decisions, not implementation blockers.
+
+Never infer a hosted pass from local Docker, data-plane REST, GitHub
+deployment metadata, source-map upload scope, or a local Next build. Do not
+mutate production or invoke paid OpenAI generation without explicit
+in-session owner authorization.
 
 ## Next execution: Wave 15.3 Second Sense
 
@@ -78,46 +110,51 @@ from `docs/vector/PLAN.md`:
 8. Keyboard, pointer, and touch input with accessible focus and 44px targets.
 9. Explicit loading, local-only, pending, synced, conflict, error, quota, and
    unavailable states; no fake scores or global ranking claims.
-10. Route-isolated dynamic loader, bounded checkpoint/autosave, offline install,
-    reconnect flush/pull/merge, refresh persistence, and visible feedback.
+10. Route-isolated dynamic loader, bounded checkpoint/autosave, offline
+    install, reconnect flush/pull/merge, refresh persistence, and visible
+    feedback.
 11. No copied Dialed branding, layout, effects, or text.
 
 For this wave, inspect the platform contracts first, add the smallest real
-engine-free game module and its loader, then add the API/RPC/event fields only if
-the existing schema cannot express the deterministic score. Add migrations + RLS
-review for any schema change. Test unit contracts, route ownership, local SQL,
-public/auth browser flows, mobile/keyboard/touch, offline/reconnect, refresh, and
-error paths. Keep every score deterministic and mark any non-authoritative value
-as unverified. Update the completion matrix, program state, defect ledger, wave
-log, and a new wave prompt before committing.
+engine-free game module and its loader, then add API/RPC/event fields only if
+the existing schema cannot express the deterministic score (score mode e.g.
+`"daily"` with `challengeId=day-key`, `"practice"` without). Add migrations +
+RLS review for any schema change. Test unit contracts, route ownership, local
+SQL, public/auth browser flows, mobile/keyboard/touch, offline/reconnect,
+refresh, and error paths. Keep every score deterministic and mark any
+non-authoritative value as unverified. Update the completion matrix, program
+state, defect ledger, and this file before committing.
 
 ## Required working pattern
 
 - Inspect current files and explain current/expected behavior before edits.
-- Keep provider/data logic in adapters/services; route handlers authenticate and
-  derive ownership server-side.
+- Keep provider/data logic in adapters/services; route handlers authenticate
+  and derive ownership server-side.
 - Never log tokens, cookies, email bodies, raw OAuth payloads, private game
   state, or OpenAI content. Capture only safe provider/operation/status/error
   metadata.
 - Run `npx tsc --noEmit`, `npm run lint`, `npm run test`, `npm run build`, SQL
   replay/RLS/grant checks, bundle/route budgets, and relevant Playwright. If a
-  hosted credential is unavailable, record `BLOCKED` with exact check and owner.
-- One branch/commit per checkpoint; do not merge a PR without explicit owner
-  approval. Leave the PR open/draft or ready according to the owner’s request.
+  hosted credential is unavailable, record `BLOCKED` with exact check and
+  owner.
+- One branch/commit per checkpoint. Push and open a PR freely; do **not**
+  merge to `main` without explicit owner approval in the session — merging
+  is the production deploy path (Vercel native Git integration, no separate
+  `deploy.yml`).
 - End each wave with changed-file inventory, database/Supabase/Tembo impact,
-  Vercel/Sentry status, tests, manual checklist, risks, and the next dependency.
+  Vercel/Sentry status, tests, manual checklist, risks, and the next
+  dependency.
 
-## Immediate handoff facts
+## Handoff facts (2026-07-18 checkpoint repair)
 
-The convergence branch `codex/vector-phase15-convergence` carries three commits on
-top of `84cc5ca6`: the platform port (`4d4c245c`), the sidebar test reconciliation
-(`7b6abfa8`), and the reconciliation docs (`64dec9cd`), plus this checkpoint-doc
-repair. Local gates recorded green: tsc, eslint, 1257/184 unit tests,
-release:validate, production build (175 pages), bundle 4321/4400 KB, 187/187 route
-budgets. NOT executable in a CLI-only env and therefore NOT GREEN: fresh-Supabase
-authenticated Playwright, the VECTOR authenticated browser suite, and any hosted
-Supabase RLS/grant readback for `202607170001` — these stay owner/CI gates.
+`main@a8c7be32` is the last-verified head at the time of this checkpoint
+repair — re-verify with `git fetch origin && git log --oneline -1
+origin/main` before starting new work, since further PRs may have merged
+since. This file previously assumed a `codex/vector-phase15-convergence`
+working branch and a machine-local owner-brief attachment
+(`~/.codex/attachments/...`); both are gone — do not look for either. The
+tracked docs listed at the top of this file are the sole source of truth.
 
-Do NOT push, merge, or apply the hosted arcade migration without explicit owner
-authorization. Begin Wave 15.3 (Second Sense) only after independent review and
-after the fresh-Supabase authenticated gates pass on this convergence head.
+Do NOT push, merge, or apply any hosted migration without explicit owner
+authorization in the session. Begin Wave 15.3 (Second Sense) from a fresh
+branch off `main`.
