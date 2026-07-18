@@ -10,7 +10,7 @@ export function findMailAccount(
   accountId?: string | null,
 ): MailAccountRef | undefined {
   if (accountId) {
-    const byId = accounts.find((account) => account.connectedAccountId === accountId);
+    const byId = accounts.find((account) => account.provider === provider && account.connectedAccountId === accountId);
     if (byId) return byId;
   }
 
