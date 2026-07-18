@@ -23,11 +23,25 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ connections: [] });
 
-  const { data: rows } = await supabase
+  const { data: rows, error: rowsError } = await supabase
     .from("composio_connections")
     .select("id, toolkit, connected_account_id, status, account_label, created_at")
     .eq("user_id", user.id);
+  if (rowsError) {
+    captureRouteError(rowsError, {
+      route: "/api/integrations/composio/status",
+      operation: "list_connections",
+      area: "integrations",
+      provider: "supabase",
+      status: 503,
+    });
+    return NextResponse.json(
+      { connections: [], partial: true, error: "INTEGRATION_STATUS_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
 
+  const refreshErrors: { toolkit: string; message: string }[] = [];
   const connections = await Promise.all(
     (rows ?? []).map(async (row) => {
       if (DEAD_END_STATUSES.has(row.status)) return row;
@@ -41,10 +55,16 @@ export async function GET() {
         }
         if (Object.keys(patch).length > 0) {
           patch.updated_at = new Date().toISOString();
-          await supabase.from("composio_connections").update(patch as Database["public"]["Tables"]["composio_connections"]["Update"]).eq("id", row.id);
+          const { error: updateError } = await supabase
+            .from("composio_connections")
+            .update(patch as Database["public"]["Tables"]["composio_connections"]["Update"])
+            .eq("user_id", user.id)
+            .eq("id", row.id);
+          if (updateError) throw updateError;
         }
         return { ...row, ...patch };
       } catch (err) {
+        refreshErrors.push({ toolkit: row.toolkit, message: "Connection status could not be refreshed." });
         captureRouteError(err, {
           route: "/api/integrations/composio/status",
           operation: "refresh_connection",
@@ -58,5 +78,8 @@ export async function GET() {
     }),
   );
 
-  return NextResponse.json({ connections });
+  return NextResponse.json({
+    connections,
+    ...(refreshErrors.length > 0 ? { partial: true, errors: refreshErrors } : {}),
+  }, { status: refreshErrors.length > 0 ? 503 : 200 });
 }
