@@ -32,12 +32,13 @@ async function fetchPlaidCash(accessToken: string): Promise<number> {
  * fund_liabilities. Deterministic; no AI involved.
  */
 export async function snapshotNetWorth(admin: SupabaseClient, userId: string): Promise<void> {
-  const { data: connections } = await admin
+  const { data: connections, error: connectionsError } = await admin
     .from("fund_connections")
     .select("access_token_enc")
     .eq("user_id", userId)
     .eq("provider", "plaid")
     .eq("status", "linked");
+  if (connectionsError) throw connectionsError;
 
   let cash = 0;
   for (const c of connections ?? []) {
@@ -46,10 +47,11 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     if (token) cash += await fetchPlaidCash(token);
   }
 
-  const { data: holdings } = await admin
+  const { data: holdings, error: holdingsError } = await admin
     .from("fund_holdings")
     .select("symbol, shares, cost_basis")
     .eq("user_id", userId);
+  if (holdingsError) throw holdingsError;
 
   let invested = 0;
   const polygonConfigured = !!getPolygonApiKey();
@@ -68,14 +70,15 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     invested += costBasis;
   }
 
-  const { data: liabilityRows } = await admin
+  const { data: liabilityRows, error: liabilitiesError } = await admin
     .from("fund_liabilities")
     .select("balance")
     .eq("user_id", userId);
+  if (liabilitiesError) throw liabilitiesError;
   const liabilities = sumBy(liabilityRows ?? [], (l) => l.balance);
 
   const net_worth = sumMoney([cash, invested, -liabilities]);
-  await admin.from("net_worth_snapshots").upsert(
+  const { error: snapshotError } = await admin.from("net_worth_snapshots").upsert(
     {
       user_id: userId,
       captured_on: new Date().toISOString().slice(0, 10),
@@ -86,6 +89,7 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     },
     { onConflict: "user_id,captured_on" },
   );
+  if (snapshotError) throw snapshotError;
 }
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
@@ -105,13 +109,14 @@ function inferCadence(avgGapDays: number): Cadence {
  * declarations (source='manual') are left untouched.
  */
 export async function detectRecurring(admin: SupabaseClient, userId: string): Promise<void> {
-  const { data: txns } = await admin
+  const { data: txns, error: transactionError } = await admin
     .from("fund_bank_transactions")
     .select("merchant_name, amount, posted_date")
     .eq("user_id", userId)
     .eq("is_transfer", false)
     .lt("amount", 0)
     .order("posted_date");
+  if (transactionError) throw transactionError;
 
   if (!txns || txns.length < 2) return;
 
@@ -131,7 +136,7 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
     const last = group[group.length - 1];
 
-    await admin.from("fund_recurring_transactions").upsert(
+    const { error: recurringError } = await admin.from("fund_recurring_transactions").upsert(
       {
         user_id: userId,
         merchant_name: last.merchant,
@@ -146,6 +151,7 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
       },
       { onConflict: "user_id,merchant_name", ignoreDuplicates: false },
     );
+    if (recurringError) throw recurringError;
   }
 }
 
@@ -156,12 +162,13 @@ export async function detectRecurring(admin: SupabaseClient, userId: string): Pr
  * reads from these same deterministic sources.
  */
 export async function writeDailyBrief(admin: SupabaseClient, userId: string, userEmail: string | null): Promise<void> {
-  const { data: snapshots } = await admin
+  const { data: snapshots, error: snapshotError } = await admin
     .from("net_worth_snapshots")
     .select("captured_on, net_worth")
     .eq("user_id", userId)
     .order("captured_on", { ascending: false })
     .limit(8);
+  if (snapshotError) throw snapshotError;
 
   if (!snapshots || snapshots.length < 1) return;
   const today = snapshots[0];
@@ -173,7 +180,7 @@ export async function writeDailyBrief(admin: SupabaseClient, userId: string, use
     ? `Net worth is ${change >= 0 ? "up" : "down"} ${Math.abs(changePct).toFixed(1)}% since ${weekAgo.captured_on}, now $${today.net_worth.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`
     : `First snapshot recorded: net worth $${today.net_worth.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`;
 
-  await admin.from("ai_insights").insert({
+  const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "daily_brief",
     title: "Daily brief",
@@ -183,6 +190,7 @@ export async function writeDailyBrief(admin: SupabaseClient, userId: string, use
     confidence: "high",
     requires_review: false,
   });
+  if (insightError) throw insightError;
 
   if (userEmail) {
     await notifyViaMake(admin, {
@@ -206,12 +214,13 @@ export async function sendBillReminders(admin: SupabaseClient, userId: string, u
   if (!userEmail) return;
   const reminderDate = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
 
-  const { data: dueSoon } = await admin
+  const { data: dueSoon, error: recurringError } = await admin
     .from("fund_recurring_transactions")
     .select("merchant_name, expected_amount, next_expected_date")
     .eq("user_id", userId)
     .eq("status", "active")
     .eq("next_expected_date", reminderDate);
+  if (recurringError) throw recurringError;
 
   for (const bill of dueSoon ?? []) {
     await notifyViaMake(admin, {
