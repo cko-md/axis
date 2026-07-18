@@ -17,7 +17,7 @@ export async function GET() {
 
   const STUB = { value: "8 km banked", hint: "Connect Strava in Vitality", fallback: true };
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) {
     logRouteTiming("/api/widgets/training", routeStartedAt, { fallback: true, connected: false });
     return NextResponse.json(STUB, { headers: { "Cache-Control": "no-store" } });
