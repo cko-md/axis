@@ -30,9 +30,11 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/auth/getAppOrigin", () => ({
   getAppOrigin: () => "http://axis.test",
+  buildAppUrl: (_req: NextRequest, path: string) => `http://axis.test${path}`,
 }));
 
-vi.mock("@sentry/nextjs", () => ({ captureException: vi.fn() }));
+const { captureException } = vi.hoisted(() => ({ captureException: vi.fn() }));
+vi.mock("@sentry/nextjs", () => ({ captureException, addBreadcrumb: vi.fn() }));
 
 function request(toolkit: string) {
   return new NextRequest(`http://axis.test/api/integrations/composio/connect?toolkit=${toolkit}`);
@@ -107,13 +109,32 @@ describe("GET /api/integrations/composio/connect", () => {
     expect(deleteConnectedAccount).not.toHaveBeenCalled();
   });
 
-  it("still succeeds if revoking a stale connection fails (best-effort, not blocking)", async () => {
-    const { upsert } = mockSupabase([{ id: "row_old", connected_account_id: "ca_old" }]);
+  it("preserves rows whose provider revocation fails and returns a partial result", async () => {
+    const { deleteIn, upsert } = mockSupabase([{ id: "row_old", connected_account_id: "ca_old" }]);
     deleteConnectedAccount.mockRejectedValueOnce(new Error("provider down"));
 
     const res = await GET(request("googlecalendar"));
 
     expect(res.status).toBe(307);
-    expect(upsert).toHaveBeenCalled();
+    expect(res.headers.get("location")).toContain("status=partial");
+    expect(res.headers.get("location")).toContain("failed=1");
+    expect(deleteIn).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+    expect(captureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ tags: expect.objectContaining({ code: "PARTIAL_REVOCATION" }) }),
+    );
+  });
+
+  it("deletes only successfully revoked rows when cleanup is mixed", async () => {
+    const { deleteIn } = mockSupabase([
+      { id: "row_ok", connected_account_id: "ca_ok" },
+      { id: "row_failed", connected_account_id: "ca_failed" },
+    ]);
+    deleteConnectedAccount.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("provider down"));
+
+    await GET(request("googlecalendar"));
+
+    expect(deleteIn).toHaveBeenCalledWith("id", ["row_ok"]);
   });
 });
