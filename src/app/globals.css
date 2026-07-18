@@ -696,7 +696,7 @@ html.light body {
   display: grid;
   grid-template-columns: var(--sb-w) 1fr;
   height: 100vh;
-  transition: grid-template-columns 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: grid-template-columns var(--motion-duration-deliberate, 320ms) var(--motion-ease-enter, cubic-bezier(.16,1,.3,1));
 }
 
 .app-shell.mode-open  { --sb-w: 240px; }
@@ -746,6 +746,11 @@ html.light body {
   flex-direction: column;
   padding: 0 12px 16px;
   overflow: hidden;
+  width: var(--sb-w);
+  min-width: 0;
+  transition:
+    width var(--motion-duration-deliberate, 320ms) var(--motion-ease-enter, cubic-bezier(.16,1,.3,1)),
+    transform var(--motion-duration-deliberate, 320ms) var(--motion-ease-enter, cubic-bezier(.16,1,.3,1));
 }
 
 html.light .sidebar {
@@ -4117,9 +4122,12 @@ body[data-density="cozy"]{--space-3:22px;--card-pad:24px}
    the AXIS logo/wordmark in the .sb-top header instead of on top of it. In
    hidden mode it pins to the far-left screen edge (the "show sidebar" affordance).
    z-index above .sidebar in every mode keeps it on top of the peeking rail. */
-.sb-toggle{position:fixed;left:var(--sb-w,240px);top:calc((var(--topbar-h) + 12px) / 2);transform:translate(-50%,-50%);width:25px;height:25px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r);color:var(--ink-dim);cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:0 4px 14px rgba(0,0,0,.4);transition:left .26s cubic-bezier(.4,0,.2,1),color .16s,border-color .16s}
+.sb-toggle{position:fixed;left:var(--sb-w,240px);top:calc((var(--topbar-h) + 12px) / 2);transform:translate(-50%,-50%);width:27px;height:27px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-dim);cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:0 4px 14px rgba(0,0,0,.4);transition:left var(--motion-duration-deliberate,320ms) var(--motion-ease-enter,cubic-bezier(.16,1,.3,1)),color var(--motion-duration-fast,.16s),border-color var(--motion-duration-fast,.16s),transform var(--motion-duration-fast,.16s),background var(--motion-duration-fast,.16s)}
 .sb-toggle:hover{color:var(--accent);border-color:var(--accent)}
+.sb-toggle:hover{transform:translate(-50%,-50%) scale(1.06)}
+.sb-toggle:active{transform:translate(-50%,-50%) scale(.96)}
 .sb-toggle svg{width:14px;height:14px}
+.sb-toggle-icon{transition:transform var(--motion-duration-base,.24s) var(--motion-ease-enter,cubic-bezier(.16,1,.3,1))}
 /* hidden mode — sidebar is off-screen; pin the toggle to the left edge so it
    reads as "show sidebar" and stays fully on-screen (no straddle at left:0). */
 .app-shell.mode-hidden .sb-toggle{left:24px}
@@ -5438,7 +5446,7 @@ a:focus-visible,
   text-transform: uppercase;
 }
 
-/* WebViewer Reader view (Tavily extract → article typography) */
+/* WebViewer Reader view (local Readability extraction → article typography) */
 .wv-reader {
   position: absolute;
   inset: 0;
@@ -5507,10 +5515,15 @@ a:focus-visible,
   color: var(--ink);
   letter-spacing: -.01em;
 }
+.wv-reader-byline {
+  margin: calc(var(--space-4) * -0.65) 0 var(--space-4);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .03em;
+}
 
-/* Article body typography — mirrors the rest of Atelier's token set (serif
-   headings, sans body, mono/narrow accents) since Tavily's markdown→HTML only
-   emits semantic tags with no styling of its own. */
+/* Article body typography — mirrors the rest of Atelier's token set. */
 .wv-reader-content {
   font-family: var(--sans);
   font-size: 15px;
