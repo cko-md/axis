@@ -69,8 +69,8 @@ async function gmailCall(
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return failFromStatus(res.status, `Gmail error: ${text.slice(0, 200) || res.statusText}`, { provider: "gmail", transport: "direct" });
+      await res.text().catch(() => undefined);
+      return failFromStatus(res.status, "Gmail provider request failed.", { provider: "gmail", transport: "direct" });
     }
     return ok(res.status === 204 ? null : await res.json().catch(() => null));
   } catch (e) {

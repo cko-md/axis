@@ -183,12 +183,12 @@ describe("failFromException()", () => {
     }
   });
 
-  it("handles Error instances using .message", () => {
+  it("does not expose Error instance messages", () => {
     const e = new Error("Network timeout");
     const r = failFromException(e, "Fallback");
     if (!r.ok) {
       expect(r.error.code).toBe("network");
-      expect(r.error.message).toBe("Network timeout");
+      expect(r.error.message).toBe("Fallback");
     }
   });
 
