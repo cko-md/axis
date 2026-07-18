@@ -11,5 +11,6 @@ export async function POST() {
   const cookieStore = await cookies();
   cookieStore.delete("spotify_access_token");
   cookieStore.delete("spotify_refresh_token");
+  cookieStore.delete("spotify_token_owner");
   return NextResponse.json({ ok: true, connected: false });
 }

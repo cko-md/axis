@@ -10,7 +10,7 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return notConnected();
 
   const configured = isConfigured();
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return NextResponse.json({ error: "Not connected" }, { status: 401 });
 
   const { action, value, uri, uris, contextUri, device_id } = (await req.json()) as {
