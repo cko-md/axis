@@ -66,9 +66,18 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       arguments: payload.arguments,
     });
+    if (!result.successful) {
+      Sentry.captureException(new Error("Composio tool execution was unsuccessful"), {
+        tags: { area: "integrations", route: "/api/integrations/composio/execute", op: "execute_tool", toolkit, tool, code: "provider_error" },
+      });
+      return NextResponse.json(
+        { successful: false, error: "Composio tool execution failed." },
+        { status: 502 },
+      );
+    }
     return NextResponse.json({
-      successful: result.successful,
-      error: result.error ?? null,
+      successful: true,
+      error: null,
     });
   } catch (err) {
     const status = err instanceof ComposioError ? err.status : 502;
