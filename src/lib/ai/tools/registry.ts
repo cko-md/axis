@@ -27,18 +27,31 @@ export type ToolDef = {
   };
 };
 
+/** Errors returned to the model must never contain provider or database text. */
+export class ToolExecutionError extends Error {
+  constructor(public readonly code: "DATA_UNAVAILABLE" | "PROVIDER_UNAVAILABLE" | "INVALID_INPUT") {
+    super(code);
+    this.name = "ToolExecutionError";
+  }
+}
+
 async function fetchPlaidAccounts(
   accessToken: string,
 ): Promise<Array<{ name: string; mask: string | null; type: string; balance: number }>> {
   const creds = getPlaidCreds();
-  if (!creds) return [];
+  if (!creds) throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
   const res = await fetch(`${plaidHost(creds.env)}/accounts/balance/get`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: creds.clientId, secret: creds.secret, access_token: accessToken }),
   });
-  if (!res.ok) return [];
-  const data = await res.json();
+  if (!res.ok) throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
+  let data: { accounts?: unknown };
+  try {
+    data = (await res.json()) as { accounts?: unknown };
+  } catch {
+    throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
+  }
   const accounts = (data.accounts ?? []) as Array<{
     name: string;
     mask: string | null;
@@ -186,7 +199,7 @@ const handlers: Record<string, Handler> = {
       .eq("user_id", userId)
       .order("captured_on", { ascending: false })
       .limit(Number.isFinite(limit) ? limit : 30);
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
     return { snapshots: data ?? [] };
   },
 
@@ -208,7 +221,7 @@ const handlers: Record<string, Handler> = {
       query = query.or(`custom_category.eq.${category},plaid_category.eq.${category}`);
     }
     const { data, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const byCategory = new Map<string, number>();
     for (const t of data ?? []) {
@@ -238,8 +251,7 @@ const handlers: Record<string, Handler> = {
         .lt("amount", 0)
         .gte("posted_date", since),
     ]);
-    if (budgetErr) throw new Error(budgetErr.message);
-    if (txnErr) throw new Error(txnErr.message);
+    if (budgetErr || txnErr) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const spendByCategory = new Map<string, number>();
     for (const t of txns ?? []) {
@@ -265,7 +277,7 @@ const handlers: Record<string, Handler> = {
       .order("next_expected_date");
     if (input.status) query = query.eq("status", String(input.status));
     const { data, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
     return { recurring: data ?? [] };
   },
 
@@ -274,7 +286,7 @@ const handlers: Record<string, Handler> = {
       .from("fund_holdings")
       .select("symbol, name, shares, cost_basis, source")
       .eq("user_id", userId);
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] }>();
     for (const r of data ?? []) {
@@ -294,14 +306,14 @@ const handlers: Record<string, Handler> = {
 
   async get_position({ supabase, userId }, input) {
     const symbol = String(input.symbol ?? "").toUpperCase();
-    if (!symbol) throw new Error("symbol is required");
+    if (!symbol) throw new ToolExecutionError("INVALID_INPUT");
 
     const { data: holdings, error } = await supabase
       .from("fund_holdings")
       .select("shares, cost_basis, source")
       .eq("user_id", userId)
       .eq("symbol", symbol);
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const { data: allHoldings } = await supabase.from("fund_holdings").select("symbol, shares, cost_basis").eq("user_id", userId);
 
@@ -341,7 +353,7 @@ const handlers: Record<string, Handler> = {
       .from("fund_liabilities")
       .select("name, kind, balance, apr, minimum_payment, due_date, source")
       .eq("user_id", userId);
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
     return { liabilities: data ?? [] };
   },
 
@@ -352,7 +364,7 @@ const handlers: Record<string, Handler> = {
       .eq("user_id", userId)
       .eq("provider", "plaid")
       .eq("status", "linked");
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const accounts: Array<{ name: string; mask: string | null; type: string; balance: number }> = [];
     for (const c of connections ?? []) {
@@ -365,7 +377,7 @@ const handlers: Record<string, Handler> = {
 
   async get_market_quote(_ctx, input) {
     const symbol = String(input.symbol ?? "").toUpperCase();
-    if (!symbol) throw new Error("symbol is required");
+    if (!symbol) throw new ToolExecutionError("INVALID_INPUT");
     if (!getPolygonApiKey()) return { symbol, available: false, reason: "POLYGON_API_KEY_NOT_CONFIGURED" };
     try {
       const quote = await fetchSnapshot(symbol);
@@ -389,13 +401,13 @@ const handlers: Record<string, Handler> = {
 
   async get_watchlist({ supabase, userId }) {
     const { data, error } = await supabase.from("fund_watchlist").select("symbol, name").eq("user_id", userId).order("sort_order");
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
     return { watchlist: data ?? [] };
   },
 
   async search_tickers(_ctx, input) {
     const query = String(input.query ?? "").trim();
-    if (!query) throw new Error("query is required");
+    if (!query) throw new ToolExecutionError("INVALID_INPUT");
     if (!getPolygonApiKey()) return { hits: [], available: false, reason: "POLYGON_API_KEY_NOT_CONFIGURED" };
     try {
       const hits = await searchTickers(query);
@@ -418,7 +430,7 @@ const handlers: Record<string, Handler> = {
       .eq("status", "active")
       .gte("next_expected_date", today)
       .lte("next_expected_date", horizon);
-    if (error) throw new Error(error.message);
+    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const upcomingBills = (bills ?? []).reduce((sum, b) => sum + Number(b.expected_amount), 0);
     const safeBuffer = Number.isFinite(buffer) ? buffer : 0;
@@ -436,6 +448,6 @@ const handlers: Record<string, Handler> = {
 
 export async function executeTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<unknown> {
   const handler = handlers[name];
-  if (!handler) throw new Error(`Unknown tool: ${name}`);
+  if (!handler) throw new ToolExecutionError("INVALID_INPUT");
   return handler(ctx, input);
 }
