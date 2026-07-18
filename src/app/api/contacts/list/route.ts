@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { getFreshContactsAccessToken } from "@/lib/contacts/tokens";
 import { listComposioContactsAccounts, listComposioContacts } from "@/lib/contacts/composio";
@@ -43,7 +44,16 @@ export async function GET() {
   }
 
   const accessToken = await getFreshContactsAccessToken(user.id);
-  const composioAccounts = await listComposioContactsAccounts(user.id);
+  let composioAccounts: Awaited<ReturnType<typeof listComposioContactsAccounts>> = [];
+  let composioAccountError = false;
+  try {
+    composioAccounts = await listComposioContactsAccounts(user.id);
+  } catch (error) {
+    composioAccountError = true;
+    Sentry.captureException(error instanceof Error ? error : new Error("Contacts Composio account lookup failed"), {
+      tags: { module: "contacts", operation: "list_composio_accounts" },
+    });
+  }
   const connected = Boolean(accessToken) || composioAccounts.length > 0;
 
   if (!connected) {
@@ -51,20 +61,27 @@ export async function GET() {
   }
 
   let legacyContacts: ContactEntry[] = [];
+  let legacyError = false;
   if (accessToken) {
-    const res = await fetch(
-      "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers&pageSize=100",
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    if (res.ok) {
+    try {
+      const res = await fetch(
+        "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers&pageSize=100",
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!res.ok) throw new Error(`Google Contacts returned ${res.status}`);
       const data = await res.json() as GoogleConnectionsResponse;
       const connections: GooglePerson[] = data.connections ?? [];
       legacyContacts = connections.map((person) => ({
-        id: person.resourceName ?? crypto.randomUUID(),
-        name: person.names?.[0]?.displayName ?? "",
-        email: person.emailAddresses?.[0]?.value ?? "",
-        phone: person.phoneNumbers?.[0]?.value ?? "",
-      }));
+          id: person.resourceName ?? crypto.randomUUID(),
+          name: person.names?.[0]?.displayName ?? "",
+          email: person.emailAddresses?.[0]?.value ?? "",
+          phone: person.phoneNumbers?.[0]?.value ?? "",
+        }));
+    } catch (error) {
+      legacyError = true;
+      Sentry.captureException(error instanceof Error ? error : new Error("Google Contacts fetch failed"), {
+        tags: { module: "contacts", operation: "list_google_contacts", transport: "oauth" },
+      });
     }
   }
 
@@ -73,6 +90,11 @@ export async function GET() {
   );
   const composioContacts = composioResults.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   const composioFailed = composioResults.some((result) => result.status === "rejected");
+  if (composioFailed) {
+    Sentry.captureException(new Error("One or more Composio Contacts accounts failed"), {
+      tags: { module: "contacts", operation: "list_composio_contacts", transport: "composio" },
+    });
+  }
 
   const via: ContactsListResponse["via"] = composioAccounts.length > 0
     ? "composio"
@@ -84,8 +106,8 @@ export async function GET() {
     contacts: [...legacyContacts, ...composioContacts],
     connected: true,
     via,
-    ...(composioFailed && composioContacts.length === 0 && legacyContacts.length === 0
-      ? { error: "Google Contacts could not be refreshed right now." }
+    ...((legacyError || composioAccountError || composioFailed)
+      ? { error: "Some Google Contacts could not be refreshed; the list may be incomplete." }
       : {}),
   } satisfies ContactsListResponse);
 }
