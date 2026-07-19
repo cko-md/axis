@@ -19,13 +19,13 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T13:47:42.557Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T13:54:50.708Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `main`
-- **HEAD:** `79856468`
-- **main:** `79856468`
+- **HEAD:** `5498ff65`
+- **main:** `5498ff65`
 - **Working tree:** has uncommitted changes
 
 ## Waves merged to main
