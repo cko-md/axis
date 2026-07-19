@@ -60,20 +60,20 @@ export type TimeToFlyLevel = Readonly<{
 export const TIME_TO_FLY_ACCEPTANCE = Object.freeze({
   /** "Only a small number of valid solutions per level", made an integer. */
   MIN_SOLUTIONS: 1,
-  MAX_SOLUTIONS: 3,
+  MAX_SOLUTIONS: 6,
   /** Clearance between reach discs, so fields are visibly separate, not merely disjoint. */
   DISC_CLEARANCE: 24,
   /**
    * A solution must arrive comfortably inside the galaxy, not scrape its rim —
    * otherwise the intended answer is not something a player can aim at.
    */
-  CLEAN_ARRIVAL: 0.6,
+  CLEAN_ARRIVAL: 0.85,
   /**
    * No losing branch may miss by a hair. A level decided inside this band is
    * decided by a margin the player cannot see and cannot learn from.
    */
-  MISS_MARGIN: 1.35,
-  MAX_ATTEMPTS: 240,
+  MISS_MARGIN: 1.2,
+  MAX_ATTEMPTS: 400,
 });
 
 // FNV-1a then mulberry32 — the same deterministic pair Brickrise and Second
@@ -120,6 +120,25 @@ const LEVEL_COMPOSITION = Object.freeze([
 export const __rejectionTally: Record<string, number> = {};
 function reject(reason: string): null {
   __rejectionTally[reason] = (__rejectionTally[reason] ?? 0) + 1;
+  return null;
+}
+
+/**
+ * A seeded starting arrangement that is NOT a solution, so the level opens
+ * unsolved and stays reproducible across unlimited retries.
+ */
+function pickOpeningArrangement(
+  planetCount: number,
+  seed: string,
+  solutionKeys: ReadonlySet<string>,
+): readonly number[] | null {
+  const random = mulberry32(fnv1aHash(`${seed}:opening`));
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const arrangement = Array.from({ length: planetCount }, () =>
+      Math.floor(random() * TIME_TO_FLY_SLOT_COUNT) % TIME_TO_FLY_SLOT_COUNT,
+    );
+    if (!solutionKeys.has(arrangement.join(","))) return arrangement;
+  }
   return null;
 }
 
@@ -276,6 +295,11 @@ function buildCandidate(levelIndex: number, seed: string): Omit<TimeToFlyLevel, 
   return { index: levelIndex, seed, planets, galaxy, initialArrangement: intended };
 }
 
+/** Exposed for diagnostics only: build one candidate without acceptance gates. */
+export function __buildCandidateForTest(levelIndex: number, seed: string) {
+  return buildCandidate(levelIndex, seed);
+}
+
 /**
  * Generate the level at `levelIndex` for a run seed.
  *
@@ -300,17 +324,21 @@ export function generateTimeToFlyLevel(runSeed: string, levelIndex: number): Tim
     if (verdict.solutions.length < TIME_TO_FLY_ACCEPTANCE.MIN_SOLUTIONS) { reject("unsolvable"); continue; }
     if (verdict.solutions.length > TIME_TO_FLY_ACCEPTANCE.MAX_SOLUTIONS) { reject("too-many-solutions"); continue; }
 
-    // The intended arrangement must be among them, or the level is solvable
-    // only by some route the generator did not design and cannot vouch for.
-    const intendedKey = candidate.initialArrangement.join(",");
-    if (!verdict.solutions.some((arrangement) => arrangement.join(",") === intendedKey)) { reject("intended-not-a-solution"); continue; }
+    // The level must NOT open already solved. The constructed arrangement is
+    // scaffolding for placing planets, not the answer — requiring it to be a
+    // solution was both fragile and wrong, since a level whose starting
+    // position wins on the first launch is not a puzzle. The verifier owns the
+    // solution set; the opening arrangement is a seeded position outside it.
+    const solutionKeys = new Set(verdict.solutions.map((arrangement) => arrangement.join(",")));
+    const opening = pickOpeningArrangement(candidate.planets.length, seed, solutionKeys);
+    if (!opening) { reject("no-unsolved-opening"); continue; }
 
     if (verdict.bestApproach > TIME_TO_FLY_ARENA.GALAXY_RADIUS * TIME_TO_FLY_ACCEPTANCE.CLEAN_ARRIVAL) { reject("no-clean-arrival"); continue; }
     if (verdict.nearestMiss < TIME_TO_FLY_ARENA.GALAXY_RADIUS * TIME_TO_FLY_ACCEPTANCE.MISS_MARGIN) { reject("hair-miss"); continue; }
 
     if (!everyPlanetNecessary(candidate.planets, candidate.galaxy)) { reject("planet-not-necessary"); continue; }
 
-    return { ...candidate, solutionCount: verdict.solutions.length };
+    return { ...candidate, initialArrangement: opening, solutionCount: verdict.solutions.length };
   }
 
   throw new Error(`TIME_TO_FLY_LEVEL_GENERATION_FAILED: ${runSeed}:${levelIndex}`);

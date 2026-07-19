@@ -166,7 +166,8 @@ type MarchEvent =
   | { kind: "arrived"; approach: number; steps: number }
   | { kind: "crashed"; steps: number; approach: number }
   | { kind: "escaped"; steps: number; approach: number }
-  | { kind: "reached-disc"; planetIndex: number; craft: CraftState; steps: number; approach: number };
+  | { kind: "reached-disc"; planetIndex: number; craft: CraftState; steps: number; approach: number }
+  | { kind: "abandoned-planet"; steps: number; approach: number };
 
 /**
  * Step the craft forward until something decisive happens.
@@ -177,6 +178,7 @@ type MarchEvent =
 function march(
   craft: CraftState,
   placed: readonly PlacedPlanet[],
+  visited: Set<number>,
   pending: readonly { index: number; centre: TimeToFlyVector; radius: number }[],
   galaxy: TimeToFlyVector,
   stepsUsed: number,
@@ -187,6 +189,24 @@ function march(
 
   for (let step = stepsUsed + 1; step <= TIME_TO_FLY_PHYSICS.MAX_FLIGHT_STEPS; step += 1) {
     current = stepCraft(current, placed);
+
+    // A planet whose field the craft has left behind without ever entering can
+    // never contribute to this branch. That is not a solution under the
+    // threading rule, and no later step can repair it, so the branch dies here.
+    for (const planet of placed) {
+      if (visited.has(planet.id)) continue;
+      const toPlanet = distance(current.position, planet.position);
+      if (toPlanet < planet.fieldRadius) {
+        visited.add(planet.id);
+        continue;
+      }
+      const receding =
+        (current.position.x - planet.position.x) * current.velocity.x
+        + (current.position.y - planet.position.y) * current.velocity.y;
+      if (receding > 0 && toPlanet > planet.fieldRadius) {
+        return { kind: "abandoned-planet", steps: step, approach };
+      }
+    }
 
     const toGalaxy = distance(current.position, galaxy);
     if (toGalaxy < approach) approach = toGalaxy;
@@ -243,9 +263,9 @@ export function verifyLevel(
       solutions.push(assigned.map((slot) => slot ?? 0));
       return;
     }
-    // A planet the craft never approached cannot change the outcome, so every
-    // slot of it is equally a solution. Enumerating them keeps the reported
-    // count honest; `necessity` is what rejects the level for having one.
+    // Under the threading rule a planet the craft never met cannot appear in a
+    // solution at all, so this expansion should be unreachable. Kept as a
+    // total function rather than an assertion, and the count stays exact.
     const total = TIME_TO_FLY_SLOT_COUNT ** freeIndices.length;
     for (let combo = 0; combo < total; combo += 1) {
       const arrangement = assigned.map((slot) => slot ?? 0);
@@ -263,6 +283,7 @@ export function verifyLevel(
     assigned: (number | null)[],
     stepsUsed: number,
     approachSoFar: number,
+    visitedIds: readonly number[],
   ): void {
     if (exhausted) return;
     nodes += 1;
@@ -291,14 +312,24 @@ export function verifyLevel(
     // Admissible bound: can this branch still reach the galaxy at all?
     if (!withinReachableCone(craft, pending, galaxy)) return;
 
-    const event = march(craft, placed, pending, galaxy, stepsUsed, approachSoFar);
+    const visited = new Set(visitedIds);
+    const event = march(craft, placed, visited, pending, galaxy, stepsUsed, approachSoFar);
 
     if (event.kind === "arrived") {
+      // THREADING RULE: reaching the galaxy is necessary but not sufficient —
+      // the craft must have been deflected by every planet. This is what makes
+      // "every planet materially contributes" structural rather than a property
+      // we hope the geometry happens to have, and it is what kills the branches
+      // that made exhaustive counting unaffordable.
+      if (visited.size < planets.length) {
+        if (event.approach < nearestMiss) nearestMiss = event.approach;
+        return;
+      }
       if (event.approach < bestApproach) bestApproach = event.approach;
       recordSolution(assigned);
       return;
     }
-    if (event.kind === "crashed" || event.kind === "escaped") {
+    if (event.kind === "crashed" || event.kind === "escaped" || event.kind === "abandoned-planet") {
       if (event.approach < nearestMiss) nearestMiss = event.approach;
       return;
     }
@@ -308,11 +339,11 @@ export function verifyLevel(
       if (exhausted) return;
       const next = assigned.slice();
       next[event.planetIndex] = slot;
-      search(event.craft, next, event.steps, event.approach);
+      search(event.craft, next, event.steps, event.approach, [...visited]);
     }
   }
 
-  search(launchState(), planets.map(() => null), 0, Number.POSITIVE_INFINITY);
+  search(launchState(), planets.map(() => null), 0, Number.POSITIVE_INFINITY, []);
 
   return { solutions, exhausted, nodesUsed: nodes, bestApproach, nearestMiss };
 }
