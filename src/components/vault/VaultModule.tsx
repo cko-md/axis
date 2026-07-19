@@ -587,7 +587,7 @@ function VideoLounge() {
 export function VaultModule() {
   const spotify = useSpotify();
   const { toast } = useToast();
-  const { connected, configured, now, liveProgressMs, playing, refresh: refreshSpotify } = spotify;
+  const { connected, configured, connectError, now, liveProgressMs, playing, refresh: refreshSpotify } = spotify;
 
   // Direct OAuth (not Composio) — SpotifyProvider's poll() only reads the
   // direct-OAuth cookie (/api/spotify/playback), so a Composio-only grant
@@ -1026,6 +1026,11 @@ export function VaultModule() {
                   ? "Authorize Spotify to bring your rotation, recent plays, top artists, and live transport controls into the Record Room. Until then you can still load any public link below."
                   : "Spotify isn’t configured on the server yet. The Record Room runs in preview mode — load any public Spotify link below."}
               </p>
+              {connectError && (
+                <p className={styles.setupBody} role="alert" data-testid="spotify-connect-error">
+                  {connectError}
+                </p>
+              )}
               {configured ? (
                 <button type="button" className={styles.setupBtn} onClick={connectSpotify}>
                   Connect Spotify

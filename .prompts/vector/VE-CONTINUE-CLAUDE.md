@@ -65,11 +65,15 @@ Wave 15.2 is implemented, converged, **and merged to main** (PR #239,
   fresh-Supabase authenticated Playwright suite including the VECTOR arcade
   spec). This closes the prior "browser gate NOT GREEN" blocker.
 
-Wave 15.3 (Second Sense) is implemented on a branch off `main`, with a PR
-open and **pending owner merge** — verify the exact PR number/status before
-continuing (`gh pr list`). Do not re-derive it; if it is already merged,
-treat the facts below as historical and re-read the current
-`docs/axis-redesign/15-completion-matrix.md` + `PROGRAM_STATE.json` instead.
+Wave 15.3 (Second Sense) **merged to main** as PR #251 (`294dae37`). The
+facts below are historical. Its bespoke visual layer was subsequently stripped
+at the owner's direction (injected stylesheet + canvas dial renderer removed;
+rules, scoring, seeding, input reducer, testids and the accessibility contract
+retained) so the design can be rebuilt by a separate agent.
+
+**Do not restate merge state in this file.** `docs/CURRENT_STATE.md` is derived
+from git by `scripts/derive-program-state.mjs` and is authoritative. Read it
+first; where it disagrees with anything here, it wins.
 
 - Second Sense is the first complete, "available" VECTOR title: native
   DOM/Canvas, five hidden-timer reproduction trials, absolute + proportional
@@ -125,15 +129,25 @@ deployment metadata, source-map upload scope, or a local Next build. Do not
 mutate production or invoke paid OpenAI generation without explicit
 in-session owner authorization.
 
-## Next execution: Wave 15.4 Envoy core
+## Next execution: see docs/CURRENT_STATE.md
 
-Do not start this until Wave 15.3's PR has merged and its exact-head CI
-(especially `e2e-authenticated`) is confirmed green — re-verify with
-`gh pr checks <number>` rather than assuming the state recorded above still
-holds. Read `docs/axis-redesign/15-completion-matrix.md`'s "Envoy core"
-table (currently `open`/`partial` across every row) and the full binding
-contract in `docs/vector/PLAN.md` before writing code. Key requirements
-(source lines noted in the completion matrix):
+This section previously hard-coded "Wave 15.4 Envoy core" and survived long
+after 15.4 shipped, 15.5 shipped, and Envoys was removed again — sending
+resuming sessions to redo finished work. Naming a specific next wave in a
+static file is what caused that, so this file no longer does it.
+
+Run `npm run state:derive` and read `docs/CURRENT_STATE.md` for what is merged
+and what is only on a branch. `npm run state:check` fails if any checkpoint doc
+contradicts git.
+
+Standing context that is NOT derivable, and still applies:
+
+- Waves 15.4 (Envoy core) and 15.5 (hatch-pet packages) merged and were then
+  **removed entirely** at the owner's direction; the design is being rebuilt by
+  a separate agent. Do not re-implement them from the plan below without
+  checking with the owner first.
+- The historical Envoy requirements are retained below for whoever rebuilds
+  them (source lines noted in the completion matrix):
 
 1. Envoy appearance independent of Focus/Intel/Ask; preserve context, privacy,
    error handling, Sentry reporting, focus management, Escape, and abort
@@ -184,17 +198,14 @@ committing.
   Vercel/Sentry status, tests, manual checklist, risks, and the next
   dependency.
 
-## Handoff facts (2026-07-18, updated after Wave 15.3)
+## Handoff facts
 
-`main@a8c7be32` was the last-verified merged head before Wave 15.3 started —
-re-verify with `git fetch origin && git log --oneline -1 origin/main` before
-starting new work, since Wave 15.3's PR (and possibly others) may have merged
-since. This file previously assumed a `codex/vector-phase15-convergence`
-working branch and a machine-local owner-brief attachment
-(`~/.codex/attachments/...`); both are gone — do not look for either. The
-tracked docs listed at the top of this file are the sole source of truth.
+Head/branch/merge facts are no longer recorded here — they went stale five
+merges in a row. `docs/CURRENT_STATE.md` carries them, derived from git.
+
+This file previously assumed a `codex/vector-phase15-convergence` working
+branch and a machine-local owner-brief attachment (`~/.codex/attachments/...`);
+both are gone — do not look for either.
 
 Do NOT push, merge, or apply any hosted migration without explicit owner
-authorization in the session. Begin Wave 15.4 (Envoy core) from a fresh
-branch off `main` — only after confirming Wave 15.3 is merged and its CI is
-green.
+authorization in the session.

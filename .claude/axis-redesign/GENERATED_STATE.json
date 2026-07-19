@@ -1,0 +1,220 @@
+{
+  "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
+  "derivedAt": "2026-07-19T13:29:57.329Z",
+  "git": {
+    "branch": "feat/redesign-continuation-2026-07-19",
+    "head": "089cb2a5c5eeec48d39e6a30b8fc3e8b6f943c21",
+    "mainHead": "d8a15e7bff4bb176afde3e7b04212d858611083b",
+    "workingTreeClean": false,
+    "aheadOfMain": [
+      {
+        "sha": "089cb2a5",
+        "subject": "fix(ci): resolve the mainline ref instead of assuming a local main branch"
+      },
+      {
+        "sha": "55285b45",
+        "subject": "fix(axis): report test FILE count, not describe-block count, in derived state"
+      },
+      {
+        "sha": "6246f808",
+        "subject": "chore(axis): refresh derived program state with measured gate figures"
+      },
+      {
+        "sha": "32e9d959",
+        "subject": "feat(desktop): Electron security hardening with runtime verification"
+      },
+      {
+        "sha": "92c48b12",
+        "subject": "feat(axis): MFA trust window, widget typography, and derived state documentation"
+      },
+      {
+        "sha": "af33e72c",
+        "subject": "feat(axis): remove Envoys, strip Second Sense visuals, fix persistence/OAuth/desktop browser"
+      }
+    ]
+  },
+  "mergedPrs": [
+    {
+      "pr": 256,
+      "sha": "d8a15e7b",
+      "subject": "feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B)",
+      "committedAt": "2026-07-18T23:52:23-04:00"
+    },
+    {
+      "pr": 255,
+      "sha": "2ba9fd8f",
+      "subject": "feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX",
+      "committedAt": "2026-07-18T23:38:19-04:00"
+    },
+    {
+      "pr": 254,
+      "sha": "e122413a",
+      "subject": "feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab",
+      "committedAt": "2026-07-18T23:21:48-04:00"
+    },
+    {
+      "pr": 253,
+      "sha": "61e833d4",
+      "subject": "feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher",
+      "committedAt": "2026-07-18T23:01:52-04:00"
+    },
+    {
+      "pr": 251,
+      "sha": "294dae37",
+      "subject": "feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3)",
+      "committedAt": "2026-07-18T22:54:10-04:00"
+    },
+    {
+      "pr": 250,
+      "sha": "55c92d47",
+      "subject": "chore(axis-redesign): repair post-convergence checkpoint docs",
+      "committedAt": "2026-07-18T22:45:23-04:00"
+    },
+    {
+      "pr": 252,
+      "sha": "f9e11b67",
+      "subject": "fix(desktop): don't crash desktop:check when desktop-release.yml is absent",
+      "committedAt": "2026-07-18T21:40:53-04:00"
+    },
+    {
+      "pr": 249,
+      "sha": "a8c7be32",
+      "subject": "feat(desktop): add unsigned Electron preview channel",
+      "committedAt": "2026-07-18T16:18:42-04:00"
+    },
+    {
+      "pr": 248,
+      "sha": "d73b777c",
+      "subject": "feat(webviewer): replace tavily with local Mozilla Readability reader",
+      "committedAt": "2026-07-18T11:29:24-04:00"
+    },
+    {
+      "pr": 246,
+      "sha": "18aea353",
+      "subject": "fix(reliability): surface + redact fund advisor and daily-maintenance failures",
+      "committedAt": "2026-07-18T10:48:10-04:00"
+    },
+    {
+      "pr": 244,
+      "sha": "a98c4f8d",
+      "subject": "fix(mail): stop leaking raw provider error text from mail adapters",
+      "committedAt": "2026-07-18T10:47:38-04:00"
+    },
+    {
+      "pr": 247,
+      "sha": "5b838be4",
+      "subject": "fix(ai): redact raw provider/DB errors from AI tool results",
+      "committedAt": "2026-07-18T10:41:00-04:00"
+    },
+    {
+      "pr": 245,
+      "sha": "fb5da834",
+      "subject": "fix(reliability): surface + redact failures in calendar/cron/make routes",
+      "committedAt": "2026-07-18T10:40:58-04:00"
+    },
+    {
+      "pr": 243,
+      "sha": "8964bb91",
+      "subject": "fix(plaid): harden webhook sync + surface/redact failures",
+      "committedAt": "2026-07-18T10:40:55-04:00"
+    },
+    {
+      "pr": 242,
+      "sha": "02f3064c",
+      "subject": "fix(fund): propagate swallowed persistence failures in finance daily jobs",
+      "committedAt": "2026-07-18T10:40:53-04:00"
+    },
+    {
+      "pr": 241,
+      "sha": "5996244e",
+      "subject": "fix(security): stop leaking raw DB/provider errors from financial + MFA APIs",
+      "committedAt": "2026-07-18T03:46:40-04:00"
+    },
+    {
+      "pr": 240,
+      "sha": "aae3031e",
+      "subject": "fix(fund): surface Plaid token persistence failures via Sentry",
+      "committedAt": "2026-07-18T03:31:36-04:00"
+    },
+    {
+      "pr": 237,
+      "sha": "085e5cd6",
+      "subject": "fix(migrations): reconcile 58 pre-July migration versions to prod (phase9 drift)",
+      "committedAt": "2026-07-17T17:29:51-04:00"
+    },
+    {
+      "pr": 238,
+      "sha": "bc6abd8d",
+      "subject": "fix(migrations): restore routine_version > 0 CHECK omitted by main's backfill",
+      "committedAt": "2026-07-17T17:17:41-04:00"
+    }
+  ],
+  "waves": [
+    {
+      "wave": "15.3",
+      "mergedPr": 251,
+      "sha": "294dae37",
+      "subject": "feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3)",
+      "mergedAt": "2026-07-18T22:54:10-04:00"
+    },
+    {
+      "wave": "15.4",
+      "mergedPr": 254,
+      "sha": "e122413a",
+      "subject": "feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab",
+      "mergedAt": "2026-07-18T23:21:48-04:00"
+    },
+    {
+      "wave": "15.5",
+      "mergedPr": 255,
+      "sha": "2ba9fd8f",
+      "subject": "feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX",
+      "mergedAt": "2026-07-18T23:38:19-04:00"
+    },
+    {
+      "wave": "16.0",
+      "mergedPr": 253,
+      "sha": "61e833d4",
+      "subject": "feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher",
+      "mergedAt": "2026-07-18T23:01:52-04:00"
+    },
+    {
+      "wave": "16.1",
+      "mergedPr": 253,
+      "sha": "61e833d4",
+      "subject": "feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher",
+      "mergedAt": "2026-07-18T23:01:52-04:00"
+    },
+    {
+      "wave": "16.2",
+      "mergedPr": 256,
+      "sha": "d8a15e7b",
+      "subject": "feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B)",
+      "mergedAt": "2026-07-18T23:52:23-04:00"
+    }
+  ],
+  "migrations": {
+    "count": 89,
+    "latest": "202607170001_vector_arcade_persistence.sql"
+  },
+  "defects": {
+    "total": 29,
+    "open": 0,
+    "openIds": []
+  },
+  "gates": {
+    "measured": false,
+    "measuredAt": "2026-07-19T09:37:12.801Z",
+    "tests": {
+      "passed": 1340,
+      "total": 1340,
+      "files": 193,
+      "suites": 478
+    },
+    "bundleKb": {
+      "used": 4257,
+      "budget": 4400
+    },
+    "note": "carried forward; re-run with --gates to measure"
+  }
+}

@@ -7,11 +7,15 @@ function OAuthDoneInner(): React.ReactElement {
   const params = useSearchParams();
   const provider = params.get('provider') ?? '';
   const status = params.get('status') ?? 'ok';
+  // Carries WHY a connect failed (denied, state_missing, state_mismatch,
+  // not_configured, token_exchange_failed) so the opener can say something
+  // truthful instead of appearing to do nothing.
+  const reason = params.get('reason') ?? '';
 
   useEffect(() => {
     if (window.opener) {
       window.opener.postMessage(
-        { type: 'oauth-done', provider, status },
+        { type: 'oauth-done', provider, status, reason },
         window.location.origin
       );
       window.close();
@@ -26,7 +30,7 @@ function OAuthDoneInner(): React.ReactElement {
       else if (provider.startsWith('composio_')) dest = '/control-room?connected=composio';
       window.location.replace(dest);
     }
-  }, [provider, status]);
+  }, [provider, status, reason]);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif' }}>

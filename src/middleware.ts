@@ -6,10 +6,22 @@ import {
   requireAuthenticatorAssurance,
   type AuthenticatorAssuranceState,
 } from "@/lib/auth/authenticatorAssurance";
+import { MFA_TRUST_COOKIE, verifyMfaTrustToken } from "@/lib/auth/mfaTrust";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy"];
+// /oauth-done is the return leg of EVERY provider popup (Spotify, Strava,
+// Composio). It is a client-only shim: it reads `provider` and `status` from the
+// query string, postMessages them to window.opener, and closes. It carries no
+// user data and reads no session.
+//
+// It must be public. Gating it meant the popup returning from the provider was
+// evaluated for both a session AND authenticator assurance, and any miss
+// redirected the popup to /login — so the grant succeeded upstream, the opener
+// never received its postMessage, and the app silently stayed "not connected".
+// Its signed-out fallback still navigates to a protected destination, so making
+// this page public does not widen access to anything behind it.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy", "/oauth-done"];
 
 // request.nextUrl.clone() inherits Next's NextURL bug where 127.0.0.1/[::1]
 // get silently rewritten to the literal string "localhost" at parse time (see
@@ -93,6 +105,20 @@ export async function middleware(request: NextRequest) {
     user = data.user;
     if (user) {
       assurance = await requireAuthenticatorAssurance(supabase);
+      // A remembered device lets an enrolled account skip the second factor for
+      // a bounded window instead of being challenged on every single sign-in.
+      // Only ever narrows mfa_required -> satisfied: `unavailable` still fails
+      // closed, and `user` here is already server-verified by getUser() above,
+      // so this can elevate a session but can never create one.
+      if (assurance === "mfa_required") {
+        const verdict = await verifyMfaTrustToken({
+          secret: process.env.MFA_TRUST_SECRET,
+          token: request.cookies.get(MFA_TRUST_COOKIE)?.value,
+          userId: user.id,
+          nowMs: Date.now(),
+        });
+        if (verdict.trusted) assurance = "satisfied";
+      }
     }
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";

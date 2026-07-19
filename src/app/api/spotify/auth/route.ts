@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
-import { optionalEnv, hasOptionalEnv } from "@/lib/env";
+import { optionalEnv } from "@/lib/env";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 const SCOPES = [
   // Web Playback SDK (the in-browser "Axis Web Player" device) requires these
@@ -30,11 +31,23 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
-  if (!clientId && !hasOptionalEnv("COMPOSIO_API_KEY")) {
-    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=error"));
-  }
   if (!clientId) {
-    return NextResponse.redirect(buildAppUrl(req, "/api/integrations/composio/connect?toolkit=spotify"));
+    // Spotify is a DIRECT OAuth integration. There was previously a fallback
+    // here that redirected to the Composio connector when SPOTIFY_CLIENT_ID was
+    // absent, but nothing reads that result: getAccessToken() in _lib.ts only
+    // ever looks at the spotify_access_token / spotify_refresh_token cookies and
+    // has no Composio awareness. A Composio grant therefore always left the app
+    // reporting "not connected". Failing honestly is the truthful outcome.
+    captureRouteError(new Error("Spotify client id is not configured"), {
+      route: "/api/spotify/auth",
+      operation: "start_oauth",
+      area: "integrations",
+      status: 500,
+      code: "SPOTIFY_NOT_CONFIGURED",
+    });
+    return NextResponse.redirect(
+      buildAppUrl(req, "/oauth-done?provider=spotify&status=error&reason=not_configured"),
+    );
   }
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const state = crypto.randomUUID();

@@ -1539,7 +1539,8 @@ export function VitalityModule() {
                 "https://www.letsrun.com/feed/",
                 "https://www.runnersworld.com/rss/all.xml/",
                 "https://www.dcrainmaker.com/feed",
-                "https://www.outsideonline.com/feed",
+                // outsideonline.com/feed removed 2026-07-19 — now redirects to
+                // an OAuth authorize endpoint, so it is no longer public.
               ]}
             />
           </div>

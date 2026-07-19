@@ -59,179 +59,19 @@ export type SecondSenseSaveData = {
 };
 
 const ROOT_CLASS = "vector-second-sense";
-const STYLE_ELEMENT_ID = "vector-second-sense-styles";
-const DIAL_SIZE_PX = 260;
 
-function injectStylesOnce(root: Document): void {
-  if (root.getElementById(STYLE_ELEMENT_ID)) return;
-  const style = root.createElement("style");
-  style.id = STYLE_ELEMENT_ID;
-  style.textContent = `
-.${ROOT_CLASS} {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.25rem;
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
-  padding: 1.5rem 1rem;
-  box-sizing: border-box;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #ece8df;
-  background: #0c0e13;
-  overflow-y: auto;
-}
-.${ROOT_CLASS} * { box-sizing: border-box; }
-.${ROOT_CLASS}__eyebrow { letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.75rem; color: #a9a49a; }
-.${ROOT_CLASS}__heading { margin: 0; font-size: 1.4rem; }
-.${ROOT_CLASS}__body { margin: 0; max-width: 32rem; text-align: center; color: #cfc9bd; line-height: 1.5; }
-.${ROOT_CLASS}__group { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
-.${ROOT_CLASS}__choice {
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0.6rem 1.1rem;
-  border-radius: 8px;
-  border: 1px solid #454033;
-  background: #161a22;
-  color: #ece8df;
-  font-size: 0.95rem;
-  cursor: pointer;
-}
-.${ROOT_CLASS}__choice[aria-pressed="true"] { background: #e0c388; color: #1a1c22; border-color: #e0c388; }
-.${ROOT_CLASS}__choice:focus-visible { outline: 3px solid #7fb0ff; outline-offset: 2px; }
-.${ROOT_CLASS}__start {
-  min-height: 44px;
-  padding: 0.7rem 1.6rem;
-  border-radius: 8px;
-  border: 1px solid #e0c388;
-  background: #e0c388;
-  color: #1a1c22;
-  font-weight: 600;
-  cursor: pointer;
-}
-.${ROOT_CLASS}__start:focus-visible { outline: 3px solid #7fb0ff; outline-offset: 2px; }
-.${ROOT_CLASS}__start:disabled { opacity: 0.5; cursor: not-allowed; }
-.${ROOT_CLASS}__stage { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
-.${ROOT_CLASS}__dial {
-  width: ${DIAL_SIZE_PX}px;
-  height: ${DIAL_SIZE_PX}px;
-  max-width: 90vw;
-  max-height: 90vw;
-  touch-action: none;
-}
-.${ROOT_CLASS}__target {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: ${DIAL_SIZE_PX}px;
-  height: ${DIAL_SIZE_PX}px;
-  max-width: 90vw;
-  max-height: 90vw;
-  border-radius: 999px;
-  border: 2px solid #454033;
-  background: #161a22;
-  cursor: pointer;
-  touch-action: none;
-  user-select: none;
-}
-.${ROOT_CLASS}__target[data-phase="holding"] { background: #2a2416; border-color: #e0c388; }
-.${ROOT_CLASS}__target:focus-visible { outline: 3px solid #7fb0ff; outline-offset: 4px; }
-.${ROOT_CLASS}__prompt { font-size: 1.1rem; text-align: center; }
-.${ROOT_CLASS}__live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.${ROOT_CLASS}__results { display: flex; flex-direction: column; gap: 0.5rem; width: min(28rem, 100%); }
-.${ROOT_CLASS}__result-row { display: flex; justify-content: space-between; padding: 0.4rem 0.6rem; border: 1px solid #33302a; border-radius: 6px; font-variant-numeric: tabular-nums; }
-.${ROOT_CLASS}__summary { display: flex; flex-direction: column; gap: 0.25rem; align-items: center; text-align: center; }
-.${ROOT_CLASS}__summary strong { font-size: 1.3rem; }
-.${ROOT_CLASS}__actions { display: flex; gap: 0.75rem; }
-.${ROOT_CLASS}__button {
-  min-height: 44px;
-  padding: 0.6rem 1.2rem;
-  border-radius: 8px;
-  border: 1px solid #454033;
-  background: #161a22;
-  color: #ece8df;
-  cursor: pointer;
-}
-.${ROOT_CLASS}__button:focus-visible { outline: 3px solid #7fb0ff; outline-offset: 2px; }
-@media (prefers-color-scheme: light) {
-  .${ROOT_CLASS} { background: #f2ede2; color: #25231f; }
-  .${ROOT_CLASS}__body { color: #4a453c; }
-  .${ROOT_CLASS}__choice, .${ROOT_CLASS}__target, .${ROOT_CLASS}__button { background: #fbf8f2; border-color: #c8c0b0; color: #25231f; }
-  .${ROOT_CLASS}__target[data-phase="holding"] { background: #f0dfae; border-color: #a3781f; }
-  .${ROOT_CLASS}__result-row { border-color: #d8d0be; }
-}
-`;
-  root.head.appendChild(style);
-}
-
-function drawDial(
-  context: CanvasRenderingContext2D,
-  size: number,
-  input: {
-    fillFraction: number;
-    holding: boolean;
-    revealed: { targetFraction: number; actualFraction: number } | null;
-    reducedMotion: boolean;
-  },
-): void {
-  const center = size / 2;
-  const radius = center - 12;
-  context.clearRect(0, 0, size, size);
-
-  context.strokeStyle = "rgba(255,255,255,0.14)";
-  context.lineWidth = 10;
-  context.beginPath();
-  context.arc(center, center, radius, 0, Math.PI * 2);
-  context.stroke();
-
-  if (input.revealed) {
-    context.strokeStyle = "#7fb0ff";
-    context.lineWidth = 10;
-    context.beginPath();
-    context.arc(
-      center,
-      center,
-      radius,
-      -Math.PI / 2,
-      -Math.PI / 2 + Math.min(1, input.revealed.targetFraction) * Math.PI * 2,
-    );
-    context.stroke();
-
-    context.strokeStyle = "#e0c388";
-    context.lineWidth = 4;
-    context.beginPath();
-    context.arc(
-      center,
-      center,
-      radius - 14,
-      -Math.PI / 2,
-      -Math.PI / 2 + Math.min(1, input.revealed.actualFraction) * Math.PI * 2,
-    );
-    context.stroke();
-    return;
-  }
-
-  if (input.holding) {
-    context.fillStyle = input.reducedMotion ? "rgba(224,195,136,0.35)" : "rgba(224,195,136,0.22)";
-    context.beginPath();
-    context.arc(center, center, radius - 20, 0, Math.PI * 2);
-    context.fill();
-    return;
-  }
-
-  context.strokeStyle = "#e0c388";
-  context.lineWidth = 10;
-  context.beginPath();
-  context.arc(
-    center,
-    center,
-    radius,
-    -Math.PI / 2,
-    -Math.PI / 2 + Math.min(1, Math.max(0, input.fillFraction)) * Math.PI * 2,
-  );
-  context.stroke();
-}
+// Wave 15.3 shipped a bespoke visual layer in this file: an injected stylesheet
+// of hardcoded hex values and a canvas dial renderer, both of which bypassed the
+// Atelier / VECTOR token systems. That layer has been removed so the visual
+// design can be rebuilt against the shared design system.
+//
+// What deliberately remains is everything that is NOT design: the trial rules,
+// the deterministic seeding, the input state machine, the scoring transform, and
+// the accessibility contract. The class names below are kept as bare styling
+// hooks (no stylesheet is injected), and every piece of trial state is exposed
+// as DOM text plus data attributes — which is what the registry's accessibility
+// claim ("all timing prompts, scores, state, and controls remain available as
+// DOM text and buttons") actually rests on.
 
 /**
  * Build one Second Sense play instance. Framework-free: only DOM APIs and the
@@ -240,7 +80,6 @@ function drawDial(
  */
 export function createSecondSenseGame(context: VectorGameCreateContext): VectorGameInstance {
   const doc = context.mount.ownerDocument ?? document;
-  injectStylesOnce(doc);
 
   const root = doc.createElement("div");
   root.className = ROOT_CLASS;
@@ -404,8 +243,11 @@ export function createSecondSenseGame(context: VectorGameCreateContext): VectorG
     }, currentTargetMs());
   }
 
-  let dialCanvas: HTMLCanvasElement | null = null;
-  let dialContext: CanvasRenderingContext2D | null = null;
+  // Stands in for the removed canvas dial. It carries the same information the
+  // dial encoded — sweep progress, hold state, and the target/actual reveal —
+  // as text and data attributes, so a redesign can bind a new visual to these
+  // without re-deriving any timing.
+  let dialReadout: HTMLDivElement | null = null;
   let targetSurface: HTMLDivElement | null = null;
   let promptElement: HTMLParagraphElement | null = null;
 
@@ -422,13 +264,10 @@ export function createSecondSenseGame(context: VectorGameCreateContext): VectorG
     const stage = doc.createElement("div");
     stage.className = `${ROOT_CLASS}__stage`;
 
-    dialCanvas = doc.createElement("canvas");
-    dialCanvas.className = `${ROOT_CLASS}__dial`;
-    const scale = typeof window !== "undefined" ? Math.min(2, window.devicePixelRatio || 1) : 1;
-    dialCanvas.width = DIAL_SIZE_PX * scale;
-    dialCanvas.height = DIAL_SIZE_PX * scale;
-    dialContext = dialCanvas.getContext("2d");
-    dialContext?.scale(scale, scale);
+    dialReadout = doc.createElement("div");
+    dialReadout.className = `${ROOT_CLASS}__dial`;
+    dialReadout.setAttribute("data-testid", "second-sense-dial");
+    dialReadout.setAttribute("aria-hidden", "true");
 
     targetSurface = doc.createElement("div");
     targetSurface.className = `${ROOT_CLASS}__target`;
@@ -437,7 +276,7 @@ export function createSecondSenseGame(context: VectorGameCreateContext): VectorG
     targetSurface.setAttribute("data-testid", "second-sense-hold-target");
     targetSurface.setAttribute("aria-pressed", "false");
     targetSurface.setAttribute("aria-label", "Hold and release when the interval has elapsed");
-    targetSurface.appendChild(dialCanvas);
+    targetSurface.appendChild(dialReadout);
     bindHoldTarget(targetSurface);
 
     stage.appendChild(targetSurface);
@@ -527,14 +366,13 @@ export function createSecondSenseGame(context: VectorGameCreateContext): VectorG
   }
 
   function renderRevealed(targetMs: number, actualMs: number): void {
-    if (!dialContext || !dialCanvas) return;
+    if (!dialReadout) return;
     const maxSpan = Math.max(targetMs, actualMs, 1);
-    drawDial(dialContext, DIAL_SIZE_PX, {
-      fillFraction: 0,
-      holding: false,
-      reducedMotion: settings.resolvedMotion === "reduced",
-      revealed: { targetFraction: targetMs / maxSpan, actualFraction: actualMs / maxSpan },
-    });
+    dialReadout.dataset.state = "revealed";
+    dialReadout.dataset.targetFraction = String(targetMs / maxSpan);
+    dialReadout.dataset.actualFraction = String(actualMs / maxSpan);
+    delete dialReadout.dataset.fillFraction;
+    dialReadout.textContent = `Target ${targetMs}ms · held ${actualMs}ms`;
   }
 
   function demonstrationFraction(): number {
@@ -549,13 +387,17 @@ export function createSecondSenseGame(context: VectorGameCreateContext): VectorG
   }
 
   function renderDial(): void {
-    if (!dialContext) return;
-    drawDial(dialContext, DIAL_SIZE_PX, {
-      fillFraction: demonstrationFraction(),
-      holding: inputState.phase === "holding",
-      revealed: null,
-      reducedMotion: settings.resolvedMotion === "reduced",
-    });
+    if (!dialReadout) return;
+    const holding = inputState.phase === "holding";
+    const fillFraction = demonstrationFraction();
+    dialReadout.dataset.state = holding ? "holding" : "sweeping";
+    dialReadout.dataset.fillFraction = String(fillFraction);
+    dialReadout.dataset.reducedMotion = String(settings.resolvedMotion === "reduced");
+    delete dialReadout.dataset.targetFraction;
+    delete dialReadout.dataset.actualFraction;
+    dialReadout.textContent = holding
+      ? "Holding"
+      : `Demonstrating ${Math.round(fillFraction * 100)}%`;
   }
 
   function scoreMode(): "practice" | "daily" {

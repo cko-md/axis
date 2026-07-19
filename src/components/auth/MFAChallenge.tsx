@@ -34,6 +34,18 @@ export default function MFAChallenge({ factorId, challengeId, onSuccess, onCance
       inputRef.current?.focus();
       return;
     }
+    // The session is now aal2. Ask the server to remember this device so the
+    // next sign-in does not challenge again. The server re-checks assurance
+    // itself, so this call cannot grant trust that was not earned.
+    //
+    // Deliberately non-blocking: if it fails, the user is still signed in and
+    // simply gets challenged next time. Failing to remember a device must never
+    // fail the login itself.
+    try {
+      await fetch('/api/auth/mfa/trust-device', { method: 'POST' });
+    } catch {
+      // Non-fatal by design — see above.
+    }
     onSuccess();
   }
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import { isAxisDesktop, openDesktopBrowser } from "@/lib/desktop-browser";
 import { createClient } from "@/lib/supabase/client";
 
 const FAVS_KEY = "axis-wv-favorites";
@@ -134,6 +135,16 @@ export function WebViewer() {
     // OAuth/login pages must never load in the embedded proxy — open a real tab
     if (url && isOAuthUrl(url)) {
       window.open(url, "_blank", "noopener");
+      return;
+    }
+    // On desktop, hand the destination to the native browser rather than
+    // loading it into the proxy iframe. Reached from the address bar, the
+    // favorites bar, the start page, and the proxy's own navigation messages —
+    // none of which previously consulted the bridge at all.
+    if (isAxisDesktop()) {
+      void openDesktopBrowser(url).then((result) => {
+        if (!result.handled) setInputUrl(url);
+      });
       return;
     }
     setInputUrl(url);
@@ -325,7 +336,11 @@ export function WebViewer() {
   useEffect(() => {
     function onOpenUrl(e: Event) {
       const { url, title } = (e as CustomEvent<{ url: string; title?: string }>).detail;
-      if (isOpenRef.current) {
+      // Always go through the provider's `open`, which consults the Electron
+      // bridge first. Calling addTab directly meant that once the iframe modal
+      // was showing for any reason, every later link permanently bypassed the
+      // native browser on desktop.
+      if (isOpenRef.current && !isAxisDesktop()) {
         addTabRef.current(url);
       } else {
         open(url, title);

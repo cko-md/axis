@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { MFA_TRUST_COOKIE } from "@/lib/auth/mfaTrust";
 
 // ── DELETE /api/auth/mfa/unenroll ─────────────────────────────────────────────
 // Removes an enrolled MFA factor and updates user_auth_settings accordingly.
@@ -56,5 +57,16 @@ export async function DELETE(req: NextRequest) {
     { onConflict: "user_id" },
   );
 
-  return NextResponse.json({ ok: true });
+  // Changing the enrolled factors voids any remembered device: the trust token
+  // was minted against a specific factor, so it must not survive that factor
+  // being removed.
+  const response = NextResponse.json({ ok: true });
+  response.cookies.set(MFA_TRUST_COOKIE, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 0,
+    path: "/",
+  });
+  return response;
 }

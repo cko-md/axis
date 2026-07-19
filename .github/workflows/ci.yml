@@ -15,6 +15,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Checkpoint docs drifted badly enough that a resuming agent was directed to
+  # redo five merged waves. This job fails the build when any checkpoint
+  # document contradicts what git actually shows, so that cannot recur silently.
+  docs-currency:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: wave/PR state is derived from commit subjects on main, so
+      # a shallow clone would make the derivation wrong rather than merely slow.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Checkpoint documentation matches the repository
+        run: npm run state:check
+
   verify:
     runs-on: ubuntu-latest
     steps:
