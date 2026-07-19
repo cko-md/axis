@@ -251,8 +251,21 @@ export async function POST(req: NextRequest) {
     results[userId] = userResult;
   }
 
-  return NextResponse.json(
-    { ok: failures === 0, failures, results },
-    { status: failures === 0 ? 200 : 502 },
-  );
+  // Same reasoning as /api/cron/feed-digest: a partial failure is not a gateway
+  // error. The sweep runs per user and per section, so one user's pipeline scan
+  // failing must not present as "the whole sweep was unreachable" — that made
+  // Make retry the entire sweep on a backoff forever, re-doing every successful
+  // user's work each time.
+  //
+  // Failures remain fully visible: each one is reported through sweepFailure()
+  // and enumerated in `results`, and `ok` is false. Only the transport-level
+  // claim changes. User enumeration failing is still 5xx (above) because the
+  // sweep then genuinely could not run.
+  return NextResponse.json({
+    ok: failures === 0,
+    ran: true,
+    partial: failures > 0,
+    failures,
+    results,
+  });
 }

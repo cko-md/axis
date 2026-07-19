@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T09:37:12.781Z",
+  "derivedAt": "2026-07-19T13:29:57.329Z",
   "git": {
     "branch": "feat/redesign-continuation-2026-07-19",
-    "head": "6246f8080aebb279d8ef618cc2cfc4ff2ab40d84",
+    "head": "089cb2a5c5eeec48d39e6a30b8fc3e8b6f943c21",
     "mainHead": "d8a15e7bff4bb176afde3e7b04212d858611083b",
     "workingTreeClean": false,
     "aheadOfMain": [
+      {
+        "sha": "089cb2a5",
+        "subject": "fix(ci): resolve the mainline ref instead of assuming a local main branch"
+      },
+      {
+        "sha": "55285b45",
+        "subject": "fix(axis): report test FILE count, not describe-block count, in derived state"
+      },
       {
         "sha": "6246f808",
         "subject": "chore(axis): refresh derived program state with measured gate figures"
@@ -195,7 +203,7 @@
     "openIds": []
   },
   "gates": {
-    "measured": true,
+    "measured": false,
     "measuredAt": "2026-07-19T09:37:12.801Z",
     "tests": {
       "passed": 1340,
@@ -206,6 +214,7 @@
     "bundleKb": {
       "used": 4257,
       "budget": 4400
-    }
+    },
+    "note": "carried forward; re-run with --gates to measure"
   }
 }

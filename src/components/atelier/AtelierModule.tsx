@@ -96,7 +96,9 @@ const MENS_STYLE_FEEDS: string[] = [
   "https://www.esquire.com/rss/all.xml/",
   "https://www.permanentstyle.com/feed",
   "https://www.gq.com/feed/rss",
-  "https://hespokestyle.com/feed/",
+  // hespokestyle.com/feed/ removed 2026-07-19 — the host now returns 403 to
+  // non-browser clients. Kept in sync with VITALITY/ATELIER lists in
+  // src/app/api/cron/feed-digest/route.ts, which pre-warms the shared cache.
 ];
 
 type RssItem = { id: string; title: string; url: string; source: string; date: string };

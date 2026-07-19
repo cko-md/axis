@@ -19,19 +19,21 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T09:37:12.781Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T13:29:57.329Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `feat/redesign-continuation-2026-07-19`
-- **HEAD:** `6246f808`
+- **HEAD:** `089cb2a5`
 - **main:** `d8a15e7b`
 - **Working tree:** has uncommitted changes
 
-### Not yet on main (4 commit(s))
+### Not yet on main (6 commit(s))
 
 These exist only on this branch. Do not assume main contains them.
 
+- `089cb2a5` fix(ci): resolve the mainline ref instead of assuming a local main branch
+- `55285b45` fix(axis): report test FILE count, not describe-block count, in derived state
 - `6246f808` chore(axis): refresh derived program state with measured gate figures
 - `32e9d959` feat(desktop): Electron security hardening with runtime verification
 - `92c48b12` feat(axis): MFA trust window, widget typography, and derived state documentation
@@ -62,9 +64,8 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- **Tests:** 1340/1340 across 193 files
-- **Bundle:** 4257 KB / 4400 KB
-- **Measured at:** 2026-07-19T09:37:12.801Z
+- _carried forward; re-run with --gates to measure_
+- Last known tests: 1340/1340 (STALE)
 
 <!-- END GENERATED: derive-program-state -->
 

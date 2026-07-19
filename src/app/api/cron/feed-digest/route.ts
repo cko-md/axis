@@ -11,7 +11,9 @@ const VITALITY_RUN_FEEDS = [
   "https://www.letsrun.com/feed/",
   "https://www.runnersworld.com/rss/all.xml/",
   "https://www.dcrainmaker.com/feed",
-  "https://www.outsideonline.com/feed",
+  // outsideonline.com/feed was removed on 2026-07-19: it now 302s to
+  // accounts.outsideonline.com/oidc/o/authorize, i.e. the feed is behind a
+  // login and is no longer publicly fetchable.
 ];
 
 // Mirrors AtelierModule.tsx's LANG_FEEDS + MENS_STYLE_FEEDS.
@@ -22,7 +24,8 @@ const ATELIER_FEEDS = [
   "https://www.esquire.com/rss/all.xml/",
   "https://www.permanentstyle.com/feed",
   "https://www.gq.com/feed/rss",
-  "https://hespokestyle.com/feed/",
+  // hespokestyle.com/feed/ was removed on 2026-07-19: the host began returning
+  // 403 to non-browser clients, so it cannot be fetched server-side.
 ];
 
 // Make-triggered daily pre-warm of the shared feed_cache table: unions every
@@ -89,22 +92,64 @@ export async function POST(req: NextRequest) {
 
   let updated = 0;
   let failed = 0;
+  // Naming the specific feeds is what makes a partial failure actionable — a
+  // bare count cannot tell you that a host started returning 403 or moved its
+  // feed behind a login.
+  const failedFeeds: string[] = [];
   for (let i = 0; i < toFetch.length; i++) {
     const result = fetched[i];
     if (result.status !== "fulfilled") {
       failed += 1;
+      failedFeeds.push(toFetch[i]);
+      reportFailure("fetch_feed", result.reason);
       continue;
     }
     const { error } = await supabase
       .from("feed_cache")
       .upsert({ feed_url: toFetch[i], items: result.value, fetched_at: new Date().toISOString() });
-    if (error) failed += 1;
-    else updated += 1;
+    if (error) {
+      failed += 1;
+      failedFeeds.push(toFetch[i]);
+      reportFailure("write_feed_cache", error);
+    } else {
+      updated += 1;
+    }
   }
 
   const failures = failed + (discoveryFailed ? 1 : 0) + (cacheReadError ? 1 : 0);
-  return NextResponse.json(
-    { ok: failures === 0, totalFeeds: urls.size, alreadyFresh: freshUrls.size, updated, failed: failures },
-    { status: failures === 0 ? 200 : 502 },
-  );
+
+  // A partial failure is NOT a gateway error.
+  //
+  // This previously returned 502 whenever `failures > 0`, so one permanently
+  // dead feed out of a dozen turned an otherwise successful pre-warm into a
+  // transport-level error. Make classifies 502 as a retryable ConnectionError
+  // and re-ran the scenario on an escalating backoff indefinitely — burning
+  // operations quota against work that had already succeeded, and making a real
+  // outage indistinguishable from one unreachable RSS host.
+  //
+  // The run either happened or it did not. When it happened, say 200 and report
+  // truthfully in the body; per-feed failures are still surfaced to Sentry above
+  // (reportFailure) and counted here, so nothing fails silently — the visibility
+  // channel is the body and Sentry, not a status code that means "my upstream
+  // gateway broke".
+  //
+  // `discoveryFailed` is different in kind: if feed discovery failed we do not
+  // know the work set, so the run genuinely did not happen and that stays 5xx.
+  if (discoveryFailed) {
+    return NextResponse.json(
+      { ok: false, ran: false, error: "FEED_DISCOVERY_FAILED", totalFeeds: urls.size },
+      { status: 503 },
+    );
+  }
+
+  return NextResponse.json({
+    ok: failures === 0,
+    ran: true,
+    partial: failures > 0,
+    totalFeeds: urls.size,
+    alreadyFresh: freshUrls.size,
+    updated,
+    failed: failures,
+    failedFeeds,
+  });
 }
