@@ -116,17 +116,33 @@ Registry keeps Brickrise `planned` — mechanics and runtime are done, artwork i
 not. A loader on a planned game is valid; flipping status without ready
 artwork trips `AVAILABLE_WITHOUT_ARTWORK`.
 
-**Open questions for the owner** (none block 15.9):
-- `level.ts` generates no fall death, kill plane, or time pressure — only spike
-  hazards. The manifest subtitle "Climb the structure before it closes around
-  you" describes a mechanic that does not exist. Either the copy is aspirational
-  or a rising hazard is missing from the core.
-- The summit floor also satisfies the checkpoint interval, so the final step
-  emits a checkpoint and a summit event together.
-- `score.achievements: true` but no achievement is defined, and the event
-  sanitiser drops string `achievementId` values.
-- `save.deterministicSeed: false` though generation is fully seeded; `reset()`
-  currently re-rolls the tower.
+**Four manifest/design questions raised by the review, now decided:**
+
+- *No fall death or kill plane.* The subtitle promised a mechanic that does not
+  exist — `level.ts` walls the tower, gives the ground floor full width, and
+  emits only spike hazards, so there is no way to lose, only to lose time.
+  **Decision: make the copy true, not the game bigger.** Subtitle is now
+  "Every fall costs time, never progress," which is exactly what checkpoints +
+  a fastest-summit score produce. A rising hazard remains an open design
+  direction; it would be a mechanic change belonging in `level.ts`/`progress.ts`
+  with tests, not a copy patch, and nothing depends on it.
+- *Summit floor also fired a checkpoint.* Floor 24 satisfies the interval, so
+  the run's final step emitted checkpoint and summit together and the summit
+  announcement was clobbered. **Decision: do not generate it.** A checkpoint on
+  the summit can never be respawned to, so it was dead state. Towers now carry
+  5 checkpoints, and a test asserts none sits on the summit ledge.
+- *`score.achievements: true` with no achievement defined.* **Decision: false.**
+  Nothing defines a Brickrise achievement and the event sanitiser drops string
+  `achievementId` values, so the flag claimed a capability that ships in no
+  form. Second Sense — the only complete title — also sets it false.
+- *`save.deterministicSeed: false` while generation is seeded.* **Decision:
+  keep false; the review's suggestion to flip it was wrong.** Generation is
+  fully deterministic, but the *seed* is a fresh random UUID per run. Second
+  Sense sets this true because its daily challenge derives the seed from the
+  UTC day; Brickrise has no shared-tower mode, so no two players are promised
+  the same climb. `reset()` re-rolling the tower is consistent with that: a
+  restart is a new climb, and the personal best is a best-across-runs, which is
+  what `personal-unverified` already signals.
 
 ### Then: 15.9 Time to Fly, 15.10 Paper Glider
 

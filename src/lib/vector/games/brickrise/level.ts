@@ -159,7 +159,12 @@ export function generateBrickriseLevel(seed: string): BrickriseLevel {
       });
     }
 
-    if (floor % C.CHECKPOINT_EVERY === 0) {
+    // The summit floor is deliberately excluded even when it lands on the
+    // interval. A checkpoint there can never be respawned to — reaching it ends
+    // the run — so it would be dead state that also fires a checkpoint event on
+    // the same step as the summit, clobbering the summit announcement with a
+    // "checkpoint reached" the player has already surpassed.
+    if (floor % C.CHECKPOINT_EVERY === 0 && floor !== C.FLOOR_COUNT) {
       checkpoints.push({
         index: checkpoints.length,
         x: centre,

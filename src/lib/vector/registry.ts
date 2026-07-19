@@ -134,7 +134,7 @@ export const VECTOR_GAME_REGISTRY = [
     id: "brickrise",
     slug: "brickrise",
     title: "Brickrise",
-    subtitle: "Climb the structure before it closes around you.",
+    subtitle: "Every fall costs time, never progress.",
     shortDescription: "A compact vertical platforming ascent.",
     description:
       "A responsive Phaser platformer built around air control, hazards, checkpoints, and a readable summit. The initial complete run targets three to five minutes.",
@@ -152,8 +152,17 @@ export const VECTOR_GAME_REGISTRY = [
     ],
     reducedMotionBehavior: "Camera travel, shake, and particles use nausea-safe reduced alternatives.",
     accessibilityDescription: "DOM instructions, checkpoint state, pause controls, and run results supplement the play surface.",
+    // deterministicSeed stays false and that is correct, not an oversight:
+    // generation is fully seeded, but the seed itself is a fresh random UUID
+    // per run. Second Sense sets this true because its daily challenge derives
+    // the seed from the UTC day; Brickrise has no equivalent shared-tower mode,
+    // so no two players are promised the same climb.
     save: { local: true, cloud: true, slots: "single", deterministicSeed: false },
-    score: { kind: "personal-unverified", achievements: true, leaderboard: false, label: "Fastest summit" },
+    // achievements: false — no Brickrise achievement is defined anywhere, and
+    // the runtime event sanitiser drops string achievementId values outright.
+    // Claiming the capability while shipping none of it is the kind of empty
+    // promise the registry validation exists to prevent.
+    score: { kind: "personal-unverified", achievements: false, leaderboard: false, label: "Fastest summit" },
     visualMotif: "ascent",
   }),
   planned({

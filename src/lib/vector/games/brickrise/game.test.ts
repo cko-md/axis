@@ -9,6 +9,10 @@ import type {
 import { DEFAULT_VECTOR_RUNTIME_SETTINGS } from "@/lib/vector/types";
 import { requireVectorGame } from "@/lib/vector/registry";
 import { BRICKRISE_SAVE_SCHEMA_VERSION, toSaveData, initialRunState, reachCheckpoint } from "@/lib/vector/games/brickrise/progress";
+import { generateBrickriseLevel } from "@/lib/vector/games/brickrise/level";
+
+/** Checkpoints in a tower, derived rather than hardcoded so config can move. */
+const CHECKPOINT_COUNT = generateBrickriseLevel("count-probe").checkpoints.length;
 
 /**
  * Brickrise's shell is the one part of the game that needs an engine and a
@@ -303,7 +307,7 @@ describe("Brickrise shell", () => {
       expect(save.schemaVersion).toBe(BRICKRISE_SAVE_SCHEMA_VERSION);
       expect(save.seed).toBe("saved-seed");
       expect(textOf(harness.mount, "brickrise-deaths")).toBe("3");
-      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe("2 of 6");
+      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe(`2 of ${CHECKPOINT_COUNT}`);
     });
 
     it("starts a fresh run rather than half-restoring a corrupt save", async () => {
@@ -315,7 +319,7 @@ describe("Brickrise shell", () => {
       });
 
       expect(textOf(harness.mount, "brickrise-deaths")).toBe("0");
-      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe("None of 6");
+      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe(`None of ${CHECKPOINT_COUNT}`);
     });
 
     it("survives a null save", async () => {
@@ -324,7 +328,7 @@ describe("Brickrise shell", () => {
       await expect(
         (async () => harness.instance.hydrate(null))(),
       ).resolves.not.toThrow();
-      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe("None of 6");
+      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe(`None of ${CHECKPOINT_COUNT}`);
     });
   });
 

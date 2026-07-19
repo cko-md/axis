@@ -69,13 +69,28 @@ describe("tower structure", () => {
     }
   });
 
-  it("issues checkpoints at the configured interval", () => {
-    const expected = Math.floor(
+  it("issues checkpoints at the configured interval, excluding the summit", () => {
+    const onInterval = Math.floor(
       BRICKRISE_LEVEL_CONFIG.FLOOR_COUNT / BRICKRISE_LEVEL_CONFIG.CHECKPOINT_EVERY,
     );
-    expect(level.checkpoints).toHaveLength(expected);
+    // The summit floor lands on the interval but carries no checkpoint.
+    const summitOnInterval =
+      BRICKRISE_LEVEL_CONFIG.FLOOR_COUNT % BRICKRISE_LEVEL_CONFIG.CHECKPOINT_EVERY === 0 ? 1 : 0;
+    expect(level.checkpoints).toHaveLength(onInterval - summitOnInterval);
     // Indices must be dense and ordered — respawn looks a checkpoint up by index.
     level.checkpoints.forEach((checkpoint, i) => expect(checkpoint.index).toBe(i));
+  });
+
+  it("never places a checkpoint on the summit ledge", () => {
+    // A checkpoint there is unreachable-by-respawn dead state, and it would
+    // fire a checkpoint event on the same step the run completes.
+    for (const seed of ["summit-cp-a", "summit-cp-b", "summit-cp-c"]) {
+      const tower = generateBrickriseLevel(seed);
+      for (const checkpoint of tower.checkpoints) {
+        expect(checkpoint.y, `${seed}: checkpoint ${checkpoint.index} sits on the summit`)
+          .toBeGreaterThan(tower.summitY);
+      }
+    }
   });
 });
 
