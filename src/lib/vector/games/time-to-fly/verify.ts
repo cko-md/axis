@@ -51,52 +51,105 @@ import {
   planetPositionAt,
   reachRadius,
 } from "@/lib/vector/games/time-to-fly/orbit";
+import type { TimeToFlyPlanetClass } from "@/lib/vector/games/time-to-fly/constants";
 
 /** Ceiling on nodes expanded per level. Exceeding it rejects, never accepts. */
 export const TIME_TO_FLY_NODE_BUDGET = 60_000;
 
 /**
- * Cosine of the widest angle the craft's heading can still swing through, given
- * how many planets it has not yet met.
+ * Per-class turn capacity: cosine and sine of an upper bound on the deflection
+ * a single fly-by of that class can produce.
  *
- * This is the prune that makes exhaustive verification affordable. Without it
- * the search is brute force: measured node counts tracked the full 24^N lattice
- * almost exactly (601 nodes for a 576-arrangement lattice), because a branch
- * only died by crashing or leaving the arena, and in a spread-out chain most
- * branches simply fly on to the next disc.
+ * This feeds the prune that makes exhaustive verification affordable. Without
+ * it the search is brute force: measured node counts tracked the full 24^N
+ * lattice almost exactly (601 nodes for a 576-arrangement lattice), because a
+ * branch only died by crashing or leaving the arena, and in a spread-out chain
+ * most branches simply fly on to the next disc.
  *
- * Each fly-by can rotate the velocity by at most that class's maximum
- * deflection — measured at 19/35/44 degrees for small/medium/large
- * (flight.test.ts). So over R remaining planets the heading cannot rotate more
- * than R * 45 degrees, taking 45 as a bound above every class. If neither the
- * galaxy nor any unmet planet's reach disc lies inside that cone, this branch
- * provably cannot reach the galaxy and is discarded unexplored.
+ * The bounds are MEASURED, not assumed. An earlier revision assumed 45 degrees
+ * per planet, quoting flight.test.ts's 19/35/44-degree figures — but those were
+ * measured only down to the generator's own minimum impact parameter. The
+ * verifier explores every slot, including passes that skim just above the crash
+ * radius, and a 0.5 px sweep over ALL survivable impact parameters measures the
+ * true maxima at 21.7 / 45.5 / 79.0 degrees for small/medium/large. The
+ * 45-degree assumption therefore silently deleted real solutions involving a
+ * deep pass of a large planet, which mis-rejected levels as unsolvable and —
+ * worse — mis-ACCEPTED levels whose true solution count was above the gate.
+ * verify.test.ts re-measures the maxima and asserts these bounds stay above
+ * them, so a physics retune cannot quietly break admissibility.
  *
- * Admissible: it never prunes a branch that could have arrived, so the solution
- * count stays exact. Hardcoded cosines rather than an angle sum, because the
- * prune decides which arrangements are counted — if it disagreed across engines
- * by one ulp, two machines could accept different levels for the same seed.
+ * Bounds carry a 3-degree margin: small 25, medium 49, large 83 degrees.
+ * Hardcoded cos/sin literals rather than computed angles, because the prune
+ * decides which arrangements are counted — if it disagreed across engines by
+ * one ulp, two machines could accept different levels for the same seed.
  */
-const HEADING_CONE_COSINE: readonly number[] = Object.freeze([
-  1, //                      0 remaining: must already be pointing at the galaxy
-  0.7071067811865476, //     1 remaining: 45 degrees
-  0, //                      2 remaining: 90 degrees
-  -0.7071067811865476, //    3 remaining: 135 degrees
-  -1, //                     4+ remaining: unbounded, no prune possible
-]);
+export const CLASS_TURN_CAPACITY: Readonly<
+  Record<TimeToFlyPlanetClass, Readonly<{ cos: number; sin: number }>>
+> = Object.freeze({
+  small: Object.freeze({ cos: 0.9063077870366499, sin: 0.42261826174069944 }), //  25 deg
+  medium: Object.freeze({ cos: 0.6560590289905073, sin: 0.754709580222772 }), //   49 deg
+  large: Object.freeze({ cos: 0.12186934340514749, sin: 0.992546151641322 }), //   83 deg
+});
+
+/**
+ * Cosine of the total heading swing still available to the craft, summed over
+ * a list of not-yet-flown planet classes — or null when the sum reaches 180
+ * degrees, at which point no direction can be ruled out and no prune is
+ * possible.
+ *
+ * Computed by exact angle addition on the hardcoded cos/sin literals:
+ * cos(a+b) = cos a * cos b - sin a * sin b, sin(a+b) = sin a * cos b +
+ * cos a * sin b. Multiplication and subtraction only, so the result is
+ * bit-identical everywhere, which matters because this value decides which
+ * arrangements get counted.
+ */
+function coneCosineFor(classes: readonly TimeToFlyPlanetClass[]): number | null {
+  let cos = 1;
+  let sin = 0;
+  for (const klass of classes) {
+    const turn = CLASS_TURN_CAPACITY[klass];
+    const nextCos = cos * turn.cos - sin * turn.sin;
+    const nextSin = sin * turn.cos + cos * turn.sin;
+    // Each addend is under 90 degrees, so sine stays non-negative until the
+    // running total passes 180 — the moment the cone covers every heading.
+    if (nextSin < 0) return null;
+    cos = nextCos;
+    sin = nextSin;
+  }
+  return cos;
+}
 
 export type VerificationResult = Readonly<{
   /** Every arrangement that reaches the galaxy. */
   solutions: readonly TimeToFlyArrangement[];
   /** True if the search ran out of budget — the result is then untrustworthy. */
   exhausted: boolean;
+  /**
+   * True if the search stopped early because the solution count passed the
+   * caller's cap. The enumerated set is then a PREFIX of the true solution set:
+   * fine for "too many" or "at least one" decisions, useless for exact counts.
+   */
+  capped: boolean;
   nodesUsed: number;
-  /** Closest approach of the best solution; drives the clean-arrival gate. */
+  /** Closest approach of the best solution; diagnostic. */
   bestApproach: number;
+  /**
+   * Perpendicular distance from the galaxy centre to the line of flight at the
+   * capture step, for the best-aimed solution. This — not bestApproach — is
+   * what the clean-arrival gate reads. The distinction matters: the first
+   * sampled position inside the capture disc lands anywhere in
+   * [radius - speed, radius] regardless of how well the shot was aimed, so a
+   * gate on bestApproach rejected ~93% of dead-centre solutions for the phase
+   * of the final step, which the player cannot even influence. Aim error is
+   * phase-free.
+   */
+  bestAim: number;
   /**
    * Closest approach of any NON-solution branch that got near the galaxy.
    * A near-miss sitting just outside the capture radius means the level is
-   * decided by a margin the player cannot see.
+   * decided by a margin the player cannot see. (Still step-sampled, so it can
+   * over-read the true minimum by up to one step length — acceptable for a
+   * safety margin, unlike the arrival gate above.)
    */
   nearestMiss: number;
 }>;
@@ -146,14 +199,22 @@ function targetInCone(
 
 function withinReachableCone(
   craft: CraftState,
-  pending: readonly { index: number; centre: TimeToFlyVector; radius: number }[],
+  pending: readonly { index: number; centre: TimeToFlyVector; radius: number; planetClass: TimeToFlyPlanetClass }[],
   galaxy: TimeToFlyVector,
+  justAssigned: TimeToFlyPlanetClass | null,
 ): boolean {
-  const remaining = pending.length;
-  const coneCosine = HEADING_CONE_COSINE[Math.min(remaining, HEADING_CONE_COSINE.length - 1)];
-  // Four or more planets left: the heading can still swing anywhere, so no
-  // branch can be ruled out.
-  if (coneCosine <= -1) return true;
+  // Every deflection still ahead of the craft: each pending planet's, PLUS the
+  // planet assigned at this very node. A branch node sits at the rim of the
+  // just-assigned planet's reach disc, BEFORE its field has bent anything —
+  // omitting it undercounts the remaining turn capacity by one planet and
+  // silently deletes real solutions (measured: the constructed solution itself,
+  // at every level, whenever the galaxy was not already dead ahead).
+  const ahead: TimeToFlyPlanetClass[] = pending.map((disc) => disc.planetClass);
+  if (justAssigned !== null) ahead.push(justAssigned);
+
+  const coneCosine = coneCosineFor(ahead);
+  // Total capacity reaches 180 degrees: no heading can be ruled out.
+  if (coneCosine === null) return true;
 
   if (targetInCone(craft, galaxy, TIME_TO_FLY_ARENA.GALAXY_RADIUS, coneCosine)) return true;
   for (const disc of pending) {
@@ -163,7 +224,7 @@ function withinReachableCone(
 }
 
 type MarchEvent =
-  | { kind: "arrived"; approach: number; steps: number }
+  | { kind: "arrived"; approach: number; aim: number; steps: number }
   | { kind: "crashed"; steps: number; approach: number }
   | { kind: "escaped"; steps: number; approach: number }
   | { kind: "reached-disc"; planetIndex: number; craft: CraftState; steps: number; approach: number }
@@ -211,7 +272,16 @@ function march(
     const toGalaxy = distance(current.position, galaxy);
     if (toGalaxy < approach) approach = toGalaxy;
     if (toGalaxy <= TIME_TO_FLY_ARENA.GALAXY_RADIUS) {
-      return { kind: "arrived", approach: toGalaxy, steps: step };
+      // Aim error: perpendicular distance from the galaxy centre to the line
+      // of flight at the capture step. |cross(galaxy - pos, v)| / |v| — only
+      // multiply, subtract, divide and sqrt, per the determinism rule.
+      const vx = current.velocity.x;
+      const vy = current.velocity.y;
+      const speed = Math.sqrt(vx * vx + vy * vy);
+      const offX = galaxy.x - current.position.x;
+      const offY = galaxy.y - current.position.y;
+      const aim = speed === 0 ? toGalaxy : Math.abs(offX * vy - offY * vx) / speed;
+      return { kind: "arrived", approach: toGalaxy, aim, steps: step };
     }
 
     for (const planet of placed) {
@@ -243,17 +313,34 @@ export function verifyLevel(
   planets: readonly TimeToFlyPlanet[],
   galaxy: TimeToFlyVector,
   nodeBudget: number = TIME_TO_FLY_NODE_BUDGET,
+  /**
+   * Stop enumerating once MORE than this many solutions exist. The generator
+   * rejects any level over its solution ceiling, so counting the 200th
+   * solution of a hopeless candidate is pure waste; a cap turns the dominant
+   * rejection path from O(solutions) into O(cap). Pass POSITIVE_INFINITY (the
+   * default) for a complete count.
+   */
+  solutionCap: number = Number.POSITIVE_INFINITY,
+  /**
+   * TEST ONLY: disable the heading-cone prune so tests can prove the pruned
+   * and unpruned searches count identical solution sets. Production callers
+   * must leave this true.
+   */
+  pruneWithCone = true,
 ): VerificationResult {
   const solutions: TimeToFlyArrangement[] = [];
   let nodes = 0;
   let exhausted = false;
+  let capped = false;
   let bestApproach = Number.POSITIVE_INFINITY;
+  let bestAim = Number.POSITIVE_INFINITY;
   let nearestMiss = Number.POSITIVE_INFINITY;
 
   const discs = planets.map((planet, index) => ({
     index,
     centre: planet.orbitCenter,
     radius: reachRadius(planet),
+    planetClass: planet.planetClass,
   }));
 
   /** Expand an assignment with free slots into every concrete arrangement. */
@@ -284,8 +371,9 @@ export function verifyLevel(
     stepsUsed: number,
     approachSoFar: number,
     visitedIds: readonly number[],
+    justAssigned: TimeToFlyPlanetClass | null,
   ): void {
-    if (exhausted) return;
+    if (exhausted || capped) return;
     nodes += 1;
     if (nodes > nodeBudget) {
       exhausted = true;
@@ -293,7 +381,7 @@ export function verifyLevel(
     }
 
     const placed: PlacedPlanet[] = [];
-    const pending: { index: number; centre: TimeToFlyVector; radius: number }[] = [];
+    const pending: { index: number; centre: TimeToFlyVector; radius: number; planetClass: TimeToFlyPlanetClass }[] = [];
     assigned.forEach((slot, index) => {
       if (slot === null) {
         pending.push(discs[index]);
@@ -310,7 +398,7 @@ export function verifyLevel(
     });
 
     // Admissible bound: can this branch still reach the galaxy at all?
-    if (!withinReachableCone(craft, pending, galaxy)) return;
+    if (pruneWithCone && !withinReachableCone(craft, pending, galaxy, justAssigned)) return;
 
     const visited = new Set(visitedIds);
     const event = march(craft, placed, visited, pending, galaxy, stepsUsed, approachSoFar);
@@ -326,7 +414,9 @@ export function verifyLevel(
         return;
       }
       if (event.approach < bestApproach) bestApproach = event.approach;
+      if (event.aim < bestAim) bestAim = event.aim;
       recordSolution(assigned);
+      if (solutions.length > solutionCap) capped = true;
       return;
     }
     if (event.kind === "crashed" || event.kind === "escaped" || event.kind === "abandoned-planet") {
@@ -335,17 +425,19 @@ export function verifyLevel(
     }
 
     // Branch: the craft has arrived at a disc whose planet is still unplaced.
+    // The recursion carries that planet's class into the child node's cone
+    // budget, because its deflection has not happened yet.
     for (let slot = 0; slot < TIME_TO_FLY_SLOT_COUNT; slot += 1) {
-      if (exhausted) return;
+      if (exhausted || capped) return;
       const next = assigned.slice();
       next[event.planetIndex] = slot;
-      search(event.craft, next, event.steps, event.approach, [...visited]);
+      search(event.craft, next, event.steps, event.approach, [...visited], planets[event.planetIndex].planetClass);
     }
   }
 
-  search(launchState(), planets.map(() => null), 0, Number.POSITIVE_INFINITY, []);
+  search(launchState(), planets.map(() => null), 0, Number.POSITIVE_INFINITY, [], null);
 
-  return { solutions, exhausted, nodesUsed: nodes, bestApproach, nearestMiss };
+  return { solutions, exhausted, capped, nodesUsed: nodes, bestApproach, bestAim, nearestMiss };
 }
 
 /**
@@ -365,7 +457,9 @@ export function everyPlanetNecessary(
 ): boolean {
   for (let omit = 0; omit < planets.length; omit += 1) {
     const ablated = planets.filter((_, index) => index !== omit);
-    const result = verifyLevel(ablated, galaxy, nodeBudget);
+    // Cap 0: the first solution found proves the ablated level solvable, and
+    // one is all this question needs.
+    const result = verifyLevel(ablated, galaxy, nodeBudget, 0);
     // An exhausted ablation is not evidence of unsolvability, so fail closed.
     if (result.exhausted) return false;
     if (result.solutions.length > 0) return false;

@@ -75,7 +75,16 @@ export const TIME_TO_FLY_PHYSICS = Object.freeze({
 });
 
 export const TIME_TO_FLY_ARENA = Object.freeze({
-  WIDTH: 3400,
+  /**
+   * Sized by the five-planet level, measured rather than hoped: five disjoint
+   * reach discs (ADR-0006) plus the leg lengths that keep the solution count
+   * inside the acceptance gate use up to ~4500 px of eastward run. At 3400 px
+   * wide the level-5 generator converged on zero of six seeds — short legs
+   * widen the angular window each planet's field subtends, and the solution
+   * count explodes into the hundreds. The camera is a shell concern; the
+   * arena is whatever the puzzle needs.
+   */
+  WIDTH: 4600,
   HEIGHT: 1900,
   /** How far outside the arena a craft may drift before the flight is a miss. */
   OUT_OF_BOUNDS_MARGIN: 240,
