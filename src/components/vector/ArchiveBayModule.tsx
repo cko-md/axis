@@ -6,10 +6,176 @@ import { Button } from "@/components/ui/Button";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import {
   getArchiveBayBridge,
+  getArchiveBayManagedRuntimeBridge,
   type ArchiveBayLaunchState,
   type ArchiveBayLibrary,
+  type ManagedRuntimeManifestInfo,
+  type ManagedRuntimeProgress,
+  type ManagedRuntimeStatus,
 } from "@/lib/archive-bay";
 import styles from "./Vector.module.css";
+
+function codeFromUnknownError(error: unknown): string {
+  return error instanceof Error && /^[A-Z][A-Z0-9_]*$/.test(error.message)
+    ? error.message
+    : "RUNTIME_UNKNOWN_ERROR";
+}
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return "unknown size";
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(1)} MB`;
+}
+
+/**
+ * Phase 16.2 — managed melonDS runtime section. Desktop-only, lives inside
+ * the same lazy-loaded Archive Bay chunk (no new route-level bundle
+ * impact). Honest states only: not-installed / downloading(progress) /
+ * verifying / extracting / installed / error / removing. License and
+ * source-availability copy is shown BEFORE the install action, per
+ * ADR-0005's Option B compliance requirements — this never auto-downloads
+ * anything; every transition here is the direct result of a button click.
+ */
+function ManagedRuntimeSection() {
+  const bridge = getArchiveBayManagedRuntimeBridge();
+  const [manifest, setManifest] = useState<ManagedRuntimeManifestInfo | null>(null);
+  const [status, setStatus] = useState<ManagedRuntimeStatus | null>(null);
+  const [progress, setProgress] = useState<ManagedRuntimeProgress | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!bridge) return;
+    try {
+      const [manifestInfo, statusInfo] = await Promise.all([bridge.getManifest(), bridge.getStatus()]);
+      setManifest(manifestInfo);
+      setStatus(statusInfo);
+    } catch (error) {
+      setErrorCode(codeFromUnknownError(error));
+    }
+  }, [bridge]);
+
+  useEffect(() => {
+    void refresh();
+    if (!bridge) return;
+    return bridge.onProgress((next) => {
+      setProgress(next);
+      if (next.phase === "error") setErrorCode(next.code);
+      if (next.phase === "installed" || next.phase === "not-installed") {
+        setErrorCode(null);
+        void refresh();
+      }
+    });
+  }, [refresh, bridge]);
+
+  if (!bridge || !manifest) return null;
+
+  const install = async () => {
+    setBusy(true);
+    setErrorCode(null);
+    try {
+      await bridge.install();
+      await refresh();
+    } catch (error) {
+      setErrorCode(codeFromUnknownError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setErrorCode(null);
+    try {
+      await bridge.remove();
+      await refresh();
+    } catch (error) {
+      setErrorCode(codeFromUnknownError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const installing = busy || Boolean(status?.installing)
+    || progress?.phase === "downloading" || progress?.phase === "verifying" || progress?.phase === "extracting";
+
+  return (
+    <AxisChromePanel className={styles.gameUtilityBar} data-testid="archive-bay-managed-runtime">
+      <div>
+        <strong>Managed melonDS runtime (optional)</strong>
+        <p style={{ margin: "4px 0 0", fontSize: 12 }}>
+          {manifest.runtime} {manifest.version} · License {manifest.license} (
+          <a href={manifest.licenseUrl} target="_blank" rel="noreferrer">full text</a>
+          ) · Corresponding source available at{" "}
+          <a href={manifest.sourceUrl} target="_blank" rel="noreferrer">{manifest.sourceUrl}</a>.
+          {" "}{manifest.attribution}
+        </p>
+      </div>
+
+      {!manifest.platformSupported ? (
+        <StatusCallout kind="empty" title="No managed build for this platform yet.">
+          Use &ldquo;Choose your installed melonDS&rdquo; above instead — the bring-your-own-emulator
+          path works on every platform this app supports.
+        </StatusCallout>
+      ) : (
+        <>
+          <span data-testid="archive-bay-managed-runtime-status">
+            {status?.installed
+              ? `Installed: melonDS ${status.installed.version} (added ${new Date(status.installed.installedAt).toLocaleDateString()})`
+              : `Not installed — download is ${formatBytes(manifest.sizeBytes)}, fetched only when you choose to install.`}
+          </span>
+
+          {progress?.phase === "downloading" ? (
+            <StatusCallout kind="loading" title="Downloading melonDS.">
+              {progress.totalBytes
+                ? `${formatBytes(progress.receivedBytes)} of ${formatBytes(progress.totalBytes)}`
+                : formatBytes(progress.receivedBytes)}
+            </StatusCallout>
+          ) : null}
+          {progress?.phase === "verifying" ? (
+            <StatusCallout kind="loading" title="Verifying download integrity (sha256).">
+              Activation is refused unless the downloaded bytes match the pinned checksum exactly.
+            </StatusCallout>
+          ) : null}
+          {progress?.phase === "extracting" ? (
+            <StatusCallout kind="loading" title="Installing melonDS.">
+              Extracting the verified archive.
+            </StatusCallout>
+          ) : null}
+          {progress?.phase === "removing" ? (
+            <StatusCallout kind="loading" title="Removing melonDS.">
+              Deleting the installed runtime files.
+            </StatusCallout>
+          ) : null}
+          {errorCode ? (
+            <StatusCallout kind="error" title="Managed runtime action failed.">
+              <code>{errorCode}</code>
+            </StatusCallout>
+          ) : null}
+
+          <Button
+            variant="primary"
+            disabled={installing}
+            onClick={() => void install()}
+            data-testid="archive-bay-managed-runtime-install"
+          >
+            {status?.installed ? "Reinstall / repair…" : "Install managed melonDS…"}
+          </Button>
+          {status?.installed ? (
+            <Button
+              variant="danger"
+              disabled={installing}
+              onClick={() => void remove()}
+              data-testid="archive-bay-managed-runtime-remove"
+            >
+              Remove managed runtime
+            </Button>
+          ) : null}
+        </>
+      )}
+    </AxisChromePanel>
+  );
+}
 
 type ViewState =
   | { status: "detecting" }
@@ -142,6 +308,8 @@ export function ArchiveBayModule() {
               Import a .nds you own…
             </Button>
           </AxisChromePanel>
+
+          <ManagedRuntimeSection />
 
           {launchState ? (
             <StatusCallout
