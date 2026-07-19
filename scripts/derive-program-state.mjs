@@ -156,7 +156,16 @@ function deriveGates(previous) {
       stdio: ["ignore", "pipe", "ignore"],
     });
     const parsed = JSON.parse(out.slice(out.indexOf("{")));
-    gates.tests = { passed: parsed.numPassedTests, total: parsed.numTotalTests, files: parsed.numTotalTestSuites };
+    // testResults is one entry per FILE. numTotalTestSuites counts describe
+    // blocks (478 vs 193 here) and reporting it as a file count would put a
+    // wrong number in the canonical doc — the exact failure this script exists
+    // to prevent.
+    gates.tests = {
+      passed: parsed.numPassedTests,
+      total: parsed.numTotalTests,
+      files: Array.isArray(parsed.testResults) ? parsed.testResults.length : undefined,
+      suites: parsed.numTotalTestSuites,
+    };
   } catch (error) {
     gates.tests = { error: String(error.message ?? error).slice(0, 200) };
   }

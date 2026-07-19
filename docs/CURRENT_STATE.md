@@ -19,19 +19,20 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T09:35:56.902Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T09:37:12.781Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `feat/redesign-continuation-2026-07-19`
-- **HEAD:** `32e9d959`
+- **HEAD:** `6246f808`
 - **main:** `d8a15e7b`
 - **Working tree:** has uncommitted changes
 
-### Not yet on main (3 commit(s))
+### Not yet on main (4 commit(s))
 
 These exist only on this branch. Do not assume main contains them.
 
+- `6246f808` chore(axis): refresh derived program state with measured gate figures
 - `32e9d959` feat(desktop): Electron security hardening with runtime verification
 - `92c48b12` feat(axis): MFA trust window, widget typography, and derived state documentation
 - `af33e72c` feat(axis): remove Envoys, strip Second Sense visuals, fix persistence/OAuth/desktop browser
@@ -61,9 +62,9 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- **Tests:** 1340/1340 across 478 files
+- **Tests:** 1340/1340 across 193 files
 - **Bundle:** 4257 KB / 4400 KB
-- **Measured at:** 2026-07-19T09:35:56.924Z
+- **Measured at:** 2026-07-19T09:37:12.801Z
 
 <!-- END GENERATED: derive-program-state -->
 
