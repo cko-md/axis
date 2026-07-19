@@ -47,6 +47,7 @@ export const NAV_ICON_MAP: Record<string, LucideIcon> = {
   library: FolderOpen,
   recipes: ChefHat,
   vector: Gamepad2,
+  envoys: Sparkles,
   chart: LineChart,
   tasks: Bot,
   approvals: ShieldCheck,
