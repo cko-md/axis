@@ -129,4 +129,15 @@ describe("VECTOR engine chunk naming", () => {
 
     expect(importers).toEqual(["src/lib/vector/games/brickrise/game.ts"]);
   });
+
+  it("imports Three exactly once, from the Paper Glider shell", () => {
+    // Same rule as Phaser above: one import site, or the engine splits across
+    // chunks and part of it escapes the cacheGroup's name.
+    const importers = sourceFiles("src").filter((file) => {
+      const contents = read(file);
+      return [...contents.matchAll(ENGINE_IMPORT)].some((match) => match[2] === "three");
+    });
+
+    expect(importers).toEqual(["src/lib/vector/games/paper-glider/game.ts"]);
+  });
 });
