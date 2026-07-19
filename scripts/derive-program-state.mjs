@@ -47,6 +47,32 @@ function git(...gitArgs) {
   return execFileSync("git", gitArgs, { cwd: REPO, encoding: "utf8" }).trim();
 }
 
+/**
+ * Resolve the mainline ref.
+ *
+ * On a CI pull-request checkout there is no local `main` branch — only
+ * `origin/main` — so hard-coding "main" makes every derivation throw in exactly
+ * the environment where the drift check matters most.
+ */
+function resolveMainRef() {
+  for (const candidate of ["main", "origin/main", "refs/remotes/origin/main"]) {
+    try {
+      execFileSync("git", ["rev-parse", "--verify", "--quiet", candidate], {
+        cwd: REPO,
+        stdio: "ignore",
+      });
+      return candidate;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  // Detached or shallow with no mainline available: fall back to HEAD so the
+  // script degrades to "nothing is known to be merged" instead of crashing.
+  return "HEAD";
+}
+
+const MAIN_REF = resolveMainRef();
+
 function readJson(relativePath) {
   const full = path.join(REPO, relativePath);
   if (!existsSync(full)) return null;
@@ -64,7 +90,7 @@ function readJson(relativePath) {
  * subjects carry the PR number, which is what makes this reliable.
  */
 function deriveMergedPrs(limit = 60) {
-  const log = git("log", `-${limit}`, "--format=%h%x1f%s%x1f%cI", "main");
+  const log = git("log", `-${limit}`, "--format=%h%x1f%s%x1f%cI", MAIN_REF);
   const prs = [];
   for (const line of log.split("\n").filter(Boolean)) {
     const [sha, subject, committedAt] = line.split("\x1f");
@@ -185,14 +211,14 @@ function deriveState(previous) {
   const prs = deriveMergedPrs();
   const head = git("rev-parse", "HEAD");
   const branch = git("rev-parse", "--abbrev-ref", "HEAD");
-  const mainHead = git("rev-parse", "main");
+  const mainHead = git("rev-parse", MAIN_REF);
   const workingTreeClean = git("status", "--porcelain") === "";
 
   // Commits on this branch that main does not have. This is precisely the
   // information a resuming agent needs and the thing prose always gets wrong.
   let aheadOfMain = [];
   if (branch !== "main") {
-    const ahead = git("log", "main..HEAD", "--format=%h%x1f%s");
+    const ahead = git("log", `${MAIN_REF}..HEAD`, "--format=%h%x1f%s");
     aheadOfMain = ahead
       .split("\n")
       .filter(Boolean)
