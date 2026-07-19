@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HATCH_ENVOY_IDS } from "@/lib/envoys/hatchPackage";
 import {
   DEFAULT_ENVOY_ID,
   ENVOY_IDS,
@@ -9,13 +10,19 @@ import {
 } from "@/lib/envoys/registry";
 
 describe("envoy registry", () => {
-  it("keeps every starter an honest candidate until Wave 15.5 hatch packages exist", () => {
+  it("derives status from validated hatch packages — all four starters are hatched in Wave 15.5", () => {
     expect(ENVOY_REGISTRY.map((record) => record.id)).toEqual([...ENVOY_IDS]);
     for (const record of ENVOY_REGISTRY) {
-      expect(record.status).toBe("candidate");
+      // Status is derived (envoyStatusFor), never asserted: these read
+      // "hatched" only because every package in hatchPackage.ts validates.
+      expect(record.status).toBe("hatched");
       expect(record.name.length).toBeGreaterThan(0);
       expect(record.description.length).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps the hatch-package leaf id list in exact sync with ENVOY_IDS", () => {
+    expect([...HATCH_ENVOY_IDS]).toEqual([...ENVOY_IDS]);
   });
 
   it("resolves and validates envoy ids", () => {

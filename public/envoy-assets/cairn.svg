@@ -1,0 +1,28 @@
+<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="envoy-cairn-title">
+  <title id="envoy-cairn-title">Cairn, a friendly creature of stacked river stones with small arms</title>
+  <defs>
+    <radialGradient id="cairn-bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#1b2030"/>
+      <stop offset="100%" stop-color="#0c0e13"/>
+    </radialGradient>
+  </defs>
+  <rect width="240" height="240" fill="url(#cairn-bg)"/>
+  <!-- base stone -->
+  <ellipse cx="120" cy="182" rx="52" ry="24" fill="#2b3040" stroke="#3a445e" stroke-width="2"/>
+  <!-- middle stone -->
+  <ellipse cx="118" cy="146" rx="42" ry="21" fill="#343b50" stroke="#454f6e" stroke-width="2"/>
+  <!-- arms from middle stone -->
+  <path d="M80 146 C68 140 62 130 64 120" fill="none" stroke="#454f6e" stroke-width="9" stroke-linecap="round"/>
+  <path d="M156 146 C168 142 174 132 172 122" fill="none" stroke="#454f6e" stroke-width="9" stroke-linecap="round"/>
+  <!-- head stone with face -->
+  <ellipse cx="122" cy="106" rx="33" ry="26" fill="#e8dfc9" stroke="#c9bda0" stroke-width="2"/>
+  <circle cx="112" cy="102" r="3.4" fill="#1a1c22"/>
+  <circle cx="132" cy="102" r="3.4" fill="#1a1c22"/>
+  <path d="M113 114 Q122 120 131 114" fill="none" stroke="#1a1c22" stroke-width="2" stroke-linecap="round"/>
+  <!-- cap pebble -->
+  <ellipse cx="126" cy="78" rx="14" ry="9" fill="#e0c388" stroke="#c9a35e" stroke-width="2"/>
+  <!-- waymark glow dots -->
+  <circle cx="66" cy="188" r="3" fill="#7fb0ff" opacity="0.8"/>
+  <circle cx="176" cy="184" r="3" fill="#7fb0ff" opacity="0.8"/>
+  <circle cx="120" cy="212" r="3" fill="#7fb0ff" opacity="0.8"/>
+</svg>
