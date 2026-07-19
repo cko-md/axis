@@ -1,12 +1,17 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T14:20:03.494Z",
+  "derivedAt": "2026-07-19T15:45:39.605Z",
   "git": {
-    "branch": "main",
-    "head": "a89c4d6681f5ed0efcb2aeb2e4ca3309b54680f5",
-    "mainHead": "a89c4d6681f5ed0efcb2aeb2e4ca3309b54680f5",
-    "workingTreeClean": true,
-    "aheadOfMain": []
+    "branch": "feat/wave-15.8-brickrise-scene",
+    "head": "f94934d961ab37df10298886381ff4ac41ad6618",
+    "mainHead": "61a3d19df697e325c0b4b6d316d891c0c854ff8f",
+    "workingTreeClean": false,
+    "aheadOfMain": [
+      {
+        "sha": "f94934d9",
+        "subject": "feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix"
+      }
+    ]
   },
   "mergedPrs": [
     {
@@ -179,18 +184,18 @@
     "latest": "202607170001_vector_arcade_persistence.sql"
   },
   "defects": {
-    "total": 29,
+    "total": 33,
     "open": 0,
     "openIds": []
   },
   "gates": {
     "measured": true,
-    "measuredAt": "2026-07-19T14:20:03.510Z",
+    "measuredAt": "2026-07-19T15:45:39.620Z",
     "tests": {
-      "passed": 1408,
-      "total": 1408,
-      "files": 199,
-      "suites": 505
+      "passed": 1464,
+      "total": 1464,
+      "files": 202,
+      "suites": 523
     },
     "bundleKb": {
       "used": 4245,
