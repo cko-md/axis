@@ -21,9 +21,29 @@ const archiveBay = {
   },
 };
 
+// Phase 16.2 managed melonDS runtime (desktop-only). Same thin invoke/on
+// shape as archiveBay above — this renderer-side code never sees a
+// download URL, a digest, or a filesystem path; it only ever sees version
+// numbers, byte counts, license/attribution text, and install-progress
+// phase strings. The manifest that supplies those values lives in the main
+// process (electron/config/archive-bay-runtimes.json) and is never
+// renderer-suppliable.
+const archiveBayManagedRuntime = {
+  getManifest: () => ipcRenderer.invoke("archive-bay:managed-runtime:manifest"),
+  getStatus: () => ipcRenderer.invoke("archive-bay:managed-runtime:status"),
+  install: () => ipcRenderer.invoke("archive-bay:managed-runtime:install"),
+  remove: () => ipcRenderer.invoke("archive-bay:managed-runtime:remove"),
+  onProgress(listener) {
+    const handler = (_event, progress) => listener(progress);
+    ipcRenderer.on("archive-bay:managed-runtime:progress", handler);
+    return () => ipcRenderer.removeListener("archive-bay:managed-runtime:progress", handler);
+  },
+};
+
 contextBridge.exposeInMainWorld("axisDesktop", {
   openBrowser,
   archiveBay,
+  archiveBayManagedRuntime,
 });
 
 const SIDEBAR_PREF_KEY = "axis-sidebar";

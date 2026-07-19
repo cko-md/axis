@@ -54,6 +54,12 @@ module.exports = {
     "package.json",
     "node_modules/**/*",
     "build/icon.png",
+    // Phase 16.2 managed melonDS runtime manifest + GPL-3.0 license text
+    // (config/archive-bay-runtimes.json, config/melonDS-LICENSE.txt). These
+    // are reference data read at runtime, not the melonDS binary itself —
+    // the actual downloaded runtime always lives in userData, outside the
+    // asar (see electron/archive-bay-runtime.cjs).
+    "config/**/*",
   ],
   extraMetadata: {
     axisDesktop: {

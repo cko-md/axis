@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "runtime": "melonDS",
+  "version": "1.1",
+  "license": "GPL-3.0",
+  "licenseUrl": "https://github.com/melonDS-emu/melonDS/blob/master/LICENSE",
+  "attribution": "melonDS is an independent, third-party Nintendo DS emulator project (https://melonds.kuribo64.net/, https://github.com/melonDS-emu/melonDS), licensed under the GNU General Public License v3.0. AXIS is not affiliated with, and does not modify, the melonDS project; AXIS distributes an unmodified official release build as a separately spawned executable (arm's-length — never linked into AXIS's own binary).",
+  "correspondingSource": {
+    "sourceTag": "1.1",
+    "sourceCommit": "b86390e4428bf38ce4c1ce0e9ca446d6d25955e8",
+    "url": "https://github.com/melonDS-emu/melonDS/archive/refs/tags/1.1.tar.gz",
+    "sha256": "61e339bcb18a68a17485973637d972ea628c5624d7e6b8adf6870f895d5e26fd",
+    "sha256Provenance": "Computed in-session on 2026-07-18 by downloading https://github.com/melonDS-emu/melonDS/archive/refs/tags/1.1.tar.gz and running `shasum -a 256` locally. GitHub's auto-generated tag source archives are not release assets, so they carry no published checksum via the GitHub releases API (unlike the per-platform runtime assets below, which do — see each platform entry's sha256Provenance). Re-derive by re-downloading the same URL if this needs independent re-verification; the tag is immutable and pinned to sourceCommit above."
+  },
+  "releaseUrl": "https://github.com/melonDS-emu/melonDS/releases/tag/1.1",
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/melonDS-emu/melonDS/releases/download/1.1/melonDS-1.1-macOS-universal.zip",
+      "sha256": "79843a5e5cab93188bd11942bff5440b9505ee91c6f526f7e90c22e3cff6718d",
+      "sha256Provenance": "Published by GitHub's release-asset digest API (`gh api repos/melonDS-emu/melonDS/releases/tags/1.1`), independently re-verified in-session by downloading the asset and re-hashing it locally — both matched exactly.",
+      "sizeBytes": 24378474,
+      "archiveFormat": "zip",
+      "executableRelativePath": "melonDS.app/Contents/MacOS/melonDS",
+      "displayPath": "melonDS.app",
+      "note": "Universal binary (arm64 + x86_64); shared with darwin-x64."
+    },
+    "darwin-x64": {
+      "url": "https://github.com/melonDS-emu/melonDS/releases/download/1.1/melonDS-1.1-macOS-universal.zip",
+      "sha256": "79843a5e5cab93188bd11942bff5440b9505ee91c6f526f7e90c22e3cff6718d",
+      "sha256Provenance": "Published by GitHub's release-asset digest API (`gh api repos/melonDS-emu/melonDS/releases/tags/1.1`), independently re-verified in-session by downloading the asset and re-hashing it locally — both matched exactly.",
+      "sizeBytes": 24378474,
+      "archiveFormat": "zip",
+      "executableRelativePath": "melonDS.app/Contents/MacOS/melonDS",
+      "displayPath": "melonDS.app",
+      "note": "Universal binary (arm64 + x86_64); shared with darwin-arm64."
+    },
+    "win32-x64": {
+      "url": "https://github.com/melonDS-emu/melonDS/releases/download/1.1/melonDS-1.1-windows-x86_64.zip",
+      "sha256": "9f3f8a244103be20b5b657af5b0ed1b2a66bb20a7181476a6d294c9a53d4f8c8",
+      "sha256Provenance": "Published by GitHub's release-asset digest API (`gh api repos/melonDS-emu/melonDS/releases/tags/1.1`), independently re-verified in-session by downloading the asset and re-hashing it locally — both matched exactly.",
+      "sizeBytes": 19484283,
+      "archiveFormat": "zip",
+      "executableRelativePath": "melonDS.exe",
+      "displayPath": "melonDS.exe"
+    },
+    "linux-x64": {
+      "url": "https://github.com/melonDS-emu/melonDS/releases/download/1.1/melonDS-1.1-ubuntu-x86_64.zip",
+      "sha256": "99465129f5413b2aad332e4377e523cf3cda905dc329d47dcb1ad01ce2cb3f66",
+      "sha256Provenance": "Published by GitHub's release-asset digest API (`gh api repos/melonDS-emu/melonDS/releases/tags/1.1`), independently re-verified in-session by downloading the asset and re-hashing it locally — both matched exactly.",
+      "sizeBytes": 1861751,
+      "archiveFormat": "zip",
+      "executableRelativePath": "melonDS",
+      "displayPath": "melonDS",
+      "note": "Built on Ubuntu; not verified against other glibc-based distros in this wave."
+    }
+  }
+}
