@@ -8,11 +8,23 @@ import type {
  * Game code belongs behind explicit literal dynamic imports in this map.
  *
  * Keep this module out of the lobby, navigation, registry, metadata, and shared
- * shell import graphs. All nine games remain planned in Wave 15.2, so the map is
- * intentionally empty until Second Sense passes its complete-game gate.
+ * shell import graphs. Second Sense (Wave 15.3) is the first complete title;
+ * the remaining eight games stay planned until each passes its own
+ * complete-game gate. The webpackChunkName below is load-bearing: the VECTOR
+ * offline package config (config/vector-offline-packages.json) matches this
+ * game's production chunk by a `second-sense-*.js` filename pattern so the
+ * exact code an offline install needs can be identified and cached.
  */
 export const VECTOR_GAME_LOADERS: Partial<Record<VectorGameSlug, VectorGameLoaderDescriptor>> =
-  Object.freeze({});
+  Object.freeze({
+    "second-sense": {
+      engine: "native",
+      load: () => import(
+        /* webpackChunkName: "second-sense" */
+        "@/lib/vector/games/second-sense/game"
+      ).then((module) => module.default),
+    },
+  });
 
 export class VectorGameLoaderUnavailableError extends Error {
   readonly code = "VECTOR_GAME_LOADER_UNAVAILABLE";

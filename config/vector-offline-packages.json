@@ -1,7 +1,24 @@
 {
   "schemaVersion": 1,
   "games": [
-    { "gameId": "second-sense", "enabled": false },
+    {
+      "gameId": "second-sense",
+      "enabled": true,
+      "gameVersion": "1.0.0",
+      "offlineEntry": "vector-assets/offline/second-sense.html",
+      "publicAssets": [
+        "vector-assets/offline/second-sense.html",
+        "vector-assets/offline/second-sense.js",
+        "vector-assets/second-sense/cover.svg",
+        "vector-assets/second-sense/preview.svg"
+      ],
+      "nextAssets": [],
+      "appPaths": [],
+      "loadableModules": [],
+      "loaderChunkPatterns": [
+        "static/chunks/second-sense.*.js"
+      ]
+    },
     { "gameId": "brickrise", "enabled": false },
     { "gameId": "time-to-fly", "enabled": false },
     { "gameId": "paper-glider", "enabled": false },

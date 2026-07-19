@@ -1,0 +1,21 @@
+<svg viewBox="0 0 480 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ss-preview-title">
+  <title id="ss-preview-title">A compact radial dial preview for Second Sense</title>
+  <defs>
+    <radialGradient id="ss-preview-bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#1b2030"/>
+      <stop offset="100%" stop-color="#0a0c12"/>
+    </radialGradient>
+    <linearGradient id="ss-preview-sweep" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0c388"/>
+      <stop offset="100%" stop-color="#7fb0ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="480" height="480" fill="url(#ss-preview-bg)"/>
+  <g transform="translate(240,232)">
+    <circle r="170" fill="none" stroke="#2a2f3f" stroke-width="2"/>
+    <circle r="145" fill="none" stroke="#33384a" stroke-width="12"/>
+    <path d="M 0 -145 A 145 145 0 1 1 -102 102" fill="none" stroke="url(#ss-preview-sweep)" stroke-width="12" stroke-linecap="round"/>
+    <circle r="78" fill="#12141c" stroke="#e0c388" stroke-width="2" opacity="0.9"/>
+    <circle r="7" fill="#e0c388"/>
+  </g>
+</svg>

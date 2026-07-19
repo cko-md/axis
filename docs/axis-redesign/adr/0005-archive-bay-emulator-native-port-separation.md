@@ -93,11 +93,15 @@ content.** Concretely:
   circumvents protection on ROMs or firmware. UI copy states explicitly:
   *"System files not included. AXIS does not download or provide firmware.
   Import only what you are legally entitled to use."*
-- **Distribution of any managed/bundled emulator runtime (16.2+) remains
-  blocked** until the owner makes an explicit, written licensing decision
-  informed by this ADR (see Rationale). This ADR does not make that
-  decision — it documents the fork and picks the side that requires no
-  decision yet.
+- **OWNER LICENSING DECISION (2026-07-18): Option B — distribute a managed
+  melonDS runtime in 16.2.** The owner explicitly accepts the GPL-3.0
+  redistribution obligations this entails: the packaged runtime must ship with
+  the GPL-3.0 license text, a corresponding-source offer (pinned melonDS
+  source archive or written offer per GPL §6), and clear attribution; the
+  runtime stays a separate spawned executable (arm's-length, never linked
+  into AXIS). 16.2 is therefore UNBLOCKED, subject to those compliance
+  artifacts shipping with the runtime package. 16.1's BYO path remains
+  supported regardless.
 - **Supported platforms (16.1):** macOS, Windows, and Linux — the same three
   platforms the existing unsigned Electron preview already targets
   (`docs/desktop-distribution.md`). No platform-specific melonDS discovery

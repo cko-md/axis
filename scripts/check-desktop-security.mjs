@@ -19,10 +19,16 @@ const packageJson = JSON.parse(await readFile(path.join(root, "electron/package.
 const mainSource = await readFile(path.join(root, "electron/main.cjs"), "utf8");
 const trustedPreloadSource = await readFile(path.join(root, "electron/axis-preload.cjs"), "utf8");
 const builderSource = await readFile(path.join(root, "electron/electron-builder.cjs"), "utf8");
+// desktop-release.yml is deliberately deferred until signing secrets exist
+// (see docs/desktop-distribution.md). Its invariant checks run only when the
+// workflow is present; everything else below always runs.
 const releaseWorkflowSource = await readFile(
   path.join(root, ".github/workflows/desktop-release.yml"),
   "utf8",
-);
+).catch((error) => {
+  if (error?.code !== "ENOENT") throw error;
+  return null;
+});
 async function sourceFilesIn(directory) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true });
   const nested = await Promise.all(entries.map(async (entry) => {
@@ -65,13 +71,17 @@ for (const invariant of [
 ]) {
   if (!builderSource.includes(invariant)) throw new Error(`Missing release invariant: ${invariant}`);
 }
-for (const invariant of [
-  "Verify Windows Authenticode signatures",
-  "AZURE_CLIENT_SECRET",
-  "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
-]) {
-  if (!releaseWorkflowSource.includes(invariant)) {
-    throw new Error(`Missing Windows signing workflow invariant: ${invariant}`);
+if (releaseWorkflowSource === null) {
+  console.log("desktop-release.yml not present yet; skipping signed-release workflow invariant checks.");
+} else {
+  for (const invariant of [
+    "Verify Windows Authenticode signatures",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
+  ]) {
+    if (!releaseWorkflowSource.includes(invariant)) {
+      throw new Error(`Missing Windows signing workflow invariant: ${invariant}`);
+    }
   }
 }
 for (const invariant of [".wv-overlay", "/api/proxy", "axis-sidebar", 'hasAttribute("aria-expanded")']) {

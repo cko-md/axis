@@ -25,6 +25,7 @@ import {
 } from "@/lib/vector/runtime";
 import type {
   VectorGameManifest,
+  VectorGameScoreInput,
   VectorRuntimeEvent,
   VectorRuntimeSettings,
   VectorRuntimeState,
@@ -48,6 +49,8 @@ type Props = {
   onEvent?: (event: VectorRuntimeEvent) => void;
   onStateChange?: (state: VectorRuntimeState) => void;
   onRuntimeError?: (operation: VectorRuntimeOperation) => void;
+  onRecordScore?: (input: VectorGameScoreInput) => void | Promise<void>;
+  onGetBestScore?: (input: { mode: string; challengeId: string | null }) => Promise<number | null>;
 };
 
 const UPDATEABLE_STATES: readonly VectorRuntimeState[] = [
@@ -79,6 +82,8 @@ export function GameRuntimeHost({
   onEvent,
   onStateChange,
   onRuntimeError,
+  onRecordScore,
+  onGetBestScore,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
@@ -90,6 +95,8 @@ export function GameRuntimeHost({
     onEvent,
     onStateChange,
     onRuntimeError,
+    onRecordScore,
+    onGetBestScore,
   });
   const initialSaveRef = useRef(initialSave);
   const settingsRef = useRef(settings);
@@ -104,6 +111,8 @@ export function GameRuntimeHost({
     onEvent,
     onStateChange,
     onRuntimeError,
+    onRecordScore,
+    onGetBestScore,
   };
   initialSaveRef.current = initialSave;
   settingsRef.current = settings;
@@ -221,6 +230,12 @@ export function GameRuntimeHost({
               },
             });
           },
+          recordScore: callbacksRef.current.onRecordScore
+            ? (input) => callbacksRef.current.onRecordScore?.(input)
+            : undefined,
+          getBestScore: callbacksRef.current.onGetBestScore
+            ? (input) => callbacksRef.current.onGetBestScore!(input)
+            : undefined,
         });
         if (cancelled) {
           scheduler.dispose();
