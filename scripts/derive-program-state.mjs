@@ -86,8 +86,14 @@ function readJson(relativePath) {
 // ── Derivation ───────────────────────────────────────────────────────────────
 
 /**
- * Merged PRs, read from git rather than from anyone's memory. Squash-merge
- * subjects carry the PR number, which is what makes this reliable.
+ * Commits on main, read from git rather than from anyone's memory. Squash-merge
+ * subjects carry the PR number, which is what makes provenance reliable.
+ *
+ * A PR number is NOT required. A wave merged locally (fast-forward, no PR) is
+ * still merged, and an earlier version of this function skipped every commit
+ * without a `(#123)` suffix — which silently dropped such a wave from the
+ * "waves merged to main" table. That is exactly the quiet omission this script
+ * exists to prevent, so `pr` is now null rather than a reason to skip.
  */
 function deriveMergedPrs(limit = 60) {
   const log = git("log", `-${limit}`, "--format=%h%x1f%s%x1f%cI", MAIN_REF);
@@ -95,15 +101,19 @@ function deriveMergedPrs(limit = 60) {
   for (const line of log.split("\n").filter(Boolean)) {
     const [sha, subject, committedAt] = line.split("\x1f");
     const match = subject.match(/\(#(\d+)\)\s*$/);
-    if (!match) continue;
     prs.push({
-      pr: Number(match[1]),
+      pr: match ? Number(match[1]) : null,
       sha,
       subject: subject.replace(/\s*\(#\d+\)\s*$/, ""),
       committedAt,
     });
   }
   return prs;
+}
+
+/** How a wave's provenance renders when it was merged without a PR. */
+function prLabel(mergedPr) {
+  return mergedPr === null ? "local merge" : `#${mergedPr}`;
 }
 
 /**
@@ -120,11 +130,24 @@ function deriveWaves(prs) {
     // of quiet omission this script exists to prevent. So once a subject is
     // known to be wave-bearing, collect every version-like token in it.
     if (!/\b(?:Wave|Phase)\s+\d+\.\d+/i.test(pr.subject)) continue;
+    // A wave landed in the commit that IMPLEMENTED it, not in the docs commit
+    // that recorded it afterwards. With a squash-merged PR the two are the same
+    // commit so this never matters; with a locally merged branch the docs
+    // commit is newer and would otherwise win, attributing the wave to a commit
+    // that changed no product code.
+    const isDocs = /^docs[(:]/i.test(pr.subject);
     for (const match of pr.subject.matchAll(/\b(\d+\.\d+)\b/g)) {
       const id = match[1];
-      if (!waves[id]) {
-        waves[id] = { wave: id, mergedPr: pr.pr, sha: pr.sha, subject: pr.subject, mergedAt: pr.committedAt };
-      }
+      const existing = waves[id];
+      if (existing && !(existing.isDocs && !isDocs)) continue;
+      waves[id] = {
+        wave: id,
+        mergedPr: pr.pr,
+        sha: pr.sha,
+        subject: pr.subject,
+        mergedAt: pr.committedAt,
+        isDocs,
+      };
     }
   }
   return Object.values(waves).sort((a, b) =>
@@ -275,7 +298,7 @@ function renderMarkdown(state) {
     lines.push("| Wave | PR | Commit | Subject |");
     lines.push("| --- | --- | --- | --- |");
     for (const wave of state.waves) {
-      lines.push(`| ${wave.wave} | #${wave.mergedPr} | \`${wave.sha}\` | ${wave.subject} |`);
+      lines.push(`| ${wave.wave} | ${prLabel(wave.mergedPr)} | \`${wave.sha}\` | ${wave.subject} |`);
     }
     lines.push("");
     lines.push("Every row above is **merged**. A wave listed here is done; do not restart it.");
@@ -399,7 +422,7 @@ function findStaleWaveStatuses(state) {
     if (merged.length === 0) continue;
 
     const mergedAs = merged
-      .map((wave) => `Wave ${wave.wave} (PR #${wave.mergedPr}, ${wave.sha})`)
+      .map((wave) => `Wave ${wave.wave} (${prLabel(wave.mergedPr)}, ${wave.sha})`)
       .join(" and ");
     stale.push({ id: entry.id, status: entry.status, mergedAs, merged });
   }
@@ -429,7 +452,7 @@ function correctWaveStatuses(state) {
     // rather than repeating the same merge fact per sub-wave.
     const byPr = new Map(match.merged.map((wave) => [wave.mergedPr, wave]));
     const mergeFact = [...byPr.values()]
-      .map((wave) => `merged to main via PR #${wave.mergedPr} (${wave.sha})`)
+      .map((wave) => `merged to main via ${prLabel(wave.mergedPr)} (${wave.sha})`)
       .join("; ");
     // Remove the false claim, tidy what it leaves behind, then append the fact.
     const remainder = entry.status
@@ -486,7 +509,7 @@ function detectDrift(state) {
     for (const wave of state.waves) {
       if (!text.includes(`| ${wave.wave} |`)) {
         problems.push(
-          `${CANONICAL_DOC} does not list merged Wave ${wave.wave} (PR #${wave.mergedPr}). Run: npm run state:derive`,
+          `${CANONICAL_DOC} does not list merged Wave ${wave.wave} (${prLabel(wave.mergedPr)}). Run: npm run state:derive`,
         );
       }
     }

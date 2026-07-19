@@ -19,30 +19,24 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T15:52:32.613Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T15:57:28.922Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `feat/wave-15.8-brickrise-scene`
-- **HEAD:** `c8841e18`
-- **main:** `61a3d19d`
-- **Working tree:** clean
-
-### Not yet on main (3 commit(s))
-
-These exist only on this branch. Do not assume main contains them.
-
-- `c8841e18` fix(vector): resolve Brickrise's four open manifest and design questions
-- `a9563212` docs(axis): re-derive checkpoint state for Wave 15.8
-- `f94934d9` feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix
+- **Branch:** `main`
+- **HEAD:** `4a302771`
+- **main:** `4a302771`
+- **Working tree:** has uncommitted changes
 
 ## Waves merged to main
 
 | Wave | PR | Commit | Subject |
 | --- | --- | --- | --- |
+| 15.2 | local merge | `64dec9cd` | docs(axis): record Wave 15.2 convergence reconciliation + execution log |
 | 15.3 | #251 | `294dae37` | feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3) |
 | 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
+| 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
 | 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.2 | #256 | `d8a15e7b` | feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B) |
@@ -61,9 +55,9 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- **Tests:** 1465/1465 across 202 files
+- **Tests:** 1468/1468 across 203 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-19T15:52:32.627Z
+- **Measured at:** 2026-07-19T15:57:28.936Z
 
 <!-- END GENERATED: derive-program-state -->
 
