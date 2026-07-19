@@ -19,25 +19,14 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T13:29:57.329Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T13:40:10.042Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `feat/redesign-continuation-2026-07-19`
-- **HEAD:** `089cb2a5`
-- **main:** `d8a15e7b`
+- **Branch:** `main`
+- **HEAD:** `1ee2cbe5`
+- **main:** `1ee2cbe5`
 - **Working tree:** has uncommitted changes
-
-### Not yet on main (6 commit(s))
-
-These exist only on this branch. Do not assume main contains them.
-
-- `089cb2a5` fix(ci): resolve the mainline ref instead of assuming a local main branch
-- `55285b45` fix(axis): report test FILE count, not describe-block count, in derived state
-- `6246f808` chore(axis): refresh derived program state with measured gate figures
-- `32e9d959` feat(desktop): Electron security hardening with runtime verification
-- `92c48b12` feat(axis): MFA trust window, widget typography, and derived state documentation
-- `af33e72c` feat(axis): remove Envoys, strip Second Sense visuals, fix persistence/OAuth/desktop browser
 
 ## Waves merged to main
 

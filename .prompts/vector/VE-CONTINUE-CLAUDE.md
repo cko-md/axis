@@ -131,6 +131,28 @@ in-session owner authorization.
 
 ## Next execution: see docs/CURRENT_STATE.md
 
+### Wave order revised 2026-07-19 (owner decision)
+
+- **15.6 SKIPPED.** Envoys was removed entirely (PR #257) pending a redesign by
+  a separate agent, so the generation control plane has no subject.
+- **15.7 DEFERRED.** Owner-gated on paid OpenAI spend and a Render workspace,
+  and depends on 15.6.
+- **15.11 BLOCKED.** Envoy Arena needs eight selectable Envoys; unblocks only
+  after the Envoy redesign lands.
+
+### Every remaining game wave is blocked on one decision
+
+15.8-15.15 all require Phaser or Three.js; none are native-engine. Measured
+2026-07-19: aggregate budget 4400 kB, current usage 4257 kB, headroom 143 kB,
+Phaser 3 min 1168 kB, Three module min 356 kB. Lazy loading does not help —
+`scripts/check-bundle-budget.mjs` sums raw on-disk JS across all of
+`.next/static/chunks`, so a route-isolated game chunk still counts in full.
+
+Do not start a game wave, and do not quietly raise the budget to make one pass,
+until the owner resolves this. See `bundle_budget_blocker` in PROGRAM_STATE.json
+for the options.
+
+
 This section previously hard-coded "Wave 15.4 Envoy core" and survived long
 after 15.4 shipped, 15.5 shipped, and Envoys was removed again — sending
 resuming sessions to redo finished work. Naming a specific next wave in a

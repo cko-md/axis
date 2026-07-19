@@ -1695,5 +1695,60 @@
       "Contract migration 202607161401 timing \u2014 RESOLVED; applied to prod via PR #237 after the compatible application revision went live."
     ]
   },
-  "derived_state_note": "Wave merge status is verified by scripts/derive-program-state.mjs against git. See docs/CURRENT_STATE.md for the authoritative derived view."
+  "derived_state_note": "Wave merge status is verified by scripts/derive-program-state.mjs against git. See docs/CURRENT_STATE.md for the authoritative derived view.",
+  "wave_order_revision": {
+    "decided": "2026-07-19",
+    "decided_by": "owner",
+    "summary": "15.6 skipped; 15.7 deferred; 15.11 blocked. Remaining game waves gated on a bundle-budget decision.",
+    "changes": [
+      {
+        "wave": "15.6",
+        "status": "SKIPPED",
+        "reason": "Envoy generation control plane has no subject: Envoys was removed entirely in PR #257 pending an owner-directed redesign by a separate agent. Building generation schema, quotas and RLS now would hard-code assumptions about an identity model that does not yet exist."
+      },
+      {
+        "wave": "15.7",
+        "status": "DEFERRED",
+        "reason": "Owner-gated on paid OpenAI spend and a Render workspace, and depends on 15.6 which is skipped."
+      },
+      {
+        "wave": "15.11",
+        "status": "BLOCKED",
+        "reason": "Envoy Arena requires eight selectable Envoys. Envoys was removed; unblocks only after the redesign lands."
+      }
+    ],
+    "next_implementable": "15.8 Brickrise, but see bundle_budget_blocker below.",
+    "bundle_budget_blocker": {
+      "problem": "Every remaining game wave (15.8-15.15) requires Phaser or Three.js. None are native-engine.",
+      "measured_2026_07_19": {
+        "aggregate_budget_kb": 4400,
+        "current_usage_kb": 4257,
+        "headroom_kb": 143,
+        "phaser3_min_kb": 1168,
+        "three_module_min_kb": 356
+      },
+      "engine_by_wave": {
+        "phaser": [
+          "15.8 brickrise",
+          "15.9 time-to-fly",
+          "15.11 envoy-arena",
+          "15.12 phantasy-axis"
+        ],
+        "three": [
+          "15.10 paper-glider",
+          "15.13 biome-lab",
+          "15.14 mini-town",
+          "15.15 neon-rift"
+        ]
+      },
+      "why_lazy_loading_does_not_help": "scripts/check-bundle-budget.mjs sums raw on-disk JS across ALL of .next/static/chunks, so a route-isolated dynamically-imported game chunk still counts in full against the aggregate.",
+      "options": [
+        "Exclude route-isolated game chunks from the aggregate budget. The per-route budget (scripts/check-perf-budgets.mjs, 420 kB/route, 189/189 passing) already governs what a user actually downloads; the aggregate currently double-counts lazy chunks that never load on any other route.",
+        "Raise the aggregate budget. Three-only needs roughly +250 kB; including Phaser needs roughly +1200 kB.",
+        "Reorder to the Three.js titles first (15.10, 15.13, 15.14, 15.15), which need ~356 kB rather than ~1168 kB.",
+        "Renegotiate Brickrise's binding Phaser requirement (docs/vector/PLAN.md:88) in favour of native DOM/Canvas."
+      ],
+      "status": "AWAITING OWNER DECISION - no game wave can proceed until this is resolved."
+    }
+  }
 }

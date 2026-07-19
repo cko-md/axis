@@ -1,39 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T13:29:57.329Z",
+  "derivedAt": "2026-07-19T13:40:10.042Z",
   "git": {
-    "branch": "feat/redesign-continuation-2026-07-19",
-    "head": "089cb2a5c5eeec48d39e6a30b8fc3e8b6f943c21",
-    "mainHead": "d8a15e7bff4bb176afde3e7b04212d858611083b",
+    "branch": "main",
+    "head": "1ee2cbe5787ac0b505b1819c3382b915c5006a83",
+    "mainHead": "1ee2cbe5787ac0b505b1819c3382b915c5006a83",
     "workingTreeClean": false,
-    "aheadOfMain": [
-      {
-        "sha": "089cb2a5",
-        "subject": "fix(ci): resolve the mainline ref instead of assuming a local main branch"
-      },
-      {
-        "sha": "55285b45",
-        "subject": "fix(axis): report test FILE count, not describe-block count, in derived state"
-      },
-      {
-        "sha": "6246f808",
-        "subject": "chore(axis): refresh derived program state with measured gate figures"
-      },
-      {
-        "sha": "32e9d959",
-        "subject": "feat(desktop): Electron security hardening with runtime verification"
-      },
-      {
-        "sha": "92c48b12",
-        "subject": "feat(axis): MFA trust window, widget typography, and derived state documentation"
-      },
-      {
-        "sha": "af33e72c",
-        "subject": "feat(axis): remove Envoys, strip Second Sense visuals, fix persistence/OAuth/desktop browser"
-      }
-    ]
+    "aheadOfMain": []
   },
   "mergedPrs": [
+    {
+      "pr": 257,
+      "sha": "1ee2cbe5",
+      "subject": "feat(axis): Envoys removal, Second Sense visual strip, four defect fixes, Electron hardening, derived state docs",
+      "committedAt": "2026-07-19T09:36:22-04:00"
+    },
     {
       "pr": 256,
       "sha": "d8a15e7b",
