@@ -30,7 +30,10 @@
     "desktop:apple-signing:configure": "node scripts/configure-desktop-release-secrets.mjs",
     "desktop:windows-signing:check": "node scripts/check-desktop-release-secrets.mjs --platform windows",
     "desktop:windows-signing:configure": "node scripts/configure-windows-signing.mjs",
-    "axis": "node scripts/axis.mjs"
+    "axis": "node scripts/axis.mjs",
+    "state:derive": "node scripts/derive-program-state.mjs",
+    "state:derive:gates": "node scripts/derive-program-state.mjs --gates",
+    "state:check": "node scripts/derive-program-state.mjs --check"
   },
   "engines": {
     "node": "24.x"

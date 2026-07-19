@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { optionalEnv } from "@/lib/env";
+import {
+  MFA_TRUST_COOKIE,
+  issueMfaTrustToken,
+  resolveTrustWindowDays,
+} from "@/lib/auth/mfaTrust";
 
 // ── POST /api/auth/mfa/verify ──────────────────────────────────────────────────
 // Verifies an MFA challenge code. On success the factor is confirmed and
@@ -78,5 +84,26 @@ export async function POST(req: NextRequest) {
     { onConflict: "user_id" },
   );
 
-  return NextResponse.json({ verified: true });
+  // Remember this device so an enrolled account is not re-challenged on every
+  // single sign-in. Bounded, signed, bound to this user and this factor, and
+  // consulted only to elevate an already-authenticated aal1 session — never to
+  // authenticate, and never to satisfy per-approval financial step-up.
+  const response = NextResponse.json({ verified: true });
+  const issued = await issueMfaTrustToken({
+    secret: optionalEnv("MFA_TRUST_SECRET"),
+    userId: user.id,
+    factorId,
+    nowMs: Date.now(),
+    windowDays: resolveTrustWindowDays(optionalEnv("MFA_TRUST_WINDOW_DAYS")),
+  });
+  if (issued) {
+    response.cookies.set(MFA_TRUST_COOKIE, issued.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: issued.maxAgeSeconds,
+      path: "/",
+    });
+  }
+  return response;
 }

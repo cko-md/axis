@@ -7,6 +7,38 @@
 
 ---
 
+## 0. Read this first: current state
+
+**Before anything else, read [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).**
+
+It is the single canonical entry point for what is actually true right now:
+which waves are merged and at which sha, which commits exist only on a branch,
+migration count, open defects, and the last measured gate figures. It is
+*derived from git* by `scripts/derive-program-state.mjs`, not hand-maintained.
+
+```
+npm run state:derive          # refresh it
+npm run state:derive:gates    # refresh including test/build figures (slow)
+npm run state:check           # fail if any checkpoint doc contradicts git
+```
+
+Rules that apply to every agent, in every tool:
+
+- **Where any document disagrees with `docs/CURRENT_STATE.md`, that document is
+  stale and the derived state wins.** Do not act on the stale one.
+- **Never hand-write a derivable fact** (merge status, sha, PR number, test
+  counts) into a checkpoint doc. Run the script. Hand-maintaining these is what
+  previously left five merged waves described as "pending owner merge" and sent
+  a resuming session to redo shipped work.
+- **Never edit inside `<!-- BEGIN GENERATED -->` / `<!-- END GENERATED -->`.**
+- `npm run state:check` runs in CI as the `docs-currency` job. If it fails, fix
+  the document — never weaken the check.
+- After landing work, run `npm run state:derive` and commit the result. The
+  `state-steward` subagent (`.claude/agents/state-steward.md`) does this plus the
+  narrative updates the script cannot derive.
+
+---
+
 ## 1. Project summary
 
 AXIS is a personal operating system: one private Next.js 15 (App Router) dashboard that unifies a person's calendar, email, tasks, notes, health, finances, reading, and media into a single command center. It is modular — each domain (Mail, Dispatch, Schedule, Agenda, Fund, Vitality, Notes, People, etc.) is its own module reached from a shared `AppShell` + sidebar navigation. It is integrations-heavy: most modules are backed by third-party providers (Gmail/Outlook, Google Calendar/Contacts, Spotify, Strava, Polygon/Massive markets, Plaid/Public.com) reached either by direct OAuth or through Composio, with Make as an automation/workflow layer. Persistence and auth are Supabase (Postgres + RLS). The product bar is high: the user expects a premium, cohesive, low-latency dashboard, not a collection of disconnected screens. The single most important rule: **ship complete vertical slices, not visual prototypes** — a feature is only "done" when the full workflow works end to end. Previous agent work repeatedly shipped UI that rendered but did not complete the workflow (e.g. Mail inbox rows render but messages do not reliably open into readable detail, especially for Composio-connected accounts). That class of failure is what these instructions exist to prevent.

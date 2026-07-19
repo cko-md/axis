@@ -3,7 +3,7 @@
   "branch": "main",
   "branch_note": "CONVERGED AND MERGED. main is now canonical. PR #195 (phase9 base) merged; PR #239 (VECTOR Wave 15.2 platform, converged onto reconciled main) merged 2026-07-17; PR #237 (58-version pre-July migration filename reconciliation to prod) and PR #238 (routine_version CHECK restore) merged 2026-07-17. PR #236/#227 closed as superseded by #239/#249 respectively. Rescue stack #196-#235 fully resolved: kernel-extraction subset (#240-#247) merged, remainder closed with per-PR supersession notes (their fixes already landed via #240-#249 or an equivalent earlier merge). Open PRs: 0.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "a8c7be32ac1d25462c52e7515ef2ce8727b8fe28",
+  "revision_reviewed": "af33e72c4dbcc736a17e972e7d0683c75c65d23f",
   "updated": "2026-07-18 (post-convergence checkpoint repair)",
   "governance": {
     "source": "AGENTS.md",
@@ -20,35 +20,35 @@
     "typecheck": "pass (npx tsc --noEmit, exit 0, re-run 2026-07-18 on a8c7be32)",
     "lint": "pass (npm run lint / eslint ., 0 errors, 0 warnings, re-run 2026-07-18 on a8c7be32)",
     "unit_tests": "1265 passed / 187 files (npm run test -- --run, re-run 2026-07-18 on a8c7be32)",
-    "production_build": "pass at main head a8c7be32: 175 pages compiled; 187/187 route budgets pass (check-perf-budgets.mjs); 4322/4400 KB aggregate static JS (98.2%, check-bundle-budget.mjs) — budget headroom is now tight, watch on next route addition; postbuild VECTOR offline manifest generator ran and correctly emits 0 enabled games (all 9 titles still planned/disabled)",
+    "production_build": "pass at main head a8c7be32: 175 pages compiled; 187/187 route budgets pass (check-perf-budgets.mjs); 4322/4400 KB aggregate static JS (98.2%, check-bundle-budget.mjs) \u2014 budget headroom is now tight, watch on next route addition; postbuild VECTOR offline manifest generator ran and correctly emits 0 enabled games (all 9 titles still planned/disabled)",
     "authenticated_e2e": "pass: exact-head GitHub CI run 29659456809 (main@a8c7be32), job e2e-authenticated, success, 2026-07-18T20:18:48Z-20:25:12Z (fresh-Supabase authenticated Playwright incl. VECTOR arcade spec)",
     "public_e2e": "pass: exact-head GitHub CI run 29659456809 (main@a8c7be32), job e2e-smoke, success, 2026-07-18T20:18:49Z-20:20:18Z",
-    "browser_gate": "GREEN — resolves the prior 'NOT GREEN / no Supabase CLI in this environment' blocker recorded under convergence below. CI run 29659456809 (workflow CI, main@a8c7be32) passed all three jobs: verify (2026-07-18T20:18:47Z-20:21:41Z), e2e-smoke, e2e-authenticated. This is the exact-head run referenced by 'owner: run fresh-Supabase authenticated CI on the convergence head' in the prior next_dependency_ordered_actions — that action is now CLOSED.",
+    "browser_gate": "GREEN \u2014 resolves the prior 'NOT GREEN / no Supabase CLI in this environment' blocker recorded under convergence below. CI run 29659456809 (workflow CI, main@a8c7be32) passed all three jobs: verify (2026-07-18T20:18:47Z-20:21:41Z), e2e-smoke, e2e-authenticated. This is the exact-head run referenced by 'owner: run fresh-Supabase authenticated CI on the convergence head' in the prior next_dependency_ordered_actions \u2014 that action is now CLOSED.",
     "release_validation": "pass: expansion plan/read-back and authorized contract plan validate; offline npm audit at moderate reports 0 vulnerabilities",
     "github_ci": "pass: run 29659456809 on main@a8c7be32 (all 3 jobs green); prior run 29532017893 also recorded on an earlier head",
-    "vercel_preview": "pass (last recorded): dpl_DT3YmRASMcVeX6jX8ejZnKT2ffF4 Ready; public pages 200, /command preview-local 307, guarded APIs 401, unknown route 404, exact-deployment logs 0 5xx/0 error-level, and a disposable-hosted-user protected browser workflow passed auth, persistence, routine/task, approval, workspace, theme, and responsive checks with cleanup verified. Production deploys now flow through Vercel's native Git integration on merge to main (deploy.yml removed, wave 14.1) — no separate preview validation has been re-run against a8c7be32 specifically; treat as historical evidence from an earlier converged head, not this exact SHA.",
+    "vercel_preview": "pass (last recorded): dpl_DT3YmRASMcVeX6jX8ejZnKT2ffF4 Ready; public pages 200, /command preview-local 307, guarded APIs 401, unknown route 404, exact-deployment logs 0 5xx/0 error-level, and a disposable-hosted-user protected browser workflow passed auth, persistence, routine/task, approval, workspace, theme, and responsive checks with cleanup verified. Production deploys now flow through Vercel's native Git integration on merge to main (deploy.yml removed, wave 14.1) \u2014 no separate preview validation has been re-run against a8c7be32 specifically; treat as historical evidence from an earlier converged head, not this exact SHA.",
     "vector_arcade_live_roundtrip": "VERIFIED (2026-07-17, recorded in continuation context): migration 202607170001_vector_arcade_persistence applied to hosted Supabase project twkcvyhmlguipchfetge (6 game_* tables, RLS on, 3 RPCs sync_vector_save/apply_vector_event/resolve_vector_conflict). A rolled-back live round-trip exercised save sync, event apply, and conflict create+resolve. All 9 catalog games remain intentionally planned/disabled; offline manifest correctly emits 0 enabled games.",
     "sentry_validation": "STILL BLOCKED (owner-only): exact release dad075921e11fff36c1996bd14d18f95666d3e5a was registered (release metadata reports newGroups=2), but the available token receives HTTP 403 for the release/environment Issues query; repository owner or Sentry administrator must record the final result. No newer attempt was made this session (out of Task 1 scope; token access has not changed).",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
-    "0_initialization": "done — branch/baseline/state artifacts + tool map",
-    "1_audit": "substantial — repo mapped; docs/axis-redesign/01-current-state-audit.md; risk/defect ledgers. Not an exhaustive per-module audit.",
-    "2_product_synthesis": "substantial — 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
-    "3_target_architecture": "substantial — 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs), and 0004 (canonical entity identity + URL-restorable workspace). More ADRs as waves land.",
-    "4_financial_domain": "complete — deterministic money + multi-currency minor-unit table + FX conversion with provenance (currency.ts/fx.ts), tax lots & corporate actions (taxLots.ts), provenance populated from all write paths (manual holdings/liabilities, order ticket, Plaid txn sync + FundSpendingModule freshness badge), holdings reconciliation wired to /api/fund/holdings + indicator in the holdings table.",
-    "5_security_kernel": "core done — action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is bound to a real WebAuthn passkey assertion; self-attestable state is removed; middleware enforces enrolled MFA server-side for AAL1 sessions while allowing only the exact challenge/verify bootstrap; adversarial review is complete with per-approval challenge binding and per-user rate limits. RESIDUAL (needs a human): independent security sign-off + manual authenticator ceremony.",
-    "6_design_system": "complete — consolidated semantic status plus typography/surface/motion/interaction contracts; runtime font aliases preserve Interface Studio choices; contrast tests cover every theme/accent preset; shared Button/Seg/Modal/ThemeSwitcher/Toast accessibility is hardened; and /design-system is a production component gallery with authenticated keyboard/theme/reduced-motion/responsive browser coverage.",
-    "7_workspace_shell": "implemented; hosted observability/manual gate pending — canonical provider-neutral identities, owner-scoped resolver projections, typed references/backlinks, explicit-usage frecency, partial-source search, safe previews, and strict bounded URL-restorable evidence panes are complete. Local production-mode workspace workflows, exact-head clean-runner browser jobs, and the protected disposable-user Vercel preview workflow are green; request-local redirects are verified. Sentry review remains blocked by access.",
-    "8_core_modules": "complete for the documented redesign scope — Tasks + Approvals workbenches; pure tested TWR/MWR/allocation math and Investing concentration views; account connection health/provenance; deterministic Activity categorization/anomaly rules; cited owner-scoped Research; approval expiry; inspectable Memory Center + confirmed Financial Operating Profile; and a severity-tiered Need-to-Know queue with task conversion, resolution memory, and honest empty/error states. Additional product depth can proceed as later feature work.",
-    "9_agent_runtime": "complete for the documented implementation scope — task and approval transitions are versioned compare-and-swap mutations with atomic activity/audit writes; approval scope, challenge binding, expiry, and financial freshness are server-enforced; WebAuthn registration/authentication uses exact one-time challenges and atomic sign counters; routine resume uses leases, fencing tokens, idempotent task materialization, replayed completed outputs, and atomic terminal approval consumption. Rebalance proposal v2 is an explicitly simulation-only, fail-closed draft workflow with strict input/rate/quote/currency/freshness checks, while persisted v1 semantics remain available for historical runs. Manual hardware-authenticator ceremony remains an external human gate.",
-    "10_integrations": "complete for the documented code and architecture scope; live-connection evidence remains partial — integration risk tiers, provider-to-domain adapters, Result contracts, retry/write-once policy, cache-first Mail, encrypted Make outbox, webhook hardening, market/Plaid/Public boundaries, ownership checks, and safe provider errors are implemented and documented. The active Composio Gmail connection passed read-only list/detail validation without exposing content; direct Gmail, direct Outlook, Composio Outlook, live Make writes, and a health-device provider remain external validation/decision gates.",
-    "11_performance": "complete for the scoped profiling pass — CI enforces aggregate static-JS and per-route first-load budgets; Command, Vitality, Mail, Dispatch, and Notes interactive workspaces are deferred behind route-level client boundaries while AppShell and stable loading surfaces remain server-rendered. The reviewed application build compiled 163 pages, passed 182/182 route budgets, and used 4017/4400 KB aggregate static JS locally and on the exact-head verify job.",
-    "12_testing": "complete for the automated test-system scope — 1072 unit/integration tests pass across 166 files; tsc and lint are clean; local production-mode public 13/13 and authenticated 14/14 pass. Exact-head GitHub run 29532017893 passed verify, public smoke, and a fresh-Supabase authenticated job that applies migrations, derives grants, verifies the final lifecycle privilege contract, provisions a disposable user, builds production Next, and runs all authenticated specifications. The protected Vercel preview workflow also passed with a disposable hosted user and verified cleanup. Provider-backed, visual-regression, and manual authenticator gates remain external.",
-    "13_observability": "complete for instrumentation and runbook scope — model actions use an internal navigation allowlist and heuristic/provider fallbacks carry explicit degraded provenance; the operate loop emits only a closed Zod-validated event catalog with allowlisted enums, identifiers, counts, and durations; rejected telemetry becomes a fixed safe record; approval and routine events use safe request IDs plus normalized stage/error metadata; raw provider/private content is excluded. Exact-preview Vercel runtime-log queries return 0 status-5xx and 0 error-level records. Sentry release registration is visible, but the release/environment Issues query returns HTTP 403 with the available token; dashboard/alert creation and operator-owned regression evidence remain open.",
-    "14_cicd": "complete for delivery-system implementation — Vercel Git integration is the sole production deployment owner; duplicate deploy automation is removed; daily-health commands preserve pipe failures, HTTP 000, step exit status, and Monday schedule isolation; weekly moderate dependency audit blocks regressions; release:validate pins expansion/contract checksums and SQL read-backs; multi-statement migration/verifier files require a script-capable psql executor; expand/contract/rollback ownership and ordering are documented. Exact-head CI and Vercel preview are green, and preview-local redirect isolation is fixed. Hosted expansions 202607161300, 202607161302, and 202607161400 are applied and verified. 202607161401 (the task/approval privilege-contract migration) is NOW APPLIED to prod (PR #237, 2026-07-17 — see migrations_applied.phase9_runtime_hardening.hosted_contract_status), superseding the earlier 'pending' status. All 89 repo-tracked migration files match prod's 89 recorded versions (`supabase db push --dry-run` clean). Sentry Issues/dashboard review and manual authenticator sign-off remain owner-only production gates; merge/deploy authorization for main is the owner's normal PR-merge action (Vercel native Git integration deploys automatically on merge, no separate deploy.yml)."
+    "0_initialization": "done \u2014 branch/baseline/state artifacts + tool map",
+    "1_audit": "substantial \u2014 repo mapped; docs/axis-redesign/01-current-state-audit.md; risk/defect ledgers. Not an exhaustive per-module audit.",
+    "2_product_synthesis": "substantial \u2014 02-product-synthesis + feature matrix + IA (Operate section added). Not exhaustive.",
+    "3_target_architecture": "substantial \u2014 04-target-architecture + ADRs 0001 (money), 0002 (action taxonomy/approval kernel), 0003 (durable tasks/runs), and 0004 (canonical entity identity + URL-restorable workspace). More ADRs as waves land.",
+    "4_financial_domain": "complete \u2014 deterministic money + multi-currency minor-unit table + FX conversion with provenance (currency.ts/fx.ts), tax lots & corporate actions (taxLots.ts), provenance populated from all write paths (manual holdings/liabilities, order ticket, Plaid txn sync + FundSpendingModule freshness badge), holdings reconciliation wired to /api/fund/holdings + indicator in the holdings table.",
+    "5_security_kernel": "core done \u2014 action taxonomy + prompt-injection rule, approval object, approvals persistence + isActionable-gated execute, approval-card UI. Step-up is bound to a real WebAuthn passkey assertion; self-attestable state is removed; middleware enforces enrolled MFA server-side for AAL1 sessions while allowing only the exact challenge/verify bootstrap; adversarial review is complete with per-approval challenge binding and per-user rate limits. RESIDUAL (needs a human): independent security sign-off + manual authenticator ceremony.",
+    "6_design_system": "complete \u2014 consolidated semantic status plus typography/surface/motion/interaction contracts; runtime font aliases preserve Interface Studio choices; contrast tests cover every theme/accent preset; shared Button/Seg/Modal/ThemeSwitcher/Toast accessibility is hardened; and /design-system is a production component gallery with authenticated keyboard/theme/reduced-motion/responsive browser coverage.",
+    "7_workspace_shell": "implemented; hosted observability/manual gate pending \u2014 canonical provider-neutral identities, owner-scoped resolver projections, typed references/backlinks, explicit-usage frecency, partial-source search, safe previews, and strict bounded URL-restorable evidence panes are complete. Local production-mode workspace workflows, exact-head clean-runner browser jobs, and the protected disposable-user Vercel preview workflow are green; request-local redirects are verified. Sentry review remains blocked by access.",
+    "8_core_modules": "complete for the documented redesign scope \u2014 Tasks + Approvals workbenches; pure tested TWR/MWR/allocation math and Investing concentration views; account connection health/provenance; deterministic Activity categorization/anomaly rules; cited owner-scoped Research; approval expiry; inspectable Memory Center + confirmed Financial Operating Profile; and a severity-tiered Need-to-Know queue with task conversion, resolution memory, and honest empty/error states. Additional product depth can proceed as later feature work.",
+    "9_agent_runtime": "complete for the documented implementation scope \u2014 task and approval transitions are versioned compare-and-swap mutations with atomic activity/audit writes; approval scope, challenge binding, expiry, and financial freshness are server-enforced; WebAuthn registration/authentication uses exact one-time challenges and atomic sign counters; routine resume uses leases, fencing tokens, idempotent task materialization, replayed completed outputs, and atomic terminal approval consumption. Rebalance proposal v2 is an explicitly simulation-only, fail-closed draft workflow with strict input/rate/quote/currency/freshness checks, while persisted v1 semantics remain available for historical runs. Manual hardware-authenticator ceremony remains an external human gate.",
+    "10_integrations": "complete for the documented code and architecture scope; live-connection evidence remains partial \u2014 integration risk tiers, provider-to-domain adapters, Result contracts, retry/write-once policy, cache-first Mail, encrypted Make outbox, webhook hardening, market/Plaid/Public boundaries, ownership checks, and safe provider errors are implemented and documented. The active Composio Gmail connection passed read-only list/detail validation without exposing content; direct Gmail, direct Outlook, Composio Outlook, live Make writes, and a health-device provider remain external validation/decision gates.",
+    "11_performance": "complete for the scoped profiling pass \u2014 CI enforces aggregate static-JS and per-route first-load budgets; Command, Vitality, Mail, Dispatch, and Notes interactive workspaces are deferred behind route-level client boundaries while AppShell and stable loading surfaces remain server-rendered. The reviewed application build compiled 163 pages, passed 182/182 route budgets, and used 4017/4400 KB aggregate static JS locally and on the exact-head verify job.",
+    "12_testing": "complete for the automated test-system scope \u2014 1072 unit/integration tests pass across 166 files; tsc and lint are clean; local production-mode public 13/13 and authenticated 14/14 pass. Exact-head GitHub run 29532017893 passed verify, public smoke, and a fresh-Supabase authenticated job that applies migrations, derives grants, verifies the final lifecycle privilege contract, provisions a disposable user, builds production Next, and runs all authenticated specifications. The protected Vercel preview workflow also passed with a disposable hosted user and verified cleanup. Provider-backed, visual-regression, and manual authenticator gates remain external.",
+    "13_observability": "complete for instrumentation and runbook scope \u2014 model actions use an internal navigation allowlist and heuristic/provider fallbacks carry explicit degraded provenance; the operate loop emits only a closed Zod-validated event catalog with allowlisted enums, identifiers, counts, and durations; rejected telemetry becomes a fixed safe record; approval and routine events use safe request IDs plus normalized stage/error metadata; raw provider/private content is excluded. Exact-preview Vercel runtime-log queries return 0 status-5xx and 0 error-level records. Sentry release registration is visible, but the release/environment Issues query returns HTTP 403 with the available token; dashboard/alert creation and operator-owned regression evidence remain open.",
+    "14_cicd": "complete for delivery-system implementation \u2014 Vercel Git integration is the sole production deployment owner; duplicate deploy automation is removed; daily-health commands preserve pipe failures, HTTP 000, step exit status, and Monday schedule isolation; weekly moderate dependency audit blocks regressions; release:validate pins expansion/contract checksums and SQL read-backs; multi-statement migration/verifier files require a script-capable psql executor; expand/contract/rollback ownership and ordering are documented. Exact-head CI and Vercel preview are green, and preview-local redirect isolation is fixed. Hosted expansions 202607161300, 202607161302, and 202607161400 are applied and verified. 202607161401 (the task/approval privilege-contract migration) is NOW APPLIED to prod (PR #237, 2026-07-17 \u2014 see migrations_applied.phase9_runtime_hardening.hosted_contract_status), superseding the earlier 'pending' status. All 89 repo-tracked migration files match prod's 89 recorded versions (`supabase db push --dry-run` clean). Sentry Issues/dashboard review and manual authenticator sign-off remain owner-only production gates; merge/deploy authorization for main is the owner's normal PR-merge action (Vercel native Git integration deploys automatically on merge, no separate deploy.yml)."
   },
-  "convergence_note": "SUPERSEDED BY THE 2026-07-18 POST-CONVERGENCE CHECKPOINT REPAIR (this update). Phases 0-14 plus the Wave 15.2 VECTOR arcade platform are now merged to main (a8c7be32) and live in prod. Local unit/type/lint/build/browser gates and exact-head GitHub CI (run 29659456809) are green on the actual main head. Hosted Supabase migration/RLS read-back for the arcade tables and the 202607161401 contract migration are both applied and verified. Remaining explicit owner-only gates: Sentry Issues/dashboard access, a manual hardware WebAuthn ceremony, live Gmail/Outlook/Make provider parity, desktop signing secrets, the Render worker, paid OpenAI, and the Tembo/leaked-password decisions — none of these block Wave 15.3 or the Phase 16 parallel desktop track. See the `convergence` object below for the historical convergence-analysis record (now closed) and `next_dependency_ordered_actions` for what is actually next.",
+  "convergence_note": "SUPERSEDED BY THE 2026-07-18 POST-CONVERGENCE CHECKPOINT REPAIR (this update). Phases 0-14 plus the Wave 15.2 VECTOR arcade platform are now merged to main (a8c7be32) and live in prod. Local unit/type/lint/build/browser gates and exact-head GitHub CI (run 29659456809) are green on the actual main head. Hosted Supabase migration/RLS read-back for the arcade tables and the 202607161401 contract migration are both applied and verified. Remaining explicit owner-only gates: Sentry Issues/dashboard access, a manual hardware WebAuthn ceremony, live Gmail/Outlook/Make provider parity, desktop signing secrets, the Render worker, paid OpenAI, and the Tembo/leaked-password decisions \u2014 none of these block Wave 15.3 or the Phase 16 parallel desktop track. See the `convergence` object below for the historical convergence-analysis record (now closed) and `next_dependency_ordered_actions` for what is actually next.",
   "waves": [
     {
       "id": "4.1",
@@ -90,7 +90,7 @@
         "src/lib/fund/provenance.ts",
         "src/lib/fund/provenance.test.ts"
       ],
-      "note": "Typed Provenance shape, deterministic classifyFreshness (fresh/delayed/stale/unknown with clock-skew guard), reconcileAmount (matched/partial/conflicting/missing, cent-exact + tolerance). No DB/network — persistence of provenance columns is a separate migration-gated wave.",
+      "note": "Typed Provenance shape, deterministic classifyFreshness (fresh/delayed/stale/unknown with clock-skew guard), reconcileAmount (matched/partial/conflicting/missing, cent-exact + tolerance). No DB/network \u2014 persistence of provenance columns is a separate migration-gated wave.",
       "tests": "441 tests pass (+14); tsc clean; lint 0 errors",
       "verification": "npm run test + npx tsc --noEmit + npm run lint"
     },
@@ -123,7 +123,7 @@
     },
     {
       "id": "5.1",
-      "title": "Security kernel — action taxonomy + approval policy (pure)",
+      "title": "Security kernel \u2014 action taxonomy + approval policy (pure)",
       "status": "landed",
       "files_added": [
         "src/lib/security/actionPolicy.ts",
@@ -135,13 +135,13 @@
     },
     {
       "id": "5.2",
-      "title": "Approval object — §11.3 durable approval contract (pure)",
+      "title": "Approval object \u2014 \u00a711.3 durable approval contract (pure)",
       "status": "landed",
       "files_added": [
         "src/lib/security/approvalRequest.ts",
         "src/lib/security/approvalRequest.test.ts"
       ],
-      "note": "ApprovalRequest shape + buildApprovalRequest (derives requirement/reasons/step-up from decideApproval; forces one_time scope for FINANCIAL_EXECUTION/DESTRUCTIVE_ADMIN), validateApprovalCompleteness ('never a bare Allow' — outbound/executing need freshness+expiry; execution needs amount/account/before+after; destructive needs before-state), isApprovalExpired (fail-safe: unparseable => expired), isActionable (single execution gate: complete + unexpired + step-up satisfied). Pure; this is the typed contract the drafted approvals table + future approval-card UI implement.",
+      "note": "ApprovalRequest shape + buildApprovalRequest (derives requirement/reasons/step-up from decideApproval; forces one_time scope for FINANCIAL_EXECUTION/DESTRUCTIVE_ADMIN), validateApprovalCompleteness ('never a bare Allow' \u2014 outbound/executing need freshness+expiry; execution needs amount/account/before+after; destructive needs before-state), isApprovalExpired (fail-safe: unparseable => expired), isActionable (single execution gate: complete + unexpired + step-up satisfied). Pure; this is the typed contract the drafted approvals table + future approval-card UI implement.",
       "tests": "494 tests pass (+20); tsc clean; lint clean",
       "verification": "npm run test + npx tsc --noEmit + npx eslint src/lib/security"
     },
@@ -159,7 +159,7 @@
         "src/app/api/fund/networth/route.ts",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Pure freshnessBadgeView(tier)->{label,tone,description} + relativeTimeShort (null on missing/invalid/future). Tokenized, accessible FreshnessBadge primitive (role=status, aria-label) deriving tier via classifyFreshness. Wired into NetWorthChart driven by the latest snapshot's real computed_at (networth GET now selects it; POST stamps it) with FRESHNESS_SLAS.accountBalance — shown only when a real snapshot exists (no fabricated 'as of'). database.types.ts: added computed_at to net_worth_snapshots (targeted, not full regen).",
+      "note": "Pure freshnessBadgeView(tier)->{label,tone,description} + relativeTimeShort (null on missing/invalid/future). Tokenized, accessible FreshnessBadge primitive (role=status, aria-label) deriving tier via classifyFreshness. Wired into NetWorthChart driven by the latest snapshot's real computed_at (networth GET now selects it; POST stamps it) with FRESHNESS_SLAS.accountBalance \u2014 shown only when a real snapshot exists (no fabricated 'as of'). database.types.ts: added computed_at to net_worth_snapshots (targeted, not full regen).",
       "tests": "501 tests pass (+7); tsc clean; lint clean",
       "verification": "npm run test + npx tsc --noEmit + npx eslint (changed files)"
     },
@@ -174,13 +174,13 @@
       "files_changed": [
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Wires src/lib/tasks/taskState.ts to public.agent_tasks. GET/POST collection (auth + RLS + ?status filter; create seeds queued + activity log). [id] GET (task + append-only activity) and PATCH transition — reads current status, enforces canTransition SERVER-SIDE (illegal => 409 ILLEGAL_TRANSITION, not a Sentry exception), stamps completed_at on terminal, appends status_change activity. database.types.ts: added agent_tasks/agent_task_activity/approvals table types (targeted). Verified live DB check constraints mirror the domain enums exactly (12 statuses, 7 action classes, requirement/scope/status).",
+      "note": "Wires src/lib/tasks/taskState.ts to public.agent_tasks. GET/POST collection (auth + RLS + ?status filter; create seeds queued + activity log). [id] GET (task + append-only activity) and PATCH transition \u2014 reads current status, enforces canTransition SERVER-SIDE (illegal => 409 ILLEGAL_TRANSITION, not a Sentry exception), stamps completed_at on terminal, appends status_change activity. database.types.ts: added agent_tasks/agent_task_activity/approvals table types (targeted). Verified live DB check constraints mirror the domain enums exactly (12 statuses, 7 action classes, requirement/scope/status).",
       "tests": "501 tests pass (taskState transition logic already covered); tsc clean; lint clean. Routes mirror the proven fund/holdings pattern.",
       "verification": "npx tsc --noEmit + npx eslint src/app/api/agent-tasks + live constraint read-back"
     },
     {
       "id": "8.3",
-      "title": "Tasks workbench — user-facing agent-Task slice",
+      "title": "Tasks workbench \u2014 user-facing agent-Task slice",
       "status": "landed",
       "files_added": [
         "src/lib/hooks/useAgentTasks.ts",
@@ -193,7 +193,7 @@
         "src/lib/store/nav.ts",
         "src/lib/icons/nav-icons.ts"
       ],
-      "note": "Turns wave 8.2 into a user-facing slice. New 'Operate' nav section + /tasks route (status=beta, honestly labeled). TasksModule: create + status filter (Seg) + two-pane list/detail; detail shows activity log and ONLY the legal next statuses (TASK_TRANSITIONS) as move buttons; 409 ILLEGAL_TRANSITION surfaced as a toast. All states handled: loading (Skeleton), empty, error, signed-out (StatusCallout). Pure taskStatusView presenter (label/tone/group/color) unit-tested. Verified: next build compiled successfully; tsc/lint/505 tests green. Manual interactive click-through requires the local Supabase stack (auth) — listed as the manual validation step.",
+      "note": "Turns wave 8.2 into a user-facing slice. New 'Operate' nav section + /tasks route (status=beta, honestly labeled). TasksModule: create + status filter (Seg) + two-pane list/detail; detail shows activity log and ONLY the legal next statuses (TASK_TRANSITIONS) as move buttons; 409 ILLEGAL_TRANSITION surfaced as a toast. All states handled: loading (Skeleton), empty, error, signed-out (StatusCallout). Pure taskStatusView presenter (label/tone/group/color) unit-tested. Verified: next build compiled successfully; tsc/lint/505 tests green. Manual interactive click-through requires the local Supabase stack (auth) \u2014 listed as the manual validation step.",
       "tests": "505 tests pass (+4); tsc clean; lint clean; next build compiled successfully",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build (compile)"
     },
@@ -207,13 +207,13 @@
         "src/app/api/approvals/route.ts",
         "src/app/api/approvals/[id]/route.ts"
       ],
-      "note": "Persists the §11.3 approval object. Pure approvalPersistence maps ApprovalRequest<->row (round-trip tested). POST /api/approvals builds via buildApprovalRequest and REJECTS auto (nothing to approve) or incomplete (never a bare Allow, returns missing[]). PATCH /api/approvals/[id] approve/deny (pending-only; expired pending -> expired) and execute — the safety gate: reconstructs the request from the STORED row (never client-supplied) and re-runs isActionable (complete + unexpired + step-up satisfied) before clearing to 'executed'. Records the gate passing only; the side-effecting action is intentionally NOT performed (no autonomous execution, §7/§11.2).",
+      "note": "Persists the \u00a711.3 approval object. Pure approvalPersistence maps ApprovalRequest<->row (round-trip tested). POST /api/approvals builds via buildApprovalRequest and REJECTS auto (nothing to approve) or incomplete (never a bare Allow, returns missing[]). PATCH /api/approvals/[id] approve/deny (pending-only; expired pending -> expired) and execute \u2014 the safety gate: reconstructs the request from the STORED row (never client-supplied) and re-runs isActionable (complete + unexpired + step-up satisfied) before clearing to 'executed'. Records the gate passing only; the side-effecting action is intentionally NOT performed (no autonomous execution, \u00a77/\u00a711.2).",
       "tests": "508 tests pass (+3); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint src/app/api/approvals + npm run test"
     },
     {
       "id": "5.4",
-      "title": "Approval-card UI + approvals queue (user-facing, §11.3)",
+      "title": "Approval-card UI + approvals queue (user-facing, \u00a711.3)",
       "status": "landed",
       "files_added": [
         "src/lib/security/approvalCardView.ts",
@@ -227,13 +227,13 @@
         "src/lib/store/nav.ts",
         "src/lib/icons/nav-icons.ts"
       ],
-      "note": "User-facing approval queue on /approvals (Operate section, status=beta). ApprovalCard renders the FULL §11.3 scope — action class, exact summary, tool, target, amount, before/after, data freshness (FreshnessBadge), requested-by, expiry, and the reasons — never a bare Allow. Approve/Deny for pending; step-up classes gate Approve behind an explicit step-up confirmation checkbox; 'Clear to execute' for approved (hits the isActionable-gated PATCH). Pure approvalCardView (labels/tones/amount/status) unit-tested. All states handled. Empty until agents/routines create approvals (honest empty state — no fabricated rows). next build compiles.",
+      "note": "User-facing approval queue on /approvals (Operate section, status=beta). ApprovalCard renders the FULL \u00a711.3 scope \u2014 action class, exact summary, tool, target, amount, before/after, data freshness (FreshnessBadge), requested-by, expiry, and the reasons \u2014 never a bare Allow. Approve/Deny for pending; step-up classes gate Approve behind an explicit step-up confirmation checkbox; 'Clear to execute' for approved (hits the isActionable-gated PATCH). Pure approvalCardView (labels/tones/amount/status) unit-tested. All states handled. Empty until agents/routines create approvals (honest empty state \u2014 no fabricated rows). next build compiles.",
       "tests": "513 tests pass (+5); tsc clean; lint clean; next build compiled successfully",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build (compile)"
     },
     {
       "id": "9.1",
-      "title": "First deterministic routine — concentration check creates real Tasks",
+      "title": "First deterministic routine \u2014 concentration check creates real Tasks",
       "status": "landed",
       "files_added": [
         "src/lib/skills/concentrationReview.ts",
@@ -243,13 +243,13 @@
       "files_changed": [
         "src/components/tasks/TasksModule.tsx"
       ],
-      "note": "Closes the observe->significance->task arc with deterministic math (no LLM, no fabricated data). Pure reviewConcentration(positions, maxWeight) computes cent-exact weights, flags positions over target, and returns the trim amount + a stable breachObjective (idempotency key). POST /api/routines/concentration-check reads the user's real fund_holdings, runs the skill, and creates a 'queued' agent-Task per breach — idempotent (skips breaches whose objective already has a non-terminal task). It never trades or creates a financial-execution approval; output is a task to review. 'Run concentration check' button on the Tasks workbench. Approvals queue intentionally stays empty until a real execution skill with order details exists — no fabricated trade approvals.",
+      "note": "Closes the observe->significance->task arc with deterministic math (no LLM, no fabricated data). Pure reviewConcentration(positions, maxWeight) computes cent-exact weights, flags positions over target, and returns the trim amount + a stable breachObjective (idempotency key). POST /api/routines/concentration-check reads the user's real fund_holdings, runs the skill, and creates a 'queued' agent-Task per breach \u2014 idempotent (skips breaches whose objective already has a non-terminal task). It never trades or creates a financial-execution approval; output is a task to review. 'Run concentration check' button on the Tasks workbench. Approvals queue intentionally stays empty until a real execution skill with order details exists \u2014 no fabricated trade approvals.",
       "tests": "519 tests pass (+6); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     },
     {
       "id": "9.2",
-      "title": "Durable routine-run execution (§15.5) — run + step snapshots",
+      "title": "Durable routine-run execution (\u00a715.5) \u2014 run + step snapshots",
       "status": "landed",
       "files_added": [
         "src/lib/routines/runState.ts",
@@ -263,24 +263,24 @@
         "src/components/tasks/TasksModule.tsx",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Durable execution backbone. Pure runState (RunStatus/StepStatus + transitions + deriveRunOutcome: all-ok=completed, mixed=partial, all-fail=failed, empty=completed). Migration routine_runs + routine_step_runs (owner-scoped RLS, no-delete audit, applied+verified: 3 policies each). Concentration routine refactored to open a durable run and record each step (load_holdings, review_concentration, create_tasks) with input/output snapshots, deriving the final run status; a thrown step marks the run failed with snapshots intact. GET /api/routines/runs (list + ?runId detail with steps). RoutineRunsPanel shows recent runs on the Tasks workbench (honest empty until a run exists). Cost fields recorded (0 — deterministic, no model).",
+      "note": "Durable execution backbone. Pure runState (RunStatus/StepStatus + transitions + deriveRunOutcome: all-ok=completed, mixed=partial, all-fail=failed, empty=completed). Migration routine_runs + routine_step_runs (owner-scoped RLS, no-delete audit, applied+verified: 3 policies each). Concentration routine refactored to open a durable run and record each step (load_holdings, review_concentration, create_tasks) with input/output snapshots, deriving the final run status; a thrown step marks the run failed with snapshots intact. GET /api/routines/runs (list + ?runId detail with steps). RoutineRunsPanel shows recent runs on the Tasks workbench (honest empty until a run exists). Cost fields recorded (0 \u2014 deterministic, no model).",
       "tests": "524 tests pass (+5); tsc clean; lint clean; next build compiles",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build + live RLS policy read-back"
     },
     {
       "id": "14.1",
-      "title": "CI/CD PR quality gate (§20)",
+      "title": "CI/CD PR quality gate (\u00a720)",
       "status": "landed",
       "files_added": [
         ".github/workflows/ci.yml"
       ],
-      "note": "PR + main CI: npm ci -> lint -> tsc --noEmit -> unit tests -> build (placeholder Supabase env, safe: no network at build). Concurrency-cancels superseded runs. Makes the AGENTS.md minimum bar a real merge gate instead of the once-daily health check. Build step also prints route bundle sizes for §11.",
+      "note": "PR + main CI: npm ci -> lint -> tsc --noEmit -> unit tests -> build (placeholder Supabase env, safe: no network at build). Concurrency-cancels superseded runs. Makes the AGENTS.md minimum bar a real merge gate instead of the once-daily health check. Build step also prints route bundle sizes for \u00a711.",
       "tests": "n/a (workflow); validated as YAML; build verified locally with placeholder env (exit 0)",
       "verification": "yaml parse + local build with placeholder env"
     },
     {
       "id": "10.1",
-      "title": "Integration risk model — capabilities -> action classes (§16)",
+      "title": "Integration risk model \u2014 capabilities -> action classes (\u00a716)",
       "status": "landed",
       "files_added": [
         "src/lib/integrations/risk.ts",
@@ -292,7 +292,7 @@
     },
     {
       "id": "11.1",
-      "title": "Performance budgets from measured build sizes (§11)",
+      "title": "Performance budgets from measured build sizes (\u00a711)",
       "status": "landed",
       "files_added": [
         ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"
@@ -303,7 +303,7 @@
     },
     {
       "id": "7.1b",
-      "title": "Command system — executable run-routine command (§7)",
+      "title": "Command system \u2014 executable run-routine command (\u00a77)",
       "status": "landed",
       "files_added": [],
       "files_changed": [
@@ -317,7 +317,7 @@
     },
     {
       "id": "8.4",
-      "title": "Link approvals to tasks (flesh-out, §8)",
+      "title": "Link approvals to tasks (flesh-out, \u00a78)",
       "status": "landed",
       "files_changed": [
         "src/app/api/approvals/route.ts",
@@ -329,7 +329,7 @@
     },
     {
       "id": "13.1",
-      "title": "Structured observability events with redaction guard (§13)",
+      "title": "Structured observability events with redaction guard (\u00a713)",
       "status": "landed",
       "files_added": [
         "src/lib/observability/events.ts",
@@ -344,7 +344,7 @@
     },
     {
       "id": "6.2",
-      "title": "Consolidate semantic status tokens (§6)",
+      "title": "Consolidate semantic status tokens (\u00a76)",
       "status": "landed",
       "files_added": [
         "src/lib/design/statusTokens.ts",
@@ -356,13 +356,13 @@
         "src/lib/tasks/taskStatusView.ts",
         "src/lib/security/approvalCardView.ts"
       ],
-      "note": "Single source of truth for status color (muted/accent/success/warning/alert/danger -> existing theme CSS vars). Freshness, task-status, and approval presenters now resolve their domain tones through it; a test pins the values so the palette can't drift. Consolidation only — every existing color preserved (consumer tests unchanged, incl. approvalToneColor==var(--down)).",
+      "note": "Single source of truth for status color (muted/accent/success/warning/alert/danger -> existing theme CSS vars). Freshness, task-status, and approval presenters now resolve their domain tones through it; a test pins the values so the palette can't drift. Consolidation only \u2014 every existing color preserved (consumer tests unchanged, incl. approvalToneColor==var(--down)).",
       "tests": "537 tests pass (+2); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     },
     {
       "id": "12.1",
-      "title": "Testing flesh-out — artifact guard + Operate e2e smoke (§12)",
+      "title": "Testing flesh-out \u2014 artifact guard + Operate e2e smoke (\u00a712)",
       "status": "landed",
       "files_added": [
         "src/lib/redesign/artifacts.test.ts",
@@ -374,8 +374,8 @@
     },
     {
       "id": "5.5",
-      "title": "Bind approval step-up to a real WebAuthn passkey assertion (§11.2)",
-      "status": "landed — NEEDS INDEPENDENT SECURITY REVIEW",
+      "title": "Bind approval step-up to a real WebAuthn passkey assertion (\u00a711.2)",
+      "status": "landed \u2014 NEEDS INDEPENDENT SECURITY REVIEW",
       "files_added": [
         "src/app/api/approvals/[id]/step-up/route.ts"
       ],
@@ -391,7 +391,7 @@
     },
     {
       "id": "10.2",
-      "title": "Market-data provider adapter (§10 provider->domain boundary)",
+      "title": "Market-data provider adapter (\u00a710 provider->domain boundary)",
       "status": "landed",
       "files_added": [
         "src/lib/markets/quote.ts",
@@ -399,13 +399,13 @@
         "src/lib/markets/adapter.ts",
         "src/app/api/markets/quote/route.ts"
       ],
-      "note": "Stable MarketDataAdapter contract (getQuote -> Result<MarketQuote>) with a Polygon/Massive implementation over the existing rate-limited client. Pure normalizeQuote stamps provenance (provider/retrievedAt/effectiveAt/currency) and classifies freshness against FRESHNESS_SLAS.marketPrice — so a delayed feed reads as delayed/stale, never 'live'. Errors map to the shared IntegrationError taxonomy (not_found/rate_limited/provider_error via failFromException). /api/markets/quote returns the normalized domain quote (feeds FreshnessBadge). Call sites never branch on provider.",
+      "note": "Stable MarketDataAdapter contract (getQuote -> Result<MarketQuote>) with a Polygon/Massive implementation over the existing rate-limited client. Pure normalizeQuote stamps provenance (provider/retrievedAt/effectiveAt/currency) and classifies freshness against FRESHNESS_SLAS.marketPrice \u2014 so a delayed feed reads as delayed/stale, never 'live'. Errors map to the shared IntegrationError taxonomy (not_found/rate_limited/provider_error via failFromException). /api/markets/quote returns the normalized domain quote (feeds FreshnessBadge). Call sites never branch on provider.",
       "tests": "544 tests pass (+5); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     },
     {
       "id": "10.3",
-      "title": "Plaid account adapter — balances into the provenance model (§10)",
+      "title": "Plaid account adapter \u2014 balances into the provenance model (\u00a710)",
       "status": "landed",
       "files_added": [
         "src/lib/plaid/account.ts",
@@ -413,7 +413,7 @@
         "src/lib/plaid/adapter.ts",
         "src/app/api/plaid/accounts/route.ts"
       ],
-      "note": "AccountAdapter contract (getAccounts(userId) -> Result<Account[]>) with a Plaid impl. Pure normalizeAccount(s) maps Plaid balances to a domain Account with provenance (provider/retrievedAt/currency) + freshness (accountBalance SLA) — balances read as fresh right after a live pull. Self-contained in lib (creds via env, reuses getPlaidAccessToken; token never leaves the server). Errors -> IntegrationError taxonomy; not_supported/auth_expired return a soft connect-a-bank state (200), harder failures map to status. /api/plaid/accounts uses it; existing /api/plaid/balances untouched.",
+      "note": "AccountAdapter contract (getAccounts(userId) -> Result<Account[]>) with a Plaid impl. Pure normalizeAccount(s) maps Plaid balances to a domain Account with provenance (provider/retrievedAt/currency) + freshness (accountBalance SLA) \u2014 balances read as fresh right after a live pull. Self-contained in lib (creds via env, reuses getPlaidAccessToken; token never leaves the server). Errors -> IntegrationError taxonomy; not_supported/auth_expired return a soft connect-a-bank state (200), harder failures map to status. /api/plaid/accounts uses it; existing /api/plaid/balances untouched.",
       "tests": "549 tests pass (+5); tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test"
     },
@@ -429,7 +429,7 @@
         "src/app/api/approvals/[id]/step-up/route.ts",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) — see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 202607140200, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
+      "note": "Adversarial review of the step-up flow (IDOR, foreign credential, replay, confused-deputy, brute force, user-verification, counter, leakage) \u2014 see the review doc. Two hardenings applied: (1) challenge now carries approval_id and verify requires it to match THIS approval (migration 202607140200, applied+verified); (2) per-user rate limit (10/10min) on verify, matching the login passkey route. Findings 1-4,7,8,10 already safe. Residual (human-only): independent sign-off + manual authenticator test.",
       "tests": "549 tests pass; tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npm run test; live migration verified"
     },
@@ -466,7 +466,7 @@
     },
     {
       "id": "9.3",
-      "title": "Resumable durable execution + idempotency (§15.5, follow-up)",
+      "title": "Resumable durable execution + idempotency (\u00a715.5, follow-up)",
       "status": "landed",
       "files_added": [
         "src/lib/routines/runner.ts",
@@ -481,7 +481,7 @@
     },
     {
       "id": "9.8",
-      "title": "Approval-pause routine executor + resume endpoint (§15.5, follow-up)",
+      "title": "Approval-pause routine executor + resume endpoint (\u00a715.5, follow-up)",
       "status": "landed",
       "files_added": [
         "src/lib/routines/executor.ts",
@@ -501,7 +501,7 @@
     },
     {
       "id": "9.9",
-      "title": "Routine run-history detail view (§15.5, follow-up)",
+      "title": "Routine run-history detail view (\u00a715.5, follow-up)",
       "status": "landed",
       "files_added": [
         "src/lib/routines/runHistoryView.ts",
@@ -516,7 +516,7 @@
     },
     {
       "id": "9.10",
-      "title": "Routine versioning compare / clone / restore (§15.5, follow-up)",
+      "title": "Routine versioning compare / clone / restore (\u00a715.5, follow-up)",
       "status": "landed",
       "files_added": [
         "src/lib/routines/versioning.ts",
@@ -561,13 +561,13 @@
         ".github/workflows/ci.yml",
         ".claude/axis-redesign/PERFORMANCE_BUDGETS.json"
       ],
-      "note": "PERF GATE: scripts/check-bundle-budget.mjs sums .next/static/chunks/**/*.js (deterministic, not log-parsing) and fails past total_static_js_kb.budget (4400; measured 3826/87%). Wired as a CI step after build. E2E-IN-CI: new e2e-smoke CI job installs Chromium and runs a public ci-smoke.spec.ts that boots the app (placeholder Supabase env) and asserts /login renders its form with no uncaught page errors. Verified locally up to browser-launch (dev server booted; only the container's pre-installed browser version mismatched — CI's playwright install provides the right one). Watching PR #191 CI to confirm the e2e job is green.",
+      "note": "PERF GATE: scripts/check-bundle-budget.mjs sums .next/static/chunks/**/*.js (deterministic, not log-parsing) and fails past total_static_js_kb.budget (4400; measured 3826/87%). Wired as a CI step after build. E2E-IN-CI: new e2e-smoke CI job installs Chromium and runs a public ci-smoke.spec.ts that boots the app (placeholder Supabase env) and asserts /login renders its form with no uncaught page errors. Verified locally up to browser-launch (dev server booted; only the container's pre-installed browser version mismatched \u2014 CI's playwright install provides the right one). Watching PR #191 CI to confirm the e2e job is green.",
       "tests": "574 unit tests pass; bundle gate passes locally (87%); ci.yml valid; e2e job pending first CI run",
       "verification": "node scripts/check-bundle-budget.mjs + local dev-server boot + CI"
     },
     {
       "id": "10.5",
-      "title": "Plaid liabilities adapter — completes the adapter trio (follow-up)",
+      "title": "Plaid liabilities adapter \u2014 completes the adapter trio (follow-up)",
       "status": "landed",
       "files_added": [
         "src/lib/plaid/liability.ts",
@@ -593,13 +593,13 @@
         "src/app/api/cron/daily/route.ts",
         "src/lib/supabase/database.types.ts"
       ],
-      "note": "SECURITY DEFINER expire_stale_approvals() (applied+verified; returns 0 today) marks pending approvals past expires_at as 'expired'; folded into /api/cron/daily. Cross-user sweep needs SECURITY DEFINER (cron has no session). Hygiene only — isActionable already refuses expired approvals.",
+      "note": "SECURITY DEFINER expire_stale_approvals() (applied+verified; returns 0 today) marks pending approvals past expires_at as 'expired'; folded into /api/cron/daily. Cross-user sweep needs SECURITY DEFINER (cron has no session). Hygiene only \u2014 isActionable already refuses expired approvals.",
       "tests": "tsc + eslint clean; function verified live",
       "verification": "apply_migration + execute_sql (returns 0) + npx tsc --noEmit"
     },
     {
       "id": "11.3",
-      "title": "Batch quotes — collapse the watchlist N+1 (follow-up)",
+      "title": "Batch quotes \u2014 collapse the watchlist N+1 (follow-up)",
       "status": "landed",
       "files_added": [
         "src/lib/markets/quotes.ts",
@@ -609,7 +609,7 @@
       "files_changed": [
         "src/components/fund/FundWatchlistModule.tsx"
       ],
-      "note": "FundWatchlistModule fetched /api/massive/quote once per symbol (N client round-trips, each serialized behind the 280ms Polygon rate limit). New /api/markets/quotes?symbols=A,B,C returns all quotes (via the market adapter, provenance+freshness) in one request; pure parseSymbolList (dedupe/validate/cap) tested. Watchlist now does ONE fetch. Widget batch was already cache-first + parallel (not a naive N+1) — left as-is per 'don't rewrite working systems'.",
+      "note": "FundWatchlistModule fetched /api/massive/quote once per symbol (N client round-trips, each serialized behind the 280ms Polygon rate limit). New /api/markets/quotes?symbols=A,B,C returns all quotes (via the market adapter, provenance+freshness) in one request; pure parseSymbolList (dedupe/validate/cap) tested. Watchlist now does ONE fetch. Widget batch was already cache-first + parallel (not a naive N+1) \u2014 left as-is per 'don't rewrite working systems'.",
       "tests": "583 tests pass; tsc + eslint clean; next build compiles; bundle 3832KB/87%",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     },
@@ -624,7 +624,7 @@
         "src/lib/skills/rebalanceProposal.test.ts",
         "src/app/api/routines/rebalance-proposal/route.ts"
       ],
-      "note": "Delivers the order-prep boundary + the pausing-for-approval routine (§10 Public prep, §15.5 pause). Pure buildOrderTicket (validated, cent-exact notional; DRAFT only, never submits) + proposeRebalance (deterministic drift->order tickets). /api/routines/rebalance-proposal reads holdings, fetches LIVE prices via the market adapter, runs the skill, and creates one FINANCIAL_EXECUTION approval per proposed order (real numbers, not fabricated), then sets the run status to waiting_for_approval (first genuine pause). Nothing is submitted: approvals are proposals the user reviews (approve + passkey step-up + execute clears the gate; live broker submission deliberately unbuilt = no autonomous execution). This is the first honest populator of the approvals queue.",
+      "note": "Delivers the order-prep boundary + the pausing-for-approval routine (\u00a710 Public prep, \u00a715.5 pause). Pure buildOrderTicket (validated, cent-exact notional; DRAFT only, never submits) + proposeRebalance (deterministic drift->order tickets). /api/routines/rebalance-proposal reads holdings, fetches LIVE prices via the market adapter, runs the skill, and creates one FINANCIAL_EXECUTION approval per proposed order (real numbers, not fabricated), then sets the run status to waiting_for_approval (first genuine pause). Nothing is submitted: approvals are proposals the user reviews (approve + passkey step-up + execute clears the gate; live broker submission deliberately unbuilt = no autonomous execution). This is the first honest populator of the approvals queue.",
       "tests": "594 tests pass (+11); tsc clean; lint clean; next build compiles; bundle 87%",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     },
@@ -640,7 +640,7 @@
       "files_changed": [
         "src/app/api/routines/rebalance-proposal/route.ts"
       ],
-      "note": "Pure cost estimator (estimateTokens ~4ch/tok + per-model MODEL_PRICING -> estimateCostUsd; router returns no usage so cost is ESTIMATED, clearly labeled). explainWithCost wraps aiGenerate: the sanctioned LLM use — EXPLAIN an already-computed result, never compute financial values; returns text + estimated cost or {skipped} (no throw, graceful when no model configured). Wired an optional explain_proposal step into the rebalance routine that narrates the deterministic proposal and records actual_cost_usd on the run (§11 cost visibility). Arithmetic stays deterministic; AI is decorative narrative, not authoritative.",
+      "note": "Pure cost estimator (estimateTokens ~4ch/tok + per-model MODEL_PRICING -> estimateCostUsd; router returns no usage so cost is ESTIMATED, clearly labeled). explainWithCost wraps aiGenerate: the sanctioned LLM use \u2014 EXPLAIN an already-computed result, never compute financial values; returns text + estimated cost or {skipped} (no throw, graceful when no model configured). Wired an optional explain_proposal step into the rebalance routine that narrates the deterministic proposal and records actual_cost_usd on the run (\u00a711 cost visibility). Arithmetic stays deterministic; AI is decorative narrative, not authoritative.",
       "tests": "599 tests pass (+5); tsc clean; lint clean; next build compiles; bundle 87%",
       "verification": "npx tsc --noEmit + npx eslint + npm run test + npm run build"
     },
@@ -655,7 +655,7 @@
         "src/app/api/approvals/[id]/route.ts",
         "src/app/api/approvals/[id]/step-up/route.ts"
       ],
-      "note": "Wired structured emitServerEvent signals across the operate loop's decision points: approval.decided (decision, actionClass, requirement, decisionLatencyMs) at approve/deny, approval.executed (stepUpRequired, executeLatencyMs) at the isActionable gate clear, and approval.step_up_verified on a verified passkey assertion. Safe fields only (IDs/enums/booleans/durations) — no proposed_action/prices/balances/PII, enforced structurally by redactSafe. Added docs/axis-redesign/14-observability-dashboards.md: the committed dashboard definition (event catalogue as the contract + copy-pasteable Sentry queries for approval reliability/latency, step-up security, routine reliability, integration+cost health, plus a minimum alert set). Dashboards are Sentry UI artifacts; the spec is the reviewable source they're built from.",
+      "note": "Wired structured emitServerEvent signals across the operate loop's decision points: approval.decided (decision, actionClass, requirement, decisionLatencyMs) at approve/deny, approval.executed (stepUpRequired, executeLatencyMs) at the isActionable gate clear, and approval.step_up_verified on a verified passkey assertion. Safe fields only (IDs/enums/booleans/durations) \u2014 no proposed_action/prices/balances/PII, enforced structurally by redactSafe. Added docs/axis-redesign/14-observability-dashboards.md: the committed dashboard definition (event catalogue as the contract + copy-pasteable Sentry queries for approval reliability/latency, step-up security, routine reliability, integration+cost health, plus a minimum alert set). Dashboards are Sentry UI artifacts; the spec is the reviewable source they're built from.",
       "tests": "599 tests pass; tsc clean; lint clean",
       "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
     },
@@ -668,8 +668,8 @@
         "src/components/fund/FundDataProvider.tsx",
         "src/components/fund/FundNetWorthModule.tsx"
       ],
-      "note": "The Plaid liabilities adapter + /api/plaid/liabilities route existed but had no UI consumer — the accounts/transactions/liabilities trio was only 2/3 surfaced. FundDataProvider now fetches /api/plaid/liabilities (soft-fails to empty when unlinked), flattens provenance.retrievedAt for the badge, and exposes plaidLiabilities. FundNetWorthModule renders bank-linked liabilities as freshness-badged rows ('· Plaid' + FreshnessBadge on FRESHNESS_SLAS.accountBalance), mirroring how Assets shows per-holding freshness and Cash shows '· Plaid'. Net-worth math now sums manual + Plaid liabilities via sumMoney (deterministic minor-units). Financially-material debt data now carries its freshness tier per §17.",
-      "tests": "599 tests pass; tsc clean; lint clean (local next build blocked only by missing NEXT_PUBLIC_SUPABASE_* env on unrelated /agenda prerender — CI supplies secrets)",
+      "note": "The Plaid liabilities adapter + /api/plaid/liabilities route existed but had no UI consumer \u2014 the accounts/transactions/liabilities trio was only 2/3 surfaced. FundDataProvider now fetches /api/plaid/liabilities (soft-fails to empty when unlinked), flattens provenance.retrievedAt for the badge, and exposes plaidLiabilities. FundNetWorthModule renders bank-linked liabilities as freshness-badged rows ('\u00b7 Plaid' + FreshnessBadge on FRESHNESS_SLAS.accountBalance), mirroring how Assets shows per-holding freshness and Cash shows '\u00b7 Plaid'. Net-worth math now sums manual + Plaid liabilities via sumMoney (deterministic minor-units). Financially-material debt data now carries its freshness tier per \u00a717.",
+      "tests": "599 tests pass; tsc clean; lint clean (local next build blocked only by missing NEXT_PUBLIC_SUPABASE_* env on unrelated /agenda prerender \u2014 CI supplies secrets)",
       "verification": "npx tsc --noEmit + npx eslint + npx vitest run"
     },
     {
@@ -1440,8 +1440,8 @@
     },
     {
       "id": "16.0+16.1",
-      "title": "Archive Bay — licensing/threat-model ADR + bring-your-own-emulator launcher (parallel desktop track)",
-      "status": "landed (PR pending owner merge)",
+      "title": "Archive Bay \u2014 licensing/threat-model ADR + bring-your-own-emulator launcher (parallel desktop track)",
+      "status": "landed; merged to main via PR #253 (61e833d4)",
       "files_added": [
         "docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md",
         "electron/archive-bay.cjs",
@@ -1457,14 +1457,14 @@
         "electron/axis-preload.test.cjs",
         "src/components/vector/VectorLobbyModule.tsx"
       ],
-      "note": "Owner-authorized parallel desktop track (16.2+ managed-runtime distribution remains BLOCKED on the 16.0 ADR's licensing decision). 16.0: ADR 0005 records the emulator/native-port separation (new LegacyRuntimeKind domain: external-emulator | managed-emulator | native-recomp, fully separate from the 9 VectorGameSlug entries), the GPL-3.0 melonDS distribution fork (bring-your-own-emulator chosen for 16.1; bundling deferred and gated), the content-rights policy (user-owned local import only, ever; no downloader/search/scraping/circumvention; no ROM/BIOS/firmware in Git/Releases/Vercel/Supabase/Sentry/telemetry), local-path privacy, the child-process threat model, no-network default, and supported platforms. 16.1: Electron-main-process-only launcher — LegacyTitleRecord with opaque contentId + local sha256, library JSON in userData (never Supabase, never synced), both ROM and emulator paths chosen exclusively through native OS file dialogs (renderer can never supply a path or flag), spawn(runtime, [romPath], {shell:false}) as the entire child-process contract, coded path-free errors to the renderer, one launch at a time, visible running/exited/error states pushed over archive-bay:launch-state. Web surface: /vector/archive-bay (route-isolated dynamic client module) renders an honest desktop-only notice in a normal browser and the required content-rights copy ('System files are not included... Import only content you are legally entitled to use'); lobby links to it labeled 'desktop only'. Zero web-bundle logic beyond bridge types + UI; no schema, no cloud, no VECTOR game slugs touched. deliberately NOT patched here: scripts/check-desktop-security.mjs's pre-existing crash on the absent desktop-release.yml (owner's open PR #252 fixes it); electron tests were run directly via node --test.",
+      "note": "Owner-authorized parallel desktop track (16.2+ managed-runtime distribution remains BLOCKED on the 16.0 ADR's licensing decision). 16.0: ADR 0005 records the emulator/native-port separation (new LegacyRuntimeKind domain: external-emulator | managed-emulator | native-recomp, fully separate from the 9 VectorGameSlug entries), the GPL-3.0 melonDS distribution fork (bring-your-own-emulator chosen for 16.1; bundling deferred and gated), the content-rights policy (user-owned local import only, ever; no downloader/search/scraping/circumvention; no ROM/BIOS/firmware in Git/Releases/Vercel/Supabase/Sentry/telemetry), local-path privacy, the child-process threat model, no-network default, and supported platforms. 16.1: Electron-main-process-only launcher \u2014 LegacyTitleRecord with opaque contentId + local sha256, library JSON in userData (never Supabase, never synced), both ROM and emulator paths chosen exclusively through native OS file dialogs (renderer can never supply a path or flag), spawn(runtime, [romPath], {shell:false}) as the entire child-process contract, coded path-free errors to the renderer, one launch at a time, visible running/exited/error states pushed over archive-bay:launch-state. Web surface: /vector/archive-bay (route-isolated dynamic client module) renders an honest desktop-only notice in a normal browser and the required content-rights copy ('System files are not included... Import only content you are legally entitled to use'); lobby links to it labeled 'desktop only'. Zero web-bundle logic beyond bridge types + UI; no schema, no cloud, no VECTOR game slugs touched. deliberately NOT patched here: scripts/check-desktop-security.mjs's pre-existing crash on the absent desktop-release.yml (owner's open PR #252 fixes it); electron tests were run directly via node --test.",
       "tests": "15 new archive-bay unit tests (path canonicalization incl. symlink-to-disallowed-target, sha256, record validation, renderer projection never leaks a path, library parse/serialize round-trip + corrupt/oversized/duplicate rejection, atomic save, exact spawn-args contract) + 1 new preload-bridge invariant test; full electron suite 32/32 passes via node --test electron/*.test.cjs; web suite 1265/187 passes on this branch (base = main, pre-15.3); tsc clean; lint clean",
-      "verification": "node --test electron/*.test.cjs (32/32) + npx tsc --noEmit + npx eslint (changed files + full run) + npm run test + npm run build (new /vector/archive-bay route compiles; budgets checked). NOT verified here: a real melonDS launch on this machine (no melonDS installed in this environment — the spawn contract is unit-tested, the live launch is a manual owner step) and desktop packaging (desktop:check is blocked by the pre-existing #252 issue, not by this wave)."
+      "verification": "node --test electron/*.test.cjs (32/32) + npx tsc --noEmit + npx eslint (changed files + full run) + npm run test + npm run build (new /vector/archive-bay route compiles; budgets checked). NOT verified here: a real melonDS launch on this machine (no melonDS installed in this environment \u2014 the spawn contract is unit-tested, the live launch is a manual owner step) and desktop packaging (desktop:check is blocked by the pre-existing #252 issue, not by this wave)."
     },
     {
       "id": "15.3",
-      "title": "Second Sense — first complete, playable VECTOR title",
-      "status": "landed (PR pending owner merge)",
+      "title": "Second Sense \u2014 first complete, playable VECTOR title",
+      "status": "landed; merged to main via PR #251 (294dae37)",
       "files_added": [
         "src/lib/vector/games/second-sense/rng.ts",
         "src/lib/vector/games/second-sense/rng.test.ts",
@@ -1499,14 +1499,14 @@
         "docs/vector/OFFLINE_PACKAGES.md",
         "docs/axis-redesign/15-completion-matrix.md"
       ],
-      "note": "First real VECTOR title, native DOM/Canvas, no engine dependency. Five hidden-timer reproduction trials scored deterministically (absolute + proportional error, scoring.ts); Easy/Hard difficulty; one normalized keyboard/pointer/touch hold-state machine (inputState.ts); deterministic daily challenge via a UTC-calendar-day seed contract (rng.ts, adversarially tested against a timezone-crossing date) plus a fresh-random-seed practice mode. Extends the shared platform contract additively: VectorGameCreateContext gains optional recordScore/getBestScore, threaded GameRuntimeHost -> VectorGameShell -> VectorGamePlatform -> useVectorPlatform, calling the EXISTING enqueueEvent/loadProfile persistence path (no schema/migration change — the score/mode/challengeId contract already existed). Local PB and cloud-synced PB both read through this one path. Offline install: config/vector-offline-packages.json flips second-sense to enabled; a new esbuild step (scripts/build-vector-offline-bootstrap.mjs, wired into postbuild before the manifest generator) bundles the SAME framework-free game/persistence/runtime modules into a standalone public/vector-assets/offline/second-sense.js referenced by a hand-authored offline HTML shell — one engine, two hosts, verified end-to-end against a real production build (5-asset, 285,952-byte manifest, offline package gate: 0 -> 1 enabled game). Pause cancels any in-flight hold/demo without penalty and re-presents the same trial on resume (fairness under backgrounding). Original hand-authored SVG dial artwork (no AI-generated imagery, no Dialed-derived assets).",
+      "note": "First real VECTOR title, native DOM/Canvas, no engine dependency. Five hidden-timer reproduction trials scored deterministically (absolute + proportional error, scoring.ts); Easy/Hard difficulty; one normalized keyboard/pointer/touch hold-state machine (inputState.ts); deterministic daily challenge via a UTC-calendar-day seed contract (rng.ts, adversarially tested against a timezone-crossing date) plus a fresh-random-seed practice mode. Extends the shared platform contract additively: VectorGameCreateContext gains optional recordScore/getBestScore, threaded GameRuntimeHost -> VectorGameShell -> VectorGamePlatform -> useVectorPlatform, calling the EXISTING enqueueEvent/loadProfile persistence path (no schema/migration change \u2014 the score/mode/challengeId contract already existed). Local PB and cloud-synced PB both read through this one path. Offline install: config/vector-offline-packages.json flips second-sense to enabled; a new esbuild step (scripts/build-vector-offline-bootstrap.mjs, wired into postbuild before the manifest generator) bundles the SAME framework-free game/persistence/runtime modules into a standalone public/vector-assets/offline/second-sense.js referenced by a hand-authored offline HTML shell \u2014 one engine, two hosts, verified end-to-end against a real production build (5-asset, 285,952-byte manifest, offline package gate: 0 -> 1 enabled game). Pause cancels any in-flight hold/demo without penalty and re-presents the same trial on resume (fairness under backgrounding). Original hand-authored SVG dial artwork (no AI-generated imagery, no Dialed-derived assets).",
       "tests": "30 new/changed test cases across rng.test.ts (5), scoring.test.ts (8), inputState.test.ts (8), game.test.ts (9), plus registry.test.ts and offline-deployment.test.ts updates for the now-available/offline-enabled registry entry; full suite 1299 tests / 191 files pass; tsc clean; lint 0 errors/0 warnings",
-      "verification": "npx tsc --noEmit + npm run lint + npm run test (1299/191) + npm run build (real production build; 175 pages; 187/187 route budgets pass; 4341/4400 KB aggregate static JS = 98.7%, up from 98.2% pre-wave — budget headroom is now VERY tight, watch closely on 15.4+; verified 5-asset/285952-byte second-sense offline manifest, postbuild 'VECTOR offline manifests: 1 enabled game(s)') + node scripts/check-bundle-budget.mjs. CONFIRMED GREEN: PR #251, GitHub run 29661747530 — verify (2m21s), e2e-smoke (1m27s), and e2e-authenticated (5m2s, the updated tests/e2e/vector-authenticated.spec.ts asserting second-sense is 'available' and its runtime mounts) all passed on the exact PR head 1fedd6ac; CodeQL and Vercel preview deployment also green. The spec edit is no longer unverified."
+      "verification": "npx tsc --noEmit + npm run lint + npm run test (1299/191) + npm run build (real production build; 175 pages; 187/187 route budgets pass; 4341/4400 KB aggregate static JS = 98.7%, up from 98.2% pre-wave \u2014 budget headroom is now VERY tight, watch closely on 15.4+; verified 5-asset/285952-byte second-sense offline manifest, postbuild 'VECTOR offline manifests: 1 enabled game(s)') + node scripts/check-bundle-budget.mjs. CONFIRMED GREEN: PR #251, GitHub run 29661747530 \u2014 verify (2m21s), e2e-smoke (1m27s), and e2e-authenticated (5m2s, the updated tests/e2e/vector-authenticated.spec.ts asserting second-sense is 'available' and its runtime mounts) all passed on the exact PR head 1fedd6ac; CodeQL and Vercel preview deployment also green. The spec edit is no longer unverified."
     },
     {
       "id": "15.4",
-      "title": "Envoy core — headroom recovery, identity domain, truthful active-work HUD, Envoy Lab shell",
-      "status": "landed (PR pending owner merge)",
+      "title": "Envoy core \u2014 headroom recovery, identity domain, truthful active-work HUD, Envoy Lab shell",
+      "status": "landed; merged to main via PR #254 (e122413a)",
       "files_added": [
         "src/lib/envoys/registry.ts",
         "src/lib/envoys/registry.test.ts",
@@ -1522,14 +1522,14 @@
         "src/lib/store/nav.ts",
         "src/lib/icons/nav-icons.ts"
       ],
-      "note": "MANDATORY FIRST SLICE — bundle headroom: replaced lowlight's `common` pack (~37 highlight.js grammars, the dominant weight of a 452 KB Notes-editor chunk) with an explicit 10-grammar allowlist (bash/css/js/json/md/py/sql/ts/xml/yaml); unregistered languages render as plain code text, content never lost. ENVOY CORE (smallest complete vertical, NO generation features — 15.6/15.7 gated): (1) src/lib/envoys/registry.ts — EnvoyId domain, four starter identities honestly marked 'candidate' (no generated art claimed until Wave 15.5 hatch packages), plus the VE-RISK-009 pure legacy-companion parser mapping BOTH legacy vocabularies (monolith/deck/nova and axiom/codex/nova) to stable starter ids with safe fallback on corrupt input (Map lookup so '__proto__' cannot resolve through the prototype chain — caught by its own test). (2) src/lib/envoys/activeWork.ts — VE-RISK-010 pure truthful projection over the three EXISTING owner-scoped APIs (agent-tasks, approvals, routine runs): explicit per-section degradation (failed fetch reads as degraded, never empty), deterministic urgency ranking (pending approval > waiting run > executing/blocked task > approved-unexecuted > queued > running) with newest-then-id tiebreak, deep links to the exact owning surface, NO synthesized progress (no true denominator exists, so none is shown). (3) useEnvoyCore — bounded 30s polling (skipped while the tab is hidden), abort on unmount, 401→signed-out; active-Envoy selection persists through the EXISTING vector profile-settings contract (owner-scoped, clock-merged, offline-safe; one new settings key 'activeEnvoyId' on the existing settings channel — NO schema change, NO new API), with honest persisted/local-only/error labels. (4) /envoys Envoy Lab shell (Labs nav, status=lab with truthful statusReason): quick picker (aria-pressed group) + active-work HUD with loading/signed-out/degraded/empty/populated states, all DOM text. Legacy Mascot is deliberately UNTOUCHED — parity + removal is a later slice per the binding rollback posture ('remove Mascot only after parity').",
+      "note": "MANDATORY FIRST SLICE \u2014 bundle headroom: replaced lowlight's `common` pack (~37 highlight.js grammars, the dominant weight of a 452 KB Notes-editor chunk) with an explicit 10-grammar allowlist (bash/css/js/json/md/py/sql/ts/xml/yaml); unregistered languages render as plain code text, content never lost. ENVOY CORE (smallest complete vertical, NO generation features \u2014 15.6/15.7 gated): (1) src/lib/envoys/registry.ts \u2014 EnvoyId domain, four starter identities honestly marked 'candidate' (no generated art claimed until Wave 15.5 hatch packages), plus the VE-RISK-009 pure legacy-companion parser mapping BOTH legacy vocabularies (monolith/deck/nova and axiom/codex/nova) to stable starter ids with safe fallback on corrupt input (Map lookup so '__proto__' cannot resolve through the prototype chain \u2014 caught by its own test). (2) src/lib/envoys/activeWork.ts \u2014 VE-RISK-010 pure truthful projection over the three EXISTING owner-scoped APIs (agent-tasks, approvals, routine runs): explicit per-section degradation (failed fetch reads as degraded, never empty), deterministic urgency ranking (pending approval > waiting run > executing/blocked task > approved-unexecuted > queued > running) with newest-then-id tiebreak, deep links to the exact owning surface, NO synthesized progress (no true denominator exists, so none is shown). (3) useEnvoyCore \u2014 bounded 30s polling (skipped while the tab is hidden), abort on unmount, 401\u2192signed-out; active-Envoy selection persists through the EXISTING vector profile-settings contract (owner-scoped, clock-merged, offline-safe; one new settings key 'activeEnvoyId' on the existing settings channel \u2014 NO schema change, NO new API), with honest persisted/local-only/error labels. (4) /envoys Envoy Lab shell (Labs nav, status=lab with truthful statusReason): quick picker (aria-pressed group) + active-work HUD with loading/signed-out/degraded/empty/populated states, all DOM text. Legacy Mascot is deliberately UNTOUCHED \u2014 parity + removal is a later slice per the binding rollback posture ('remove Mascot only after parity').",
       "tests": "10 new unit tests (registry 4 incl. proto-pollution fallback; activeWork 6 incl. degraded-not-empty, terminal filtering, deterministic tiebreaks, no-fabrication, deep links); palette/nav coverage tests auto-cover the new /envoys route; full suite 1309 tests / 193 files pass; tsc clean; lint clean",
-      "verification": "npx tsc --noEmit + npx eslint (changed files) + npx vitest run src/lib/envoys + npm run test (1309/193) + npm run build with before/after bundle numbers: baseline main 4351/4400 KB (98.9%) -> 4268/4400 KB (97.0%) INCLUDING the new /envoys chunk — net −83 KB recovered by the lowlight grammar allowlist (the 452 KB Notes chunk is gone; largest chunk is now 420 KB); 176 pages; 189/189 route budgets; /envoys route JS 666 B. Browser/authenticated evidence not executable in this environment — exact-head CI on the PR is the gate."
+      "verification": "npx tsc --noEmit + npx eslint (changed files) + npx vitest run src/lib/envoys + npm run test (1309/193) + npm run build with before/after bundle numbers: baseline main 4351/4400 KB (98.9%) -> 4268/4400 KB (97.0%) INCLUDING the new /envoys chunk \u2014 net \u221283 KB recovered by the lowlight grammar allowlist (the 452 KB Notes chunk is gone; largest chunk is now 420 KB); 176 pages; 189/189 route budgets; /envoys route JS 666 B. Browser/authenticated evidence not executable in this environment \u2014 exact-head CI on the PR is the gate."
     },
     {
       "id": "16.2",
-      "title": "Archive Bay — managed melonDS runtime (Option B, parallel desktop track)",
-      "status": "landed (PR pending owner merge)",
+      "title": "Archive Bay \u2014 managed melonDS runtime (Option B, parallel desktop track)",
+      "status": "landed; merged to main via PR #256 (d8a15e7b)",
       "files_added": [
         "electron/archive-bay-runtime.cjs",
         "electron/archive-bay-runtime.test.cjs",
@@ -1547,14 +1547,14 @@
         "docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md",
         "docs/desktop-distribution.md"
       ],
-      "note": "Owner licensing decision recorded in ADR-0005 (Option B): distribute a managed melonDS runtime, accepting GPL-3.0 redistribution obligations. Implements: (1) a pinned, versioned manifest (electron/config/archive-bay-runtimes.json) — melonDS 1.1 (tag 1.1, commit b86390e4428bf38ce4c1ce0e9ca446d6d25955e8), license GPL-3.0, per-platform (darwin-arm64/darwin-x64/win32-x64/linux-x64) download URL + sha256 + size, all sourced from melonDS-emu/melonDS's own GitHub release assets and cross-verified two ways (GitHub's release-asset digest API + independent re-download-and-rehash in this session); the corresponding-source tag archive's sha256 (not a release asset, so no published digest) was computed in-session and its provenance documented inline. (2) electron/archive-bay-runtime.cjs — HTTPS-only download with redirect-following, a hand-rolled minimal ZIP reader (store+deflate, no zip64/encryption — not needed for these assets) with per-entry path-traversal validation before any write, sha256+size verification before promotion out of a .download temp file, and a small install-state file separate from archive-bay.cjs's BYO library.json schema. (3) 4 new sender-gated IPC handlers in main.cjs (archive-bay:managed-runtime:manifest/status/install/remove) with progress events; concurrent-install and remove-while-running guards; unsupported platforms return an honest platformSupported:false. The managed runtime's resolved executable is run through the exact same canonicalizeRuntimePath/library.runtimePath/buildLaunchSpawnArgs contract a BYO executable uses — not forked. (4) Compliance artifacts (LICENSE full text + ATTRIBUTION.txt with source URL/digest) written into the installed runtime directory; renderer UI states license + corresponding-source availability before the install button is reachable. No auto-update: install/repair is always an explicit user action. Web bundle impact ~0 (new UI lives inside the existing lazy-loaded ArchiveBayModule chunk).",
-      "tests": "32 new archive-bay-runtime unit tests (manifest validation incl. traversal-shaped executableRelativePath, platform resolution, zip-entry path-traversal rejection incl. absolute paths, extraction byte-fidelity + executable chmod, download digest/size mismatch + insecure-URL + redirect-following via an injectable fake transport — no real network in the unit suite, install/remove state-machine round-trip) + 7 new main.cjs IPC source-invariant tests (sender-gating, concurrency/remove-while-running guards, coded errors only) + 1 extended preload-bridge invariant test; full electron suite 72/72 passes via node --test electron/*.test.cjs; tsc clean; lint clean on all changed files.",
+      "note": "Owner licensing decision recorded in ADR-0005 (Option B): distribute a managed melonDS runtime, accepting GPL-3.0 redistribution obligations. Implements: (1) a pinned, versioned manifest (electron/config/archive-bay-runtimes.json) \u2014 melonDS 1.1 (tag 1.1, commit b86390e4428bf38ce4c1ce0e9ca446d6d25955e8), license GPL-3.0, per-platform (darwin-arm64/darwin-x64/win32-x64/linux-x64) download URL + sha256 + size, all sourced from melonDS-emu/melonDS's own GitHub release assets and cross-verified two ways (GitHub's release-asset digest API + independent re-download-and-rehash in this session); the corresponding-source tag archive's sha256 (not a release asset, so no published digest) was computed in-session and its provenance documented inline. (2) electron/archive-bay-runtime.cjs \u2014 HTTPS-only download with redirect-following, a hand-rolled minimal ZIP reader (store+deflate, no zip64/encryption \u2014 not needed for these assets) with per-entry path-traversal validation before any write, sha256+size verification before promotion out of a .download temp file, and a small install-state file separate from archive-bay.cjs's BYO library.json schema. (3) 4 new sender-gated IPC handlers in main.cjs (archive-bay:managed-runtime:manifest/status/install/remove) with progress events; concurrent-install and remove-while-running guards; unsupported platforms return an honest platformSupported:false. The managed runtime's resolved executable is run through the exact same canonicalizeRuntimePath/library.runtimePath/buildLaunchSpawnArgs contract a BYO executable uses \u2014 not forked. (4) Compliance artifacts (LICENSE full text + ATTRIBUTION.txt with source URL/digest) written into the installed runtime directory; renderer UI states license + corresponding-source availability before the install button is reachable. No auto-update: install/repair is always an explicit user action. Web bundle impact ~0 (new UI lives inside the existing lazy-loaded ArchiveBayModule chunk).",
+      "tests": "32 new archive-bay-runtime unit tests (manifest validation incl. traversal-shaped executableRelativePath, platform resolution, zip-entry path-traversal rejection incl. absolute paths, extraction byte-fidelity + executable chmod, download digest/size mismatch + insecure-URL + redirect-following via an injectable fake transport \u2014 no real network in the unit suite, install/remove state-machine round-trip) + 7 new main.cjs IPC source-invariant tests (sender-gating, concurrency/remove-while-running guards, coded errors only) + 1 extended preload-bridge invariant test; full electron suite 72/72 passes via node --test electron/*.test.cjs; tsc clean; lint clean on all changed files.",
       "verification": "node --test electron/*.test.cjs (72/72) + npx tsc --noEmit (clean) + npx eslint on all changed files (0 errors) + node scripts/check-desktop-security.mjs (invariants present). LIVE END-TO-END VERIFIED (darwin-arm64, this session): downloaded the real melonDS 1.1 macOS-universal release asset via this exact manager code path (real node:https transport, no mock), verified its sha256 matched the manifest, extracted it, confirmed the executable mode was 0755, then spawned melonDS.app/Contents/MacOS/melonDS against a homebrew nds-bootstrap-hb-release.nds file via the unmodified buildLaunchSpawnArgs contract, and terminated it after a few seconds. Full end-to-end confirmed: manifest resolve -> download -> digest verify -> extract -> canonicalize -> spawn -> kill, all via production code paths."
     },
     {
       "id": "15.5",
-      "title": "Starter hatch-pet packages — validated original art, derived hatched status, Envoy Lab hatch UX",
-      "status": "landed (PR pending owner merge)",
+      "title": "Starter hatch-pet packages \u2014 validated original art, derived hatched status, Envoy Lab hatch UX",
+      "status": "landed; merged to main via PR #255 (2ba9fd8f)",
       "files_added": [
         "src/lib/envoys/hatchPackage.ts",
         "src/lib/envoys/hatchPackage.test.ts",
@@ -1569,14 +1569,30 @@
         "src/lib/envoys/registry.test.ts",
         "src/components/envoys/EnvoyLabModule.tsx"
       ],
-      "note": "Four original, hand-authored SVG starter portraits (anthropomorphic, non-robot: Meridian the hooded wayfarer, Cairn the stacked-stone creature, Vesper the moth-winged signal keeper, Solace the harbor keeper) — ~7.6 KB total of self-contained vector art in public/envoy-assets/, no AI-generated imagery used or claimed, no copied designs. hatchPackage.ts defines the HatchPackage artifact contract (version, artwork URL locked to the starter's own asset, intrinsic size, accessible alt, 2-4 color palette, authorship='hand-authored-svg') with a deterministic pure validator returning every issue. STATUS IS DERIVED, NEVER ASSERTED: registry.ts now computes each starter's candidate/hatched status from envoyStatusFor() — a starter reads hatched only because its package validates; hatchPackage.ts is a deliberate leaf module (type-only registry import + own runtime id list, drift-guarded by a registry test) so the derivation cannot create a module cycle. Envoy Lab UX: hatched portrait plate with alt text + package version, per-starter thumbnails in the aria-pressed picker, reduced-motion-aware hatch-reveal animation (CSS, disabled under prefers-reduced-motion), honest candidate fallback state for any starter whose package fails validation, and the header callout now truthfully distinguishes all-hatched vs some-candidate. Tests assert each declared asset exists on disk as well-formed self-contained SVG (role=img, <title>, no raster/base64/external refs). NO generation features (15.6/15.7 gated), NO schema change, NO Mascot changes, NO electron/desktop paths touched (parallel 16.2 agent owns those).",
+      "note": "Four original, hand-authored SVG starter portraits (anthropomorphic, non-robot: Meridian the hooded wayfarer, Cairn the stacked-stone creature, Vesper the moth-winged signal keeper, Solace the harbor keeper) \u2014 ~7.6 KB total of self-contained vector art in public/envoy-assets/, no AI-generated imagery used or claimed, no copied designs. hatchPackage.ts defines the HatchPackage artifact contract (version, artwork URL locked to the starter's own asset, intrinsic size, accessible alt, 2-4 color palette, authorship='hand-authored-svg') with a deterministic pure validator returning every issue. STATUS IS DERIVED, NEVER ASSERTED: registry.ts now computes each starter's candidate/hatched status from envoyStatusFor() \u2014 a starter reads hatched only because its package validates; hatchPackage.ts is a deliberate leaf module (type-only registry import + own runtime id list, drift-guarded by a registry test) so the derivation cannot create a module cycle. Envoy Lab UX: hatched portrait plate with alt text + package version, per-starter thumbnails in the aria-pressed picker, reduced-motion-aware hatch-reveal animation (CSS, disabled under prefers-reduced-motion), honest candidate fallback state for any starter whose package fails validation, and the header callout now truthfully distinguishes all-hatched vs some-candidate. Tests assert each declared asset exists on disk as well-formed self-contained SVG (role=img, <title>, no raster/base64/external refs). NO generation features (15.6/15.7 gated), NO schema change, NO Mascot changes, NO electron/desktop paths touched (parallel 16.2 agent owns those).",
       "tests": "6 new hatchPackage tests (all-4-validate + on-disk asset checks + artwork-claim mismatch + field rejections + external-URL rejection) and registry tests updated to assert derived hatched status + id-list drift guard; envoy suite 16/16; full suite 1315 tests / 194 files; tsc clean; lint clean",
-      "verification": "npx tsc --noEmit + npx eslint src/lib/envoys src/components/envoys + npx vitest run src/lib/envoys + npm run test (1315/194) + npm run build with budget numbers recorded in the PR (artwork lives in public/, outside the JS budget). Browser/authenticated evidence not executable here — exact-head CI on the PR is the gate."
+      "verification": "npx tsc --noEmit + npx eslint src/lib/envoys src/components/envoys + npx vitest run src/lib/envoys + npm run test (1315/194) + npm run build with budget numbers recorded in the PR (artwork lives in public/, outside the JS budget). Browser/authenticated evidence not executable here \u2014 exact-head CI on the PR is the gate."
+    },
+    {
+      "id": "16.3",
+      "title": "Archive Bay \u2014 native recomp package adapter",
+      "status": "planned (not started); recorded from the owner brief, no implementation exists in-repo",
+      "scope": "Generic external native-port manifest; original-game hash validation; local asset extraction/loading; per-port package updates; one rights-cleared proof-of-concept.",
+      "constraints": "ADR-0005 applies: no copyrighted game assets in any package; a supported user-supplied original-game hash is required; no ROM downloader, search, scraping, or circumvention workflow.",
+      "source": "owner brief (2026-07-19). Not previously recorded in this repository."
+    },
+    {
+      "id": "16.4",
+      "title": "Archive Bay \u2014 opt-in save-only synchronization",
+      "status": "planned (not started); owner-gated; recorded from the owner brief, no implementation exists in-repo",
+      "scope": "Save-only encrypted synchronization; version and runtime compatibility; conflict preservation; quotas and removal.",
+      "constraints": "ADR-0005 currently makes local-only saves a HARD RULE \u2014 that ADR must be formally amended before this wave may begin. No ROM, firmware, executable, or artwork may ever synchronize.",
+      "source": "owner brief (2026-07-19). Not previously recorded in this repository."
     }
   ],
   "migrations_applied": {
     "applied": "2026-07-13; updated through 2026-07-16",
-    "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) — the app's live Supabase project",
+    "project": "Axis[CKO] v2 (twkcvyhmlguipchfetge, ACTIVE_HEALTHY) \u2014 the app's live Supabase project",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), explicit instruction to apply",
     "status": "All earlier migrations remain applied and verified. On 2026-07-16 the Phase 9 expansion migrations 202607161300 (task/approval atomic RPCs), 202607161302 (WebAuthn atomic RPCs), and 202607161400 (routine resume claims) were applied to hosted project twkcvyhmlguipchfetge and recorded in migration history after SQL read-back. These expansions preserve legacy grants for compatible rollout. The 202607161401 task/approval privilege-contract migration is applied and validated only on local Docker; it is intentionally pending on hosted production until the exact compatible application revision is live, after which its grant/read-back checks must pass before the production gate closes.",
     "defect_TASK_collision": "CAUGHT PRE-APPLY: public.tasks already exists as the user's to-do/Agenda table. Drafted migration used create-table-if-not-exists public.tasks, which would have silently no-opped and left approvals.task_id FK pointing at to-do rows. Fixed by namespacing the durable agent-Task tables to agent_tasks / agent_task_activity and repointing approvals.task_id -> agent_tasks(id).",
@@ -1596,7 +1612,7 @@
       ],
       "hosted_expansion_status": "Applied sequentially to twkcvyhmlguipchfetge on 2026-07-16, repaired into Supabase migration history as applied, and verified by scripts/sql/verify-20260716-expand.sql.",
       "contract_migration": "supabase/migrations/202607161401_task_approval_lockdown.sql",
-      "hosted_contract_status": "APPLIED (superseded this entry). Per PR #237 (merged 2026-07-17), this migration was applied to prod out-of-band via a real `supabase db push` after the compatible application revision went live: it revokes authenticated INSERT/UPDATE on agent_tasks/approvals and adds the owner-scoped passkey SELECT policy, confirmed live in prod. The prior 'PENDING by design' status in this field is stale — do not re-apply.",
+      "hosted_contract_status": "APPLIED (superseded this entry). Per PR #237 (merged 2026-07-17), this migration was applied to prod out-of-band via a real `supabase db push` after the compatible application revision went live: it revokes authenticated INSERT/UPDATE on agent_tasks/approvals and adds the owner-scoped passkey SELECT policy, confirmed live in prod. The prior 'PENDING by design' status in this field is stale \u2014 do not re-apply.",
       "local_status": "All four migrations are applied to the local Docker stack. Task/approval CAS, WebAuthn atomicity, and routine resume claim validators pass, including ownership, exact challenge/scope, audit/activity atomicity, lease/fencing, retry, and finalization checks. The final contract was reapplied locally, followed by the CI-equivalent grant bootstrap and contract verifier; catalog checks plus real authenticated passkey insert/update/delete attempts confirm the browser role remains read-only.",
       "rls_review": "Expansion RPCs derive auth.uid(), verify row ownership and expected lifecycle state/version, use fixed search paths, and expose only the intended authenticated entry points. The contract migration revokes legacy direct task/approval/passkey mutation only after compatible code deployment, replaces the legacy passkey FOR ALL policy with owner-scoped SELECT, and leaves service-role maintenance explicit.",
       "checksums": {
@@ -1631,18 +1647,18 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "CLOSED: independent read-only review of the convergence — completed via PR review + merge of #237/#238/#239/#240-#249; rescue stack #196-#235 fully dispositioned (merged subset or closed-superseded).",
-    "CLOSED: fresh-Supabase authenticated CI + VECTOR authenticated browser suite on the (now-merged) convergence head — GitHub CI run 29659456809 on main@a8c7be32, all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
-    "CLOSED: hosted RLS/grant readback for 202607170001_vector_arcade_persistence — verified via a rolled-back live round-trip (save sync, event apply, conflict create+resolve) against twkcvyhmlguipchfetge.",
-    "LANDED (this session, PR #251 pending owner merge): Wave 15.3 — Second Sense, the first complete/playable/available VECTOR title. All gates CONFIRMED GREEN: local tsc/lint/1299 tests/191 files/build 175 pages/187 route budgets/4341/4400 KB bundle/real offline-manifest 0->1, AND exact-head GitHub CI run 29661747530 on PR #251 (verify, e2e-smoke, e2e-authenticated — including the updated tests/e2e/vector-authenticated.spec.ts asserting second-sense is 'available' — all passed). CodeQL and Vercel preview also green. Ready for owner merge.",
-    "PARALLEL, OWNER-AUTHORIZED: Phase 16 Archive Bay desktop track — 16.0 (licensing/threat-model ADR) then 16.1 (bring-your-own-emulator launcher) may proceed independently of 15.x; see binding_order_amendment below. 16.2+ remain gated on the 16.0 ADR.",
+    "CLOSED: independent read-only review of the convergence \u2014 completed via PR review + merge of #237/#238/#239/#240-#249; rescue stack #196-#235 fully dispositioned (merged subset or closed-superseded).",
+    "CLOSED: fresh-Supabase authenticated CI + VECTOR authenticated browser suite on the (now-merged) convergence head \u2014 GitHub CI run 29659456809 on main@a8c7be32, all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
+    "CLOSED: hosted RLS/grant readback for 202607170001_vector_arcade_persistence \u2014 verified via a rolled-back live round-trip (save sync, event apply, conflict create+resolve) against twkcvyhmlguipchfetge.",
+    "LANDED (this session, PR #251 pending owner merge): Wave 15.3 \u2014 Second Sense, the first complete/playable/available VECTOR title. All gates CONFIRMED GREEN: local tsc/lint/1299 tests/191 files/build 175 pages/187 route budgets/4341/4400 KB bundle/real offline-manifest 0->1, AND exact-head GitHub CI run 29661747530 on PR #251 (verify, e2e-smoke, e2e-authenticated \u2014 including the updated tests/e2e/vector-authenticated.spec.ts asserting second-sense is 'available' \u2014 all passed). CodeQL and Vercel preview also green. Ready for owner merge.",
+    "PARALLEL, OWNER-AUTHORIZED: Phase 16 Archive Bay desktop track \u2014 16.0 (licensing/threat-model ADR) then 16.1 (bring-your-own-emulator launcher) may proceed independently of 15.x; see binding_order_amendment below. 16.2+ remain gated on the 16.0 ADR.",
     "NEXT (after 15.3's PR merges and its CI is confirmed green): 15.4 Envoy core -> 15.5 hatch-pet packages -> 15.6 generation control plane (OpenAI gate) -> 15.7 vendored worker/Render (gate) -> 15.8-15.15 remaining titles in order -> 15.16 convergence.",
     "WATCH: aggregate static JS budget is now 4341/4400 KB (98.7%). Very little headroom remains for 15.4+; consider raising .claude/axis-redesign/PERFORMANCE_BUDGETS.json deliberately (with evidence) or code-splitting further before adding the next game's chunk."
   ],
   "binding_order_amendment": {
     "recorded": "2026-07-18, post-convergence checkpoint repair",
     "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), per the binding continuation prompt for this session",
-    "amendment": "Phase 16 (Archive Bay: user-owned local emulator/native-port launcher, desktop-only) is explicitly authorized to run as a track PARALLEL to the 15.x VECTOR/Envoy sequence, not strictly after it. Rationale carried in the authorizing prompt: Phase 16 touches no web bundle, no shared schema, no cloud service, and none of the 9 VectorGameSlug entries, so it neither blocks nor is blocked by Second Sense or later 15.x waves. Only Phase 16.2+ (distributing a managed melonDS runtime) is gated — on the 16.0 ADR's licensing decision, not on 15.x progress. This is a scoping amendment to the previously strict 'complete one game before the next' / 'sequential waves only' rule; it does not relax any financial-safety, security, or one-PR-per-slice governance rule."
+    "amendment": "Phase 16 (Archive Bay: user-owned local emulator/native-port launcher, desktop-only) is explicitly authorized to run as a track PARALLEL to the 15.x VECTOR/Envoy sequence, not strictly after it. Rationale carried in the authorizing prompt: Phase 16 touches no web bundle, no shared schema, no cloud service, and none of the 9 VectorGameSlug entries, so it neither blocks nor is blocked by Second Sense or later 15.x waves. Only Phase 16.2+ (distributing a managed melonDS runtime) is gated \u2014 on the 16.0 ADR's licensing decision, not on 15.x progress. This is a scoping amendment to the previously strict 'complete one game before the next' / 'sequential waves only' rule; it does not relax any financial-safety, security, or one-PR-per-slice governance rule."
   },
   "artifacts": {
     "docs": "docs/axis-redesign/",
@@ -1650,12 +1666,12 @@
     "defect_ledger": ".claude/axis-redesign/DEFECT_LEDGER.json"
   },
   "convergence": {
-    "status": "CLOSED — this entire object is now a historical record of the pre-merge convergence analysis. All actions it once listed as pending are resolved; see baseline_health and next_dependency_ordered_actions above for current status.",
+    "status": "CLOSED \u2014 this entire object is now a historical record of the pre-merge convergence analysis. All actions it once listed as pending are resolved; see baseline_health and next_dependency_ordered_actions above for current status.",
     "base": "origin/codex/phase9-resume-executor@84cc5ca6",
     "ported": "origin/codex/vector-arcade-envoys@a72f3da7 (platform commit 4e44e245 only)",
     "strategy": "Cherry-picked the platform commit only; excluded VECTOR lifecycle migration 202607161000_lifecycle_claims.sql (merge 0753eada). phase9 split lifecycle (1300/1302/1400/1401) is canonical.",
     "migration_identity": "Renamed 202607161200_vector_arcade_persistence.sql -> 202607170001_ to resolve collision with 202607161200_entity_workspace.sql.",
-    "lifecycle_rewire": "NO-OP — platform commit touched no core lifecycle files; tree calls only phase9 canonical RPCs.",
+    "lifecycle_rewire": "NO-OP \u2014 platform commit touched no core lifecycle files; tree calls only phase9 canonical RPCs.",
     "resolution": "Merged to main via PR #239 (2026-07-17). Migration reconciliation for the pre-July drift landed via PR #237 (58 renames, contract migration 202607161401 applied to prod) and PR #238 (routine_version CHECK restore). All 89 repo-tracked migration files now match prod's 89 recorded versions.",
     "health_at_merge": {
       "typecheck": "pass (tsc --noEmit, exit 0)",
@@ -1663,20 +1679,21 @@
       "unit_tests": "1257 passed / 184 files (full suite, at merge time; see baseline_health above for the current 1265/187 count post-#240-#249)",
       "production_build": "175 pages; route budgets 187/187 within budget; aggregate static JS 4321/4400 KB",
       "release_validation": "pass (release:validate exit 0; arcade migration additive, does not disturb phase9 expand/contract wave)",
-      "browser_gate": "RESOLVED — was 'NOT GREEN' pre-merge (no Supabase CLI in the analysis environment); GitHub CI run 29659456809 on the merged main head a8c7be32 now shows all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
-      "arcade_migration_review": "RESOLVED — was 'MANUAL only' pre-merge; the migration was applied to hosted twkcvyhmlguipchfetge and a rolled-back live round-trip (save sync, event apply, conflict create+resolve) was executed post-merge."
+      "browser_gate": "RESOLVED \u2014 was 'NOT GREEN' pre-merge (no Supabase CLI in the analysis environment); GitHub CI run 29659456809 on the merged main head a8c7be32 now shows all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
+      "arcade_migration_review": "RESOLVED \u2014 was 'MANUAL only' pre-merge; the migration was applied to hosted twkcvyhmlguipchfetge and a rolled-back live round-trip (save sync, event apply, conflict create+resolve) was executed post-merge."
     },
     "blocked_gates_owner_RESOLVED_OR_STILL_OPEN": [
-      "Hosted Supabase DDL/readback for 202607170001 — RESOLVED (applied + live round-trip verified).",
-      "Fresh-Supabase authenticated Playwright (local + GitHub) — RESOLVED (CI run 29659456809 green).",
-      "VECTOR authenticated browser suite (was 4/6 with fail-closed owner-record errors) — RESOLVED on the current CI run; the earlier 4/6 was a local-stack transport flake, not a code defect.",
-      "Vercel authorized preview validation — historical pass recorded pre-merge; production now deploys via Vercel's native Git integration on merge (no separate preview gate blocks merged code).",
-      "Sentry issues/dashboards — STILL OWNER-BLOCKED (token access, not code).",
-      "Render worker — STILL OWNER-BLOCKED (not built yet; scoped to Wave 15.7).",
-      "OpenAI paid generation — STILL OWNER-BLOCKED (scoped to Wave 15.6/15.7).",
-      "Independent review (lifecycle/migration, owner isolation/CAS, offline SW, a11y/failure truth, docs) — RESOLVED via PR review process for #237/#238/#239.",
-      "Merge/deploy authorization — RESOLVED; owner merged #237/#238/#239 (and #240-#249) on 2026-07-17/18.",
-      "Contract migration 202607161401 timing — RESOLVED; applied to prod via PR #237 after the compatible application revision went live."
+      "Hosted Supabase DDL/readback for 202607170001 \u2014 RESOLVED (applied + live round-trip verified).",
+      "Fresh-Supabase authenticated Playwright (local + GitHub) \u2014 RESOLVED (CI run 29659456809 green).",
+      "VECTOR authenticated browser suite (was 4/6 with fail-closed owner-record errors) \u2014 RESOLVED on the current CI run; the earlier 4/6 was a local-stack transport flake, not a code defect.",
+      "Vercel authorized preview validation \u2014 historical pass recorded pre-merge; production now deploys via Vercel's native Git integration on merge (no separate preview gate blocks merged code).",
+      "Sentry issues/dashboards \u2014 STILL OWNER-BLOCKED (token access, not code).",
+      "Render worker \u2014 STILL OWNER-BLOCKED (not built yet; scoped to Wave 15.7).",
+      "OpenAI paid generation \u2014 STILL OWNER-BLOCKED (scoped to Wave 15.6/15.7).",
+      "Independent review (lifecycle/migration, owner isolation/CAS, offline SW, a11y/failure truth, docs) \u2014 RESOLVED via PR review process for #237/#238/#239.",
+      "Merge/deploy authorization \u2014 RESOLVED; owner merged #237/#238/#239 (and #240-#249) on 2026-07-17/18.",
+      "Contract migration 202607161401 timing \u2014 RESOLVED; applied to prod via PR #237 after the compatible application revision went live."
     ]
-  }
+  },
+  "derived_state_note": "Wave merge status is verified by scripts/derive-program-state.mjs against git. See docs/CURRENT_STATE.md for the authoritative derived view."
 }

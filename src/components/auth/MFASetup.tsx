@@ -76,6 +76,15 @@ export function MFASetup({ onSuccess, onClose }: { onSuccess: () => void; onClos
       setError(verifyError.message ?? "Incorrect code. Please try again.");
       return;
     }
+    // Remember this device straight away, so enrolling a factor does not mean
+    // being challenged again on the very next sign-in. Server-verified; a
+    // failure here is non-fatal and just means the next login challenges.
+    try {
+      await fetch("/api/auth/mfa/trust-device", { method: "POST" });
+    } catch {
+      // Non-fatal by design.
+    }
+
     // Persist 2FA status in DB using the now-aal2 session
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {

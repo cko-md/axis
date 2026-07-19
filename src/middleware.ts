@@ -6,6 +6,7 @@ import {
   requireAuthenticatorAssurance,
   type AuthenticatorAssuranceState,
 } from "@/lib/auth/authenticatorAssurance";
+import { MFA_TRUST_COOKIE, verifyMfaTrustToken } from "@/lib/auth/mfaTrust";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
 
@@ -104,6 +105,20 @@ export async function middleware(request: NextRequest) {
     user = data.user;
     if (user) {
       assurance = await requireAuthenticatorAssurance(supabase);
+      // A remembered device lets an enrolled account skip the second factor for
+      // a bounded window instead of being challenged on every single sign-in.
+      // Only ever narrows mfa_required -> satisfied: `unavailable` still fails
+      // closed, and `user` here is already server-verified by getUser() above,
+      // so this can elevate a session but can never create one.
+      if (assurance === "mfa_required") {
+        const verdict = await verifyMfaTrustToken({
+          secret: process.env.MFA_TRUST_SECRET,
+          token: request.cookies.get(MFA_TRUST_COOKIE)?.value,
+          userId: user.id,
+          nowMs: Date.now(),
+        });
+        if (verdict.trusted) assurance = "satisfied";
+      }
     }
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";

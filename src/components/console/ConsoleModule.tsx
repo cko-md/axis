@@ -792,7 +792,7 @@ export function ConsoleModule() {
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
             {arcEvents.map((ev) => (
               <div key={ev.id} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-                <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--ink-dim)", flexShrink: 0 }}>{fmtTime(ev.start_at)}</span>
+                <span style={{ fontSize: 11, fontFamily: "var(--label)", color: "var(--ink-dim)", flexShrink: 0 }}>{fmtTime(ev.start_at)}</span>
                 <span style={{ fontSize: 13, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</span>
                 {ev.end_at && <span style={{ fontSize: 11, color: "var(--ink-faint)", flexShrink: 0 }}>→ {fmtTime(ev.end_at)}</span>}
               </div>
@@ -895,7 +895,7 @@ export function ConsoleModule() {
             <button
               type="button"
               onClick={() => setDispatchExpanded((e) => !e)}
-              style={{ marginLeft: "auto", fontSize: 9, fontFamily: "var(--mono)", color: "var(--ink-faint)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", letterSpacing: ".06em" }}
+              style={{ marginLeft: "auto", fontSize: 9, fontFamily: "var(--label)", color: "var(--ink-faint)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", letterSpacing: ".06em" }}
             >
               {dispatchExpanded ? "▲ collapse" : "▾ expand"}
             </button>
@@ -916,25 +916,25 @@ export function ConsoleModule() {
                     </div>
                   )}
                   {s.metadata?.ai_reason && (
-                    <div style={{ fontSize: 9.5, fontFamily: "var(--mono)", color: "var(--accent-2)", marginTop: 3 }}>
+                    <div style={{ fontSize: 9.5, fontFamily: "var(--label)", color: "var(--accent-2)", marginTop: 3 }}>
                       AI: {s.metadata.ai_reason as string}
                     </div>
                   )}
                   {dispatchExpanded && s.source && (
-                    <div style={{ fontSize: 9.5, fontFamily: "var(--mono)", color: "var(--ink-faint)", marginTop: 4 }}>
+                    <div style={{ fontSize: 9.5, fontFamily: "var(--label)", color: "var(--ink-faint)", marginTop: 4 }}>
                       Source: {s.source}
                     </div>
                   )}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-                  <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "var(--ink-faint)", marginTop: 1 }}>{s.source}</span>
+                  <span style={{ fontSize: 9, fontFamily: "var(--label)", color: "var(--ink-faint)", marginTop: 1 }}>{s.source}</span>
                   {!s.metadata?.ai_at && (
                     <button
                       type="button"
                       onClick={() => handleTriage(s)}
                       disabled={triagingIds.has(s.id)}
                       style={{
-                        fontSize: 8.5, fontFamily: "var(--mono)", letterSpacing: ".06em",
+                        fontSize: 8.5, fontFamily: "var(--label)", letterSpacing: ".06em",
                         color: triagingIds.has(s.id) ? "var(--ink-faint)" : "var(--accent-2)",
                         background: "none", border: "1px solid var(--line)", borderRadius: 2,
                         padding: "1px 5px", cursor: triagingIds.has(s.id) ? "default" : "pointer",
@@ -945,7 +945,7 @@ export function ConsoleModule() {
                     </button>
                   )}
                   {s.metadata?.ai_priority && (
-                    <span style={{ fontSize: 8, fontFamily: "var(--mono)", color: s.metadata.ai_priority === "hi" ? "var(--clay)" : s.metadata.ai_priority === "lo" ? "var(--ink-faint)" : "var(--gold-2)", letterSpacing: ".08em" }}>
+                    <span style={{ fontSize: 8, fontFamily: "var(--label)", color: s.metadata.ai_priority === "hi" ? "var(--clay)" : s.metadata.ai_priority === "lo" ? "var(--ink-faint)" : "var(--gold-2)", letterSpacing: ".08em" }}>
                       {(s.metadata.ai_priority as string).toUpperCase()}
                     </span>
                   )}
@@ -957,7 +957,7 @@ export function ConsoleModule() {
             <button
               type="button"
               onClick={() => setDispatchExpanded(true)}
-              style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--mono)", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}
+              style={{ fontSize: 10, color: "var(--ink-faint)", fontFamily: "var(--label)", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}
             >
               +{actionable.length - 3} more — tap to expand
             </button>
@@ -1046,14 +1046,14 @@ export function ConsoleModule() {
                 : null;
               return (
                 <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--glass)", borderRadius: "var(--r)", border: "1px solid var(--line)" }}>
-                  <span style={{ width: 28, height: 28, flexShrink: 0, borderRadius: "50%", background: "var(--glass-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--narrow)", fontWeight: 600, fontSize: 11, color: tagColor[p.tag] ?? "var(--ink-dim)" }}>
+                  <span style={{ width: 28, height: 28, flexShrink: 0, borderRadius: "50%", background: "var(--glass-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--label)", fontWeight: 600, fontSize: 11, color: tagColor[p.tag] ?? "var(--ink-dim)" }}>
                     {p.name.charAt(0).toUpperCase()}
                   </span>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12, color: "var(--ink)", fontWeight: 500 }}>{p.name}</div>
                     {p.role && <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: 1 }}>{p.role}</div>}
                   </div>
-                  <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: daysLeft !== null && daysLeft <= 0 ? "var(--clay)" : "var(--ink-faint)", flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, fontFamily: "var(--label)", color: daysLeft !== null && daysLeft <= 0 ? "var(--clay)" : "var(--ink-faint)", flexShrink: 0 }}>
                     {daysLeft === null ? "" : daysLeft <= 0 ? "overdue" : daysLeft === 0 ? "today" : `${daysLeft}d`}
                   </span>
                 </div>
@@ -1074,10 +1074,10 @@ export function ConsoleModule() {
       {blockSizes["pomodoro"] === "sm" ? (
         <Card className="console-premium-card">
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "14px 8px 18px", gap: 10 }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: pomMode === "work" ? "var(--clay)" : "var(--up)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+            <div style={{ fontFamily: "var(--label)", fontSize: 8.5, color: pomMode === "work" ? "var(--clay)" : "var(--up)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
               {pomMode === "work" ? "FOCUS" : "BREAK"}{pomBlocks > 0 ? ` · ${pomBlocks}×` : ""}
             </div>
-            <div style={{ fontFamily: "var(--narrow)", fontSize: 42, fontWeight: 700, letterSpacing: "-0.02em", color: pomMode === "work" ? "var(--clay)" : "var(--up)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ fontFamily: "var(--label)", fontSize: 42, fontWeight: 700, letterSpacing: "-0.02em", color: pomMode === "work" ? "var(--clay)" : "var(--up)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
               {pomMin}:{pomSecStr}
             </div>
             <div style={{ display: "flex", gap: 5 }}>
@@ -1099,7 +1099,7 @@ export function ConsoleModule() {
             </span>
           </h2>
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-            <div style={{ fontFamily: "var(--narrow)", fontSize: 52, fontWeight: 700, letterSpacing: "-0.02em", color: pomMode === "work" ? "var(--clay)" : "var(--up)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ fontFamily: "var(--label)", fontSize: 52, fontWeight: 700, letterSpacing: "-0.02em", color: pomMode === "work" ? "var(--clay)" : "var(--up)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
               {pomMin}:{pomSecStr}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
@@ -1118,7 +1118,7 @@ export function ConsoleModule() {
                 {Array.from({ length: Math.min(pomBlocks, 12) }).map((_, i) => (
                   <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--clay)", opacity: 0.65 }} />
                 ))}
-                {pomBlocks > 12 && <span style={{ fontSize: 9, color: "var(--ink-faint)", fontFamily: "var(--mono)", lineHeight: "7px" }}>+{pomBlocks - 12}</span>}
+                {pomBlocks > 12 && <span style={{ fontSize: 9, color: "var(--ink-faint)", fontFamily: "var(--label)", lineHeight: "7px" }}>+{pomBlocks - 12}</span>}
               </div>
             )}
           </div>
@@ -1156,7 +1156,7 @@ export function ConsoleModule() {
         WebkitBackdropFilter: "var(--blur)",
         color: "var(--ink-dim)",
         fontSize: 12,
-        fontFamily: "var(--narrow)",
+        fontFamily: "var(--label)",
         letterSpacing: "0.06em",
         textTransform: "uppercase",
         cursor: "grabbing",
@@ -1355,18 +1355,18 @@ export function ConsoleModule() {
                   transition: "border-color 0.14s, background 0.14s",
                 }}
               >
-                <span style={{ fontSize: 18, lineHeight: 1, width: 24, textAlign: "center", color: "var(--gold)", fontFamily: "var(--mono)" }}>{w.icon}</span>
+                <span style={{ fontSize: 18, lineHeight: 1, width: 24, textAlign: "center", color: "var(--gold)", fontFamily: "var(--label)" }}>{w.icon}</span>
                 <span style={{ flex: 1 }}>
                   <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>{w.label}</span>
                   <span style={{ display: "block", fontSize: 11, color: "var(--ink-faint)", marginTop: 1 }}>{w.hint}</span>
                 </span>
                 {w.category && (
-                  <span style={{ fontSize: 9.5, fontFamily: "var(--narrow)", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px" }}>
+                  <span style={{ fontSize: 9.5, fontFamily: "var(--label)", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-faint)", border: "1px solid var(--line)", borderRadius: 2, padding: "1px 5px" }}>
                     {w.category}
                   </span>
                 )}
                 {isActive && !isCurrent && (
-                  <span style={{ fontSize: 9.5, fontFamily: "var(--mono)", color: "var(--accent)", opacity: 0.7 }}>active</span>
+                  <span style={{ fontSize: 9.5, fontFamily: "var(--label)", color: "var(--accent)", opacity: 0.7 }}>active</span>
                 )}
               </button>
             );

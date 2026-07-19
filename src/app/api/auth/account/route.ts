@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isPasswordPwned, PWNED_PASSWORD_MESSAGE } from "@/lib/auth/passwordCheck";
+import { MFA_TRUST_COOKIE } from "@/lib/auth/mfaTrust";
 
 // ── POST /api/auth/account ─────────────────────────────────────────────────────
 // Handles email, password, and phone updates for the authenticated user.
@@ -76,7 +77,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true });
+    // A password change is the canonical "I may have been compromised" signal,
+    // so every remembered device must stop skipping the second factor. This
+    // does NOT clear on ordinary sign-out: surviving sign-out is the entire
+    // point of remembering a device, and the token is useless without valid
+    // credentials anyway.
+    const passwordResponse = NextResponse.json({ ok: true });
+    passwordResponse.cookies.set(MFA_TRUST_COOKIE, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 0,
+      path: "/",
+    });
+    return passwordResponse;
   }
 
   // ── change_phone ──────────────────────────────────────────────────────────────
