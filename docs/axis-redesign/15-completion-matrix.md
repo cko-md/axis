@@ -44,32 +44,38 @@
 | Real passkey registration → sign-out → fresh session → authenticated API browser flow | complete | `tests/e2e/passkey-authenticated.spec.ts`; virtual CTAP2 platform authenticator 1/1 and three inspected screenshots |
 | Local migration first-apply/replay, exact grants, browser denial, owner isolation, provenance/quarantine, and duplicate-link preflight | complete | `.logs/vector-envoys/wave-15.1-integration-safety.md` |
 | Migration is atomic when the duplicate-link preflight fails | complete | Explicit `BEGIN/COMMIT`, CI boundary guard, and forced local failure preserving pre-migration ACL/data state |
-| Hosted Supabase migration/application/readback | BLOCKED | See canonical hosted-gate table below; local Docker and data-plane responses do not satisfy production DDL/readback |
-| Vercel preview workflow | BLOCKED | See canonical hosted-gate table below; GitHub deployment metadata does not satisfy preview access |
-| Post-preview Sentry regression review | BLOCKED | See canonical hosted-gate table below; source-map upload scope does not satisfy issue/event review |
-| Render worker deployment and validation | BLOCKED | See canonical hosted-gate table below; worker implementation is a later wave |
-| Paid OpenAI live generation and provider-backed validation | BLOCKED | See canonical hosted-gate table below; worker implementation is a later wave |
+| Hosted Supabase migration/application/readback | complete (2026-07-17/18) | `202607170001_vector_arcade_persistence` applied to hosted `twkcvyhmlguipchfetge`; a rolled-back live round-trip exercised `sync_vector_save`/`apply_vector_event`/`resolve_vector_conflict` incl. conflict create+resolve. Migration-filename drift for all 89 pre-existing versions was separately reconciled (PR #237/#238); `supabase db push --dry-run` is clean |
+| Vercel preview workflow | complete (historical) / production now deploys on merge | Vercel Git integration is the sole production deploy path (no separate `deploy.yml`); an authorized preview run passed prior to merge. See `PROGRAM_STATE.json.baseline_health.vercel_preview` for the exact recorded evidence and its staleness caveat |
+| Post-preview Sentry regression review | BLOCKED (owner-only) | Release is registered but the available token receives HTTP 403 on the Issues query; repository owner or Sentry administrator must record the final result |
+| Render worker deployment and validation | BLOCKED | Worker implementation is Wave 15.7, not yet built |
+| Paid OpenAI live generation and provider-backed validation | BLOCKED | Gated on Wave 15.6/15.7 (generation control plane + vendored worker), not yet built; owner authorization for paid usage also required |
 
 ## Canonical hosted-service gates
 
-Only GitHub is operational for gate execution. Production promotion remains
-`BLOCKED`; local tests, historical hosted evidence, GitHub deployment metadata,
-data-plane responses, and source-map upload permission cannot satisfy these
-gates.
+Updated 2026-07-18 (post-convergence checkpoint repair). GitHub and Supabase
+production DDL are now both operational for gate execution and have recorded
+passing evidence; Vercel/Sentry/Render/OpenAI remain owner-only for the
+reasons listed.
+
+Note: `202607161000_lifecycle_claims.sql` (referenced in an earlier version of
+this table) was DROPPED during the Wave 15.2 convergence (PR #239) — VECTOR's
+independent lifecycle authority was replaced with phase9's canonical
+task/approval/routine RPCs (`1300`/`1302`/`1400`/`1401`). Do not attempt to
+apply it; it is not part of the merged migration tree.
 
 | Gate | Status / missing access | Exact check | Human owner |
 |---|---|---|---|
-| Production Supabase | `BLOCKED` — no production management/DB/DDL authority; service-role REST is data-plane only | Apply `202607161000_lifecycle_claims.sql` then `202607170001_vector_arcade_persistence.sql`; read back migration history, schema/checks, RLS, grants, RPC ACLs; run two-user isolation, concurrent CAS, and advisor checks | Repository owner acting as Supabase project administrator |
-| Vercel | `BLOCKED` — no authorized team/project session or SSO-bypass access | Validate the current-SHA branch preview build, environment parity, public/auth browser matrix, logs, and route/bundle budgets | Repository owner acting as Vercel team/release administrator |
+| Production Supabase | complete — applied and read back (2026-07-17/18) | `202607170001_vector_arcade_persistence.sql` applied to `twkcvyhmlguipchfetge`; migration history, RLS, grants, and RPC ACLs read back; a rolled-back live round-trip exercised two-user isolation and concurrent conflict create+resolve. Separately, the pre-July migration-filename drift (58 files) and the `202607161401` task/approval privilege-contract migration were reconciled and applied via PR #237/#238; `supabase db push --dry-run` is clean (89 tracked == 89 prod versions) | Repository owner acting as Supabase project administrator — DONE |
+| Vercel | `BLOCKED` (re-verify per-deploy) — no authorized team/project session in this environment; historical pass recorded on an earlier SHA | Validate the current-SHA branch preview build, environment parity, public/auth browser matrix, logs, and route/bundle budgets on the exact merged SHA before/after each production deploy | Repository owner acting as Vercel team/release administrator |
 | Sentry | `BLOCKED` — no project issue/event-read authority; upload-only scope does not qualify | Query the exact preview release, environment, and deployment window; verify no new regressions and no PII in intentional error events | Repository owner acting as Sentry project administrator |
-| Render | `BLOCKED` — no credential or linked worker service; implementation is a later wave | After worker implementation, deploy the current release and verify health/capability heartbeat, lease lifecycle, logs, and one live job | Repository owner acting as Render workspace administrator |
-| OpenAI | `BLOCKED` — no budget-limited worker-only project key or authorized paid-generation access | After worker implementation, run one paid generation and a separate cancellation smoke; verify private usage/cost/request records and final QA | Repository owner acting as OpenAI project administrator |
+| Render | `BLOCKED` — no credential or linked worker service; implementation is a later wave (15.7) | After worker implementation, deploy the current release and verify health/capability heartbeat, lease lifecycle, logs, and one live job | Repository owner acting as Render workspace administrator |
+| OpenAI | `BLOCKED` — no budget-limited worker-only project key or authorized paid-generation access; gated on Wave 15.6/15.7 | After worker implementation, run one paid generation and a separate cancellation smoke; verify private usage/cost/request records and final QA | Repository owner acting as OpenAI project administrator |
 
 ## VECTOR platform
 
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|
-| `/vector`, `/vector/[game]`, Labs nav, typed registry, runtime, persistence/sync, shared pause/settings/controls/audio/offline UI | 234–251 | partial | Wave 15.2 implementation, focused/full unit evidence, typecheck, lint, local SQL, and source-complete build evidence are recorded in `.logs/vector-envoys/wave-15.2-platform.md`; hosted preview remains `BLOCKED` |
+| `/vector`, `/vector/[game]`, Labs nav, typed registry, runtime, persistence/sync, shared pause/settings/controls/audio/offline UI | 234–251 | partial | Wave 15.2 implementation, focused/full unit evidence, typecheck, lint, local SQL, and source-complete build evidence are recorded in `.logs/vector-envoys/wave-15.2-platform.md`. Merged to main (PR #239, 2026-07-17). Hosted Supabase migration/RLS/round-trip is now complete (see Program controls table above); GitHub CI (verify/e2e-smoke/e2e-authenticated) is green on the merged head. Vercel preview re-validation on this exact SHA remains owner-only per the canonical hosted-service gates table |
 | Lobby featured actions, library metadata, Continue/pending/conflict rail, utility controls, detail view; every control works | 253–306 | partial | Truthful planned lobby and authenticated browser evidence exist; two rerun cases exposed local Supabase transport instability through the visible fail-closed state |
 | Complete manifest fields, lifecycle, private-safe events, dynamic chunks, justified/measured engines | 308–360 | partial | Registry/runtime/telemetry/disposal tests and local bundle evidence exist; Second Sense (native DOM/Canvas, Wave 15.3) is the first installed engine, route-isolated via `src/lib/vector/loaders.ts`'s dynamic import; the remaining eight games are still unengined |
 | Binding game order and one complete game before next | 582–599 | partial | Second Sense (Wave 15.3) is complete and shipped first per the binding order; 8 titles remain |
