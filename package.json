@@ -75,6 +75,7 @@
     "lucide-react": "^1.23.0",
     "motion": "^12.42.2",
     "next": "^15.3.3",
+    "phaser": "^3.90.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-easy-crop": "^6.0.2",
