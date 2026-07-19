@@ -50,6 +50,9 @@ type SpotifyState = {
   connected: boolean;
   /** True when SPOTIFY_CLIENT_ID/SECRET are present server-side. */
   configured: boolean;
+  /** Why the last connect attempt failed, or null. Never inferred — only set
+   *  from an explicit failure reason returned by the OAuth callback. */
+  connectError: string | null;
   // Back-compat fields (sidebar miniplayer relies on these).
   track: string;
   artist: string;
@@ -89,11 +92,31 @@ const EMPTY_NOW: NowPlaying = {
   repeat: "off",
 };
 
+/** Maps a callback `reason` to something a person can act on. */
+export function describeSpotifyConnectFailure(reason?: string): string {
+  switch (reason) {
+    case "denied":
+      return "Spotify authorization was declined.";
+    case "not_configured":
+      return "Spotify is not configured on the server. SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set.";
+    case "state_missing":
+    case "state_mismatch":
+      return "The Spotify sign-in could not be verified. Try connecting again in a single window.";
+    case "token_exchange_failed":
+      return "Spotify rejected the sign-in. The redirect URI registered in the Spotify dashboard may not match this site.";
+    case "missing_code":
+      return "Spotify did not return an authorization code.";
+    default:
+      return "Spotify could not be connected.";
+  }
+}
+
 const SpotifyContext = createContext<SpotifyState | null>(null);
 
 export function SpotifyProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [configured, setConfigured] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState<NowPlaying>(EMPTY_NOW);
   const [liveProgressMs, setLiveProgressMs] = useState(0);
@@ -237,8 +260,15 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   // it silently did nothing. See the matching fix in ControlRoomModule.tsx /
   // VaultModule.tsx for the full root-cause writeup.
   const connect = useCallback(() => {
-    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
-      if (status === "ok") void poll();
+    setConnectError(null);
+    openOAuthPopup("/api/spotify/auth", (_provider, status, reason) => {
+      if (status === "ok") {
+        void poll();
+        return;
+      }
+      // A failed grant used to be dropped on the floor here, which is why
+      // "Spotify won't connect" presented as the button doing nothing at all.
+      setConnectError(describeSpotifyConnectFailure(reason));
     });
   }, [poll]);
 
@@ -345,6 +375,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
       value={{
         connected,
         configured,
+        connectError,
         track: now.track ?? "Not playing",
         artist: now.artist || (connected ? "Spotify" : "Connect Spotify"),
         playing,

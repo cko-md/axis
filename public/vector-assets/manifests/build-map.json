@@ -1,5 +1,15 @@
 {
   "schemaVersion": 1,
-  "buildId": "development-empty",
-  "games": []
+  "buildId": "g30YjLJwpGUvBF6KFn7NZ",
+  "games": [
+    {
+      "gameId": "second-sense",
+      "gameVersion": "1.0.0",
+      "buildId": "g30YjLJwpGUvBF6KFn7NZ",
+      "manifestUrl": "/vector-assets/manifests/second-sense-g30YjLJwpGUvBF6KFn7NZ.json",
+      "manifestSha256": "790f209a6dc30148edf437d49f2983efc81f962a0a2cfb8c5f0366cc0d16b564",
+      "offlineEntryUrl": "/vector-assets/offline/second-sense.html",
+      "estimatedBytes": 277867
+    }
+  ]
 }

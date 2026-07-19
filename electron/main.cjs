@@ -201,7 +201,13 @@ async function showBrowserCapabilities(record) {
 }
 
 function createBrowserWindow(rawUrl, requestedTitle) {
-  const url = normalizeWebUrl(rawUrl);
+  // An absent URL is the explicit "open the browser with no page yet" case (the
+  // Topbar's Mini Browser button). It is NOT an error: normalizeWebUrl would
+  // throw on "", the IPC call would reject, and the renderer would silently fall
+  // back to the in-app iframe — which is exactly how the primary browser entry
+  // point ended up never using the native browser on desktop.
+  const hasUrl = String(rawUrl || "").trim().length > 0;
+  const url = hasUrl ? normalizeWebUrl(rawUrl) : null;
   const window = new BaseWindow({
     title: requestedTitle || "AXIS Browser",
     width: 1220,
@@ -306,7 +312,7 @@ function createBrowserWindow(rawUrl, requestedTitle) {
     if (!toolbar.webContents.isDestroyed()) toolbar.webContents.close();
   });
 
-  void view.webContents.loadURL(url);
+  if (url) void view.webContents.loadURL(url);
   return true;
 }
 
@@ -771,6 +777,37 @@ async function createMainWindow() {
     }
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Same-origin popups are AXIS's own OAuth return leg and must open INSIDE
+    // the app. Denying them and shelling out to the system browser broke every
+    // provider connect: window.open() returned null, openOAuthPopup fell back to
+    // navigating the main window, and the grant completed in a browser whose
+    // cookie jar the app cannot read — so tokens never reached AXIS and the
+    // connect button appeared to do nothing.
+    //
+    // An allowed popup inherits this window's session (the isolated in-app
+    // browser uses the separate persist:axis-browser partition), so the Supabase
+    // session and the OAuth state cookie are both present, and window.opener
+    // survives for the /oauth-done postMessage handshake.
+    try {
+      if (new URL(url).origin === axisOrigin) {
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: {
+            width: 480,
+            height: 700,
+            autoHideMenuBar: true,
+            webPreferences: {
+              contextIsolation: true,
+              nodeIntegration: false,
+              sandbox: true,
+              webSecurity: true,
+            },
+          },
+        };
+      }
+    } catch {
+      // Unparseable URL — fall through and treat as external.
+    }
     void openSafeExternal(url);
     return { action: "deny" };
   });

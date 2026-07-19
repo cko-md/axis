@@ -25,6 +25,7 @@ import {
   createSerialExecutor,
   fieldWasEditedSince,
   parsePreferenceEnvelope,
+  preferenceAuthAction,
   type PreferenceEnvelope,
 } from "@/lib/theme/preferences";
 
@@ -97,6 +98,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const settingsEditEpochRef = useRef(0);
   const remoteUserIdRef = useRef<string | null>(null);
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
+  // `undefined` = auth has never settled. Distinguishing "not resolved yet" from
+  // "resolved to signed-out" is what lets a repeat auth event be deduped without
+  // swallowing the very first one.
+  const settledForUserRef = useRef<string | null | undefined>(undefined);
   const writeVersionRef = useRef(0);
   const writeExecutorRef = useRef(createSerialExecutor());
 
@@ -108,16 +113,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setMounted(true);
 
     let cancelled = false;
-    const themeEpochAtHydration = themeEditEpochRef.current;
-    const settingsEpochAtHydration = settingsEditEpochRef.current;
+    // Supersedes an in-flight load when auth changes again mid-request, so a
+    // slow response for a previous account can never apply over a newer one.
+    let loadToken = 0;
+
+    const markLocalOnly = () => {
+      remoteUserIdRef.current = null;
+      remoteEnvelopeRef.current = {};
+      setInterfacePersistence("local");
+      setRemoteSyncEnabled(false);
+      setRemoteReady(true);
+    };
+
     const loadRemotePreferences = async () => {
+      const token = ++loadToken;
+      // Captured per invocation, not once per mount: each load must compare
+      // against its own start so an edit made while THIS request was in flight
+      // is preserved, while edits from before it are not treated as newer.
+      const themeEpochAtLoad = themeEditEpochRef.current;
+      const settingsEpochAtLoad = settingsEditEpochRef.current;
+
+      // getUser(), never getSession() — the identity that selects the row must
+      // stay server-verified.
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (cancelled) return;
+      if (cancelled || token !== loadToken) return;
       if (authError || !user) {
         if (authError) capturePreferenceError("load", authError);
-        setInterfacePersistence("local");
-        setRemoteSyncEnabled(false);
-        setRemoteReady(true);
+        settledForUserRef.current = null;
+        markLocalOnly();
         return;
       }
 
@@ -126,9 +149,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         .select("interface_settings")
         .eq("user_id", user.id)
         .maybeSingle();
-      if (cancelled) return;
+      if (cancelled || token !== loadToken) return;
       if (error) {
         capturePreferenceError("load", error);
+        // Deliberately not settled: a later auth event retries rather than
+        // latching this account into a permanent error state.
         setInterfacePersistence("error");
         setRemoteSyncEnabled(false);
         setRemoteReady(true);
@@ -138,10 +163,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const remote = parsePreferenceEnvelope(data?.interface_settings);
       remoteUserIdRef.current = user.id;
       remoteEnvelopeRef.current = remote.envelope;
+      settledForUserRef.current = user.id;
       if (
         remote.theme &&
         !fieldWasEditedSince(
-          themeEpochAtHydration,
+          themeEpochAtLoad,
           themeEditEpochRef.current,
         )
       ) {
@@ -150,7 +176,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (
         remote.settings &&
         !fieldWasEditedSince(
-          settingsEpochAtHydration,
+          settingsEpochAtLoad,
           settingsEditEpochRef.current,
         )
       ) {
@@ -161,17 +187,47 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setRemoteReady(true);
     };
 
-    loadRemotePreferences().catch(() => {
-      if (!cancelled) {
-        capturePreferenceError("load", new Error("Interface preference load failed"));
-        setInterfacePersistence("error");
-        setRemoteSyncEnabled(false);
-        setRemoteReady(true);
+    const runLoad = () => {
+      loadRemotePreferences().catch(() => {
+        if (!cancelled) {
+          capturePreferenceError("load", new Error("Interface preference load failed"));
+          setInterfacePersistence("error");
+          setRemoteSyncEnabled(false);
+          setRemoteReady(true);
+        }
+      });
+    };
+
+    // This provider lives in the root layout, so on the ordinary login path it
+    // mounts while still signed out (middleware sends the first document request
+    // to /login) and the app then signs in via a SOFT navigation — the provider
+    // never remounts. Resolving auth only once at mount therefore pinned every
+    // post-login session to local-only mode: the save effect below stays gated
+    // on remoteSyncEnabled, so Interface Studio silently degraded to
+    // localStorage and nothing was ever written to user_preferences.
+    // Re-resolving on auth transitions is what makes preferences survive a
+    // sign-in, an account switch, and a new device.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      const nextUserId = session?.user.id ?? null;
+      // The session id is only a dedupe key here; getUser() remains the
+      // authority on identity inside loadRemotePreferences.
+      const action = preferenceAuthAction(event, nextUserId, settledForUserRef.current);
+      if (action === "ignore") return;
+      if (action === "reset-to-local") {
+        loadToken += 1; // abandon anything in flight for the previous account
+        settledForUserRef.current = null;
+        markLocalOnly();
+        return;
       }
+      runLoad();
     });
+
+    runLoad();
 
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, [supabase]);
 

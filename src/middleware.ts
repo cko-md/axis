@@ -9,7 +9,18 @@ import {
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy"];
+// /oauth-done is the return leg of EVERY provider popup (Spotify, Strava,
+// Composio). It is a client-only shim: it reads `provider` and `status` from the
+// query string, postMessages them to window.opener, and closes. It carries no
+// user data and reads no session.
+//
+// It must be public. Gating it meant the popup returning from the provider was
+// evaluated for both a session AND authenticator assurance, and any miss
+// redirected the popup to /login — so the grant succeeded upstream, the opener
+// never received its postMessage, and the app silently stayed "not connected".
+// Its signed-out fallback still navigates to a protected destination, so making
+// this page public does not widen access to anything behind it.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy", "/oauth-done"];
 
 // request.nextUrl.clone() inherits Next's NextURL bug where 127.0.0.1/[::1]
 // get silently rewritten to the literal string "localhost" at parse time (see

@@ -5,6 +5,7 @@ import {
   createSerialExecutor,
   fieldWasEditedSince,
   parsePreferenceEnvelope,
+  preferenceAuthAction,
 } from "@/lib/theme/preferences";
 
 describe("preference envelope", () => {
@@ -78,5 +79,42 @@ describe("preference envelope", () => {
     await expect(first).resolves.toBe("first");
     await expect(second).resolves.toBe("second");
     expect(order).toEqual(["first:start", "first:end", "second"]);
+  });
+});
+
+describe("preferenceAuthAction", () => {
+  // The regression this guards: ThemeProvider mounts signed-out in the root
+  // layout, the app signs in via a soft navigation that never remounts it, and
+  // preferences were therefore never written to user_preferences for the rest
+  // of the session.
+  it("reloads when a session begins after auth first settled signed-out", () => {
+    expect(preferenceAuthAction("SIGNED_IN", "user-1", null)).toBe("reload");
+  });
+
+  it("reloads on the very first event, before auth has ever settled", () => {
+    expect(preferenceAuthAction("INITIAL_SESSION", "user-1", undefined)).toBe("reload");
+  });
+
+  it("ignores a token refresh for the account already loaded", () => {
+    expect(preferenceAuthAction("TOKEN_REFRESHED", "user-1", "user-1")).toBe("ignore");
+  });
+
+  it("reloads when the account switches", () => {
+    expect(preferenceAuthAction("SIGNED_IN", "user-2", "user-1")).toBe("reload");
+  });
+
+  it("resets to local on sign-out so the next account cannot inherit the row", () => {
+    expect(preferenceAuthAction("SIGNED_OUT", null, "user-1")).toBe("reset-to-local");
+  });
+
+  it("treats a null session as signed-out regardless of the event name", () => {
+    expect(preferenceAuthAction("INITIAL_SESSION", null, undefined)).toBe("reset-to-local");
+  });
+
+  it("does not dedupe a signed-out state against never-settled", () => {
+    // undefined (never settled) and null (settled signed-out) must not collapse,
+    // or the first resolution would be skipped and remoteReady never set.
+    expect(preferenceAuthAction("SIGNED_IN", "user-1", undefined)).toBe("reload");
+    expect(preferenceAuthAction("SIGNED_IN", "user-1", null)).toBe("reload");
   });
 });
