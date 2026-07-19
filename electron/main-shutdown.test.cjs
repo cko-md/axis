@@ -56,12 +56,23 @@ test("a quit latches before any window closes", () => {
   assert.match(body, /isQuitting = true/);
 });
 
-test("file pickers never inherit a destroyed owner window", () => {
-  const pickers = source.split("\n").filter((line) => /showOpenDialog\(/.test(line));
-  assert.ok(pickers.length > 0, "expected at least one showOpenDialog call");
-  for (const line of pickers) {
-    assert.match(line, /liveWindow\(mainWindow\)/, `unguarded picker owner: ${line.trim()}`);
-  }
+test("file pickers go through the shutdown-aware showFilePicker helper", () => {
+  // dialog.showOpenDialog may appear ONLY inside showFilePicker itself — a
+  // direct call elsewhere is how a picker opens mid-quit or ownerless, the
+  // same unanswerable app-modal shape showDialog exists to prevent, just via
+  // a different Electron API.
+  const direct = source.split("\n").filter((line) => /dialog\.showOpenDialog/.test(line));
+  assert.equal(
+    direct.length,
+    1,
+    `dialog.showOpenDialog must be called only inside showFilePicker, found:\n${direct.join("\n")}`,
+  );
+  const body = sectionAfter("function showFilePicker", 500);
+  assert.match(body, /if \(isQuitting\) return Promise\.resolve\(\{ canceled: true/);
+  assert.match(body, /liveWindow\(mainWindow\)/);
+  // No ownerless fallback: with no live parent the pick resolves canceled.
+  assert.doesNotMatch(body, /dialog\.showOpenDialog\(options\)/);
+  assert.ok(source.includes("await showFilePicker({"), "picker call sites must use the helper");
 });
 
 test("did-fail-load refuses to raise a dialog during teardown and never stacks them", () => {

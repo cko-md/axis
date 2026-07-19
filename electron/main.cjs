@@ -131,6 +131,20 @@ function showDialog(options, { owner = null } = {}) {
   return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
 }
 
+/**
+ * File pickers share showDialog()'s teardown rules, via a different Electron
+ * API the message-box hardening cannot see: a quit in progress must never
+ * gain a dialog (IPC keeps arriving between before-quit and the window's
+ * close), and a picker with no live owner would be the ownerless app-modal
+ * shape that blocks the quit. Both refuse as a canceled pick.
+ */
+function showFilePicker(options) {
+  if (isQuitting) return Promise.resolve({ canceled: true, filePaths: [] });
+  const parent = liveWindow(mainWindow);
+  if (!parent) return Promise.resolve({ canceled: true, filePaths: [] });
+  return dialog.showOpenDialog(parent, options);
+}
+
 function normalizeWebUrl(raw) {
   const value = String(raw || "").trim();
   const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
@@ -587,7 +601,7 @@ function registerIpc() {
 
   ipcMain.handle("archive-bay:import", async (event, input) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const picked = await dialog.showOpenDialog(liveWindow(mainWindow) || undefined, {
+    const picked = await showFilePicker({
       title: "Import a Nintendo DS ROM (.nds)",
       properties: ["openFile"],
       filters: [{ name: "Nintendo DS ROM", extensions: ["nds"] }],
@@ -638,7 +652,7 @@ function registerIpc() {
 
   ipcMain.handle("archive-bay:runtime-choose", async (event) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const picked = await dialog.showOpenDialog(liveWindow(mainWindow) || undefined, {
+    const picked = await showFilePicker({
       title: "Choose your installed melonDS executable",
       properties: ["openFile"],
     });
@@ -1092,7 +1106,15 @@ async function runCrashReporterSmoke() {
 function installApplicationMenu() {
   const updateItem = {
     label: "Check for Updates…",
-    click: () => updateController?.checkForUpdates({ interactive: true }),
+    // On macOS this menu item is reachable with zero windows open, and the
+    // update prompts refuse to open ownerless (update-controller.cjs) — so
+    // visible feedback needs a live window first. Ensuring one is also just
+    // the right response to the user reaching for the app.
+    click: () => {
+      void ensureMainWindow()
+        .catch(() => null)
+        .then(() => updateController?.checkForUpdates({ interactive: true }));
+    },
   };
   const template = [
     ...(process.platform === "darwin" ? [{

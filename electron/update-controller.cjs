@@ -32,12 +32,20 @@ function createUpdateController({
   // These fire from timers, so they can land mid-quit. An ownerless dialog
   // raised then outlives every window and the app never finishes quitting, so
   // a quit in progress wins over any update prompt.
+  const declined = () => ({ response: -1, canceled: true, checkboxChecked: false });
   const showMessage = (options) => {
-    if (isQuitting()) return Promise.resolve({ response: -1, canceled: true, checkboxChecked: false });
+    if (isQuitting()) return Promise.resolve(declined());
     const owner = getMainWindow();
-    return owner && !owner.isDestroyed()
-      ? dialog.showMessageBox(owner, options)
-      : dialog.showMessageBox(options);
+    // Never fall back to an OWNERLESS message box: it is app-modal, outlives
+    // every window (macOS keeps the app alive with zero windows), and Electron
+    // has no API to dismiss it — so a quit that begins while it sits open
+    // never completes, which is the other reproduced hang shape this module
+    // exists to avoid. Skipping is safe: background prompts re-offer on the
+    // next timer cycle, a downloaded update still installs on quit via
+    // autoInstallOnAppQuit, and the manual menu path ensures a window exists
+    // before checking (see main.cjs).
+    if (!owner || owner.isDestroyed()) return Promise.resolve(declined());
+    return dialog.showMessageBox(owner, options);
   };
 
   const onAvailable = async (info) => {

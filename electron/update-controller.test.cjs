@@ -20,18 +20,65 @@ test("manual update checks provide visible up-to-date feedback", async () => {
   updater.checkForUpdates = async () => {
     updater.emit("update-not-available", { version: "1.2.3" });
   };
+  // The manual menu path guarantees a live window before checking (main.cjs
+  // ensures one), so feedback always has an owner to attach to.
+  const owner = { isDestroyed: () => false };
   const messages = [];
   const controller = createUpdateController({
     app: { isPackaged: true, getVersion: () => "1.2.3" },
     autoUpdater: updater,
-    dialog: { showMessageBox: async (options) => { messages.push(options); return { response: 0 }; } },
-    getMainWindow: () => null,
+    dialog: {
+      showMessageBox: async (ownerArg, options) => {
+        assert.equal(ownerArg, owner, "feedback must be owned, never app-modal");
+        messages.push(options);
+        return { response: 0 };
+      },
+    },
+    getMainWindow: () => owner,
     observability: { captureException() {} },
   });
 
   await controller.checkForUpdates({ interactive: true });
   assert.equal(messages[0].title, "AXIS is up to date");
   controller.dispose();
+});
+
+// An ownerless message box is app-modal, outlives every window (macOS keeps
+// the app alive with none), and Electron has no API to dismiss it — a quit
+// that begins while one sits open never completes. So with no live window the
+// prompt is skipped entirely rather than shown ownerless; the timers re-offer
+// later and a downloaded update still installs on quit.
+test("a background update prompt with no live window is skipped, not shown ownerless", async () => {
+  const updater = new EventEmitter();
+  let downloads = 0;
+  updater.checkForUpdates = async () => {
+    updater.emit("update-available", { version: "9.9.9" });
+  };
+  updater.downloadUpdate = async () => { downloads += 1; };
+  const controller = createUpdateController({
+    app: { isPackaged: true, getVersion: () => "1.2.3" },
+    autoUpdater: updater,
+    dialog: { showMessageBox: async () => { throw new Error("an ownerless dialog must never open"); } },
+    getMainWindow: () => null,
+    observability: { captureException() {} },
+  });
+
+  await controller.checkForUpdates();
+  assert.equal(downloads, 0);
+
+  // A destroyed window is the same situation as no window.
+  const gone = { isDestroyed: () => true };
+  const controller2 = createUpdateController({
+    app: { isPackaged: true, getVersion: () => "1.2.3" },
+    autoUpdater: updater,
+    dialog: { showMessageBox: async () => { throw new Error("an ownerless dialog must never open"); } },
+    getMainWindow: () => gone,
+    observability: { captureException() {} },
+  });
+  await controller2.checkForUpdates();
+  assert.equal(downloads, 0);
+  controller.dispose();
+  controller2.dispose();
 });
 
 // These handlers fire from timers, so one can land after a quit has begun. An
@@ -89,12 +136,13 @@ test("an empty bootstrap release channel is visible but not reported as an appli
   updater.checkForUpdates = async () => {
     updater.emit("error", new Error("No published versions on GitHub"));
   };
+  const owner = { isDestroyed: () => false };
   const messages = [];
   const controller = createUpdateController({
     app: { isPackaged: true, getVersion: () => "1.2.3" },
     autoUpdater: updater,
-    dialog: { showMessageBox: async (options) => { messages.push(options); return { response: 0 }; } },
-    getMainWindow: () => null,
+    dialog: { showMessageBox: async (_owner, options) => { messages.push(options); return { response: 0 }; } },
+    getMainWindow: () => owner,
     observability: { captureException: (error) => captured.push(error) },
   });
 
