@@ -12,11 +12,37 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
-import { createLowlight, common } from "lowlight";
+import { createLowlight } from "lowlight";
+// Explicit grammar allowlist instead of lowlight's `common` pack (~37
+// highlight.js grammars, the dominant weight of a 452 KB chunk). These ten
+// cover the languages notes code blocks realistically hold; an unregistered
+// language renders as plain <code> text — content is never lost, only
+// unhighlighted. Add a grammar here deliberately if a real need appears.
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import markdown from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import sql from "highlight.js/lib/languages/sql";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
 import { type NoteFont } from "@/lib/hooks/useNotes";
 import styles from "./NotesEditor.module.css";
 
-const lowlight = createLowlight(common);
+const lowlight = createLowlight({
+  bash,
+  css,
+  javascript,
+  json,
+  markdown,
+  python,
+  sql,
+  typescript,
+  xml,
+  yaml,
+});
 
 /* ── Icons (inherit currentColor) ───────────────────────────── */
 const I = {
