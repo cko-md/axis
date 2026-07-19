@@ -1,4 +1,11 @@
-function createUpdateController({ app, autoUpdater, dialog, getMainWindow, observability }) {
+function createUpdateController({
+  app,
+  autoUpdater,
+  dialog,
+  getMainWindow,
+  observability,
+  isQuitting = () => false,
+}) {
   if (!app.isPackaged) {
     return {
       checkForUpdates: async () => false,
@@ -22,7 +29,11 @@ function createUpdateController({ app, autoUpdater, dialog, getMainWindow, obser
     error() {},
   };
 
+  // These fire from timers, so they can land mid-quit. An ownerless dialog
+  // raised then outlives every window and the app never finishes quitting, so
+  // a quit in progress wins over any update prompt.
   const showMessage = (options) => {
+    if (isQuitting()) return Promise.resolve({ response: -1, canceled: true, checkboxChecked: false });
     const owner = getMainWindow();
     return owner && !owner.isDestroyed()
       ? dialog.showMessageBox(owner, options)
