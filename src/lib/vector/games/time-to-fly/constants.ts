@@ -19,8 +19,8 @@
  * Math.cos/Math.sin in constants.test.ts — verified correct, never computed.
  */
 
-/** Slots a planet can occupy on its orbit. 24 slots = 15 degrees apart. */
-export const TIME_TO_FLY_SLOT_COUNT = 24;
+/** Slots a planet can occupy on its orbit. 12 slots = 30 degrees apart. */
+export const TIME_TO_FLY_SLOT_COUNT = 12;
 
 /**
  * Unit vectors for each slot, counter-clockwise from due east.
@@ -30,29 +30,17 @@ export type TimeToFlyVector = Readonly<{ x: number; y: number }>;
 
 export const TIME_TO_FLY_SLOT_UNITS: readonly TimeToFlyVector[] = Object.freeze<TimeToFlyVector[]>([
   { x: 1, y: 0 },
-  { x: 0.9659258262890683, y: 0.25881904510252074 },
   { x: 0.8660254037844387, y: 0.49999999999999994 },
-  { x: 0.7071067811865476, y: 0.7071067811865475 },
   { x: 0.5000000000000001, y: 0.8660254037844386 },
-  { x: 0.25881904510252096, y: 0.9659258262890682 },
   { x: 0, y: 1 },
-  { x: -0.25881904510252074, y: 0.9659258262890683 },
   { x: -0.49999999999999994, y: 0.8660254037844387 },
-  { x: -0.7071067811865475, y: 0.7071067811865476 },
   { x: -0.8660254037844386, y: 0.5000000000000001 },
-  { x: -0.9659258262890682, y: 0.25881904510252096 },
   { x: -1, y: 0 },
-  { x: -0.9659258262890683, y: -0.25881904510252074 },
   { x: -0.8660254037844387, y: -0.49999999999999994 },
-  { x: -0.7071067811865476, y: -0.7071067811865475 },
   { x: -0.5000000000000001, y: -0.8660254037844386 },
-  { x: -0.25881904510252096, y: -0.9659258262890682 },
   { x: 0, y: -1 },
-  { x: 0.25881904510252074, y: -0.9659258262890683 },
   { x: 0.49999999999999994, y: -0.8660254037844387 },
-  { x: 0.7071067811865475, y: -0.7071067811865476 },
   { x: 0.8660254037844386, y: -0.5000000000000001 },
-  { x: 0.9659258262890682, y: -0.25881904510252096 },
 ]);
 
 export const TIME_TO_FLY_PHYSICS = Object.freeze({
@@ -87,12 +75,12 @@ export const TIME_TO_FLY_PHYSICS = Object.freeze({
 });
 
 export const TIME_TO_FLY_ARENA = Object.freeze({
-  WIDTH: 2200,
-  HEIGHT: 1240,
+  WIDTH: 3400,
+  HEIGHT: 1900,
   /** How far outside the arena a craft may drift before the flight is a miss. */
   OUT_OF_BOUNDS_MARGIN: 240,
-  LAUNCH_X: 140,
-  LAUNCH_Y: 620,
+  LAUNCH_X: 170,
+  LAUNCH_Y: 950,
   GALAXY_RADIUS: 26,
 });
 

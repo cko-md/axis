@@ -28,7 +28,7 @@ function placed(overrides: Partial<PlacedPlanet> = {}): PlacedPlanet {
   const large = TIME_TO_FLY_PLANET_CLASSES.large;
   return {
     id: 0,
-    position: { x: 800, y: 620 },
+    position: { x: 800, y: TIME_TO_FLY_ARENA.LAUNCH_Y },
     mass: large.mass,
     bodyRadius: large.bodyRadius,
     fieldRadius: large.fieldRadius,
@@ -56,10 +56,11 @@ describe("slot lattice", () => {
   it("keeps the cardinal directions exact", () => {
     // Exactness at the cardinals is what stops a planet placed "straight up"
     // from sitting a sub-pixel off and making a level seed-dependent.
+    const quarter = TIME_TO_FLY_SLOT_COUNT / 4;
     expect(TIME_TO_FLY_SLOT_UNITS[0]).toEqual({ x: 1, y: 0 });
-    expect(TIME_TO_FLY_SLOT_UNITS[6]).toEqual({ x: 0, y: 1 });
-    expect(TIME_TO_FLY_SLOT_UNITS[12]).toEqual({ x: -1, y: 0 });
-    expect(TIME_TO_FLY_SLOT_UNITS[18]).toEqual({ x: 0, y: -1 });
+    expect(TIME_TO_FLY_SLOT_UNITS[quarter]).toEqual({ x: 0, y: 1 });
+    expect(TIME_TO_FLY_SLOT_UNITS[quarter * 2]).toEqual({ x: -1, y: 0 });
+    expect(TIME_TO_FLY_SLOT_UNITS[quarter * 3]).toEqual({ x: 0, y: -1 });
   });
 
   it("wraps slots rather than clamping them", () => {
@@ -129,7 +130,7 @@ describe("gravity field", () => {
     // symmetrically, so net transverse impulse falls again), but the craft is
     // destroyed there, so it is not a pass a player can choose.
     const flyPast = (impactParameter: number) => {
-      const planet = placed({ position: { x: 900, y: 620 - impactParameter } });
+      const planet = placed({ position: { x: 900, y: TIME_TO_FLY_ARENA.LAUNCH_Y - impactParameter } });
       let craft = launchState();
       let closest = Number.POSITIVE_INFINITY;
       for (let step = 0; step < 900; step += 1) {
@@ -163,7 +164,7 @@ describe("gravity field", () => {
       let strongest = 0;
       for (let impact = 20; impact <= klass.fieldRadius - 5; impact += 5) {
         const planet = placed({
-          position: { x: 900, y: 620 - impact },
+          position: { x: 900, y: TIME_TO_FLY_ARENA.LAUNCH_Y - impact },
           mass: klass.mass,
           bodyRadius: klass.bodyRadius,
           fieldRadius: klass.fieldRadius,
@@ -208,7 +209,7 @@ describe("gravity field", () => {
 });
 
 describe("flight", () => {
-  const galaxy = { x: 2000, y: 620 };
+  const galaxy = { x: TIME_TO_FLY_ARENA.LAUNCH_X + 1800, y: TIME_TO_FLY_ARENA.LAUNCH_Y };
 
   it("coasts in an exact straight line through empty space", () => {
     let craft = launchState();
@@ -247,7 +248,7 @@ describe("flight", () => {
 
   it("is bit-identical across repeated runs", () => {
     const planets: TimeToFlyPlanet[] = [
-      { id: 0, planetClass: "large", orbitCenter: { x: 800, y: 500 }, orbitRadius: 96 },
+      { id: 0, planetClass: "large", orbitCenter: { x: 800, y: TIME_TO_FLY_ARENA.LAUNCH_Y - 120 }, orbitRadius: 96 },
     ];
     const a = flyArrangement(planets, [7], galaxy);
     const b = flyArrangement(planets, [7], galaxy);
@@ -264,7 +265,7 @@ describe("flight", () => {
     // If a one-slot nudge never mattered, the lattice would be too fine to
     // reason about and the puzzle would be a continuum in disguise.
     const planets: TimeToFlyPlanet[] = [
-      { id: 0, planetClass: "large", orbitCenter: { x: 900, y: 480 }, orbitRadius: 124 },
+      { id: 0, planetClass: "large", orbitCenter: { x: 900, y: TIME_TO_FLY_ARENA.LAUNCH_Y - 140 }, orbitRadius: 124 },
     ];
     const outcomes = new Set(
       Array.from({ length: TIME_TO_FLY_SLOT_COUNT }, (_, slot) =>
@@ -317,9 +318,8 @@ describe("rayReachesDisc", () => {
   it("never rejects a disc the stepped flight actually enters", () => {
     // Soundness: pruning may over-approximate, but it must not discard a
     // branch the real simulation would have flown into.
-    const galaxy = { x: 2000, y: 620 };
     for (let offset = -160; offset <= 160; offset += 20) {
-      const planet = placed({ position: { x: 900, y: 620 + offset } });
+      const planet = placed({ position: { x: 900, y: TIME_TO_FLY_ARENA.LAUNCH_Y + offset } });
       const entered = (() => {
         let craft = launchState();
         for (let step = 0; step < 600; step += 1) {
@@ -337,7 +337,6 @@ describe("rayReachesDisc", () => {
           `offset ${offset}: flight entered the field but the prune predicate said no`,
         ).toBe(true);
       }
-      expect(galaxy.x).toBe(2000);
     }
   });
 });
