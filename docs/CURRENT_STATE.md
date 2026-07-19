@@ -19,14 +19,14 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T15:57:28.922Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T15:58:05.770Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `main`
-- **HEAD:** `4a302771`
-- **main:** `4a302771`
-- **Working tree:** has uncommitted changes
+- **HEAD:** `2c3d4d3a`
+- **main:** `2c3d4d3a`
+- **Working tree:** clean
 
 ## Waves merged to main
 
@@ -57,7 +57,7 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 - **Tests:** 1468/1468 across 203 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-19T15:57:28.936Z
+- **Measured at:** 2026-07-19T15:58:05.783Z
 
 <!-- END GENERATED: derive-program-state -->
 

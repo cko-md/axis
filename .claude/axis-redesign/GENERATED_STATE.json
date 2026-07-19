@@ -1,14 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T15:57:28.922Z",
+  "derivedAt": "2026-07-19T15:58:05.770Z",
   "git": {
     "branch": "main",
-    "head": "4a30277196dc730a396584e251a6694c2cfcf7d8",
-    "mainHead": "4a30277196dc730a396584e251a6694c2cfcf7d8",
-    "workingTreeClean": false,
+    "head": "2c3d4d3adb424f1f87cbb469304b15b059ba5ada",
+    "mainHead": "2c3d4d3adb424f1f87cbb469304b15b059ba5ada",
+    "workingTreeClean": true,
     "aheadOfMain": []
   },
   "mergedPrs": [
+    {
+      "pr": null,
+      "sha": "2c3d4d3a",
+      "subject": "fix(axis): count locally merged waves in the derived state table",
+      "committedAt": "2026-07-19T11:57:39-04:00"
+    },
     {
       "pr": null,
       "sha": "4a302771",
@@ -152,12 +158,6 @@
       "sha": "8964bb91",
       "subject": "fix(plaid): harden webhook sync + surface/redact failures",
       "committedAt": "2026-07-18T10:40:55-04:00"
-    },
-    {
-      "pr": 242,
-      "sha": "02f3064c",
-      "subject": "fix(fund): propagate swallowed persistence failures in finance daily jobs",
-      "committedAt": "2026-07-18T10:40:53-04:00"
     }
   ],
   "waves": [
@@ -237,7 +237,7 @@
   },
   "gates": {
     "measured": true,
-    "measuredAt": "2026-07-19T15:57:28.936Z",
+    "measuredAt": "2026-07-19T15:58:05.783Z",
     "tests": {
       "passed": 1468,
       "total": 1468,
