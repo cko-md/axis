@@ -1,14 +1,14 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T09:32:15.289Z",
+  "derivedAt": "2026-07-19T09:35:56.902Z",
   "git": {
     "branch": "feat/redesign-continuation-2026-07-19",
-    "head": "f24f68cdd99815548000821362d2bffcc131859d",
+    "head": "32e9d95960212fb27c58419a1a9f6f85130b53dd",
     "mainHead": "d8a15e7bff4bb176afde3e7b04212d858611083b",
     "workingTreeClean": false,
     "aheadOfMain": [
       {
-        "sha": "f24f68cd",
+        "sha": "32e9d959",
         "subject": "feat(desktop): Electron security hardening with runtime verification"
       },
       {
@@ -191,7 +191,16 @@
     "openIds": []
   },
   "gates": {
-    "measured": false,
-    "note": "carried forward; re-run with --gates to measure"
+    "measured": true,
+    "measuredAt": "2026-07-19T09:35:56.924Z",
+    "tests": {
+      "passed": 1340,
+      "total": 1340,
+      "files": 478
+    },
+    "bundleKb": {
+      "used": 4257,
+      "budget": 4400
+    }
   }
 }
