@@ -44,13 +44,58 @@ export type ArchiveBayBridge = {
   onLaunchState: (listener: (state: ArchiveBayLaunchState) => void) => () => void;
 };
 
+/**
+ * Phase 16.2 — managed melonDS runtime (ADR-0005, Option B). Renderer-safe:
+ * every field here is public compliance/version metadata or a byte count —
+ * never a URL, digest, or filesystem path. The manifest that supplies the
+ * real values lives only in the Electron main process.
+ */
+export type ManagedRuntimeManifestInfo = {
+  runtime: string;
+  version: string;
+  license: string;
+  licenseUrl: string;
+  attribution: string;
+  sourceUrl: string;
+  platformSupported: boolean;
+  sizeBytes: number | null;
+};
+
+export type ManagedRuntimeStatus = {
+  installed: { version: string; installedAt: string } | null;
+  installing: boolean;
+};
+
+export type ManagedRuntimeProgress =
+  | { phase: "downloading"; receivedBytes: number; totalBytes: number | null }
+  | { phase: "verifying" }
+  | { phase: "extracting" }
+  | { phase: "installed"; version: string }
+  | { phase: "removing" }
+  | { phase: "not-installed" }
+  | { phase: "error"; code: string };
+
+export type ArchiveBayManagedRuntimeBridge = {
+  getManifest: () => Promise<ManagedRuntimeManifestInfo>;
+  getStatus: () => Promise<ManagedRuntimeStatus>;
+  install: () => Promise<{ installed: true; version: string }>;
+  remove: () => Promise<{ removed: true }>;
+  onProgress: (listener: (progress: ManagedRuntimeProgress) => void) => () => void;
+};
+
 type ArchiveBayWindow = Window & {
   axisDesktop?: {
     archiveBay?: ArchiveBayBridge;
+    archiveBayManagedRuntime?: ArchiveBayManagedRuntimeBridge;
   };
 };
 
 export function getArchiveBayBridge(): ArchiveBayBridge | null {
   if (typeof window === "undefined") return null;
   return (window as ArchiveBayWindow).axisDesktop?.archiveBay ?? null;
+}
+
+export function getArchiveBayManagedRuntimeBridge(): ArchiveBayManagedRuntimeBridge | null {
+  if (typeof window === "undefined") return null;
+  return (window as ArchiveBayWindow).axisDesktop?.archiveBayManagedRuntime ?? null;
 }

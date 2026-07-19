@@ -1,6 +1,6 @@
 # ADR 0005 — Archive Bay: emulator/native-port separation, content-rights policy, and child-process threat model
 
-- Status: accepted
+- Status: accepted; 16.2 (Option B, managed melonDS runtime) implemented 2026-07-18
 - Date: 2026-07-18
 - Wave: Phase 16.0 (Archive Bay), owner-authorized parallel desktop track
 
@@ -163,6 +163,71 @@ string.
   (`contextIsolation: true`, `sandbox: true`, etc.) already cover the whole
   `electron/` and `src/` tree, so no new security-check script is required
   for this wave — the invariants it already enforces apply here too.
+
+## 16.2 implementation record (Option B, managed melonDS runtime)
+
+Implemented 2026-07-18. Concretely:
+
+- **Manifest**: `electron/config/archive-bay-runtimes.json` is the sole source
+  of truth for download URLs, sizes, and sha256 digests, per platform
+  (`darwin-arm64`, `darwin-x64`, `win32-x64`, `linux-x64`). It pins melonDS
+  **1.1** (tag `1.1`, commit `b86390e4428bf38ce4c1ce0e9ca446d6d25955e8`),
+  license `GPL-3.0`, and a corresponding-source URL (the GitHub-generated
+  tag source archive) with its own independently computed sha256 (GitHub
+  does not publish a digest for auto-generated tag archives the way it does
+  for release assets, so that one checksum was computed in-session by
+  downloading the archive and hashing it — documented inline in the
+  manifest's `sha256Provenance` field). Every per-platform release asset's
+  sha256 was cross-checked two ways: against GitHub's own release-asset
+  digest API (`gh api repos/melonDS-emu/melonDS/releases/tags/1.1`) and by
+  independently downloading and re-hashing the same asset in this session —
+  both matched exactly for all three platforms exercised (macOS universal,
+  Windows x86_64, Linux x86_64/Ubuntu build).
+- **Runtime manager**: `electron/archive-bay-runtime.cjs` — manifest
+  validation, HTTPS-only download with redirect-following (no third-party
+  HTTP client dependency), a hand-rolled minimal ZIP reader (store +
+  deflate, no zip64/encryption/multi-disk — not needed for these assets) with
+  per-entry path-traversal validation before any file is written, sha256 +
+  declared-size verification before promotion out of a `.download` temp
+  file, and a small separate install-state file
+  (`userData/archive-bay/runtimes/state.json`) independent of
+  `archive-bay.cjs`'s BYO `library.json` schema.
+- **Spawn contract preserved**: after a successful install, the resolved
+  executable path is run through the *exact same*
+  `canonicalizeRuntimePath`/`library.runtimePath` path a BYO-chosen
+  executable goes through (`electron/main.cjs`'s
+  `archive-bay:managed-runtime:install` handler), then launched by the
+  unchanged `archive-bay:launch` handler and `buildLaunchSpawnArgs`. The
+  managed path is not a fork of the child-process contract.
+- **No auto-update**: nothing calls `installRuntime` except the renderer's
+  explicit "Install managed melonDS…" / "Reinstall / repair…" button click,
+  gated behind a sender-trust check identical to the 16.1 handlers. A
+  version bump in the manifest only takes effect the next time a user
+  explicitly re-runs install.
+- **Compliance artifacts**: install writes `LICENSE` (the full GPL-3.0 text,
+  bundled in-repo at `electron/config/melonDS-LICENSE.txt`, fetched from the
+  melonDS repository at the pinned commit) and `ATTRIBUTION.txt` (version,
+  license, corresponding-source URL + digest, and an explicit "AXIS is not
+  the author of this software" note) into the extracted runtime directory.
+  The renderer's Managed Runtime section shows license, corresponding-source
+  URL, and attribution text **before** the install button is reachable.
+- **Guards**: concurrent installs are rejected
+  (`RUNTIME_INSTALL_IN_PROGRESS`); install/remove both refuse to run while
+  any Archive Bay title is currently launched
+  (`ARCHIVE_BAY_ALREADY_RUNNING`), covering the remove-while-running
+  adversarial case without needing to track which runtime a running
+  process is using. Unsupported platform/arch combinations return an
+  honest `platformSupported: false` rather than throwing past the UI.
+- **Verified live** (this session, darwin-arm64): downloaded, sha256-verified,
+  and extracted the real macOS universal asset via this exact code path
+  (bypassing the Electron shell — the manager module itself is a plain
+  Node module with an injectable transport for testing, and a real
+  `node:https` transport in production), then spawned the resulting
+  `melonDS.app/Contents/MacOS/melonDS` against a homebrew
+  `nds-bootstrap-hb-release.nds` file (open-source homebrew loader, not a
+  copyrighted ROM) via the unmodified `buildLaunchSpawnArgs` contract, and
+  terminated it after a few seconds. See the Phase 16.2 session report for
+  the exact run's output.
 
 ## Reversal cost
 

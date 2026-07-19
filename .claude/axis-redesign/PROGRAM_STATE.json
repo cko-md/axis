@@ -1527,6 +1527,31 @@
       "verification": "npx tsc --noEmit + npx eslint (changed files) + npx vitest run src/lib/envoys + npm run test (1309/193) + npm run build with before/after bundle numbers: baseline main 4351/4400 KB (98.9%) -> 4268/4400 KB (97.0%) INCLUDING the new /envoys chunk — net −83 KB recovered by the lowlight grammar allowlist (the 452 KB Notes chunk is gone; largest chunk is now 420 KB); 176 pages; 189/189 route budgets; /envoys route JS 666 B. Browser/authenticated evidence not executable in this environment — exact-head CI on the PR is the gate."
     },
     {
+      "id": "16.2",
+      "title": "Archive Bay — managed melonDS runtime (Option B, parallel desktop track)",
+      "status": "landed (PR pending owner merge)",
+      "files_added": [
+        "electron/archive-bay-runtime.cjs",
+        "electron/archive-bay-runtime.test.cjs",
+        "electron/main-managed-runtime-ipc.test.cjs",
+        "electron/config/archive-bay-runtimes.json",
+        "electron/config/melonDS-LICENSE.txt"
+      ],
+      "files_changed": [
+        "electron/main.cjs",
+        "electron/axis-preload.cjs",
+        "electron/axis-preload.test.cjs",
+        "electron/electron-builder.cjs",
+        "src/lib/archive-bay.ts",
+        "src/components/vector/ArchiveBayModule.tsx",
+        "docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md",
+        "docs/desktop-distribution.md"
+      ],
+      "note": "Owner licensing decision recorded in ADR-0005 (Option B): distribute a managed melonDS runtime, accepting GPL-3.0 redistribution obligations. Implements: (1) a pinned, versioned manifest (electron/config/archive-bay-runtimes.json) — melonDS 1.1 (tag 1.1, commit b86390e4428bf38ce4c1ce0e9ca446d6d25955e8), license GPL-3.0, per-platform (darwin-arm64/darwin-x64/win32-x64/linux-x64) download URL + sha256 + size, all sourced from melonDS-emu/melonDS's own GitHub release assets and cross-verified two ways (GitHub's release-asset digest API + independent re-download-and-rehash in this session); the corresponding-source tag archive's sha256 (not a release asset, so no published digest) was computed in-session and its provenance documented inline. (2) electron/archive-bay-runtime.cjs — HTTPS-only download with redirect-following, a hand-rolled minimal ZIP reader (store+deflate, no zip64/encryption — not needed for these assets) with per-entry path-traversal validation before any write, sha256+size verification before promotion out of a .download temp file, and a small install-state file separate from archive-bay.cjs's BYO library.json schema. (3) 4 new sender-gated IPC handlers in main.cjs (archive-bay:managed-runtime:manifest/status/install/remove) with progress events; concurrent-install and remove-while-running guards; unsupported platforms return an honest platformSupported:false. The managed runtime's resolved executable is run through the exact same canonicalizeRuntimePath/library.runtimePath/buildLaunchSpawnArgs contract a BYO executable uses — not forked. (4) Compliance artifacts (LICENSE full text + ATTRIBUTION.txt with source URL/digest) written into the installed runtime directory; renderer UI states license + corresponding-source availability before the install button is reachable. No auto-update: install/repair is always an explicit user action. Web bundle impact ~0 (new UI lives inside the existing lazy-loaded ArchiveBayModule chunk).",
+      "tests": "32 new archive-bay-runtime unit tests (manifest validation incl. traversal-shaped executableRelativePath, platform resolution, zip-entry path-traversal rejection incl. absolute paths, extraction byte-fidelity + executable chmod, download digest/size mismatch + insecure-URL + redirect-following via an injectable fake transport — no real network in the unit suite, install/remove state-machine round-trip) + 7 new main.cjs IPC source-invariant tests (sender-gating, concurrency/remove-while-running guards, coded errors only) + 1 extended preload-bridge invariant test; full electron suite 72/72 passes via node --test electron/*.test.cjs; tsc clean; lint clean on all changed files.",
+      "verification": "node --test electron/*.test.cjs (72/72) + npx tsc --noEmit (clean) + npx eslint on all changed files (0 errors) + node scripts/check-desktop-security.mjs (invariants present). LIVE END-TO-END VERIFIED (darwin-arm64, this session): downloaded the real melonDS 1.1 macOS-universal release asset via this exact manager code path (real node:https transport, no mock), verified its sha256 matched the manifest, extracted it, confirmed the executable mode was 0755, then spawned melonDS.app/Contents/MacOS/melonDS against a homebrew nds-bootstrap-hb-release.nds file via the unmodified buildLaunchSpawnArgs contract, and terminated it after a few seconds. Full end-to-end confirmed: manifest resolve -> download -> digest verify -> extract -> canonicalize -> spawn -> kill, all via production code paths."
+    },
+    {
       "id": "15.5",
       "title": "Starter hatch-pet packages — validated original art, derived hatched status, Envoy Lab hatch UX",
       "status": "landed (PR pending owner merge)",

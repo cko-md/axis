@@ -128,6 +128,52 @@ Interactive setup helpers: `desktop:apple-signing:configure`,
 
 ---
 
+## Archive Bay: managed melonDS runtime (Phase 16.2)
+
+Archive Bay (see `docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md`)
+supports two ways to configure the Nintendo DS emulator it launches:
+
+1. **Bring your own** (16.1) — you install melonDS yourself and point Archive
+   Bay at the executable via a native file picker.
+2. **Managed runtime** (16.2) — Archive Bay downloads an official, unmodified
+   melonDS release build for you, on explicit request only.
+
+The managed runtime is **never bundled** with the AXIS installer and **never
+auto-downloads or auto-updates**. Every install is a single explicit user
+action (a button click), gated behind the same origin-trust check as every
+other Archive Bay IPC handler. What happens on install:
+
+- The download URL, expected size, and sha256 digest all come from a single
+  pinned, versioned manifest in the repo:
+  `electron/config/archive-bay-runtimes.json`. Nothing about the download is
+  renderer-suppliable.
+- The download is HTTPS-only (including redirects), streamed to a temp file,
+  and its sha256 is verified against the manifest **before** the file is
+  extracted or executed. A mismatch deletes the temp file and surfaces a
+  coded error — the runtime is never activated on a checksum failure.
+- The archive is extracted with per-entry path-traversal validation (no
+  `..`, no absolute paths, no drive-letter paths) into
+  `userData/archive-bay/runtimes/<version>/<platform>/` — outside the app's
+  asar, alongside the BYO library's `library.json`.
+- The extracted runtime directory gets `LICENSE` (full GPL-3.0 text) and
+  `ATTRIBUTION.txt` (version, license, corresponding-source URL + digest)
+  written alongside it, and the UI shows license + corresponding-source
+  information before the install button is reachable.
+- Once installed, the resolved executable is run through the *same*
+  `canonicalizeRuntimePath` → `library.runtimePath` → `buildLaunchSpawnArgs`
+  contract a BYO-chosen executable uses — there is only one spawn contract,
+  not two.
+- Remove/repair are both explicit actions too; both refuse to run while any
+  Archive Bay title is currently launched, and both refuse to run
+  concurrently with another install/remove already in flight.
+
+melonDS is an independent, third-party GPL-3.0 project
+(https://github.com/melonDS-emu/melonDS); AXIS distributes an unmodified
+official release build as a separately spawned executable and is not
+affiliated with the melonDS project. See the manifest file for the exact
+pinned version, source tag/commit, and per-platform checksums, and
+`electron/archive-bay-runtime.cjs` for the full implementation.
+
 ## Notes
 
 - The web app never imports `electron/`; the desktop package is fully separate and

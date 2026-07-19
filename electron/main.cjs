@@ -15,6 +15,8 @@ const {
 const { autoUpdater } = require("electron-updater");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
+const fs = require("node:fs");
+const fsPromises = require("node:fs/promises");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const {
@@ -28,6 +30,16 @@ const {
   sha256File,
   toPublicLegacyTitle,
 } = require("./archive-bay.cjs");
+const {
+  ArchiveBayRuntimeError,
+  getPlatformRelease,
+  installRuntime,
+  loadRuntimeState,
+  removeRuntime,
+  resolveInstalledExecutablePath,
+  resolvePlatformKey,
+  validateManifest,
+} = require("./archive-bay-runtime.cjs");
 const {
   compatibilityForUrl,
   createManagedExtensionManager,
@@ -56,6 +68,19 @@ const observability = createDesktopObservability({ crashReporter, runtime });
 const archiveBayLibraryPath = path.join(app.getPath("userData"), "archive-bay", "library.json");
 let archiveBayLibraryPromise = null;
 let activeArchiveBayLaunch = null; // { contentId, child } | null — one launch at a time
+// Phase 16.2 managed melonDS runtime (ADR-0005, Option B). The manifest is
+// the SOLE source of download URLs/sizes/digests — it ships inside the asar
+// (electron/config/), never renderer-suppliable. Installed runtime bytes
+// live in userData, outside the asar, verified by sha256 before activation.
+// This install-state file is intentionally separate from archive-bay.cjs's
+// library.json so the BYO library schema never has to change; once a
+// managed runtime is installed, its resolved executable path is still
+// routed through the exact same canonicalizeRuntimePath/library.runtimePath
+// contract as a BYO runtime, so the spawn contract is not forked.
+const archiveBayRuntimesDir = path.join(app.getPath("userData"), "archive-bay", "runtimes");
+const archiveBayRuntimeStatePath = path.join(archiveBayRuntimesDir, "state.json");
+let cachedArchiveBayRuntimeManifest = null;
+let managedRuntimeInstallInFlight = false;
 let devServer = null;
 let mainWindow = null;
 let updateController = null;
@@ -366,6 +391,28 @@ function archiveBayErrorMessage(error) {
   return "ARCHIVE_BAY_UNKNOWN_ERROR";
 }
 
+function archiveBayRuntimeErrorMessage(error) {
+  // Same coded-error-only rule as archiveBayErrorMessage — never forward a
+  // raw path, URL, or Node error message to the renderer.
+  if (error instanceof ArchiveBayRuntimeError) return error.code;
+  return "RUNTIME_UNKNOWN_ERROR";
+}
+
+function getArchiveBayRuntimeManifest() {
+  cachedArchiveBayRuntimeManifest ??= validateManifest(
+    JSON.parse(fs.readFileSync(path.join(__dirname, "config", "archive-bay-runtimes.json"), "utf8")),
+  );
+  return cachedArchiveBayRuntimeManifest;
+}
+
+function currentArchiveBayPlatformKey() {
+  return resolvePlatformKey({ platform: process.platform, arch: process.arch });
+}
+
+function sendManagedRuntimeProgress(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("archive-bay:managed-runtime:progress", payload);
+}
+
 function registerIpc() {
   ipcMain.handle("archive-bay:list", async (event) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
@@ -476,6 +523,117 @@ function registerIpc() {
       sendArchiveBayLaunchState({ contentId: record.contentId, status: "exited", exitCode: code });
     });
     return { contentId: record.contentId, status: "running" };
+  });
+
+  // Phase 16.2 — managed melonDS runtime. See ADR-0005 "OWNER LICENSING
+  // DECISION ... Option B". Every handler is sender-gated exactly like the
+  // 16.1 handlers above; none accepts a renderer-supplied URL, path, or
+  // digest — the manifest (bundled in the asar, never renderer-suppliable)
+  // is the sole source of those values.
+  ipcMain.handle("archive-bay:managed-runtime:manifest", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    let manifest;
+    try {
+      manifest = getArchiveBayRuntimeManifest();
+    } catch (error) {
+      observability.captureException(error, { operation: "archive-bay-managed-runtime-manifest" });
+      throw new Error(archiveBayRuntimeErrorMessage(error));
+    }
+    const base = {
+      runtime: manifest.runtime,
+      version: manifest.version,
+      license: manifest.license,
+      licenseUrl: manifest.licenseUrl,
+      attribution: manifest.attribution,
+      sourceUrl: manifest.correspondingSource.url,
+    };
+    try {
+      const release = getPlatformRelease(manifest, currentArchiveBayPlatformKey());
+      return { ...base, platformSupported: true, sizeBytes: release.sizeBytes };
+    } catch (error) {
+      if (error instanceof ArchiveBayRuntimeError && error.code === "RUNTIME_PLATFORM_UNSUPPORTED") {
+        return { ...base, platformSupported: false, sizeBytes: null };
+      }
+      observability.captureException(error, { operation: "archive-bay-managed-runtime-manifest" });
+      throw new Error(archiveBayRuntimeErrorMessage(error));
+    }
+  });
+
+  ipcMain.handle("archive-bay:managed-runtime:status", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const state = await loadRuntimeState(archiveBayRuntimeStatePath).catch((error) => {
+      observability.captureException(error, { operation: "archive-bay-managed-runtime-status" });
+      return { installed: null };
+    });
+    return {
+      installed: state.installed
+        ? { version: state.installed.version, installedAt: state.installed.installedAt }
+        : null,
+      installing: managedRuntimeInstallInFlight,
+    };
+  });
+
+  ipcMain.handle("archive-bay:managed-runtime:install", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (managedRuntimeInstallInFlight) throw new Error("RUNTIME_INSTALL_IN_PROGRESS");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    managedRuntimeInstallInFlight = true;
+    sendManagedRuntimeProgress({ phase: "downloading", receivedBytes: 0, totalBytes: null });
+    try {
+      const manifest = getArchiveBayRuntimeManifest();
+      const platformKey = currentArchiveBayPlatformKey();
+      const licenseText = fs.readFileSync(path.join(__dirname, "config", "melonDS-LICENSE.txt"), "utf8");
+      const executablePath = await installRuntime({
+        manifest,
+        platformKey,
+        runtimesDir: archiveBayRuntimesDir,
+        stateFilePath: archiveBayRuntimeStatePath,
+        licenseText,
+        onProgress: (progress) => sendManagedRuntimeProgress(progress),
+      });
+      const canonicalPath = await canonicalizeRuntimePath(executablePath);
+      const library = await getArchiveBayLibrary();
+      library.runtimePath = canonicalPath;
+      await persistArchiveBayLibrary(library);
+      sendManagedRuntimeProgress({ phase: "installed", version: manifest.version });
+      return { installed: true, version: manifest.version };
+    } catch (error) {
+      const code = archiveBayRuntimeErrorMessage(error);
+      observability.captureException(error, { operation: "archive-bay-managed-runtime-install" });
+      sendManagedRuntimeProgress({ phase: "error", code });
+      throw new Error(code);
+    } finally {
+      managedRuntimeInstallInFlight = false;
+    }
+  });
+
+  ipcMain.handle("archive-bay:managed-runtime:remove", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (managedRuntimeInstallInFlight) throw new Error("RUNTIME_INSTALL_IN_PROGRESS");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    sendManagedRuntimeProgress({ phase: "removing" });
+    try {
+      const state = await loadRuntimeState(archiveBayRuntimeStatePath);
+      const rawInstalledPath = resolveInstalledExecutablePath(archiveBayRuntimesDir, state.installed);
+      const canonicalInstalledPath = rawInstalledPath
+        ? await fsPromises.realpath(rawInstalledPath).catch(() => rawInstalledPath)
+        : null;
+      await removeRuntime({ runtimesDir: archiveBayRuntimesDir, stateFilePath: archiveBayRuntimeStatePath });
+      if (canonicalInstalledPath) {
+        const library = await getArchiveBayLibrary();
+        if (library.runtimePath === canonicalInstalledPath) {
+          library.runtimePath = null;
+          await persistArchiveBayLibrary(library);
+        }
+      }
+      sendManagedRuntimeProgress({ phase: "not-installed" });
+      return { removed: true };
+    } catch (error) {
+      const code = archiveBayRuntimeErrorMessage(error);
+      observability.captureException(error, { operation: "archive-bay-managed-runtime-remove" });
+      sendManagedRuntimeProgress({ phase: "error", code });
+      throw new Error(code);
+    }
   });
 
   ipcMain.handle("axis-browser:open", (event, input) => {
