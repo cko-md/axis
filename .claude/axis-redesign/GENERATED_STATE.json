@@ -1,11 +1,11 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T13:54:50.708Z",
+  "derivedAt": "2026-07-19T14:20:03.494Z",
   "git": {
     "branch": "main",
-    "head": "5498ff65352d3198534ce57212292c175f96424b",
-    "mainHead": "5498ff65352d3198534ce57212292c175f96424b",
-    "workingTreeClean": false,
+    "head": "a89c4d6681f5ed0efcb2aeb2e4ca3309b54680f5",
+    "mainHead": "a89c4d6681f5ed0efcb2aeb2e4ca3309b54680f5",
+    "workingTreeClean": true,
     "aheadOfMain": []
   },
   "mergedPrs": [
@@ -184,18 +184,17 @@
     "openIds": []
   },
   "gates": {
-    "measured": false,
-    "measuredAt": "2026-07-19T09:37:12.801Z",
+    "measured": true,
+    "measuredAt": "2026-07-19T14:20:03.510Z",
     "tests": {
-      "passed": 1340,
-      "total": 1340,
-      "files": 193,
-      "suites": 478
+      "passed": 1408,
+      "total": 1408,
+      "files": 199,
+      "suites": 505
     },
     "bundleKb": {
-      "used": 4257,
+      "used": 4245,
       "budget": 4400
-    },
-    "note": "carried forward; re-run with --gates to measure"
+    }
   }
 }

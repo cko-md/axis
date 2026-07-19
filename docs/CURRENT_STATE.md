@@ -19,14 +19,14 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T13:54:50.708Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T14:20:03.494Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `main`
-- **HEAD:** `5498ff65`
-- **main:** `5498ff65`
-- **Working tree:** has uncommitted changes
+- **HEAD:** `a89c4d66`
+- **main:** `a89c4d66`
+- **Working tree:** clean
 
 ## Waves merged to main
 
@@ -53,8 +53,9 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- _carried forward; re-run with --gates to measure_
-- Last known tests: 1340/1340 (STALE)
+- **Tests:** 1408/1408 across 199 files
+- **Bundle:** 4245 KB / 4400 KB
+- **Measured at:** 2026-07-19T14:20:03.510Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -62,4 +63,57 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
+
+### Next up: Wave 15.8 Brickrise — Phaser scene wiring
+
+The mechanical core is DONE and on main: `src/lib/vector/games/brickrise/`
+contains `physics.ts`, `level.ts`, `progress.ts`, `inputState.ts` — all pure,
+DOM-free, 55 tests. Phaser 3.90 is installed but not yet imported anywhere.
+
+**One blocker stands between here and a playable Brickrise**, and it is a build
+problem, not a game problem:
+
+`scripts/check-bundle-budget.mjs` partitions route-isolated game chunks out of
+the shared budget by FILENAME — `<game-slug>.*.js` and the declared engine
+vendor names `vector-engine-phaser` / `vector-engine-three`. Importing Phaser
+under `/* webpackChunkName: "vector-engine-phaser" */` does not produce that
+name: Next's own `lib` cacheGroup (priority 30, 8-hex hashed names) claims it
+into an anonymous ~1164 kB vendor chunk, which then counts against the SHARED
+budget and takes it to 5409/4400 kB.
+
+Already tried and ruled out: mutating
+`config.optimization.splitChunks.cacheGroups` inside the `webpack()` hook in
+`next.config.ts`, at priority 40 and 100, with `chunks: "async"` and
+`chunks: "all"`, `enforce: true`. The hook runs and `splitChunks` is a mutable
+object (`chunks`, `cacheGroups`, `maxInitialRequests`, `minSize`; existing
+groups are `framework` p40 and `lib` p30) — but no `vector-engine-*` chunk is
+ever emitted, so the mutation is not reaching the client compiler. Suspect
+`withSentryConfig` wrapping, or Next 15 rebuilding the client optimization
+config after the user hook.
+
+Worth trying next: a small custom webpack plugin that renames the chunk at
+`compilation` time; or Next's `experimental.turbopack`/webpack config surface
+rather than the `webpack()` escape hatch; or teaching the budget script to
+resolve the engine chunk from the build manifest's dependency graph instead of
+by filename (less brittle than either).
+
+**Do not raise the budget to make this pass.** The partition caught a genuinely
+misfiled 1.1 MB chunk — that is the gate working, not obstructing.
+
+The scene code itself was written and typechecked clean before being reverted;
+reconstruct from `physics.ts`/`level.ts`/`progress.ts`/`inputState.ts`, which
+are the whole rule set. Keep the split strict: Phaser draws, `stepBody` decides.
+Arcade physics is deliberately unused.
+
+**Registry stays `planned`** until the design agent delivers sprites and
+lighting; flipping to `available` without art trips `AVAILABLE_WITHOUT_ARTWORK`.
+A loader on a planned game is valid.
+
+### Then: 15.9 Time to Fly, 15.10 Paper Glider
+
+Same core-first pattern: pure deterministic modules with heavy tests, design
+left as a seam. 15.10 uses Three (~356 kB) rather than Phaser (~1168 kB), so it
+may be the better first target once chunk naming is solved. See
+`wave_order_revision` in PROGRAM_STATE.json — 15.6 skipped, 15.7 deferred,
+15.11 blocked on the Envoy redesign.
 
