@@ -18,6 +18,17 @@ const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const {
+  ArchiveBayError,
+  buildLaunchSpawnArgs,
+  buildLegacyTitleRecord,
+  canonicalizeImportPath,
+  canonicalizeRuntimePath,
+  loadLibrary,
+  saveLibrary,
+  sha256File,
+  toPublicLegacyTitle,
+} = require("./archive-bay.cjs");
+const {
   compatibilityForUrl,
   createManagedExtensionManager,
 } = require("./browser-capabilities.cjs");
@@ -37,6 +48,14 @@ const browserWindows = new Map();
 const browserViewIds = new Set();
 const readerArticles = new Map();
 const observability = createDesktopObservability({ crashReporter, runtime });
+// Phase 16.1 Archive Bay: desktop-only, bring-your-own-emulator local
+// library. See docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md.
+// The library file (contentId -> {romPath, sha256, ...} plus the configured
+// runtime executable path) lives in userData, never in Supabase, and is
+// never sent to the renderer in raw form (see toPublicLegacyTitle).
+const archiveBayLibraryPath = path.join(app.getPath("userData"), "archive-bay", "library.json");
+let archiveBayLibraryPromise = null;
+let activeArchiveBayLaunch = null; // { contentId, child } | null — one launch at a time
 let devServer = null;
 let mainWindow = null;
 let updateController = null;
@@ -322,7 +341,143 @@ async function configureBrowserSession() {
   }
 }
 
+function getArchiveBayLibrary() {
+  archiveBayLibraryPromise ??= loadLibrary(archiveBayLibraryPath).catch((error) => {
+    archiveBayLibraryPromise = null;
+    throw error;
+  });
+  return archiveBayLibraryPromise;
+}
+
+async function persistArchiveBayLibrary(library) {
+  await saveLibrary(archiveBayLibraryPath, library);
+  archiveBayLibraryPromise = Promise.resolve(library);
+}
+
+function sendArchiveBayLaunchState(state) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("archive-bay:launch-state", state);
+}
+
+function archiveBayErrorMessage(error) {
+  // Coded, path-free error codes only — never forward a raw filesystem
+  // path or Node error message (e.g. child_process ENOENT errors embed the
+  // spawned command's full path) to the renderer.
+  if (error instanceof ArchiveBayError) return error.code;
+  return "ARCHIVE_BAY_UNKNOWN_ERROR";
+}
+
 function registerIpc() {
+  ipcMain.handle("archive-bay:list", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const library = await getArchiveBayLibrary();
+    return {
+      titles: [...library.titles.values()].map(toPublicLegacyTitle),
+      runtimeConfigured: Boolean(library.runtimePath),
+      activeLaunch: activeArchiveBayLaunch ? { contentId: activeArchiveBayLaunch.contentId } : null,
+    };
+  });
+
+  ipcMain.handle("archive-bay:import", async (event, input) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const picked = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: "Import a Nintendo DS ROM (.nds)",
+      properties: ["openFile"],
+      filters: [{ name: "Nintendo DS ROM", extensions: ["nds"] }],
+    });
+    if (picked.canceled || picked.filePaths.length === 0) return null;
+    try {
+      const romPath = await canonicalizeImportPath(picked.filePaths[0]);
+      const sha256 = await sha256File(romPath);
+      const library = await getArchiveBayLibrary();
+      // De-dupe by content hash, not path: the same ROM can be re-imported
+      // from a different location without creating a second library entry.
+      const existingEntry = [...library.titles.values()].find((title) => title.sha256 === sha256);
+      if (existingEntry) return toPublicLegacyTitle(existingEntry);
+
+      const contentId = randomUUID();
+      const label = typeof input?.label === "string" && input.label.trim()
+        ? input.label
+        : path.basename(romPath, path.extname(romPath));
+      const record = buildLegacyTitleRecord({
+        contentId,
+        label,
+        runtimeKind: "external-emulator",
+        sha256,
+        addedAt: new Date().toISOString(),
+      });
+      library.titles.set(contentId, { ...record, romPath });
+      await persistArchiveBayLibrary(library);
+      return toPublicLegacyTitle(record);
+    } catch (error) {
+      observability.captureException(error, { operation: "archive-bay-import" });
+      throw new Error(archiveBayErrorMessage(error));
+    }
+  });
+
+  ipcMain.handle("archive-bay:remove", async (event, contentId) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const library = await getArchiveBayLibrary();
+    if (!library.titles.delete(String(contentId))) return false;
+    await persistArchiveBayLibrary(library);
+    return true;
+  });
+
+  ipcMain.handle("archive-bay:runtime-status", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const library = await getArchiveBayLibrary();
+    return { configured: Boolean(library.runtimePath) };
+  });
+
+  ipcMain.handle("archive-bay:runtime-choose", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const picked = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: "Choose your installed melonDS executable",
+      properties: ["openFile"],
+    });
+    if (picked.canceled || picked.filePaths.length === 0) return { configured: false };
+    try {
+      const runtimePath = await canonicalizeRuntimePath(picked.filePaths[0]);
+      const library = await getArchiveBayLibrary();
+      library.runtimePath = runtimePath;
+      await persistArchiveBayLibrary(library);
+      return { configured: true };
+    } catch (error) {
+      observability.captureException(error, { operation: "archive-bay-runtime-choose" });
+      throw new Error(archiveBayErrorMessage(error));
+    }
+  });
+
+  ipcMain.handle("archive-bay:launch", async (event, contentId) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    const library = await getArchiveBayLibrary();
+    const record = library.titles.get(String(contentId));
+    if (!record) throw new Error("ARCHIVE_BAY_TITLE_NOT_FOUND");
+    let spawnArgs;
+    try {
+      spawnArgs = buildLaunchSpawnArgs({ runtimePath: library.runtimePath, romPath: record.romPath });
+    } catch (error) {
+      throw new Error(archiveBayErrorMessage(error));
+    }
+    const child = spawn(spawnArgs.command, spawnArgs.args, spawnArgs.options);
+    activeArchiveBayLaunch = { contentId: record.contentId, child };
+    sendArchiveBayLaunchState({ contentId: record.contentId, status: "running" });
+    child.on("error", (error) => {
+      activeArchiveBayLaunch = null;
+      observability.captureException(error, { operation: "archive-bay-launch" });
+      sendArchiveBayLaunchState({
+        contentId: record.contentId,
+        status: "error",
+        code: "ARCHIVE_BAY_LAUNCH_FAILED",
+      });
+    });
+    child.on("exit", (code) => {
+      activeArchiveBayLaunch = null;
+      sendArchiveBayLaunchState({ contentId: record.contentId, status: "exited", exitCode: code });
+    });
+    return { contentId: record.contentId, status: "running" };
+  });
+
   ipcMain.handle("axis-browser:open", (event, input) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS browser request");
     return createBrowserWindow(input?.url, input?.title);

@@ -1439,6 +1439,29 @@
       "verification": "Link/path validation + JSON-independent documentation review + git diff --check"
     },
     {
+      "id": "16.0+16.1",
+      "title": "Archive Bay — licensing/threat-model ADR + bring-your-own-emulator launcher (parallel desktop track)",
+      "status": "landed (PR pending owner merge)",
+      "files_added": [
+        "docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md",
+        "electron/archive-bay.cjs",
+        "electron/archive-bay.test.cjs",
+        "src/lib/archive-bay.ts",
+        "src/components/vector/ArchiveBayModule.tsx",
+        "src/components/vector/ArchiveBayModuleLazy.tsx",
+        "src/app/vector/archive-bay/page.tsx"
+      ],
+      "files_changed": [
+        "electron/main.cjs",
+        "electron/axis-preload.cjs",
+        "electron/axis-preload.test.cjs",
+        "src/components/vector/VectorLobbyModule.tsx"
+      ],
+      "note": "Owner-authorized parallel desktop track (16.2+ managed-runtime distribution remains BLOCKED on the 16.0 ADR's licensing decision). 16.0: ADR 0005 records the emulator/native-port separation (new LegacyRuntimeKind domain: external-emulator | managed-emulator | native-recomp, fully separate from the 9 VectorGameSlug entries), the GPL-3.0 melonDS distribution fork (bring-your-own-emulator chosen for 16.1; bundling deferred and gated), the content-rights policy (user-owned local import only, ever; no downloader/search/scraping/circumvention; no ROM/BIOS/firmware in Git/Releases/Vercel/Supabase/Sentry/telemetry), local-path privacy, the child-process threat model, no-network default, and supported platforms. 16.1: Electron-main-process-only launcher — LegacyTitleRecord with opaque contentId + local sha256, library JSON in userData (never Supabase, never synced), both ROM and emulator paths chosen exclusively through native OS file dialogs (renderer can never supply a path or flag), spawn(runtime, [romPath], {shell:false}) as the entire child-process contract, coded path-free errors to the renderer, one launch at a time, visible running/exited/error states pushed over archive-bay:launch-state. Web surface: /vector/archive-bay (route-isolated dynamic client module) renders an honest desktop-only notice in a normal browser and the required content-rights copy ('System files are not included... Import only content you are legally entitled to use'); lobby links to it labeled 'desktop only'. Zero web-bundle logic beyond bridge types + UI; no schema, no cloud, no VECTOR game slugs touched. deliberately NOT patched here: scripts/check-desktop-security.mjs's pre-existing crash on the absent desktop-release.yml (owner's open PR #252 fixes it); electron tests were run directly via node --test.",
+      "tests": "15 new archive-bay unit tests (path canonicalization incl. symlink-to-disallowed-target, sha256, record validation, renderer projection never leaks a path, library parse/serialize round-trip + corrupt/oversized/duplicate rejection, atomic save, exact spawn-args contract) + 1 new preload-bridge invariant test; full electron suite 32/32 passes via node --test electron/*.test.cjs; web suite 1265/187 passes on this branch (base = main, pre-15.3); tsc clean; lint clean",
+      "verification": "node --test electron/*.test.cjs (32/32) + npx tsc --noEmit + npx eslint (changed files + full run) + npm run test + npm run build (new /vector/archive-bay route compiles; budgets checked). NOT verified here: a real melonDS launch on this machine (no melonDS installed in this environment — the spawn contract is unit-tested, the live launch is a manual owner step) and desktop packaging (desktop:check is blocked by the pre-existing #252 issue, not by this wave)."
+    },
+    {
       "id": "15.3",
       "title": "Second Sense — first complete, playable VECTOR title",
       "status": "landed (PR pending owner merge)",
