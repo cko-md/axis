@@ -19,19 +19,21 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T15:45:39.605Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-19T15:52:32.613Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `feat/wave-15.8-brickrise-scene`
-- **HEAD:** `f94934d9`
+- **HEAD:** `c8841e18`
 - **main:** `61a3d19d`
-- **Working tree:** has uncommitted changes
+- **Working tree:** clean
 
-### Not yet on main (1 commit(s))
+### Not yet on main (3 commit(s))
 
 These exist only on this branch. Do not assume main contains them.
 
+- `c8841e18` fix(vector): resolve Brickrise's four open manifest and design questions
+- `a9563212` docs(axis): re-derive checkpoint state for Wave 15.8
 - `f94934d9` feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix
 
 ## Waves merged to main
@@ -59,9 +61,9 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- **Tests:** 1464/1464 across 202 files
+- **Tests:** 1465/1465 across 202 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-19T15:45:39.620Z
+- **Measured at:** 2026-07-19T15:52:32.627Z
 
 <!-- END GENERATED: derive-program-state -->
 
