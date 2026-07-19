@@ -61,7 +61,9 @@ test("VECTOR lobby persists real local settings and exposes truthful platform ut
   for (const slug of GAME_SLUGS) {
     await expect(page.getByTestId(`vector-game-card-${slug}`)).toHaveAttribute(
       "data-game-status",
-      "planned",
+      // Second Sense shipped in Wave 15.3 as the first available title;
+      // every other catalog entry remains honestly planned.
+      slug === "second-sense" ? "available" : "planned",
     );
   }
 
@@ -109,9 +111,11 @@ test("VECTOR lobby persists real local settings and exposes truthful platform ut
   await expect(page).toHaveURL(/\/vector\/second-sense$/);
   await expect(page.getByTestId("vector-game-shell")).toHaveAttribute(
     "data-game-status",
-    "planned",
+    "available",
   );
-  await expect(page.getByTestId("vector-game-planned")).toBeVisible();
+  // Second Sense is a real, playable title as of Wave 15.3: the runtime
+  // mounts its mode/difficulty select screen instead of the planned gate.
+  await expect(page.getByTestId("second-sense-start")).toBeVisible({ timeout: 30_000 });
 
   expect(failures, `Browser failures:\n${failures.join("\n")}`).toEqual([]);
   expect(loginPrefetches, "Authenticated navigation must not prefetch /login").toEqual([]);
@@ -297,7 +301,9 @@ test("VECTOR quarantines checksum-invalid state and requires explicit discard", 
 
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.getByTestId("vector-game-conflict")).toHaveCount(0);
-  await expect(page.getByTestId("vector-game-planned")).toBeVisible();
+  // The conflict was the only thing withholding the runtime; Second Sense is
+  // available, so it now mounts its real mode/difficulty select screen.
+  await expect(page.getByTestId("second-sense-start")).toBeVisible({ timeout: 30_000 });
   await page.goto("/vector");
   await expect(page.getByTestId("vector-featured-conflicts")).toHaveCount(0);
   await expect(page.getByText("Quarantined save branch")).toHaveCount(0);

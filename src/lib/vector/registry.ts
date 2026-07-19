@@ -59,31 +59,77 @@ const planned = (
   },
 });
 
+// Measured from a real production build's offline manifest (five assets: the
+// webpack loader chunk, the standalone offline HTML/JS bootstrap, and both
+// artwork files). Re-measure via `npm run build` + inspecting
+// public/vector-assets/manifests/second-sense-<buildId>.json if these assets
+// change materially; the shared build-map validator does not require this
+// constant to match the real manifest exactly, but the UI's install-size
+// estimate should stay honest.
+const SECOND_SENSE_OFFLINE_ESTIMATED_BYTES = 285_952;
+
 export const VECTOR_GAME_REGISTRY = [
-  planned({
+  {
     id: "second-sense",
     slug: "second-sense",
+    loaderKey: "second-sense",
     title: "Second Sense",
     subtitle: "Measure time without seeing it.",
     shortDescription: "Reproduce hidden intervals from memory.",
     description:
-      "Five timing trials test absolute and proportional error without showing the clock during reproduction. Easy, Hard, solo, and deterministic daily modes arrive in the next game wave.",
-    availabilityReason: "Planned for Wave 15.3. No playable build or save record is claimed.",
+      "Five timing trials show a hidden interval, then hide the clock during reproduction. Absolute and proportional error are scored deterministically across Easy and Hard difficulties, solo practice, and a deterministic daily challenge with a UTC-day seed.",
+    version: "1.0.0",
+    saveSchemaVersion: 1,
+    status: "available",
+    availabilityReason: "Shipped in Wave 15.3 as the first complete VECTOR title.",
     engine: "native",
+    targetFrameRate: 60,
     orientation: "any",
     minimumViewport: { width: 320, height: 480 },
+    cover: {
+      status: "ready",
+      assetId: "second-sense-cover",
+      src: "/vector-assets/second-sense/cover.svg",
+      width: 960,
+      height: 540,
+      alt: "A radial timing dial artwork for Second Sense.",
+    },
+    preview: {
+      status: "ready",
+      assetId: "second-sense-preview",
+      src: "/vector-assets/second-sense/preview.svg",
+      width: 480,
+      height: 480,
+      alt: "A compact radial dial preview for Second Sense.",
+    },
     input: { keyboard: true, pointer: true, touch: true, gamepad: false },
     controls: [
       control("hold-key", "Hold interval", "keyboard", ["Space"], "Hold Space, then release when the remembered interval has elapsed."),
       control("hold-pointer", "Hold interval", "pointer", ["Primary button"], "Press and hold the timing surface, then release."),
       control("hold-touch", "Hold interval", "touch", ["Press and hold"], "Touch and hold the timing surface, then release."),
     ],
+    audio: {
+      available: false,
+      channels: [],
+      description: "Second Sense ships without audio in its first release; visual and DOM text carry every result.",
+    },
     reducedMotionBehavior: "Travel effects are replaced by opacity and immediate result changes.",
     accessibilityDescription: "All timing prompts, scores, state, and controls remain available as DOM text and buttons.",
     save: { local: true, cloud: true, slots: "single", deterministicSeed: true },
-    score: { kind: "personal-unverified", achievements: true, leaderboard: false, label: "Lowest timing error" },
+    score: { kind: "personal-unverified", achievements: false, leaderboard: false, label: "Lowest timing error" },
+    offline: {
+      available: true,
+      assetIds: [
+        "second-sense-cover",
+        "second-sense-preview",
+        "second-sense-offline-entry",
+        "second-sense-offline-bundle",
+      ],
+      estimatedBytes: SECOND_SENSE_OFFLINE_ESTIMATED_BYTES,
+      compatibility: "Installs the play surface, artwork, and a standalone offline bootstrap for a full cold launch without a network connection.",
+    },
     visualMotif: "dial",
-  }),
+  } satisfies VectorGameManifest,
   planned({
     id: "brickrise",
     slug: "brickrise",

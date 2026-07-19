@@ -12,6 +12,7 @@ import {
   DEFAULT_VECTOR_RUNTIME_SETTINGS,
   type VectorGameManifest,
   type VectorGamePersistenceSummary,
+  type VectorGameScoreInput,
   type VectorLibraryActions,
   type VectorRuntimeEvent,
   type VectorRuntimeSettings,
@@ -42,6 +43,8 @@ type Props = {
     code: Extract<VectorSaveMigrationResult, { ok: false }>["code"],
   ) => void | Promise<void>;
   onEvent?: (event: VectorRuntimeEvent) => void;
+  onRecordScore?: (input: VectorGameScoreInput) => void | Promise<void>;
+  onGetBestScore?: (input: { mode: string; challengeId: string | null }) => Promise<number | null>;
 };
 
 type RuntimeGate = {
@@ -71,6 +74,8 @@ export function VectorGameShell({
   onSave,
   onSaveMigrationFailure,
   onEvent,
+  onRecordScore,
+  onGetBestScore,
 }: Props) {
   const [localSettings, setLocalSettings] = useState(DEFAULT_VECTOR_RUNTIME_SETTINGS);
   const [systemReducedMotion, setSystemReducedMotion] = useState(false);
@@ -312,6 +317,8 @@ export function VectorGameShell({
             onSave={onSave}
             onSaveMigrationFailure={onSaveMigrationFailure}
             onEvent={onEvent}
+            onRecordScore={onRecordScore}
+            onGetBestScore={onGetBestScore}
           />
         ) : runtimeGate ? (
           <section

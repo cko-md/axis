@@ -157,13 +157,20 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function scoreKey(input: {
+/**
+ * Public so callers outside this module (e.g. a game reading its own best
+ * score for display) can look up `profile.scores` by the same key this
+ * module writes with — see `enqueueEvent`'s "score" branch below.
+ */
+export function vectorScoreKey(input: {
   gameId: VectorGameSlug;
   mode: string;
   challengeId: string | null;
 }): string {
   return `${input.gameId}:${input.mode}:${input.challengeId ?? ""}`;
 }
+
+const scoreKey = vectorScoreKey;
 
 function achievementKey(gameId: VectorGameSlug, achievementId: string): string {
   return `${gameId}:${achievementId}`;

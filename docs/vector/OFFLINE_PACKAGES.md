@@ -23,6 +23,39 @@ loader-chunk resolution method:
 `appPaths` adds the route's files from `.next/app-build-manifest.json`, but does
 not replace loader-chunk resolution. Missing paths, missing files, non-static
 Next paths, ambiguous patterns, absent digests, and catalog drift fail the
-post-build step. All games remain disabled in Wave 15.2, so the committed
-development map and generated deploy map are honestly empty until a playable
-game passes this gate.
+post-build step.
+
+## Wave 15.3: Second Sense is the first enabled game
+
+`config/vector-offline-packages.json` flips `second-sense` to `enabled: true`
+(every other catalog entry stays `false` — Wave 15.2's rule that a title must
+pass its own complete-game gate before enabling still holds). Its standalone
+offline shell has two parts:
+
+- `public/vector-assets/offline/second-sense.html` — the static HTML the
+  service worker substitutes for the real `/vector/second-sense` Next route
+  when the network is unreachable (see `matchInstalledGameNavigation` in
+  `public/sw.js`).
+- `public/vector-assets/offline/second-sense.js` — a framework-free bundle of
+  the actual game engine (`src/lib/vector/games/second-sense/game.ts`),
+  persistence (`persistence.ts`), and runtime host (`runtime.ts`), built by
+  `scripts/build-vector-offline-bootstrap.mjs` via esbuild. It is deliberately
+  NOT part of the webpack/Next build: it has to keep working when the Next
+  server (and therefore the webpack runtime that resolves content-hashed
+  chunk URLs) is unreachable. `npm run build`'s `postbuild` hook runs this
+  esbuild step before the manifest generator, since the generator hashes
+  whatever exists in `public/` at that moment.
+- `loaderChunkPatterns: ["static/chunks/second-sense.*.js"]` additionally
+  caches the real in-app webpack loader chunk
+  (`src/lib/vector/loaders.ts`'s `webpackChunkName: "second-sense"` dynamic
+  import), so the online in-app runtime also works from cache if the Next
+  app shell itself was already cached from an earlier visit.
+
+Both bundles run against the SAME `"axis-vector"` IndexedDB database and the
+SAME owner key already established while online (`openVectorRepository()`
+requires no network) — there is no separate offline data silo, and a save
+made fully offline is picked up by the normal reconnect push/pull/merge flow
+the next time the app runs online.
+
+The remaining eight games stay disabled until each passes its own
+complete-game gate.

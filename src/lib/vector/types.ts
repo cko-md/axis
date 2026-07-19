@@ -254,12 +254,39 @@ export type VectorRuntimeScheduler = {
   isRunning: () => boolean;
 };
 
+export type VectorGameScoreInput = {
+  /** Free-form mode key (e.g. "practice", "daily"); matches the shared score contract. */
+  mode: string;
+  /** Present only for repeatable named challenges, e.g. a daily UTC day key. */
+  challengeId: string | null;
+  /** Non-negative integer. Higher is always better under the shared merge (Math.max). */
+  value: number;
+};
+
 export type VectorGameCreateContext = {
   mount: HTMLElement;
   manifest: VectorGameManifest;
   settings: VectorRuntimeSettings;
   scheduler: VectorRuntimeScheduler;
   emit: (event: VectorRuntimeEvent) => void;
+  /**
+   * Record a durable score event through the platform's real sync pipeline
+   * (local outbox -> apply_vector_event -> cloud profile.scores), the same
+   * path saves use. Optional: a game that has no authoritative score (e.g.
+   * `score.kind === "none"`) never needs to call it. Absent instead of a
+   * no-op function when the host has nothing to wire it to, so a game can
+   * tell the difference between "not recorded yet" and "cannot be recorded
+   * here."
+   */
+  recordScore?: (input: VectorGameScoreInput) => void | Promise<void>;
+  /**
+   * Read back the current best value for a mode/challenge under the same
+   * shared merge `recordScore` writes through (Math.max — see
+   * mergeVectorBestScore), so a game can show "personal best" without
+   * tracking a second, potentially-drifting copy of that number itself.
+   * Resolves null if there is no recorded score yet, not an error.
+   */
+  getBestScore?: (input: { mode: string; challengeId: string | null }) => Promise<number | null>;
 };
 
 export type VectorGameInstance = {

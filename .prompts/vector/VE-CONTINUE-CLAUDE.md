@@ -24,10 +24,11 @@ local-only/blocked states.
 Deliver the full dependency-ordered VECTOR Arcade + Axis Envoys program as
 complete vertical slices. Do not present a game, worker, hosted deployment,
 score, install, sync, or generation result as real until its own evidence
-exists. The binding order is Wave 15.2 platform (done), 15.3 Second Sense,
-15.4 Envoy core, 15.5 starter hatch-pet packages, 15.6 generation control
-plane, 15.7 vendored worker/OpenAI/Render, then games 15.8–15.15 in the plan,
-and 15.16 final cross-game/production convergence.
+exists. The binding order is Wave 15.2 platform (done), 15.3 Second Sense
+(done, PR pending owner merge — see checkpoint below), 15.4 Envoy core,
+15.5 starter hatch-pet packages, 15.6 generation control plane, 15.7 vendored
+worker/OpenAI/Render, then games 15.8–15.15 in the plan, and 15.16 final
+cross-game/production convergence.
 
 **Binding-order amendment (owner-authorized, recorded 2026-07-18):** Phase 16
 (Archive Bay — a user-owned local emulator/native-port launcher, desktop-only)
@@ -42,8 +43,7 @@ a managed emulator runtime) is gated — on Phase 16.0's licensing ADR, not on
 ## Current checkpoint (2026-07-18)
 
 Wave 15.2 is implemented, converged, **and merged to main** (PR #239,
-2026-07-17). Live surface on `main` (head `a8c7be32` at last checkpoint —
-verify the exact current head before starting):
+2026-07-17):
 
 - `/vector` and `/vector/[game]` Instrument Deck shell; nine catalog entries
   are visibly planned/disabled and no engine is in the lobby bundle.
@@ -60,16 +60,47 @@ verify the exact current head before starting):
   (`supabase db push --dry-run` clean) — the pre-July filename drift and the
   `202607161401` task/approval privilege-contract migration were reconciled
   and applied via PR #237/#238.
-- Local gates on the merged head: `npx tsc --noEmit` clean, `npm run lint` 0
-  errors/0 warnings, `npm run test` 1265 passed / 187 files,
-  `npm run build` 175 pages, 187/187 route budgets pass, aggregate static JS
-  4322/4400 KB (98.2% — budget headroom is tight; watch this on the next
-  route addition). Postbuild VECTOR offline-manifest generator correctly
-  emits 0 enabled games (all 9 titles remain planned/disabled).
 - GitHub CI run `29659456809` on `main@a8c7be32` passed all three jobs
   (`verify`, `e2e-smoke`, `e2e-authenticated` — the latter is the
   fresh-Supabase authenticated Playwright suite including the VECTOR arcade
   spec). This closes the prior "browser gate NOT GREEN" blocker.
+
+Wave 15.3 (Second Sense) is implemented on a branch off `main`, with a PR
+open and **pending owner merge** — verify the exact PR number/status before
+continuing (`gh pr list`). Do not re-derive it; if it is already merged,
+treat the facts below as historical and re-read the current
+`docs/axis-redesign/15-completion-matrix.md` + `PROGRAM_STATE.json` instead.
+
+- Second Sense is the first complete, "available" VECTOR title: native
+  DOM/Canvas, five hidden-timer reproduction trials, absolute + proportional
+  error scoring (`src/lib/vector/games/second-sense/scoring.ts`), Easy/Hard
+  difficulty, one normalized keyboard/pointer/touch hold-state machine
+  (`inputState.ts`), a deterministic UTC-day-seeded daily challenge plus a
+  fresh-random-seed practice mode (`rng.ts`), and local+cloud-synced personal
+  best via new optional `recordScore`/`getBestScore` capabilities added to
+  `VectorGameCreateContext` (`types.ts`) — both call the pre-existing
+  `enqueueEvent`/`loadProfile` persistence path, no schema/migration change.
+- Offline install now genuinely works end-to-end: `config/vector-offline-packages.json`
+  flips `second-sense` to `enabled`; a new esbuild step
+  (`scripts/build-vector-offline-bootstrap.mjs`, wired into `postbuild`
+  before the manifest generator) bundles the SAME framework-free game engine
+  into a standalone `public/vector-assets/offline/second-sense.js` referenced
+  by a hand-authored offline HTML shell — verified against a real production
+  build (5-asset, 285,952-byte manifest; the VECTOR offline package gate now
+  reports "1 enabled game(s)", up from 0).
+- Local gates on this branch: `npx tsc --noEmit` clean, `npm run lint` 0
+  errors/0 warnings, `npm run test` 1299 passed / 191 files, `npm run build`
+  175 pages, 187/187 route budgets pass, aggregate static JS **4341/4400 KB
+  (98.7%)** — budget headroom is now VERY tight; the next game's chunk may
+  need a deliberate, evidenced budget raise or further code-splitting first.
+- `tests/e2e/vector-authenticated.spec.ts` was updated to match (Second
+  Sense's lobby card and route now assert `data-game-status="available"`
+  instead of `"planned"`, and the runtime is expected to actually mount) but
+  this could **NOT be executed in this environment** (no local Supabase
+  stack). The exact-head GitHub `e2e-authenticated` CI job on this PR is the
+  real gate — check it before treating Wave 15.3 as fully closed, and be
+  ready to adjust selectors if it fails (the edit was reasoned through, not
+  observed running).
 
 ## Hosted gate truth (owner-only, unchanged by this checkpoint)
 
@@ -94,36 +125,44 @@ deployment metadata, source-map upload scope, or a local Next build. Do not
 mutate production or invoke paid OpenAI generation without explicit
 in-session owner authorization.
 
-## Next execution: Wave 15.3 Second Sense
+## Next execution: Wave 15.4 Envoy core
 
-Implement the first real game as a complete vertical slice before any later
-game. Use native DOM/Canvas only; do not add Phaser or Three.js. Requirements
-from `docs/vector/PLAN.md`:
+Do not start this until Wave 15.3's PR has merged and its exact-head CI
+(especially `e2e-authenticated`) is confirmed green — re-verify with
+`gh pr checks <number>` rather than assuming the state recorded above still
+holds. Read `docs/axis-redesign/15-completion-matrix.md`'s "Envoy core"
+table (currently `open`/`partial` across every row) and the full binding
+contract in `docs/vector/PLAN.md` before writing code. Key requirements
+(source lines noted in the completion matrix):
 
-1. Five hidden-timer reproductions from memory.
-2. Absolute and proportional error scoring.
-3. Easy and Hard modes.
-4. Responsive press-and-hold or start/stop interaction.
-5. Restrained, satisfying timing feedback with reduced-motion support.
-6. Solo mode and deterministic daily challenge.
-7. Local best and cloud-synced best using the shared platform contracts.
-8. Keyboard, pointer, and touch input with accessible focus and 44px targets.
-9. Explicit loading, local-only, pending, synced, conflict, error, quota, and
-   unavailable states; no fake scores or global ranking claims.
-10. Route-isolated dynamic loader, bounded checkpoint/autosave, offline
-    install, reconnect flush/pull/merge, refresh persistence, and visible
-    feedback.
-11. No copied Dialed branding, layout, effects, or text.
+1. Envoy appearance independent of Focus/Intel/Ask; preserve context, privacy,
+   error handling, Sentry reporting, focus management, Escape, and abort
+   behavior; a status-first panel.
+2. Feature-split into a dynamic `EnvoyHost`, with safe legacy mapping and
+   show/hide/`activeEnvoyId` state; remove the old Mascot component only
+   after parity is proven, not before.
+3. Original anthropomorphic, non-robot starter designs; every hatch state and
+   artifact represented.
+4. Deterministic, truthful mapping of every task/routine/approval state to
+   what the Envoy displays — real fields and counts, deep links to the
+   actual task/run/approval/result (never a generic chat), multi-task
+   priority ordering, realtime or bounded polling.
+5. Low-rate idle animation; pauses when hidden or a game is running; no
+   stutter, layout shift, or memory leak; reduced motion respected.
+6. Interface Studio gets only a quick picker; full management lives in a
+   dedicated Envoy Lab surface.
+7. A prompt + "Surprise Me" + structured seeded brief + explicit confirmation
+   flow for generation requests — this wave defines the UX and the
+   deterministic randomizer/seed contract, NOT live paid generation (that is
+   gated to Wave 15.6/15.7 behind explicit owner authorization for OpenAI
+   spend).
 
-For this wave, inspect the platform contracts first, add the smallest real
-engine-free game module and its loader, then add API/RPC/event fields only if
-the existing schema cannot express the deterministic score (score mode e.g.
-`"daily"` with `challengeId=day-key`, `"practice"` without). Add migrations +
-RLS review for any schema change. Test unit contracts, route ownership, local
-SQL, public/auth browser flows, mobile/keyboard/touch, offline/reconnect,
-refresh, and error paths. Keep every score deterministic and mark any
-non-authoritative value as unverified. Update the completion matrix, program
-state, defect ledger, and this file before committing.
+This wave's own binding acceptance, adversarial review, and exact test/build
+evidence must be produced the same way Wave 15.3's was — inspect current
+Mascot/EnvoyHost code first, add the smallest real vertical slice, extend
+shared contracts only additively, test unit/route/browser paths, and update
+the completion matrix, program state, defect ledger, and this file before
+committing.
 
 ## Required working pattern
 
@@ -145,16 +184,17 @@ state, defect ledger, and this file before committing.
   Vercel/Sentry status, tests, manual checklist, risks, and the next
   dependency.
 
-## Handoff facts (2026-07-18 checkpoint repair)
+## Handoff facts (2026-07-18, updated after Wave 15.3)
 
-`main@a8c7be32` is the last-verified head at the time of this checkpoint
-repair — re-verify with `git fetch origin && git log --oneline -1
-origin/main` before starting new work, since further PRs may have merged
+`main@a8c7be32` was the last-verified merged head before Wave 15.3 started —
+re-verify with `git fetch origin && git log --oneline -1 origin/main` before
+starting new work, since Wave 15.3's PR (and possibly others) may have merged
 since. This file previously assumed a `codex/vector-phase15-convergence`
 working branch and a machine-local owner-brief attachment
 (`~/.codex/attachments/...`); both are gone — do not look for either. The
 tracked docs listed at the top of this file are the sole source of truth.
 
 Do NOT push, merge, or apply any hosted migration without explicit owner
-authorization in the session. Begin Wave 15.3 (Second Sense) from a fresh
-branch off `main`.
+authorization in the session. Begin Wave 15.4 (Envoy core) from a fresh
+branch off `main` — only after confirming Wave 15.3 is merged and its CI is
+green.
