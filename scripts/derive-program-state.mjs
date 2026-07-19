@@ -455,11 +455,29 @@ function detectDrift(state) {
         );
       }
     }
+    // Deliberately NOT an equality check. Every commit moves HEAD, so requiring
+    // an exact match would fail on literally every pull request and train
+    // everyone to ignore this job — which is how the docs rotted in the first
+    // place. What actually matters is whether the recorded commit still belongs
+    // to this history; a doc one commit behind is fine, a doc pointing at a
+    // commit that no longer exists here is genuinely stale.
     const headMatch = text.match(/\*\*HEAD:\*\*\s*`([0-9a-f]+)`/);
     if (headMatch && !state.git.head.startsWith(headMatch[1])) {
-      problems.push(
-        `${CANONICAL_DOC} records HEAD ${headMatch[1]} but HEAD is ${state.git.head.slice(0, 8)}. Run: npm run state:derive`,
-      );
+      let isAncestor = false;
+      try {
+        execFileSync("git", ["merge-base", "--is-ancestor", headMatch[1], state.git.head], {
+          cwd: REPO,
+          stdio: "ignore",
+        });
+        isAncestor = true;
+      } catch {
+        isAncestor = false;
+      }
+      if (!isAncestor) {
+        problems.push(
+          `${CANONICAL_DOC} records HEAD ${headMatch[1]}, which is not an ancestor of ${state.git.head.slice(0, 8)}. Run: npm run state:derive`,
+        );
+      }
     }
   }
 

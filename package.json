@@ -19,7 +19,7 @@
     "desktop:check": "node scripts/check-electron-version.mjs && node scripts/check-desktop-security.mjs && npm run desktop:test",
     "desktop:check:current": "node scripts/check-electron-current.mjs",
     "desktop:dist": "npm run desktop:check && electron-builder --projectDir electron --config electron-builder.cjs",
-    "desktop:dist:dir": "npm run desktop:check && electron-builder --projectDir electron --config electron-builder.cjs --dir",
+    "desktop:dist:dir": "npm run desktop:check && electron-builder --projectDir electron --config electron-builder.cjs --dir && npm run desktop:verify:fuses",
     "desktop:preview:validate": "node scripts/validate-desktop-preview.mjs",
     "desktop:release": "npm run desktop:check && node scripts/validate-desktop-release.mjs && electron-builder --projectDir electron --config electron-builder.cjs",
     "desktop:size": "node scripts/report-desktop-size.mjs",
@@ -33,7 +33,9 @@
     "axis": "node scripts/axis.mjs",
     "state:derive": "node scripts/derive-program-state.mjs",
     "state:derive:gates": "node scripts/derive-program-state.mjs --gates",
-    "state:check": "node scripts/derive-program-state.mjs --check"
+    "state:check": "node scripts/derive-program-state.mjs --check",
+    "desktop:verify:fuses": "node scripts/verify-desktop-fuses.mjs",
+    "test:e2e:electron": "playwright test --config playwright.electron.config.ts"
   },
   "engines": {
     "node": "24.x"

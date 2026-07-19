@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T09:11:09.858Z",
+  "derivedAt": "2026-07-19T09:32:15.289Z",
   "git": {
     "branch": "feat/redesign-continuation-2026-07-19",
-    "head": "af33e72c4dbcc736a17e972e7d0683c75c65d23f",
+    "head": "f24f68cdd99815548000821362d2bffcc131859d",
     "mainHead": "d8a15e7bff4bb176afde3e7b04212d858611083b",
     "workingTreeClean": false,
     "aheadOfMain": [
+      {
+        "sha": "f24f68cd",
+        "subject": "feat(desktop): Electron security hardening with runtime verification"
+      },
+      {
+        "sha": "92c48b12",
+        "subject": "feat(axis): MFA trust window, widget typography, and derived state documentation"
+      },
       {
         "sha": "af33e72c",
         "subject": "feat(axis): remove Envoys, strip Second Sense visuals, fix persistence/OAuth/desktop browser"

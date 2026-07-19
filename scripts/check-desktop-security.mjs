@@ -59,8 +59,32 @@ for (const invariant of [
   "sandbox: true",
   "webSecurity: true",
   'partition: "persist:axis-browser"',
+  // Exactly one main process owns the updater, the single mainWindow, and
+  // Archive Bay's install/remove concurrency guards.
+  "requestSingleInstanceLock",
+  "second-instance",
+  // axis:// links are registered and must go through the allowlisting parser
+  // rather than being navigated to directly.
+  "setAsDefaultProtocolClient",
+  "parseDeepLink",
+  // The hosted origin runs in defaultSession, which previously had no
+  // permission policy at all and inherited Chromium's permissive defaults.
+  "configureDefaultSessionPermissions",
+  "setPermissionRequestHandler",
+  // Downloads must be filename-sanitised and never auto-opened.
+  "will-download",
+  "attachDownloadPolicy",
 ]) {
   if (!mainSource.includes(invariant)) throw new Error(`Missing Electron security invariant: ${invariant}`);
+}
+
+// The reader renders sanitized third-party HTML in a window that holds a
+// preload, so it must stay pinned to the local reader resource.
+const readerLockdown = mainSource.slice(mainSource.indexOf("readerWindow = new BrowserWindow"));
+for (const invariant of ["will-navigate", "setWindowOpenHandler"]) {
+  if (!readerLockdown.includes(invariant)) {
+    throw new Error(`Reader window is missing a navigation lockdown invariant: ${invariant}`);
+  }
 }
 for (const invariant of [
   "forceCodeSigning",
@@ -68,6 +92,17 @@ for (const invariant of [
   "notarize: isRelease",
   "azureSignOptions",
   "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
+  // Package-time fuses. Each of the first three is a documented way to turn an
+  // Electron binary into an arbitrary Node runtime; the ASAR pair makes a
+  // swapped source file fail to load rather than execute.
+  "electronFuses",
+  "runAsNode: false",
+  "enableNodeOptionsEnvironmentVariable: false",
+  "enableNodeCliInspectArguments: false",
+  "enableEmbeddedAsarIntegrityValidation: true",
+  "onlyLoadAppFromAsar: true",
+  "enableCookieEncryption: true",
+  "grantFileProtocolExtraPrivileges: false",
 ]) {
   if (!builderSource.includes(invariant)) throw new Error(`Missing release invariant: ${invariant}`);
 }

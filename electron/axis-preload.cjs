@@ -40,10 +40,34 @@ const archiveBayManagedRuntime = {
   },
 };
 
+// axis:// deep links. The main process has already parsed and allowlisted the
+// link (electron/deep-links.cjs); what arrives here is a resolved internal path
+// or an opaque one-time OAuth id, never an OS-supplied string and never a
+// token. The renderer decides how to route it.
+const deepLinks = {
+  onOpen(listener) {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("axis-deep-link", handler);
+    return () => ipcRenderer.removeListener("axis-deep-link", handler);
+  },
+  // Lets the app collect a link that arrived during a cold start, before any
+  // renderer existed to receive the event.
+  consumePending: () => ipcRenderer.invoke("axis-deep-link:consume-pending"),
+};
+
 contextBridge.exposeInMainWorld("axisDesktop", {
   openBrowser,
   archiveBay,
   archiveBayManagedRuntime,
+  deepLinks,
+  // Versioned capability contract. The web app should branch on these rather
+  // than sniffing the DOM or the user agent.
+  capabilities: Object.freeze({
+    shellContract: 1,
+    nativeBrowser: true,
+    deepLinks: true,
+    archiveBay: true,
+  }),
 });
 
 const SIDEBAR_PREF_KEY = "axis-sidebar";

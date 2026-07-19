@@ -25,6 +25,19 @@
  * Every failure path returns false. A missing secret, a malformed token, a bad
  * signature, an expired window, a different user, or a changed factor all mean
  * "challenge the user". There is no path where an error grants trust.
+ *
+ * ── Known limitation: revocation is not global ───────────────────────────────
+ * Verification is self-contained by design — middleware runs on every request,
+ * so calling listFactors() here would add a network round-trip to the whole
+ * app. The consequence is that unenrolling a factor clears the cookie on the
+ * browser performing the unenrollment, but a token already resident on a
+ * DIFFERENT device stays valid until its window expires.
+ *
+ * Exposure is bounded by that window (default 30d, cap 90d) and the holder
+ * still needs valid credentials, since this never authenticates. If global
+ * immediate revocation is required, the fix is a `mfa_trusted_devices` table
+ * with a per-user epoch that this function compares against — which trades a
+ * DB read per request for real revocation. That trade has not been made.
  */
 
 const ENCODER = new TextEncoder();

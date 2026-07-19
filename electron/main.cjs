@@ -45,10 +45,24 @@ const {
   createManagedExtensionManager,
 } = require("./browser-capabilities.cjs");
 const { createDesktopObservability } = require("./desktop-observability.cjs");
+const { findDeepLinkInArgv, parseDeepLink } = require("./deep-links.cjs");
 const { resolveRuntimeConfig } = require("./runtime-config.cjs");
 const { createUpdateController } = require("./update-controller.cjs");
 
 app.enableSandbox();
+
+// Exactly one main process. A second launch (including one triggered by an
+// axis:// link) must hand off to the running instance rather than starting a
+// rival: Archive Bay's runtime install/remove guards, the updater, and the
+// single mainWindow reference all assume one process owns them.
+//
+// A bare top-level return is legal — Node wraps every CJS module in a function —
+// and it exits before any window, IPC, or dev-server code runs in the loser.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  return;
+}
 
 const startsDevServer = process.argv.includes("--dev");
 const runtime = resolveRuntimeConfig({ isPackaged: app.isPackaged });
@@ -320,8 +334,91 @@ function recordFor(event) {
   return browserWindows.get(event.sender.id);
 }
 
+/**
+ * Downloads were entirely unpoliced: no session had a will-download listener,
+ * so a download went wherever Chromium decided with whatever filename the
+ * server supplied.
+ *
+ * The filename is attacker-controlled, so it is reduced to a basename and
+ * stripped of path and shell-significant characters before use. Nothing is ever
+ * auto-opened on completion — not executables, not anything — because opening a
+ * downloaded file is the step that turns a download into code execution.
+ */
+function attachDownloadPolicy(targetSession, label) {
+  targetSession.on("will-download", (_event, item) => {
+    const rawName = item.getFilename() || "download";
+    const safeName =
+      path
+        .basename(rawName)
+        .replace(/[ -]/g, "")
+        .replace(/[\\/:*?"<>|]+/g, "_")
+        .replace(/^\.+/, "")
+        .slice(0, 200) || "download";
+
+    item.setSavePath(path.join(app.getPath("downloads"), safeName));
+
+    item.once("done", (_doneEvent, state) => {
+      if (state === "completed") return;
+      // A failed download is a visible event, not a silent no-op.
+      observability.captureMessage("Download did not complete", {
+        operation: "download",
+        session: label,
+        state,
+      });
+    });
+  });
+}
+
+/**
+ * The main window loads the hosted AXIS origin into session.defaultSession,
+ * which had NO permission policy — so that remote origin inherited Chromium's
+ * permissive defaults for camera, microphone, geolocation and more.
+ *
+ * The allowlist below is what the web app actually uses (audio-only capture for
+ * voice notes, notifications for the timers, geolocation for the weather
+ * widget). Everything else is denied, and permission is only ever granted to
+ * the AXIS origin itself.
+ */
+function configureDefaultSessionPermissions() {
+  const allowed = new Set(["media", "notifications", "geolocation"]);
+
+  const isAxisOrigin = (requestingUrl) => {
+    try {
+      return new URL(requestingUrl).origin === axisOrigin;
+    } catch {
+      return false;
+    }
+  };
+
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const requestingUrl = details?.requestingUrl || contents?.getURL?.() || "";
+    if (!isAxisOrigin(requestingUrl) || !allowed.has(permission)) {
+      callback(false);
+      return;
+    }
+    // Voice notes use audio only; there is no camera or screen capture anywhere
+    // in the app, so a video request is a request the app did not make.
+    if (permission === "media" && details?.mediaTypes?.includes("video")) {
+      callback(false);
+      return;
+    }
+    callback(true);
+  });
+
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => {
+    return allowed.has(permission) && requestingOrigin === axisOrigin;
+  });
+
+  // No feature in AXIS captures a screen or window.
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => callback(null));
+
+  attachDownloadPolicy(session.defaultSession, "default");
+}
+
 async function configureBrowserSession() {
+  configureDefaultSessionPermissions();
   const browserSession = session.fromPartition("persist:axis-browser");
+  attachDownloadPolicy(browserSession, "browser");
   const promptable = new Set(["media", "geolocation", "notifications", "clipboard-read"]);
   const chromiumUserAgent = browserSession
     .getUserAgent()
@@ -420,6 +517,15 @@ function sendManagedRuntimeProgress(payload) {
 }
 
 function registerIpc() {
+  // A link that arrived before any renderer existed (cold start). Sender-gated
+  // like every other channel, and cleared on read so it is delivered once.
+  ipcMain.handle("axis-deep-link:consume-pending", (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS deep-link request");
+    const pending = pendingDeepLink;
+    pendingDeepLink = null;
+    return pending;
+  });
+
   ipcMain.handle("archive-bay:list", async (event) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
     const library = await getArchiveBayLibrary();
@@ -697,6 +803,20 @@ function registerIpc() {
           sandbox: true,
         },
       });
+      // The reader renders sanitized third-party HTML into a window that holds
+      // a preload. It must therefore stay pinned to the local reader resource:
+      // any navigation away, and any popup, leaves for the isolated browser or
+      // the system browser instead of loading remote content into this origin.
+      readerWindow.webContents.on("will-navigate", (event, nextUrl) => {
+        if (nextUrl === readerFileUrl || nextUrl.startsWith(`${readerFileUrl}?`)) return;
+        event.preventDefault();
+        void openSafeExternal(nextUrl);
+      });
+      readerWindow.webContents.setWindowOpenHandler(({ url: nextUrl }) => {
+        void openSafeExternal(nextUrl);
+        return { action: "deny" };
+      });
+
       readerWindow.on("closed", () => readerArticles.delete(articleId));
       await readerWindow.loadFile(path.join(__dirname, "reader.html"), { query: { article: articleId } });
     } catch (error) {
@@ -949,6 +1069,13 @@ app.on("child-process-gone", (_event, details) => {
 });
 
 app.whenReady().then(async () => {
+  // Register axis:// before the first window exists so a cold-start link is
+  // attributable to this build.
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient("axis");
+  } else if (process.argv[1]) {
+    app.setAsDefaultProtocolClient("axis", process.execPath, [path.resolve(process.argv[1])]);
+  }
   if (process.platform === "darwin" && app.dock && !nativeImage.createFromPath(appIconPath).isEmpty()) {
     app.dock.setIcon(appIconPath);
   }
@@ -964,6 +1091,48 @@ app.whenReady().then(async () => {
   installApplicationMenu();
   await createMainWindow();
   await runCrashReporterSmoke();
+});
+
+// ── axis:// deep links ───────────────────────────────────────────────────────
+// Everything below routes through parseDeepLink, which allowlists a small set
+// of internal routes and refuses to carry credentials. A link that does not
+// parse is ignored — never navigated to, never logged in full (an OS-supplied
+// string may contain anything).
+
+let pendingDeepLink = null;
+
+function deliverDeepLink(raw) {
+  const parsed = parseDeepLink(raw);
+  if (!parsed) {
+    observability.captureMessage("Ignored an unrecognised deep link", {
+      operation: "deep-link",
+    });
+    return;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    mainWindow.webContents.send("axis-deep-link", parsed);
+    pendingDeepLink = null;
+    return;
+  }
+  // Cold start: no renderer yet. Hold it for consumePending().
+  pendingDeepLink = parsed;
+}
+
+app.on("second-instance", (_event, argv) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+  const link = findDeepLinkInArgv(argv);
+  if (link) deliverDeepLink(link);
+});
+
+// macOS delivers links via open-url rather than argv, on both cold and warm start.
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  deliverDeepLink(url);
 });
 
 app.on("before-quit", () => {

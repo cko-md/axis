@@ -41,6 +41,30 @@ module.exports = {
   removePackageKeywords: true,
   removePackageScripts: true,
   forceCodeSigning: isRelease && (process.platform === "darwin" || process.platform === "win32"),
+  // Package-time Electron fuses. These are flipped in the packaged binary
+  // itself, so they hold even if someone tampers with the JavaScript: an
+  // attacker who can drop a file next to the app still cannot turn it into a
+  // general-purpose Node runtime.
+  //
+  // runAsNode / NODE_OPTIONS / inspect arguments are the three standard ways to
+  // coerce an Electron binary into executing arbitrary code with the app's
+  // entitlements — all disabled. ASAR integrity plus only-load-from-ASAR means
+  // a swapped or added source file fails to load rather than silently
+  // executing. Cookie encryption protects the session cookies at rest, which
+  // for AXIS includes the Supabase session and the OAuth tokens.
+  //
+  // Verified after packaging by scripts/verify-desktop-fuses.mjs — a fuse
+  // asserted in config but not present in the artifact is worth nothing.
+  electronFuses: {
+    runAsNode: false,
+    enableCookieEncryption: true,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableEmbeddedAsarIntegrityValidation: true,
+    onlyLoadAppFromAsar: true,
+    loadBrowserProcessSpecificV8Snapshot: false,
+    grantFileProtocolExtraPrivileges: false,
+  },
   directories: {
     buildResources: "build",
     output: "../dist-electron",
