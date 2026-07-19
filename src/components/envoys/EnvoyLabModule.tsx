@@ -5,9 +5,11 @@ import { AxisChromePanel } from "@/components/ui/axis/AxisChromePanel";
 import { Button } from "@/components/ui/Button";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useEnvoyCore } from "@/hooks/useEnvoyCore";
+import { getHatchPackage } from "@/lib/envoys/hatchPackage";
 import { ENVOY_REGISTRY, getEnvoy } from "@/lib/envoys/registry";
 import type { EnvoyWorkItem } from "@/lib/envoys/activeWork";
 import styles from "@/components/vector/Vector.module.css";
+import labStyles from "./EnvoyLab.module.css";
 
 function WorkRow({ item }: { item: EnvoyWorkItem }) {
   return (
@@ -36,6 +38,8 @@ function WorkRow({ item }: { item: EnvoyWorkItem }) {
 export function EnvoyLabModule() {
   const { workView, selection, selectEnvoy } = useEnvoyCore();
   const active = getEnvoy(selection.activeEnvoyId);
+  const activePackage = getHatchPackage(selection.activeEnvoyId);
+  const anyCandidate = ENVOY_REGISTRY.some((record) => record.status === "candidate");
 
   return (
     <div className={styles.gameShell} data-testid="envoy-lab">
@@ -46,27 +50,64 @@ export function EnvoyLabModule() {
           <p className={styles.gameSubtitle}>
             One identity, chosen by you. Appearance never changes what Focus, Intel, or Ask can do.
           </p>
-          <StatusCallout kind="info" title="Starter identities are candidates.">
-            Generated Envoy art ships in a later wave. Until each package passes its
-            deterministic QA, these entries are names and descriptions only — nothing rendered is
-            claimed to exist.
-          </StatusCallout>
+          {anyCandidate ? (
+            <StatusCallout kind="info" title="Some starter identities are still candidates.">
+              A starter shows artwork only after its hatch package passes deterministic
+              validation; the rest remain names and descriptions — nothing unrendered is claimed.
+            </StatusCallout>
+          ) : (
+            <StatusCallout kind="info" title="Starter art is hand-authored.">
+              Every starter portrait is original, hand-authored vector art validated by its hatch
+              package. No AI-generated imagery is used or claimed.
+            </StatusCallout>
+          )}
         </div>
       </section>
 
+      {activePackage ? (
+        <AxisChromePanel className={labStyles.portrait} data-testid="envoy-portrait">
+          {/* key forces the reduced-motion-aware hatch-reveal on identity change */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- self-hosted static SVG; next/image adds nothing for local vector art */}
+          <img
+            key={activePackage.envoyId}
+            src={activePackage.artworkUrl}
+            alt={activePackage.alt}
+            width={activePackage.artworkSize}
+            height={activePackage.artworkSize}
+          />
+          <div className={labStyles.portraitMeta}>
+            <strong>{active.name}</strong>
+            <span>{active.motif} · package v{activePackage.version}</span>
+            <span>{active.description}</span>
+          </div>
+        </AxisChromePanel>
+      ) : (
+        <StatusCallout kind="empty" title={`${active.name} has not hatched yet.`}>
+          This starter&apos;s package has not passed validation, so no artwork is shown for it.
+        </StatusCallout>
+      )}
+
       <AxisChromePanel className={styles.gameUtilityBar}>
         <div role="group" aria-label="Active Envoy" className={styles.controlGrid} data-testid="envoy-picker">
-          {ENVOY_REGISTRY.map((record) => (
-            <Button
-              key={record.id}
-              variant={record.id === selection.activeEnvoyId ? "primary" : "ghost"}
-              aria-pressed={record.id === selection.activeEnvoyId}
-              data-testid={`envoy-pick-${record.id}`}
-              onClick={() => selectEnvoy(record.id)}
-            >
-              {record.name}
-            </Button>
-          ))}
+          {ENVOY_REGISTRY.map((record) => {
+            const thumb = getHatchPackage(record.id);
+            return (
+              <Button
+                key={record.id}
+                variant={record.id === selection.activeEnvoyId ? "primary" : "ghost"}
+                aria-pressed={record.id === selection.activeEnvoyId}
+                data-testid={`envoy-pick-${record.id}`}
+                onClick={() => selectEnvoy(record.id)}
+              >
+                {thumb ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- self-hosted static SVG thumbnail
+                  <img className={labStyles.pickerThumb} src={thumb.artworkUrl} alt="" aria-hidden />
+                ) : null}
+                {record.name}
+                {record.status === "candidate" ? " · candidate" : ""}
+              </Button>
+            );
+          })}
         </div>
         <span role="status" data-testid="envoy-selection-state">
           {selection.persistence === "loading"

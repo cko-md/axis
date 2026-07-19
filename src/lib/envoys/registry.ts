@@ -8,6 +8,8 @@
  * rendered asset exists. The registry is pure data — no React, no DOM.
  */
 
+import { envoyStatusFor } from "@/lib/envoys/hatchPackage";
+
 export const ENVOY_IDS = [
   "meridian",
   "cairn",
@@ -28,36 +30,42 @@ export type EnvoyRecord = {
   status: EnvoyStatus;
 };
 
-export const ENVOY_REGISTRY: readonly EnvoyRecord[] = [
+/**
+ * Status is DERIVED, never asserted: a starter reads "hatched" only when its
+ * hatch package passes deterministic validation (Wave 15.5, envoyStatusFor
+ * in hatchPackage.ts — a leaf module, so this import cannot cycle).
+ */
+const BASE_ENVOYS: readonly Omit<EnvoyRecord, "status">[] = [
   {
     id: "meridian",
     name: "Meridian",
     motif: "navigator",
     description: "A steady route-finder; the default continuation of the legacy monolith presence.",
-    status: "candidate",
   },
   {
     id: "cairn",
     name: "Cairn",
     motif: "waymark",
     description: "A patient marker-stacker; the continuation of the legacy deck presence.",
-    status: "candidate",
   },
   {
     id: "vesper",
     name: "Vesper",
     motif: "signal",
     description: "A luminous signal-watcher; the continuation of the legacy nova presence.",
-    status: "candidate",
   },
   {
     id: "solace",
     name: "Solace",
     motif: "harbor",
     description: "A calm harbor-keeper; a new identity with no legacy ancestor.",
-    status: "candidate",
   },
 ];
+
+export const ENVOY_REGISTRY: readonly EnvoyRecord[] = BASE_ENVOYS.map((record) => ({
+  ...record,
+  status: envoyStatusFor(record.id),
+}));
 
 const ENVOY_ID_SET = new Set<string>(ENVOY_IDS);
 
