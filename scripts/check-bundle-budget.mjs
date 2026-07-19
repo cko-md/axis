@@ -37,9 +37,16 @@ const BUDGETS = path.resolve(process.cwd(), ".claude/axis-redesign/PERFORMANCE_B
 const TYPES_SOURCE = path.resolve(process.cwd(), "src/lib/vector/types.ts");
 
 /**
- * Engine vendor chunks. These names are asserted by an explicit
- * `webpackChunkName` magic comment at the import site, so a chunk can only land
- * here by being deliberately named — never by accident.
+ * Engine vendor chunks. These names are assigned by dedicated splitChunks
+ * cacheGroups in next.config.ts, keyed on the engine's node_modules path, so a
+ * chunk can only land here by being deliberately named — never by accident.
+ *
+ * Note the name deliberately does NOT come from a `webpackChunkName` magic
+ * comment at the import site: a magic comment and a cacheGroup competing for
+ * one name cancel each other out (SplitChunksPlugin drops the cacheGroup entry
+ * when the name is already in `compilation.namedChunks` and is not a parent of
+ * the selected chunks), leaving the engine hash-named and misfiled into the
+ * shared budget. See next.config.ts and src/lib/vector/engine-chunks.test.ts.
  */
 const ENGINE_VENDOR_CHUNKS = ["vector-engine-phaser", "vector-engine-three"];
 

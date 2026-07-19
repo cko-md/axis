@@ -24,6 +24,21 @@ export const VECTOR_GAME_LOADERS: Partial<Record<VectorGameSlug, VectorGameLoade
         "@/lib/vector/games/second-sense/game"
       ).then((module) => module.default),
     },
+    // Brickrise's mechanical core and Phaser shell are complete (Wave 15.8),
+    // but the registry keeps it `planned` until the design layer delivers
+    // sprites and lighting — a loader on a planned game is valid, and flipping
+    // status without artwork trips AVAILABLE_WITHOUT_ARTWORK.
+    //
+    // The chunk name below covers this module's own first-party code. Phaser
+    // itself is named separately by a splitChunks cacheGroup in next.config.ts
+    // (`vector-engine-phaser`), NOT by a magic comment — see game.ts.
+    brickrise: {
+      engine: "phaser",
+      load: () => import(
+        /* webpackChunkName: "brickrise" */
+        "@/lib/vector/games/brickrise/game"
+      ).then((module) => module.default),
+    },
   });
 
 export class VectorGameLoaderUnavailableError extends Error {

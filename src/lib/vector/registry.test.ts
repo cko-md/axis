@@ -20,8 +20,13 @@ describe("VECTOR game registry", () => {
     expect(VECTOR_GAME_REGISTRY).toHaveLength(9);
   });
 
-  it("keeps every remaining game honestly planned and disabled after Wave 15.3", () => {
-    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual(["second-sense"]);
+  it("keeps every remaining game honestly planned and disabled after Wave 15.8", () => {
+    // Brickrise has a runtime loader from Wave 15.8 but is still `planned`:
+    // its mechanics are complete and its Phaser shell runs, while artwork is
+    // not delivered. A loader on a planned game is valid and deliberate —
+    // flipping status without ready artwork trips AVAILABLE_WITHOUT_ARTWORK.
+    // What must stay true is that a planned game claims nothing it lacks.
+    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual(["second-sense", "brickrise"]);
     for (const game of VECTOR_GAME_REGISTRY) {
       if (game.slug === "second-sense") continue;
       expect(game.status).toBe("planned");
@@ -132,9 +137,20 @@ describe("VECTOR game registry", () => {
   });
 
   it("fails visibly when a planned game has no runtime loader", async () => {
-    await expect(loadVectorGame("brickrise")).rejects.toBeInstanceOf(
+    // time-to-fly (Wave 15.9) is the next title with no loader yet. Brickrise
+    // is deliberately no longer a valid example here — see the loader map
+    // assertion above.
+    await expect(loadVectorGame("time-to-fly")).rejects.toBeInstanceOf(
       VectorGameLoaderUnavailableError,
     );
+  });
+
+  it("loads the Brickrise module through its loader while the game stays planned", async () => {
+    // The two facts have to hold together: the code is real and loadable, and
+    // the lobby still tells the truth about the game not being finished.
+    const gameModule = await loadVectorGame("brickrise");
+    expect(typeof gameModule.createGame).toBe("function");
+    expect(getVectorGame("brickrise")?.status).toBe("planned");
   });
 
   it("loads the real Second Sense game module through its route-isolated loader", async () => {

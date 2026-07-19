@@ -187,6 +187,36 @@ export function solidBoxesFor(level: BrickriseLevel): readonly Platform[] {
   return level.platforms;
 }
 
+/**
+ * How large a checkpoint's activation volume is.
+ *
+ * A `Checkpoint` is stored as a bare point, but "did the player reach it" is a
+ * rule about the run, not a drawing decision — so the volume lives here with a
+ * test rather than being invented by whichever renderer happens to be running.
+ *
+ * Sized so a body standing anywhere on the checkpoint's own footing registers,
+ * and so a body running past at MAX_RUN_SPEED cannot tunnel through between two
+ * fixed steps. It deliberately does NOT extend far above the ledge: sailing over
+ * a checkpoint mid-jump without ever touching down should not bank it.
+ */
+export const BRICKRISE_CHECKPOINT_TRIGGER = Object.freeze({
+  WIDTH: 64,
+  HEIGHT: 56,
+});
+
+/** The activation volume for a checkpoint, in level coordinates. */
+export function checkpointTriggerBox(
+  checkpoint: Checkpoint,
+): Readonly<{ x: number; y: number; width: number; height: number }> {
+  const T = BRICKRISE_CHECKPOINT_TRIGGER;
+  return {
+    x: checkpoint.x - T.WIDTH / 2,
+    y: checkpoint.y - T.HEIGHT,
+    width: T.WIDTH,
+    height: T.HEIGHT,
+  };
+}
+
 /** Has the body reached the summit ledge? */
 export function hasReachedSummit(level: BrickriseLevel, bodyFeetY: number): boolean {
   return bodyFeetY <= level.summitY;

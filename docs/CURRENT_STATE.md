@@ -64,56 +64,73 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
 
-### Next up: Wave 15.8 Brickrise — Phaser scene wiring
+### Wave 15.8 Brickrise — scene wired, chunk blocker solved
 
-The mechanical core is DONE and on main: `src/lib/vector/games/brickrise/`
-contains `physics.ts`, `level.ts`, `progress.ts`, `inputState.ts` — all pure,
-DOM-free, 55 tests. Phaser 3.90 is installed but not yet imported anywhere.
+Both blockers from the previous handoff are resolved. Brickrise now has a
+working Phaser shell (`games/brickrise/game.ts`) driven by a pure simulation
+core (`simulation.ts`), and Phaser is correctly billed to the route-isolated
+budget.
 
-**One blocker stands between here and a playable Brickrise**, and it is a build
-problem, not a game problem:
+**The chunk blocker was misdiagnosed.** The previous note blamed the
+`webpack()` hook not reaching the client compiler, and listed cacheGroup
+mutation as ruled out. Instrumentation disproved all of that: the hook runs,
+the cacheGroup arrives intact at priority 50, its `test` matches
+`node_modules/phaser/dist/phaser.js`, and priority is honoured. The real cause
+is that **a `webpackChunkName` magic comment and a cacheGroup competing for one
+name cancel each other out** — the comment pre-registers the name in
+`compilation.namedChunks`, and SplitChunksPlugin's existing-chunk guard then
+drops the cacheGroup entry silently. Fix: name the engine chunk *only* from
+next.config.ts, and import Phaser with a plain `import("phaser")`.
+`src/lib/vector/engine-chunks.test.ts` guards both halves of that pairing.
+Wave 15.10 will need the same for Three; its cacheGroup is already declared
+(inert until `three` is installed).
 
-`scripts/check-bundle-budget.mjs` partitions route-isolated game chunks out of
-the shared budget by FILENAME — `<game-slug>.*.js` and the declared engine
-vendor names `vector-engine-phaser` / `vector-engine-three`. Importing Phaser
-under `/* webpackChunkName: "vector-engine-phaser" */` does not produce that
-name: Next's own `lib` cacheGroup (priority 30, 8-hex hashed names) claims it
-into an anonymous ~1164 kB vendor chunk, which then counts against the SHARED
-budget and takes it to 5409/4400 kB.
+Also worth recording: the misfiled chunk was **route-isolated all along** — it
+appears in 0 of 197 route entries in `app-build-manifest.json`. The 5409 KB
+figure was a filename-classification artifact, not real shared weight. The
+shared bundle with Phaser (4245 KB) is *below* the pre-Phaser baseline (4255 KB).
+No budget was raised.
 
-Already tried and ruled out: mutating
-`config.optimization.splitChunks.cacheGroups` inside the `webpack()` hook in
-`next.config.ts`, at priority 40 and 100, with `chunks: "async"` and
-`chunks: "all"`, `enforce: true`. The hook runs and `splitChunks` is a mutable
-object (`chunks`, `cacheGroups`, `maxInitialRequests`, `minSize`; existing
-groups are `framework` p40 and `lib` p30) — but no `vector-engine-*` chunk is
-ever emitted, so the mutation is not reaching the client compiler. Suspect
-`withSentryConfig` wrapping, or Next 15 rebuilding the client optimization
-config after the user hook.
+**A critical defect was found in the 15.8 mechanical core that shipped in
+`29f96d0c`: the tower could not be climbed.** `JUMP_IMPULSE -11.6` yields a
+peak rise of 102.78 px against a 132 px `FLOOR_SPACING` — no floor was
+reachable from the one below, so checkpoint 0 was unreachable and the summit
+could never fire. All 42 tests passed because they asserted floor gaps were
+*equal*, never that one was *jumpable*. Fixed by `JUMP_IMPULSE -14`
+(151.14 px rise, 19.14 px margin) plus a reachability test that derives the
+rise from the real `stepBody` and searches generated towers. See
+`BRICKRISE-001` in the defect ledger.
 
-Worth trying next: a small custom webpack plugin that renames the chunk at
-`compilation` time; or Next's `experimental.turbopack`/webpack config surface
-rather than the `webpack()` escape hatch; or teaching the budget script to
-resolve the engine chunk from the build manifest's dependency graph instead of
-by filename (less brittle than either).
+**Every remaining game wave should land a reachability/solvability test
+alongside its generator**, before its mechanical core is called complete. Two
+independently-tuned constants with nothing relating them is the defect class
+here, and it is not specific to Brickrise.
 
-**Do not raise the budget to make this pass.** The partition caught a genuinely
-misfiled 1.1 MB chunk — that is the gate working, not obstructing.
+Registry keeps Brickrise `planned` — mechanics and runtime are done, artwork is
+not. A loader on a planned game is valid; flipping status without ready
+artwork trips `AVAILABLE_WITHOUT_ARTWORK`.
 
-The scene code itself was written and typechecked clean before being reverted;
-reconstruct from `physics.ts`/`level.ts`/`progress.ts`/`inputState.ts`, which
-are the whole rule set. Keep the split strict: Phaser draws, `stepBody` decides.
-Arcade physics is deliberately unused.
-
-**Registry stays `planned`** until the design agent delivers sprites and
-lighting; flipping to `available` without art trips `AVAILABLE_WITHOUT_ARTWORK`.
-A loader on a planned game is valid.
+**Open questions for the owner** (none block 15.9):
+- `level.ts` generates no fall death, kill plane, or time pressure — only spike
+  hazards. The manifest subtitle "Climb the structure before it closes around
+  you" describes a mechanic that does not exist. Either the copy is aspirational
+  or a rising hazard is missing from the core.
+- The summit floor also satisfies the checkpoint interval, so the final step
+  emits a checkpoint and a summit event together.
+- `score.achievements: true` but no achievement is defined, and the event
+  sanitiser drops string `achievementId` values.
+- `save.deterministicSeed: false` though generation is fully seeded; `reset()`
+  currently re-rolls the tower.
 
 ### Then: 15.9 Time to Fly, 15.10 Paper Glider
 
 Same core-first pattern: pure deterministic modules with heavy tests, design
-left as a seam. 15.10 uses Three (~356 kB) rather than Phaser (~1168 kB), so it
-may be the better first target once chunk naming is solved. See
+left as a seam — plus, from 15.8's lesson, a solvability test that proves the
+generated content can actually be completed using the real step function.
+
+Chunk naming is no longer a reason to prefer one over the other; take them in
+order. 15.10 will be the first Three title, so install `three` and confirm a
+`vector-engine-three.*.js` chunk is emitted before writing scene code. See
 `wave_order_revision` in PROGRAM_STATE.json — 15.6 skipped, 15.7 deferred,
 15.11 blocked on the Envoy redesign.
 

@@ -87,6 +87,52 @@ const nextConfig: NextConfig = {
         "jsdom",
       ];
     }
+
+    // ── VECTOR game-engine vendor chunks ─────────────────────────────────────
+    // A game engine must land in a chunk named `vector-engine-<engine>` so
+    // scripts/check-bundle-budget.mjs can bill it to the route-isolated game
+    // budget instead of the shared application bundle. Without this, Next's own
+    // `lib` cacheGroup (priority 30) claims Phaser into a hash-named vendor
+    // chunk that the budget script cannot classify — which reads as a ~1.1 MB
+    // shared-bundle regression even though no non-game route ever loads it.
+    //
+    // The name MUST come from here and NOT from a `webpackChunkName` magic
+    // comment at the import site. Doing both silently defeats both: the magic
+    // comment pre-registers the name in `compilation.namedChunks`, and
+    // SplitChunksPlugin's existing-chunk guard then finds that chunk is not a
+    // parent of the selected chunks and drops this cacheGroup entry without
+    // warning (webpack/lib/optimize/SplitChunksPlugin.js — `existingChunk`
+    // validation). The engine imports in the game modules are therefore plain
+    // `import("phaser")` / `import("three")` calls, deliberately uncommented.
+    // `src/lib/vector/engine-chunks.test.ts` guards both halves of that pairing.
+    if (!isServer) {
+      const splitChunks = config.optimization?.splitChunks;
+      if (splitChunks && typeof splitChunks === "object") {
+        splitChunks.cacheGroups = {
+          ...splitChunks.cacheGroups,
+          vectorEnginePhaser: {
+            test: /[\\/]node_modules[\\/]phaser[\\/]/,
+            name: "vector-engine-phaser",
+            chunks: "all",
+            // Above Next's `framework` (40) and `lib` (30) so the engine is
+            // claimed here rather than hash-named.
+            priority: 50,
+            minSize: 0,
+            minChunks: 1,
+            reuseExistingChunk: true,
+          },
+          vectorEngineThree: {
+            test: /[\\/]node_modules[\\/]three[\\/]/,
+            name: "vector-engine-three",
+            chunks: "all",
+            priority: 50,
+            minSize: 0,
+            minChunks: 1,
+            reuseExistingChunk: true,
+          },
+        };
+      }
+    }
     return config;
   },
   images: {

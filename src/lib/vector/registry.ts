@@ -138,11 +138,13 @@ export const VECTOR_GAME_REGISTRY = [
     shortDescription: "A compact vertical platforming ascent.",
     description:
       "A responsive Phaser platformer built around air control, hazards, checkpoints, and a readable summit. The initial complete run targets three to five minutes.",
-    availabilityReason: "Planned for Wave 15.8 after the shared platform and Second Sense are complete.",
+    availabilityReason: "Mechanics and runtime are complete; release is planned once original artwork lands.",
     engine: "phaser",
     orientation: "landscape",
     minimumViewport: { width: 640, height: 480 },
-    input: { keyboard: true, pointer: false, touch: true, gamepad: false },
+    // pointer: the on-screen controls are driven by Pointer Events, so they
+    // are genuinely mouse- and pen-operable, not touch-only.
+    input: { keyboard: true, pointer: true, touch: true, gamepad: false },
     controls: [
       control("move", "Move", "keyboard", ["Arrow Left", "Arrow Right", "A", "D"], "Move along platforms and control direction in the air."),
       control("jump", "Jump", "keyboard", ["Space", "Arrow Up", "W"], "Jump from ledges and platforms."),

@@ -8,6 +8,11 @@ import {
   placeBodyAt,
   stepBody,
 } from "@/lib/vector/games/brickrise/physics";
+import {
+  BRICKRISE_LEVEL_CONFIG,
+  generateBrickriseLevel,
+  solidBoxesFor,
+} from "@/lib/vector/games/brickrise/level";
 
 const FLOOR: Box = { x: 0, y: 400, width: 800, height: 20 };
 const IDLE = { direction: 0, jumpHeld: false, jumpPressed: false };
@@ -201,5 +206,110 @@ describe("boxesOverlap", () => {
   it("treats touching edges as non-overlapping", () => {
     expect(boxesOverlap({ x: 0, y: 0, width: 10, height: 10 }, { x: 10, y: 0, width: 10, height: 10 })).toBe(false);
     expect(boxesOverlap({ x: 0, y: 0, width: 10, height: 10 }, { x: 9, y: 0, width: 10, height: 10 })).toBe(true);
+  });
+});
+
+describe("reachability", () => {
+  /**
+   * The invariant nothing checked before Wave 15.8: a jump has to actually
+   * clear a floor.
+   *
+   * The tuning constants here and the floor spacing in level.ts were tuned
+   * independently, and at JUMP_IMPULSE -11.6 the peak rise was 102.78 px
+   * against a 132 px gap — every generated tower was unclimbable, checkpoint 0
+   * was unreachable, and the summit could never fire. Every other test passed,
+   * because they asserted the gaps were *equal*, never that one was *jumpable*.
+   *
+   * This derives the rise by running the real stepBody, so the two constants
+   * cannot drift apart again without failing here.
+   */
+  function peakRise(): number {
+    const floor: Box = { x: -1000, y: 0, width: 4000, height: 20 };
+    // Feet resting on the floor.
+    let body = placeBodyAt(INITIAL_BODY_STATE, 0, 0);
+    // One grounded step so `grounded` is true and the jump is legal.
+    body = stepBody(body, { direction: 0, jumpHeld: false, jumpPressed: false }, [floor]);
+    const startFeet = body.box.y + body.box.height;
+
+    let highestFeet = startFeet;
+    body = stepBody(body, { direction: 0, jumpHeld: true, jumpPressed: true }, [floor]);
+    for (let frame = 0; frame < 240; frame += 1) {
+      // Hold jump: variable jump height means releasing early cuts the rise, so
+      // the ceiling of what a player can do is measured with the button held.
+      body = stepBody(body, { direction: 0, jumpHeld: true, jumpPressed: false }, [floor]);
+      highestFeet = Math.min(highestFeet, body.box.y + body.box.height);
+      if (body.grounded) break;
+    }
+    return startFeet - highestFeet;
+  }
+
+  it("clears a full floor gap with margin to spare", () => {
+    const rise = peakRise();
+
+    expect(
+      rise,
+      `a jump rises ${rise.toFixed(2)}px but a floor is ${BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING}px up — the tower is unclimbable`,
+    ).toBeGreaterThan(BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING);
+
+    // Margin, not a bare pass: landing needs slack for the platform's own
+    // thickness and for a player who is not frame-perfect.
+    expect(rise - BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING).toBeGreaterThan(12);
+  });
+
+  it("does not let a single jump skip a whole floor", () => {
+    // A jump that clears two floors would collapse the climb the generator's
+    // zig-zag exists to create.
+    expect(peakRise()).toBeLessThan(BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING * 2);
+  });
+
+  /**
+   * Can a player standing on `fromY` reach `target` at all?
+   *
+   * Searches start positions and held directions rather than assuming one
+   * line of play. A straight-up jump from directly beneath a ledge is NOT the
+   * test: the body's head strikes the platform underside and resolveAxis
+   * pushes it back down, which is correct platformer behaviour. Real ascent is
+   * jump-from-beside then drift across.
+   */
+  function canReach(
+    solids: readonly Box[],
+    fromY: number,
+    target: Readonly<{ x: number; y: number; width: number }>,
+  ): boolean {
+    for (let startX = target.x - 200; startX <= target.x + target.width + 200; startX += 8) {
+      for (const direction of [-1, 0, 1]) {
+        let body = placeBodyAt(INITIAL_BODY_STATE, startX, fromY);
+        body = stepBody(body, { direction: 0, jumpHeld: false, jumpPressed: false }, solids);
+        if (!body.grounded) continue;
+        body = stepBody(body, { direction, jumpHeld: true, jumpPressed: true }, solids);
+
+        for (let frame = 0; frame < 180; frame += 1) {
+          body = stepBody(body, { direction, jumpHeld: true, jumpPressed: false }, solids);
+          if (body.grounded && Math.abs(body.box.y + body.box.height - target.y) < 0.001) return true;
+          if (body.grounded) break;
+        }
+      }
+    }
+    return false;
+  }
+
+  it("makes every floor of a generated tower reachable from the one below", () => {
+    // End-to-end against real generated geometry. This is the assertion whose
+    // absence let an unclimbable tower ship: it fails outright if the jump and
+    // the floor spacing ever stop agreeing.
+    for (const seed of ["reachability-a", "reachability-b", "reachability-c"]) {
+      const level = generateBrickriseLevel(seed);
+      const solids = solidBoxesFor(level);
+      const climbable = level.platforms
+        .filter((p) => p.x >= 0 && p.x < BRICKRISE_LEVEL_CONFIG.TOWER_WIDTH)
+        .sort((a, b) => b.y - a.y);
+
+      for (let i = 1; i < climbable.length; i += 1) {
+        expect(
+          canReach(solids, climbable[i - 1].y, climbable[i]),
+          `${seed}: floor at y=${climbable[i].y} is unreachable from y=${climbable[i - 1].y}`,
+        ).toBe(true);
+      }
+    }
   });
 });

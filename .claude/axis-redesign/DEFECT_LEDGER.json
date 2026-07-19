@@ -1,6 +1,6 @@
 {
-  "updated": "2026-07-18",
-  "revision": "a8c7be32ac1d25462c52e7515ef2ce8727b8fe28",
+  "updated": "2026-07-19",
+  "revision": "feat/wave-15.8-brickrise-scene",
   "defects": [
     {
       "id": "SEC-005",
@@ -8,21 +8,25 @@
       "source": "Rescue-stack triage (PR #241, kernel-extraction of #228/#230)",
       "summary": "22 API routes returned raw Postgres/PostgREST or MFA provider error.message text to clients in 500 responses, concentrated in fund/* financial endpoints plus profile/avatar and auth/mfa/{verify,unenroll}",
       "reproduction": "Trigger a DB or MFA-provider failure on any of the 22 sites and inspect the JSON body; the previous code returned NextResponse.json({error: error.message}, {status:500}) verbatim",
-      "affected": ["22 route handlers under src/app/api/fund/*, src/app/api/profile/avatar, src/app/api/auth/mfa/verify, src/app/api/auth/mfa/unenroll"],
+      "affected": [
+        "22 route handlers under src/app/api/fund/*, src/app/api/profile/avatar, src/app/api/auth/mfa/verify, src/app/api/auth/mfa/unenroll"
+      ],
       "root_cause": "No shared redaction helper; each route hand-rolled error responses from the raw caught error",
       "fix": "New redactRouteError(error, opts) captures the real error server-side via the existing captureRouteError (Sentry) and returns a generic client-safe {error} message; response shape unchanged. Applied to all 22 sites.",
       "regression_test": "unit test asserting the raw message never reaches the client response",
       "status": "fixed",
       "revision_fixed": "PR #241 (merged 2026-07-18)",
       "verification": "tsc + eslint clean; new unit test passes; superseded #228 and #230 (closed)",
-      "similar_code_search": "Related raw-error leakage in mail, plaid, make, ai/tools, calendar/cron/make routes was found and fixed separately — see MAIL-002, PLAID-002, AI-003, RELIABILITY-001 below"
+      "similar_code_search": "Related raw-error leakage in mail, plaid, make, ai/tools, calendar/cron/make routes was found and fixed separately \u2014 see MAIL-002, PLAID-002, AI-003, RELIABILITY-001 below"
     },
     {
       "id": "MAIL-002",
       "severity": "high",
       "source": "Rescue-stack triage (PR #244, kernel-extraction of #225)",
       "summary": "Mail adapters leaked raw provider error text from direct/Composio mail transports to clients",
-      "affected": ["src/lib/mail/adapters (direct + Composio transports)"],
+      "affected": [
+        "src/lib/mail/adapters (direct + Composio transports)"
+      ],
       "root_cause": "Adapter error paths surfaced provider response text instead of a normalized safe error",
       "fix": "Redact raw provider error text at the adapter boundary before it reaches API responses",
       "regression_test": "adapter error-path unit tests",
@@ -35,7 +39,9 @@
       "severity": "high",
       "source": "Rescue-stack triage (PR #243, kernel-extraction of #222)",
       "summary": "Plaid webhook sync error handling did not harden against raw provider error propagation",
-      "affected": ["src/app/api/plaid webhook/sync routes"],
+      "affected": [
+        "src/app/api/plaid webhook/sync routes"
+      ],
       "root_cause": "Webhook sync path did not redact provider error detail before logging/responding",
       "fix": "Harden webhook sync error handling and redact raw provider errors",
       "regression_test": "webhook sync error-path unit tests",
@@ -49,7 +55,9 @@
       "source": "Rescue-stack triage (PR #247, kernel-extraction of #235, registry.ts only)",
       "summary": "AI tool handlers threw raw error.message (Postgres/provider text) that flows to the model as tool-result content",
       "reproduction": "Trigger a DB or Plaid-provider failure inside an Advisor tool handler; the model received the raw thrown message as tool output",
-      "affected": ["src/lib/ai/tools/registry.ts"],
+      "affected": [
+        "src/lib/ai/tools/registry.ts"
+      ],
       "root_cause": "Tool handlers used new Error(error.message) / free-text validation messages instead of a coded error contract",
       "fix": "Introduced self-contained ToolExecutionError with fixed coded reasons (DATA_UNAVAILABLE, PROVIDER_UNAVAILABLE, INVALID_INPUT); Plaid cash-account fetch now throws PROVIDER_UNAVAILABLE on missing credentials/non-OK HTTP/JSON parse failure instead of silently returning an empty list; unknown tool names map to INVALID_INPUT",
       "regression_test": "registry.ts targeted tests",
@@ -61,7 +69,7 @@
     {
       "id": "RELIABILITY-001",
       "severity": "medium",
-      "source": "Rescue-stack triage (PRs #240, #242, #245, #246 — kernel-extractions of #220/#221/#223/#224/#229/#231/#232/#234)",
+      "source": "Rescue-stack triage (PRs #240, #242, #245, #246 \u2014 kernel-extractions of #220/#221/#223/#224/#229/#231/#232/#234)",
       "summary": "Several persistence and cron/digest paths swallowed failures via console.error only (Plaid token load/save/revoke, finance narrator context, recurring/daily finance jobs, calendar/cron/make routes, fund advisor audit, feed digest, intelligence sweep, maintenance sweep) instead of surfacing them",
       "reproduction": "Force a Supabase write/read failure on any listed path; the prior code logged to console and continued, hiding the failure from Sentry and from callers that assumed success",
       "affected": [
@@ -86,7 +94,10 @@
       "source": "Rescue-stack triage (PRs #217/#218, direct-OAuth binding)",
       "summary": "Spotify and Strava browser token cookies were not bound to the authenticated Axis user, so leftover cookies from a previously signed-in account on a shared browser could grant API access after a different user signed in",
       "reproduction": "Sign in as user A, connect Spotify/Strava, sign out, sign in as user B on the same browser without disconnecting; the prior getAccessToken returned user A's token to user B's session",
-      "affected": ["Spotify OAuth/token routes and shared helper", "Strava OAuth/token routes and shared helper"],
+      "affected": [
+        "Spotify OAuth/token routes and shared helper",
+        "Strava OAuth/token routes and shared helper"
+      ],
       "root_cause": "Token cookies were keyed only by provider, not by the authenticated Supabase user id, and the OAuth callback did not require an active session before persisting tokens",
       "fix": "OAuth callback now requires a Supabase session before persisting tokens and sets an httpOnly *_token_owner cookie to the current user.id; getAccessToken takes userId and returns null unless the owner cookie matches; owner marker is cleared on disconnect",
       "regression_test": "PR-level route tests for callback/session-required and owner-mismatch null return",
@@ -122,7 +133,9 @@
       "severity": "low",
       "source": "current-state audit",
       "summary": "safeMoney accepted sub-cent floats without rounding to the currency minor unit",
-      "affected": ["src/lib/fund/financeNarratorContext.ts"],
+      "affected": [
+        "src/lib/fund/financeNarratorContext.ts"
+      ],
       "root_cause": "Raw Number() parse",
       "fix": "safeMoney delegates to parseMoney (cent-rounded)",
       "regression_test": "src/lib/fund/money.test.ts",
@@ -497,7 +510,10 @@
       "source": "Phase9<->main migration drift analysis, resolved via PR #237/#238",
       "summary": "58 pre-July-3 migrations were tracked in the repo under short numeric filenames (001_initial ... 050_workout_logs) that did not match the timestamp versions actually recorded in prod's migration history, and main's reconstructed routine_versions migration omitted a CHECK constraint prod already carries",
       "reproduction": "Run `supabase db push --dry-run` against prod: it aborted with 'Remote migration versions not found in local migrations directory' for 58 versions; separately, `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid='public.routine_versions'::regclass and contype='c'` showed prod has routine_versions_routine_version_check but the repo's 20260715224156_routine_versions.sql did not",
-      "affected": ["supabase/migrations/*.sql (58 pre-July files)", "supabase/migrations/20260715224156_routine_versions.sql"],
+      "affected": [
+        "supabase/migrations/*.sql (58 pre-July files)",
+        "supabase/migrations/20260715224156_routine_versions.sql"
+      ],
       "root_cause": "The July migrations had already been renamed to their prod-recorded versions in a prior pass, but the same treatment was never extended to the pre-July history; separately, a from-scratch backfill of routine_versions.sql on main dropped a constraint that a later hosted migration had added directly",
       "fix": "PR #237: 58 content-preserving git mv renames to prod's exact recorded version+name (no SQL content changed), plus out-of-band prod reconciliation (4 `migration repair --status applied` calls for applied-but-untracked migrations, 1 real `db push` for the already-live 202607161401 contract). PR #238: forward migration re-adding CHECK (routine_version > 0) as routine_versions_routine_version_check, guarded by a pg_constraint existence check so it is a no-op against prod and only takes effect on a from-scratch rebuild.",
       "regression_test": "supabase db push --dry-run reports 'Remote database is up to date' (87 branch files == 87 tracked prod versions at merge time; 89 after #239's arcade migration)",
@@ -505,6 +521,77 @@
       "revision_fixed": "PRs #237, #238 (merged 2026-07-17)",
       "verification": "supabase db push --dry-run clean; prod pg_constraint read-back confirms routine_versions_routine_version_check exists; PR #237 independently verified prod already matched via 4 migration-repair calls + 1 real db push, all out-of-band and confirmed via SQL before this PR merged",
       "similar_code_search": "This was the last outstanding migration-filename drift between main and prod; the VECTOR convergence (#239) subsequently reset supabase/migrations/ to this now-reconciled tree and added only the genuinely new 202607170001_vector_arcade_persistence.sql on top"
+    },
+    {
+      "id": "BRICKRISE-001",
+      "severity": "critical",
+      "source": "Wave 15.8 adversarial review (physics/level reachability lens)",
+      "summary": "The Brickrise tower shipped in 29f96d0c was unclimbable: JUMP_IMPULSE -11.6 with GRAVITY 0.62 produces a peak rise of 102.78 px, while BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING is 132 px, so no floor was reachable from the floor below",
+      "reproduction": "Integrate stepBody from a grounded body with jumpHeld: peak rise is 102.78 px over 18 ascending frames. Brute-force every ground start x (0..960 step 4) x direction (-1,0,1) x jump-hold length against a generated tower: the body never lands on floor 1, apex feet stop 29.22 px short of the ledge",
+      "affected": [
+        "src/lib/vector/games/brickrise/physics.ts",
+        "src/lib/vector/games/brickrise/level.ts"
+      ],
+      "root_cause": "The physics tuning constants and the level's floor spacing were authored independently, and no test related them. level.test.ts asserted floor gaps were EQUAL ('spaces floors consistently so every gap is the same climb') but never that a gap was JUMPABLE, so all 42 tests passed against a game that could not be played. level.ts's docstring claim that 'reachability is enforced structurally' was scoped to the horizontal span only; the vertical dimension was unverified anywhere",
+      "fix": "JUMP_IMPULSE -11.6 -> -14 (peak rise 151.14 px, 19.14 px of margin over the 132 px gap). -13.5 was rejected as too tight at 8.28 px",
+      "regression_test": "src/lib/vector/games/brickrise/physics.test.ts 'reachability' block: derives peak rise by running the real stepBody (not arithmetic), asserts rise > FLOOR_SPACING with >12 px margin and < 2x FLOOR_SPACING, and searches real generated towers across three seeds asserting every floor is reachable from the one below. Verified to FAIL at the old -11.6 value",
+      "status": "fixed",
+      "revision_fixed": "feat/wave-15.8-brickrise-scene",
+      "verification": "18/18 physics tests pass at -14 and 2 fail at -11.6; the tower was never player-reachable in production because the registry kept brickrise status 'planned' with no loader until this wave",
+      "similar_code_search": "The same class of defect (two independently-tuned constants with no relating assertion) applies to every remaining game wave. 15.9 Time to Fly and 15.10 Paper Glider must each land a reachability/solvability test alongside their generator before their mechanical core is considered complete"
+    },
+    {
+      "id": "BRICKRISE-002",
+      "severity": "critical",
+      "source": "Wave 15.8 adversarial review (accessibility/host-contract lens)",
+      "summary": "Brickrise's keyboard listeners were bound to the game's own root element, which never receives focus, making the game completely unplayable by keyboard in the real host",
+      "reproduction": "Load Brickrise, press ArrowLeft/ArrowRight/Space/W/A/D: nothing happens. GameRuntimeHost gives the MOUNT tabIndex={0} and focuses it on resume/restart; the game bound keydown/keyup to `root`, a child with tabIndex=-1. A keydown at the focused mount does not propagate down into a descendant",
+      "affected": [
+        "src/lib/vector/games/brickrise/game.ts"
+      ],
+      "root_cause": "The listener target was chosen without tracing which element the host actually focuses. The unit test masked it completely by dispatching KeyboardEvent directly on `root` \u2014 a target that never occurs in production but from which events bubble up to the real handler's element, so the test passed either way",
+      "fix": "Bind keydown/keyup to context.mount (the element the host focuses). Separately, the paired focus-loss safety net used `blur`, which does not bubble and so would never fire for focus leaving a descendant; changed to `focusout`",
+      "regression_test": "game.test.ts input tests now dispatch on harness.mount rather than on the inner root, plus 'releases held input when focus leaves the mount' covering the focusout path. Verified to FAIL when reverted to root/blur",
+      "status": "fixed",
+      "revision_fixed": "feat/wave-15.8-brickrise-scene",
+      "verification": "26/26 brickrise shell tests pass; the four review-driven guards each verified to fail with their fix reverted",
+      "similar_code_search": "Second Sense sets tabindex=0 on the element it binds to (second-sense/game.ts) so it is unaffected. Any future game shell must bind input to context.mount, not to its own subtree \u2014 this is now stated in game.ts's attachInput comment"
+    },
+    {
+      "id": "BRICKRISE-003",
+      "severity": "medium",
+      "source": "Wave 15.8 adversarial review (multiple lenses)",
+      "summary": "Four smaller shell defects: stale aria-pressed after a death cleared held input; a finished or paused run still driving a full Phaser scene update and render at 60 Hz; pointerId-agnostic touch release letting a second finger cancel the first finger's hold (and a touch release cancelling a held keyboard direction); and a false 'None yet' personal best shown immediately after a first summit because the best score was re-read before the just-recorded score had been written",
+      "reproduction": "(a) hold a direction, die on a spike, observe the button still aria-pressed=true; (b) pause and watch the scheduler keep calling game.step; (c) hold left with one finger, tap and lift a second finger on the same button, hold is cancelled; (d) complete a first run and read the Best summit field",
+      "affected": [
+        "src/lib/vector/games/brickrise/game.ts"
+      ],
+      "root_cause": "(a) syncPressedState was only called from dispatch(), never after the simulation mutated input internally; (b) no redraw gating \u2014 the frame handler drew unconditionally; (c) release handlers took no event argument so could not compare pointerId, and reduceBrickriseInput deliberately ignores action.source; (d) recordScore is asynchronous through the sync outbox, so an immediate getBestScore read-back races it",
+      "fix": "(a) call syncPressedState after the step loop; (b) needsRedraw flag \u2014 draw while running, or once after any state change, then idle; (c) track activePointerId per button and ignore non-matching releases; (d) set the best field from the just-achieved elapsed time instead of re-reading",
+      "regression_test": "game.test.ts 'regressions from the Wave 15.8 adversarial review' block \u2014 all four verified to fail with their fix reverted",
+      "status": "fixed",
+      "revision_fixed": "feat/wave-15.8-brickrise-scene",
+      "verification": "1464/1464 tests pass",
+      "similar_code_search": "The redraw-gating and pointerId patterns apply to every future engine-backed game; the async-score-readback race applies to any game calling recordScore then getBestScore"
+    },
+    {
+      "id": "VECTOR-BUILD-001",
+      "severity": "high",
+      "source": "Wave 15.8 build investigation",
+      "summary": "A `webpackChunkName` magic comment and a splitChunks cacheGroup competing for the same chunk name silently cancel each other out, leaving Phaser (~1.16 MB) hash-named and misfiled into the shared bundle budget (5409/4400 KB)",
+      "reproduction": "Import phaser under /* webpackChunkName: \"vector-engine-phaser\" */ AND declare a cacheGroup named vector-engine-phaser. Build: no vector-engine-phaser chunk is emitted; phaser lands in an 8-hex `lib` chunk and check-bundle-budget.mjs reports the shared bundle 1009 KB over budget",
+      "affected": [
+        "next.config.ts",
+        "src/lib/vector/games/brickrise/game.ts",
+        "scripts/check-bundle-budget.mjs"
+      ],
+      "root_cause": "The magic comment pre-registers the name in compilation.namedChunks. SplitChunksPlugin's existing-chunk guard then finds that chunk is not a parent of the selected chunks and drops the cacheGroup entry with no warning, so neither naming mechanism takes effect. The prior handoff misdiagnosed this as the webpack() hook not reaching the client compiler; instrumentation disproved that \u2014 the cacheGroup arrives intact, its test matches phaser, and its priority is honoured",
+      "fix": "Name the engine vendor chunk ONLY from the cacheGroup in next.config.ts (priority 50, above Next's framework/40 and lib/30), and use a plain import(\"phaser\") with no magic comment at the import site",
+      "regression_test": "src/lib/vector/engine-chunks.test.ts \u2014 asserts every budget-excluded chunk name has a matching cacheGroup, that the cacheGroups outrank Next's own, that no production source pairs an engine import with a webpackChunkName comment (subpath imports included, typeof-import excluded), and that phaser has exactly one import site",
+      "status": "fixed",
+      "revision_fixed": "feat/wave-15.8-brickrise-scene",
+      "verification": "Build emits vector-engine-phaser.2802fafb02cad78b.js (1164 KB); shared bundle 4245/4400 KB \u2014 BELOW the 4255 KB pre-Phaser baseline; route-isolated 1191/3000 KB; 0 of 197 routes list the phaser chunk in app-build-manifest.json, confirming the chunk is genuinely route-isolated and not merely reclassified",
+      "similar_code_search": "Applies identically to Three for Wave 15.10 Paper Glider; the vectorEngineThree cacheGroup is declared now (three is not yet a dependency, so it is inert until installed) precisely so that wave does not rediscover this"
     }
   ]
 }

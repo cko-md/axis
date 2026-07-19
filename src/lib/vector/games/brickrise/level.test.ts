@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  BRICKRISE_CHECKPOINT_TRIGGER,
   BRICKRISE_LEVEL_CONFIG,
+  checkpointTriggerBox,
   generateBrickriseLevel,
   hasReachedSummit,
 } from "@/lib/vector/games/brickrise/level";
-import { boxesOverlap } from "@/lib/vector/games/brickrise/physics";
+import {
+  BRICKRISE_PHYSICS,
+  INITIAL_BODY_STATE,
+  boxesOverlap,
+  placeBodyAt,
+} from "@/lib/vector/games/brickrise/physics";
 
 describe("deterministic generation", () => {
   it("produces an identical tower for the same seed", () => {
@@ -126,5 +133,60 @@ describe("hasReachedSummit", () => {
     expect(hasReachedSummit(level, level.spawn.y)).toBe(false);
     expect(hasReachedSummit(level, level.summitY)).toBe(true);
     expect(hasReachedSummit(level, level.summitY - 1)).toBe(true);
+  });
+});
+
+describe("checkpointTriggerBox", () => {
+  const checkpoint = { index: 0, x: 300, y: 500 };
+
+  it("is centred on the checkpoint and sits on its ledge", () => {
+    const box = checkpointTriggerBox(checkpoint);
+
+    expect(box.x + box.width / 2).toBe(checkpoint.x);
+    // Bottom edge rests on the ledge surface; the volume extends upward only.
+    expect(box.y + box.height).toBe(checkpoint.y);
+  });
+
+  it("catches a body standing anywhere on the checkpoint's footing", () => {
+    const box = checkpointTriggerBox(checkpoint);
+
+    for (const offset of [-24, -12, 0, 12, 24]) {
+      const body = placeBodyAt(INITIAL_BODY_STATE, checkpoint.x + offset, checkpoint.y);
+      expect(boxesOverlap(body.box, box), `offset ${offset} missed the trigger`).toBe(true);
+    }
+  });
+
+  it("cannot be tunnelled through at full running speed", () => {
+    // The body advances at most MAX_RUN_SPEED per fixed step. If that is ever
+    // larger than the combined trigger + body width, a fast pass could step
+    // straight over the volume without a single overlapping frame.
+    const widest = BRICKRISE_CHECKPOINT_TRIGGER.WIDTH + INITIAL_BODY_STATE.box.width;
+    expect(BRICKRISE_PHYSICS.MAX_RUN_SPEED).toBeLessThan(widest);
+  });
+
+  it("does not bank a checkpoint sailed over well above the ledge", () => {
+    const box = checkpointTriggerBox(checkpoint);
+    // A body whose feet clear the trigger's top edge entirely.
+    const body = placeBodyAt(
+      INITIAL_BODY_STATE,
+      checkpoint.x,
+      checkpoint.y - BRICKRISE_CHECKPOINT_TRIGGER.HEIGHT - 1,
+    );
+
+    expect(boxesOverlap(body.box, box)).toBe(false);
+  });
+
+  it("covers every generated checkpoint without leaving the tower", () => {
+    const level = generateBrickriseLevel("trigger-coverage");
+
+    for (const point of level.checkpoints) {
+      const box = checkpointTriggerBox(point);
+      expect(box.width).toBe(BRICKRISE_CHECKPOINT_TRIGGER.WIDTH);
+      // A trigger hanging outside the walls would be unreachable.
+      expect(box.x).toBeGreaterThanOrEqual(-BRICKRISE_LEVEL_CONFIG.WALL_THICKNESS);
+      expect(box.x + box.width).toBeLessThanOrEqual(
+        BRICKRISE_LEVEL_CONFIG.TOWER_WIDTH + BRICKRISE_LEVEL_CONFIG.WALL_THICKNESS,
+      );
+    }
   });
 });

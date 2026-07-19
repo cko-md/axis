@@ -57,7 +57,14 @@ export const BRICKRISE_PHYSICS = Object.freeze({
   MAX_RUN_SPEED: 4.6,
   GROUND_FRICTION: 0.78,
   AIR_FRICTION: 0.94,
-  JUMP_IMPULSE: -11.6,
+  /**
+   * Must be strong enough to clear BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING.
+   * At -11.6 the peak rise was 102.78 px against a 132 px floor gap, so no
+   * floor was reachable from the one below and the tower could not be climbed
+   * at all — see the reachability test in physics.test.ts, which derives the
+   * rise from stepBody rather than trusting this number.
+   */
+  JUMP_IMPULSE: -14,
   /**
    * Releasing jump early cuts the remaining rise, giving variable jump height
    * from a single button — the core of "air control".
