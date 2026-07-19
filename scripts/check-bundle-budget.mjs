@@ -120,7 +120,40 @@ if (typeof gameBudgetKb !== "number") {
   process.exit(2);
 }
 
+/**
+ * The partition is only sound if the excluded chunks really are route-isolated:
+ * a chunk billed to the game budget while some shared route actually loads it
+ * would understate the shared bundle by exactly that chunk's size. The commit
+ * that introduced the partition verified this by hand once; this re-derives it
+ * from the build output every run, so an eager import added to a layout or nav
+ * widget fails the gate instead of slipping into the looser game budget.
+ */
+function assertRouteIsolation(isolatedFiles) {
+  const manifestPath = path.resolve(process.cwd(), ".next/app-build-manifest.json");
+  if (!existsSync(manifestPath)) {
+    console.error(`✗ ${manifestPath} not found — run \`next build\` first.`);
+    process.exit(2);
+  }
+  const pages = JSON.parse(readFileSync(manifestPath, "utf8"))?.pages ?? {};
+  const offenders = [];
+  for (const file of isolatedFiles) {
+    for (const [route, entries] of Object.entries(pages)) {
+      if (entries.some((entry) => entry.endsWith(`/${file.name}`) || entry === `static/chunks/${file.name}`)) {
+        offenders.push(`${file.name} is loaded by route ${route}`);
+      }
+    }
+  }
+  if (offenders.length > 0) {
+    console.error("✗ Chunks billed to the route-isolated game budget are reachable from routes:");
+    for (const line of offenders) console.error(`    ${line}`);
+    console.error("  A route-loaded chunk belongs in the shared budget; fix the import graph.");
+    process.exit(1);
+  }
+  console.log(`✓ Route isolation verified: ${isolatedFiles.length} game chunk(s) in 0 of ${Object.keys(pages).length} route entries.`);
+}
+
 const { shared, routeIsolated, isolatedFiles } = walkJsSize(CHUNKS_DIR);
+assertRouteIsolation(isolatedFiles);
 const sharedKb = Math.round(shared / 1024);
 const gameKb = Math.round(routeIsolated / 1024);
 const combinedKb = sharedKb + gameKb;
