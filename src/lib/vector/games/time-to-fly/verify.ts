@@ -49,6 +49,7 @@ import {
   type TimeToFlyPlanet,
   planetClassOf,
   planetPositionAt,
+  rayReachesDisc,
   reachRadius,
 } from "@/lib/vector/games/time-to-fly/orbit";
 import type { TimeToFlyPlanetClass } from "@/lib/vector/games/time-to-fly/constants";
@@ -247,16 +248,28 @@ function march(
 ): MarchEvent {
   let current = craft;
   let approach = approachSoFar;
+  // Reused per step so the hot loop does not allocate.
+  const planetDistances: number[] = placed.map(() => 0);
 
   for (let step = stepsUsed + 1; step <= TIME_TO_FLY_PHYSICS.MAX_FLIGHT_STEPS; step += 1) {
     current = stepCraft(current, placed);
 
+    // Each placed planet's distance is computed exactly once per step and
+    // shared by the abandonment and crash checks below — the same sqrt
+    // values and the same comparisons in the same priority order as the
+    // original two-pass loop, merged because this is the verifier's hottest
+    // line and the second pass recomputed identical distances.
+    for (let index = 0; index < placed.length; index += 1) {
+      planetDistances[index] = distance(current.position, placed[index].position);
+    }
+
     // A planet whose field the craft has left behind without ever entering can
     // never contribute to this branch. That is not a solution under the
     // threading rule, and no later step can repair it, so the branch dies here.
-    for (const planet of placed) {
+    for (let index = 0; index < placed.length; index += 1) {
+      const planet = placed[index];
       if (visited.has(planet.id)) continue;
-      const toPlanet = distance(current.position, planet.position);
+      const toPlanet = planetDistances[index];
       if (toPlanet < planet.fieldRadius) {
         visited.add(planet.id);
         continue;
@@ -284,8 +297,8 @@ function march(
       return { kind: "arrived", approach: toGalaxy, aim, steps: step };
     }
 
-    for (const planet of placed) {
-      if (distance(current.position, planet.position) <= planet.bodyRadius + TIME_TO_FLY_PHYSICS.SHIP_RADIUS) {
+    for (let index = 0; index < placed.length; index += 1) {
+      if (planetDistances[index] <= placed[index].bodyRadius + TIME_TO_FLY_PHYSICS.SHIP_RADIUS) {
         return { kind: "crashed", steps: step, approach };
       }
     }
@@ -296,6 +309,43 @@ function march(
     for (const candidate of pending) {
       if (distance(current.position, candidate.centre) <= candidate.radius) {
         return { kind: "reached-disc", planetIndex: candidate.index, craft: current, steps: step, approach };
+      }
+    }
+
+    // Hopeless-coast early exit, checked sparsely because it ray-casts. If
+    // the craft is in vacuum (outside every field, so its path is an exact
+    // straight ray until something is entered), RECEDING from the galaxy
+    // (so `approach` is final), and that forward ray reaches neither the
+    // galaxy's capture disc, nor any placed planet's field, nor any pending
+    // reach disc, then nothing can ever bend or end this flight except the
+    // arena boundary — the outcome is already "escaped" with exactly this
+    // approach. A ray-cast used strictly as a prune predicate; the flight
+    // itself is never advanced analytically.
+    if (step % 16 === 0) {
+      const awayFromGalaxy =
+        (current.position.x - galaxy.x) * current.velocity.x
+        + (current.position.y - galaxy.y) * current.velocity.y;
+      if (awayFromGalaxy > 0) {
+        let anythingAhead = rayReachesDisc(
+          current.position,
+          current.velocity,
+          galaxy,
+          TIME_TO_FLY_ARENA.GALAXY_RADIUS,
+        );
+        for (let index = 0; index < placed.length && !anythingAhead; index += 1) {
+          // Inside a field means not in vacuum: the path is not a ray.
+          if (planetDistances[index] < placed[index].fieldRadius) anythingAhead = true;
+          else if (rayReachesDisc(current.position, current.velocity, placed[index].position, placed[index].fieldRadius)) {
+            anythingAhead = true;
+          }
+        }
+        for (const candidate of pending) {
+          if (anythingAhead) break;
+          if (rayReachesDisc(current.position, current.velocity, candidate.centre, candidate.radius)) {
+            anythingAhead = true;
+          }
+        }
+        if (!anythingAhead) return { kind: "escaped", steps: step, approach };
       }
     }
   }

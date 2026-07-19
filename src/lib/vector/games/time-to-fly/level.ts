@@ -46,6 +46,10 @@ import {
   pointOutsideReach,
   reachRadius,
 } from "@/lib/vector/games/time-to-fly/orbit";
+import {
+  TIME_TO_FLY_GATE_PROTOCOL,
+  solveAsPlayer,
+} from "@/lib/vector/games/time-to-fly/playerModel";
 import { TIME_TO_FLY_NODE_BUDGET, everyPlanetNecessary, verifyLevel } from "@/lib/vector/games/time-to-fly/verify";
 
 export type TimeToFlyLevel = Readonly<{
@@ -247,7 +251,7 @@ const GENERATOR_BY_LEVEL: readonly GeneratorTuning[] = Object.freeze([
   Object.freeze({ deepImpactFraction: 0.4, approachGapBase: 100, approachGapJitter: 160, recenterBand: 140, runOutBase: 260, runOutJitter: 220, largeOrbitChance: 0.5, minImpactMargin: 34, sideMode: "random" as const }),
   Object.freeze({ deepImpactFraction: 0.4, approachGapBase: 100, approachGapJitter: 160, recenterBand: 140, runOutBase: 260, runOutJitter: 220, largeOrbitChance: 0.5, minImpactMargin: 34, sideMode: "random" as const }),
   Object.freeze({ deepImpactFraction: 0.15, approachGapBase: 150, approachGapJitter: 160, recenterBand: 220, runOutBase: 420, runOutJitter: 200, largeOrbitChance: 0.5, minImpactMargin: 12, sideMode: "alternate" as const }),
-  Object.freeze({ deepImpactFraction: 0.15, approachGapBase: 170, approachGapJitter: 160, recenterBand: 260, runOutBase: 420, runOutJitter: 200, largeOrbitChance: 1, minImpactMargin: 12, sideMode: "alternate" as const }),
+  Object.freeze({ deepImpactFraction: 0.12, approachGapBase: 170, approachGapJitter: 160, recenterBand: 260, runOutBase: 480, runOutJitter: 220, largeOrbitChance: 1, minImpactMargin: 12, sideMode: "alternate" as const }),
 ]);
 
 /**
@@ -489,8 +493,9 @@ export function generateTimeToFlyLevel(runSeed: string, levelIndex: number): Tim
     const candidate = buildCandidate(levelIndex, seed);
     if (!candidate) continue;
 
-    // Cheap gates first — each costs a handful of full flights, versus the
-    // branching search below.
+    // Gate order is cost order, cheapest effective filter first. Order does
+    // not change WHICH candidate is accepted — acceptance requires passing
+    // every gate — only what each rejection costs.
     //
     // The intended arrangement must actually win when flown as the player
     // flies it: all planets placed, launch to capture. The constructive walk
@@ -501,9 +506,9 @@ export function generateTimeToFlyLevel(runSeed: string, levelIndex: number): Tim
     if (intendedFlight.outcome !== "arrived") { reject("intended-not-a-solution"); continue; }
 
     // Decisiveness: nudging any single planet one slot off the intended
-    // arrangement must lose. A candidate where a neighbouring slot also wins
-    // is on its way to a smear of near-duplicate solutions — cheaper to
-    // reject on 2N flights here than to enumerate them all below.
+    // arrangement must lose, or the level is a smear of near-duplicates.
+    // Measured cheaper than the capped search on this generator's rejection
+    // mix, so it runs first.
     let insensitive = false;
     for (let planetIndex = 0; planetIndex < candidate.planets.length && !insensitive; planetIndex += 1) {
       for (const delta of [-1, 1]) {
@@ -541,6 +546,19 @@ export function generateTimeToFlyLevel(runSeed: string, levelIndex: number): Tim
     if (verdict.nearestMiss < TIME_TO_FLY_ARENA.GALAXY_RADIUS * TIME_TO_FLY_ACCEPTANCE.MISS_MARGIN) { reject("hair-miss"); continue; }
 
     if (!everyPlanetNecessary(candidate.planets, candidate.galaxy)) { reject("planet-not-necessary"); continue; }
+
+    // The last and most expensive gate, and the whole point of ADR-0006: a
+    // provably-solvable level is not the same as a solvable level. The
+    // reference player protocol — launches and visible outcomes only, no
+    // oracle — must actually FIND a solution from this level's opening
+    // arrangement within one systematic pass, or the level is rejected as
+    // deceptive no matter how clean its exhaustive count looks. Runs last
+    // because every earlier gate is cheaper.
+    const played = solveAsPlayer(
+      { planets: candidate.planets, galaxy: candidate.galaxy, initialArrangement: opening },
+      TIME_TO_FLY_GATE_PROTOCOL,
+    );
+    if (!played.solved) { reject("player-model-stuck"); continue; }
 
     return {
       index: candidate.index,
