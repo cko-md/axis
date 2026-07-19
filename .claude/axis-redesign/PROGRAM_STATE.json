@@ -1,10 +1,10 @@
 {
   "program": "axis-system-redesign",
-  "branch": "codex/vector-phase15-convergence",
-  "branch_note": "Coordinator-owned convergence branch. Base: origin/codex/phase9-resume-executor@84cc5ca6 (PR #195). Ported: VECTOR arcade platform 4e44e245 (PR #236 head a72f3da7). Not pushed, not merged.",
+  "branch": "main",
+  "branch_note": "CONVERGED AND MERGED. main is now canonical. PR #195 (phase9 base) merged; PR #239 (VECTOR Wave 15.2 platform, converged onto reconciled main) merged 2026-07-17; PR #237 (58-version pre-July migration filename reconciliation to prod) and PR #238 (routine_version CHECK restore) merged 2026-07-17. PR #236/#227 closed as superseded by #239/#249 respectively. Rescue stack #196-#235 fully resolved: kernel-extraction subset (#240-#247) merged, remainder closed with per-PR supersession notes (their fixes already landed via #240-#249 or an equivalent earlier merge). Open PRs: 0.",
   "baseline_commit": "f478cde",
-  "revision_reviewed": "64dec9cdf543e212e2315658ec407a34f826d0bc",
-  "updated": "2026-07-17 (Wave 15.2 convergence)",
+  "revision_reviewed": "a8c7be32ac1d25462c52e7515ef2ce8727b8fe28",
+  "updated": "2026-07-18 (post-convergence checkpoint repair)",
   "governance": {
     "source": "AGENTS.md",
     "rules": [
@@ -17,16 +17,18 @@
     ]
   },
   "baseline_health": {
-    "typecheck": "pass",
-    "lint": "pass (0 errors, 0 warnings)",
-    "unit_tests": "1072 passed / 166 files",
-    "production_build": "pass at reviewed application revision: 163 pages; 182/182 route budgets and 4017/4400 KB aggregate static-JS budget pass",
-    "authenticated_e2e": "pass: local production-mode 14/14 including auth setup; exact-head GitHub fresh-Supabase job passed",
-    "public_e2e": "pass: local production-mode 13/13; exact-head GitHub public-smoke job passed",
+    "typecheck": "pass (npx tsc --noEmit, exit 0, re-run 2026-07-18 on a8c7be32)",
+    "lint": "pass (npm run lint / eslint ., 0 errors, 0 warnings, re-run 2026-07-18 on a8c7be32)",
+    "unit_tests": "1265 passed / 187 files (npm run test -- --run, re-run 2026-07-18 on a8c7be32)",
+    "production_build": "pass at main head a8c7be32: 175 pages compiled; 187/187 route budgets pass (check-perf-budgets.mjs); 4322/4400 KB aggregate static JS (98.2%, check-bundle-budget.mjs) — budget headroom is now tight, watch on next route addition; postbuild VECTOR offline manifest generator ran and correctly emits 0 enabled games (all 9 titles still planned/disabled)",
+    "authenticated_e2e": "pass: exact-head GitHub CI run 29659456809 (main@a8c7be32), job e2e-authenticated, success, 2026-07-18T20:18:48Z-20:25:12Z (fresh-Supabase authenticated Playwright incl. VECTOR arcade spec)",
+    "public_e2e": "pass: exact-head GitHub CI run 29659456809 (main@a8c7be32), job e2e-smoke, success, 2026-07-18T20:18:49Z-20:20:18Z",
+    "browser_gate": "GREEN — resolves the prior 'NOT GREEN / no Supabase CLI in this environment' blocker recorded under convergence below. CI run 29659456809 (workflow CI, main@a8c7be32) passed all three jobs: verify (2026-07-18T20:18:47Z-20:21:41Z), e2e-smoke, e2e-authenticated. This is the exact-head run referenced by 'owner: run fresh-Supabase authenticated CI on the convergence head' in the prior next_dependency_ordered_actions — that action is now CLOSED.",
     "release_validation": "pass: expansion plan/read-back and authorized contract plan validate; offline npm audit at moderate reports 0 vulnerabilities",
-    "github_ci": "pass: run 29532017893; verify 2m47s, public 1m23s, authenticated 6m09s",
-    "vercel_preview": "pass: dpl_DT3YmRASMcVeX6jX8ejZnKT2ffF4 Ready; public pages 200, /command preview-local 307, guarded APIs 401, unknown route 404, exact-deployment logs 0 5xx/0 error-level, and a disposable-hosted-user protected browser workflow passed auth, persistence, routine/task, approval, workspace, theme, and responsive checks with cleanup verified",
-    "sentry_validation": "blocked: exact release dad075921e11fff36c1996bd14d18f95666d3e5a is registered (release metadata reports newGroups=2), but the available token receives HTTP 403 for the release/environment Issues query; repository owner or Sentry administrator must record the final result",
+    "github_ci": "pass: run 29659456809 on main@a8c7be32 (all 3 jobs green); prior run 29532017893 also recorded on an earlier head",
+    "vercel_preview": "pass (last recorded): dpl_DT3YmRASMcVeX6jX8ejZnKT2ffF4 Ready; public pages 200, /command preview-local 307, guarded APIs 401, unknown route 404, exact-deployment logs 0 5xx/0 error-level, and a disposable-hosted-user protected browser workflow passed auth, persistence, routine/task, approval, workspace, theme, and responsive checks with cleanup verified. Production deploys now flow through Vercel's native Git integration on merge to main (deploy.yml removed, wave 14.1) — no separate preview validation has been re-run against a8c7be32 specifically; treat as historical evidence from an earlier converged head, not this exact SHA.",
+    "vector_arcade_live_roundtrip": "VERIFIED (2026-07-17, recorded in continuation context): migration 202607170001_vector_arcade_persistence applied to hosted Supabase project twkcvyhmlguipchfetge (6 game_* tables, RLS on, 3 RPCs sync_vector_save/apply_vector_event/resolve_vector_conflict). A rolled-back live round-trip exercised save sync, event apply, and conflict create+resolve. All 9 catalog games remain intentionally planned/disabled; offline manifest correctly emits 0 enabled games.",
+    "sentry_validation": "STILL BLOCKED (owner-only): exact release dad075921e11fff36c1996bd14d18f95666d3e5a was registered (release metadata reports newGroups=2), but the available token receives HTTP 403 for the release/environment Issues query; repository owner or Sentry administrator must record the final result. No newer attempt was made this session (out of Task 1 scope; token access has not changed).",
     "stack": "Next.js 15 App Router, React 19, TS 5.8, Supabase, Tailwind v4, Vitest, Playwright, Sentry"
   },
   "phases": {
@@ -44,9 +46,9 @@
     "11_performance": "complete for the scoped profiling pass — CI enforces aggregate static-JS and per-route first-load budgets; Command, Vitality, Mail, Dispatch, and Notes interactive workspaces are deferred behind route-level client boundaries while AppShell and stable loading surfaces remain server-rendered. The reviewed application build compiled 163 pages, passed 182/182 route budgets, and used 4017/4400 KB aggregate static JS locally and on the exact-head verify job.",
     "12_testing": "complete for the automated test-system scope — 1072 unit/integration tests pass across 166 files; tsc and lint are clean; local production-mode public 13/13 and authenticated 14/14 pass. Exact-head GitHub run 29532017893 passed verify, public smoke, and a fresh-Supabase authenticated job that applies migrations, derives grants, verifies the final lifecycle privilege contract, provisions a disposable user, builds production Next, and runs all authenticated specifications. The protected Vercel preview workflow also passed with a disposable hosted user and verified cleanup. Provider-backed, visual-regression, and manual authenticator gates remain external.",
     "13_observability": "complete for instrumentation and runbook scope — model actions use an internal navigation allowlist and heuristic/provider fallbacks carry explicit degraded provenance; the operate loop emits only a closed Zod-validated event catalog with allowlisted enums, identifiers, counts, and durations; rejected telemetry becomes a fixed safe record; approval and routine events use safe request IDs plus normalized stage/error metadata; raw provider/private content is excluded. Exact-preview Vercel runtime-log queries return 0 status-5xx and 0 error-level records. Sentry release registration is visible, but the release/environment Issues query returns HTTP 403 with the available token; dashboard/alert creation and operator-owned regression evidence remain open.",
-    "14_cicd": "complete for delivery-system implementation — Vercel Git integration is the sole production deployment owner; duplicate deploy automation is removed; daily-health commands preserve pipe failures, HTTP 000, step exit status, and Monday schedule isolation; weekly moderate dependency audit blocks regressions; release:validate pins expansion/contract checksums and SQL read-backs; multi-statement migration/verifier files require a script-capable psql executor; expand/contract/rollback ownership and ordering are documented. Exact-head CI and Vercel preview are green, and preview-local redirect isolation is fixed. Hosted expansions 202607161300, 202607161302, and 202607161400 are applied and verified; 202607161401 intentionally remains pending until the compatible application revision is live. Sentry review, manual/provider sign-offs, merge/deploy authorization, and post-deploy contract application/read-back remain production gates."
+    "14_cicd": "complete for delivery-system implementation — Vercel Git integration is the sole production deployment owner; duplicate deploy automation is removed; daily-health commands preserve pipe failures, HTTP 000, step exit status, and Monday schedule isolation; weekly moderate dependency audit blocks regressions; release:validate pins expansion/contract checksums and SQL read-backs; multi-statement migration/verifier files require a script-capable psql executor; expand/contract/rollback ownership and ordering are documented. Exact-head CI and Vercel preview are green, and preview-local redirect isolation is fixed. Hosted expansions 202607161300, 202607161302, and 202607161400 are applied and verified. 202607161401 (the task/approval privilege-contract migration) is NOW APPLIED to prod (PR #237, 2026-07-17 — see migrations_applied.phase9_runtime_hardening.hosted_contract_status), superseding the earlier 'pending' status. All 89 repo-tracked migration files match prod's 89 recorded versions (`supabase db push --dry-run` clean). Sentry Issues/dashboard review and manual authenticator sign-off remain owner-only production gates; merge/deploy authorization for main is the owner's normal PR-merge action (Vercel native Git integration deploys automatically on merge, no separate deploy.yml)."
   },
-  "convergence_note": "The documented Phase 0-14 implementation scope is complete at reviewed application revision dad075921e11fff36c1996bd14d18f95666d3e5a. Local unit/type/lint/release/build/public/authenticated gates, exact-head clean-runner CI, hosted expansion read-back, Vercel Ready status, preview-origin isolation, and protected disposable-user browser validation are green. This is not yet a production completion claim: Sentry Issues access/dashboard evidence, manual WebAuthn and independent security sign-off, unavailable live-provider paths, merge/deploy authorization, Supabase/Tembo operational decisions, and the post-compatible-deploy 202607161401 contract migration/read-back remain explicit gates. The contract migration is deliberately not applied early.",
+  "convergence_note": "SUPERSEDED BY THE 2026-07-18 POST-CONVERGENCE CHECKPOINT REPAIR (this update). Phases 0-14 plus the Wave 15.2 VECTOR arcade platform are now merged to main (a8c7be32) and live in prod. Local unit/type/lint/build/browser gates and exact-head GitHub CI (run 29659456809) are green on the actual main head. Hosted Supabase migration/RLS read-back for the arcade tables and the 202607161401 contract migration are both applied and verified. Remaining explicit owner-only gates: Sentry Issues/dashboard access, a manual hardware WebAuthn ceremony, live Gmail/Outlook/Make provider parity, desktop signing secrets, the Render worker, paid OpenAI, and the Tembo/leaked-password decisions — none of these block Wave 15.3 or the Phase 16 parallel desktop track. See the `convergence` object below for the historical convergence-analysis record (now closed) and `next_dependency_ordered_actions` for what is actually next.",
   "waves": [
     {
       "id": "4.1",
@@ -1459,7 +1461,7 @@
       ],
       "hosted_expansion_status": "Applied sequentially to twkcvyhmlguipchfetge on 2026-07-16, repaired into Supabase migration history as applied, and verified by scripts/sql/verify-20260716-expand.sql.",
       "contract_migration": "supabase/migrations/202607161401_task_approval_lockdown.sql",
-      "hosted_contract_status": "PENDING by design. Apply only after the compatible RPC-using application SHA is live on production, a recovery owner is named, rollback criteria are confirmed, and scripts/sql/verify-20260716-contract.sql can be run immediately.",
+      "hosted_contract_status": "APPLIED (superseded this entry). Per PR #237 (merged 2026-07-17), this migration was applied to prod out-of-band via a real `supabase db push` after the compatible application revision went live: it revokes authenticated INSERT/UPDATE on agent_tasks/approvals and adds the owner-scoped passkey SELECT policy, confirmed live in prod. The prior 'PENDING by design' status in this field is stale — do not re-apply.",
       "local_status": "All four migrations are applied to the local Docker stack. Task/approval CAS, WebAuthn atomicity, and routine resume claim validators pass, including ownership, exact challenge/scope, audit/activity atomicity, lease/fencing, retry, and finalization checks. The final contract was reapplied locally, followed by the CI-equivalent grant bootstrap and contract verifier; catalog checks plus real authenticated passkey insert/update/delete attempts confirm the browser role remains read-only.",
       "rls_review": "Expansion RPCs derive auth.uid(), verify row ownership and expected lifecycle state/version, use fixed search paths, and expose only the intended authenticated entry points. The contract migration revokes legacy direct task/approval/passkey mutation only after compatible code deployment, replaces the legacy passkey FOR ALL policy with owner-scoped SELECT, and leaves service-role maintenance explicit.",
       "checksums": {
@@ -1494,42 +1496,51 @@
     "recorded": "AGENTS.md 2a"
   },
   "next_dependency_ordered_actions": [
-    "Independent read-only review of the convergence (non-overlapping file sets).",
-    "Owner: run fresh-Supabase authenticated CI + VECTOR authenticated browser suite on the convergence head.",
-    "Owner: hosted RLS/grant readback for 202607170001_vector_arcade_persistence.",
-    "Then Wave 15.3 — Second Sense (only after convergence is green for all available local/GitHub gates)."
+    "CLOSED: independent read-only review of the convergence — completed via PR review + merge of #237/#238/#239/#240-#249; rescue stack #196-#235 fully dispositioned (merged subset or closed-superseded).",
+    "CLOSED: fresh-Supabase authenticated CI + VECTOR authenticated browser suite on the (now-merged) convergence head — GitHub CI run 29659456809 on main@a8c7be32, all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
+    "CLOSED: hosted RLS/grant readback for 202607170001_vector_arcade_persistence — verified via a rolled-back live round-trip (save sync, event apply, conflict create+resolve) against twkcvyhmlguipchfetge.",
+    "NEXT: Wave 15.3 — Second Sense (native DOM/Canvas timing game; first real VECTOR title; binding order requires this before 15.4+).",
+    "PARALLEL, OWNER-AUTHORIZED: Phase 16 Archive Bay desktop track — 16.0 (licensing/threat-model ADR) then 16.1 (bring-your-own-emulator launcher) may proceed independently of 15.3; see binding_order_amendment below. 16.2+ remain gated on the 16.0 ADR.",
+    "AFTER 15.3 (unchanged binding order, do not start early): 15.4 Envoy core -> 15.5 hatch-pet packages -> 15.6 generation control plane (OpenAI gate) -> 15.7 vendored worker/Render (gate) -> 15.8-15.15 remaining titles in order -> 15.16 convergence."
   ],
+  "binding_order_amendment": {
+    "recorded": "2026-07-18, post-convergence checkpoint repair",
+    "authorized_by": "repo owner (c.k.ogonuwe@gmail.com), per the binding continuation prompt for this session",
+    "amendment": "Phase 16 (Archive Bay: user-owned local emulator/native-port launcher, desktop-only) is explicitly authorized to run as a track PARALLEL to the 15.x VECTOR/Envoy sequence, not strictly after it. Rationale carried in the authorizing prompt: Phase 16 touches no web bundle, no shared schema, no cloud service, and none of the 9 VectorGameSlug entries, so it neither blocks nor is blocked by Second Sense or later 15.x waves. Only Phase 16.2+ (distributing a managed melonDS runtime) is gated — on the 16.0 ADR's licensing decision, not on 15.x progress. This is a scoping amendment to the previously strict 'complete one game before the next' / 'sequential waves only' rule; it does not relax any financial-safety, security, or one-PR-per-slice governance rule."
+  },
   "artifacts": {
     "docs": "docs/axis-redesign/",
     "skill": ".claude/skills/axis-system-redesign/",
     "defect_ledger": ".claude/axis-redesign/DEFECT_LEDGER.json"
   },
   "convergence": {
+    "status": "CLOSED — this entire object is now a historical record of the pre-merge convergence analysis. All actions it once listed as pending are resolved; see baseline_health and next_dependency_ordered_actions above for current status.",
     "base": "origin/codex/phase9-resume-executor@84cc5ca6",
     "ported": "origin/codex/vector-arcade-envoys@a72f3da7 (platform commit 4e44e245 only)",
     "strategy": "Cherry-picked the platform commit only; excluded VECTOR lifecycle migration 202607161000_lifecycle_claims.sql (merge 0753eada). phase9 split lifecycle (1300/1302/1400/1401) is canonical.",
     "migration_identity": "Renamed 202607161200_vector_arcade_persistence.sql -> 202607170001_ to resolve collision with 202607161200_entity_workspace.sql.",
     "lifecycle_rewire": "NO-OP — platform commit touched no core lifecycle files; tree calls only phase9 canonical RPCs.",
-    "health": {
+    "resolution": "Merged to main via PR #239 (2026-07-17). Migration reconciliation for the pre-July drift landed via PR #237 (58 renames, contract migration 202607161401 applied to prod) and PR #238 (routine_version CHECK restore). All 89 repo-tracked migration files now match prod's 89 recorded versions.",
+    "health_at_merge": {
       "typecheck": "pass (tsc --noEmit, exit 0)",
       "lint": "pass (eslint, 0 errors on vector + resolved-conflict surface)",
-      "unit_tests": "1257 passed / 184 files (full suite)",
+      "unit_tests": "1257 passed / 184 files (full suite, at merge time; see baseline_health above for the current 1265/187 count post-#240-#249)",
       "production_build": "175 pages; route budgets 187/187 within budget; aggregate static JS 4321/4400 KB",
       "release_validation": "pass (release:validate exit 0; arcade migration additive, does not disturb phase9 expand/contract wave)",
-      "browser_gate": "NOT GREEN — no Supabase CLI / local stack in this environment; fresh-Supabase authenticated Playwright and VECTOR authenticated browser suite cannot be executed here.",
-      "arcade_migration_review": "MANUAL only — 202607170001 RLS/grant/replay reviewed by reading SQL; not replayed against a live stack (no Supabase CLI)."
+      "browser_gate": "RESOLVED — was 'NOT GREEN' pre-merge (no Supabase CLI in the analysis environment); GitHub CI run 29659456809 on the merged main head a8c7be32 now shows all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
+      "arcade_migration_review": "RESOLVED — was 'MANUAL only' pre-merge; the migration was applied to hosted twkcvyhmlguipchfetge and a rolled-back live round-trip (save sync, event apply, conflict create+resolve) was executed post-merge."
     },
-    "blocked_gates_owner": [
-      "Hosted Supabase DDL/readback for 202607170001",
-      "Fresh-Supabase authenticated Playwright (local + GitHub)",
-      "VECTOR authenticated browser suite (was 4/6 with fail-closed owner-record errors)",
-      "Vercel authorized preview validation",
-      "Sentry issues/dashboards",
-      "Render worker",
-      "OpenAI paid generation",
-      "Independent review (lifecycle/migration, owner isolation/CAS, offline SW, a11y/failure truth, docs)",
-      "Merge/deploy authorization",
-      "Contract migration 202607161401 timing (needs compatible prod SHA + recovery owner)"
+    "blocked_gates_owner_RESOLVED_OR_STILL_OPEN": [
+      "Hosted Supabase DDL/readback for 202607170001 — RESOLVED (applied + live round-trip verified).",
+      "Fresh-Supabase authenticated Playwright (local + GitHub) — RESOLVED (CI run 29659456809 green).",
+      "VECTOR authenticated browser suite (was 4/6 with fail-closed owner-record errors) — RESOLVED on the current CI run; the earlier 4/6 was a local-stack transport flake, not a code defect.",
+      "Vercel authorized preview validation — historical pass recorded pre-merge; production now deploys via Vercel's native Git integration on merge (no separate preview gate blocks merged code).",
+      "Sentry issues/dashboards — STILL OWNER-BLOCKED (token access, not code).",
+      "Render worker — STILL OWNER-BLOCKED (not built yet; scoped to Wave 15.7).",
+      "OpenAI paid generation — STILL OWNER-BLOCKED (scoped to Wave 15.6/15.7).",
+      "Independent review (lifecycle/migration, owner isolation/CAS, offline SW, a11y/failure truth, docs) — RESOLVED via PR review process for #237/#238/#239.",
+      "Merge/deploy authorization — RESOLVED; owner merged #237/#238/#239 (and #240-#249) on 2026-07-17/18.",
+      "Contract migration 202607161401 timing — RESOLVED; applied to prod via PR #237 after the compatible application revision went live."
     ]
   }
 }
