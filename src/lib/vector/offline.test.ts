@@ -59,6 +59,43 @@ describe("VECTOR offline boundary", () => {
     expect(isAllowedVectorOfflineAssetUrl("/vector-assets/.current/forged.json", BASE)).toBe(false);
   });
 
+  it("accepts real Next.js build ids that start with _ or - and still rejects traversal", () => {
+    // Next generates build ids with nanoid, whose alphabet is [A-Za-z0-9_-], so
+    // ~2 of 64 first characters are _ or -. An earlier regex anchored the first
+    // character to [a-zA-Z0-9], so ~3% of builds failed with
+    // VECTOR_OFFLINE_BUILD_ID_INVALID (observed: build id "_0wHbfAf7F4d-vWhbJcxS").
+    const valid = {
+      schemaVersion: 1 as const,
+      gameId: "second-sense",
+      gameVersion: "1.0.0",
+      buildId: "build-1",
+      offlineEntryUrl: "/vector-assets/offline/second-sense.html",
+      estimatedBytes: 20,
+      assets: [
+        asset("/_next/static/chunks/second-sense.js"),
+        asset("/vector-assets/offline/second-sense.html"),
+      ],
+    };
+
+    for (const buildId of ["_0wHbfAf7F4d-vWhbJcxS", "-1miKLG-szMdLptZDnh-Y", "_", "-"]) {
+      expect(
+        parseVectorOfflineManifest({ ...valid, buildId }, BASE).ok,
+        `build id "${buildId}" should be accepted`,
+      ).toBe(true);
+    }
+
+    // The tail still admits '.', but the first character deliberately does NOT:
+    // build ids are interpolated into manifest filenames and cache keys, and a
+    // leading dot would produce dotfile-shaped names and admit the "." / ".."
+    // family. Real Next ids never contain a dot, so nothing legitimate is lost.
+    for (const buildId of [".hidden", "..", "."]) {
+      expect(
+        parseVectorOfflineManifest({ ...valid, buildId }, BASE),
+        `build id "${buildId}" must be rejected`,
+      ).toEqual({ ok: false, error: "INVALID_OFFLINE_MANIFEST" });
+    }
+  });
+
   it("requires a dedicated same-origin HTML entry point for offline navigation", () => {
     expect(isAllowedVectorOfflineEntryUrl("/vector-assets/offline/second-sense.html", BASE)).toBe(true);
     expect(isAllowedVectorOfflineEntryUrl("/vector-assets/offline/second-sense.js", BASE)).toBe(false);

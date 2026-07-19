@@ -8,7 +8,7 @@ import type { VectorGameSlug } from "@/lib/vector/types";
 
 export const VECTOR_OFFLINE_BUILD_MAP_URL = "/vector-assets/manifests/build-map.json";
 const SHA256 = /^[a-f0-9]{64}$/;
-const BUILD_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/;
+const BUILD_ID = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,159}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i;
 const MAX_BUILD_MAP_BYTES = 256 * 1024;
 
