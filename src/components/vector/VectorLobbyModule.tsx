@@ -395,6 +395,14 @@ export function VectorLobbyModule({
         >
           {isFullscreen ? "Exit full screen" : "Full screen"}
         </Button>
+        <Link
+          className={styles.secondaryLink}
+          href="/vector/archive-bay"
+          data-testid="vector-archive-bay-link"
+          title="Launch legacy titles you already own (desktop app only)"
+        >
+          Archive Bay · desktop only
+        </Link>
       </AxisChromePanel>
 
       <div

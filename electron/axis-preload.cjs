@@ -3,8 +3,27 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const openBrowser = (input) => ipcRenderer.invoke("axis-browser:open", input);
 
+// Phase 16.1 Archive Bay (desktop-only). Every method is a thin invoke/on
+// wrapper — no filesystem path or flag ever originates in this renderer-side
+// code; the main process resolves paths via native file dialogs and an
+// opaque contentId (see electron/archive-bay.cjs and main.cjs).
+const archiveBay = {
+  list: () => ipcRenderer.invoke("archive-bay:list"),
+  import: (input) => ipcRenderer.invoke("archive-bay:import", input),
+  remove: (contentId) => ipcRenderer.invoke("archive-bay:remove", contentId),
+  launch: (contentId) => ipcRenderer.invoke("archive-bay:launch", contentId),
+  getRuntimeStatus: () => ipcRenderer.invoke("archive-bay:runtime-status"),
+  chooseRuntime: () => ipcRenderer.invoke("archive-bay:runtime-choose"),
+  onLaunchState(listener) {
+    const handler = (_event, state) => listener(state);
+    ipcRenderer.on("archive-bay:launch-state", handler);
+    return () => ipcRenderer.removeListener("archive-bay:launch-state", handler);
+  },
+};
+
 contextBridge.exposeInMainWorld("axisDesktop", {
   openBrowser,
+  archiveBay,
 });
 
 const SIDEBAR_PREF_KEY = "axis-sidebar";
