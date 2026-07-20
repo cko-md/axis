@@ -23,10 +23,12 @@ describe("VECTOR game registry", () => {
   it("keeps every remaining game honestly planned and disabled after Wave 15.8", () => {
     // Brickrise has a runtime loader from Wave 15.8 but is still `planned`:
     // its mechanics are complete and its Phaser shell runs, while artwork is
-    // not delivered. A loader on a planned game is valid and deliberate —
+    // not delivered. Paper Glider's loader is the Wave 15.10 engine-isolation
+    // skeleton that proves the `vector-engine-three` chunk contract before
+    // gameplay lands. A loader on a planned game is valid and deliberate —
     // flipping status without ready artwork trips AVAILABLE_WITHOUT_ARTWORK.
     // What must stay true is that a planned game claims nothing it lacks.
-    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual(["second-sense", "brickrise"]);
+    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual(["second-sense", "brickrise", "paper-glider"]);
     for (const game of VECTOR_GAME_REGISTRY) {
       if (game.slug === "second-sense") continue;
       expect(game.status).toBe("planned");

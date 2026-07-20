@@ -39,6 +39,19 @@ export const VECTOR_GAME_LOADERS: Partial<Record<VectorGameSlug, VectorGameLoade
         "@/lib/vector/games/brickrise/game"
       ).then((module) => module.default),
     },
+    // Wave 15.10 engine-isolation skeleton: this loader exists so the plain
+    // Three dynamic import inside the game module is reachable and the
+    // `vector-engine-three` chunk contract is proven before gameplay lands.
+    // Same planned-with-loader shape Brickrise used before its artwork.
+    // (The engine import itself lives in game.ts, deliberately uncommented —
+    // see engine-chunks.test.ts for why naming it here would defeat it.)
+    "paper-glider": {
+      engine: "three",
+      load: () => import(
+        /* webpackChunkName: "paper-glider" */
+        "@/lib/vector/games/paper-glider/game"
+      ).then((module) => module.default),
+    },
   });
 
 export class VectorGameLoaderUnavailableError extends Error {

@@ -63,15 +63,39 @@ const ENGINES = [
  */
 const ENGINE_IMPORT = /(?<!typeof\s)import\(([^)]*?)["'](phaser|three)(?:\/[^"']*)?["']\s*\)/g;
 
+/**
+ * Static `import ... from "phaser"` / re-export forms. The cacheGroup sweeps
+ * engine modules by node_modules path regardless of import syntax, so a static
+ * engine import in shared code would still be billed to the route-isolated
+ * budget — while making the engine chunk reachable from whatever route imports
+ * that file. The single-importer tests below therefore count BOTH syntaxes.
+ * `import type` is excluded: it is erased before the bundler sees it.
+ */
+const STATIC_ENGINE_IMPORT =
+  /(?:^|\n)\s*(?:import(?!\s+type\s)|export)\s[^;]*?from\s*["'](phaser|three)(?:\/[^"']*)?["']/g;
+
+/** Files importing the engine package through either syntax. */
+function engineImporters(pkg: "phaser" | "three"): string[] {
+  return sourceFiles("src").filter((file) => {
+    const contents = read(file);
+    return (
+      [...contents.matchAll(ENGINE_IMPORT)].some((match) => match[2] === pkg) ||
+      [...contents.matchAll(STATIC_ENGINE_IMPORT)].some((match) => match[1] === pkg)
+    );
+  });
+}
+
 describe("VECTOR engine chunk naming", () => {
   const nextConfig = read("next.config.ts");
-  const budgetScript = read("scripts/check-bundle-budget.mjs");
+  // The exclusion list lives in the classification core the budget script
+  // imports (see bundle-partition.test.ts for the behavioral coverage).
+  const budgetScript = read("scripts/bundle-partition-core.mjs");
 
   it("declares a cacheGroup for every chunk name the budget script excludes", () => {
     for (const engine of ENGINES) {
       expect(
         budgetScript.includes(`"${engine.chunk}"`),
-        `check-bundle-budget.mjs no longer excludes ${engine.chunk}`,
+        `bundle-partition-core.mjs no longer excludes ${engine.chunk}`,
       ).toBe(true);
       expect(
         nextConfig.includes(`name: "${engine.chunk}"`),
@@ -120,13 +144,14 @@ describe("VECTOR engine chunk naming", () => {
   });
 
   it("imports Phaser exactly once, from the Brickrise shell", () => {
-    // A second import site would split the engine across chunks, and one of
-    // them would not be covered by the cacheGroup's name.
-    const importers = sourceFiles("src").filter((file) => {
-      const contents = read(file);
-      return [...contents.matchAll(ENGINE_IMPORT)].some((match) => match[2] === "phaser");
-    });
+    // A second import site — dynamic OR static — would either split the engine
+    // across chunks or make the engine chunk reachable from a shared route
+    // while still being billed to the route-isolated budget.
+    expect(engineImporters("phaser")).toEqual(["src/lib/vector/games/brickrise/game.ts"]);
+  });
 
-    expect(importers).toEqual(["src/lib/vector/games/brickrise/game.ts"]);
+  it("imports Three exactly once, from the Paper Glider shell", () => {
+    // Same rule as Phaser above, both syntaxes counted.
+    expect(engineImporters("three")).toEqual(["src/lib/vector/games/paper-glider/game.ts"]);
   });
 });

@@ -30,53 +30,26 @@
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
+import { routeIsolatedPrefixes, isRouteIsolatedGameChunk } from "./bundle-partition-core.mjs";
 
 const CHUNKS_DIR = path.resolve(process.cwd(), ".next/static/chunks");
 const BUDGETS = path.resolve(process.cwd(), ".claude/axis-redesign/PERFORMANCE_BUDGETS.json");
 
-const TYPES_SOURCE = path.resolve(process.cwd(), "src/lib/vector/types.ts");
-
-/**
- * Engine vendor chunks. These names are assigned by dedicated splitChunks
- * cacheGroups in next.config.ts, keyed on the engine's node_modules path, so a
- * chunk can only land here by being deliberately named — never by accident.
- *
- * Note the name deliberately does NOT come from a `webpackChunkName` magic
- * comment at the import site: a magic comment and a cacheGroup competing for
- * one name cancel each other out (SplitChunksPlugin drops the cacheGroup entry
- * when the name is already in `compilation.namedChunks` and is not a parent of
- * the selected chunks), leaving the engine hash-named and misfiled into the
- * shared budget. See next.config.ts and src/lib/vector/engine-chunks.test.ts.
+/*
+ * The classification rule — which filenames count as route-isolated, the
+ * engine-vendor chunk names (assigned by next.config.ts cacheGroups, never by
+ * webpackChunkName magic comments — the two cancel each other out; see
+ * src/lib/vector/engine-chunks.test.ts), and the slug list derived from
+ * src/lib/vector/types.ts — lives in bundle-partition-core.mjs so the
+ * partition tests can drive it with real adversarial filenames instead of
+ * grepping this script's text.
  */
-const ENGINE_VENDOR_CHUNKS = ["vector-engine-phaser", "vector-engine-three"];
-
-/**
- * Read the game slugs from the single source of truth rather than duplicating
- * them, so a new title cannot silently miss the partition (or, worse, so this
- * list cannot be padded to hide an unrelated regression).
- */
-function readGameSlugs() {
-  const source = readFileSync(TYPES_SOURCE, "utf8");
-  const block = source.match(/VECTOR_GAME_SLUGS\s*=\s*\[([\s\S]*?)\]/);
-  if (!block) {
-    console.error("✗ Could not read VECTOR_GAME_SLUGS from src/lib/vector/types.ts");
-    process.exit(2);
-  }
-  return [...block[1].matchAll(/"([a-z0-9-]+)"/g)].map((m) => m[1]);
-}
-
-const ROUTE_ISOLATED_PREFIXES = [...readGameSlugs(), ...ENGINE_VENDOR_CHUNKS];
-
-/**
- * A chunk is route-isolated only if its filename is exactly `<name>.<hash>.js`
- * for a known name. Anchoring on the leading segment prevents an unrelated
- * chunk that merely contains a slug substring from drifting out of the
- * aggregate.
- */
-function isRouteIsolatedGameChunk(fileName) {
-  return ROUTE_ISOLATED_PREFIXES.some(
-    (name) => fileName === `${name}.js` || fileName.startsWith(`${name}.`),
-  );
+let ROUTE_ISOLATED_PREFIXES;
+try {
+  ROUTE_ISOLATED_PREFIXES = routeIsolatedPrefixes();
+} catch (error) {
+  console.error(`✗ ${error.message}`);
+  process.exit(2);
 }
 
 function walkJsSize(dir) {
@@ -92,7 +65,7 @@ function walkJsSize(dir) {
       isolatedFiles.push(...nested.isolatedFiles);
     } else if (entry.isFile() && entry.name.endsWith(".js")) {
       const size = statSync(full).size;
-      if (isRouteIsolatedGameChunk(entry.name)) {
+      if (isRouteIsolatedGameChunk(entry.name, ROUTE_ISOLATED_PREFIXES)) {
         routeIsolated += size;
         isolatedFiles.push({ name: entry.name, size });
       } else {
@@ -120,7 +93,40 @@ if (typeof gameBudgetKb !== "number") {
   process.exit(2);
 }
 
+/**
+ * The partition is only sound if the excluded chunks really are route-isolated:
+ * a chunk billed to the game budget while some shared route actually loads it
+ * would understate the shared bundle by exactly that chunk's size. The commit
+ * that introduced the partition verified this by hand once; this re-derives it
+ * from the build output every run, so an eager import added to a layout or nav
+ * widget fails the gate instead of slipping into the looser game budget.
+ */
+function assertRouteIsolation(isolatedFiles) {
+  const manifestPath = path.resolve(process.cwd(), ".next/app-build-manifest.json");
+  if (!existsSync(manifestPath)) {
+    console.error(`✗ ${manifestPath} not found — run \`next build\` first.`);
+    process.exit(2);
+  }
+  const pages = JSON.parse(readFileSync(manifestPath, "utf8"))?.pages ?? {};
+  const offenders = [];
+  for (const file of isolatedFiles) {
+    for (const [route, entries] of Object.entries(pages)) {
+      if (entries.some((entry) => entry.endsWith(`/${file.name}`) || entry === `static/chunks/${file.name}`)) {
+        offenders.push(`${file.name} is loaded by route ${route}`);
+      }
+    }
+  }
+  if (offenders.length > 0) {
+    console.error("✗ Chunks billed to the route-isolated game budget are reachable from routes:");
+    for (const line of offenders) console.error(`    ${line}`);
+    console.error("  A route-loaded chunk belongs in the shared budget; fix the import graph.");
+    process.exit(1);
+  }
+  console.log(`✓ Route isolation verified: ${isolatedFiles.length} game chunk(s) in 0 of ${Object.keys(pages).length} route entries.`);
+}
+
 const { shared, routeIsolated, isolatedFiles } = walkJsSize(CHUNKS_DIR);
+assertRouteIsolation(isolatedFiles);
 const sharedKb = Math.round(shared / 1024);
 const gameKb = Math.round(routeIsolated / 1024);
 const combinedKb = sharedKb + gameKb;
