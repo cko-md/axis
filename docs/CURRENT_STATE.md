@@ -19,14 +19,20 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-20T15:41:22.950Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-20T16:46:15.992Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `feat/vector-15.10-paper-glider-shell`
-- **HEAD:** `42ee761b`
-- **main:** `42ee761b`
-- **Working tree:** has uncommitted changes
+- **Branch:** `feat/electron-reliability-archive-bay-16.3`
+- **HEAD:** `ad2dce63`
+- **main:** `5572d3ee`
+- **Working tree:** clean
+
+### Not yet on main (1 commit(s))
+
+These exist only on this branch. Do not assume main contains them.
+
+- `ad2dce63` feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter
 
 ## Waves merged to main
 
@@ -37,7 +43,7 @@ _Derived from the repository at 2026-07-20T15:41:22.950Z. Do not hand-edit this 
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
 | 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
 | 15.9 | local merge | `32a26c72` | feat(vector): Time to Fly deterministic flight mechanics and level progression (Wave 15.9) |
-| 15.10 | #261 | `72f4e738` | feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10) |
+| 15.10 | local merge | `5572d3ee` | feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard |
 | 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.2 | #256 | `d8a15e7b` | feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B) |
@@ -51,14 +57,13 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Defects
 
-- **Total logged:** 38
+- **Total logged:** 39
 - **Open:** 0
 
 ## Gates
 
-- **Tests:** 1820/1820 across 223 files
-- **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-20T15:41:22.963Z
+- _carried forward; re-run with --gates to measure_
+- Last known tests: 1820/1820 (STALE)
 
 <!-- END GENERATED: derive-program-state -->
 

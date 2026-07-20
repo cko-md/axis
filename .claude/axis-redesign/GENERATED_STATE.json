@@ -1,14 +1,25 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-20T15:41:22.950Z",
+  "derivedAt": "2026-07-20T16:46:15.992Z",
   "git": {
-    "branch": "feat/vector-15.10-paper-glider-shell",
-    "head": "42ee761b9a90ddcf98b638043e77a8ebb990ff40",
-    "mainHead": "42ee761b9a90ddcf98b638043e77a8ebb990ff40",
-    "workingTreeClean": false,
-    "aheadOfMain": []
+    "branch": "feat/electron-reliability-archive-bay-16.3",
+    "head": "ad2dce63b892c77df285fab578c33df7f668e991",
+    "mainHead": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
+    "workingTreeClean": true,
+    "aheadOfMain": [
+      {
+        "sha": "ad2dce63",
+        "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter"
+      }
+    ]
   },
   "mergedPrs": [
+    {
+      "pr": null,
+      "sha": "5572d3ee",
+      "subject": "feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard",
+      "committedAt": "2026-07-20T11:42:53-04:00"
+    },
     {
       "pr": null,
       "sha": "42ee761b",
@@ -152,12 +163,6 @@
       "sha": "194ebe84",
       "subject": "docs(axis): refresh derived state after the derivation fix",
       "committedAt": "2026-07-19T11:58:16-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "2c3d4d3a",
-      "subject": "fix(axis): count locally merged waves in the derived state table",
-      "committedAt": "2026-07-19T11:57:39-04:00"
     }
   ],
   "waves": [
@@ -203,10 +208,10 @@
     },
     {
       "wave": "15.10",
-      "mergedPr": 261,
-      "sha": "72f4e738",
-      "subject": "feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10)",
-      "mergedAt": "2026-07-20T01:32:06-04:00",
+      "mergedPr": null,
+      "sha": "5572d3ee",
+      "subject": "feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard",
+      "mergedAt": "2026-07-20T11:42:53-04:00",
       "isDocs": false
     },
     {
@@ -239,12 +244,12 @@
     "latest": "202607170001_vector_arcade_persistence.sql"
   },
   "defects": {
-    "total": 38,
+    "total": 39,
     "open": 0,
     "openIds": []
   },
   "gates": {
-    "measured": true,
+    "measured": false,
     "measuredAt": "2026-07-20T15:41:22.963Z",
     "tests": {
       "passed": 1820,
@@ -255,6 +260,7 @@
     "bundleKb": {
       "used": 4245,
       "budget": 4400
-    }
+    },
+    "note": "carried forward; re-run with --gates to measure"
   }
 }
