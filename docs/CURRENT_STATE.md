@@ -98,10 +98,10 @@ findings were handed to it directly):
 
 Environment notes: fresh worktrees need `npm install` in `electron/` too, or
 the Electron e2e times out in beforeAll (`electron-updater` lives in
-`electron/package.json`). Sentry MCP connector is invalidated — owner must
-reconnect it; post-deploy check owed:
-`search_issues(org axis-do, is:unresolved firstSeen:-6h)`. Vercel runtime
-errors post-merge: zero (6h window).
+`electron/package.json`). Post-deploy Sentry review COMPLETE via the `sentry`
+CLI (owner installed it 2026-07-20): zero new and zero active unresolved
+issues across the #258–#261 deploy window; Vercel runtime errors also zero.
+The Sentry MCP connector remains invalidated — the CLI is the working path.
 
 ### Wave 15.8 Brickrise — scene wired, chunk blocker solved
 
