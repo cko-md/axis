@@ -87,13 +87,15 @@ function engineImporters(pkg: "phaser" | "three"): string[] {
 
 describe("VECTOR engine chunk naming", () => {
   const nextConfig = read("next.config.ts");
-  const budgetScript = read("scripts/check-bundle-budget.mjs");
+  // The exclusion list lives in the classification core the budget script
+  // imports (see bundle-partition.test.ts for the behavioral coverage).
+  const budgetScript = read("scripts/bundle-partition-core.mjs");
 
   it("declares a cacheGroup for every chunk name the budget script excludes", () => {
     for (const engine of ENGINES) {
       expect(
         budgetScript.includes(`"${engine.chunk}"`),
-        `check-bundle-budget.mjs no longer excludes ${engine.chunk}`,
+        `bundle-partition-core.mjs no longer excludes ${engine.chunk}`,
       ).toBe(true);
       expect(
         nextConfig.includes(`name: "${engine.chunk}"`),
