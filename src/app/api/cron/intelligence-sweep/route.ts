@@ -76,6 +76,13 @@ export async function POST(req: NextRequest) {
   }
 
   const results: Record<string, UserSweepResult> = {};
+  // Circuit breaker: the objectives AI is shared across all users, so once it
+  // comes back unavailable it is down for everyone this run. Without this, a
+  // provider outage cost one slow-failing AI call PER user, and with enough
+  // users that accumulated past the Vercel function timeout — which returned a
+  // 502 that Make retried for hours. After the first ai-unavailable we skip the
+  // step for the rest of the run instead of paying for it again.
+  let objectivesAiUnavailable = false;
 
   for (const userId of userIds) {
     const userResult: UserSweepResult = {};
@@ -93,7 +100,11 @@ export async function POST(req: NextRequest) {
     // with how (a) and (c) both produce signals. Dedup against the user's
     // last 30 days of signal titles (case-insensitive substring match) since
     // that extra check isn't needed (and isn't present) on the manual button.
-    try {
+    if (objectivesAiUnavailable) {
+      // Provider already down this run (see the circuit-breaker note above) —
+      // skip the scan for this user rather than pay for another failing call.
+      userResult.objectives_scan = { suggested: 0, inserted: 0, skipped: "ai-unavailable" };
+    } else try {
       const { results: suggestions, error: scanError, code: scanCode, cause: scanCause } =
         await scanForObjectives(userId, supabase);
       if (scanError) {
@@ -105,9 +116,11 @@ export async function POST(req: NextRequest) {
           userResult.objectives_scan = { suggested: 0, inserted: 0, skipped: "insufficient-activity" };
         } else if (scanCode === "ai-unavailable") {
           // Transient provider failure on a background job nobody is watching.
-          // Capture the REAL error (stack + message) once, at WARNING level so a
-          // repeating outage does not escalate/page, and record a soft skip
-          // rather than a hard failure. The manual button path stays unchanged.
+          // Trip the circuit breaker so the remaining users skip the call, and
+          // capture the REAL error (stack + message) once, at WARNING level so a
+          // repeating outage does not escalate/page. The manual button path is
+          // unchanged.
+          objectivesAiUnavailable = true;
           Sentry.captureException(scanCause ?? new Error("Objectives scan AI unavailable"), {
             level: "warning",
             tags: { area: "cron", route: "/api/cron/intelligence-sweep", operation: "objectives_scan" },

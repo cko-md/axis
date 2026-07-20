@@ -45,9 +45,9 @@ function query(result: { data: unknown; error: unknown }) {
   return chain;
 }
 
-function adminClient() {
+function adminClient(userIds: string[] = [USER_ID]) {
   return {
-    auth: { admin: { listUsers: async () => ({ data: { users: [{ id: USER_ID }] }, error: null }) } },
+    auth: { admin: { listUsers: async () => ({ data: { users: userIds.map((id) => ({ id })) }, error: null }) } },
     // Every table read the sweep performs (notes, conferences, signals) is
     // benign here so only the objectives step under test drives the outcome.
     from: () => query({ data: [], error: null }),
@@ -107,6 +107,31 @@ describe("intelligence-sweep objectives classification", () => {
     expect(reported).toBe(cause);
     expect((ctx as { level: string }).level).toBe("warning");
     expect(mocks.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it("circuit-breaks after the first ai-unavailable: no repeat call across users", async () => {
+    // The core reliability fix. On a provider outage, one slow-failing AI call
+    // PER user is what accumulated into the Vercel timeout / 502 / Make retry
+    // storm. After the first ai-unavailable, the remaining users must skip the
+    // call entirely — and the warning must fire exactly once, not per user.
+    mocks.admin.mockReturnValue(adminClient(["u1", "u2", "u3"]));
+    mocks.scanForObjectives.mockResolvedValue({
+      results: [],
+      error: "AI scan is unavailable right now. Try again shortly.",
+      code: "ai-unavailable",
+      cause: new Error("provider 503"),
+    });
+
+    const body = await (await POST(request())).json();
+
+    // Called for the first user only; the other two short-circuit.
+    expect(mocks.scanForObjectives).toHaveBeenCalledTimes(1);
+    expect(mocks.captureException).toHaveBeenCalledTimes(1);
+    for (const u of ["u1", "u2", "u3"]) {
+      expect(body.results[u].objectives_scan).toEqual({ suggested: 0, inserted: 0, skipped: "ai-unavailable" });
+    }
+    expect(body.ok).toBe(true);
+    expect(body.failures).toBe(0);
   });
 
   it("still hard-errors a genuine data-load failure", async () => {
