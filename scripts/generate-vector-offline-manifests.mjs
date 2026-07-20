@@ -14,7 +14,7 @@ import { pathToFileURL } from "node:url";
 
 const IDENTIFIER = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i;
-const BUILD_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/;
+const BUILD_ID = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,159}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const MAX_ASSETS = 500;
 const MAX_INSTALL_BYTES = 500 * 1024 * 1024;
