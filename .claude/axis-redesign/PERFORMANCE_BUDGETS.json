@@ -1,10 +1,10 @@
 {
-  "updated": "2026-07-14",
+  "updated": "2026-07-20",
   "source": "next build output (this branch); measured, not aspirational",
   "notes": "Budgets are first-load JS (kB) reported by `next build`. The CI build step (.github/workflows/ci.yml) prints current sizes on every PR so regressions are visible in the log; automated enforcement is a follow-up.",
   "budgets": {
     "total_static_js_kb": {
-      "measured": 3826,
+      "measured": 4245,
       "budget": 4400,
       "note": "Sum of .next/static/chunks/**/*.js (raw), EXCLUDING route-isolated VECTOR game chunks which are budgeted separately under route_isolated_game_js_kb (owner decision 2026-07-19). Enforced in CI by scripts/check-bundle-budget.mjs; raise deliberately on an intended growth."
     },
@@ -36,6 +36,7 @@
       }
     },
     "route_isolated_game_js_kb": {
+      "measured": 1911,
       "budget": 3000,
       "note": "Sum of dynamically imported VECTOR game chunks and their declared engine-vendor chunks. These load only when a user opens that specific game and are never part of another route's payload, so they are budgeted apart from the shared application bundle \u2014 bounded, not exempt. Sized to admit one Phaser build (~1168 kB raw), one Three build (~356 kB raw), and the nine game chunks. Per-route first-load budgets in check-perf-budgets.mjs remain the gate on what a user actually downloads."
     }

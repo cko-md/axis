@@ -19,14 +19,14 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-19T15:58:05.770Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-20T05:18:11.902Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `main`
-- **HEAD:** `2c3d4d3a`
-- **main:** `2c3d4d3a`
-- **Working tree:** clean
+- **HEAD:** `85cedc96`
+- **main:** `85cedc96`
+- **Working tree:** has uncommitted changes
 
 ## Waves merged to main
 
@@ -37,6 +37,7 @@ _Derived from the repository at 2026-07-19T15:58:05.770Z. Do not hand-edit this 
 | 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
 | 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
+| 15.10 | #259 | `85cedc96` | feat(vector): prove the route-isolated vector-engine-three chunk (Wave 15.10 spike) |
 | 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.2 | #256 | `d8a15e7b` | feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B) |
@@ -55,9 +56,9 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- **Tests:** 1468/1468 across 203 files
+- **Tests:** 1473/1473 across 203 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-19T15:58:05.783Z
+- **Measured at:** 2026-07-20T05:18:12.058Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -65,6 +66,42 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
+
+### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
+
+Four lanes ran in parallel across isolated worktrees (a concurrent session owns
+Wave 15.9 on `feat/wave-15.9-time-to-fly` — do not duplicate it; review
+findings were handed to it directly):
+
+- **#258 merged** — desktop shutdown-dialog hardening plus two review-found P1
+  repairs: the updater can no longer raise an undismissable ownerless prompt
+  (no-live-window prompts skip; the menu path ensures a window), and file
+  pickers route through a quit-aware `showFilePicker()`. 94/94 desktop tests,
+  9/9 Electron e2e on this Mac. The Electron 43 native SEGV remains
+  unreproduced and is NOT claimed fixed.
+- **#259 merged** — Wave 15.10 prerequisite: `three@0.185.1`,
+  `vector-engine-three` chunk proven route-isolated (717 kB, 0 of 197 route
+  entries), shared bundle unchanged. `check-bundle-budget.mjs` now re-derives
+  route isolation from `app-build-manifest.json` every run; engine
+  single-importer guards catch static imports; the chunk classifier lives in
+  `scripts/bundle-partition-core.mjs` with table-driven behavioral tests.
+- **#260 open** — Brickrise shell repairs for six verified post-merge review
+  findings (BRICKRISE-004/005 in the ledger: cross-source input cancellation;
+  the "Best summit" HUD lying about a slower run). Registry copy made true
+  (no shake/particles exist); in-band "Climb again" after the summit.
+- **#261 open** — Paper Glider deterministic core: the passability oracle is
+  CHECKED IN (25 seeds × 30+ rooms driving the real step function, capped-speed
+  depths included), the opening-drift bound is derived from `stepGlider` at
+  generation time, and furniture/rings are placed against the re-simulated
+  trajectory. Shell (Three scene, input normalization, artwork) is the next
+  15.10 slice; registry stays `planned`.
+
+Environment notes: fresh worktrees need `npm install` in `electron/` too, or
+the Electron e2e times out in beforeAll (`electron-updater` lives in
+`electron/package.json`). Sentry MCP connector is invalidated — owner must
+reconnect it; post-deploy check owed:
+`search_issues(org axis-do, is:unresolved firstSeen:-6h)`. Vercel runtime
+errors post-merge: zero (6h window).
 
 ### Wave 15.8 Brickrise — scene wired, chunk blocker solved
 
@@ -140,15 +177,14 @@ artwork trips `AVAILABLE_WITHOUT_ARTWORK`.
   restart is a new climb, and the personal best is a best-across-runs, which is
   what `personal-unverified` already signals.
 
-### Then: 15.9 Time to Fly, 15.10 Paper Glider
+### Wave order
 
-Same core-first pattern: pure deterministic modules with heavy tests, design
-left as a seam — plus, from 15.8's lesson, a solvability test that proves the
-generated content can actually be completed using the real step function.
-
-Chunk naming is no longer a reason to prefer one over the other; take them in
-order. 15.10 will be the first Three title, so install `three` and confirm a
-`vector-engine-three.*.js` chunk is emitted before writing scene code. See
-`wave_order_revision` in PROGRAM_STATE.json — 15.6 skipped, 15.7 deferred,
-15.11 blocked on the Envoy redesign.
+15.9 Time to Fly is in flight on `feat/wave-15.9-time-to-fly` (concurrent
+session; core round 1 committed, three verified review findings handed to it —
+seed-sweep corpus, per-case cone-prune coverage, a stale doc pointer). 15.10's
+engine prerequisite and deterministic core are done (#259 merged, #261 open);
+its shell is the next slice after 15.9. 15.6 skipped, 15.7 deferred, 15.11
+blocked on the Envoy redesign — see `wave_order_revision` in
+PROGRAM_STATE.json. Brickrise artwork remains externally gated on the design
+lane (Codex); registry status stays `planned` until it lands.
 

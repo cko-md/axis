@@ -1,14 +1,32 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-19T15:58:05.770Z",
+  "derivedAt": "2026-07-20T05:18:11.902Z",
   "git": {
     "branch": "main",
-    "head": "2c3d4d3adb424f1f87cbb469304b15b059ba5ada",
-    "mainHead": "2c3d4d3adb424f1f87cbb469304b15b059ba5ada",
-    "workingTreeClean": true,
+    "head": "85cedc9604d10654c0be8c14ae63fd3201df71d9",
+    "mainHead": "85cedc9604d10654c0be8c14ae63fd3201df71d9",
+    "workingTreeClean": false,
     "aheadOfMain": []
   },
   "mergedPrs": [
+    {
+      "pr": 259,
+      "sha": "85cedc96",
+      "subject": "feat(vector): prove the route-isolated vector-engine-three chunk (Wave 15.10 spike)",
+      "committedAt": "2026-07-20T00:57:06-04:00"
+    },
+    {
+      "pr": 258,
+      "sha": "d851b9dd",
+      "subject": "fix(desktop): harden the window-close path against dialogs that block a quit",
+      "committedAt": "2026-07-19T20:02:13-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "194ebe84",
+      "subject": "docs(axis): refresh derived state after the derivation fix",
+      "committedAt": "2026-07-19T11:58:16-04:00"
+    },
     {
       "pr": null,
       "sha": "2c3d4d3a",
@@ -140,24 +158,6 @@
       "sha": "a98c4f8d",
       "subject": "fix(mail): stop leaking raw provider error text from mail adapters",
       "committedAt": "2026-07-18T10:47:38-04:00"
-    },
-    {
-      "pr": 247,
-      "sha": "5b838be4",
-      "subject": "fix(ai): redact raw provider/DB errors from AI tool results",
-      "committedAt": "2026-07-18T10:41:00-04:00"
-    },
-    {
-      "pr": 245,
-      "sha": "fb5da834",
-      "subject": "fix(reliability): surface + redact failures in calendar/cron/make routes",
-      "committedAt": "2026-07-18T10:40:58-04:00"
-    },
-    {
-      "pr": 243,
-      "sha": "8964bb91",
-      "subject": "fix(plaid): harden webhook sync + surface/redact failures",
-      "committedAt": "2026-07-18T10:40:55-04:00"
     }
   ],
   "waves": [
@@ -202,6 +202,14 @@
       "isDocs": false
     },
     {
+      "wave": "15.10",
+      "mergedPr": 259,
+      "sha": "85cedc96",
+      "subject": "feat(vector): prove the route-isolated vector-engine-three chunk (Wave 15.10 spike)",
+      "mergedAt": "2026-07-20T00:57:06-04:00",
+      "isDocs": false
+    },
+    {
       "wave": "16.0",
       "mergedPr": 253,
       "sha": "61e833d4",
@@ -237,12 +245,12 @@
   },
   "gates": {
     "measured": true,
-    "measuredAt": "2026-07-19T15:58:05.783Z",
+    "measuredAt": "2026-07-20T05:18:12.058Z",
     "tests": {
-      "passed": 1468,
-      "total": 1468,
+      "passed": 1473,
+      "total": 1473,
       "files": 203,
-      "suites": 525
+      "suites": 526
     },
     "bundleKb": {
       "used": 4245,
