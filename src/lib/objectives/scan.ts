@@ -10,9 +10,27 @@ export type ObjectiveSuggestion = {
   confidence: "high" | "medium" | "low";
 };
 
+/**
+ * Why a scan produced no suggestions. Callers use this to decide whether an
+ * empty result is an operational failure (data-load-failed), a transient
+ * external one (ai-unavailable), or a perfectly normal no-op
+ * (insufficient-activity) that must NOT be reported as an error.
+ */
+export type ObjectivesScanFailureCode =
+  | "data-load-failed"
+  | "insufficient-activity"
+  | "ai-unavailable";
+
 export type ObjectivesScanResult = {
   results: ObjectiveSuggestion[];
   error?: string;
+  code?: ObjectivesScanFailureCode;
+  /**
+   * The underlying thrown error, when `code === "ai-unavailable"`. Kept so a
+   * caller can report it with a real stack instead of a contentless message —
+   * the manual button ignores it, the background sweep captures it.
+   */
+  cause?: unknown;
 };
 
 const VALID_CONFIDENCE = new Set(["high", "medium", "low"]);
@@ -33,7 +51,7 @@ export async function scanForObjectives(
     supabase.from("signals").select("title, signal_type").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
   ]);
   if (tasksResult.error || notesResult.error || signalsResult.error) {
-    return { results: [], error: "Could not load platform data for scan." };
+    return { results: [], error: "Could not load platform data for scan.", code: "data-load-failed" };
   }
 
   const lines = buildObjectivesScanContext({
@@ -42,7 +60,9 @@ export async function scanForObjectives(
     signals: signalsResult.data,
   });
 
-  if (!lines) return { results: [], error: "Not enough recent activity to scan." };
+  if (!lines) {
+    return { results: [], error: "Not enough recent activity to scan.", code: "insufficient-activity" };
+  }
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", userId).maybeSingle();
   const providerPref = ((profile as { ai_provider?: AIProviderPref } | null)?.ai_provider) ?? "gemini";
@@ -69,7 +89,15 @@ export async function scanForObjectives(
           confidence: VALID_CONFIDENCE.has(r.confidence) ? r.confidence : "medium",
         })),
     };
-  } catch {
-    return { results: [], error: "AI scan is unavailable right now. Try again shortly." };
+  } catch (cause) {
+    // Preserve the real error so the caller can report it with a stack. An
+    // earlier revision discarded it here, which is why the background sweep's
+    // Sentry issue carried no root cause — only a generic message.
+    return {
+      results: [],
+      error: "AI scan is unavailable right now. Try again shortly.",
+      code: "ai-unavailable",
+      cause,
+    };
   }
 }
