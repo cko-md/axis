@@ -19,37 +19,24 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-20T06:37:23.875Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-20T06:38:53.181Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `wave-15.9-rebase`
-- **HEAD:** `09d7c1b4`
-- **main:** `5d1fb418`
+- **Branch:** `main`
+- **HEAD:** `32a26c72`
+- **main:** `32a26c72`
 - **Working tree:** has uncommitted changes
-
-### Not yet on main (8 commit(s))
-
-These exist only on this branch. Do not assume main contains them.
-
-- `09d7c1b4` fix(vector): Time to Fly — apply cross-session adversarial findings
-- `8203a8b6` feat(vector): Time to Fly Phaser shell — playable, route-isolated, planned
-- `f11082ae` feat(vector): Time to Fly core round 1 — player-solvability gate, progress, input, simulation
-- `44a5ad21` fix(vector): Time to Fly generator converges — 6/6 seeds at every level
-- `423a4bf4` feat(vector): Time to Fly threading rule — breaks the verification wall
-- `b6538e2b` wip(vector): Time to Fly verifier and generator — exhaustive count is the wall
-- `42857c73` feat(vector): Wave 15.9 Time to Fly — constants, orbit lattice, flight integrator
-- `19a1f19a` docs(vector): ADR-0006 — Time to Fly needs disjoint gravity fields
 
 ## Waves merged to main
 
 | Wave | PR | Commit | Subject |
 | --- | --- | --- | --- |
-| 15.2 | local merge | `64dec9cd` | docs(axis): record Wave 15.2 convergence reconciliation + execution log |
 | 15.3 | #251 | `294dae37` | feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3) |
 | 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
 | 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
+| 15.9 | local merge | `32a26c72` | feat(vector): Time to Fly deterministic flight mechanics and level progression (Wave 15.9) |
 | 15.10 | #261 | `72f4e738` | feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10) |
 | 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
@@ -71,7 +58,7 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 - **Tests:** 1748/1748 across 218 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-20T06:37:23.900Z
+- **Measured at:** 2026-07-20T06:38:53.201Z
 
 <!-- END GENERATED: derive-program-state -->
 
