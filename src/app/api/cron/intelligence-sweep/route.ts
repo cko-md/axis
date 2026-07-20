@@ -11,7 +11,7 @@ const OBJECTIVE_DEDUP_WINDOW_DAYS = 30;
 
 type UserSweepResult = {
   platform_scan?: { created: number } | { error: string };
-  objectives_scan?: { suggested: number; inserted: number } | { error: string };
+  objectives_scan?: { suggested: number; inserted: number; skipped?: string } | { error: string };
   debrief?: { inserted: boolean; reason?: string } | { error: string };
   literature_watch?: { inserted: boolean; newPapers?: number; reason?: string } | { error: string };
   pipeline_deadlines?: { inserted: number } | { error: string };
@@ -47,12 +47,18 @@ export async function POST(req: NextRequest) {
   // defensively — listUsers defaults to 50/page and this account will likely
   // never have that many, but a personal-OS deployment could grow.
   let failures = 0;
-  const sweepFailure = (operation: string) => {
+  // Capture the ACTUAL thrown error when we have one, so the Sentry issue
+  // carries a stack and message instead of a contentless "operation failed".
+  // Callers pass the caught error; a bare call (no cause available) still
+  // reports, just without a stack.
+  const sweepFailure = (operation: string, cause?: unknown) => {
     failures += 1;
-    Sentry.captureMessage("Intelligence sweep operation failed", {
-      level: "error",
-      tags: { area: "cron", route: "/api/cron/intelligence-sweep", operation },
-    });
+    const context = { level: "error" as const, tags: { area: "cron", route: "/api/cron/intelligence-sweep", operation } };
+    if (cause !== undefined) {
+      Sentry.captureException(cause, context);
+    } else {
+      Sentry.captureMessage("Intelligence sweep operation failed", context);
+    }
     return { error: "SWEEP_OPERATION_FAILED", operation };
   };
 
@@ -70,6 +76,13 @@ export async function POST(req: NextRequest) {
   }
 
   const results: Record<string, UserSweepResult> = {};
+  // Circuit breaker: the objectives AI is shared across all users, so once it
+  // comes back unavailable it is down for everyone this run. Without this, a
+  // provider outage cost one slow-failing AI call PER user, and with enough
+  // users that accumulated past the Vercel function timeout — which returned a
+  // 502 that Make retried for hours. After the first ai-unavailable we skip the
+  // step for the rest of the run instead of paying for it again.
+  let objectivesAiUnavailable = false;
 
   for (const userId of userIds) {
     const userResult: UserSweepResult = {};
@@ -77,8 +90,8 @@ export async function POST(req: NextRequest) {
     // (a) Platform scan — surfaces new actionable signals from tasks context.
     try {
       userResult.platform_scan = await scanPlatformForUser(userId, supabase);
-    } catch {
-      userResult.platform_scan = sweepFailure("platform_scan");
+    } catch (cause) {
+      userResult.platform_scan = sweepFailure("platform_scan", cause);
     }
 
     // (b) Objectives scan — scanForObjectives only returns suggestions (same as
@@ -87,10 +100,36 @@ export async function POST(req: NextRequest) {
     // with how (a) and (c) both produce signals. Dedup against the user's
     // last 30 days of signal titles (case-insensitive substring match) since
     // that extra check isn't needed (and isn't present) on the manual button.
-    try {
-      const { results: suggestions, error: scanError } = await scanForObjectives(userId, supabase);
+    if (objectivesAiUnavailable) {
+      // Provider already down this run (see the circuit-breaker note above) —
+      // skip the scan for this user rather than pay for another failing call.
+      userResult.objectives_scan = { suggested: 0, inserted: 0, skipped: "ai-unavailable" };
+    } else try {
+      const { results: suggestions, error: scanError, code: scanCode, cause: scanCause } =
+        await scanForObjectives(userId, supabase);
       if (scanError) {
-        userResult.objectives_scan = sweepFailure("objectives_scan");
+        if (scanCode === "insufficient-activity") {
+          // Not a failure. The user simply has no fresh tasks/notes/signals to
+          // derive objectives from — the same benign "nothing to do" the manual
+          // button shows. Reporting it as an error is what produced a Sentry
+          // issue with 0 user impact firing every run. Record a skip instead.
+          userResult.objectives_scan = { suggested: 0, inserted: 0, skipped: "insufficient-activity" };
+        } else if (scanCode === "ai-unavailable") {
+          // Transient provider failure on a background job nobody is watching.
+          // Trip the circuit breaker so the remaining users skip the call, and
+          // capture the REAL error (stack + message) once, at WARNING level so a
+          // repeating outage does not escalate/page. The manual button path is
+          // unchanged.
+          objectivesAiUnavailable = true;
+          Sentry.captureException(scanCause ?? new Error("Objectives scan AI unavailable"), {
+            level: "warning",
+            tags: { area: "cron", route: "/api/cron/intelligence-sweep", operation: "objectives_scan" },
+          });
+          userResult.objectives_scan = { suggested: 0, inserted: 0, skipped: "ai-unavailable" };
+        } else {
+          // Genuine operational failure (e.g. platform data could not be read).
+          userResult.objectives_scan = sweepFailure("objectives_scan");
+        }
       } else {
         const windowStart = new Date(Date.now() - OBJECTIVE_DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
         const { data: recentSignals, error: recentSignalsError } = await supabase
@@ -126,8 +165,8 @@ export async function POST(req: NextRequest) {
         }
         userResult.objectives_scan = { suggested: suggestions.length, inserted };
       }
-    } catch {
-      userResult.objectives_scan = sweepFailure("objectives_scan");
+    } catch (cause) {
+      userResult.objectives_scan = sweepFailure("objectives_scan", cause);
     }
 
     // (c) Debrief staleness — only nudge users who have used the feature before.
@@ -163,8 +202,8 @@ export async function POST(req: NextRequest) {
           userResult.debrief = { inserted: false, reason: `last debrief ${Math.floor(ageDays)}d ago — not stale yet` };
         }
       }
-    } catch {
-      userResult.debrief = sweepFailure("debrief_scan");
+    } catch (cause) {
+      userResult.debrief = sweepFailure("debrief_scan", cause);
     }
 
     // (d) Literature paper-watch — surfaces new papers matching the user's
@@ -187,8 +226,8 @@ export async function POST(req: NextRequest) {
         });
         userResult.literature_watch = error ? sweepFailure("insert_literature_signal") : { inserted: true, newPapers: newPapers.length };
       }
-    } catch {
-      userResult.literature_watch = sweepFailure("literature_scan");
+    } catch (cause) {
+      userResult.literature_watch = sweepFailure("literature_scan", cause);
     }
 
     // (e) Pipeline deadline watch — nudges when a conference's abstract is due
@@ -244,8 +283,8 @@ export async function POST(req: NextRequest) {
         else inserted += 1;
       }
       userResult.pipeline_deadlines = { inserted };
-    } catch {
-      userResult.pipeline_deadlines = sweepFailure("pipeline_scan");
+    } catch (cause) {
+      userResult.pipeline_deadlines = sweepFailure("pipeline_scan", cause);
     }
 
     results[userId] = userResult;

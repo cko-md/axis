@@ -31,6 +31,15 @@ import { captureRouteError } from "@/lib/observability/captureRouteError";
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
+// Every provider call is bounded. Without this, a slow provider hangs the
+// caller indefinitely: it is what turned a transient AI slowdown into the
+// intelligence-sweep cron running until the Vercel function timed out, which
+// returned a 502 that Make then retried for hours. These are all small
+// classification/short-generation tasks that normally return in a few seconds,
+// so 30s is generous headroom while still failing fast enough that a caller
+// (e.g. the per-user sweep) can move on instead of stalling.
+const AI_REQUEST_TIMEOUT_MS = 30_000;
+
 // Tasks suitable for Gemini: small outputs, JSON classification, no personality required
 export const GEMINI_ELIGIBLE = new Set([
   "capture",
@@ -67,6 +76,7 @@ async function geminiGenerate(params: {
 
   const res = await fetch(GEMINI_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     headers: {
       "Content-Type": "application/json",
       "x-goog-api-key": key,
@@ -199,12 +209,15 @@ export async function aiGenerate(params: AIGenerateParams): Promise<AIGenerateRe
     { role: "user" as const, content: userMessage },
   ];
 
-  const msg = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: maxTokens,
-    system,
-    messages,
-  });
+  const msg = await anthropic.messages.create(
+    {
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: maxTokens,
+      system,
+      messages,
+    },
+    { signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS) },
+  );
 
   return {
     text: (msg.content[0] as { type: string; text: string }).text.trim(),
