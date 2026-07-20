@@ -1,0 +1,36 @@
+{
+  "$schema-note": "Archive Bay native-recompilation port manifest (Phase 16.3). See docs/axis-redesign/adr/0005-archive-bay-emulator-native-port-separation.md and electron/archive-bay-recomp.cjs. This is the SOLE source of truth for every port's binary download and for the sha256 of the original the user must supply. It is bundled in the asar and is never renderer-suppliable.",
+  "$ports-empty-note": "`ports` ships EMPTY on purpose. The adapter and its machinery are complete and tested, but enabling a specific port is an owner-gated, separately-reviewed addition: it requires a pinned binary release per platform (url + sha256 + sizeBytes), the license + corresponding-source of the PORT's own code, and the sha256/size of the original the port needs. AXIS ships ONLY the port's own executable and NEVER the original game or its assets; `requiredOriginal.sha256` is a one-way validation digest, not a locator, and there is deliberately no URL for the original.",
+  "$port-schema-example": {
+    "name": "Human-readable name of the native port",
+    "version": "1.0.0",
+    "homepageUrl": "https://example.invalid/port-project",
+    "license": "GPL-3.0",
+    "licenseUrl": "https://example.invalid/port-project/blob/main/LICENSE",
+    "attribution": "One or two sentences crediting the port project and its authors.",
+    "correspondingSource": {
+      "url": "https://example.invalid/port-project/archive/refs/tags/v1.0.0.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceTag": "v1.0.0",
+      "sourceCommit": null
+    },
+    "requiredOriginal": {
+      "label": "The original game file you legally own (e.g. your own cartridge dump)",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 1,
+      "stagedName": "baserom.bin",
+      "extensions": [".z64", ".n64", ".nds"]
+    },
+    "platforms": {
+      "darwin-arm64": {
+        "url": "https://example.invalid/port-project/releases/download/v1.0.0/port-macos-arm64.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "sizeBytes": 1,
+        "archiveFormat": "zip",
+        "executableRelativePath": "PortName.app/Contents/MacOS/PortName"
+      }
+    }
+  },
+  "schemaVersion": 1,
+  "ports": {}
+}

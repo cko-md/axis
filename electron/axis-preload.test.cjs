@@ -51,6 +51,28 @@ test("managed-runtime bridge (Phase 16.2) is thin invoke/on wrappers with no pat
   assert.doesNotMatch(source, /archiveBayManagedRuntime[\s\S]*runtimePath/);
 });
 
+test("recomp bridge (Phase 16.3) is thin invoke/on wrappers taking only an opaque portId", () => {
+  assert.match(source, /archiveBayRecomp = \{/);
+  for (const channel of [
+    "archive-bay:recomp:manifest",
+    "archive-bay:recomp:status",
+    "archive-bay:recomp:install",
+    "archive-bay:recomp:choose-original",
+    "archive-bay:recomp:remove",
+    "archive-bay:recomp:launch",
+  ]) {
+    assert.match(source, new RegExp(`ipcRenderer\\.invoke\\("${channel}"`));
+  }
+  assert.match(source, /ipcRenderer\.on\("archive-bay:recomp:progress"/);
+  assert.match(source, /exposeInMainWorld\("axisDesktop",\s*\{[\s\S]*archiveBayRecomp/);
+  // The renderer never supplies a path, URL, digest, or the original itself —
+  // install/remove/chooseOriginal/launch take only an opaque portId string;
+  // the original is chosen via a native OS dialog in the main process.
+  assert.doesNotMatch(source, /archiveBayRecomp[\s\S]*sha256/i);
+  assert.doesNotMatch(source, /archiveBayRecomp[\s\S]*romPath/);
+  assert.doesNotMatch(source, /archiveBayRecomp[\s\S]*originalFilePath/);
+});
+
 test("trusted preload preserves compatibility with the previous hosted shell", () => {
   assert.match(source, /\.wv-overlay/);
   assert.match(source, /\/api\/proxy/);

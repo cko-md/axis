@@ -107,7 +107,7 @@ test("the preload exposes only the intended surface", async () => {
   );
 
   expect(keys).toEqual(
-    ["archiveBay", "archiveBayManagedRuntime", "capabilities", "deepLinks", "openBrowser"].sort(),
+    ["archiveBay", "archiveBayManagedRuntime", "archiveBayRecomp", "capabilities", "deepLinks", "openBrowser"].sort(),
   );
 });
 

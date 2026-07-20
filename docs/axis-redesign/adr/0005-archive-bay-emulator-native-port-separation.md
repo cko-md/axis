@@ -1,6 +1,6 @@
 # ADR 0005 — Archive Bay: emulator/native-port separation, content-rights policy, and child-process threat model
 
-- Status: accepted; 16.2 (Option B, managed melonDS runtime) implemented 2026-07-18
+- Status: accepted; 16.2 (Option B, managed melonDS runtime) implemented 2026-07-18; 16.3 (native-recomp port adapter) implemented 2026-07-20
 - Date: 2026-07-18
 - Wave: Phase 16.0 (Archive Bay), owner-authorized parallel desktop track
 
@@ -228,6 +228,72 @@ Implemented 2026-07-18. Concretely:
   copyrighted ROM) via the unmodified `buildLaunchSpawnArgs` contract, and
   terminated it after a few seconds. See the Phase 16.2 session report for
   the exact run's output.
+
+## 16.3 implementation record (native-recompilation port adapter)
+
+Implemented 2026-07-20. 16.3 delivers the manager side of option 4 (the
+`native-recomp` `LegacyRuntimeKind`): a desktop-only adapter for
+community-authored native ports that reimplement a specific legacy game. The
+port binary carries none of the original's copyrighted assets — it extracts
+them, on the user's own machine, from an original the user already legally owns.
+
+- **Adapter**: `electron/archive-bay-recomp.cjs` — a sibling of the 16.2
+  `archive-bay-runtime.cjs` that deliberately REUSES that module's hardened
+  download (`downloadAndVerify`), zip-extraction (`extractZipBuffer`), and
+  path-safety (`assertSafeRelativePath`) primitives rather than forking them.
+  It adds a multi-port manifest validator, a streaming original-file validator,
+  a local staging step, per-port install state, per-port update/remove, and a
+  deterministic launch-spec builder.
+- **Manifest**: `electron/config/archive-bay-recomp-ports.json` is the sole,
+  asar-bundled source of every port's per-platform binary download
+  (url + sha256 + sizeBytes), its license + corresponding-source, and the
+  sha256/size of the original it requires. It **ships with `ports: {}`**: the
+  machinery is complete, but enabling a specific port is an owner-gated,
+  separately-reviewed addition (a real pinned binary per platform, the port's
+  own license text, and the original's known hash). Nothing in the schema is
+  renderer-suppliable.
+- **User-supplied original, never a distributed asset**: AXIS downloads ONLY
+  the port's own executable (pinned + verified exactly like the 16.2 runtime).
+  The original is chosen by the user through a native OS file dialog in the
+  main process, streamed and checked (size then sha256) against the manifest,
+  and only on an exact match copied into the port's own `assets/` directory.
+  `requiredOriginal.sha256` is a one-way VALIDATION digest, not a locator —
+  there is deliberately no URL for the original anywhere, and there is no
+  downloader, index, scraper, or "get games here" surface. This is the same
+  "your own dump must match this hash" pattern reputable recomp projects use.
+- **Path privacy preserved**: the user's picked path is never persisted or
+  returned to the renderer — only the staged sha256 and the port-relative
+  staged path are recorded. The renderer only ever sees the opaque `portId`,
+  coded status, and coded errors (`recompErrorCode` — both the adapter's own
+  `RECOMP_*` codes and the reused `RUNTIME_*` download/zip codes, never a raw
+  path/URL/Node message).
+- **Readiness gate**: a port is launchable only once its binary is installed
+  AND its original is validated and staged (`buildRecompLaunchSpec` throws
+  `RECOMP_NOT_INSTALLED` / `RECOMP_NOT_READY`).
+- **Spawn contract not forked**: `archive-bay:recomp:launch` re-canonicalizes
+  the resolved executable through the SAME `canonicalizeRuntimePath` gate a BYO
+  runtime uses, then spawns it with `shell: false`, a fixed empty argument
+  array, and the port's own directory as `cwd` (the port reads its staged
+  assets from `cwd/assets`). A recomp launch shares the single
+  `activeArchiveBayLaunch` slot, so only one Archive Bay child — emulator or
+  port — runs at a time, and install/remove refuse to run while one is active.
+- **IPC**: six sender-gated handlers (`archive-bay:recomp:manifest` / `status`
+  / `install` / `choose-original` / `remove` / `launch`) mirroring the 16.2
+  surface; install/choose-original/remove also guard against concurrent
+  installs (`RECOMP_INSTALL_IN_PROGRESS`) and against running while a title is
+  launched (`ARCHIVE_BAY_ALREADY_RUNNING`). Progress is pushed only to the
+  trusted main window. The preload exposes a thin `archiveBayRecomp` bridge
+  (opaque `portId` arguments only) plus an `archiveBayRecomp: true` capability.
+- **Tests**: `electron/archive-bay-recomp.test.cjs` drives the whole pipeline
+  (install → validate-and-stage-original → launch-spec → update → remove) and
+  every adversarial branch (malformed manifest, wrong-size/wrong-hash original,
+  traversal names, corrupt state, digest mismatch) against in-memory fixtures
+  and a fake transport — no network and NO copyrighted content, which is the
+  whole point of the sha256-validation design. `electron/main-recomp-ipc.test.cjs`
+  pins the IPC security invariants at the source level, and the desktop-security
+  e2e asserts the new preload surface.
+- **No new legal exposure vs 16.1/16.2**: still desktop-only, still no bundled
+  or downloaded copyrighted content, still no Supabase/schema/web-bundle change.
 
 ## Reversal cost
 

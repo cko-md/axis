@@ -15,6 +15,24 @@ test("source builds do not query the production update channel", async () => {
   assert.equal(await controller.checkForUpdates(), false);
 });
 
+// electron-updater ships only inside packaged builds; dev and the desktop e2e
+// run unpackaged with it absent, so main.cjs's loadAutoUpdater() hands this
+// factory `null`. A null updater must degrade to the same inert controller as
+// an unpackaged run rather than dereference autoUpdater.* and crash — the crash
+// that hung `electron.launch` in the desktop e2e beforeAll.
+test("a null updater degrades to the inert controller instead of crashing", async () => {
+  const controller = createUpdateController({
+    app: { isPackaged: true, getVersion: () => "1.2.3" },
+    autoUpdater: null,
+    dialog: {},
+    getMainWindow: () => null,
+    observability: {},
+  });
+  assert.equal(await controller.checkForUpdates({ interactive: true }), false);
+  // dispose() on the stub must be a no-op, not a call into a missing updater.
+  assert.doesNotThrow(() => controller.dispose());
+});
+
 test("manual update checks provide visible up-to-date feedback", async () => {
   const updater = new EventEmitter();
   updater.checkForUpdates = async () => {

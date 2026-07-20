@@ -1,6 +1,6 @@
 {
  "updated": "2026-07-20",
- "revision": "feat/vector-15.10-paper-glider-shell",
+ "revision": "feat/electron-reliability-archive-bay-16.3",
  "defects": [
   {
    "id": "SEC-005",
@@ -680,6 +680,23 @@
    "revision_fixed": "feat/vector-15.10-paper-glider-shell",
    "verification": "Both assertions pass against the fixed registry.ts; part of the 1820-test green suite this wave reports",
    "similar_code_search": "Same class as the Brickrise manifest fixes (achievements/leaderboard/reduced-motion promises ahead of the implementation). Every VECTOR game manifest authored before its shell lands should get the same \"pins the manifest fields this wave decided\" reconciliation pass once the shell ships, not just once at authoring time \u2014 Time to Fly's manifest has not yet had this pass"
+  },
+  {
+   "id": "DESKTOP-001",
+   "severity": "medium",
+   "source": "Prior desktop-hardening session (documented in electron/main-shutdown.test.cjs header); reconfirmed 2026-07-20 during the Electron reliability pass",
+   "summary": "Intermittent native crash on window close in Electron 43.1.1 on macOS \u2014 EXC_BAD_ACCESS (SIGSEGV) at 0x238 on CrBrowserMain inside -[NSWindow __close], reached from NativeWindowMac::Close. Not reproducible on demand and not caused by application JS.",
+   "reproduction": "Three identical native crashes observed 2026-07-19 during normal window teardown/quit. No deterministic repro found; it is a null dereference inside Electron\u2019s macOS window-close path, which application code cannot trigger directly and cannot catch (a JS try/catch cannot intercept a native SIGSEGV).",
+   "affected": [
+    "electron/main.cjs (window lifecycle / quit path)",
+    "Electron 43.1.1 chromium NativeWindowMac::Close \u2014 upstream runtime"
+   ],
+   "root_cause": "Null-pointer dereference in Electron 43.1.1\u2019s native macOS NSWindow close path. Upstream defect in the Electron/Chromium runtime, not an application-code fault.",
+   "fix": "No app-side code fix exists for the upstream native deref, and none was invented (guessing at teardown changes on an unreproducible native crash risks regressing a hardened path). Mitigations were landed instead: (1) every app-causable quit-hang shape that turns a benign close into a stuck quit is hardened and pinned by electron/main-shutdown.test.cjs \u2014 shutdown-aware showDialog/showFilePicker, single-flight window creation, ids captured before teardown, did-fail-load never stacks a dialog, before-quit latches isQuitting; (2) native crashes are captured as minidumps and uploaded via crashReporter (electron/desktop-observability.cjs), smoke-tested by runCrashReporterSmoke at startup and pinned by electron/desktop-observability.test.cjs, so any recurrence is recorded for triage rather than lost.",
+   "regression_test": "electron/main-shutdown.test.cjs (quit-hang hardening); electron/desktop-observability.test.cjs (native minidump capture + scrubbed upload)",
+   "status": "closed",
+   "revision_fixed": "Mitigated by desktop-hardening work merged before 2026-07-20; characterization recorded 2026-07-20. No upstream fix is available \u2014 43.1.1 is the latest STABLE Electron (newer is 44.x alpha only). Revisit an Electron major upgrade when 44.x reaches stable.",
+   "verification": "npm run desktop:test green (incl. main-shutdown + desktop-observability); electron e2e 9/9 green. The residual native crash is upstream and uncatchable; no actionable app-side defect remains open."
   }
  ]
 }

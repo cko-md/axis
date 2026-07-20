@@ -12,7 +12,20 @@ const {
   session,
   shell,
 } = require("electron");
-const { autoUpdater } = require("electron-updater");
+// electron-updater ships only inside packaged builds (electron-builder bundles
+// it); dev and the desktop e2e run unpackaged and never install it. Requiring
+// it at module load therefore threw MODULE_NOT_FOUND before any window opened,
+// which crashed `electron.launch` and surfaced as a beforeAll timeout in the
+// desktop e2e. createUpdateController() no-ops when !app.isPackaged, so the
+// updater is never exercised from source — load it lazily and tolerate its
+// absence (a packaged build always resolves it).
+function loadAutoUpdater() {
+  try {
+    return require("electron-updater").autoUpdater;
+  } catch {
+    return null;
+  }
+}
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
@@ -40,6 +53,17 @@ const {
   resolvePlatformKey,
   validateManifest,
 } = require("./archive-bay-runtime.cjs");
+const {
+  buildRecompLaunchSpec,
+  getPort: getRecompPort,
+  getPortPlatformRelease: getRecompPortPlatformRelease,
+  installPort: installRecompPort,
+  loadRecompState,
+  recompErrorCode,
+  removePort: removeRecompPort,
+  validateAndStageOriginal,
+  validateRecompManifest,
+} = require("./archive-bay-recomp.cjs");
 const {
   compatibilityForUrl,
   createManagedExtensionManager,
@@ -95,6 +119,16 @@ const archiveBayRuntimesDir = path.join(app.getPath("userData"), "archive-bay", 
 const archiveBayRuntimeStatePath = path.join(archiveBayRuntimesDir, "state.json");
 let cachedArchiveBayRuntimeManifest = null;
 let managedRuntimeInstallInFlight = false;
+// Phase 16.3 native-recompilation ports (ADR-0005, option 4). Same shape as
+// 16.2: the manifest (electron/config/archive-bay-recomp-ports.json) is the
+// sole, asar-bundled source of every port's binary download and of the sha256
+// of the original the user must supply — none of it renderer-suppliable. AXIS
+// downloads ONLY the port binary and NEVER any original game asset; the user's
+// original is validated by hash and staged locally by archive-bay-recomp.cjs.
+const archiveBayRecompDir = path.join(app.getPath("userData"), "archive-bay", "recomp");
+const archiveBayRecompStatePath = path.join(archiveBayRecompDir, "state.json");
+let cachedArchiveBayRecompManifest = null;
+let recompInstallInFlight = false;
 let devServer = null;
 let mainWindow = null;
 let mainWindowPromise = null; // single-flight guard for createMainWindow()
@@ -579,6 +613,24 @@ function sendManagedRuntimeProgress(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("archive-bay:managed-runtime:progress", payload);
 }
 
+function archiveBayRecompErrorMessage(error) {
+  // Coded-error-only, same rule as archiveBayRuntimeErrorMessage — the recomp
+  // adapter's own errors and the download/zip errors it reuses are all coded;
+  // never forward a raw path, URL, or Node error message to the renderer.
+  return recompErrorCode(error);
+}
+
+function getArchiveBayRecompManifest() {
+  cachedArchiveBayRecompManifest ??= validateRecompManifest(
+    JSON.parse(fs.readFileSync(path.join(__dirname, "config", "archive-bay-recomp-ports.json"), "utf8")),
+  );
+  return cachedArchiveBayRecompManifest;
+}
+
+function sendRecompProgress(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("archive-bay:recomp:progress", payload);
+}
+
 function registerIpc() {
   // A link that arrived before any renderer existed (cold start). Sender-gated
   // like every other channel, and cleared on read so it is delivered once.
@@ -809,6 +861,196 @@ function registerIpc() {
       sendManagedRuntimeProgress({ phase: "error", code });
       throw new Error(code);
     }
+  });
+
+  // Phase 16.3 — native-recompilation ports. See ADR-0005 (option 4, the
+  // native-recomp LegacyRuntimeKind). Sender-gated exactly like the 16.1/16.2
+  // handlers. AXIS downloads ONLY the port binary (pinned in the asar-bundled
+  // manifest); the original the port needs is chosen by the user through a
+  // native OS file dialog and validated by sha256 — never a renderer-supplied
+  // path, URL, or digest.
+  ipcMain.handle("archive-bay:recomp:manifest", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    let manifest;
+    try {
+      manifest = getArchiveBayRecompManifest();
+    } catch (error) {
+      observability.captureException(error, { operation: "archive-bay-recomp-manifest" });
+      throw new Error(archiveBayRecompErrorMessage(error));
+    }
+    const platformKey = currentArchiveBayPlatformKey();
+    return {
+      ports: Object.values(manifest.ports).map((port) => {
+        let platformSupported = true;
+        let sizeBytes = null;
+        try {
+          sizeBytes = getRecompPortPlatformRelease(port, platformKey).sizeBytes;
+        } catch {
+          platformSupported = false;
+        }
+        return {
+          id: port.id,
+          name: port.name,
+          version: port.version,
+          homepageUrl: port.homepageUrl,
+          license: port.license,
+          licenseUrl: port.licenseUrl,
+          attribution: port.attribution,
+          sourceUrl: port.correspondingSource.url,
+          // Only the human-facing parts of the original spec cross to the
+          // renderer — the required sha256 stays main-side (it is the gate,
+          // not a value the UI needs).
+          requiredOriginal: {
+            label: port.requiredOriginal.label,
+            sizeBytes: port.requiredOriginal.sizeBytes,
+            extensions: port.requiredOriginal.extensions,
+          },
+          platformSupported,
+          sizeBytes,
+        };
+      }),
+    };
+  });
+
+  ipcMain.handle("archive-bay:recomp:status", async (event) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    const state = await loadRecompState(archiveBayRecompStatePath).catch((error) => {
+      observability.captureException(error, { operation: "archive-bay-recomp-status" });
+      return { ports: {} };
+    });
+    const ports = {};
+    for (const [portId, record] of Object.entries(state.ports)) {
+      ports[portId] = {
+        installed: true,
+        version: record.version,
+        installedAt: record.installedAt,
+        // A port is only launchable once its user-supplied original is staged.
+        originalReady: Boolean(record.original),
+      };
+    }
+    return {
+      ports,
+      installing: recompInstallInFlight,
+      activePortId: activeArchiveBayLaunch ? activeArchiveBayLaunch.contentId : null,
+    };
+  });
+
+  ipcMain.handle("archive-bay:recomp:install", async (event, portId) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (recompInstallInFlight) throw new Error("RECOMP_INSTALL_IN_PROGRESS");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    recompInstallInFlight = true;
+    sendRecompProgress({ portId: String(portId), phase: "downloading", receivedBytes: 0, totalBytes: null });
+    try {
+      const manifest = getArchiveBayRecompManifest();
+      const port = getRecompPort(manifest, String(portId)); // RECOMP_PORT_UNKNOWN for an unknown id
+      const platformKey = currentArchiveBayPlatformKey();
+      await installRecompPort({
+        manifest,
+        portId: port.id,
+        platformKey,
+        portsDir: archiveBayRecompDir,
+        stateFilePath: archiveBayRecompStatePath,
+        onProgress: (progress) => sendRecompProgress({ portId: port.id, ...progress }),
+      });
+      sendRecompProgress({ portId: port.id, phase: "installed", version: port.version });
+      return { installed: true, portId: port.id, version: port.version };
+    } catch (error) {
+      const code = archiveBayRecompErrorMessage(error);
+      observability.captureException(error, { operation: "archive-bay-recomp-install" });
+      sendRecompProgress({ portId: String(portId), phase: "error", code });
+      throw new Error(code);
+    } finally {
+      recompInstallInFlight = false;
+    }
+  });
+
+  ipcMain.handle("archive-bay:recomp:choose-original", async (event, portId) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (recompInstallInFlight) throw new Error("RECOMP_INSTALL_IN_PROGRESS");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    let manifest;
+    let port;
+    try {
+      manifest = getArchiveBayRecompManifest();
+      port = getRecompPort(manifest, String(portId));
+    } catch (error) {
+      throw new Error(archiveBayRecompErrorMessage(error));
+    }
+    const extensions = port.requiredOriginal.extensions.map((ext) => ext.replace(/^\./, "")).filter(Boolean);
+    const picked = await showFilePicker({
+      title: `Select your own copy of: ${port.requiredOriginal.label}`,
+      properties: ["openFile"],
+      filters: extensions.length ? [{ name: "Original game file", extensions }] : undefined,
+    });
+    if (picked.canceled || picked.filePaths.length === 0) return { staged: false, canceled: true };
+    try {
+      await validateAndStageOriginal({
+        manifest,
+        portId: port.id,
+        portsDir: archiveBayRecompDir,
+        stateFilePath: archiveBayRecompStatePath,
+        originalFilePath: picked.filePaths[0],
+      });
+      return { staged: true, portId: port.id };
+    } catch (error) {
+      const code = archiveBayRecompErrorMessage(error);
+      observability.captureException(error, { operation: "archive-bay-recomp-choose-original" });
+      throw new Error(code);
+    }
+  });
+
+  ipcMain.handle("archive-bay:recomp:remove", async (event, portId) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (recompInstallInFlight) throw new Error("RECOMP_INSTALL_IN_PROGRESS");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    try {
+      await removeRecompPort({ portId: String(portId), portsDir: archiveBayRecompDir, stateFilePath: archiveBayRecompStatePath });
+      return { removed: true };
+    } catch (error) {
+      const code = archiveBayRecompErrorMessage(error);
+      observability.captureException(error, { operation: "archive-bay-recomp-remove" });
+      throw new Error(code);
+    }
+  });
+
+  ipcMain.handle("archive-bay:recomp:launch", async (event, portId) => {
+    if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
+    if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
+    const state = await loadRecompState(archiveBayRecompStatePath);
+    const installed = state.ports[String(portId)];
+    let spec;
+    try {
+      // Throws RECOMP_NOT_INSTALLED / RECOMP_NOT_READY (no staged original) —
+      // the readiness gate lives in the adapter, not here.
+      spec = buildRecompLaunchSpec({ portsDir: archiveBayRecompDir, portId: String(portId), installed });
+    } catch (error) {
+      throw new Error(archiveBayRecompErrorMessage(error));
+    }
+    // The command lives entirely inside our own userData layout (never a
+    // renderer- or manifest-suppliable absolute path), but re-canonicalize it
+    // through the same realpath + file gate a BYO runtime goes through before
+    // it is spawned — one trust gate, not two — and spawn with shell:false and
+    // a fixed empty argument array.
+    let command;
+    try {
+      command = await canonicalizeRuntimePath(spec.command);
+    } catch (error) {
+      throw new Error(archiveBayErrorMessage(error));
+    }
+    const child = spawn(command, spec.args, { shell: false, cwd: spec.cwd });
+    activeArchiveBayLaunch = { contentId: String(portId), child };
+    sendArchiveBayLaunchState({ contentId: String(portId), status: "running" });
+    child.on("error", (error) => {
+      activeArchiveBayLaunch = null;
+      observability.captureException(error, { operation: "archive-bay-recomp-launch" });
+      sendArchiveBayLaunchState({ contentId: String(portId), status: "error", code: "ARCHIVE_BAY_LAUNCH_FAILED" });
+    });
+    child.on("exit", (code) => {
+      activeArchiveBayLaunch = null;
+      sendArchiveBayLaunchState({ contentId: String(portId), status: "exited", exitCode: code });
+    });
+    return { portId: String(portId), status: "running" };
   });
 
   ipcMain.handle("axis-browser:open", (event, input) => {
@@ -1192,7 +1434,7 @@ app.whenReady().then(async () => {
   registerIpc();
   updateController = createUpdateController({
     app,
-    autoUpdater,
+    autoUpdater: loadAutoUpdater(),
     dialog,
     getMainWindow: () => liveWindow(mainWindow),
     observability,

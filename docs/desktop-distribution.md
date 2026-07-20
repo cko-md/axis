@@ -174,6 +174,69 @@ affiliated with the melonDS project. See the manifest file for the exact
 pinned version, source tag/commit, and per-platform checksums, and
 `electron/archive-bay-runtime.cjs` for the full implementation.
 
+## Archive Bay: native-recompilation ports (Phase 16.3)
+
+Alongside emulation (16.1 BYO / 16.2 managed melonDS), Archive Bay supports
+**native ports** — community-authored executables that reimplement a specific
+legacy game. Unlike an emulator, a native port needs assets from the original
+game, which the **user supplies from a copy they legally own**. AXIS ships the
+port's own binary only, and never any original game asset.
+
+How install works (all in the main process, `electron/archive-bay-recomp.cjs`):
+
+- Every port is pinned in a bundled, versioned manifest,
+  `electron/config/archive-bay-recomp-ports.json` — the sole source of each
+  port's per-platform binary download (URL + sha256 + size), its license +
+  corresponding-source, and the **sha256 of the original it requires**. Nothing
+  about it is renderer-suppliable. It ships with `ports: {}`; enabling a real
+  port is an owner-gated, per-port addition.
+- Installing a port downloads and sha256-verifies only the **port binary**
+  (HTTPS-only, verified before extraction, traversal-checked on extraction),
+  then writes `LICENSE` + `ATTRIBUTION.txt` beside it. AXIS never downloads,
+  hosts, indexes, or links to the original game.
+- To play, the user picks their **own** original through a native OS file
+  dialog. AXIS streams it, checks its size and sha256 against the manifest, and
+  only on an exact match stages a local copy into the port's `assets/`
+  directory. `requiredOriginal.sha256` is a one-way validation digest — it
+  confirms the user has the right, complete file; it cannot be used to obtain
+  the game. A wrong or incomplete file is rejected and nothing is staged.
+- The user's file path is never sent to the renderer or persisted; only the
+  opaque `portId`, coded status, and coded errors cross that boundary.
+- Launch re-canonicalizes the resolved executable through the same trust gate a
+  BYO runtime uses and spawns it with `shell: false` and a fixed empty argument
+  array; only one Archive Bay child (emulator or port) runs at a time.
+
+See ADR-0005 ("16.3 implementation record") for the full design and threat
+model.
+
+## Known runtime issue — Electron 43.1.1 native window-close crash (DESKTOP-001)
+
+Electron 43.1.1 on macOS can crash **natively** during window close — an
+`EXC_BAD_ACCESS` (SIGSEGV) inside `-[NSWindow __close]` / `NativeWindowMac::Close`.
+It is a null dereference **inside the Electron/Chromium runtime**: application JS
+cannot trigger it directly and cannot catch it (a `try/catch` never sees a native
+SIGSEGV). It is not reproducible on demand.
+
+There is **no app-side fix** and none was invented — guessing at teardown changes
+on an unreproducible native crash would only risk regressing an already-hardened
+path. What we do instead:
+
+- **Contain the app-causable failure modes.** The quit-hang shapes that turn a
+  benign close into a *stuck* quit (the thing that actually strands the process)
+  are hardened and pinned by `electron/main-shutdown.test.cjs` — shutdown-aware
+  dialog/file-picker helpers, single-flight window creation, ids captured before
+  teardown, `did-fail-load` never stacking a dialog, `before-quit` latching
+  `isQuitting`.
+- **Record any recurrence.** Native crashes are captured as minidumps and
+  uploaded via `crashReporter` (`electron/desktop-observability.cjs`,
+  smoke-tested at startup by `runCrashReporterSmoke`, pinned by
+  `electron/desktop-observability.test.cjs`).
+
+**Revisit trigger:** `43.1.1` is the latest *stable* Electron (newer is 44.x
+alpha only), so there is nothing to upgrade into today. Re-evaluate an Electron
+major bump when **44.x reaches stable**. Tracked as `DESKTOP-001` in
+`.claude/axis-redesign/DEFECT_LEDGER.json`.
+
 ## Notes
 
 - The web app never imports `electron/`; the desktop package is fully separate and

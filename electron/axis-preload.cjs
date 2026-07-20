@@ -40,6 +40,26 @@ const archiveBayManagedRuntime = {
   },
 };
 
+// Phase 16.3 native-recompilation ports (desktop-only). Same thin invoke/on
+// shape: this renderer-side code never sees a download URL, a digest, or a
+// filesystem path — the port binary comes from the main-process manifest and
+// the user's original is chosen and validated entirely in the main process
+// (see electron/archive-bay-recomp.cjs and main.cjs). `install`, `remove`,
+// `chooseOriginal`, and `launch` take only an opaque portId string.
+const archiveBayRecomp = {
+  getManifest: () => ipcRenderer.invoke("archive-bay:recomp:manifest"),
+  getStatus: () => ipcRenderer.invoke("archive-bay:recomp:status"),
+  install: (portId) => ipcRenderer.invoke("archive-bay:recomp:install", portId),
+  chooseOriginal: (portId) => ipcRenderer.invoke("archive-bay:recomp:choose-original", portId),
+  remove: (portId) => ipcRenderer.invoke("archive-bay:recomp:remove", portId),
+  launch: (portId) => ipcRenderer.invoke("archive-bay:recomp:launch", portId),
+  onProgress(listener) {
+    const handler = (_event, progress) => listener(progress);
+    ipcRenderer.on("archive-bay:recomp:progress", handler);
+    return () => ipcRenderer.removeListener("archive-bay:recomp:progress", handler);
+  },
+};
+
 // axis:// deep links. The main process has already parsed and allowlisted the
 // link (electron/deep-links.cjs); what arrives here is a resolved internal path
 // or an opaque one-time OAuth id, never an OS-supplied string and never a
@@ -59,6 +79,7 @@ contextBridge.exposeInMainWorld("axisDesktop", {
   openBrowser,
   archiveBay,
   archiveBayManagedRuntime,
+  archiveBayRecomp,
   deepLinks,
   // Versioned capability contract. The web app should branch on these rather
   // than sniffing the DOM or the user agent.
@@ -67,6 +88,7 @@ contextBridge.exposeInMainWorld("axisDesktop", {
     nativeBrowser: true,
     deepLinks: true,
     archiveBay: true,
+    archiveBayRecomp: true,
   }),
 });
 

@@ -6,7 +6,11 @@ function createUpdateController({
   observability,
   isQuitting = () => false,
 }) {
-  if (!app.isPackaged) {
+  // No updater in unpackaged runs, and none if electron-updater failed to load
+  // (main.cjs's loadAutoUpdater() returns null when the module is absent). Either
+  // way there is nothing to drive, so hand back an inert controller before
+  // touching autoUpdater.* below.
+  if (!app.isPackaged || !autoUpdater) {
     return {
       checkForUpdates: async () => false,
       dispose() {},
