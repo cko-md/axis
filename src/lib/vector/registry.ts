@@ -150,7 +150,11 @@ export const VECTOR_GAME_REGISTRY = [
       control("jump", "Jump", "keyboard", ["Space", "Arrow Up", "W"], "Jump from ledges and platforms."),
       control("touch-move", "Move and jump", "touch", ["Left control", "Right control", "Jump control"], "Use thumb-reachable movement and jump controls."),
     ],
-    reducedMotionBehavior: "Camera travel, shake, and particles use nausea-safe reduced alternatives.",
+    // Only the camera-travel branch is real (game.ts's cameraY lerp-vs-snap
+    // split). There is no shake and no particle system anywhere in the shell
+    // — claiming reduced alternatives for effects that do not exist is the
+    // same class of empty promise the achievements flag below was fixed for.
+    reducedMotionBehavior: "Camera travel uses a nausea-safe reduced alternative that snaps rather than eases.",
     accessibilityDescription: "DOM instructions, checkpoint state, pause controls, and run results supplement the play surface.",
     // deterministicSeed stays false and that is correct, not an oversight:
     // generation is fully seeded, but the seed itself is a fresh random UUID

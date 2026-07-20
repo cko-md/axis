@@ -159,4 +159,22 @@ describe("VECTOR game registry", () => {
     const gameModule = await loadVectorGame("second-sense");
     expect(typeof gameModule.createGame).toBe("function");
   });
+
+  it("pins Brickrise's decided manifest fields so a revert ships silently no longer", () => {
+    // c8841e18 decided four fields; only the summit/checkpoint collision got a
+    // behavioral backstop (level.test.ts). These four are the rest of that
+    // commit's decisions, plus the reducedMotionBehavior overclaim fixed
+    // separately — nothing else in the suite pins any of them.
+    const brickrise = getVectorGame("brickrise")!;
+    expect(brickrise.subtitle).toBe("Every fall costs time, never progress.");
+    expect(brickrise.score.achievements).toBe(false);
+    expect(brickrise.save.deterministicSeed).toBe(false);
+    // Only camera travel is real (game.ts's cameraY lerp-vs-snap split,
+    // covered behaviorally in game.test.ts); there is no shake or particle
+    // system anywhere in the shell, so the manifest must not claim one.
+    expect(brickrise.reducedMotionBehavior).toBe(
+      "Camera travel uses a nausea-safe reduced alternative that snaps rather than eases.",
+    );
+    expect(brickrise.reducedMotionBehavior).not.toMatch(/shake|particle/i);
+  });
 });

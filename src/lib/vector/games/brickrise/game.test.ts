@@ -8,8 +8,15 @@ import type {
 } from "@/lib/vector/types";
 import { DEFAULT_VECTOR_RUNTIME_SETTINGS } from "@/lib/vector/types";
 import { requireVectorGame } from "@/lib/vector/registry";
-import { BRICKRISE_SAVE_SCHEMA_VERSION, toSaveData, initialRunState, reachCheckpoint } from "@/lib/vector/games/brickrise/progress";
+import {
+  BRICKRISE_SAVE_SCHEMA_VERSION,
+  toSaveData,
+  initialRunState,
+  reachCheckpoint,
+  toPersistedScore,
+} from "@/lib/vector/games/brickrise/progress";
 import { generateBrickriseLevel } from "@/lib/vector/games/brickrise/level";
+import { stepBrickriseSimulation } from "@/lib/vector/games/brickrise/simulation";
 
 /** Checkpoints in a tower, derived rather than hardcoded so config can move. */
 const CHECKPOINT_COUNT = generateBrickriseLevel("count-probe").checkpoints.length;
@@ -99,6 +106,18 @@ vi.mock("phaser", () => {
   };
 });
 
+// The physics/level/checkpoint rules that decide when a summit event fires
+// are already exhaustively covered in simulation.test.ts and physics.test.ts
+// (including a real-tower reachability search). Scripting a full climb here
+// would duplicate that coverage without proving anything new about this
+// file. Wrapping the real step function instead lets a specific test queue a
+// canned event with mockImplementationOnce, so what gets proven here is
+// exactly this file's job: reacting correctly to an event, not producing one.
+vi.mock("@/lib/vector/games/brickrise/simulation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/vector/games/brickrise/simulation")>();
+  return { ...actual, stepBrickriseSimulation: vi.fn(actual.stepBrickriseSimulation) };
+});
+
 type Harness = {
   instance: VectorGameInstance;
   mount: HTMLElement;
@@ -169,6 +188,19 @@ async function mountGame(
 
 function textOf(mount: HTMLElement, testId: string): string {
   return mount.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "";
+}
+
+/** Makes the next real step report a summit, without scripting a real climb. */
+function queueSummitEvent(elapsedMs: number, deaths: number): void {
+  vi.mocked(stepBrickriseSimulation).mockImplementationOnce((simulation) => ({
+    simulation: { ...simulation, run: { ...simulation.run, completed: true, elapsedMs } },
+    events: [{ type: "summit", elapsedMs, deaths }],
+  }));
+}
+
+/** Drains the microtask queue so a chained getBestScore().then(...) settles. */
+async function flushAsync(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 beforeEach(() => {
@@ -509,5 +541,288 @@ describe("Brickrise shell", () => {
     await mountGame();
     expect(createdGames).toBe(1);
     expect(capturedCanvas).not.toBeNull();
+  });
+
+  describe("reset()", () => {
+    it("returns the run to a fresh climb and re-establishes the authoritative best", async () => {
+      const getBestScore = vi.fn(async () => null);
+      const harness = await mountGame({ getBestScore });
+      await harness.instance.hydrate({
+        schemaVersion: BRICKRISE_SAVE_SCHEMA_VERSION,
+        data: toSaveData(reachCheckpoint({ ...initialRunState("saved-seed"), deaths: 3 }, 1)),
+        seed: "saved-seed",
+      });
+      await harness.instance.start();
+      harness.emitFrame({ steps: 60 });
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("1s");
+      getBestScore.mockClear();
+
+      await harness.instance.reset();
+
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("0s");
+      expect(textOf(harness.mount, "brickrise-checkpoint")).toBe(`None of ${CHECKPOINT_COUNT}`);
+      expect(textOf(harness.mount, "brickrise-deaths")).toBe("0");
+      expect(textOf(harness.mount, "brickrise-status")).toBe("Ready");
+      // Regression: a restart must re-read the best rather than leave
+      // whatever finishRun last wrote on screen from the previous climb.
+      expect(getBestScore).toHaveBeenCalled();
+    });
+
+    it("stops the run from advancing until start() is called again", async () => {
+      const harness = await mountGame();
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+      harness.emitFrame({ steps: 60 });
+
+      await harness.instance.reset();
+      harness.emitFrame({ steps: 600 });
+
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("0s");
+    });
+  });
+
+  describe("resume()", () => {
+    it("resumes stepping after a pause", async () => {
+      const harness = await mountGame();
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+      harness.emitFrame({ steps: 60 });
+      await harness.instance.pause("visibility");
+      harness.emitFrame({ steps: 600 });
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("1s");
+
+      await harness.instance.resume();
+      harness.emitFrame({ steps: 60 });
+
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("2s");
+      expect(textOf(harness.mount, "brickrise-status")).toBe("Climbing");
+    });
+
+    it("does not resume a completed run", async () => {
+      const harness = await mountGame();
+      await harness.instance.hydrate({
+        schemaVersion: BRICKRISE_SAVE_SCHEMA_VERSION,
+        data: toSaveData({ ...initialRunState("done-seed"), completed: true, elapsedMs: 5000 }),
+        seed: "done-seed",
+      });
+
+      await harness.instance.resume();
+      harness.emitFrame({ steps: 60 });
+
+      // A completed run is inert by design (simulation.ts) — resume() must
+      // not make it look like it is climbing again.
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("5s");
+    });
+  });
+
+  describe("updateSettings()", () => {
+    it("marks the frame dirty so a settled, paused run redraws once more", async () => {
+      const harness = await mountGame();
+      harness.emitFrame(); // consumes the initial needsRedraw from initialize()
+      const settled = graphicsCalls.length;
+      harness.emitFrame();
+      expect(graphicsCalls.length).toBe(settled);
+
+      await harness.instance.updateSettings?.(DEFAULT_VECTOR_RUNTIME_SETTINGS);
+      harness.emitFrame();
+
+      expect(graphicsCalls.length).toBeGreaterThan(settled);
+    });
+  });
+
+  describe("handleContextRestore()", () => {
+    it("redraws immediately even while paused, rather than waiting for the next frame", async () => {
+      const harness = await mountGame();
+      harness.emitFrame(); // consumes the initial needsRedraw
+      const before = graphicsCalls.length;
+
+      await harness.instance.handleContextRestore?.();
+
+      expect(graphicsCalls.length).toBeGreaterThan(before);
+      expect(textOf(harness.mount, "brickrise-status")).toBe("Ready");
+    });
+  });
+
+  describe("camera (reduced motion)", () => {
+    it("snaps the camera immediately under reduced motion but eases it under standard motion", async () => {
+      const reduced = await mountGame({
+        settings: { ...DEFAULT_VECTOR_RUNTIME_SETTINGS, resolvedMotion: "reduced" },
+      });
+      reduced.emitFrame();
+      const reducedFirst = setScroll.mock.calls.at(-1)![1] as number;
+      // Force a second draw over a body that has not moved. Reduced motion
+      // must report the identical scroll position rather than continuing to
+      // close a gap that no longer exists.
+      await reduced.instance.updateSettings?.({ ...DEFAULT_VECTOR_RUNTIME_SETTINGS, resolvedMotion: "reduced" });
+      reduced.emitFrame();
+      const reducedSecond = setScroll.mock.calls.at(-1)![1] as number;
+
+      expect(reducedFirst).toBeGreaterThan(0);
+      expect(reducedSecond).toBe(reducedFirst);
+
+      setScroll.mockClear();
+
+      const standard = await mountGame({
+        settings: { ...DEFAULT_VECTOR_RUNTIME_SETTINGS, resolvedMotion: "standard" },
+      });
+      standard.emitFrame();
+      const standardFirst = setScroll.mock.calls.at(-1)![1] as number;
+      await standard.instance.updateSettings?.({ ...DEFAULT_VECTOR_RUNTIME_SETTINGS, resolvedMotion: "standard" });
+      standard.emitFrame();
+      const standardSecond = setScroll.mock.calls.at(-1)![1] as number;
+
+      // Standard motion eases: the same starting position only closes part
+      // of the gap to the same target on each draw, so it undershoots the
+      // full snap and keeps moving on the next draw instead of sitting still.
+      expect(standardFirst).toBeGreaterThan(0);
+      expect(standardFirst).toBeLessThan(reducedFirst);
+      expect(standardSecond).toBeGreaterThan(standardFirst);
+      expect(standardSecond).toBeLessThan(reducedFirst);
+    });
+  });
+
+  describe("summit / finishRun", () => {
+    it("shows the authoritative best after a summit, not just this run's own time", async () => {
+      // This run (45s) is slower than the stored best (30s). The persisted
+      // score merge is Math.max over an inverted duration, so a slower run
+      // never touches the server-side best — the HUD must not claim it did.
+      const storedBestElapsedMs = 30_000;
+      const getBestScore = vi.fn(async () => toPersistedScore(storedBestElapsedMs));
+      const harness = await mountGame({ getBestScore });
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+
+      queueSummitEvent(45_000, 2);
+      harness.emitFrame({ steps: 1 });
+      await flushAsync();
+
+      expect(harness.recordScore).toHaveBeenCalledWith({
+        mode: "climb",
+        challengeId: null,
+        value: toPersistedScore(45_000),
+      });
+      expect(textOf(harness.mount, "brickrise-best")).toBe("30s");
+      expect(textOf(harness.mount, "brickrise-status")).toBe("Summit reached");
+    });
+
+    it("falls back to this run's own time when there is no prior best, not a false 'None yet'", async () => {
+      const getBestScore = vi.fn(async () => null);
+      const harness = await mountGame({ getBestScore });
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+
+      queueSummitEvent(12_000, 0);
+      harness.emitFrame({ steps: 1 });
+      await flushAsync();
+
+      expect(textOf(harness.mount, "brickrise-best")).toBe("12s");
+    });
+
+    it("says so plainly when the host cannot report a best after a summit", async () => {
+      const harness = await mountGame({ getBestScore: undefined });
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+
+      queueSummitEvent(12_000, 0);
+      harness.emitFrame({ steps: 1 });
+      await flushAsync();
+
+      expect(textOf(harness.mount, "brickrise-best")).toBe("Not available here");
+    });
+
+    it("announces the summit and emits a run.complete event", async () => {
+      const harness = await mountGame();
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+
+      queueSummitEvent(65_000, 3);
+      harness.emitFrame({ steps: 1 });
+      await flushAsync();
+
+      expect(harness.events.map((event) => event.type)).toContain("run.complete");
+      const live = harness.mount.querySelector('[role="status"]');
+      expect(live?.textContent).toMatch(/Summit reached in 1m 05s with 3 falls/);
+    });
+  });
+
+  describe("climb again (no self-contained path back to a new climb after the summit)", () => {
+    it("stays hidden during a run and appears once the summit is reached", async () => {
+      const harness = await mountGame();
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+      const button = harness.mount.querySelector(
+        '[data-testid="brickrise-climb-again"]',
+      ) as HTMLButtonElement;
+      expect(button.hidden).toBe(true);
+
+      queueSummitEvent(20_000, 0);
+      harness.emitFrame({ steps: 1 });
+
+      expect(button.hidden).toBe(false);
+    });
+
+    it("starts a fresh climb entirely in-band, without the host's pause/restart flow", async () => {
+      const harness = await mountGame();
+      await harness.instance.hydrate(null);
+      await harness.instance.start();
+      queueSummitEvent(20_000, 0);
+      harness.emitFrame({ steps: 1 });
+      expect(textOf(harness.mount, "brickrise-status")).toBe("Summit reached");
+
+      const button = harness.mount.querySelector(
+        '[data-testid="brickrise-climb-again"]',
+      ) as HTMLButtonElement;
+      button.dispatchEvent(new Event("click", { bubbles: true }));
+
+      expect(textOf(harness.mount, "brickrise-status")).toBe("Climbing");
+      expect(textOf(harness.mount, "brickrise-elapsed")).toBe("0s");
+      expect(button.hidden).toBe(true);
+    });
+  });
+
+  describe("cross-source input regressions", () => {
+    it("keeps a touch-button release from cancelling a direction held on the keyboard", async () => {
+      const harness = await mountGame();
+      harness.mount.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowLeft", bubbles: true }));
+      const left = harness.mount.querySelector('[data-testid="brickrise-touch-left"]')!;
+      expect(left.getAttribute("aria-pressed")).toBe("true");
+
+      // A stray click on the on-screen button while ArrowLeft is still
+      // physically held must not cancel the keyboard hold.
+      left.dispatchEvent(pointer("pointerdown", 1));
+      left.dispatchEvent(pointer("pointerup", 1));
+      expect(left.getAttribute("aria-pressed")).toBe("true");
+
+      harness.mount.dispatchEvent(new KeyboardEvent("keyup", { code: "ArrowLeft", bubbles: true }));
+      expect(left.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("keeps a keyboard release from cancelling a direction held on a touch button", async () => {
+      const harness = await mountGame();
+      const right = harness.mount.querySelector('[data-testid="brickrise-touch-right"]')!;
+      right.dispatchEvent(pointer("pointerdown", 1));
+      expect(right.getAttribute("aria-pressed")).toBe("true");
+
+      harness.mount.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight", bubbles: true }));
+      harness.mount.dispatchEvent(new KeyboardEvent("keyup", { code: "ArrowRight", bubbles: true }));
+      expect(right.getAttribute("aria-pressed")).toBe("true");
+
+      right.dispatchEvent(pointer("pointerup", 1));
+      expect(right.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("keeps a touch jump-button release from cancelling a jump held on the keyboard", async () => {
+      const harness = await mountGame();
+      harness.mount.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", bubbles: true }));
+      const jump = harness.mount.querySelector('[data-testid="brickrise-touch-jump"]')!;
+      expect(jump.getAttribute("aria-pressed")).toBe("true");
+
+      jump.dispatchEvent(pointer("pointerdown", 1));
+      jump.dispatchEvent(pointer("pointerup", 1));
+      expect(jump.getAttribute("aria-pressed")).toBe("true");
+
+      harness.mount.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", bubbles: true }));
+      expect(jump.getAttribute("aria-pressed")).toBe("false");
+    });
   });
 });

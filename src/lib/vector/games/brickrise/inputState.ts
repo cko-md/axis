@@ -29,6 +29,20 @@ export type BrickriseInputState = Readonly<{
   right: boolean;
   jumpHeld: boolean;
   jumpPressed: boolean;
+  /**
+   * Held state tracked per source. The physics step only ever reads the
+   * collapsed `left`/`right`/`jumpHeld` above — these four exist so a release
+   * from one source cannot cancel a hold still active on the other. Without
+   * them, a keyboard-held direction or jump is cancelled by an unrelated
+   * pointerup on the matching on-screen button, because the two sources
+   * shared one flat boolean.
+   */
+  leftKeyboard: boolean;
+  leftTouch: boolean;
+  rightKeyboard: boolean;
+  rightTouch: boolean;
+  jumpKeyboard: boolean;
+  jumpTouch: boolean;
 }>;
 
 export const INITIAL_BRICKRISE_INPUT: BrickriseInputState = Object.freeze({
@@ -36,28 +50,71 @@ export const INITIAL_BRICKRISE_INPUT: BrickriseInputState = Object.freeze({
   right: false,
   jumpHeld: false,
   jumpPressed: false,
+  leftKeyboard: false,
+  leftTouch: false,
+  rightKeyboard: false,
+  rightTouch: false,
+  jumpKeyboard: false,
+  jumpTouch: false,
 });
+
+/**
+ * Apply a press/release from one source to a per-source held pair, and
+ * collapse the result with OR. The other source's flag is left untouched, so
+ * a release only ever clears the half of the hold that source owns.
+ */
+function withHeld(
+  heldKeyboard: boolean,
+  heldTouch: boolean,
+  source: BrickriseInputSource,
+  pressed: boolean,
+): { held: boolean; heldKeyboard: boolean; heldTouch: boolean } {
+  const keyboard = source === "keyboard" ? pressed : heldKeyboard;
+  const touch = source === "touch" ? pressed : heldTouch;
+  return { held: keyboard || touch, heldKeyboard: keyboard, heldTouch: touch };
+}
 
 export function reduceBrickriseInput(
   state: BrickriseInputState,
   action: BrickriseInputAction,
 ): BrickriseInputState {
   switch (action.type) {
-    case "moveStart":
-      return action.direction === -1 ? { ...state, left: true } : { ...state, right: true };
+    case "moveStart": {
+      if (action.direction === -1) {
+        const { held, heldKeyboard, heldTouch } = withHeld(state.leftKeyboard, state.leftTouch, action.source, true);
+        return { ...state, left: held, leftKeyboard: heldKeyboard, leftTouch: heldTouch };
+      }
+      const { held, heldKeyboard, heldTouch } = withHeld(state.rightKeyboard, state.rightTouch, action.source, true);
+      return { ...state, right: held, rightKeyboard: heldKeyboard, rightTouch: heldTouch };
+    }
 
-    case "moveEnd":
-      return action.direction === -1 ? { ...state, left: false } : { ...state, right: false };
+    case "moveEnd": {
+      if (action.direction === -1) {
+        const { held, heldKeyboard, heldTouch } = withHeld(state.leftKeyboard, state.leftTouch, action.source, false);
+        return { ...state, left: held, leftKeyboard: heldKeyboard, leftTouch: heldTouch };
+      }
+      const { held, heldKeyboard, heldTouch } = withHeld(state.rightKeyboard, state.rightTouch, action.source, false);
+      return { ...state, right: held, rightKeyboard: heldKeyboard, rightTouch: heldTouch };
+    }
 
-    case "jumpDown":
-      // Re-pressing while already held (keyboard auto-repeat, or a second
-      // finger) must not re-arm the edge — that would let a held key produce a
-      // jump on every frame the buffer expired.
-      if (state.jumpHeld) return state;
-      return { ...state, jumpHeld: true, jumpPressed: true };
+    case "jumpDown": {
+      const { held, heldKeyboard, heldTouch } = withHeld(state.jumpKeyboard, state.jumpTouch, action.source, true);
+      // Re-pressing while already held (keyboard auto-repeat, a second
+      // finger, or the other source already holding it) must not re-arm the
+      // edge — that would let a held input produce a jump on every frame the
+      // buffer expired. The per-source flags still update underneath so a
+      // later release from the other source does not wrongly clear a hold
+      // this source is also contributing to.
+      if (state.jumpHeld) {
+        return { ...state, jumpHeld: held, jumpKeyboard: heldKeyboard, jumpTouch: heldTouch };
+      }
+      return { ...state, jumpHeld: held, jumpPressed: true, jumpKeyboard: heldKeyboard, jumpTouch: heldTouch };
+    }
 
-    case "jumpUp":
-      return { ...state, jumpHeld: false };
+    case "jumpUp": {
+      const { held, heldKeyboard, heldTouch } = withHeld(state.jumpKeyboard, state.jumpTouch, action.source, false);
+      return { ...state, jumpHeld: held, jumpKeyboard: heldKeyboard, jumpTouch: heldTouch };
+    }
 
     case "frame":
       // The edge lives exactly one frame.
