@@ -1,14 +1,65 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-20T05:40:00.410Z",
+  "derivedAt": "2026-07-20T06:37:23.875Z",
   "git": {
-    "branch": "main",
-    "head": "72f4e7389d3de84cb02c15242c3cb2c7a16c0992",
-    "mainHead": "72f4e7389d3de84cb02c15242c3cb2c7a16c0992",
+    "branch": "wave-15.9-rebase",
+    "head": "09d7c1b489ca39d1bf6c8c71e6880a15e050519e",
+    "mainHead": "5d1fb4186f89480f4600ad08fa61a6818af48eaa",
     "workingTreeClean": false,
-    "aheadOfMain": []
+    "aheadOfMain": [
+      {
+        "sha": "09d7c1b4",
+        "subject": "fix(vector): Time to Fly — apply cross-session adversarial findings"
+      },
+      {
+        "sha": "8203a8b6",
+        "subject": "feat(vector): Time to Fly Phaser shell — playable, route-isolated, planned"
+      },
+      {
+        "sha": "f11082ae",
+        "subject": "feat(vector): Time to Fly core round 1 — player-solvability gate, progress, input, simulation"
+      },
+      {
+        "sha": "44a5ad21",
+        "subject": "fix(vector): Time to Fly generator converges — 6/6 seeds at every level"
+      },
+      {
+        "sha": "423a4bf4",
+        "subject": "feat(vector): Time to Fly threading rule — breaks the verification wall"
+      },
+      {
+        "sha": "b6538e2b",
+        "subject": "wip(vector): Time to Fly verifier and generator — exhaustive count is the wall"
+      },
+      {
+        "sha": "42857c73",
+        "subject": "feat(vector): Wave 15.9 Time to Fly — constants, orbit lattice, flight integrator"
+      },
+      {
+        "sha": "19a1f19a",
+        "subject": "docs(vector): ADR-0006 — Time to Fly needs disjoint gravity fields"
+      }
+    ]
   },
   "mergedPrs": [
+    {
+      "pr": null,
+      "sha": "5d1fb418",
+      "subject": "fix(vector): accept Next build ids starting with _ or - in offline validation",
+      "committedAt": "2026-07-20T02:36:55-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "ad7e3725",
+      "subject": "docs(axis): record the completed post-deploy Sentry review via the CLI",
+      "committedAt": "2026-07-20T01:50:15-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "bd29b2a5",
+      "subject": "docs(axis): re-derive state after #260/#261",
+      "committedAt": "2026-07-20T01:40:27-04:00"
+    },
     {
       "pr": 261,
       "sha": "72f4e738",
@@ -38,6 +89,12 @@
       "sha": "d851b9dd",
       "subject": "fix(desktop): harden the window-close path against dialogs that block a quit",
       "committedAt": "2026-07-19T20:02:13-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "7d34ec82",
+      "subject": "fix(vector): accept Next build ids starting with _ or - in offline validation",
+      "committedAt": "2026-07-19T19:40:14-04:00"
     },
     {
       "pr": null,
@@ -134,30 +191,6 @@
       "sha": "61e833d4",
       "subject": "feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher",
       "committedAt": "2026-07-18T23:01:52-04:00"
-    },
-    {
-      "pr": 251,
-      "sha": "294dae37",
-      "subject": "feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3)",
-      "committedAt": "2026-07-18T22:54:10-04:00"
-    },
-    {
-      "pr": 250,
-      "sha": "55c92d47",
-      "subject": "chore(axis-redesign): repair post-convergence checkpoint docs",
-      "committedAt": "2026-07-18T22:45:23-04:00"
-    },
-    {
-      "pr": 252,
-      "sha": "f9e11b67",
-      "subject": "fix(desktop): don't crash desktop:check when desktop-release.yml is absent",
-      "committedAt": "2026-07-18T21:40:53-04:00"
-    },
-    {
-      "pr": 249,
-      "sha": "a8c7be32",
-      "subject": "feat(desktop): add unsigned Electron preview channel",
-      "committedAt": "2026-07-18T16:18:42-04:00"
     }
   ],
   "waves": [
@@ -245,12 +278,12 @@
   },
   "gates": {
     "measured": true,
-    "measuredAt": "2026-07-20T05:40:00.431Z",
+    "measuredAt": "2026-07-20T06:37:23.900Z",
     "tests": {
-      "passed": 1598,
-      "total": 1598,
-      "files": 209,
-      "suites": 583
+      "passed": 1748,
+      "total": 1748,
+      "files": 218,
+      "suites": 622
     },
     "bundleKb": {
       "used": 4245,
