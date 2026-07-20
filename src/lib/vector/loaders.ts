@@ -39,6 +39,17 @@ export const VECTOR_GAME_LOADERS: Partial<Record<VectorGameSlug, VectorGameLoade
         "@/lib/vector/games/brickrise/game"
       ).then((module) => module.default),
     },
+    // Time to Fly (Wave 15.9) follows the same pattern: pure core plus Phaser
+    // shell complete, registry `planned` until artwork lands. As with
+    // Brickrise, the chunk name below covers only this module's first-party
+    // code; Phaser itself is named by the next.config.ts cacheGroup.
+    "time-to-fly": {
+      engine: "phaser",
+      load: () => import(
+        /* webpackChunkName: "time-to-fly" */
+        "@/lib/vector/games/time-to-fly/game"
+      ).then((module) => module.default),
+    },
     // Wave 15.10 engine-isolation skeleton: this loader exists so the plain
     // Three dynamic import inside the game module is reachable and the
     // `vector-engine-three` chunk contract is proven before gameplay lands.

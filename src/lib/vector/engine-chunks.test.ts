@@ -143,11 +143,17 @@ describe("VECTOR engine chunk naming", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("imports Phaser exactly once, from the Brickrise shell", () => {
-    // A second import site — dynamic OR static — would either split the engine
-    // across chunks or make the engine chunk reachable from a shared route
-    // while still being billed to the route-isolated budget.
-    expect(engineImporters("phaser")).toEqual(["src/lib/vector/games/brickrise/game.ts"]);
+  it("imports Phaser only from the known game shells", () => {
+    // A closed list of import sites — dynamic OR static — all inside Phaser
+    // game shells. The cacheGroup unifies every site's engine modules into the
+    // one named vendor chunk, so multiple shells are fine; what must never
+    // appear is an import OUTSIDE a shell (which would pull the engine toward
+    // the shared graph) or a magic comment on any of them (covered above). The
+    // production build proves the emitted chunk name.
+    expect(engineImporters("phaser").sort()).toEqual([
+      "src/lib/vector/games/brickrise/game.ts",
+      "src/lib/vector/games/time-to-fly/game.ts",
+    ]);
   });
 
   it("imports Three exactly once, from the Paper Glider shell", () => {
