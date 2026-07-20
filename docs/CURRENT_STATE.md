@@ -19,13 +19,13 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-20T05:18:11.902Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-20T05:40:00.410Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
 - **Branch:** `main`
-- **HEAD:** `85cedc96`
-- **main:** `85cedc96`
+- **HEAD:** `72f4e738`
+- **main:** `72f4e738`
 - **Working tree:** has uncommitted changes
 
 ## Waves merged to main
@@ -37,7 +37,7 @@ _Derived from the repository at 2026-07-20T05:18:11.902Z. Do not hand-edit this 
 | 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
 | 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
-| 15.10 | #259 | `85cedc96` | feat(vector): prove the route-isolated vector-engine-three chunk (Wave 15.10 spike) |
+| 15.10 | #261 | `72f4e738` | feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10) |
 | 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
 | 16.2 | #256 | `d8a15e7b` | feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B) |
@@ -51,14 +51,14 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Defects
 
-- **Total logged:** 33
+- **Total logged:** 35
 - **Open:** 0
 
 ## Gates
 
-- **Tests:** 1473/1473 across 203 files
+- **Tests:** 1598/1598 across 209 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-20T05:18:12.058Z
+- **Measured at:** 2026-07-20T05:40:00.431Z
 
 <!-- END GENERATED: derive-program-state -->
 

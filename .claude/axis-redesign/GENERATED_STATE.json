@@ -1,14 +1,32 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-20T05:18:11.902Z",
+  "derivedAt": "2026-07-20T05:40:00.410Z",
   "git": {
     "branch": "main",
-    "head": "85cedc9604d10654c0be8c14ae63fd3201df71d9",
-    "mainHead": "85cedc9604d10654c0be8c14ae63fd3201df71d9",
+    "head": "72f4e7389d3de84cb02c15242c3cb2c7a16c0992",
+    "mainHead": "72f4e7389d3de84cb02c15242c3cb2c7a16c0992",
     "workingTreeClean": false,
     "aheadOfMain": []
   },
   "mergedPrs": [
+    {
+      "pr": 261,
+      "sha": "72f4e738",
+      "subject": "feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10)",
+      "committedAt": "2026-07-20T01:32:06-04:00"
+    },
+    {
+      "pr": 260,
+      "sha": "62d7a179",
+      "subject": "fix(vector): repair the Brickrise shell defects confirmed by adversarial review",
+      "committedAt": "2026-07-20T01:30:07-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "f225ae72",
+      "subject": "docs(axis): re-derive state after #258/#259; steward the narrative to current truth",
+      "committedAt": "2026-07-20T01:19:12-04:00"
+    },
     {
       "pr": 259,
       "sha": "85cedc96",
@@ -140,24 +158,6 @@
       "sha": "a8c7be32",
       "subject": "feat(desktop): add unsigned Electron preview channel",
       "committedAt": "2026-07-18T16:18:42-04:00"
-    },
-    {
-      "pr": 248,
-      "sha": "d73b777c",
-      "subject": "feat(webviewer): replace tavily with local Mozilla Readability reader",
-      "committedAt": "2026-07-18T11:29:24-04:00"
-    },
-    {
-      "pr": 246,
-      "sha": "18aea353",
-      "subject": "fix(reliability): surface + redact fund advisor and daily-maintenance failures",
-      "committedAt": "2026-07-18T10:48:10-04:00"
-    },
-    {
-      "pr": 244,
-      "sha": "a98c4f8d",
-      "subject": "fix(mail): stop leaking raw provider error text from mail adapters",
-      "committedAt": "2026-07-18T10:47:38-04:00"
     }
   ],
   "waves": [
@@ -203,10 +203,10 @@
     },
     {
       "wave": "15.10",
-      "mergedPr": 259,
-      "sha": "85cedc96",
-      "subject": "feat(vector): prove the route-isolated vector-engine-three chunk (Wave 15.10 spike)",
-      "mergedAt": "2026-07-20T00:57:06-04:00",
+      "mergedPr": 261,
+      "sha": "72f4e738",
+      "subject": "feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10)",
+      "mergedAt": "2026-07-20T01:32:06-04:00",
       "isDocs": false
     },
     {
@@ -239,18 +239,18 @@
     "latest": "202607170001_vector_arcade_persistence.sql"
   },
   "defects": {
-    "total": 33,
+    "total": 35,
     "open": 0,
     "openIds": []
   },
   "gates": {
     "measured": true,
-    "measuredAt": "2026-07-20T05:18:12.058Z",
+    "measuredAt": "2026-07-20T05:40:00.431Z",
     "tests": {
-      "passed": 1473,
-      "total": 1473,
-      "files": 203,
-      "suites": 526
+      "passed": 1598,
+      "total": 1598,
+      "files": 209,
+      "suites": 583
     },
     "bundleKb": {
       "used": 4245,
