@@ -97,8 +97,53 @@ let cachedArchiveBayRuntimeManifest = null;
 let managedRuntimeInstallInFlight = false;
 let devServer = null;
 let mainWindow = null;
+let mainWindowPromise = null; // single-flight guard for createMainWindow()
 let updateController = null;
 let extensionManager = null;
+// Set the moment a quit begins. Every dialog below consults it, because a
+// dialog raised during teardown is the one thing that can stop the app from
+// ever finishing its quit — see showDialog().
+let isQuitting = false;
+let loadErrorDialogOpen = false;
+
+function liveWindow(candidate) {
+  return candidate && !candidate.isDestroyed() ? candidate : null;
+}
+
+/**
+ * Every dialog in the main process is raised against a window that may already
+ * be gone: did-fail-load fires while a window is tearing down, the updater
+ * fires on a timer, and Archive Bay's pickers sit behind async IPC.
+ *
+ * Two shapes hang the app, both verified against Electron 43 on macOS:
+ *   - passing a DESTROYED BrowserWindow attaches an AppKit sheet to a window
+ *     that no longer hosts one, and app.quit() then never completes;
+ *   - an OWNERLESS (app-modal) dialog outlives every window, so quitting waits
+ *     on a dialog with nothing left to dismiss it.
+ * A hung quit is what forces the Electron e2e teardown to SIGKILL the shell.
+ *
+ * So: resolve an owner at call time and prefer a live one (a sheet dies with
+ * its parent window), and refuse to open anything once quitting has started.
+ */
+function showDialog(options, { owner = null } = {}) {
+  if (isQuitting) return Promise.resolve({ response: -1, canceled: true, checkboxChecked: false });
+  const parent = liveWindow(owner) || liveWindow(mainWindow);
+  return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
+}
+
+/**
+ * File pickers share showDialog()'s teardown rules, via a different Electron
+ * API the message-box hardening cannot see: a quit in progress must never
+ * gain a dialog (IPC keeps arriving between before-quit and the window's
+ * close), and a picker with no live owner would be the ownerless app-modal
+ * shape that blocks the quit. Both refuse as a canceled pick.
+ */
+function showFilePicker(options) {
+  if (isQuitting) return Promise.resolve({ canceled: true, filePaths: [] });
+  const parent = liveWindow(mainWindow);
+  if (!parent) return Promise.resolve({ canceled: true, filePaths: [] });
+  return dialog.showOpenDialog(parent, options);
+}
 
 function normalizeWebUrl(raw) {
   const value = String(raw || "").trim();
@@ -185,7 +230,7 @@ async function showBrowserCapabilities(record) {
     "",
     "Use the system-browser action for DRM services, Chrome/Edge Sync, or installed password-manager extensions.",
   ].join("\n");
-  const result = await dialog.showMessageBox({
+  const result = await showDialog({
     type: "info",
     buttons: ["Open extension folder", "Reload extensions", "Open page externally", "Close"],
     defaultId: 3,
@@ -193,21 +238,21 @@ async function showBrowserCapabilities(record) {
     title: "AXIS Browser capabilities",
     message: "Browser compatibility and privacy",
     detail,
-  });
+  }, { owner: record.window });
 
   if (result.response === 0) {
     await extensionManager?.openFolder();
   } else if (result.response === 1) {
     const next = await extensionManager?.reload();
     sendBrowserState(record);
-    await dialog.showMessageBox({
+    await showDialog({
       type: next?.failed.length ? "warning" : "info",
       title: "Browser extensions reloaded",
       message: `${next?.loaded.length || 0} extension(s) loaded.`,
       detail: next?.failed.length
         ? `${next.failed.length} extension(s) failed. Open the extension folder and review enabled.json.`
         : "Only explicitly enabled unpacked extensions are active.",
-    });
+    }, { owner: record.window });
   } else if (result.response === 2) {
     const url = record.view.webContents.getURL();
     if (url) await shell.openExternal(normalizeWebUrl(url));
@@ -319,9 +364,16 @@ function createBrowserWindow(rawUrl, requestedTitle) {
     return { action: "deny" };
   });
 
+  // Captured now, not in the closed handler. A BaseWindow does not own its
+  // WebContentsViews, so by the time "closed" fires either webContents may
+  // already be gone — and reading .id off a destroyed webContents throws from
+  // inside the event handler, stranding the map entries it was meant to clear.
+  const toolbarId = toolbar.webContents.id;
+  const viewId = view.webContents.id;
   window.on("closed", () => {
-    browserWindows.delete(toolbar.webContents.id);
-    browserViewIds.delete(view.webContents.id);
+    window.off("resize", layout);
+    browserWindows.delete(toolbarId);
+    browserViewIds.delete(viewId);
     if (!view.webContents.isDestroyed()) view.webContents.close();
     if (!toolbar.webContents.isDestroyed()) toolbar.webContents.close();
   });
@@ -332,6 +384,15 @@ function createBrowserWindow(rawUrl, requestedTitle) {
 
 function recordFor(event) {
   return browserWindows.get(event.sender.id);
+}
+
+// browserWindows is keyed by TOOLBAR webContents id; session-level handlers are
+// handed the content VIEW instead, so they cannot look a window up directly.
+function recordForViewId(webContentsId) {
+  for (const record of browserWindows.values()) {
+    if (!record.view.webContents.isDestroyed() && record.view.webContents.id === webContentsId) return record;
+  }
+  return null;
 }
 
 /**
@@ -440,7 +501,9 @@ async function configureBrowserSession() {
     } catch {
       // Keep the generic label.
     }
-    void dialog.showMessageBox({
+    // Suppressed during quit, which resolves to a non-zero response and so
+    // denies — a permission prompt nobody can answer must not grant.
+    void showDialog({
       type: "question",
       buttons: ["Allow once", "Block"],
       defaultId: 1,
@@ -448,7 +511,7 @@ async function configureBrowserSession() {
       title: "Website permission",
       message: `Allow ${hostname} to use ${permission}?`,
       detail: "The permission applies only to this request in the isolated AXIS browser session.",
-    }).then(({ response }) => callback(response === 0));
+    }, { owner: recordForViewId(webContents.id)?.window }).then(({ response }) => callback(response === 0));
   });
   browserSession.setDisplayMediaRequestHandler((_request, callback) => callback({}));
   extensionManager = createManagedExtensionManager({
@@ -538,7 +601,7 @@ function registerIpc() {
 
   ipcMain.handle("archive-bay:import", async (event, input) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const picked = await dialog.showOpenDialog(mainWindow || undefined, {
+    const picked = await showFilePicker({
       title: "Import a Nintendo DS ROM (.nds)",
       properties: ["openFile"],
       filters: [{ name: "Nintendo DS ROM", extensions: ["nds"] }],
@@ -589,7 +652,7 @@ function registerIpc() {
 
   ipcMain.handle("archive-bay:runtime-choose", async (event) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const picked = await dialog.showOpenDialog(mainWindow || undefined, {
+    const picked = await showFilePicker({
       title: "Choose your installed melonDS executable",
       properties: ["openFile"],
     });
@@ -870,7 +933,10 @@ async function createMainWindow() {
     await waitForAxis();
   }
 
-  mainWindow = new BrowserWindow({
+  // Held locally as well as in the module reference: every listener below must
+  // act on the window it was registered for, never on whichever window happens
+  // to be current when the listener fires.
+  const window = new BrowserWindow({
     title: "AXIS",
     width: 1440,
     height: 960,
@@ -886,7 +952,8 @@ async function createMainWindow() {
       webSecurity: true,
     },
   });
-  mainWindow.webContents.on("will-navigate", (event, nextUrl) => {
+  mainWindow = window;
+  window.webContents.on("will-navigate", (event, nextUrl) => {
     try {
       if (new URL(nextUrl).origin !== axisOrigin) {
         event.preventDefault();
@@ -896,7 +963,7 @@ async function createMainWindow() {
       event.preventDefault();
     }
   });
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     // Same-origin popups are AXIS's own OAuth return leg and must open INSIDE
     // the app. Denying them and shelling out to the system browser broke every
     // provider connect: window.open() returned null, openOAuthPopup fell back to
@@ -931,13 +998,21 @@ async function createMainWindow() {
     void openSafeExternal(url);
     return { action: "deny" };
   });
-  mainWindow.webContents.on("did-fail-load", (_event, errorCode, _description, validatedUrl, isMainFrame) => {
+  window.webContents.on("did-fail-load", (_event, errorCode, _description, validatedUrl, isMainFrame) => {
     if (!isMainFrame || errorCode === -3) return;
     observability.captureException(new Error(`AXIS origin failed to load (${errorCode})`), {
       hostname: hostnameFor(validatedUrl),
       operation: "axis-load",
     });
-    void dialog.showMessageBox(mainWindow, {
+    // A load in flight when the window goes away fails on the way out, so this
+    // handler can run during teardown. The common teardown code (ERR_ABORTED,
+    // -3) is filtered above, but the others are not, and a dialog raised then
+    // is unanswerable — attached to a dying window it blocks the quit outright.
+    // The single-flight flag additionally stops an offline origin from stacking
+    // a fresh sheet on every Retry.
+    if (isQuitting || !liveWindow(window) || loadErrorDialogOpen) return;
+    loadErrorDialogOpen = true;
+    void showDialog({
       type: "error",
       buttons: ["Retry", "Quit"],
       defaultId: 0,
@@ -945,26 +1020,52 @@ async function createMainWindow() {
       title: "AXIS could not connect",
       message: "The desktop app could not reach AXIS.",
       detail: `${hostnameFor(axisUrl)} may be unavailable, or this device may be offline.`,
-    }).then(({ response }) => {
-      if (response === 0) void mainWindow?.loadURL(axisUrl);
-      else app.quit();
+    }, { owner: window }).then(({ response }) => {
+      loadErrorDialogOpen = false;
+      if (response === 0) void liveWindow(window)?.loadURL(axisUrl).catch(() => {
+        // The next did-fail-load reports it; a rejected retry is not a fault.
+      });
+      else if (response === 1) app.quit();
     });
   });
-  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+  window.webContents.on("render-process-gone", (_event, details) => {
     observability.captureMessage("AXIS renderer process stopped", {
       exitCode: details.exitCode,
       operation: "axis-renderer",
       reason: details.reason,
     });
   });
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  window.on("closed", () => {
+    // Only clear the shared reference if it still points at THIS window. A
+    // replacement window (dock activate after a close) must not be
+    // un-referenced by its predecessor's teardown, which would leave a live
+    // window that deep links and Archive Bay both believe is gone.
+    if (mainWindow === window) mainWindow = null;
   });
-  await mainWindow.loadURL(axisUrl);
+  // A failed first load is already surfaced by did-fail-load above. Letting it
+  // reject here instead aborts the rest of app.whenReady() and leaves an
+  // unhandled rejection behind.
+  await window.loadURL(axisUrl).catch((error) => {
+    observability.captureException(error, { operation: "axis-load-initial" });
+  });
   if (process.env.AXIS_DESKTOP_SMOKE_URL) {
     createBrowserWindow(process.env.AXIS_DESKTOP_SMOKE_URL, "AXIS Browser Smoke Test");
     console.log(`AXIS desktop browser smoke window opened: ${hostnameFor(process.env.AXIS_DESKTOP_SMOKE_URL)}`);
   }
+}
+
+/**
+ * createMainWindow() is not synchronous in --dev: it awaits the dev server
+ * before constructing anything, so two overlapping calls (a second dock
+ * activate, or activate racing startup) would each build a window and the
+ * loser would be orphaned — visible, unreferenced, and unclosable from the app.
+ */
+function ensureMainWindow() {
+  if (liveWindow(mainWindow)) return Promise.resolve(mainWindow);
+  mainWindowPromise ??= createMainWindow().finally(() => {
+    mainWindowPromise = null;
+  });
+  return mainWindowPromise;
 }
 
 async function runCrashReporterSmoke() {
@@ -1005,7 +1106,15 @@ async function runCrashReporterSmoke() {
 function installApplicationMenu() {
   const updateItem = {
     label: "Check for Updates…",
-    click: () => updateController?.checkForUpdates({ interactive: true }),
+    // On macOS this menu item is reachable with zero windows open, and the
+    // update prompts refuse to open ownerless (update-controller.cjs) — so
+    // visible feedback needs a live window first. Ensuring one is also just
+    // the right response to the user reaching for the app.
+    click: () => {
+      void ensureMainWindow()
+        .catch(() => null)
+        .then(() => updateController?.checkForUpdates({ interactive: true }));
+    },
   };
   const template = [
     ...(process.platform === "darwin" ? [{
@@ -1085,12 +1194,18 @@ app.whenReady().then(async () => {
     app,
     autoUpdater,
     dialog,
-    getMainWindow: () => mainWindow,
+    getMainWindow: () => liveWindow(mainWindow),
     observability,
+    isQuitting: () => isQuitting,
   });
   installApplicationMenu();
-  await createMainWindow();
+  await ensureMainWindow();
   await runCrashReporterSmoke();
+}).catch((error) => {
+  // Without this the whole startup chain fails as an unhandled rejection: no
+  // window, no report, and a process that lingers with nothing on screen.
+  observability.captureException(error, { operation: "app-startup" });
+  console.error("AXIS desktop failed to start:", error);
 });
 
 // ── axis:// deep links ───────────────────────────────────────────────────────
@@ -1136,6 +1251,9 @@ app.on("open-url", (event, url) => {
 });
 
 app.on("before-quit", () => {
+  // Latched before any window closes so the teardown-time dialog suppression
+  // in showDialog() is already in force by the time did-fail-load fires.
+  isQuitting = true;
   updateController?.dispose();
   if (devServer) devServer.kill("SIGTERM");
 });
@@ -1145,5 +1263,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (!mainWindow || mainWindow.isDestroyed()) void createMainWindow();
+  if (isQuitting) return;
+  void ensureMainWindow().catch((error) => {
+    observability.captureException(error, { operation: "app-activate" });
+  });
 });
