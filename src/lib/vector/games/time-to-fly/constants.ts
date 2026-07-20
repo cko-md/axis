@@ -16,7 +16,8 @@
  * the unit vector for every slot is a hardcoded literal below, so positioning a
  * planet is multiplication, never trigonometry. The table was generated once by
  * quadrant mirroring (so it is exactly 4-fold symmetric) and is checked against
- * Math.cos/Math.sin in constants.test.ts — verified correct, never computed.
+ * Math.cos/Math.sin in flight.test.ts's "slot lattice" block — verified
+ * correct, never computed.
  */
 
 /** Slots a planet can occupy on its orbit. 12 slots = 30 degrees apart. */

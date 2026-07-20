@@ -131,9 +131,12 @@ describe("keyboard: rotation and selection", () => {
     expect(keyboardActionFor("ArrowLeft", "down")).toEqual({ type: "rotateSelected", direction: -1 });
     expect(keyboardActionFor("ArrowRight", "down")).toEqual({ type: "rotateSelected", direction: 1 });
     expect(keyboardActionFor("ArrowUp", "down")).toEqual({ type: "cycleSelection", direction: -1 });
-    expect(keyboardActionFor("Tab", "down")).toEqual({ type: "cycleSelection", direction: 1 });
+    expect(keyboardActionFor("ArrowDown", "down")).toEqual({ type: "cycleSelection", direction: 1 });
     expect(keyboardActionFor("Space", "up")).toBeNull();
     expect(keyboardActionFor("KeyQ", "down")).toBeNull();
+    // Tab must NOT be claimed: the shell preventDefaults every claimed code, so
+    // returning an action here would trap keyboard focus (WCAG 2.1.2).
+    expect(keyboardActionFor("Tab", "down")).toBeNull();
   });
 });
 

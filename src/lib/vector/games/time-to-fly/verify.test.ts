@@ -97,9 +97,14 @@ describe("cone prune admissibility", () => {
       { level: 2, seed: "cone:e" },
       { level: 3, seed: "cone:f" },
     ];
-    let compared = 0;
-    for (const { level, seed } of cases) {
-      for (let attempt = 0; attempt < 40 && compared < 12; attempt += 1) {
+    // Per-case, not one shared cap: with a single global counter the easy
+    // level-0/1 cases fill it before levels 2-3 — where the "small" planet
+    // class first appears in a multi-planet chain — are ever built, so the
+    // admissibility of the prune would go unchecked exactly where it is most
+    // likely to be violated.
+    const comparedPerCase = cases.map(() => 0);
+    cases.forEach(({ level, seed }, caseIndex) => {
+      for (let attempt = 0; attempt < 60 && comparedPerCase[caseIndex] < 2; attempt += 1) {
         const candidate = __buildCandidateForTest(level, `${seed}:${attempt}`);
         if (!candidate) continue;
         const pruned = verifyLevel(candidate.planets, candidate.galaxy);
@@ -116,10 +121,18 @@ describe("cone prune admissibility", () => {
           pruned.solutions.map((s) => s.join(",")).sort(),
           `pruned and unpruned searches disagree for ${seed}:${attempt} at level ${level + 1}`,
         ).toEqual(unpruned.solutions.map((s) => s.join(",")).sort());
-        compared += 1;
+        comparedPerCase[caseIndex] += 1;
       }
-    }
-    expect(compared).toBeGreaterThanOrEqual(8);
+    });
+    // Every case must have contributed at least one real comparison, so the
+    // prune is verified admissible at every planet count present here (1-4),
+    // not just the cheapest.
+    cases.forEach(({ level, seed }, caseIndex) => {
+      expect(
+        comparedPerCase[caseIndex],
+        `no candidate built for ${seed} at level ${level + 1} — the cone prune was never exercised there`,
+      ).toBeGreaterThanOrEqual(1);
+    });
   });
 });
 

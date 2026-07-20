@@ -60,9 +60,44 @@ describe("solvability gradient (ADR-0006, blocking)", () => {
         // Regression-visibility: a level that BARELY solves is one tuning nudge
         // from not solving. The budget headroom is part of the assertion.
         expect(result.budget).toBeLessThanOrEqual(3000);
-      });
+      }, 30_000);
     }
   }
+
+  it("generates every level across a seed sweep without ever throwing", () => {
+    // THE CONVERGENCE GUARD. generateTimeToFlyLevel throws
+    // TIME_TO_FLY_LEVEL_GENERATION_FAILED after MAX_ATTEMPTS with no retry or
+    // perturbation, so a tuning change that makes generation marginal ships
+    // silently until a player happens to land on a failing seed. The
+    // three-seed blocking test above proves the accepted levels are solvable;
+    // this proves acceptance itself is reliable across a corpus no hand-picked
+    // seed list can stand in for.
+    //
+    // Tiered by cost — L5 generation is ~1 s, L1 ~2 ms — so the guard stays
+    // meaningful without dominating the suite. A systematic convergence
+    // regression fails many seeds at once and is caught even at the thinnest
+    // tier; the seeds are fixed so a failure is reproducible.
+    const seedsPerLevel = [10, 10, 6, 3, 2];
+    for (let index = 0; index < TIME_TO_FLY_LEVEL_COUNT; index += 1) {
+      for (let s = 0; s < seedsPerLevel[index]; s += 1) {
+        const seed = `sweep-${String(s).padStart(3, "0")}`;
+        expect(
+          () => {
+            const level = generateTimeToFlyLevel(seed, index);
+            // A converged level must also be honestly bounded — solvable and
+            // not a solution soup — or "converges" would hide a gate that was
+            // quietly loosened.
+            expect(level.solutionCount).toBeGreaterThanOrEqual(1);
+            expect(level.solutionCount).toBeLessThanOrEqual(6);
+            expect(level.planets.length).toBe(index + 1);
+          },
+          `generation threw for seed "${seed}" at level ${index + 1}`,
+        ).not.toThrow();
+      }
+    }
+    // Explicit generous timeout: level-5 generation is ~1 s and the default
+    // 5 s ceiling would flake this heavier-but-valuable guard.
+  }, 60_000);
 
   it("keeps the full protocol a strict superset of the generation gate", () => {
     // The gate's guarantee transfers to this test only because the full

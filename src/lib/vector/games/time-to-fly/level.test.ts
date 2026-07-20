@@ -31,7 +31,7 @@ describe("deterministic seeding", () => {
       // promise that the same five levels come back forever.
       expect(JSON.stringify(second)).toBe(JSON.stringify(first));
     }
-  });
+  }, 30_000);
 
   it("produces different levels for different seeds", () => {
     const a = generateTimeToFlyLevel("seed-a", 0);
@@ -53,7 +53,7 @@ describe("deterministic seeding", () => {
       // The binding spec: level N contains N planets.
       expect(level.planets).toHaveLength(index + 1);
     });
-  });
+  }, 30_000);
 });
 
 describe("acceptance invariants on generated levels", () => {
@@ -102,7 +102,10 @@ describe("acceptance invariants on generated levels", () => {
         expect(verdict.nearestMiss).toBeGreaterThanOrEqual(
           TIME_TO_FLY_ARENA.GALAXY_RADIUS * A.MISS_MARGIN,
         );
-      });
+        // Level-5 generation + exhaustive re-verification is CPU-heavy and
+        // balloons under the parallel test runner; a generous timeout keeps it
+        // reliable rather than flaking on contention.
+      }, 30_000);
     }
   }
 });

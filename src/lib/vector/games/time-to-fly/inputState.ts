@@ -244,6 +244,10 @@ export function keyboardActionFor(
   if (code === "ArrowLeft") return { type: "rotateSelected", direction: -1 };
   if (code === "ArrowRight") return { type: "rotateSelected", direction: 1 };
   if (code === "ArrowUp") return { type: "cycleSelection", direction: -1 };
-  if (code === "ArrowDown" || code === "Tab") return { type: "cycleSelection", direction: 1 };
+  if (code === "ArrowDown") return { type: "cycleSelection", direction: 1 };
+  // Tab is deliberately NOT a game key. The shell preventDefaults every code
+  // this returns an action for, so claiming Tab would trap keyboard focus on
+  // the play surface (WCAG 2.1.2). Arrow Up/Down already cycle the selection,
+  // so nothing is lost by letting Tab move focus as normal.
   return null;
 }
