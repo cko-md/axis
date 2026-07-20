@@ -19,14 +19,27 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-20T05:40:00.410Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-20T06:37:23.875Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `main`
-- **HEAD:** `72f4e738`
-- **main:** `72f4e738`
+- **Branch:** `wave-15.9-rebase`
+- **HEAD:** `09d7c1b4`
+- **main:** `5d1fb418`
 - **Working tree:** has uncommitted changes
+
+### Not yet on main (8 commit(s))
+
+These exist only on this branch. Do not assume main contains them.
+
+- `09d7c1b4` fix(vector): Time to Fly — apply cross-session adversarial findings
+- `8203a8b6` feat(vector): Time to Fly Phaser shell — playable, route-isolated, planned
+- `f11082ae` feat(vector): Time to Fly core round 1 — player-solvability gate, progress, input, simulation
+- `44a5ad21` fix(vector): Time to Fly generator converges — 6/6 seeds at every level
+- `423a4bf4` feat(vector): Time to Fly threading rule — breaks the verification wall
+- `b6538e2b` wip(vector): Time to Fly verifier and generator — exhaustive count is the wall
+- `42857c73` feat(vector): Wave 15.9 Time to Fly — constants, orbit lattice, flight integrator
+- `19a1f19a` docs(vector): ADR-0006 — Time to Fly needs disjoint gravity fields
 
 ## Waves merged to main
 
@@ -56,9 +69,9 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- **Tests:** 1598/1598 across 209 files
+- **Tests:** 1748/1748 across 218 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-20T05:40:00.431Z
+- **Measured at:** 2026-07-20T06:37:23.900Z
 
 <!-- END GENERATED: derive-program-state -->
 

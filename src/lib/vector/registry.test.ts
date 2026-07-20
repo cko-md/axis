@@ -20,15 +20,20 @@ describe("VECTOR game registry", () => {
     expect(VECTOR_GAME_REGISTRY).toHaveLength(9);
   });
 
-  it("keeps every remaining game honestly planned and disabled after Wave 15.8", () => {
-    // Brickrise has a runtime loader from Wave 15.8 but is still `planned`:
-    // its mechanics are complete and its Phaser shell runs, while artwork is
-    // not delivered. Paper Glider's loader is the Wave 15.10 engine-isolation
-    // skeleton that proves the `vector-engine-three` chunk contract before
-    // gameplay lands. A loader on a planned game is valid and deliberate —
-    // flipping status without ready artwork trips AVAILABLE_WITHOUT_ARTWORK.
-    // What must stay true is that a planned game claims nothing it lacks.
-    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual(["second-sense", "brickrise", "paper-glider"]);
+  it("keeps every remaining game honestly planned and disabled after Wave 15.10", () => {
+    // Brickrise (15.8), Time to Fly (15.9), and Paper Glider (the 15.10
+    // engine-isolation skeleton) all have runtime loaders but are still
+    // `planned`: their mechanics/shells run while artwork is not delivered. A
+    // loader on a planned game is valid and deliberate — flipping status
+    // without ready artwork trips AVAILABLE_WITHOUT_ARTWORK. What must stay
+    // true is that a planned game claims nothing it lacks. Loader order follows
+    // the slug order in VECTOR_GAME_SLUGS.
+    expect(Object.keys(VECTOR_GAME_LOADERS)).toEqual([
+      "second-sense",
+      "brickrise",
+      "time-to-fly",
+      "paper-glider",
+    ]);
     for (const game of VECTOR_GAME_REGISTRY) {
       if (game.slug === "second-sense") continue;
       expect(game.status).toBe("planned");
@@ -139,12 +144,24 @@ describe("VECTOR game registry", () => {
   });
 
   it("fails visibly when a planned game has no runtime loader", async () => {
-    // time-to-fly (Wave 15.9) is the next title with no loader yet. Brickrise
-    // is deliberately no longer a valid example here — see the loader map
-    // assertion above.
-    await expect(loadVectorGame("time-to-fly")).rejects.toBeInstanceOf(
+    // envoy-arena is the next title with no loader yet. Brickrise, time-to-fly,
+    // and paper-glider all have loaders now (see the loader map assertion
+    // above) and are deliberately no longer valid examples here.
+    await expect(loadVectorGame("envoy-arena")).rejects.toBeInstanceOf(
       VectorGameLoaderUnavailableError,
     );
+  });
+
+  it("loads the Time to Fly module through its loader while the game stays planned", async () => {
+    const gameModule = await loadVectorGame("time-to-fly");
+    expect(typeof gameModule.createGame).toBe("function");
+    expect(getVectorGame("time-to-fly")?.status).toBe("planned");
+  });
+
+  it("loads the Paper Glider module through its loader while the game stays planned", async () => {
+    const gameModule = await loadVectorGame("paper-glider");
+    expect(typeof gameModule.createGame).toBe("function");
+    expect(getVectorGame("paper-glider")?.status).toBe("planned");
   });
 
   it("loads the Brickrise module through its loader while the game stays planned", async () => {

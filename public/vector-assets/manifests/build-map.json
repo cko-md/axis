@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "buildId": "vBuIP-x8TulazXhXkgYgL",
+  "buildId": "Z9pP2wXTm4GhMcdlPV827",
   "games": [
     {
       "gameId": "second-sense",
       "gameVersion": "1.0.0",
-      "buildId": "vBuIP-x8TulazXhXkgYgL",
-      "manifestUrl": "/vector-assets/manifests/second-sense-vBuIP-x8TulazXhXkgYgL.json",
-      "manifestSha256": "968d3a569663527a2de5a14ca0dbc588a0153746d2cc17e128b6866741d11c9d",
+      "buildId": "Z9pP2wXTm4GhMcdlPV827",
+      "manifestUrl": "/vector-assets/manifests/second-sense-Z9pP2wXTm4GhMcdlPV827.json",
+      "manifestSha256": "f7106f8f079a0d78bbffee1902a5ddc5d0bd261f32d4d18621279f26cab61dfa",
       "offlineEntryUrl": "/vector-assets/offline/second-sense.html",
-      "estimatedBytes": 277871
+      "estimatedBytes": 277862
     }
   ]
 }
