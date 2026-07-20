@@ -19,13 +19,13 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-20T06:38:53.181Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-20T15:41:22.950Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `main`
-- **HEAD:** `32a26c72`
-- **main:** `32a26c72`
+- **Branch:** `feat/vector-15.10-paper-glider-shell`
+- **HEAD:** `42ee761b`
+- **main:** `42ee761b`
 - **Working tree:** has uncommitted changes
 
 ## Waves merged to main
@@ -51,14 +51,14 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Defects
 
-- **Total logged:** 35
+- **Total logged:** 38
 - **Open:** 0
 
 ## Gates
 
-- **Tests:** 1748/1748 across 218 files
+- **Tests:** 1820/1820 across 223 files
 - **Bundle:** 4245 KB / 4400 KB
-- **Measured at:** 2026-07-20T06:38:53.201Z
+- **Measured at:** 2026-07-20T15:41:22.963Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -89,12 +89,12 @@ findings were handed to it directly):
   findings (BRICKRISE-004/005 in the ledger: cross-source input cancellation;
   the "Best summit" HUD lying about a slower run). Registry copy made true
   (no shake/particles exist); in-band "Climb again" after the summit.
-- **#261 open** — Paper Glider deterministic core: the passability oracle is
-  CHECKED IN (25 seeds × 30+ rooms driving the real step function, capped-speed
-  depths included), the opening-drift bound is derived from `stepGlider` at
-  generation time, and furniture/rings are placed against the re-simulated
-  trajectory. Shell (Three scene, input normalization, artwork) is the next
-  15.10 slice; registry stays `planned`.
+- **#261 merged** (`72f4e738`) — Paper Glider deterministic core: the
+  passability oracle is checked in (25 seeds × 30+ rooms driving the real step
+  function, capped-speed depths included), the opening-drift bound is derived
+  from `stepGlider` at generation time, and furniture/rings are placed against
+  the re-simulated trajectory. Registry stayed `planned`. The shell built on
+  top of this core in a later session — see "Wave 15.10 Paper Glider" below.
 
 Environment notes: fresh worktrees need `npm install` in `electron/` too, or
 the Electron e2e times out in beforeAll (`electron-updater` lives in
@@ -177,14 +177,88 @@ artwork trips `AVAILABLE_WITHOUT_ARTWORK`.
   restart is a new climb, and the personal best is a best-across-runs, which is
   what `personal-unverified` already signals.
 
+### Wave 15.10 Paper Glider — shell built over the merged core
+
+Built in an isolated worktree (`feat/vector-15.10-paper-glider-shell`, off
+`origin/main @ 42ee761b`) on top of the mechanical core `#261` merged earlier
+the same day. `game.ts` is now the full Three-facing shell, not the 15.10
+engine-isolation skeleton the file used to be: bounded/pruned room scene graph
+(1 room behind + 3 ahead of the glider, so an endless flight cannot accrete
+GPU geometry), a chase camera, an honest HUD (score/distance/rings/speed/
+status/result/best-flight), keyboard+pointer+touch steering through a shared
+reducer (`inputState.ts`, new), and dispose/context-loss handling that forces
+`WEBGL_lose_context` on teardown (same reasoning as Brickrise: this component
+remounts on every runtime retry, and browsers cap live WebGL contexts). Input
+binds to `context.mount` — not the game's own root — because binding to the
+wrong element is exactly what made Brickrise unplayable by keyboard
+(`BRICKRISE-002`).
+
+**The completability guard** (`completability.test.ts`, new — Paper Glider's
+analogue of Brickrise's reachability test and Time to Fly's solvability
+sweep): a static audit that every generated doorway sits inside the
+physics-derived steerable envelope and the room cross-section, a tiered
+dynamic pilot sweep (broad/standard/deep/fuzz, up to 1,500 arithmetically
+derived seeds) that flies the *real* `stepPaperGliderSimulation` through real
+generated levels one fixed step at a time, and falsification fixtures proving
+the detector actually fires on hand-built un-flyable levels. Its own header
+records a manual falsification run: reverting the generator to the literal
+Wave 15.8 defect class (a stale hand-tuned steering constant, then a removed
+doorway clamp) makes 3/8 and then 4/8 of these tests fail, confirming the
+guard is not vacuous.
+
+**Building that guard found three genuine defects in the merged core**, now
+in the ledger and fixed in this worktree:
+
+- `PAPER-GLIDER-001` (high) — the merged core used `Math.hypot` on the
+  authoritative simulation/generation path in three files (`physics.ts`'s
+  arrive-steering distance, `level.ts`'s furniture clearance, `simulation.ts`'s
+  ring-capture check), which is not guaranteed correctly-rounded across JS
+  engines the way `sqrt` is — a determinism-rule violation that could
+  silently desync a replay or generate a different level for the same seed
+  on a different engine. Fixed to sqrt-of-squares / squared-magnitude
+  comparisons; guarded going forward by a new source-scan test,
+  `determinism.test.ts`.
+- `PAPER-GLIDER-002` (high) — `generateFurniture`'s clearance check sampled
+  the flight path only at a furniture box's *centre* z, missing intrusions
+  elsewhere across the box's z-thickness during a room's steering ramp-up.
+  Produced provably un-flyable levels on 8 witness seeds found by independent
+  adversarial probes. Fixed by `boxClearsFlightTube()`, which sweeps the
+  box's full z-extent.
+- `PAPER-GLIDER-003` (medium) — the registry manifest claimed capabilities
+  the shell does not have: `reducedMotionBehavior` described curtain/dust/
+  loose-page effects that exist nowhere in the game, and `score.achievements`
+  was `true` though no achievement is defined anywhere and the runtime
+  sanitizer drops `achievementId` strings outright. Both corrected; a new
+  `game.test.ts` assertion pins the honest values.
+
+**What is true now:** the shell mounts, steers by keyboard/pointer/touch,
+runs the same fixed-step simulation the completability sweep flies (no
+renderer-owned animation loop, no analytic fast-forward — `game.test.ts`
+source-scans for both), renders the bounded scene, and never shows fake rank/
+leaderboard/achievement/player-count/install/sync language (`game.test.ts`
+"no fake state"). Registry stays `planned`; every mesh, colour, and material
+is placeholder geometry the file header calls out as the seam for real art.
+1,820 tests pass across 223 files; `tsc`, lint, build, and both bundle budgets
+(shared 4245/4400 KB, route-isolated 1964/3000 KB) are clean — see the Gates
+block above once `state:derive` re-runs against this branch.
+
+**What must land before `available`:** real artwork from the design lane
+(Codex), the same externally-gated dependency Brickrise has. Flipping status
+without it trips `AVAILABLE_WITHOUT_ARTWORK`.
+
+**Rebase required before merge.** This branch forked `origin/main` at
+`42ee761b`; main is contended by a concurrent session on this machine, so by
+the time this branch is reviewed, main has likely moved past that commit.
+Rebase onto whatever main has become — do not merge from this stale base, and
+do not assume `42ee761b` is still the tip.
+
 ### Wave order
 
-15.9 Time to Fly is in flight on `feat/wave-15.9-time-to-fly` (concurrent
-session; core round 1 committed, three verified review findings handed to it —
-seed-sweep corpus, per-case cone-prune coverage, a stale doc pointer). 15.10's
-engine prerequisite and deterministic core are done (#259 merged, #261 open);
-its shell is the next slice after 15.9. 15.6 skipped, 15.7 deferred, 15.11
-blocked on the Envoy redesign — see `wave_order_revision` in
-PROGRAM_STATE.json. Brickrise artwork remains externally gated on the design
-lane (Codex); registry status stays `planned` until it lands.
+15.9 Time to Fly and 15.10's deterministic core are both merged to main
+(`32a26c72`, `#261`/`72f4e738`). 15.10's shell is built and gated in the
+isolated worktree above but not yet merged — rebase onto current main first
+(see above). 15.6 skipped, 15.7 deferred, 15.11 blocked on the Envoy redesign
+— see `wave_order_revision` in PROGRAM_STATE.json. Brickrise and Paper Glider
+artwork both remain externally gated on the design lane (Codex); registry
+status stays `planned` for both until art lands.
 

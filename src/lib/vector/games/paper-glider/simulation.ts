@@ -148,11 +148,19 @@ export function stepPaperGliderSimulation(
   }
 
   const captureRadius = PAPER_GLIDER_LEVEL_CONFIG.RING_TRIGGER_RADIUS + PAPER_GLIDER_PHYSICS.HULL_RADIUS;
+  // Squared-distance comparison, never Math.hypot: hypot is not required to be
+  // correctly rounded, and this check runs on the authoritative per-step path,
+  // where every operation must be bit-identical across JS engines (the
+  // determinism rule — only + - * / and sqrt). Squaring both sides needs no
+  // root at all.
+  const captureRadiusSquared = captureRadius * captureRadius;
   for (const ring of currentRoom.rings) {
     const key = ringCollectionKey(currentRoom.index, ring.index);
     if (run.collectedRingKeys.includes(key)) continue;
-    const distance = Math.hypot(body.x - ring.x, body.y - ring.y, body.z - ring.z);
-    if (distance <= captureRadius) {
+    const ringDx = body.x - ring.x;
+    const ringDy = body.y - ring.y;
+    const ringDz = body.z - ring.z;
+    if (ringDx * ringDx + ringDy * ringDy + ringDz * ringDz <= captureRadiusSquared) {
       run = recordRingCollected(run, key);
       events.push({ type: "ring", roomIndex: currentRoom.index, ringIndex: ring.index, total: currentRoom.rings.length });
     }

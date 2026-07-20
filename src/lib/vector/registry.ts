@@ -205,15 +205,27 @@ export const VECTOR_GAME_REGISTRY = [
     engine: "three",
     orientation: "landscape",
     minimumViewport: { width: 640, height: 480 },
-    input: { keyboard: false, pointer: true, touch: true, gamepad: false },
+    // keyboard: the shell's input state machine steers with Arrows/WASD
+    // through the same reducer as pointer and touch, so the claim is real —
+    // and steering is reachable without a pointer at all (WCAG 2.1.1).
+    input: { keyboard: true, pointer: true, touch: true, gamepad: false },
     controls: [
       control("steer-pointer", "Steer", "pointer", ["Pointer movement"], "Guide the glider across the flight surface."),
       control("steer-touch", "Steer", "touch", ["Touch drag"], "Guide the glider with a continuous touch gesture."),
+      control("steer-keys", "Steer", "keyboard", ["Arrow keys", "WASD"], "Steer the glider without a pointer."),
     ],
-    reducedMotionBehavior: "Ambient curtains, dust, and loose-page motion are reduced; camera response remains stable.",
+    // Only what the shell actually does: camera easing snaps and the cosmetic
+    // glider bank/pitch is removed. No curtains, dust, or loose pages exist —
+    // claiming reduced alternatives for effects that do not exist is the same
+    // empty-promise class the Brickrise manifest was fixed for.
+    reducedMotionBehavior: "Camera easing snaps and cosmetic glider banking is removed; the simulation is unchanged.",
     accessibilityDescription: "Score, speed, collision result, pause, and restart remain available outside WebGL.",
     save: { local: true, cloud: true, slots: "single", deterministicSeed: false },
-    score: { kind: "personal-unverified", achievements: true, leaderboard: false, label: "Longest flight" },
+    // achievements: false — no Paper Glider achievement is defined anywhere,
+    // and the runtime event sanitiser drops string achievementId values
+    // outright. Same fix as Brickrise: claiming the capability while shipping
+    // none of it is the empty promise registry validation exists to prevent.
+    score: { kind: "personal-unverified", achievements: false, leaderboard: false, label: "Longest flight" },
     visualMotif: "flight",
   }),
   planned({

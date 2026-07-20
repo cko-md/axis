@@ -163,6 +163,56 @@ export function furnitureSafeTubeRadius(): number {
   return PAPER_GLIDER_PHYSICS.HULL_RADIUS + C.FURNITURE_HALF_SIZE_XY * Math.SQRT2 + C.PATH_CLEARANCE_MARGIN;
 }
 
+/**
+ * Does a furniture box centred at (x, y, z) keep the whole flight tube clear
+ * across its FULL forward extent — not just at its centre z?
+ *
+ * A furniture box is z-thick (2 * FURNITURE_HALF_SIZE_Z, plus the hull radius
+ * the runtime collision check adds on each side — see `collidesFurniture`),
+ * and the flight path CURVES across that thickness: every room starts with a
+ * steering ramp-up in which (x, y) sweeps laterally per z-unit far faster than
+ * later in the room. Sampling the path at the box's centre z alone approved
+ * placements whose near edge intruded into the real flight tube — generated
+ * levels that were provably un-flyable (witness seeds in
+ * completability.test.ts). So this checks the same SHAPE the runtime collision
+ * check tests: the swept minimum clearance over the box's whole z-range.
+ *
+ * Determinism rule: squared-magnitude comparisons only — no hypot, no roots.
+ */
+function boxClearsFlightTube(
+  path: readonly GliderPathSample[],
+  x: number,
+  y: number,
+  z: number,
+  halfZ: number,
+  safeTubeRadius: number,
+): boolean {
+  const zMin = z - halfZ - PAPER_GLIDER_PHYSICS.HULL_RADIUS;
+  const zMax = z + halfZ + PAPER_GLIDER_PHYSICS.HULL_RADIUS;
+  const safeSquared = safeTubeRadius * safeTubeRadius;
+
+  // Every path sample inside the box's z-range, PLUS the interpolated path
+  // positions at the range's two ends, so the sweep covers the full interval
+  // even when no raw sample falls exactly on a boundary. Samples are one
+  // fixed step apart (lateral motion <= STEER_MAX_SPEED per step), so the
+  // sampled minimum tracks the true continuous minimum to well inside
+  // PATH_CLEARANCE_MARGIN.
+  const boundaryA = pathPositionAtZ(path, zMin);
+  const boundaryB = pathPositionAtZ(path, zMax);
+  for (const point of [boundaryA, boundaryB]) {
+    const dx = x - point.x;
+    const dy = y - point.y;
+    if (dx * dx + dy * dy < safeSquared) return false;
+  }
+  for (const sample of path) {
+    if (sample.z < zMin || sample.z > zMax) continue;
+    const dx = x - sample.x;
+    const dy = y - sample.y;
+    if (dx * dx + dy * dy < safeSquared) return false;
+  }
+  return true;
+}
+
 function generateFurniture(
   random: () => number,
   entry: PaperGliderOpening,
@@ -187,9 +237,9 @@ function generateFurniture(
         -C.ROOM_HALF_HEIGHT + C.FURNITURE_HALF_SIZE_XY,
         C.ROOM_HALF_HEIGHT - C.FURNITURE_HALF_SIZE_XY,
       );
-      const flightPosition = pathPositionAtZ(path, z);
-      const clearance = Math.hypot(x - flightPosition.x, y - flightPosition.y);
-      if (clearance < safeTubeRadius) continue; // too close to the real flight path — resample rather than clamp into it
+      if (!boxClearsFlightTube(path, x, y, z, C.FURNITURE_HALF_SIZE_Z, safeTubeRadius)) {
+        continue; // too close to the real flight path somewhere in the box's z-extent — resample rather than clamp into it
+      }
 
       items.push({
         x,

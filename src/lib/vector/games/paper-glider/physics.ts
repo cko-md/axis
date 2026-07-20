@@ -130,7 +130,11 @@ export function steerVelocityToward(
 ): Readonly<{ vx: number; vy: number }> {
   const dvx = desiredVx - vx;
   const dvy = desiredVy - vy;
-  const magnitude = Math.hypot(dvx, dvy);
+  // Math.hypot is not required to be correctly rounded; sqrt is. Squares and
+  // sqrt keep this step bit-identical across JS engines (the determinism rule
+  // the whole passability bound rests on) — same pattern as time-to-fly's
+  // orbit.ts.
+  const magnitude = Math.sqrt(dvx * dvx + dvy * dvy);
   if (magnitude <= maxDelta) return { vx: desiredVx, vy: desiredVy };
   const scale = maxDelta / magnitude;
   return { vx: vx + dvx * scale, vy: vy + dvy * scale };
@@ -156,7 +160,8 @@ export function stepGlider(state: GliderState, target: SteerTarget): GliderState
   const P = PAPER_GLIDER_PHYSICS;
   const dx = target.x - state.x;
   const dy = target.y - state.y;
-  const distance = Math.hypot(dx, dy);
+  // sqrt, never hypot: see steerVelocityToward above.
+  const distance = Math.sqrt(dx * dx + dy * dy);
   const desiredSpeed =
     distance < STEER_ARRIVE_RADIUS ? (distance / STEER_ARRIVE_RADIUS) * P.STEER_MAX_SPEED : P.STEER_MAX_SPEED;
   const desiredVx = distance > 0 ? (dx / distance) * desiredSpeed : 0;

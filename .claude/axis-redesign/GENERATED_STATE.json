@@ -1,14 +1,38 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-20T06:38:53.181Z",
+  "derivedAt": "2026-07-20T15:41:22.950Z",
   "git": {
-    "branch": "main",
-    "head": "32a26c72069286e02fc22a20ff468b35476aa2e8",
-    "mainHead": "32a26c72069286e02fc22a20ff468b35476aa2e8",
+    "branch": "feat/vector-15.10-paper-glider-shell",
+    "head": "42ee761b9a90ddcf98b638043e77a8ebb990ff40",
+    "mainHead": "42ee761b9a90ddcf98b638043e77a8ebb990ff40",
     "workingTreeClean": false,
     "aheadOfMain": []
   },
   "mergedPrs": [
+    {
+      "pr": null,
+      "sha": "42ee761b",
+      "subject": "fix(cron): bound AI calls and circuit-break the sweep so a slow provider can't 502",
+      "committedAt": "2026-07-20T04:35:01-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "732ec125",
+      "subject": "fix(cron): bound AI calls and circuit-break the sweep so a slow provider can't 502",
+      "committedAt": "2026-07-20T04:23:32-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "b93893ed",
+      "subject": "fix(cron): stop the intelligence-sweep reporting benign states as errors",
+      "committedAt": "2026-07-20T04:10:40-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "d20cd05e",
+      "subject": "docs(axis): re-derive state after both merges",
+      "committedAt": "2026-07-20T02:39:52-04:00"
+    },
     {
       "pr": null,
       "sha": "32a26c72",
@@ -134,30 +158,6 @@
       "sha": "2c3d4d3a",
       "subject": "fix(axis): count locally merged waves in the derived state table",
       "committedAt": "2026-07-19T11:57:39-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "4a302771",
-      "subject": "docs(axis): re-derive checkpoint state after the Brickrise design decisions",
-      "committedAt": "2026-07-19T11:52:42-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "c8841e18",
-      "subject": "fix(vector): resolve Brickrise's four open manifest and design questions",
-      "committedAt": "2026-07-19T11:52:32-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "a9563212",
-      "subject": "docs(axis): re-derive checkpoint state for Wave 15.8",
-      "committedAt": "2026-07-19T11:45:54-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "f94934d9",
-      "subject": "feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix",
-      "committedAt": "2026-07-19T11:45:26-04:00"
     }
   ],
   "waves": [
@@ -239,18 +239,18 @@
     "latest": "202607170001_vector_arcade_persistence.sql"
   },
   "defects": {
-    "total": 35,
+    "total": 38,
     "open": 0,
     "openIds": []
   },
   "gates": {
     "measured": true,
-    "measuredAt": "2026-07-20T06:38:53.201Z",
+    "measuredAt": "2026-07-20T15:41:22.963Z",
     "tests": {
-      "passed": 1748,
-      "total": 1748,
-      "files": 218,
-      "suites": 622
+      "passed": 1820,
+      "total": 1820,
+      "files": 223,
+      "suites": 649
     },
     "bundleKb": {
       "used": 4245,

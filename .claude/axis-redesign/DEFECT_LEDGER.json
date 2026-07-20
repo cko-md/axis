@@ -1,6 +1,6 @@
 {
  "updated": "2026-07-20",
- "revision": "feat/wave-15.8-brickrise-scene",
+ "revision": "feat/vector-15.10-paper-glider-shell",
  "defects": [
   {
    "id": "SEC-005",
@@ -627,6 +627,59 @@
    "revision_fixed": "fix/vector-brickrise-shell-defects",
    "verification": "Vector suite green in the fix worktree; the slower-run test fails against the pre-fix shell",
    "similar_code_search": "Second Sense already re-reads via getBestScore in its finishRun; Paper Glider's core (15.10) keeps best-score merge as Math.max in progress.ts and its future shell must re-read rather than assume"
+  },
+  {
+   "id": "PAPER-GLIDER-001",
+   "severity": "high",
+   "source": "Wave 15.10 shell build \u2014 determinism source guard (new determinism.test.ts) written against the merged mechanical core (PR #261)",
+   "summary": "The Wave 15.10 mechanical core used Math.hypot on the authoritative simulation and generation path in three files \u2014 steerVelocityToward's and stepGlider's arrive-steering distance in physics.ts, generateFurniture's flight-tube clearance check in level.ts, and stepPaperGliderSimulation's ring-capture distance check in simulation.ts \u2014 violating the wave's no-hypot determinism rule",
+   "reproduction": "grep -n 'Math.hypot' across physics.ts, level.ts, and simulation.ts before the fix finds three call sites feeding the fixed-step simulation loop and the room/furniture generator; determinism.test.ts's source-text scan (new this wave) fails on each, and its own header records this exact reproduction as the defect it was written to catch",
+   "affected": [
+    "src/lib/vector/games/paper-glider/physics.ts",
+    "src/lib/vector/games/paper-glider/level.ts",
+    "src/lib/vector/games/paper-glider/simulation.ts"
+   ],
+   "root_cause": "Math.hypot(a,b) is not required by ECMA-262 to be correctly rounded the way Math.sqrt is \u2014 different engines (or engine versions) may legally return a different last-ULP result for the same inputs. Because the fixed-step simulation feeds each step's output into the next step's input, a single-ULP disagreement compounds into a macroscopically different flight, and because the level generator derives doorway/furniture/ring placement from the same step function (simulateGliderPath, maxSteerableRadius), the same seed could even produce a different level on a different engine \u2014 silently breaking the pure modules' documented replay/passability guarantees",
+   "fix": "Replaced every Math.hypot(...) call on the simulation/generation path with the equivalent sqrt-of-squares form (Math.sqrt(dx*dx+dy*dy)) or, where only a threshold test was needed, a squared-magnitude comparison against the threshold squared \u2014 no roots at all in the ring-capture check",
+   "regression_test": "src/lib/vector/games/paper-glider/determinism.test.ts \u2014 a source-text scan of every pure module (physics.ts, level.ts, simulation.ts, progress.ts, inputState.ts, rng.ts) against a banned-Math-call regex (hypot/sin/cos/tan/atan2/pow/exp/log/random, etc.); fails if Math.hypot or any other implementation-approximated Math function reappears anywhere on the list",
+   "status": "fixed",
+   "revision_fixed": "feat/vector-15.10-paper-glider-shell",
+   "verification": "determinism.test.ts passes against the fixed source; its own header records that the original Wave 15.10 draft failed it with Math.hypot present in physics.ts, level.ts, AND simulation.ts while the draft's own test files were already using sqrt. Part of the 1820-test green suite this wave reports",
+   "similar_code_search": "Same determinism-rule class as the project's blanket ban on Math.cos/sin/atan2/hypot on the generation/simulation path (this worktree's own non-negotiables). Time to Fly's orbit.ts already follows the sqrt-of-squares pattern per its own comment; every future VECTOR game core should add the same source-scan guard rather than relying on review alone to catch a reintroduced hypot call \u2014 Brickrise and Time to Fly currently have no equivalent scan"
+  },
+  {
+   "id": "PAPER-GLIDER-002",
+   "severity": "high",
+   "source": "Wave 15.10 shell build \u2014 completability guard, witness seeds found by independent adversarial probes",
+   "summary": "generateFurniture's flight-tube clearance check sampled the flight path only at a furniture box's centre z, approving placements whose box actually intruded into the flown tube elsewhere across its [z - halfZ, z + halfZ] extent \u2014 because the path curves fastest during each room's early steering ramp-up, this produced provably un-flyable generated levels",
+   "reproduction": "8 witness seeds each generated a level with a furniture box whose centre-z path sample cleared furnitureSafeTubeRadius() while the box's real volume intruded into the flown tube; e.g. probe-random-248-1170072440 room 3 box at z\u224888.4 with swept clearance 1.54 < the required 2.40, and review-probe-107-556784891 room 1 swept min clearance 1.24 at z=5.54 vs required 2.40. All eight collided (reason: \"furniture\") on the pre-fix generator and were never sampled by the fixed-tier dynamic sweep",
+   "affected": [
+    "src/lib/vector/games/paper-glider/level.ts"
+   ],
+   "root_cause": "The clearance check computed pathPositionAtZ(path, z) once at the box's centre z and compared that single point's distance to furnitureSafeTubeRadius(); it never checked the path's position across the rest of the box's z-thickness, where lateral drift during a room's steering ramp-up can be large enough to intrude even though the centre-z point was clear",
+   "fix": "Added boxClearsFlightTube(), which checks the swept minimum clearance across the box's full [z - halfZ - HULL_RADIUS, z + halfZ + HULL_RADIUS] interval \u2014 every raw path sample inside that range plus the interpolated boundary positions at both ends \u2014 using squared-magnitude comparisons only (no hypot, no extra roots). generateFurniture now resamples on any point inside the interval intruding, not just the centre",
+   "regression_test": "src/lib/vector/games/paper-glider/completability.test.ts \"regression: witness seeds of the swept-clearance furniture defect\" flies all 8 witness seeds through 15 rooms with the bounded pilot and asserts none collide; the dynamic pilot sweep tiers (broad/standard/deep/fuzz, up to 1,500 seeds) and the static audit's own furniture-clearance assertion cover the general case. The suite's header records a manual falsification run proving the guard fails when the fix is weakened",
+   "status": "fixed",
+   "revision_fixed": "feat/vector-15.10-paper-glider-shell",
+   "verification": "All 8 witness seeds plus the 1,500-seed fuzz tier and the broad/standard/deep tiers fly clean through their target room counts against the fixed generator; part of the 1820-test green suite",
+   "similar_code_search": "Same defect class as BRICKRISE-001 (a generator producing structurally-valid-looking but dynamically un-flyable/unclimbable output, caught only by an authoritative step-by-step sweep, never by an analytic or single-point shortcut). Time to Fly's and Brickrise's generators should be re-audited for any other clearance/reachability check that samples one representative point instead of the swept extent a moving hull actually occupies"
+  },
+  {
+   "id": "PAPER-GLIDER-003",
+   "severity": "medium",
+   "source": "Wave 15.10 shell build \u2014 manifest honesty audit (game.test.ts \"no fake state\" guard)",
+   "summary": "Paper Glider's registry manifest (merged in PR #261, before any shell existed) claimed two capabilities nothing in the implementation provides: reducedMotionBehavior described \"Ambient curtains, dust, and loose-page motion\" being reduced, though no curtain/dust/loose-page effect exists anywhere in the game; and score.achievements was true though no Paper Glider achievement is defined anywhere and the runtime event sanitizer drops string achievementId values outright",
+   "reproduction": "Read the paper-glider entry in src/lib/vector/registry.ts before this wave's fix against the actual game.ts: no code path ever creates a curtain, dust particle, or loose-page effect (reduced or otherwise), and no achievement id is ever emitted or defined anywhere in the game or the shared VECTOR runtime sanitizer's allow-list",
+   "affected": [
+    "src/lib/vector/registry.ts"
+   ],
+   "root_cause": "The manifest was authored for the eventual full game ahead of the shell that implements it, and its capability claims were never reconciled against what the shipped shell actually does once that shell landed \u2014 the same \"claims a capability the code does not provide\" class this project's own non-negotiables (no fake score, rank, leaderboard, achievement, player count, install state, or sync state) exist to prevent",
+   "fix": "reducedMotionBehavior rewritten to describe only what the shell's reduced-motion branch actually does (camera easing snaps and cosmetic glider banking are removed; the simulation is unchanged); score.achievements set to false",
+   "regression_test": "game.test.ts \"no fake state\" block: \"pins the manifest fields this wave decided\" asserts manifest.score.achievements === false and manifest.reducedMotionBehavior does not match /curtain|dust|loose[- ]page/i; a companion assertion in the same block renders a finished run and confirms the DOM never contains rank/leaderboard/achievement/player-count/install/sync language",
+   "status": "fixed",
+   "revision_fixed": "feat/vector-15.10-paper-glider-shell",
+   "verification": "Both assertions pass against the fixed registry.ts; part of the 1820-test green suite this wave reports",
+   "similar_code_search": "Same class as the Brickrise manifest fixes (achievements/leaderboard/reduced-motion promises ahead of the implementation). Every VECTOR game manifest authored before its shell lands should get the same \"pins the manifest fields this wave decided\" reconciliation pass once the shell ships, not just once at authoring time \u2014 Time to Fly's manifest has not yet had this pass"
   }
  ]
 }
