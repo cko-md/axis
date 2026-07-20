@@ -39,10 +39,53 @@ describe("movement", () => {
     expect(directionFrom(INITIAL_BRICKRISE_INPUT)).toBe(0);
   });
 
-  it("treats keyboard and touch as the same source of truth", () => {
+  it("treats keyboard and touch as the same source of truth for the physics step", () => {
+    // The two sides diverge internally now (each remembers which source is
+    // holding it), but that bookkeeping is private to the reducer — the
+    // collapsed fields physics.ts and directionFrom actually read must still
+    // agree regardless of which source pressed the direction.
     const viaKeyboard = apply([{ type: "moveStart", source: "keyboard", direction: 1 }]);
     const viaTouch = apply([{ type: "moveStart", source: "touch", direction: 1 }]);
-    expect(viaKeyboard).toEqual(viaTouch);
+    expect(viaKeyboard.right).toBe(viaTouch.right);
+    expect(directionFrom(viaKeyboard)).toBe(directionFrom(viaTouch));
+  });
+
+  // Regression: a stray on-screen-button release must not cancel a direction
+  // still physically held on the keyboard (and vice versa). Before this fix,
+  // moveEnd ignored `action.source` entirely and cleared the flat boolean
+  // both sources shared.
+  it("does not let a touch release cancel a direction held on the keyboard", () => {
+    const state = apply([
+      { type: "moveStart", source: "keyboard", direction: -1 },
+      // A stray pointerup on the on-screen "Move left" button, e.g. a second
+      // pointer or an already-released touch replaying its up event.
+      { type: "moveEnd", source: "touch", direction: -1 },
+    ]);
+    expect(state.left).toBe(true);
+    expect(directionFrom(state)).toBe(-1);
+  });
+
+  it("does not let a keyboard release cancel a direction held on touch", () => {
+    const state = apply([
+      { type: "moveStart", source: "touch", direction: 1 },
+      { type: "moveEnd", source: "keyboard", direction: 1 },
+    ]);
+    expect(state.right).toBe(true);
+    expect(directionFrom(state)).toBe(1);
+  });
+
+  it("clears a direction once every source holding it releases", () => {
+    let state = apply([
+      { type: "moveStart", source: "keyboard", direction: 1 },
+      { type: "moveStart", source: "touch", direction: 1 },
+    ]);
+    expect(state.right).toBe(true);
+
+    state = reduceBrickriseInput(state, { type: "moveEnd", source: "keyboard", direction: 1 });
+    expect(state.right).toBe(true);
+
+    state = reduceBrickriseInput(state, { type: "moveEnd", source: "touch", direction: 1 });
+    expect(state.right).toBe(false);
   });
 });
 
@@ -74,12 +117,50 @@ describe("jump edge", () => {
     expect(state.jumpPressed).toBe(true);
   });
 
-  it("lets a touch release cancel a keyboard hold and vice versa", () => {
+  // Regression: game.ts's activePointerId guard only deduplicates pointers on
+  // the SAME touch button — it does nothing to stop a touch release from
+  // clearing a keyboard-set flag. A stray click on the on-screen jump button
+  // must not cut a jump held by Space, which would trigger the jump-cut
+  // physics mid-hold.
+  it("does not let a touch release cancel a jump held on the keyboard", () => {
     const state = apply([
       { type: "jumpDown", source: "keyboard" },
       { type: "jumpUp", source: "touch" },
     ]);
+    expect(state.jumpHeld).toBe(true);
+  });
+
+  it("does not let a keyboard release cancel a jump held on touch", () => {
+    const state = apply([
+      { type: "jumpDown", source: "touch" },
+      { type: "jumpUp", source: "keyboard" },
+    ]);
+    expect(state.jumpHeld).toBe(true);
+  });
+
+  it("clears the jump once every source holding it releases", () => {
+    let state = apply([
+      { type: "jumpDown", source: "keyboard" },
+      { type: "jumpDown", source: "touch" },
+    ]);
+    expect(state.jumpHeld).toBe(true);
+
+    state = reduceBrickriseInput(state, { type: "jumpUp", source: "keyboard" });
+    expect(state.jumpHeld).toBe(true);
+
+    state = reduceBrickriseInput(state, { type: "jumpUp", source: "touch" });
     expect(state.jumpHeld).toBe(false);
+  });
+
+  // The second source pressing while the first still holds must not re-arm
+  // the edge either — that is the same held-input-cannot-jump-every-frame
+  // rule as auto-repeat, just arriving from the other source.
+  it("does not re-arm the edge when a second source presses while already held", () => {
+    let state = apply([{ type: "jumpDown", source: "keyboard" }]);
+    state = reduceBrickriseInput(state, { type: "frame" });
+    state = reduceBrickriseInput(state, { type: "jumpDown", source: "touch" });
+    expect(state.jumpPressed).toBe(false);
+    expect(state.jumpHeld).toBe(true);
   });
 });
 

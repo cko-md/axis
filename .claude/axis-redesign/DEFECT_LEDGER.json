@@ -1,597 +1,632 @@
 {
-  "updated": "2026-07-19",
-  "revision": "feat/wave-15.8-brickrise-scene",
-  "defects": [
-    {
-      "id": "SEC-005",
-      "severity": "high",
-      "source": "Rescue-stack triage (PR #241, kernel-extraction of #228/#230)",
-      "summary": "22 API routes returned raw Postgres/PostgREST or MFA provider error.message text to clients in 500 responses, concentrated in fund/* financial endpoints plus profile/avatar and auth/mfa/{verify,unenroll}",
-      "reproduction": "Trigger a DB or MFA-provider failure on any of the 22 sites and inspect the JSON body; the previous code returned NextResponse.json({error: error.message}, {status:500}) verbatim",
-      "affected": [
-        "22 route handlers under src/app/api/fund/*, src/app/api/profile/avatar, src/app/api/auth/mfa/verify, src/app/api/auth/mfa/unenroll"
-      ],
-      "root_cause": "No shared redaction helper; each route hand-rolled error responses from the raw caught error",
-      "fix": "New redactRouteError(error, opts) captures the real error server-side via the existing captureRouteError (Sentry) and returns a generic client-safe {error} message; response shape unchanged. Applied to all 22 sites.",
-      "regression_test": "unit test asserting the raw message never reaches the client response",
-      "status": "fixed",
-      "revision_fixed": "PR #241 (merged 2026-07-18)",
-      "verification": "tsc + eslint clean; new unit test passes; superseded #228 and #230 (closed)",
-      "similar_code_search": "Related raw-error leakage in mail, plaid, make, ai/tools, calendar/cron/make routes was found and fixed separately \u2014 see MAIL-002, PLAID-002, AI-003, RELIABILITY-001 below"
-    },
-    {
-      "id": "MAIL-002",
-      "severity": "high",
-      "source": "Rescue-stack triage (PR #244, kernel-extraction of #225)",
-      "summary": "Mail adapters leaked raw provider error text from direct/Composio mail transports to clients",
-      "affected": [
-        "src/lib/mail/adapters (direct + Composio transports)"
-      ],
-      "root_cause": "Adapter error paths surfaced provider response text instead of a normalized safe error",
-      "fix": "Redact raw provider error text at the adapter boundary before it reaches API responses",
-      "regression_test": "adapter error-path unit tests",
-      "status": "fixed",
-      "revision_fixed": "PR #244 (merged 2026-07-18)",
-      "verification": "tsc + eslint clean; targeted tests pass"
-    },
-    {
-      "id": "PLAID-002",
-      "severity": "high",
-      "source": "Rescue-stack triage (PR #243, kernel-extraction of #222)",
-      "summary": "Plaid webhook sync error handling did not harden against raw provider error propagation",
-      "affected": [
-        "src/app/api/plaid webhook/sync routes"
-      ],
-      "root_cause": "Webhook sync path did not redact provider error detail before logging/responding",
-      "fix": "Harden webhook sync error handling and redact raw provider errors",
-      "regression_test": "webhook sync error-path unit tests",
-      "status": "fixed",
-      "revision_fixed": "PR #243 (merged 2026-07-18)",
-      "verification": "tsc + eslint clean; targeted tests pass"
-    },
-    {
-      "id": "AI-003",
-      "severity": "medium",
-      "source": "Rescue-stack triage (PR #247, kernel-extraction of #235, registry.ts only)",
-      "summary": "AI tool handlers threw raw error.message (Postgres/provider text) that flows to the model as tool-result content",
-      "reproduction": "Trigger a DB or Plaid-provider failure inside an Advisor tool handler; the model received the raw thrown message as tool output",
-      "affected": [
-        "src/lib/ai/tools/registry.ts"
-      ],
-      "root_cause": "Tool handlers used new Error(error.message) / free-text validation messages instead of a coded error contract",
-      "fix": "Introduced self-contained ToolExecutionError with fixed coded reasons (DATA_UNAVAILABLE, PROVIDER_UNAVAILABLE, INVALID_INPUT); Plaid cash-account fetch now throws PROVIDER_UNAVAILABLE on missing credentials/non-OK HTTP/JSON parse failure instead of silently returning an empty list; unknown tool names map to INVALID_INPUT",
-      "regression_test": "registry.ts targeted tests",
-      "status": "fixed",
-      "revision_fixed": "PR #247 (merged 2026-07-18)",
-      "verification": "eslint clean; self-contained change, no caller changes required",
-      "similar_code_search": "Model-facing tool-result content across the Advisor tool layer is now audited for raw error passthrough; see also AI-002 (navigation/response boundary, fixed earlier)"
-    },
-    {
-      "id": "RELIABILITY-001",
-      "severity": "medium",
-      "source": "Rescue-stack triage (PRs #240, #242, #245, #246 \u2014 kernel-extractions of #220/#221/#223/#224/#229/#231/#232/#234)",
-      "summary": "Several persistence and cron/digest paths swallowed failures via console.error only (Plaid token load/save/revoke, finance narrator context, recurring/daily finance jobs, calendar/cron/make routes, fund advisor audit, feed digest, intelligence sweep, maintenance sweep) instead of surfacing them",
-      "reproduction": "Force a Supabase write/read failure on any listed path; the prior code logged to console and continued, hiding the failure from Sentry and from callers that assumed success",
-      "affected": [
-        "src/lib/plaid/plaidTokens.ts",
-        "src/lib/fund/financeNarratorContext.ts",
-        "src/lib/fund/financeDailyJobs.ts (recurring/daily jobs)",
-        "calendar/cron/make routes",
-        "fund advisor audit persistence",
-        "cron feed-digest and intelligence-sweep routes",
-        "daily-maintenance sweep"
-      ],
-      "root_cause": "Persistence/reporting failures were treated as non-fatal console noise instead of being captured (Sentry) and/or propagated (throw/error response)",
-      "fix": "Route persistence and cron failures through Sentry capture with area/provider/operation tags and rethrow or return visible error state instead of silently continuing; load/revoke paths now propagate DB errors to callers",
-      "regression_test": "targeted unit tests per PR (plaidTokens, financeNarratorContext, financeDailyJobs, cron routes)",
-      "status": "fixed",
-      "revision_fixed": "PRs #240, #242, #245, #246 (merged 2026-07-18)",
-      "verification": "tsc + eslint clean per PR; extracted cleanly from the larger rescue branches to avoid unrelated churn (e.g. #220's stale ai/navigation.ts changes, since superseded by main)"
-    },
-    {
-      "id": "AUTH-006",
-      "severity": "high",
-      "source": "Rescue-stack triage (PRs #217/#218, direct-OAuth binding)",
-      "summary": "Spotify and Strava browser token cookies were not bound to the authenticated Axis user, so leftover cookies from a previously signed-in account on a shared browser could grant API access after a different user signed in",
-      "reproduction": "Sign in as user A, connect Spotify/Strava, sign out, sign in as user B on the same browser without disconnecting; the prior getAccessToken returned user A's token to user B's session",
-      "affected": [
-        "Spotify OAuth/token routes and shared helper",
-        "Strava OAuth/token routes and shared helper"
-      ],
-      "root_cause": "Token cookies were keyed only by provider, not by the authenticated Supabase user id, and the OAuth callback did not require an active session before persisting tokens",
-      "fix": "OAuth callback now requires a Supabase session before persisting tokens and sets an httpOnly *_token_owner cookie to the current user.id; getAccessToken takes userId and returns null unless the owner cookie matches; owner marker is cleared on disconnect",
-      "regression_test": "PR-level route tests for callback/session-required and owner-mismatch null return",
-      "status": "fixed",
-      "revision_fixed": "PRs #217, #218 (merged 2026-07-18)",
-      "verification": "npm run lint --quiet + npx tsc --noEmit + git diff --check per PR; direct OAuth reads for Spotify/Strava/health remain intentional per the OAuth consolidation decision (Mail/Calendar/Contacts route through Composio only)"
-    },
-    {
-      "id": "FIN-001",
-      "severity": "medium",
-      "source": "current-state audit",
-      "summary": "Money aggregated as IEEE-754 float across Fund; totals can drift by a cent",
-      "reproduction": "Sum [0.1, 0.2] via reduce(+) -> 0.30000000000000004; roll up N balances",
-      "affected": [
-        "src/components/fund/OverviewModule.tsx",
-        "src/components/fund/FundNetWorthModule.tsx",
-        "src/components/fund/FundLiabilities.tsx",
-        "src/components/fund/FundRecurringList.tsx",
-        "src/components/fund/FundCashflowModule.tsx",
-        "src/lib/fund/financeDailyJobs.ts",
-        "src/lib/fund/financeNarratorContext.ts"
-      ],
-      "root_cause": "No deterministic money primitive; ad-hoc float arithmetic",
-      "fix": "Added src/lib/fund/money.ts (integer minor units + exact sumMoney/sumBy); routed safeMoney through it",
-      "regression_test": "src/lib/fund/money.test.ts (financial invariants)",
-      "status": "fixed",
-      "revision_fixed": "wave-4.2",
-      "verification": "All listed aggregation sites now route through sumBy/sumMoney; net-worth combinations use sumMoney; 427 tests green, tsc clean",
-      "similar_code_search": "All reduce(+ Number()) money aggregation sites in Fund adopted in wave 4.2 (OverviewModule, FundNetWorthModule, FundLiabilities, FundRecurringList, FundCashflowModule, financeDailyJobs, usePlaidConnection)"
-    },
-    {
-      "id": "FIN-002",
-      "severity": "low",
-      "source": "current-state audit",
-      "summary": "safeMoney accepted sub-cent floats without rounding to the currency minor unit",
-      "affected": [
-        "src/lib/fund/financeNarratorContext.ts"
-      ],
-      "root_cause": "Raw Number() parse",
-      "fix": "safeMoney delegates to parseMoney (cent-rounded)",
-      "regression_test": "src/lib/fund/money.test.ts",
-      "status": "fixed",
-      "revision_fixed": "pending-commit",
-      "verification": "existing financeNarratorContext.test.ts still passes"
-    },
-    {
-      "id": "MAKE-001",
-      "severity": "high",
-      "source": "Phase 10 outbound integration review",
-      "summary": "Make webhook delivery treated every HTTP response as success",
-      "reproduction": "Return HTTP 503 from an env-configured Make webhook; the previous triggerWebhook resolved and notifyViaMake wrote result=success",
-      "affected": [
-        "src/lib/integrations/make.ts",
-        "src/lib/fund/notifyViaMake.ts"
-      ],
-      "root_cause": "The outbound helper parsed response text without checking Response.ok and exposed no typed delivery contract",
-      "fix": "Return the shared Result<MakeWebhookReceipt>, accept only 2xx, disable redirects, and write normalized failure audit metadata",
-      "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-10.13",
-      "verification": "HTTP 503 maps to provider_error, no success audit is written, focused tests and full 737-test suite pass"
-    },
-    {
-      "id": "MAKE-002",
-      "severity": "high",
-      "source": "Phase 10 outbound integration review",
-      "summary": "Raw Make response/error content could enter exceptions and persistent audit metadata",
-      "reproduction": "Return a provider body containing a token-like value or throw an error containing the opaque hook path; previous code embedded raw text in MakeError/audit_logs",
-      "affected": [
-        "src/lib/integrations/make.ts",
-        "src/lib/fund/notifyViaMake.ts"
-      ],
-      "root_cause": "Provider response bodies and thrown messages were treated as safe observability content",
-      "fix": "Never read webhook response bodies; emit generic structured errors and persist only code/status/retryability/idempotency metadata",
-      "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-10.13",
-      "verification": "Secret-bearing response/error fixtures are absent from Results, Sentry messages, and audit rows; independent review found no substantiated regression"
-    },
-    {
-      "id": "MAKE-003",
-      "severity": "high",
-      "source": "Phase 10 outbound integration review",
-      "summary": "Failed Make writes had no durable replay state and duplicate prevention depended entirely on each remote scenario",
-      "reproduction": "Return a provider failure or lose the response after Make accepts a write; the prior implementation retained only audit metadata and could not safely claim or replay the payload",
-      "affected": [
-        "src/lib/fund/notifyViaMake.ts",
-        "src/lib/integrations/makeOutbox.ts",
-        "src/app/api/integrations/make/outbox/[id]/replay/route.ts"
-      ],
-      "root_cause": "No durable encrypted write outbox, local dedupe record, or compare-and-swap replay claim",
-      "fix": "Persist purpose-separated AES-GCM payload envelopes behind metadata-only owner RLS, hash dedupe keys, claim attempts atomically, dead-letter bounded failures, and allow only explicit authenticated operator replay",
-      "regression_test": "src/lib/integrations/makeOutbox.test.ts; src/lib/fund/notifyViaMake.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-10.14",
-      "verification": "17 focused tests pass; local and hosted migrations verify RLS/grants; duplicate, tamper, failed-delivery, third-attempt dead-letter, and replay-success paths are covered"
-    },
-    {
-      "id": "SEC-003",
-      "severity": "high",
-      "source": "Hosted Supabase security advisor after wave 10.14 DDL",
-      "summary": "Anonymous and authenticated Data API roles could execute the SECURITY DEFINER expire_stale_approvals RPC across all users",
-      "reproduction": "has_function_privilege returned true and the advisor reported public/authenticated SECURITY DEFINER execution",
-      "affected": [
-        "src/app/api/cron/daily/route.ts",
-        "supabase/migrations/202607140300_expire_stale_approvals.sql"
-      ],
-      "root_cause": "The cron used a browser-facing Supabase client and the RPC retained default PUBLIC plus authenticated EXECUTE grants",
-      "fix": "Run maintenance RPCs with the service-role client and revoke EXECUTE from PUBLIC, anon, and authenticated while granting service_role only",
-      "regression_test": "Database privilege read-back",
-      "status": "fixed",
-      "revision_fixed": "wave-10.14",
-      "verification": "Local and hosted has_function_privilege: anon=false, authenticated=false, service_role=true; security advisor warning cleared"
-    },
-    {
-      "id": "MAKE-004",
-      "severity": "high",
-      "source": "Phase 10 Make management API review plus current official scenario API reference",
-      "summary": "Make management helpers threw unstructured errors, trusted unvalidated provider data, retried no reads, accepted invalid configuration, and sent scenario inputs under the wrong field",
-      "reproduction": "Call runScenario with input and inspect the old request body: it used `input`, while Make API v2 requires `data`; malformed team ids became NaN and every management failure escaped as MakeError",
-      "affected": [
-        "src/lib/integrations/make.ts"
-      ],
-      "root_cause": "The older management client predated the shared Result contract, runtime response schemas, provider timing policy, and the current Make scenario-input API",
-      "fix": "Return schema-validated Result values for list/detail/run/start/stop; validate configuration and ids; reject redirects; retry reads at most three times; attempt writes once; use `{responsive:true,data}`; require id/state activation confirmation; emit only normalized safe failures",
-      "regression_test": "src/lib/integrations/make.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-10.15",
-      "verification": "49 focused tests pass; 757-test full suite passes; configured Make list/detail reads passed live id/team/state shape checks without exposing scenario content; no live write performed"
-    },
-    {
-      "id": "MAIL-001",
-      "severity": "high",
-      "source": "Platform audit L2/I4 and Phase 10 Composio cache synchronization review",
-      "summary": "Mail first paint blocked on live provider fan-out and a failed account could not retain durable last-known inbox state",
-      "reproduction": "Open /mail with multiple direct or Composio accounts while one provider is slow or unavailable; the prior GET /api/mail/inbox waited on every provider and had no persistent rows to render offline",
-      "affected": [
-        "src/app/api/mail/inbox/route.ts",
-        "src/components/mail/MailModule.tsx",
-        "src/lib/mail/cache.ts"
-      ],
-      "root_cause": "Inbox list metadata had no owner-scoped cache or per-account sync state; provider refresh and first paint were the same request",
-      "fix": "Serve normalized header/snippet metadata from owner-RLS cache, revalidate explicitly through POST /api/mail/sync, retain failed-account rows during partial refresh, record normalized sync outcomes, and keep message bodies live-only",
-      "regression_test": "src/lib/mail/cache.test.ts; src/app/api/mail/sync/route.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-10.16",
-      "verification": "Focused Mail/cache/sync/disconnect tests pass; 768-test full suite and seeded authenticated Mail smoke pass; local and hosted migration/RLS/owner-isolation checks pass"
-    },
-    {
-      "id": "RUN-001",
-      "severity": "medium",
-      "source": "Phase 8 financial-profile adversarial review",
-      "summary": "Concentration routine requests accepted malformed JSON shapes and silently replaced explicit unsafe thresholds with a default",
-      "reproduction": "POST JSON null or an explicit maxWeight below zero or above one to /api/routines/concentration-check; the previous unvalidated body access could destabilize error handling or continue with 25 percent without telling the caller",
-      "affected": [
-        "src/app/api/routines/concentration-check/route.ts"
-      ],
-      "root_cause": "The route cast arbitrary JSON to a request type and treated validation failure as absence instead of distinguishing omitted from invalid input",
-      "fix": "Parse a strict Zod request contract, require finite maxWeight in (0, 1], require UUID run ids, and return visible INVALID_ROUTINE_INPUT 400 responses before any database or routine work",
-      "regression_test": "src/app/api/routines/concentration-check/route.test.ts; src/lib/routines/concentrationCheck.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-8.8",
-      "verification": "Malformed null and unsafe threshold cases return 400 with no profile query or routine execution; valid request/profile/default provenance cases remain covered"
-    },
-    {
-      "id": "SIG-001",
-      "severity": "medium",
-      "source": "Phase 8 Need-to-Know integration review",
-      "summary": "The deterministic signal severity model was not consumed by Dispatch and did not recognize the application's persisted hi priority vocabulary",
-      "reproduction": "Persist an action signal with metadata.ai_priority=hi; the prior UI grouped it as Action and deriveSeverity returned actionable instead of critical. Archive a title and resurface a punctuation variant; the queue did not use that resolution history to demote it.",
-      "affected": [
-        "src/lib/signals/severity.ts",
-        "src/components/signals/SignalsModule.tsx"
-      ],
-      "root_cause": "Phase 7 shipped pure severity and normalized dedup primitives without wiring them into the existing Dispatch filters/groups, and its urgent label set used high but not the repository's hi enum",
-      "fix": "Recognize hi as urgent, derive every queue row's tier from persisted type/priority, group and filter by the four Need-to-Know tiers, and feed resolved routed/dismissed/archived titles into normalized duplicate detection while excluding the current record",
-      "regression_test": "src/lib/signals/severity.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-8.9",
-      "verification": "Focused tests cover hi escalation and punctuation-varied resolution memory; synthetic local desktop/mobile verification showed one row in each tier and responsive filter wrapping"
-    },
-    {
-      "id": "DS-001",
-      "severity": "medium",
-      "source": "Phase 6 adversarial accessibility audit",
-      "summary": "Root-scoped semantic font aliases ignored body-level next/font and Interface Studio runtime choices",
-      "reproduction": "Set --disp or --sans on body and inspect an element consuming --type-display-family or --type-body-family; the root-resolved alias retained the earlier stack.",
-      "affected": [
-        "src/app/globals.css",
-        "src/lib/design/systemTokens.ts"
-      ],
-      "root_cause": "Semantic aliases were declared on :root while runtime font variables are intentionally set on body.",
-      "fix": "Bind semantic family aliases on body alongside the live font variables and retain size/leading roles at :root.",
-      "regression_test": "src/lib/design/systemTokens.test.ts; tests/e2e/authenticated.spec.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-6.3",
-      "verification": "Static contract rejects root family aliases and the authenticated gallery verifies a body-level runtime face change through computed style."
-    },
-    {
-      "id": "DS-002",
-      "severity": "high",
-      "source": "Phase 6 WCAG theme/preset audit",
-      "summary": "Light primary controls, accent-derived focus rings, and Slate/Light faint microtext failed required contrast",
-      "reproduction": "Compute WCAG ratios for Light --on-accent against each selectable accent, accent-bright focus against Light canvas, and --ink-faint against Slate/Light surfaces; multiple combinations fall below 4.5:1 text or 3:1 UI contrast.",
-      "affected": [
-        "src/app/globals.css",
-        "src/lib/design/systemTokens.ts",
-        "src/lib/design/systemTokens.test.ts"
-      ],
-      "root_cause": "Interaction foreground/focus colors inherited decorative accent choices, and faint text values were chosen visually against canvas only.",
-      "fix": "Use stable near-black foreground on every selectable accent, derive focus from theme ink, and raise each theme's faint ink to AA across all solid surfaces.",
-      "regression_test": "src/lib/design/systemTokens.test.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-6.3",
-      "verification": "Automated matrix covers all four themes, four solid surfaces per theme, and all six accent plus hover pairs."
-    },
-    {
-      "id": "DS-003",
-      "severity": "medium",
-      "source": "Phase 6 test/control audit",
-      "summary": "TSX accessibility tests were undiscoverable and shared segmented controls exposed repeated generic group names",
-      "reproduction": "Run Vitest against designSystemA11y.test.tsx under the former include pattern and inspect Tasks/Approvals/Memory/Interface Studio Seg groups in the accessibility tree.",
-      "affected": [
-        "vitest.config.ts",
-        "src/components/ui/Seg.tsx",
-        "src/components/ui/designSystemA11y.test.tsx"
-      ],
-      "root_cause": "Vitest included only .test.ts, while Seg supplied a default 'Options' label instead of requiring caller context.",
-      "fix": "Discover .test.tsx, require ariaLabel or aria-labelledby at the Seg type boundary, and name every production consumer.",
-      "regression_test": "src/components/ui/designSystemA11y.test.tsx",
-      "status": "fixed",
-      "revision_fixed": "wave-6.3",
-      "verification": "Both focused TSX and token files execute (16 tests), all call sites typecheck, and the authenticated gallery exposes named theme/density groups."
-    },
-    {
-      "id": "PREF-001",
-      "severity": "high",
-      "source": "Phase 7 production-mode authenticated regression",
-      "summary": "Late or failed remote preference hydration could overwrite a user edit, trigger a blind default upsert, discard timezone/future fields, and persist writes out of order",
-      "affected": [
-        "src/components/theme/ThemeProvider.tsx",
-        "src/lib/theme/preferences.ts"
-      ],
-      "root_cause": "Remote writes were enabled before a successful read, hydration ignored concurrent local edits, the JSON envelope was replaced wholesale, and debounced writes were not serialized",
-      "fix": "Enable sync only after a successful read, guard remote fields with edit epochs, preserve the loaded envelope and timezone, parse metadata separately from interface settings, and serialize remote upserts",
-      "regression_test": "src/lib/theme/preferences.test.ts; tests/e2e/theme-preferences-authenticated.spec.ts",
-      "status": "fixed",
-      "revision_fixed": "wave-7.5",
-      "verification": "Pure envelope/ordering tests pass; deterministic delayed-read and failed-read browser tests pass; full authenticated production-mode suite passes 13/13"
-    },
-    {
-      "id": "TASK-002",
-      "severity": "high",
-      "source": "Phase 8 concurrency audit",
-      "summary": "Task and approval lifecycle routes use stale reads followed by unconditional updates, and task activity failures can be hidden",
-      "affected": [
-        "src/app/api/agent-tasks/[id]/route.ts",
-        "src/app/api/approvals/[id]/route.ts",
-        "src/lib/tasks/taskPersistence.ts",
-        "src/lib/security/approvalMutations.ts",
-        "supabase/migrations/202607161300_task_approval_atomic.sql",
-        "supabase/migrations/202607161401_task_approval_lockdown.sql"
-      ],
-      "root_cause": "Lifecycle validation and mutation are separate requests without compare-and-swap or a transaction",
-      "fix": "Route lifecycle changes through owner-derived SECURITY DEFINER RPCs that require the expected status and lifecycle version, update the row with compare-and-swap semantics, and append task activity or approval audit in the same transaction. Enforce stored approval scope, challenge id, expiry, action class, and financial freshness server-side. Stage a separate contract migration that revokes legacy direct client mutation only after compatible code is live.",
-      "regression_test": "src/app/api/agent-tasks/[id]/route.test.ts; src/app/api/approvals/[id]/route.test.ts; src/lib/tasks/taskPersistence.test.ts; src/lib/security/approvalMutations.test.ts; scripts/validate-task-approval-cas.mjs",
-      "status": "fixed",
-      "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
-      "verification": "Focused route/domain tests and the local task/approval SQL validator pass concurrent stale-version rejection, atomic activity/audit failure rollback, ownership, strict scope/challenge, expiry/freshness, and successful transition checks. Hosted expansion migration 202607161300 is applied and read back; contract migration 202607161401 remains intentionally pending until the compatible application revision is production-live.",
-      "similar_code_search": "The same stale-read/unconditional-update pattern was reviewed across task transitions, approval decisions/step-up/execution, WebAuthn counters, and routine resume. WebAuthn and routine resume received their own atomic RPC contracts in the same revision."
-    },
-    {
-      "id": "RUN-002",
-      "severity": "high",
-      "source": "Phase 9 retry/resume audit",
-      "summary": "Routine resume can consume approval before successful resumed work and lacks a complete atomic claim/retry contract",
-      "affected": [
-        "src/app/api/routines/runs/[id]/resume/route.ts",
-        "src/lib/routines/executor.ts",
-        "src/lib/routines/resumeClaims.ts",
-        "supabase/migrations/202607161400_routine_resume_claims.sql"
-      ],
-      "root_cause": "Approval consumption, run claim, pause metadata, execution, and finalization are not coordinated as a retry-safe state transition",
-      "fix": "Claim resumable runs through an owner-derived lease and fencing-token RPC, replay completed step outputs, materialize resumed tasks with stable idempotency keys, renew/release only with the active fence, and atomically finalize the run while consuming the terminal approval. Failed work releases or expires the claim without consuming approval, allowing a safe retry.",
-      "regression_test": "src/app/api/routines/runs/[id]/resume/route.test.ts; src/lib/routines/executor.test.ts; src/lib/routines/resumeClaims.test.ts; scripts/validate-routine-resume-claims.mjs",
-      "status": "fixed",
-      "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
-      "verification": "Focused route/executor/claim tests and the 50-check local SQL validator pass double-submit exclusion, stale-fence rejection, lease expiry and reclaim, failed-resume retry, idempotent task materialization, replayed completed outputs, finalization-failure rollback, and atomic terminal approval consumption. Hosted expansion migration 202607161400 is applied and read back."
-    },
-    {
-      "id": "RUN-003",
-      "severity": "high",
-      "source": "Phase 9 financial-safety and routine-version adversarial review",
-      "summary": "Changing the rebalance proposal in place could reinterpret persisted v1 runs with new simulation semantics, while approval/broker placeholders made a non-executing workflow appear closer to financial execution than it was",
-      "reproduction": "Resolve a historical rebalance-proposal v1 run after replacing the registered definition in place, or run the previous route and observe approval/waiting constructs despite no authorized broker execution path",
-      "affected": [
-        "src/app/api/routines/rebalance-proposal/route.ts",
-        "src/lib/routines/versioning.ts",
-        "docs/axis-redesign/08-agent-runtime.md"
-      ],
-      "root_cause": "The routine behavior changed without an immutable version boundary, and the proposal path mixed simulation output with approval/execution-shaped state",
-      "fix": "Restore the historical approval-producing v1 definition for persisted-run interpretation, register a new v2 definition, and stamp all new route runs as v2. Make v2 strictly simulation-only: create no approvals, broker placeholders, or waiting state; enforce bounded inputs/rates and a complete positive USD fresh-or-delayed quote set; fail closed on missing/unsafe data; emit only complete explicitly unsubmitted order drafts.",
-      "regression_test": "src/app/api/routines/rebalance-proposal/route.test.ts; src/lib/routines/versioning.test.ts",
-      "status": "fixed",
-      "revision_fixed": "cb138215b87b9cad65be764cd3ea67d54f6fc82c",
-      "verification": "Focused route/versioning tests cover historical v1 resolution, v2 stamping, no approval creation, no broker placeholder/waiting state, rate and request limits, quote completeness/currency/freshness rejection, blocked-run persistence, and complete unsubmitted drafts. Full 1064-test suite, tsc, lint, and independent financial-safety review are green."
-    },
-    {
-      "id": "AI-002",
-      "severity": "high",
-      "source": "Phase 13 AI boundary audit",
-      "summary": "Model-authored action paths are navigated without an internal allowlist and heuristic fallbacks can be indistinguishable from model success",
-      "affected": [
-        "src/app/api/ai/route.ts",
-        "src/components/console/ConsoleModule.tsx",
-        "src/lib/ai/navigation.ts",
-        "src/lib/ai/response.ts"
-      ],
-      "root_cause": "Untrusted model output crosses the navigation boundary and provider degradation is encoded as a normal success payload",
-      "fix": "Normalize model actions through a strict internal-route allowlist before rendering or navigation, reject external/protocol-relative/unknown paths, and attach explicit provider/source/degraded provenance to heuristic or unavailable-provider fallbacks. Keep observability metadata bounded and content-free.",
-      "regression_test": "src/lib/ai/navigation.test.ts; src/lib/ai/response.test.ts; src/lib/ai/actions.test.ts; src/lib/ai/privacy.test.ts; src/app/api/ai/route.test.ts",
-      "status": "fixed",
-      "revision_fixed": "d40cab6ad48ca6ca69981781e6443d5ad26b90d1",
-      "verification": "72 focused AI boundary tests pass, including unsafe action paths, normalized internal paths, provider failure/degraded provenance, heuristic fallback labeling, and privacy-safe telemetry. Current full suite passes 1064 tests across 165 files; tsc and lint are clean.",
-      "similar_code_search": "Console and mascot action consumers now share the normalized contract; provider fallbacks returned by the AI route are discriminated from model success instead of relying on display text."
-    },
-    {
-      "id": "SEC-004",
-      "severity": "high",
-      "source": "Final independent production-blocker review",
-      "summary": "An enrolled TOTP factor could be bypassed after passkey login because the restored Supabase session was AAL1 and MFA enforcement existed only in client login code",
-      "reproduction": "Complete passkey verification for a user with an enrolled TOTP factor, retain the server-issued magic-link cookie, then call a protected API directly without running the login page's client-side assurance check",
-      "affected": [
-        "src/app/api/auth/passkey/authenticate/route.ts",
-        "src/app/login/page.tsx",
-        "src/middleware.ts",
-        "src/lib/auth/authenticatorAssurance.ts"
-      ],
-      "root_cause": "Passkey possession restored a valid Supabase cookie, but middleware and API entry points checked only getUser(); the AAL1-to-AAL2 requirement was initiated exclusively by client-side login code",
-      "fix": "Evaluate authenticator assurance in middleware for every authenticated protected request. Deny protected APIs with MFA_REQUIRED, redirect protected pages to the login ceremony, allow only the exact MFA challenge/verify bootstrap routes, keep other MFA management blocked, and fail closed when assurance is unavailable. The login page resumes the server-directed MFA ceremony without redirect loops.",
-      "regression_test": "src/lib/auth/authenticatorAssurance.test.ts; src/middleware.test.ts",
-      "status": "fixed",
-      "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
-      "verification": "Eight focused assurance/middleware tests prove direct protected API denial at aal1, exact challenge/verify access, login recovery, and protected access at aal2. The full 1064-test suite, tsc, and lint pass. A real hardware authenticator plus TOTP ceremony remains an explicit human gate.",
-      "similar_code_search": "All middleware-protected and route-owned APIs now pass through the same assurance boundary; unenroll and other MFA management routes are intentionally not bootstrap exceptions."
-    },
-    {
-      "id": "CI-001",
-      "severity": "high",
-      "source": "Final independent production-blocker review",
-      "summary": "Fresh-stack authenticated CI could undo the final passkey privilege contract by converting a surviving FOR ALL policy back into browser insert/update/delete grants",
-      "reproduction": "Apply migration 202607161401, then run scripts/sql/bootstrap-local-e2e-role-grants.sql; the former policy-derived grant loop mapped the legacy Users manage own passkeys policy to full DML, contradicting the contract revokes",
-      "affected": [
-        ".github/workflows/ci.yml",
-        "scripts/sql/bootstrap-local-e2e-role-grants.sql",
-        "scripts/sql/verify-20260716-contract.sql",
-        "supabase/migrations/202607161401_task_approval_lockdown.sql"
-      ],
-      "root_cause": "The contract revoked table privileges without replacing the older FOR ALL passkey RLS policy, while the local CI bootstrap assumed every policy command should regenerate matching table privileges",
-      "fix": "The pending contract migration drops the legacy FOR ALL policy and creates owner-scoped SELECT only. The CI bootstrap reasserts lifecycle DML revocations after policy-derived grants, and CI immediately runs the contract verifier. The verifier checks policy/grant catalogs and executes authenticated passkey insert/update/delete attempts that must fail at the privilege boundary.",
-      "regression_test": "scripts/sql/verify-20260716-contract.sql; .github/workflows/ci.yml",
-      "status": "fixed",
-      "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
-      "verification": "Updated migration, CI-equivalent grant bootstrap, catalog verifier, and real authenticated insert/update/delete denial probes pass against local Supabase. release:validate records contract checksum 31291dd9e3a0d9eb5aac3766015036becaebff005d417f8bf16ad3fbd37b78f7. Hosted migration 202607161401 remains intentionally unapplied until the compatible production SHA is live.",
-      "similar_code_search": "The same post-bootstrap revocation covers agent_tasks, agent_task_activity, approvals, and user_passkeys so a future broad policy cannot silently restore browser lifecycle writes."
-    },
-    {
-      "id": "CI-002",
-      "severity": "high",
-      "source": "GitHub clean-runner production-gate execution",
-      "summary": "The authenticated CI bootstrap could not execute valid multi-statement SQL through Supabase's prepared-query file path",
-      "reproduction": "Run the fresh-stack authenticated job with `supabase db query --local --file scripts/sql/bootstrap-local-e2e-role-grants.sql`; PostgreSQL rejects the script with `cannot insert multiple commands into a prepared statement`",
-      "affected": [
-        ".github/workflows/ci.yml",
-        "src/lib/testing/ciWorkflow.test.ts",
-        "scripts/sql/bootstrap-local-e2e-role-grants.sql",
-        "scripts/sql/verify-20260716-contract.sql"
-      ],
-      "root_cause": "The CLI query path submitted a multi-command SQL file as one prepared statement instead of using a script-capable PostgreSQL executor",
-      "fix": "Pipe the bootstrap and verifier files into the local database container and execute them with `psql -v ON_ERROR_STOP=1 -f -`; document the same multi-statement requirement for controlled hosted execution.",
-      "regression_test": "src/lib/testing/ciWorkflow.test.ts",
-      "status": "fixed",
-      "revision_fixed": "a1fa177496851f2b700fa42c3fdbd66de4104af5",
-      "verification": "The exact-head clean-runner verify, public, and authenticated jobs passed in GitHub run 29528783685. The current full local suite passes 1072 tests across 166 files; typecheck, lint, release validation, production build, public 13/13, and authenticated 14/14 are green.",
-      "similar_code_search": "Release documentation now requires a multi-statement-capable PostgreSQL executor for every expansion, contract, and read-back SQL script instead of recommending the incompatible prepared-query path."
-    },
-    {
-      "id": "DEPLOY-001",
-      "severity": "high",
-      "source": "Vercel preview production-readiness validation",
-      "summary": "Unauthenticated same-app redirects on a preview deployment escaped to the configured production origin",
-      "reproduction": "Request `/command` on PR #195's protected preview and inspect the 307 Location header; the prior implementation redirected to the production alias because `buildAppUrl` reused the canonical OAuth origin",
-      "affected": [
-        "src/lib/auth/getAppOrigin.ts",
-        "src/lib/auth/getAppOrigin.test.ts",
-        "src/middleware.ts",
-        "src/middleware.test.ts"
-      ],
-      "root_cause": "One origin helper conflated provider-registered canonical OAuth callback URLs with request-local application redirects",
-      "fix": "Keep `getAppOrigin` canonical for OAuth redirect URIs, but build same-app redirects from the actual request origin. Preserve exact loopback hosts for local flows and validate loopback Host syntax and port bounds before trusting it.",
-      "regression_test": "src/lib/auth/getAppOrigin.test.ts; src/middleware.test.ts",
-      "status": "fixed",
-      "revision_fixed": "89705a4a507a3e453d9c965452815b01c176ebbb",
-      "verification": "Fifteen focused origin/middleware tests cover preview isolation, no-config loopback handling, and crafted Host rejection. The current full local suite and both production-mode browser projects are green. Exact new-preview redirect validation remains required before merge.",
-      "similar_code_search": "All same-app redirects using `buildAppUrl`, including middleware and OAuth completion/error surfaces, now remain on the current deployment; provider callback URI construction continues to use the configured canonical helper."
-    },
-    {
-      "id": "MIGRATION-001",
-      "severity": "high",
-      "source": "Phase9<->main migration drift analysis, resolved via PR #237/#238",
-      "summary": "58 pre-July-3 migrations were tracked in the repo under short numeric filenames (001_initial ... 050_workout_logs) that did not match the timestamp versions actually recorded in prod's migration history, and main's reconstructed routine_versions migration omitted a CHECK constraint prod already carries",
-      "reproduction": "Run `supabase db push --dry-run` against prod: it aborted with 'Remote migration versions not found in local migrations directory' for 58 versions; separately, `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid='public.routine_versions'::regclass and contype='c'` showed prod has routine_versions_routine_version_check but the repo's 20260715224156_routine_versions.sql did not",
-      "affected": [
-        "supabase/migrations/*.sql (58 pre-July files)",
-        "supabase/migrations/20260715224156_routine_versions.sql"
-      ],
-      "root_cause": "The July migrations had already been renamed to their prod-recorded versions in a prior pass, but the same treatment was never extended to the pre-July history; separately, a from-scratch backfill of routine_versions.sql on main dropped a constraint that a later hosted migration had added directly",
-      "fix": "PR #237: 58 content-preserving git mv renames to prod's exact recorded version+name (no SQL content changed), plus out-of-band prod reconciliation (4 `migration repair --status applied` calls for applied-but-untracked migrations, 1 real `db push` for the already-live 202607161401 contract). PR #238: forward migration re-adding CHECK (routine_version > 0) as routine_versions_routine_version_check, guarded by a pg_constraint existence check so it is a no-op against prod and only takes effect on a from-scratch rebuild.",
-      "regression_test": "supabase db push --dry-run reports 'Remote database is up to date' (87 branch files == 87 tracked prod versions at merge time; 89 after #239's arcade migration)",
-      "status": "fixed",
-      "revision_fixed": "PRs #237, #238 (merged 2026-07-17)",
-      "verification": "supabase db push --dry-run clean; prod pg_constraint read-back confirms routine_versions_routine_version_check exists; PR #237 independently verified prod already matched via 4 migration-repair calls + 1 real db push, all out-of-band and confirmed via SQL before this PR merged",
-      "similar_code_search": "This was the last outstanding migration-filename drift between main and prod; the VECTOR convergence (#239) subsequently reset supabase/migrations/ to this now-reconciled tree and added only the genuinely new 202607170001_vector_arcade_persistence.sql on top"
-    },
-    {
-      "id": "BRICKRISE-001",
-      "severity": "critical",
-      "source": "Wave 15.8 adversarial review (physics/level reachability lens)",
-      "summary": "The Brickrise tower shipped in 29f96d0c was unclimbable: JUMP_IMPULSE -11.6 with GRAVITY 0.62 produces a peak rise of 102.78 px, while BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING is 132 px, so no floor was reachable from the floor below",
-      "reproduction": "Integrate stepBody from a grounded body with jumpHeld: peak rise is 102.78 px over 18 ascending frames. Brute-force every ground start x (0..960 step 4) x direction (-1,0,1) x jump-hold length against a generated tower: the body never lands on floor 1, apex feet stop 29.22 px short of the ledge",
-      "affected": [
-        "src/lib/vector/games/brickrise/physics.ts",
-        "src/lib/vector/games/brickrise/level.ts"
-      ],
-      "root_cause": "The physics tuning constants and the level's floor spacing were authored independently, and no test related them. level.test.ts asserted floor gaps were EQUAL ('spaces floors consistently so every gap is the same climb') but never that a gap was JUMPABLE, so all 42 tests passed against a game that could not be played. level.ts's docstring claim that 'reachability is enforced structurally' was scoped to the horizontal span only; the vertical dimension was unverified anywhere",
-      "fix": "JUMP_IMPULSE -11.6 -> -14 (peak rise 151.14 px, 19.14 px of margin over the 132 px gap). -13.5 was rejected as too tight at 8.28 px",
-      "regression_test": "src/lib/vector/games/brickrise/physics.test.ts 'reachability' block: derives peak rise by running the real stepBody (not arithmetic), asserts rise > FLOOR_SPACING with >12 px margin and < 2x FLOOR_SPACING, and searches real generated towers across three seeds asserting every floor is reachable from the one below. Verified to FAIL at the old -11.6 value",
-      "status": "fixed",
-      "revision_fixed": "feat/wave-15.8-brickrise-scene",
-      "verification": "18/18 physics tests pass at -14 and 2 fail at -11.6; the tower was never player-reachable in production because the registry kept brickrise status 'planned' with no loader until this wave",
-      "similar_code_search": "The same class of defect (two independently-tuned constants with no relating assertion) applies to every remaining game wave. 15.9 Time to Fly and 15.10 Paper Glider must each land a reachability/solvability test alongside their generator before their mechanical core is considered complete"
-    },
-    {
-      "id": "BRICKRISE-002",
-      "severity": "critical",
-      "source": "Wave 15.8 adversarial review (accessibility/host-contract lens)",
-      "summary": "Brickrise's keyboard listeners were bound to the game's own root element, which never receives focus, making the game completely unplayable by keyboard in the real host",
-      "reproduction": "Load Brickrise, press ArrowLeft/ArrowRight/Space/W/A/D: nothing happens. GameRuntimeHost gives the MOUNT tabIndex={0} and focuses it on resume/restart; the game bound keydown/keyup to `root`, a child with tabIndex=-1. A keydown at the focused mount does not propagate down into a descendant",
-      "affected": [
-        "src/lib/vector/games/brickrise/game.ts"
-      ],
-      "root_cause": "The listener target was chosen without tracing which element the host actually focuses. The unit test masked it completely by dispatching KeyboardEvent directly on `root` \u2014 a target that never occurs in production but from which events bubble up to the real handler's element, so the test passed either way",
-      "fix": "Bind keydown/keyup to context.mount (the element the host focuses). Separately, the paired focus-loss safety net used `blur`, which does not bubble and so would never fire for focus leaving a descendant; changed to `focusout`",
-      "regression_test": "game.test.ts input tests now dispatch on harness.mount rather than on the inner root, plus 'releases held input when focus leaves the mount' covering the focusout path. Verified to FAIL when reverted to root/blur",
-      "status": "fixed",
-      "revision_fixed": "feat/wave-15.8-brickrise-scene",
-      "verification": "26/26 brickrise shell tests pass; the four review-driven guards each verified to fail with their fix reverted",
-      "similar_code_search": "Second Sense sets tabindex=0 on the element it binds to (second-sense/game.ts) so it is unaffected. Any future game shell must bind input to context.mount, not to its own subtree \u2014 this is now stated in game.ts's attachInput comment"
-    },
-    {
-      "id": "BRICKRISE-003",
-      "severity": "medium",
-      "source": "Wave 15.8 adversarial review (multiple lenses)",
-      "summary": "Four smaller shell defects: stale aria-pressed after a death cleared held input; a finished or paused run still driving a full Phaser scene update and render at 60 Hz; pointerId-agnostic touch release letting a second finger cancel the first finger's hold (and a touch release cancelling a held keyboard direction); and a false 'None yet' personal best shown immediately after a first summit because the best score was re-read before the just-recorded score had been written",
-      "reproduction": "(a) hold a direction, die on a spike, observe the button still aria-pressed=true; (b) pause and watch the scheduler keep calling game.step; (c) hold left with one finger, tap and lift a second finger on the same button, hold is cancelled; (d) complete a first run and read the Best summit field",
-      "affected": [
-        "src/lib/vector/games/brickrise/game.ts"
-      ],
-      "root_cause": "(a) syncPressedState was only called from dispatch(), never after the simulation mutated input internally; (b) no redraw gating \u2014 the frame handler drew unconditionally; (c) release handlers took no event argument so could not compare pointerId, and reduceBrickriseInput deliberately ignores action.source; (d) recordScore is asynchronous through the sync outbox, so an immediate getBestScore read-back races it",
-      "fix": "(a) call syncPressedState after the step loop; (b) needsRedraw flag \u2014 draw while running, or once after any state change, then idle; (c) track activePointerId per button and ignore non-matching releases; (d) set the best field from the just-achieved elapsed time instead of re-reading",
-      "regression_test": "game.test.ts 'regressions from the Wave 15.8 adversarial review' block \u2014 all four verified to fail with their fix reverted",
-      "status": "fixed",
-      "revision_fixed": "feat/wave-15.8-brickrise-scene",
-      "verification": "1464/1464 tests pass",
-      "similar_code_search": "The redraw-gating and pointerId patterns apply to every future engine-backed game; the async-score-readback race applies to any game calling recordScore then getBestScore"
-    },
-    {
-      "id": "VECTOR-BUILD-001",
-      "severity": "high",
-      "source": "Wave 15.8 build investigation",
-      "summary": "A `webpackChunkName` magic comment and a splitChunks cacheGroup competing for the same chunk name silently cancel each other out, leaving Phaser (~1.16 MB) hash-named and misfiled into the shared bundle budget (5409/4400 KB)",
-      "reproduction": "Import phaser under /* webpackChunkName: \"vector-engine-phaser\" */ AND declare a cacheGroup named vector-engine-phaser. Build: no vector-engine-phaser chunk is emitted; phaser lands in an 8-hex `lib` chunk and check-bundle-budget.mjs reports the shared bundle 1009 KB over budget",
-      "affected": [
-        "next.config.ts",
-        "src/lib/vector/games/brickrise/game.ts",
-        "scripts/check-bundle-budget.mjs"
-      ],
-      "root_cause": "The magic comment pre-registers the name in compilation.namedChunks. SplitChunksPlugin's existing-chunk guard then finds that chunk is not a parent of the selected chunks and drops the cacheGroup entry with no warning, so neither naming mechanism takes effect. The prior handoff misdiagnosed this as the webpack() hook not reaching the client compiler; instrumentation disproved that \u2014 the cacheGroup arrives intact, its test matches phaser, and its priority is honoured",
-      "fix": "Name the engine vendor chunk ONLY from the cacheGroup in next.config.ts (priority 50, above Next's framework/40 and lib/30), and use a plain import(\"phaser\") with no magic comment at the import site",
-      "regression_test": "src/lib/vector/engine-chunks.test.ts \u2014 asserts every budget-excluded chunk name has a matching cacheGroup, that the cacheGroups outrank Next's own, that no production source pairs an engine import with a webpackChunkName comment (subpath imports included, typeof-import excluded), and that phaser has exactly one import site",
-      "status": "fixed",
-      "revision_fixed": "feat/wave-15.8-brickrise-scene",
-      "verification": "Build emits vector-engine-phaser.2802fafb02cad78b.js (1164 KB); shared bundle 4245/4400 KB \u2014 BELOW the 4255 KB pre-Phaser baseline; route-isolated 1191/3000 KB; 0 of 197 routes list the phaser chunk in app-build-manifest.json, confirming the chunk is genuinely route-isolated and not merely reclassified",
-      "similar_code_search": "Applies identically to Three for Wave 15.10 Paper Glider; the vectorEngineThree cacheGroup is declared now (three is not yet a dependency, so it is inert until installed) precisely so that wave does not rediscover this"
-    }
-  ]
+ "updated": "2026-07-20",
+ "revision": "feat/wave-15.8-brickrise-scene",
+ "defects": [
+  {
+   "id": "SEC-005",
+   "severity": "high",
+   "source": "Rescue-stack triage (PR #241, kernel-extraction of #228/#230)",
+   "summary": "22 API routes returned raw Postgres/PostgREST or MFA provider error.message text to clients in 500 responses, concentrated in fund/* financial endpoints plus profile/avatar and auth/mfa/{verify,unenroll}",
+   "reproduction": "Trigger a DB or MFA-provider failure on any of the 22 sites and inspect the JSON body; the previous code returned NextResponse.json({error: error.message}, {status:500}) verbatim",
+   "affected": [
+    "22 route handlers under src/app/api/fund/*, src/app/api/profile/avatar, src/app/api/auth/mfa/verify, src/app/api/auth/mfa/unenroll"
+   ],
+   "root_cause": "No shared redaction helper; each route hand-rolled error responses from the raw caught error",
+   "fix": "New redactRouteError(error, opts) captures the real error server-side via the existing captureRouteError (Sentry) and returns a generic client-safe {error} message; response shape unchanged. Applied to all 22 sites.",
+   "regression_test": "unit test asserting the raw message never reaches the client response",
+   "status": "fixed",
+   "revision_fixed": "PR #241 (merged 2026-07-18)",
+   "verification": "tsc + eslint clean; new unit test passes; superseded #228 and #230 (closed)",
+   "similar_code_search": "Related raw-error leakage in mail, plaid, make, ai/tools, calendar/cron/make routes was found and fixed separately \u2014 see MAIL-002, PLAID-002, AI-003, RELIABILITY-001 below"
+  },
+  {
+   "id": "MAIL-002",
+   "severity": "high",
+   "source": "Rescue-stack triage (PR #244, kernel-extraction of #225)",
+   "summary": "Mail adapters leaked raw provider error text from direct/Composio mail transports to clients",
+   "affected": [
+    "src/lib/mail/adapters (direct + Composio transports)"
+   ],
+   "root_cause": "Adapter error paths surfaced provider response text instead of a normalized safe error",
+   "fix": "Redact raw provider error text at the adapter boundary before it reaches API responses",
+   "regression_test": "adapter error-path unit tests",
+   "status": "fixed",
+   "revision_fixed": "PR #244 (merged 2026-07-18)",
+   "verification": "tsc + eslint clean; targeted tests pass"
+  },
+  {
+   "id": "PLAID-002",
+   "severity": "high",
+   "source": "Rescue-stack triage (PR #243, kernel-extraction of #222)",
+   "summary": "Plaid webhook sync error handling did not harden against raw provider error propagation",
+   "affected": [
+    "src/app/api/plaid webhook/sync routes"
+   ],
+   "root_cause": "Webhook sync path did not redact provider error detail before logging/responding",
+   "fix": "Harden webhook sync error handling and redact raw provider errors",
+   "regression_test": "webhook sync error-path unit tests",
+   "status": "fixed",
+   "revision_fixed": "PR #243 (merged 2026-07-18)",
+   "verification": "tsc + eslint clean; targeted tests pass"
+  },
+  {
+   "id": "AI-003",
+   "severity": "medium",
+   "source": "Rescue-stack triage (PR #247, kernel-extraction of #235, registry.ts only)",
+   "summary": "AI tool handlers threw raw error.message (Postgres/provider text) that flows to the model as tool-result content",
+   "reproduction": "Trigger a DB or Plaid-provider failure inside an Advisor tool handler; the model received the raw thrown message as tool output",
+   "affected": [
+    "src/lib/ai/tools/registry.ts"
+   ],
+   "root_cause": "Tool handlers used new Error(error.message) / free-text validation messages instead of a coded error contract",
+   "fix": "Introduced self-contained ToolExecutionError with fixed coded reasons (DATA_UNAVAILABLE, PROVIDER_UNAVAILABLE, INVALID_INPUT); Plaid cash-account fetch now throws PROVIDER_UNAVAILABLE on missing credentials/non-OK HTTP/JSON parse failure instead of silently returning an empty list; unknown tool names map to INVALID_INPUT",
+   "regression_test": "registry.ts targeted tests",
+   "status": "fixed",
+   "revision_fixed": "PR #247 (merged 2026-07-18)",
+   "verification": "eslint clean; self-contained change, no caller changes required",
+   "similar_code_search": "Model-facing tool-result content across the Advisor tool layer is now audited for raw error passthrough; see also AI-002 (navigation/response boundary, fixed earlier)"
+  },
+  {
+   "id": "RELIABILITY-001",
+   "severity": "medium",
+   "source": "Rescue-stack triage (PRs #240, #242, #245, #246 \u2014 kernel-extractions of #220/#221/#223/#224/#229/#231/#232/#234)",
+   "summary": "Several persistence and cron/digest paths swallowed failures via console.error only (Plaid token load/save/revoke, finance narrator context, recurring/daily finance jobs, calendar/cron/make routes, fund advisor audit, feed digest, intelligence sweep, maintenance sweep) instead of surfacing them",
+   "reproduction": "Force a Supabase write/read failure on any listed path; the prior code logged to console and continued, hiding the failure from Sentry and from callers that assumed success",
+   "affected": [
+    "src/lib/plaid/plaidTokens.ts",
+    "src/lib/fund/financeNarratorContext.ts",
+    "src/lib/fund/financeDailyJobs.ts (recurring/daily jobs)",
+    "calendar/cron/make routes",
+    "fund advisor audit persistence",
+    "cron feed-digest and intelligence-sweep routes",
+    "daily-maintenance sweep"
+   ],
+   "root_cause": "Persistence/reporting failures were treated as non-fatal console noise instead of being captured (Sentry) and/or propagated (throw/error response)",
+   "fix": "Route persistence and cron failures through Sentry capture with area/provider/operation tags and rethrow or return visible error state instead of silently continuing; load/revoke paths now propagate DB errors to callers",
+   "regression_test": "targeted unit tests per PR (plaidTokens, financeNarratorContext, financeDailyJobs, cron routes)",
+   "status": "fixed",
+   "revision_fixed": "PRs #240, #242, #245, #246 (merged 2026-07-18)",
+   "verification": "tsc + eslint clean per PR; extracted cleanly from the larger rescue branches to avoid unrelated churn (e.g. #220's stale ai/navigation.ts changes, since superseded by main)"
+  },
+  {
+   "id": "AUTH-006",
+   "severity": "high",
+   "source": "Rescue-stack triage (PRs #217/#218, direct-OAuth binding)",
+   "summary": "Spotify and Strava browser token cookies were not bound to the authenticated Axis user, so leftover cookies from a previously signed-in account on a shared browser could grant API access after a different user signed in",
+   "reproduction": "Sign in as user A, connect Spotify/Strava, sign out, sign in as user B on the same browser without disconnecting; the prior getAccessToken returned user A's token to user B's session",
+   "affected": [
+    "Spotify OAuth/token routes and shared helper",
+    "Strava OAuth/token routes and shared helper"
+   ],
+   "root_cause": "Token cookies were keyed only by provider, not by the authenticated Supabase user id, and the OAuth callback did not require an active session before persisting tokens",
+   "fix": "OAuth callback now requires a Supabase session before persisting tokens and sets an httpOnly *_token_owner cookie to the current user.id; getAccessToken takes userId and returns null unless the owner cookie matches; owner marker is cleared on disconnect",
+   "regression_test": "PR-level route tests for callback/session-required and owner-mismatch null return",
+   "status": "fixed",
+   "revision_fixed": "PRs #217, #218 (merged 2026-07-18)",
+   "verification": "npm run lint --quiet + npx tsc --noEmit + git diff --check per PR; direct OAuth reads for Spotify/Strava/health remain intentional per the OAuth consolidation decision (Mail/Calendar/Contacts route through Composio only)"
+  },
+  {
+   "id": "FIN-001",
+   "severity": "medium",
+   "source": "current-state audit",
+   "summary": "Money aggregated as IEEE-754 float across Fund; totals can drift by a cent",
+   "reproduction": "Sum [0.1, 0.2] via reduce(+) -> 0.30000000000000004; roll up N balances",
+   "affected": [
+    "src/components/fund/OverviewModule.tsx",
+    "src/components/fund/FundNetWorthModule.tsx",
+    "src/components/fund/FundLiabilities.tsx",
+    "src/components/fund/FundRecurringList.tsx",
+    "src/components/fund/FundCashflowModule.tsx",
+    "src/lib/fund/financeDailyJobs.ts",
+    "src/lib/fund/financeNarratorContext.ts"
+   ],
+   "root_cause": "No deterministic money primitive; ad-hoc float arithmetic",
+   "fix": "Added src/lib/fund/money.ts (integer minor units + exact sumMoney/sumBy); routed safeMoney through it",
+   "regression_test": "src/lib/fund/money.test.ts (financial invariants)",
+   "status": "fixed",
+   "revision_fixed": "wave-4.2",
+   "verification": "All listed aggregation sites now route through sumBy/sumMoney; net-worth combinations use sumMoney; 427 tests green, tsc clean",
+   "similar_code_search": "All reduce(+ Number()) money aggregation sites in Fund adopted in wave 4.2 (OverviewModule, FundNetWorthModule, FundLiabilities, FundRecurringList, FundCashflowModule, financeDailyJobs, usePlaidConnection)"
+  },
+  {
+   "id": "FIN-002",
+   "severity": "low",
+   "source": "current-state audit",
+   "summary": "safeMoney accepted sub-cent floats without rounding to the currency minor unit",
+   "affected": [
+    "src/lib/fund/financeNarratorContext.ts"
+   ],
+   "root_cause": "Raw Number() parse",
+   "fix": "safeMoney delegates to parseMoney (cent-rounded)",
+   "regression_test": "src/lib/fund/money.test.ts",
+   "status": "fixed",
+   "revision_fixed": "pending-commit",
+   "verification": "existing financeNarratorContext.test.ts still passes"
+  },
+  {
+   "id": "MAKE-001",
+   "severity": "high",
+   "source": "Phase 10 outbound integration review",
+   "summary": "Make webhook delivery treated every HTTP response as success",
+   "reproduction": "Return HTTP 503 from an env-configured Make webhook; the previous triggerWebhook resolved and notifyViaMake wrote result=success",
+   "affected": [
+    "src/lib/integrations/make.ts",
+    "src/lib/fund/notifyViaMake.ts"
+   ],
+   "root_cause": "The outbound helper parsed response text without checking Response.ok and exposed no typed delivery contract",
+   "fix": "Return the shared Result<MakeWebhookReceipt>, accept only 2xx, disable redirects, and write normalized failure audit metadata",
+   "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-10.13",
+   "verification": "HTTP 503 maps to provider_error, no success audit is written, focused tests and full 737-test suite pass"
+  },
+  {
+   "id": "MAKE-002",
+   "severity": "high",
+   "source": "Phase 10 outbound integration review",
+   "summary": "Raw Make response/error content could enter exceptions and persistent audit metadata",
+   "reproduction": "Return a provider body containing a token-like value or throw an error containing the opaque hook path; previous code embedded raw text in MakeError/audit_logs",
+   "affected": [
+    "src/lib/integrations/make.ts",
+    "src/lib/fund/notifyViaMake.ts"
+   ],
+   "root_cause": "Provider response bodies and thrown messages were treated as safe observability content",
+   "fix": "Never read webhook response bodies; emit generic structured errors and persist only code/status/retryability/idempotency metadata",
+   "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-10.13",
+   "verification": "Secret-bearing response/error fixtures are absent from Results, Sentry messages, and audit rows; independent review found no substantiated regression"
+  },
+  {
+   "id": "MAKE-003",
+   "severity": "high",
+   "source": "Phase 10 outbound integration review",
+   "summary": "Failed Make writes had no durable replay state and duplicate prevention depended entirely on each remote scenario",
+   "reproduction": "Return a provider failure or lose the response after Make accepts a write; the prior implementation retained only audit metadata and could not safely claim or replay the payload",
+   "affected": [
+    "src/lib/fund/notifyViaMake.ts",
+    "src/lib/integrations/makeOutbox.ts",
+    "src/app/api/integrations/make/outbox/[id]/replay/route.ts"
+   ],
+   "root_cause": "No durable encrypted write outbox, local dedupe record, or compare-and-swap replay claim",
+   "fix": "Persist purpose-separated AES-GCM payload envelopes behind metadata-only owner RLS, hash dedupe keys, claim attempts atomically, dead-letter bounded failures, and allow only explicit authenticated operator replay",
+   "regression_test": "src/lib/integrations/makeOutbox.test.ts; src/lib/fund/notifyViaMake.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-10.14",
+   "verification": "17 focused tests pass; local and hosted migrations verify RLS/grants; duplicate, tamper, failed-delivery, third-attempt dead-letter, and replay-success paths are covered"
+  },
+  {
+   "id": "SEC-003",
+   "severity": "high",
+   "source": "Hosted Supabase security advisor after wave 10.14 DDL",
+   "summary": "Anonymous and authenticated Data API roles could execute the SECURITY DEFINER expire_stale_approvals RPC across all users",
+   "reproduction": "has_function_privilege returned true and the advisor reported public/authenticated SECURITY DEFINER execution",
+   "affected": [
+    "src/app/api/cron/daily/route.ts",
+    "supabase/migrations/202607140300_expire_stale_approvals.sql"
+   ],
+   "root_cause": "The cron used a browser-facing Supabase client and the RPC retained default PUBLIC plus authenticated EXECUTE grants",
+   "fix": "Run maintenance RPCs with the service-role client and revoke EXECUTE from PUBLIC, anon, and authenticated while granting service_role only",
+   "regression_test": "Database privilege read-back",
+   "status": "fixed",
+   "revision_fixed": "wave-10.14",
+   "verification": "Local and hosted has_function_privilege: anon=false, authenticated=false, service_role=true; security advisor warning cleared"
+  },
+  {
+   "id": "MAKE-004",
+   "severity": "high",
+   "source": "Phase 10 Make management API review plus current official scenario API reference",
+   "summary": "Make management helpers threw unstructured errors, trusted unvalidated provider data, retried no reads, accepted invalid configuration, and sent scenario inputs under the wrong field",
+   "reproduction": "Call runScenario with input and inspect the old request body: it used `input`, while Make API v2 requires `data`; malformed team ids became NaN and every management failure escaped as MakeError",
+   "affected": [
+    "src/lib/integrations/make.ts"
+   ],
+   "root_cause": "The older management client predated the shared Result contract, runtime response schemas, provider timing policy, and the current Make scenario-input API",
+   "fix": "Return schema-validated Result values for list/detail/run/start/stop; validate configuration and ids; reject redirects; retry reads at most three times; attempt writes once; use `{responsive:true,data}`; require id/state activation confirmation; emit only normalized safe failures",
+   "regression_test": "src/lib/integrations/make.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-10.15",
+   "verification": "49 focused tests pass; 757-test full suite passes; configured Make list/detail reads passed live id/team/state shape checks without exposing scenario content; no live write performed"
+  },
+  {
+   "id": "MAIL-001",
+   "severity": "high",
+   "source": "Platform audit L2/I4 and Phase 10 Composio cache synchronization review",
+   "summary": "Mail first paint blocked on live provider fan-out and a failed account could not retain durable last-known inbox state",
+   "reproduction": "Open /mail with multiple direct or Composio accounts while one provider is slow or unavailable; the prior GET /api/mail/inbox waited on every provider and had no persistent rows to render offline",
+   "affected": [
+    "src/app/api/mail/inbox/route.ts",
+    "src/components/mail/MailModule.tsx",
+    "src/lib/mail/cache.ts"
+   ],
+   "root_cause": "Inbox list metadata had no owner-scoped cache or per-account sync state; provider refresh and first paint were the same request",
+   "fix": "Serve normalized header/snippet metadata from owner-RLS cache, revalidate explicitly through POST /api/mail/sync, retain failed-account rows during partial refresh, record normalized sync outcomes, and keep message bodies live-only",
+   "regression_test": "src/lib/mail/cache.test.ts; src/app/api/mail/sync/route.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-10.16",
+   "verification": "Focused Mail/cache/sync/disconnect tests pass; 768-test full suite and seeded authenticated Mail smoke pass; local and hosted migration/RLS/owner-isolation checks pass"
+  },
+  {
+   "id": "RUN-001",
+   "severity": "medium",
+   "source": "Phase 8 financial-profile adversarial review",
+   "summary": "Concentration routine requests accepted malformed JSON shapes and silently replaced explicit unsafe thresholds with a default",
+   "reproduction": "POST JSON null or an explicit maxWeight below zero or above one to /api/routines/concentration-check; the previous unvalidated body access could destabilize error handling or continue with 25 percent without telling the caller",
+   "affected": [
+    "src/app/api/routines/concentration-check/route.ts"
+   ],
+   "root_cause": "The route cast arbitrary JSON to a request type and treated validation failure as absence instead of distinguishing omitted from invalid input",
+   "fix": "Parse a strict Zod request contract, require finite maxWeight in (0, 1], require UUID run ids, and return visible INVALID_ROUTINE_INPUT 400 responses before any database or routine work",
+   "regression_test": "src/app/api/routines/concentration-check/route.test.ts; src/lib/routines/concentrationCheck.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-8.8",
+   "verification": "Malformed null and unsafe threshold cases return 400 with no profile query or routine execution; valid request/profile/default provenance cases remain covered"
+  },
+  {
+   "id": "SIG-001",
+   "severity": "medium",
+   "source": "Phase 8 Need-to-Know integration review",
+   "summary": "The deterministic signal severity model was not consumed by Dispatch and did not recognize the application's persisted hi priority vocabulary",
+   "reproduction": "Persist an action signal with metadata.ai_priority=hi; the prior UI grouped it as Action and deriveSeverity returned actionable instead of critical. Archive a title and resurface a punctuation variant; the queue did not use that resolution history to demote it.",
+   "affected": [
+    "src/lib/signals/severity.ts",
+    "src/components/signals/SignalsModule.tsx"
+   ],
+   "root_cause": "Phase 7 shipped pure severity and normalized dedup primitives without wiring them into the existing Dispatch filters/groups, and its urgent label set used high but not the repository's hi enum",
+   "fix": "Recognize hi as urgent, derive every queue row's tier from persisted type/priority, group and filter by the four Need-to-Know tiers, and feed resolved routed/dismissed/archived titles into normalized duplicate detection while excluding the current record",
+   "regression_test": "src/lib/signals/severity.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-8.9",
+   "verification": "Focused tests cover hi escalation and punctuation-varied resolution memory; synthetic local desktop/mobile verification showed one row in each tier and responsive filter wrapping"
+  },
+  {
+   "id": "DS-001",
+   "severity": "medium",
+   "source": "Phase 6 adversarial accessibility audit",
+   "summary": "Root-scoped semantic font aliases ignored body-level next/font and Interface Studio runtime choices",
+   "reproduction": "Set --disp or --sans on body and inspect an element consuming --type-display-family or --type-body-family; the root-resolved alias retained the earlier stack.",
+   "affected": [
+    "src/app/globals.css",
+    "src/lib/design/systemTokens.ts"
+   ],
+   "root_cause": "Semantic aliases were declared on :root while runtime font variables are intentionally set on body.",
+   "fix": "Bind semantic family aliases on body alongside the live font variables and retain size/leading roles at :root.",
+   "regression_test": "src/lib/design/systemTokens.test.ts; tests/e2e/authenticated.spec.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-6.3",
+   "verification": "Static contract rejects root family aliases and the authenticated gallery verifies a body-level runtime face change through computed style."
+  },
+  {
+   "id": "DS-002",
+   "severity": "high",
+   "source": "Phase 6 WCAG theme/preset audit",
+   "summary": "Light primary controls, accent-derived focus rings, and Slate/Light faint microtext failed required contrast",
+   "reproduction": "Compute WCAG ratios for Light --on-accent against each selectable accent, accent-bright focus against Light canvas, and --ink-faint against Slate/Light surfaces; multiple combinations fall below 4.5:1 text or 3:1 UI contrast.",
+   "affected": [
+    "src/app/globals.css",
+    "src/lib/design/systemTokens.ts",
+    "src/lib/design/systemTokens.test.ts"
+   ],
+   "root_cause": "Interaction foreground/focus colors inherited decorative accent choices, and faint text values were chosen visually against canvas only.",
+   "fix": "Use stable near-black foreground on every selectable accent, derive focus from theme ink, and raise each theme's faint ink to AA across all solid surfaces.",
+   "regression_test": "src/lib/design/systemTokens.test.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-6.3",
+   "verification": "Automated matrix covers all four themes, four solid surfaces per theme, and all six accent plus hover pairs."
+  },
+  {
+   "id": "DS-003",
+   "severity": "medium",
+   "source": "Phase 6 test/control audit",
+   "summary": "TSX accessibility tests were undiscoverable and shared segmented controls exposed repeated generic group names",
+   "reproduction": "Run Vitest against designSystemA11y.test.tsx under the former include pattern and inspect Tasks/Approvals/Memory/Interface Studio Seg groups in the accessibility tree.",
+   "affected": [
+    "vitest.config.ts",
+    "src/components/ui/Seg.tsx",
+    "src/components/ui/designSystemA11y.test.tsx"
+   ],
+   "root_cause": "Vitest included only .test.ts, while Seg supplied a default 'Options' label instead of requiring caller context.",
+   "fix": "Discover .test.tsx, require ariaLabel or aria-labelledby at the Seg type boundary, and name every production consumer.",
+   "regression_test": "src/components/ui/designSystemA11y.test.tsx",
+   "status": "fixed",
+   "revision_fixed": "wave-6.3",
+   "verification": "Both focused TSX and token files execute (16 tests), all call sites typecheck, and the authenticated gallery exposes named theme/density groups."
+  },
+  {
+   "id": "PREF-001",
+   "severity": "high",
+   "source": "Phase 7 production-mode authenticated regression",
+   "summary": "Late or failed remote preference hydration could overwrite a user edit, trigger a blind default upsert, discard timezone/future fields, and persist writes out of order",
+   "affected": [
+    "src/components/theme/ThemeProvider.tsx",
+    "src/lib/theme/preferences.ts"
+   ],
+   "root_cause": "Remote writes were enabled before a successful read, hydration ignored concurrent local edits, the JSON envelope was replaced wholesale, and debounced writes were not serialized",
+   "fix": "Enable sync only after a successful read, guard remote fields with edit epochs, preserve the loaded envelope and timezone, parse metadata separately from interface settings, and serialize remote upserts",
+   "regression_test": "src/lib/theme/preferences.test.ts; tests/e2e/theme-preferences-authenticated.spec.ts",
+   "status": "fixed",
+   "revision_fixed": "wave-7.5",
+   "verification": "Pure envelope/ordering tests pass; deterministic delayed-read and failed-read browser tests pass; full authenticated production-mode suite passes 13/13"
+  },
+  {
+   "id": "TASK-002",
+   "severity": "high",
+   "source": "Phase 8 concurrency audit",
+   "summary": "Task and approval lifecycle routes use stale reads followed by unconditional updates, and task activity failures can be hidden",
+   "affected": [
+    "src/app/api/agent-tasks/[id]/route.ts",
+    "src/app/api/approvals/[id]/route.ts",
+    "src/lib/tasks/taskPersistence.ts",
+    "src/lib/security/approvalMutations.ts",
+    "supabase/migrations/202607161300_task_approval_atomic.sql",
+    "supabase/migrations/202607161401_task_approval_lockdown.sql"
+   ],
+   "root_cause": "Lifecycle validation and mutation are separate requests without compare-and-swap or a transaction",
+   "fix": "Route lifecycle changes through owner-derived SECURITY DEFINER RPCs that require the expected status and lifecycle version, update the row with compare-and-swap semantics, and append task activity or approval audit in the same transaction. Enforce stored approval scope, challenge id, expiry, action class, and financial freshness server-side. Stage a separate contract migration that revokes legacy direct client mutation only after compatible code is live.",
+   "regression_test": "src/app/api/agent-tasks/[id]/route.test.ts; src/app/api/approvals/[id]/route.test.ts; src/lib/tasks/taskPersistence.test.ts; src/lib/security/approvalMutations.test.ts; scripts/validate-task-approval-cas.mjs",
+   "status": "fixed",
+   "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+   "verification": "Focused route/domain tests and the local task/approval SQL validator pass concurrent stale-version rejection, atomic activity/audit failure rollback, ownership, strict scope/challenge, expiry/freshness, and successful transition checks. Hosted expansion migration 202607161300 is applied and read back; contract migration 202607161401 remains intentionally pending until the compatible application revision is production-live.",
+   "similar_code_search": "The same stale-read/unconditional-update pattern was reviewed across task transitions, approval decisions/step-up/execution, WebAuthn counters, and routine resume. WebAuthn and routine resume received their own atomic RPC contracts in the same revision."
+  },
+  {
+   "id": "RUN-002",
+   "severity": "high",
+   "source": "Phase 9 retry/resume audit",
+   "summary": "Routine resume can consume approval before successful resumed work and lacks a complete atomic claim/retry contract",
+   "affected": [
+    "src/app/api/routines/runs/[id]/resume/route.ts",
+    "src/lib/routines/executor.ts",
+    "src/lib/routines/resumeClaims.ts",
+    "supabase/migrations/202607161400_routine_resume_claims.sql"
+   ],
+   "root_cause": "Approval consumption, run claim, pause metadata, execution, and finalization are not coordinated as a retry-safe state transition",
+   "fix": "Claim resumable runs through an owner-derived lease and fencing-token RPC, replay completed step outputs, materialize resumed tasks with stable idempotency keys, renew/release only with the active fence, and atomically finalize the run while consuming the terminal approval. Failed work releases or expires the claim without consuming approval, allowing a safe retry.",
+   "regression_test": "src/app/api/routines/runs/[id]/resume/route.test.ts; src/lib/routines/executor.test.ts; src/lib/routines/resumeClaims.test.ts; scripts/validate-routine-resume-claims.mjs",
+   "status": "fixed",
+   "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+   "verification": "Focused route/executor/claim tests and the 50-check local SQL validator pass double-submit exclusion, stale-fence rejection, lease expiry and reclaim, failed-resume retry, idempotent task materialization, replayed completed outputs, finalization-failure rollback, and atomic terminal approval consumption. Hosted expansion migration 202607161400 is applied and read back."
+  },
+  {
+   "id": "RUN-003",
+   "severity": "high",
+   "source": "Phase 9 financial-safety and routine-version adversarial review",
+   "summary": "Changing the rebalance proposal in place could reinterpret persisted v1 runs with new simulation semantics, while approval/broker placeholders made a non-executing workflow appear closer to financial execution than it was",
+   "reproduction": "Resolve a historical rebalance-proposal v1 run after replacing the registered definition in place, or run the previous route and observe approval/waiting constructs despite no authorized broker execution path",
+   "affected": [
+    "src/app/api/routines/rebalance-proposal/route.ts",
+    "src/lib/routines/versioning.ts",
+    "docs/axis-redesign/08-agent-runtime.md"
+   ],
+   "root_cause": "The routine behavior changed without an immutable version boundary, and the proposal path mixed simulation output with approval/execution-shaped state",
+   "fix": "Restore the historical approval-producing v1 definition for persisted-run interpretation, register a new v2 definition, and stamp all new route runs as v2. Make v2 strictly simulation-only: create no approvals, broker placeholders, or waiting state; enforce bounded inputs/rates and a complete positive USD fresh-or-delayed quote set; fail closed on missing/unsafe data; emit only complete explicitly unsubmitted order drafts.",
+   "regression_test": "src/app/api/routines/rebalance-proposal/route.test.ts; src/lib/routines/versioning.test.ts",
+   "status": "fixed",
+   "revision_fixed": "cb138215b87b9cad65be764cd3ea67d54f6fc82c",
+   "verification": "Focused route/versioning tests cover historical v1 resolution, v2 stamping, no approval creation, no broker placeholder/waiting state, rate and request limits, quote completeness/currency/freshness rejection, blocked-run persistence, and complete unsubmitted drafts. Full 1064-test suite, tsc, lint, and independent financial-safety review are green."
+  },
+  {
+   "id": "AI-002",
+   "severity": "high",
+   "source": "Phase 13 AI boundary audit",
+   "summary": "Model-authored action paths are navigated without an internal allowlist and heuristic fallbacks can be indistinguishable from model success",
+   "affected": [
+    "src/app/api/ai/route.ts",
+    "src/components/console/ConsoleModule.tsx",
+    "src/lib/ai/navigation.ts",
+    "src/lib/ai/response.ts"
+   ],
+   "root_cause": "Untrusted model output crosses the navigation boundary and provider degradation is encoded as a normal success payload",
+   "fix": "Normalize model actions through a strict internal-route allowlist before rendering or navigation, reject external/protocol-relative/unknown paths, and attach explicit provider/source/degraded provenance to heuristic or unavailable-provider fallbacks. Keep observability metadata bounded and content-free.",
+   "regression_test": "src/lib/ai/navigation.test.ts; src/lib/ai/response.test.ts; src/lib/ai/actions.test.ts; src/lib/ai/privacy.test.ts; src/app/api/ai/route.test.ts",
+   "status": "fixed",
+   "revision_fixed": "d40cab6ad48ca6ca69981781e6443d5ad26b90d1",
+   "verification": "72 focused AI boundary tests pass, including unsafe action paths, normalized internal paths, provider failure/degraded provenance, heuristic fallback labeling, and privacy-safe telemetry. Current full suite passes 1064 tests across 165 files; tsc and lint are clean.",
+   "similar_code_search": "Console and mascot action consumers now share the normalized contract; provider fallbacks returned by the AI route are discriminated from model success instead of relying on display text."
+  },
+  {
+   "id": "SEC-004",
+   "severity": "high",
+   "source": "Final independent production-blocker review",
+   "summary": "An enrolled TOTP factor could be bypassed after passkey login because the restored Supabase session was AAL1 and MFA enforcement existed only in client login code",
+   "reproduction": "Complete passkey verification for a user with an enrolled TOTP factor, retain the server-issued magic-link cookie, then call a protected API directly without running the login page's client-side assurance check",
+   "affected": [
+    "src/app/api/auth/passkey/authenticate/route.ts",
+    "src/app/login/page.tsx",
+    "src/middleware.ts",
+    "src/lib/auth/authenticatorAssurance.ts"
+   ],
+   "root_cause": "Passkey possession restored a valid Supabase cookie, but middleware and API entry points checked only getUser(); the AAL1-to-AAL2 requirement was initiated exclusively by client-side login code",
+   "fix": "Evaluate authenticator assurance in middleware for every authenticated protected request. Deny protected APIs with MFA_REQUIRED, redirect protected pages to the login ceremony, allow only the exact MFA challenge/verify bootstrap routes, keep other MFA management blocked, and fail closed when assurance is unavailable. The login page resumes the server-directed MFA ceremony without redirect loops.",
+   "regression_test": "src/lib/auth/authenticatorAssurance.test.ts; src/middleware.test.ts",
+   "status": "fixed",
+   "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+   "verification": "Eight focused assurance/middleware tests prove direct protected API denial at aal1, exact challenge/verify access, login recovery, and protected access at aal2. The full 1064-test suite, tsc, and lint pass. A real hardware authenticator plus TOTP ceremony remains an explicit human gate.",
+   "similar_code_search": "All middleware-protected and route-owned APIs now pass through the same assurance boundary; unenroll and other MFA management routes are intentionally not bootstrap exceptions."
+  },
+  {
+   "id": "CI-001",
+   "severity": "high",
+   "source": "Final independent production-blocker review",
+   "summary": "Fresh-stack authenticated CI could undo the final passkey privilege contract by converting a surviving FOR ALL policy back into browser insert/update/delete grants",
+   "reproduction": "Apply migration 202607161401, then run scripts/sql/bootstrap-local-e2e-role-grants.sql; the former policy-derived grant loop mapped the legacy Users manage own passkeys policy to full DML, contradicting the contract revokes",
+   "affected": [
+    ".github/workflows/ci.yml",
+    "scripts/sql/bootstrap-local-e2e-role-grants.sql",
+    "scripts/sql/verify-20260716-contract.sql",
+    "supabase/migrations/202607161401_task_approval_lockdown.sql"
+   ],
+   "root_cause": "The contract revoked table privileges without replacing the older FOR ALL passkey RLS policy, while the local CI bootstrap assumed every policy command should regenerate matching table privileges",
+   "fix": "The pending contract migration drops the legacy FOR ALL policy and creates owner-scoped SELECT only. The CI bootstrap reasserts lifecycle DML revocations after policy-derived grants, and CI immediately runs the contract verifier. The verifier checks policy/grant catalogs and executes authenticated passkey insert/update/delete attempts that must fail at the privilege boundary.",
+   "regression_test": "scripts/sql/verify-20260716-contract.sql; .github/workflows/ci.yml",
+   "status": "fixed",
+   "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+   "verification": "Updated migration, CI-equivalent grant bootstrap, catalog verifier, and real authenticated insert/update/delete denial probes pass against local Supabase. release:validate records contract checksum 31291dd9e3a0d9eb5aac3766015036becaebff005d417f8bf16ad3fbd37b78f7. Hosted migration 202607161401 remains intentionally unapplied until the compatible production SHA is live.",
+   "similar_code_search": "The same post-bootstrap revocation covers agent_tasks, agent_task_activity, approvals, and user_passkeys so a future broad policy cannot silently restore browser lifecycle writes."
+  },
+  {
+   "id": "CI-002",
+   "severity": "high",
+   "source": "GitHub clean-runner production-gate execution",
+   "summary": "The authenticated CI bootstrap could not execute valid multi-statement SQL through Supabase's prepared-query file path",
+   "reproduction": "Run the fresh-stack authenticated job with `supabase db query --local --file scripts/sql/bootstrap-local-e2e-role-grants.sql`; PostgreSQL rejects the script with `cannot insert multiple commands into a prepared statement`",
+   "affected": [
+    ".github/workflows/ci.yml",
+    "src/lib/testing/ciWorkflow.test.ts",
+    "scripts/sql/bootstrap-local-e2e-role-grants.sql",
+    "scripts/sql/verify-20260716-contract.sql"
+   ],
+   "root_cause": "The CLI query path submitted a multi-command SQL file as one prepared statement instead of using a script-capable PostgreSQL executor",
+   "fix": "Pipe the bootstrap and verifier files into the local database container and execute them with `psql -v ON_ERROR_STOP=1 -f -`; document the same multi-statement requirement for controlled hosted execution.",
+   "regression_test": "src/lib/testing/ciWorkflow.test.ts",
+   "status": "fixed",
+   "revision_fixed": "a1fa177496851f2b700fa42c3fdbd66de4104af5",
+   "verification": "The exact-head clean-runner verify, public, and authenticated jobs passed in GitHub run 29528783685. The current full local suite passes 1072 tests across 166 files; typecheck, lint, release validation, production build, public 13/13, and authenticated 14/14 are green.",
+   "similar_code_search": "Release documentation now requires a multi-statement-capable PostgreSQL executor for every expansion, contract, and read-back SQL script instead of recommending the incompatible prepared-query path."
+  },
+  {
+   "id": "DEPLOY-001",
+   "severity": "high",
+   "source": "Vercel preview production-readiness validation",
+   "summary": "Unauthenticated same-app redirects on a preview deployment escaped to the configured production origin",
+   "reproduction": "Request `/command` on PR #195's protected preview and inspect the 307 Location header; the prior implementation redirected to the production alias because `buildAppUrl` reused the canonical OAuth origin",
+   "affected": [
+    "src/lib/auth/getAppOrigin.ts",
+    "src/lib/auth/getAppOrigin.test.ts",
+    "src/middleware.ts",
+    "src/middleware.test.ts"
+   ],
+   "root_cause": "One origin helper conflated provider-registered canonical OAuth callback URLs with request-local application redirects",
+   "fix": "Keep `getAppOrigin` canonical for OAuth redirect URIs, but build same-app redirects from the actual request origin. Preserve exact loopback hosts for local flows and validate loopback Host syntax and port bounds before trusting it.",
+   "regression_test": "src/lib/auth/getAppOrigin.test.ts; src/middleware.test.ts",
+   "status": "fixed",
+   "revision_fixed": "89705a4a507a3e453d9c965452815b01c176ebbb",
+   "verification": "Fifteen focused origin/middleware tests cover preview isolation, no-config loopback handling, and crafted Host rejection. The current full local suite and both production-mode browser projects are green. Exact new-preview redirect validation remains required before merge.",
+   "similar_code_search": "All same-app redirects using `buildAppUrl`, including middleware and OAuth completion/error surfaces, now remain on the current deployment; provider callback URI construction continues to use the configured canonical helper."
+  },
+  {
+   "id": "MIGRATION-001",
+   "severity": "high",
+   "source": "Phase9<->main migration drift analysis, resolved via PR #237/#238",
+   "summary": "58 pre-July-3 migrations were tracked in the repo under short numeric filenames (001_initial ... 050_workout_logs) that did not match the timestamp versions actually recorded in prod's migration history, and main's reconstructed routine_versions migration omitted a CHECK constraint prod already carries",
+   "reproduction": "Run `supabase db push --dry-run` against prod: it aborted with 'Remote migration versions not found in local migrations directory' for 58 versions; separately, `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid='public.routine_versions'::regclass and contype='c'` showed prod has routine_versions_routine_version_check but the repo's 20260715224156_routine_versions.sql did not",
+   "affected": [
+    "supabase/migrations/*.sql (58 pre-July files)",
+    "supabase/migrations/20260715224156_routine_versions.sql"
+   ],
+   "root_cause": "The July migrations had already been renamed to their prod-recorded versions in a prior pass, but the same treatment was never extended to the pre-July history; separately, a from-scratch backfill of routine_versions.sql on main dropped a constraint that a later hosted migration had added directly",
+   "fix": "PR #237: 58 content-preserving git mv renames to prod's exact recorded version+name (no SQL content changed), plus out-of-band prod reconciliation (4 `migration repair --status applied` calls for applied-but-untracked migrations, 1 real `db push` for the already-live 202607161401 contract). PR #238: forward migration re-adding CHECK (routine_version > 0) as routine_versions_routine_version_check, guarded by a pg_constraint existence check so it is a no-op against prod and only takes effect on a from-scratch rebuild.",
+   "regression_test": "supabase db push --dry-run reports 'Remote database is up to date' (87 branch files == 87 tracked prod versions at merge time; 89 after #239's arcade migration)",
+   "status": "fixed",
+   "revision_fixed": "PRs #237, #238 (merged 2026-07-17)",
+   "verification": "supabase db push --dry-run clean; prod pg_constraint read-back confirms routine_versions_routine_version_check exists; PR #237 independently verified prod already matched via 4 migration-repair calls + 1 real db push, all out-of-band and confirmed via SQL before this PR merged",
+   "similar_code_search": "This was the last outstanding migration-filename drift between main and prod; the VECTOR convergence (#239) subsequently reset supabase/migrations/ to this now-reconciled tree and added only the genuinely new 202607170001_vector_arcade_persistence.sql on top"
+  },
+  {
+   "id": "BRICKRISE-001",
+   "severity": "critical",
+   "source": "Wave 15.8 adversarial review (physics/level reachability lens)",
+   "summary": "The Brickrise tower shipped in 29f96d0c was unclimbable: JUMP_IMPULSE -11.6 with GRAVITY 0.62 produces a peak rise of 102.78 px, while BRICKRISE_LEVEL_CONFIG.FLOOR_SPACING is 132 px, so no floor was reachable from the floor below",
+   "reproduction": "Integrate stepBody from a grounded body with jumpHeld: peak rise is 102.78 px over 18 ascending frames. Brute-force every ground start x (0..960 step 4) x direction (-1,0,1) x jump-hold length against a generated tower: the body never lands on floor 1, apex feet stop 29.22 px short of the ledge",
+   "affected": [
+    "src/lib/vector/games/brickrise/physics.ts",
+    "src/lib/vector/games/brickrise/level.ts"
+   ],
+   "root_cause": "The physics tuning constants and the level's floor spacing were authored independently, and no test related them. level.test.ts asserted floor gaps were EQUAL ('spaces floors consistently so every gap is the same climb') but never that a gap was JUMPABLE, so all 42 tests passed against a game that could not be played. level.ts's docstring claim that 'reachability is enforced structurally' was scoped to the horizontal span only; the vertical dimension was unverified anywhere",
+   "fix": "JUMP_IMPULSE -11.6 -> -14 (peak rise 151.14 px, 19.14 px of margin over the 132 px gap). -13.5 was rejected as too tight at 8.28 px",
+   "regression_test": "src/lib/vector/games/brickrise/physics.test.ts 'reachability' block: derives peak rise by running the real stepBody (not arithmetic), asserts rise > FLOOR_SPACING with >12 px margin and < 2x FLOOR_SPACING, and searches real generated towers across three seeds asserting every floor is reachable from the one below. Verified to FAIL at the old -11.6 value",
+   "status": "fixed",
+   "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "verification": "18/18 physics tests pass at -14 and 2 fail at -11.6; the tower was never player-reachable in production because the registry kept brickrise status 'planned' with no loader until this wave",
+   "similar_code_search": "The same class of defect (two independently-tuned constants with no relating assertion) applies to every remaining game wave. 15.9 Time to Fly and 15.10 Paper Glider must each land a reachability/solvability test alongside their generator before their mechanical core is considered complete"
+  },
+  {
+   "id": "BRICKRISE-002",
+   "severity": "critical",
+   "source": "Wave 15.8 adversarial review (accessibility/host-contract lens)",
+   "summary": "Brickrise's keyboard listeners were bound to the game's own root element, which never receives focus, making the game completely unplayable by keyboard in the real host",
+   "reproduction": "Load Brickrise, press ArrowLeft/ArrowRight/Space/W/A/D: nothing happens. GameRuntimeHost gives the MOUNT tabIndex={0} and focuses it on resume/restart; the game bound keydown/keyup to `root`, a child with tabIndex=-1. A keydown at the focused mount does not propagate down into a descendant",
+   "affected": [
+    "src/lib/vector/games/brickrise/game.ts"
+   ],
+   "root_cause": "The listener target was chosen without tracing which element the host actually focuses. The unit test masked it completely by dispatching KeyboardEvent directly on `root` \u2014 a target that never occurs in production but from which events bubble up to the real handler's element, so the test passed either way",
+   "fix": "Bind keydown/keyup to context.mount (the element the host focuses). Separately, the paired focus-loss safety net used `blur`, which does not bubble and so would never fire for focus leaving a descendant; changed to `focusout`",
+   "regression_test": "game.test.ts input tests now dispatch on harness.mount rather than on the inner root, plus 'releases held input when focus leaves the mount' covering the focusout path. Verified to FAIL when reverted to root/blur",
+   "status": "fixed",
+   "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "verification": "26/26 brickrise shell tests pass; the four review-driven guards each verified to fail with their fix reverted",
+   "similar_code_search": "Second Sense sets tabindex=0 on the element it binds to (second-sense/game.ts) so it is unaffected. Any future game shell must bind input to context.mount, not to its own subtree \u2014 this is now stated in game.ts's attachInput comment"
+  },
+  {
+   "id": "BRICKRISE-003",
+   "severity": "medium",
+   "source": "Wave 15.8 adversarial review (multiple lenses)",
+   "summary": "Four smaller shell defects: stale aria-pressed after a death cleared held input; a finished or paused run still driving a full Phaser scene update and render at 60 Hz; pointerId-agnostic touch release letting a second finger cancel the first finger's hold (and a touch release cancelling a held keyboard direction); and a false 'None yet' personal best shown immediately after a first summit because the best score was re-read before the just-recorded score had been written",
+   "reproduction": "(a) hold a direction, die on a spike, observe the button still aria-pressed=true; (b) pause and watch the scheduler keep calling game.step; (c) hold left with one finger, tap and lift a second finger on the same button, hold is cancelled; (d) complete a first run and read the Best summit field",
+   "affected": [
+    "src/lib/vector/games/brickrise/game.ts"
+   ],
+   "root_cause": "(a) syncPressedState was only called from dispatch(), never after the simulation mutated input internally; (b) no redraw gating \u2014 the frame handler drew unconditionally; (c) release handlers took no event argument so could not compare pointerId, and reduceBrickriseInput deliberately ignores action.source; (d) recordScore is asynchronous through the sync outbox, so an immediate getBestScore read-back races it",
+   "fix": "(a) call syncPressedState after the step loop; (b) needsRedraw flag \u2014 draw while running, or once after any state change, then idle; (c) track activePointerId per button and ignore non-matching releases; (d) set the best field from the just-achieved elapsed time instead of re-reading",
+   "regression_test": "game.test.ts 'regressions from the Wave 15.8 adversarial review' block \u2014 all four verified to fail with their fix reverted",
+   "status": "fixed",
+   "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "verification": "1464/1464 tests pass",
+   "similar_code_search": "The redraw-gating and pointerId patterns apply to every future engine-backed game; the async-score-readback race applies to any game calling recordScore then getBestScore"
+  },
+  {
+   "id": "VECTOR-BUILD-001",
+   "severity": "high",
+   "source": "Wave 15.8 build investigation",
+   "summary": "A `webpackChunkName` magic comment and a splitChunks cacheGroup competing for the same chunk name silently cancel each other out, leaving Phaser (~1.16 MB) hash-named and misfiled into the shared bundle budget (5409/4400 KB)",
+   "reproduction": "Import phaser under /* webpackChunkName: \"vector-engine-phaser\" */ AND declare a cacheGroup named vector-engine-phaser. Build: no vector-engine-phaser chunk is emitted; phaser lands in an 8-hex `lib` chunk and check-bundle-budget.mjs reports the shared bundle 1009 KB over budget",
+   "affected": [
+    "next.config.ts",
+    "src/lib/vector/games/brickrise/game.ts",
+    "scripts/check-bundle-budget.mjs"
+   ],
+   "root_cause": "The magic comment pre-registers the name in compilation.namedChunks. SplitChunksPlugin's existing-chunk guard then finds that chunk is not a parent of the selected chunks and drops the cacheGroup entry with no warning, so neither naming mechanism takes effect. The prior handoff misdiagnosed this as the webpack() hook not reaching the client compiler; instrumentation disproved that \u2014 the cacheGroup arrives intact, its test matches phaser, and its priority is honoured",
+   "fix": "Name the engine vendor chunk ONLY from the cacheGroup in next.config.ts (priority 50, above Next's framework/40 and lib/30), and use a plain import(\"phaser\") with no magic comment at the import site",
+   "regression_test": "src/lib/vector/engine-chunks.test.ts \u2014 asserts every budget-excluded chunk name has a matching cacheGroup, that the cacheGroups outrank Next's own, that no production source pairs an engine import with a webpackChunkName comment (subpath imports included, typeof-import excluded), and that phaser has exactly one import site",
+   "status": "fixed",
+   "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "verification": "Build emits vector-engine-phaser.2802fafb02cad78b.js (1164 KB); shared bundle 4245/4400 KB \u2014 BELOW the 4255 KB pre-Phaser baseline; route-isolated 1191/3000 KB; 0 of 197 routes list the phaser chunk in app-build-manifest.json, confirming the chunk is genuinely route-isolated and not merely reclassified",
+   "similar_code_search": "Applies identically to Three for Wave 15.10 Paper Glider; the vectorEngineThree cacheGroup is declared now (three is not yet a dependency, so it is inert until installed) precisely so that wave does not rediscover this"
+  },
+  {
+   "id": "BRICKRISE-004",
+   "severity": "high",
+   "source": "Post-merge adversarial review 2026-07-19 (brickrise-shell lens), finding verified 2-1 by independent refuters",
+   "summary": "reduceBrickriseInput's moveEnd/jumpUp branched only on direction, never on action.source, so a pointer release on an on-screen control cancelled a direction or jump still physically held on the keyboard (the jump case triggering JUMP_CUT_MULTIPLIER mid-hold). game.ts's activePointerId guard documented this exact failure as fixed but only deduplicated pointers on the same button",
+   "reproduction": "Hold ArrowLeft (left=true), click the on-screen Move-left button once: the pointerup's moveEnd set left=false while the key was still down, stopping the body until the next OS key-repeat. Same with Space held + a click on the jump control cutting the jump short",
+   "affected": [
+    "src/lib/vector/games/brickrise/inputState.ts",
+    "src/lib/vector/games/brickrise/game.ts"
+   ],
+   "root_cause": "One flat boolean per direction/jump shared by two independent input sources; a release from either source cleared the union",
+   "fix": "Held state tracked per source (leftKeyboard/leftTouch etc.) and collapsed with OR; a release only clears the half its source owns. The jumpPressed edge semantics (no re-arm while held) are preserved across sources",
+   "regression_test": "src/lib/vector/games/brickrise/inputState.test.ts cross-source block: keyboard hold survives a touch press+release for both directions and jump, and vice versa; jump edge does not re-arm when the second source joins an existing hold",
+   "status": "fixed",
+   "revision_fixed": "fix/vector-brickrise-shell-defects",
+   "verification": "Vector suite green in the fix worktree; the new tests fail against the pre-fix reducer",
+   "similar_code_search": "Second Sense's inputState collapses sources the same flat way but its interaction is a single hold surface with no parallel on-screen controls for the same verb; Time to Fly (15.9, in flight elsewhere) uses drag+launch and should check its launch control for the same cross-source union if it ever gains on-screen duplicates of a keyboard verb"
+  },
+  {
+   "id": "BRICKRISE-005",
+   "severity": "high",
+   "source": "Post-merge adversarial review 2026-07-19 (brickrise-shell lens), finding verified 3-0 by independent refuters",
+   "summary": "finishRun() unconditionally wrote the just-finished run's own time into the 'Best summit' HUD field. The persisted merge is Math.max over an inverted duration, so a slower run never touches the stored best \u2014 the HUD displayed a demonstrably false best and nothing corrected it for the rest of the session",
+   "reproduction": "Stored best 3m00s; finish a 4m30s climb: HUD shows 'Best summit 4m 30s' while the server best remains 3m00s; restarts within the session kept the wrong value",
+   "affected": [
+    "src/lib/vector/games/brickrise/game.ts"
+   ],
+   "root_cause": "finishRun assumed the finishing run was the new best to avoid racing the async outbox write, trading a correctness lie for a latency concern",
+   "fix": "finishRun re-reads the authoritative best via context.getBestScore (Second Sense's pattern) and converts through fromPersistedScore; a null read falls back to this run's time (honest until the outbox lands), a failed read shows 'Unavailable', and performReset() re-reads so a stale value never carries into the next run",
+   "regression_test": "src/lib/vector/games/brickrise/game.test.ts finishRun block: slower-run scenario asserts the HUD shows the stored best, first-climb null case shows the run's own time, and reset refreshes the field",
+   "status": "fixed",
+   "revision_fixed": "fix/vector-brickrise-shell-defects",
+   "verification": "Vector suite green in the fix worktree; the slower-run test fails against the pre-fix shell",
+   "similar_code_search": "Second Sense already re-reads via getBestScore in its finishRun; Paper Glider's core (15.10) keeps best-score merge as Math.max in progress.ts and its future shell must re-read rather than assume"
+  }
+ ]
 }

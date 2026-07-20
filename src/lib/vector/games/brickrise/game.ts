@@ -144,6 +144,19 @@ export function createBrickriseGame(context: VectorGameCreateContext): VectorGam
   const bestField = hudField("brickrise-best", "Best summit");
   const statusField = hudField("brickrise-status", "Status");
 
+  // The only way back to a fresh climb after the summit. The host toolbar has
+  // nothing to pause once a run is complete, so this stays entirely in-band
+  // rather than routing a finished run through the host's pause/restart flow
+  // (which shows "Pause" over a game that has nothing left to pause). Hidden
+  // until a run completes; renderHud() toggles it.
+  const climbAgainButton = doc.createElement("button");
+  climbAgainButton.type = "button";
+  climbAgainButton.className = `${ROOT_CLASS}__climb-again`;
+  climbAgainButton.setAttribute("data-testid", "brickrise-climb-again");
+  climbAgainButton.textContent = "Climb again";
+  climbAgainButton.hidden = true;
+  hud.appendChild(climbAgainButton);
+
   const touch = doc.createElement("div");
   touch.className = `${ROOT_CLASS}__touch`;
   root.appendChild(touch);
@@ -211,6 +224,7 @@ export function createBrickriseGame(context: VectorGameCreateContext): VectorGam
       : running
         ? "Climbing"
         : "Ready";
+    climbAgainButton.hidden = !run.completed;
   }
 
   function refreshBestScore(): void {
@@ -263,11 +277,32 @@ export function createBrickriseGame(context: VectorGameCreateContext): VectorGam
     announce(
       `Summit reached in ${formatDuration(elapsedMs)} with ${deaths} ${deaths === 1 ? "fall" : "falls"}.`,
     );
-    // Show this run's time immediately rather than re-reading the best score.
-    // recordScore is asynchronous and goes through the sync outbox, so an
-    // immediate read-back races it and would report "None yet" to a player who
-    // has just finished their first climb — a plainly false statement.
-    bestField.textContent = formatDuration(elapsedMs);
+    // A completed run is not necessarily a new best — the persisted score
+    // merge is Math.max over an inverted duration, so a slower climb never
+    // touches the stored best. Re-read the authoritative value (as Second
+    // Sense's finishRun does) instead of assuming this run's own time is now
+    // on top.
+    const read = context.getBestScore;
+    if (!read) {
+      // Absent, not a no-op — same reasoning as refreshBestScore above.
+      bestField.textContent = "Not available here";
+      return;
+    }
+    void read({ mode: SCORE_MODE, challengeId: null })
+      .then((best) => {
+        if (disposed) return;
+        // recordScore is asynchronous and goes through the sync outbox, so a
+        // read this fast can race ahead of the write and still report null
+        // even on a genuine first climb. Falling back to this run's own time
+        // is honest either way: it is the best known result until the outbox
+        // says otherwise.
+        bestField.textContent =
+          best === null ? formatDuration(elapsedMs) : formatDuration(fromPersistedScore(best));
+      })
+      .catch(() => {
+        if (disposed) return;
+        bestField.textContent = "Unavailable";
+      });
   }
 
   function handleFrame(frame: { steps: number; nowMs: number; elapsedMs: number; alpha: number }): void {
@@ -471,6 +506,60 @@ export function createBrickriseGame(context: VectorGameCreateContext): VectorGam
       },
       { signal },
     );
+
+    // "Climb again" is Brickrise's own affordance, not the host's restart
+    // flow: nothing here is being abandoned, so it skips straight to a fresh
+    // climb rather than opening the host's "are you sure" restart modal.
+    climbAgainButton.addEventListener(
+      "click",
+      () => {
+        performReset();
+        performStart();
+      },
+      { signal },
+    );
+  }
+
+  function performStart(): void {
+    if (run.completed) return;
+    running = true;
+    releaseAll();
+    if (!startEmitted) {
+      startEmitted = true;
+      context.emit({
+        type: "run.start",
+        occurredAt: new Date().toISOString(),
+        metadata: { mode: "solo" },
+      });
+    }
+    announce(
+      run.checkpointIndex === null
+        ? "Climb started at the base of the tower."
+        : `Climb resumed from checkpoint ${run.checkpointIndex + 1}.`,
+    );
+    renderHud();
+  }
+
+  function performReset(): void {
+    running = false;
+    startEmitted = false;
+    // A restart re-rolls the tower. The seed is not player-visible and the
+    // manifest does not promise a stable layout, so a fresh climb is a fresh
+    // climb.
+    run = initialRunState(newSeed());
+    level = generateBrickriseLevel(run.seed);
+    simulation = createBrickriseSimulation(run, level, INITIAL_BODY_STATE);
+    previousBox = simulation.body.box;
+    cameraY = 0;
+    scene?.cameras.main.setBounds(0, 0, level.width, level.height);
+    syncPressedState();
+    needsRedraw = true;
+    renderHud();
+    announce("Climb reset.");
+    // finishRun may have left bestField showing this session's own run time
+    // (see the comment there); a restart must not carry that value forward
+    // into a run that has not finished yet.
+    refreshBestScore();
   }
 
   const instance: VectorGameInstance = {
@@ -588,23 +677,7 @@ export function createBrickriseGame(context: VectorGameCreateContext): VectorGam
     },
 
     start() {
-      if (run.completed) return;
-      running = true;
-      releaseAll();
-      if (!startEmitted) {
-        startEmitted = true;
-        context.emit({
-          type: "run.start",
-          occurredAt: new Date().toISOString(),
-          metadata: { mode: "solo" },
-        });
-      }
-      announce(
-        run.checkpointIndex === null
-          ? "Climb started at the base of the tower."
-          : `Climb resumed from checkpoint ${run.checkpointIndex + 1}.`,
-      );
-      renderHud();
+      performStart();
     },
 
     pause() {
@@ -632,21 +705,7 @@ export function createBrickriseGame(context: VectorGameCreateContext): VectorGam
     },
 
     reset() {
-      running = false;
-      startEmitted = false;
-      // A restart re-rolls the tower. The seed is not player-visible and the
-      // manifest does not promise a stable layout, so a fresh climb is a fresh
-      // climb.
-      run = initialRunState(newSeed());
-      level = generateBrickriseLevel(run.seed);
-      simulation = createBrickriseSimulation(run, level, INITIAL_BODY_STATE);
-      previousBox = simulation.body.box;
-      cameraY = 0;
-      scene?.cameras.main.setBounds(0, 0, level.width, level.height);
-      syncPressedState();
-      needsRedraw = true;
-      renderHud();
-      announce("Climb reset.");
+      performReset();
     },
 
     updateSettings(next: VectorRuntimeSettings) {
