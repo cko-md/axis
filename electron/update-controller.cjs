@@ -17,7 +17,7 @@ function createUpdateController({
     };
   }
 
-  let manualCheck = false;
+  let manualCheckPending = false;
   let downloadInProgress = false;
   let updatePromptOpen = false;
   let interval = null;
@@ -52,8 +52,23 @@ function createUpdateController({
     return dialog.showMessageBox(owner, options);
   };
 
+  // A user's explicit "Check for Updates" must still be acknowledged even when a
+  // background timer check (interactive=false) is coalesced with it or lands
+  // first. The pending flag is only ever SET by an interactive check and cleared
+  // by whichever terminal result event consumes it — a background check no
+  // longer overwrites it to false, which is what silently dropped the manual
+  // "up to date"/"could not check" feedback.
+  const takeManualCheck = () => {
+    if (!manualCheckPending) return false;
+    manualCheckPending = false;
+    return true;
+  };
+
   const onAvailable = async (info) => {
-    manualCheck = false;
+    // An available update answers a pending manual check (the download prompt is
+    // the acknowledgement), so consume it rather than let it surface a later
+    // spurious "up to date".
+    takeManualCheck();
     if (updatePromptOpen || downloadInProgress) return;
     updatePromptOpen = true;
     const result = await showMessage({
@@ -84,8 +99,7 @@ function createUpdateController({
   };
 
   const onNotAvailable = async () => {
-    if (!manualCheck) return;
-    manualCheck = false;
+    if (!takeManualCheck()) return;
     await showMessage({
       type: "info",
       title: "AXIS is up to date",
@@ -111,8 +125,7 @@ function createUpdateController({
     const message = error instanceof Error ? error.message : String(error);
     const releaseChannelEmpty = message.includes("No published versions on GitHub");
     if (releaseChannelEmpty) {
-      if (manualCheck) {
-        manualCheck = false;
+      if (takeManualCheck()) {
         void showMessage({
           type: "info",
           title: "No desktop release is published yet",
@@ -123,8 +136,7 @@ function createUpdateController({
       return;
     }
     observability.captureException(error, { operation: "update-check" });
-    if (!manualCheck) return;
-    manualCheck = false;
+    if (!takeManualCheck()) return;
     void showMessage({
       type: "error",
       title: "Could not check for updates",
@@ -139,7 +151,7 @@ function createUpdateController({
   autoUpdater.on("error", onError);
 
   const checkForUpdates = async ({ interactive = false } = {}) => {
-    manualCheck = interactive;
+    if (interactive) manualCheckPending = true;
     try {
       await autoUpdater.checkForUpdates();
       return true;

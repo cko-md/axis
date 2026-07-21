@@ -1,6 +1,6 @@
 {
- "updated": "2026-07-20",
- "revision": "feat/electron-reliability-archive-bay-16.3",
+ "updated": "2026-07-21",
+ "revision": "fix/desktop-review-concurrency3-upd3",
  "defects": [
   {
    "id": "SEC-005",
@@ -697,6 +697,40 @@
    "status": "closed",
    "revision_fixed": "Mitigated by desktop-hardening work merged before 2026-07-20; characterization recorded 2026-07-20. No upstream fix is available \u2014 43.1.1 is the latest STABLE Electron (newer is 44.x alpha only). Revisit an Electron major upgrade when 44.x reaches stable.",
    "verification": "npm run desktop:test green (incl. main-shutdown + desktop-observability); electron e2e 9/9 green. The residual native crash is upstream and uncatchable; no actionable app-side defect remains open."
+  },
+  {
+   "id": "DESKTOP-002",
+   "severity": "medium",
+   "source": "Post-merge adversarial review of Archive Bay 16.3 + electron reliability (workflow wf_4918f1a3, dimension ipc-concurrency, finding CONCURRENCY-3); 3/3 independent verifiers CONFIRMED",
+   "summary": "Five renderer-reachable Archive Bay IPC handlers (archive-bay:list, :launch, :remove, :runtime-status, and archive-bay:recomp:launch) awaited a state-file read (getArchiveBayLibrary / loadRecompState) OUTSIDE any mapping try/catch, so a non-ENOENT read error re-thrown with the absolute userData state.json path in its message crossed to the renderer as the invoke() rejection \u2014 violating the module invariant that a raw filesystem path is never forwarded to the renderer. The review flagged three sites; a full sweep of every call site found two more (:remove, :runtime-status) with the identical exposure.",
+   "reproduction": "Make the Archive Bay state.json unreadable (chmod 000, replace with a directory, or induce EIO), then trigger any of the five handlers from the renderer (open the Archive Bay panel \u2192 :list/:runtime-status; Play a title \u2192 :launch; delete a title \u2192 :remove). getArchiveBayLibrary/loadRecompState re-throws e.g. \"EACCES: permission denied, open '/Users/<user>/Library/Application Support/axis/archive-bay/state.json'\" and the full path is delivered to the renderer as the invoke() rejection message. Falsification: reverting any wrapped handler to the bare read makes electron/main-launch-error-mapping.test.cjs fail for that channel (verified for :remove).",
+   "affected": [
+    "electron/main.cjs"
+   ],
+   "root_cause": "getArchiveBayLibrary and loadRecompState treat only ENOENT as \"no file yet\" and re-throw the raw Node fs error for every other failure; the raw message embeds the absolute state.json path. The five handlers awaited that read at the top of the handler, before/outside the try that maps thrown errors through archiveBayErrorMessage/archiveBayRecompErrorMessage, so the raw error reached ipcMain's invoke() rejection unmapped. Sibling handlers (runtime-choose, managed-runtime:install/remove, recomp:status) already wrapped their reads; these did not.",
+   "fix": "Wrapped each of the five reads in a try/catch that re-throws new Error(archiveBayErrorMessage(error)) (or archiveBayRecompErrorMessage for recomp), which return a coded, path-free string (ARCHIVE_BAY_UNKNOWN_ERROR / RECOMP_UNKNOWN_ERROR) for any non-domain error. The intentional coded throws around the reads (ARCHIVE_BAY_ALREADY_RUNNING, ARCHIVE_BAY_TITLE_NOT_FOUND) are untouched and still pass through.",
+   "regression_test": "electron/main-launch-error-mapping.test.cjs \u2014 extracts each of the five handler bodies delimited by the next ipcMain.handle( (a real delimiter, not a fixed char window, avoiding review finding F1's overrun flaw) and asserts each state read sits inside a try whose catch maps through the coded helper (ordering assertion try < read < coded-catch). Falsified: reverting archive-bay:remove to the bare read fails its case.",
+   "status": "fixed",
+   "revision_fixed": "fix/desktop-review-concurrency3-upd3",
+   "verification": "desktop:check 140/140 (7 new tests incl. the 5 mapping guards), eslint clean, electron e2e 9/9. The defect itself was CONFIRMED by 3/3 adversarial verifiers in the review workflow before the fix.",
+   "similar_code_search": "The same coded-error-only invariant is already enforced for the managed-runtime and recomp handlers by main-managed-runtime-ipc.test.cjs / main-recomp-ipc.test.cjs; the base archive-bay handlers had no equivalent guard, which is how :remove and :runtime-status also shipped unwrapped. Every future Archive Bay read handler must map its state-read error or main-launch-error-mapping.test.cjs fails."
+  },
+  {
+   "id": "DESKTOP-003",
+   "severity": "low",
+   "source": "Post-merge adversarial review (workflow wf_4918f1a3, dimension electron-updater, finding UPD-3); 3/3 independent verifiers CONFIRMED",
+   "summary": "The update controller tracked manual-ness in a single closure boolean set by checkForUpdates via `manualCheck = interactive`. The two background timers (15s after launch, every 6h) call checkForUpdates with interactive=false, so a background check landing between a user's manual \"Check for Updates\" and its result event overwrote the flag to false; onNotAvailable/onError then dropped the \"AXIS is up to date\" / \"Could not check for updates\" dialog and the menu click appeared to do nothing.",
+   "reproduction": "On a cold start, click the always-live \"Check for Updates\u2026\" menu item around the 15s mark. The manual check sets the flag true; the 15s initial timer fires checkForUpdates() with interactive=false, resetting it; electron-updater coalesces both into one network check and emits a single update-not-available after the reset, so onNotAvailable returns early with no dialog. Falsification: reverting to `manualCheckPending = interactive` fails both new race tests.",
+   "affected": [
+    "electron/update-controller.cjs"
+   ],
+   "root_cause": "A single shared boolean carried manual-ness across an async check and was assigned unconditionally (manualCheck = interactive) on every invocation, so a concurrent background check (interactive=false) cleared a pending manual check's flag before its result event was delivered.",
+   "fix": "The flag is now only ever SET (never cleared) by an interactive check (`if (interactive) manualCheckPending = true`) and consumed by whichever terminal result event delivers the acknowledgement, via a takeManualCheck() helper used by onAvailable/onNotAvailable/onError. A background check no longer clears it; coalesced checks consume exactly once. Chosen over a counter, which would over-count under electron-updater's check coalescing.",
+   "regression_test": "electron/update-controller.test.cjs \u2014 two tests interleave an interactive check, a background check, then a single not-available / error event and assert the owned dialog still appears. Both fail against the pre-fix `manualCheckPending = interactive`.",
+   "status": "fixed",
+   "revision_fixed": "fix/desktop-review-concurrency3-upd3",
+   "verification": "desktop:check 140/140, eslint clean. The defect was CONFIRMED by 3/3 adversarial verifiers before the fix.",
+   "similar_code_search": "The other update-controller manual-gated paths (onAvailable, both onError branches) routed through the same shared boolean and are fixed together via takeManualCheck(). No other shared-flag-across-async-check pattern found in electron/."
   }
  ]
 }

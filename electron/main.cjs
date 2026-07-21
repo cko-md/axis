@@ -643,7 +643,17 @@ function registerIpc() {
 
   ipcMain.handle("archive-bay:list", async (event) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const library = await getArchiveBayLibrary();
+    // getArchiveBayLibrary reads state.json from userData; a non-ENOENT read
+    // error (EACCES/EISDIR/EIO) re-throws a raw Node error whose message embeds
+    // the absolute path. Map it to a coded, path-free error before it can cross
+    // to the renderer as the invoke() rejection — the invariant at
+    // archiveBayErrorMessage. (Sibling launch handlers do the same below.)
+    let library;
+    try {
+      library = await getArchiveBayLibrary();
+    } catch (error) {
+      throw new Error(archiveBayErrorMessage(error));
+    }
     return {
       titles: [...library.titles.values()].map(toPublicLegacyTitle),
       runtimeConfigured: Boolean(library.runtimePath),
@@ -690,15 +700,26 @@ function registerIpc() {
 
   ipcMain.handle("archive-bay:remove", async (event, contentId) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const library = await getArchiveBayLibrary();
-    if (!library.titles.delete(String(contentId))) return false;
-    await persistArchiveBayLibrary(library);
-    return true;
+    // Map any raw library read/persist error to a coded, path-free one (see
+    // archive-bay:list) before it reaches the renderer.
+    try {
+      const library = await getArchiveBayLibrary();
+      if (!library.titles.delete(String(contentId))) return false;
+      await persistArchiveBayLibrary(library);
+      return true;
+    } catch (error) {
+      throw new Error(archiveBayErrorMessage(error));
+    }
   });
 
   ipcMain.handle("archive-bay:runtime-status", async (event) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
-    const library = await getArchiveBayLibrary();
+    let library;
+    try {
+      library = await getArchiveBayLibrary();
+    } catch (error) {
+      throw new Error(archiveBayErrorMessage(error));
+    }
     return { configured: Boolean(library.runtimePath) };
   });
 
@@ -724,7 +745,15 @@ function registerIpc() {
   ipcMain.handle("archive-bay:launch", async (event, contentId) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
     if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
-    const library = await getArchiveBayLibrary();
+    // Coerce a raw library-read error to a coded one before it reaches the
+    // renderer (see archive-bay:list). The intentional coded throws around this
+    // read are already path-free and must pass through unmapped.
+    let library;
+    try {
+      library = await getArchiveBayLibrary();
+    } catch (error) {
+      throw new Error(archiveBayErrorMessage(error));
+    }
     const record = library.titles.get(String(contentId));
     if (!record) throw new Error("ARCHIVE_BAY_TITLE_NOT_FOUND");
     let spawnArgs;
@@ -1017,7 +1046,15 @@ function registerIpc() {
   ipcMain.handle("archive-bay:recomp:launch", async (event, portId) => {
     if (!isTrustedAxisSender(event)) throw new Error("Untrusted AXIS archive-bay request");
     if (activeArchiveBayLaunch) throw new Error("ARCHIVE_BAY_ALREADY_RUNNING");
-    const state = await loadRecompState(archiveBayRecompStatePath);
+    // loadRecompState re-throws a raw Node error (with the absolute state.json
+    // path) on any non-ENOENT read failure; map it to a coded, path-free error
+    // before it crosses to the renderer, exactly as recomp:status does.
+    let state;
+    try {
+      state = await loadRecompState(archiveBayRecompStatePath);
+    } catch (error) {
+      throw new Error(archiveBayRecompErrorMessage(error));
+    }
     const installed = state.ports[String(portId)];
     let spec;
     try {

@@ -148,6 +148,69 @@ test("a quit in progress never starts an update download behind the user's back"
   controller.dispose();
 });
 
+// UPD-3 regression: the "Check for Updates…" menu item is live from launch, and
+// two background timers (15s, 6h) also check. A background check must never
+// silently swallow the acknowledgement a user's explicit manual check is owed.
+// Before the fix, checkForUpdates did `manualCheck = interactive`, so a
+// background check (interactive=false) landing while a manual check was in
+// flight cleared the flag and onNotAvailable/onError dropped the dialog — the
+// menu click appeared to do nothing.
+test("a manual check's feedback survives a concurrent background check", async () => {
+  const updater = new EventEmitter();
+  // The updater is in-flight but emits nothing yet, so we can interleave a
+  // background check before the (coalesced) single result event arrives.
+  updater.checkForUpdates = async () => {};
+  const owner = { isDestroyed: () => false };
+  const messages = [];
+  const controller = createUpdateController({
+    app: { isPackaged: true, getVersion: () => "1.2.3" },
+    autoUpdater: updater,
+    dialog: {
+      showMessageBox: async (_owner, options) => { messages.push(options); return { response: 0 }; },
+    },
+    getMainWindow: () => owner,
+    observability: { captureException() {} },
+  });
+
+  await controller.checkForUpdates({ interactive: true }); // user clicks the menu item
+  await controller.checkForUpdates();                       // a background timer fires meanwhile
+  // electron-updater coalesces both into one network check and emits one result.
+  updater.emit("update-not-available", { version: "1.2.3" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(messages.length, 1, "the manual check must still be acknowledged");
+  assert.equal(messages[0].title, "AXIS is up to date");
+  controller.dispose();
+});
+
+// The same race on the error path: a manual check that ends in a reachability
+// error must still surface "Could not check for updates" even if a background
+// check ran between the click and the error event.
+test("a manual check's error feedback survives a concurrent background check", async () => {
+  const updater = new EventEmitter();
+  updater.checkForUpdates = async () => {};
+  const owner = { isDestroyed: () => false };
+  const messages = [];
+  const controller = createUpdateController({
+    app: { isPackaged: true, getVersion: () => "1.2.3" },
+    autoUpdater: updater,
+    dialog: {
+      showMessageBox: async (_owner, options) => { messages.push(options); return { response: 0 }; },
+    },
+    getMainWindow: () => owner,
+    observability: { captureException() {} },
+  });
+
+  await controller.checkForUpdates({ interactive: true });
+  await controller.checkForUpdates();
+  updater.emit("error", new Error("net::ERR_INTERNET_DISCONNECTED"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(messages.length, 1, "the manual check's error must still be acknowledged");
+  assert.equal(messages[0].title, "Could not check for updates");
+  controller.dispose();
+});
+
 test("an empty bootstrap release channel is visible but not reported as an application fault", async () => {
   const updater = new EventEmitter();
   const captured = [];
