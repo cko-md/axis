@@ -608,42 +608,6 @@ export type Database = {
         }
         Relationships: []
       }
-      calendar_connections: {
-        Row: {
-          access_token_enc: string
-          calendar_email: string | null
-          created_at: string | null
-          expires_at: string | null
-          id: string
-          provider: string
-          refresh_token_enc: string | null
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          access_token_enc: string
-          calendar_email?: string | null
-          created_at?: string | null
-          expires_at?: string | null
-          id?: string
-          provider: string
-          refresh_token_enc?: string | null
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          access_token_enc?: string
-          calendar_email?: string | null
-          created_at?: string | null
-          expires_at?: string | null
-          id?: string
-          provider?: string
-          refresh_token_enc?: string | null
-          updated_at?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
       calendar_event_cache: {
         Row: {
           error: Json | null
@@ -826,42 +790,6 @@ export type Database = {
           user_id?: string
           widget_ids?: string[]
           widget_texts?: Json
-        }
-        Relationships: []
-      }
-      contacts_connections: {
-        Row: {
-          access_token_enc: string | null
-          created_at: string | null
-          email: string | null
-          expires_at: string | null
-          id: string
-          provider: string
-          refresh_token_enc: string | null
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          access_token_enc?: string | null
-          created_at?: string | null
-          email?: string | null
-          expires_at?: string | null
-          id?: string
-          provider?: string
-          refresh_token_enc?: string | null
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          access_token_enc?: string | null
-          created_at?: string | null
-          email?: string | null
-          expires_at?: string | null
-          id?: string
-          provider?: string
-          refresh_token_enc?: string | null
-          updated_at?: string | null
-          user_id?: string
         }
         Relationships: []
       }
@@ -1953,39 +1881,6 @@ export type Database = {
           thread_id?: string
           transport?: string
           updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      mail_connections: {
-        Row: {
-          access_token_enc: string
-          expires_at: string | null
-          id: string
-          mail_email: string
-          provider: string
-          refresh_token_enc: string | null
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          access_token_enc: string
-          expires_at?: string | null
-          id?: string
-          mail_email: string
-          provider: string
-          refresh_token_enc?: string | null
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          access_token_enc?: string
-          expires_at?: string | null
-          id?: string
-          mail_email?: string
-          provider?: string
-          refresh_token_enc?: string | null
-          updated_at?: string | null
           user_id?: string
         }
         Relationships: []
