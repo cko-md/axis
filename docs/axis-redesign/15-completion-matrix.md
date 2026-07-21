@@ -142,6 +142,14 @@ its result as authoritative, not this local reasoning.
 
 ## Envoy core
 
+> **DROPPED (owner decision, 2026-07-19).** Envoys were rejected and removed
+> entirely (route/components/lib/hook/art, nav unwired). Every "open" row in this
+> section and in **Production Envoy generation** below is therefore **dropped, not
+> pending** — do not re-attempt them. In particular the "remove Mascot only after
+> parity" plan is void: `src/components/layout/Mascot.tsx` is the sole, retained
+> presence system and stays. If Envoys are ever revived it will be under a fresh
+> design, so these rows do not describe that future work either.
+
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|
 | Appearance independent of Focus/Intel/Ask; preserve context/privacy/errors/Sentry/focus/Escape/abort; status-first panel | 703–736 | open | Parity unit/browser matrix |

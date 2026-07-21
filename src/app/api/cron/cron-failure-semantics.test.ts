@@ -67,10 +67,15 @@ describe("Make-triggered cron failure semantics", () => {
     ];
     for (const relativePath of sources) {
       const source = read(relativePath);
-      for (const dead of ['"https://www.outsideonline.com/feed"', '"https://hespokestyle.com/feed/"']) {
+      // Host-substring, not the exact literal URL: a re-add with a trailing
+      // slash/query, http://, or no-www variant must also be caught. The dead
+      // hosts are matched inside a string/URL context (quote or //) so an
+      // explanatory comment mentioning the host does not trip the guard.
+      for (const deadHost of ["outsideonline.com/feed", "hespokestyle.com/feed"]) {
+        const referencedAsUrl = new RegExp(`["'/]${deadHost.replace(/[.]/g, "\\.")}`);
         expect(
-          source.includes(dead),
-          `${relativePath} lists ${dead}, which cannot be fetched server-side`,
+          referencedAsUrl.test(source),
+          `${relativePath} references ${deadHost} as a URL, which cannot be fetched server-side`,
         ).toBe(false);
       }
     }
