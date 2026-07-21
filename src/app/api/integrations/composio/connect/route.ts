@@ -14,10 +14,10 @@ import {
 
 // Toolkits in CUSTOM_AUTH_TOOLKITS need our own OAuth client registered with
 // Composio (it doesn't manage their auth) — map each to the env vars that
-// hold those credentials. googlecontacts reuses the same Google OAuth app the
-// legacy direct Contacts flow already uses (src/app/api/contacts/connect/
-// route.ts); spotify reuses the same Spotify app the legacy direct flow uses
-// (src/app/api/spotify/auth/route.ts) — same SPOTIFY_CLIENT_ID/SECRET.
+// hold those credentials. googlecontacts reuses the same Google OAuth client
+// credentials as the rest of the app (there is no separate direct Contacts
+// connect flow anymore); spotify reuses the same Spotify app the direct Spotify
+// flow uses (src/app/api/spotify/auth/route.ts) — same SPOTIFY_CLIENT_ID/SECRET.
 const CUSTOM_AUTH_ENV: Record<string, { clientId?: string; clientSecret?: string }> = {
   googlecontacts: { clientId: optionalEnv("GOOGLE_CLIENT_ID"), clientSecret: optionalEnv("GOOGLE_CLIENT_SECRET") },
   spotify: { clientId: optionalEnv("SPOTIFY_CLIENT_ID"), clientSecret: optionalEnv("SPOTIFY_CLIENT_SECRET") },

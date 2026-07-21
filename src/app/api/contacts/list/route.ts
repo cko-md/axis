@@ -51,7 +51,11 @@ export async function GET() {
   }
 
   let legacyContacts: ContactEntry[] = [];
-  if (accessToken) {
+  // Composio wins: skip the legacy direct-OAuth Google Contacts read entirely
+  // when a Composio contacts account exists, so a stale legacy token can neither
+  // double-list nor shadow the Composio result. Legacy is read only when there
+  // is no Composio account. (Prod has zero legacy rows and no path writes them.)
+  if (accessToken && composioAccounts.length === 0) {
     const res = await fetch(
       "https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers&pageSize=100",
       { headers: { Authorization: `Bearer ${accessToken}` } },

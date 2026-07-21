@@ -115,10 +115,15 @@ export async function listMailAccounts(userId: string): Promise<MailAccountRef[]
     connectedAccountId: a.connectedAccountId,
   }));
 
-  // A given mailbox may only be connected one way at a time — prefer the
-  // legacy OAuth row if both somehow exist for the same address.
-  const seen = new Set(oauthAccounts.map((a) => `${a.provider}:${a.mailEmail}`));
-  return [...oauthAccounts, ...composioRefs.filter((a) => !seen.has(`${a.provider}:${a.mailEmail}`))];
+  // A given mailbox is connected one way at a time. Composio is the canonical
+  // connect path (Mail/Calendar/Contacts are consolidated onto Composio), so a
+  // Composio connection WINS the dedup: a stale pre-consolidation direct row must
+  // never shadow a live Composio reconnect (that combination showed "connected"
+  // in the UI while silently 401-ing on every read). A legacy direct row is used
+  // only for a mailbox that has no Composio connection at all. Prod has zero
+  // legacy rows and no path writes them, so today this is purely defensive.
+  const seen = new Set(composioRefs.map((a) => `${a.provider}:${a.mailEmail}`));
+  return [...composioRefs, ...oauthAccounts.filter((a) => !seen.has(`${a.provider}:${a.mailEmail}`))];
 }
 
 export async function getFreshMailAccessToken(

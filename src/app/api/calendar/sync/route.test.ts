@@ -4,16 +4,20 @@ import type { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
   listComposioCalendarAccounts: vi.fn(),
+  createComposioEvent: vi.fn(),
+  createGoogleEvent: vi.fn(),
+  listHealthyLegacyProviders: vi.fn(),
   createClient: vi.fn(),
 }));
 
 vi.mock("@sentry/nextjs", () => ({ captureException: mocks.captureException }));
 vi.mock("@/lib/calendar/composio", () => ({
   listComposioCalendarAccounts: mocks.listComposioCalendarAccounts,
-  createComposioEvent: vi.fn(),
+  createComposioEvent: mocks.createComposioEvent,
 }));
-vi.mock("@/lib/calendar/google", () => ({ createGoogleEvent: vi.fn() }));
+vi.mock("@/lib/calendar/google", () => ({ createGoogleEvent: mocks.createGoogleEvent }));
 vi.mock("@/lib/calendar/outlook", () => ({ createOutlookEvent: vi.fn() }));
+vi.mock("@/lib/calendar/legacy-providers", () => ({ listHealthyLegacyProviders: mocks.listHealthyLegacyProviders }));
 vi.mock("@/lib/observability/providerTiming", () => ({
   logRouteTiming: vi.fn(),
   timedProviderOperation: vi.fn((_, operation: () => Promise<unknown>) => operation()),
@@ -53,6 +57,11 @@ function createSupabaseMock({
       error: connectionsError,
     }),
   };
+  // .update(patch).eq(...).eq(...) — a thenable chain that resolves { error: null }.
+  const updateChain: { eq: ReturnType<typeof vi.fn>; then: (resolve: (v: { error: null }) => void) => void } = {
+    eq: vi.fn(() => updateChain),
+    then: (resolve) => resolve({ error: null }),
+  };
 
   return {
     auth: {
@@ -60,6 +69,7 @@ function createSupabaseMock({
     },
     from: vi.fn((table: string) => ({
       select: vi.fn(() => (table === "schedule_events" ? scheduleSelect : connectionSelect)),
+      update: vi.fn(() => updateChain),
     })),
   };
 }
@@ -68,6 +78,29 @@ describe("POST /api/calendar/sync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listComposioCalendarAccounts.mockResolvedValue([]);
+    mocks.listHealthyLegacyProviders.mockResolvedValue(new Set());
+    mocks.createComposioEvent.mockResolvedValue("composio-evt");
+    mocks.createGoogleEvent.mockResolvedValue("google-evt");
+  });
+
+  it("prefers Composio over a legacy direct connection when both exist for a provider", async () => {
+    // A pre-consolidation direct Google row AND a Composio Google account both
+    // present: Composio must win, so a stale legacy token can't shadow it.
+    mocks.listHealthyLegacyProviders.mockResolvedValue(new Set(["google"]));
+    mocks.listComposioCalendarAccounts.mockResolvedValue([
+      { provider: "googlecalendar", connectedAccountId: "ca-google-1" },
+    ]);
+    mocks.createClient.mockResolvedValue(createSupabaseMock());
+
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+    expect(mocks.createComposioEvent).toHaveBeenCalledWith(
+      "googlecalendar",
+      "ca-google-1",
+      "user-1",
+      expect.anything(),
+    );
+    expect(mocks.createGoogleEvent).not.toHaveBeenCalled();
   });
 
   it("surfaces direct calendar connection discovery failures", async () => {

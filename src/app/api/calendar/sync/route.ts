@@ -46,9 +46,10 @@ function syncError(source: "google" | "outlook", transport: "direct" | "composio
 
 // POST /api/calendar/sync
 // Creates the given schedule_event in all connected calendars and
-// writes the external IDs back to the schedule_events row. Legacy
-// direct-OAuth calendars are preferred over Composio-connected ones for
-// the same provider, to avoid creating the event twice in the same calendar.
+// writes the external IDs back to the schedule_events row. A Composio
+// connection is preferred over a legacy direct-OAuth one for the same
+// provider (Composio is the canonical connect path), so the event is never
+// created twice in the same calendar.
 export async function POST(req: NextRequest) {
   const routeStartedAt = Date.now();
   const supabase = await createClient();
@@ -128,8 +129,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const composioGoogle = !legacyProviders.has("google") && composioAccounts.find((a) => a.provider === "googlecalendar");
-  const composioOutlook = !legacyProviders.has("outlook") && composioAccounts.find((a) => a.provider === "outlook");
+  // Composio wins: a Composio calendar connection is used ahead of any legacy
+  // direct-OAuth one for the same provider; the legacy path is a fallback only
+  // for a provider with no Composio connection. (Prod has zero legacy rows.)
+  const composioGoogle = composioAccounts.find((a) => a.provider === "googlecalendar");
+  const composioOutlook = composioAccounts.find((a) => a.provider === "outlook");
 
   async function syncSource(
     source: "google" | "outlook",
@@ -155,15 +159,15 @@ export async function POST(req: NextRequest) {
   }
 
   const [googleSync, outlookSync] = await Promise.all([
-    legacyProviders.has("google")
-      ? syncSource("google", "direct", () => createGoogleEvent(user.id, event))
-      : composioGoogle
-        ? syncSource("google", "composio", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
+    composioGoogle
+      ? syncSource("google", "composio", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
+      : legacyProviders.has("google")
+        ? syncSource("google", "direct", () => createGoogleEvent(user.id, event))
         : Promise.resolve<CalendarSyncResult>({ id: null }),
-    legacyProviders.has("outlook")
-      ? syncSource("outlook", "direct", () => createOutlookEvent(user.id, event))
-      : composioOutlook
-        ? syncSource("outlook", "composio", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
+    composioOutlook
+      ? syncSource("outlook", "composio", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
+      : legacyProviders.has("outlook")
+        ? syncSource("outlook", "direct", () => createOutlookEvent(user.id, event))
         : Promise.resolve<CalendarSyncResult>({ id: null }),
   ]);
 
@@ -205,8 +209,8 @@ export async function POST(req: NextRequest) {
       errors.push({
         source: gcalId ? "google" : "outlook",
         transport: gcalId
-          ? (legacyProviders.has("google") ? "direct" : "composio")
-          : (legacyProviders.has("outlook") ? "direct" : "composio"),
+          ? (composioGoogle ? "composio" : "direct")
+          : (composioOutlook ? "composio" : "direct"),
         code: "network",
         message: "Calendar sync succeeded, but AXIS could not save the external event link.",
       });

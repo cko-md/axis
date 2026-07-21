@@ -95,7 +95,7 @@ export const outlookComposioAdapter: MailAdapter = {
   archiveMessage(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("archive")); },
   deleteMessage(): Promise<Result<void>> { return Promise.resolve(NOT_SUPPORTED("delete")); },
   getAttachment(): Promise<Result<never>> {
-    return Promise.resolve(fail("not_supported", "Composio Outlook attachment download is not available yet; reconnect this mailbox directly to save attachments into Library.", {
+    return Promise.resolve(fail("not_supported", "Composio Outlook attachment download is not available yet.", {
       provider: "outlook",
       transport: "composio",
     }));
