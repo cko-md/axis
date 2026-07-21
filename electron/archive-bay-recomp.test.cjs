@@ -33,6 +33,8 @@ const {
   removePort,
   isPortUpdateAvailable,
   buildRecompLaunchSpec,
+  pathContainedIn,
+  minimalSpawnEnv,
   recompErrorCode,
 } = require("./archive-bay-recomp.cjs");
 const { ArchiveBayRuntimeError } = require("./archive-bay-runtime.cjs");
@@ -476,6 +478,75 @@ test("validateAndStageOriginal rejects a wrong-size or wrong-hash original and s
     const state = await loadRecompState(stateFilePath);
     assert.equal(state.ports["example-port"].original, null, "nothing staged after a rejected original");
   });
+});
+
+test("validateAndStageOriginal validates the staged copy, leaves no temp, and preserves a prior good original on a failed re-stage", async () => {
+  await withTempDir(async (dir) => {
+    const original = Buffer.from("g".repeat(2048));
+    const requiredOriginal = validRequiredOriginal({
+      sha256: crypto.createHash("sha256").update(original).digest("hex"),
+      sizeBytes: original.length,
+      stagedName: "baserom.z64",
+    });
+    const { manifest, zip, platformKey } = portFixture({ requiredOriginal });
+    const portsDir = path.join(dir, "ports");
+    const stateFilePath = path.join(portsDir, "state.json");
+    await installPort({ manifest, portId: "example-port", platformKey, portsDir, stateFilePath, transport: fakeTransport({ chunks: [zip] }) });
+
+    const goodPath = path.join(dir, "good.z64");
+    await fs.writeFile(goodPath, original);
+    const stagedPath = await validateAndStageOriginal({ manifest, portId: "example-port", portsDir, stateFilePath, originalFilePath: goodPath });
+    assert.deepEqual(await fs.readFile(stagedPath), original);
+    // The copy-then-validate flow must not leave its temp behind.
+    await assert.rejects(() => fs.access(`${stagedPath}.incoming`), "no .incoming temp remains after a successful stage");
+
+    // A failed re-stage must not clobber the already-staged valid original, and
+    // must clean up its temp (atomic rename only promotes a validated copy).
+    const wrong = path.join(dir, "wrong.z64");
+    await fs.writeFile(wrong, Buffer.from("b".repeat(original.length)));
+    await assert.rejects(
+      () => validateAndStageOriginal({ manifest, portId: "example-port", portsDir, stateFilePath, originalFilePath: wrong }),
+      (e) => e.code === "RECOMP_ORIGINAL_DIGEST_MISMATCH",
+    );
+    assert.deepEqual(await fs.readFile(stagedPath), original, "the prior valid original survives a failed re-stage");
+    await assert.rejects(() => fs.access(`${stagedPath}.incoming`), "no .incoming temp remains after a rejected re-stage");
+  });
+});
+
+test("pathContainedIn allows only paths strictly inside the container (spawn containment gate)", () => {
+  const base = path.resolve("/ports/example-port/1.0.0/darwin-arm64");
+  assert.equal(pathContainedIn(base, path.join(base, "melondsport")), true);
+  assert.equal(pathContainedIn(base, path.join(base, "bin", "melondsport")), true);
+  // Escapes and siblings are refused.
+  assert.equal(pathContainedIn(base, path.resolve(base, "../evil")), false);
+  assert.equal(pathContainedIn(base, path.resolve(base, "../../../../usr/bin/evil")), false);
+  assert.equal(pathContainedIn(base, "/usr/bin/evil"), false);
+  assert.equal(pathContainedIn(base, path.resolve("/ports/example-port/1.0.0/darwin-arm64-evil/x")), false);
+  // The container itself is not "inside" itself.
+  assert.equal(pathContainedIn(base, base), false);
+});
+
+test("minimalSpawnEnv passes only OS runtime vars and drops secrets", () => {
+  const source = {
+    PATH: "/usr/bin",
+    HOME: "/Users/x",
+    LANG: "en_US.UTF-8",
+    OPENAI_API_KEY: "sk-secret",
+    SUPABASE_SERVICE_ROLE_KEY: "super-secret",
+    SENTRY_AUTH_TOKEN: "tok",
+    AWS_SECRET_ACCESS_KEY: "aws",
+  };
+  const posix = minimalSpawnEnv("darwin", source);
+  assert.equal(posix.PATH, "/usr/bin");
+  assert.equal(posix.HOME, "/Users/x");
+  assert.equal(posix.LANG, "en_US.UTF-8");
+  for (const secret of ["OPENAI_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SENTRY_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY"]) {
+    assert.equal(secret in posix, false, `${secret} must not reach a spawned port binary`);
+  }
+  // Windows branch keeps its own runtime vars and still drops the secret.
+  const win = minimalSpawnEnv("win32", { Path: "C:\\Windows", SystemRoot: "C:\\Windows", OPENAI_API_KEY: "sk" });
+  assert.equal(win.SystemRoot, "C:\\Windows");
+  assert.equal("OPENAI_API_KEY" in win, false);
 });
 
 test("validateAndStageOriginal refuses when the port is not installed, and reports unreadable files coded", async () => {

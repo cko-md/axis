@@ -59,6 +59,8 @@ const {
   getPortPlatformRelease: getRecompPortPlatformRelease,
   installPort: installRecompPort,
   loadRecompState,
+  minimalSpawnEnv,
+  pathContainedIn,
   recompErrorCode,
   removePort: removeRecompPort,
   validateAndStageOriginal,
@@ -1070,12 +1072,27 @@ function registerIpc() {
     // it is spawned — one trust gate, not two — and spawn with shell:false and
     // a fixed empty argument array.
     let command;
+    let containerReal;
     try {
       command = await canonicalizeRuntimePath(spec.command);
+      // Containment gate: the resolved binary must live inside this port's own
+      // version directory. executableRelativePath comes from install state, and
+      // canonicalizeRuntimePath is a realpath + is-file check, not a boundary
+      // check — a traversal segment or an in-dir symlink could otherwise resolve
+      // the spawn to an arbitrary executable. (Latent today: recomp ships no
+      // ports; the spawn gate must not rely on that.)
+      containerReal = await fsPromises.realpath(spec.cwd);
     } catch (error) {
       throw new Error(archiveBayErrorMessage(error));
     }
-    const child = spawn(command, spec.args, { shell: false, cwd: spec.cwd });
+    if (!pathContainedIn(containerReal, command)) throw new Error("RECOMP_BINARY_OUTSIDE_PORT");
+    // A downloaded third-party port binary is spawned with a minimal, secret-free
+    // environment — it must not inherit the main process's tokens/keys.
+    const child = spawn(command, spec.args, {
+      shell: false,
+      cwd: spec.cwd,
+      env: minimalSpawnEnv(process.platform, process.env),
+    });
     activeArchiveBayLaunch = { contentId: String(portId), child };
     sendArchiveBayLaunchState({ contentId: String(portId), status: "running" });
     child.on("error", (error) => {

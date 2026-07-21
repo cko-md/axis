@@ -45,6 +45,15 @@ test("every recomp handler is sender-gated", () => {
   }
 });
 
+test("recomp:launch contains the spawned binary inside the port dir and scrubs the environment", () => {
+  const body = handlerBody("archive-bay:recomp:launch");
+  // The resolved binary must be proven inside the port's own version dir...
+  assert.match(body, /pathContainedIn\(/);
+  assert.match(body, /RECOMP_BINARY_OUTSIDE_PORT/);
+  // ...and a downloaded third-party binary must not inherit the process env.
+  assert.match(body, /env: minimalSpawnEnv\(process\.platform, process\.env\)/);
+});
+
 test("recomp:status reports installing state and never leaks a path", () => {
   const body = handlerBody("archive-bay:recomp:status");
   assert.match(body, /recompInstallInFlight/);
@@ -82,7 +91,9 @@ test("recomp:launch is single-flight, re-canonicalizes the command, and spawns w
   assert.match(body, /if \(activeArchiveBayLaunch\) throw new Error\("ARCHIVE_BAY_ALREADY_RUNNING"\)/);
   assert.match(body, /buildRecompLaunchSpec\(\{ portsDir: archiveBayRecompDir/);
   assert.match(body, /canonicalizeRuntimePath\(spec\.command\)/);
-  assert.match(body, /spawn\(command, spec\.args, \{ shell: false, cwd: spec\.cwd \}\)/);
+  assert.match(body, /spawn\(command, spec\.args, \{/);
+  assert.match(body, /shell: false/);
+  assert.match(body, /cwd: spec\.cwd/);
 });
 
 test("no recomp handler forwards a raw error message to the renderer", () => {

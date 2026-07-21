@@ -466,20 +466,6 @@ async function validateAndStageOriginal({ manifest, portId, portsDir, stateFileP
   const installed = state.ports[portId];
   if (!installed) throw new ArchiveBayRecompError("RECOMP_NOT_INSTALLED");
 
-  let measured;
-  try {
-    measured = await hashFile(originalFilePath);
-  } catch {
-    // A path-free code — never surface the picked file's path or a raw fs error.
-    throw new ArchiveBayRecompError("RECOMP_ORIGINAL_UNREADABLE");
-  }
-  if (measured.sizeBytes !== port.requiredOriginal.sizeBytes) {
-    throw new ArchiveBayRecompError("RECOMP_ORIGINAL_SIZE_MISMATCH");
-  }
-  if (measured.sha256 !== port.requiredOriginal.sha256) {
-    throw new ArchiveBayRecompError("RECOMP_ORIGINAL_DIGEST_MISMATCH");
-  }
-
   const assetsDir = portAssetsDir(portsDir, portId, installed.version, installed.platformKey);
   // Contain the staged name inside the assets dir even though the manifest's
   // stagedName already passed assertSafeRelativePath at load time.
@@ -490,8 +476,37 @@ async function validateAndStageOriginal({ manifest, portId, portsDir, stateFileP
     throw new ArchiveBayRecompError("RECOMP_STAGE_PATH_UNSAFE");
   }
 
+  // Copy first into a temp sibling, then hash and validate the STAGED bytes.
+  // Hashing the picked source and copying it afterwards opens a TOCTOU: the
+  // source (a user-picked path, possibly a symlink) can change between the
+  // hash and the copy, so the digest we record would not describe the bytes we
+  // keep. Hashing the copy closes that; the atomic rename means a prior valid
+  // original survives a failed re-stage instead of being clobbered.
   await fsPromises.mkdir(path.dirname(stagedAbsolute), { recursive: true });
-  await fsPromises.copyFile(originalFilePath, stagedAbsolute);
+  const stagingTemp = `${stagedAbsolute}.incoming`;
+  try {
+    await fsPromises.copyFile(originalFilePath, stagingTemp);
+  } catch {
+    // A path-free code — never surface the picked file's path or a raw fs error.
+    throw new ArchiveBayRecompError("RECOMP_ORIGINAL_UNREADABLE");
+  }
+
+  let measured;
+  try {
+    measured = await hashFile(stagingTemp);
+    if (measured.sizeBytes !== port.requiredOriginal.sizeBytes) {
+      throw new ArchiveBayRecompError("RECOMP_ORIGINAL_SIZE_MISMATCH");
+    }
+    if (measured.sha256 !== port.requiredOriginal.sha256) {
+      throw new ArchiveBayRecompError("RECOMP_ORIGINAL_DIGEST_MISMATCH");
+    }
+  } catch (error) {
+    await fsPromises.rm(stagingTemp, { force: true });
+    if (error instanceof ArchiveBayRecompError) throw error;
+    throw new ArchiveBayRecompError("RECOMP_ORIGINAL_UNREADABLE");
+  }
+
+  await fsPromises.rename(stagingTemp, stagedAbsolute);
 
   installed.original = {
     sha256: measured.sha256,
@@ -551,6 +566,37 @@ function recompErrorCode(error) {
   return "RECOMP_UNKNOWN_ERROR";
 }
 
+/**
+ * Whether `candidate` (an already-resolved absolute path) lives strictly inside
+ * `containerDir` (also resolved). Spawn containment gate: a port's executable
+ * must resolve to a path under its own version directory, so a traversal
+ * segment or an in-directory symlink in the install record cannot point the
+ * spawn at an arbitrary binary. Pure for testability.
+ */
+function pathContainedIn(containerDir, candidate) {
+  const rel = path.relative(path.resolve(containerDir), path.resolve(candidate));
+  return rel !== "" && !rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel);
+}
+
+/**
+ * A minimal, secret-free environment for spawning a downloaded third-party port
+ * binary. It must NOT inherit the full main-process environment (which can
+ * carry provider tokens/keys); pass only the standard OS runtime variables a
+ * native process needs to start. Pure (platform + source env are arguments) so
+ * the allowlist is unit-testable.
+ */
+function minimalSpawnEnv(platform, sourceEnv) {
+  const allow =
+    platform === "win32"
+      ? ["PATH", "Path", "SystemRoot", "windir", "ComSpec", "PATHEXT", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "COMMONPROGRAMFILES"]
+      : ["PATH", "HOME", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "XDG_DATA_DIRS"];
+  const env = {};
+  for (const key of allow) {
+    if (sourceEnv[key] !== undefined) env[key] = sourceEnv[key];
+  }
+  return env;
+}
+
 module.exports = {
   RECOMP_MANIFEST_SCHEMA_VERSION,
   RECOMP_STATE_SCHEMA_VERSION,
@@ -572,4 +618,6 @@ module.exports = {
   recompErrorCode,
   portVersionDir,
   portAssetsDir,
+  pathContainedIn,
+  minimalSpawnEnv,
 };
