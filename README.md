@@ -10,6 +10,7 @@ The app is integrations-heavy. Supabase is the persistence and auth layer; Verce
 - **Supabase** Auth, Postgres, Storage, RLS
 - **Sentry** Next.js client/server/edge observability
 - **Vercel** preview and production deployments
+- **Electron** desktop shell (`electron/`) wrapping the web app, with the desktop-only Archive Bay; built and tested separately from `next build`
 - **Composio** integration sessions and tool execution, alongside direct OAuth where implemented
 - **AI providers** through the app AI router and module-specific actions
 - **Polygon/Massive** market data proxy via `/api/massive/*`
@@ -93,6 +94,7 @@ Status comes from `src/lib/store/nav.ts`.
 | Labs | `/listening-vault` | Listening Vault | lab | Spotify-dependent music room. |
 | Labs | `/library` | Library | lab | Uploads exist; broader workflow needs storage/RLS/error validation. |
 | Labs | `/supper-club` | Supper Club | lab | Local-only exploratory recipe curation. |
+| Labs | `/vector` | VECTOR | lab | Arcade of deterministic, offline-capable mini-games plus Archive Bay; Second Sense is playable, the other titles are gated on their per-title waves. |
 | System | `/control-room` | Control Room | production | Settings and integrations hub. |
 
 ## Route Inventory
@@ -125,6 +127,7 @@ Status comes from `src/lib/store/nav.ts`.
 | `/library` | Library module. |
 | `/supper-club` | Supper Club module. |
 | `/control-room` | Control Room module. |
+| `/vector`, `/vector/[game]`, `/vector/archive-bay` | VECTOR arcade catalog, per-title player, and Archive Bay. |
 | `/oauth-done` | OAuth popup completion route. |
 | `/privacy`, `/terms` | Legal pages. |
 
@@ -140,6 +143,7 @@ Status comes from `src/lib/store/nav.ts`.
 | Fund / markets | `/api/fund/*`, `/api/massive/*`, `/api/plaid/*`, `/api/brokerage/*` |
 | AI / search | `/api/ai`, `/api/signals-ai`, `/api/embeddings`, `/api/search/*`, scan routes |
 | Briefing / feeds | `/api/briefing/*`, `/api/feeds/*` |
+| VECTOR arcade | `/api/vector/*` (owner-scoped saves, event sync, conflict resolution) |
 | Auth | `/api/auth/*` |
 | Spotify / Strava / health | `/api/spotify/*`, `/api/strava`, `/api/health/*/connect` |
 | Cron | `/api/cron/daily`, `/api/cron/finance-daily`, `/api/cron/feed-digest`, `/api/cron/intelligence-sweep` |
@@ -155,6 +159,19 @@ Only `/api/cron/daily` and `/api/cron/finance-daily` are scheduled in `vercel.js
 | Beta | Objectives, Debrief, Pipeline, Literature, People, Briefing, Fund |
 | Lab | Vitality, Atelier, Listening Vault, Library, Supper Club |
 | Future / blocked | Widget platform hardening, cache-first widget reads, migration-order cleanup, live provider validation, and additional adapter coverage are tracked as follow-up issues rather than claimed as complete here. |
+
+## Desktop (Electron)
+
+`electron/` is a desktop shell around the same web app, built and verified
+independently of `next build` (`npm run desktop:check`, `npm run test:e2e:electron`).
+It never imports `src/`, so the web suite and runtime are unaffected by desktop changes.
+
+- **Archive Bay** (desktop-only) plays Nintendo DS titles you already own via three
+  separated tracks: a bring-your-own-emulator launcher, a managed melonDS runtime, and
+  a native-recompilation port adapter. AXIS never ships or downloads copyrighted games —
+  the user supplies their own original, validated by sha256 and staged locally.
+- Preview builds are unsigned today; a signed release is deferred pending the owner's
+  Apple/Azure signing secrets (see `docs/desktop-distribution.md`).
 
 ## Scripts
 
