@@ -19,19 +19,21 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-20T16:46:15.992Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-21T04:31:32.802Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `feat/electron-reliability-archive-bay-16.3`
-- **HEAD:** `ad2dce63`
+- **Branch:** `fix/desktop-review-concurrency3-upd3`
+- **HEAD:** `203484b7`
 - **main:** `5572d3ee`
 - **Working tree:** clean
 
-### Not yet on main (1 commit(s))
+### Not yet on main (3 commit(s))
 
 These exist only on this branch. Do not assume main contains them.
 
+- `203484b7` fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race
+- `9c245bad` docs(axis): re-derive CURRENT_STATE after rebasing 16.3 onto the Paper Glider shell
 - `ad2dce63` feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter
 
 ## Waves merged to main
@@ -57,7 +59,7 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Defects
 
-- **Total logged:** 39
+- **Total logged:** 41
 - **Open:** 0
 
 ## Gates

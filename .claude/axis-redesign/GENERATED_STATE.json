@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-20T16:46:15.992Z",
+  "derivedAt": "2026-07-21T04:31:32.802Z",
   "git": {
-    "branch": "feat/electron-reliability-archive-bay-16.3",
-    "head": "ad2dce63b892c77df285fab578c33df7f668e991",
+    "branch": "fix/desktop-review-concurrency3-upd3",
+    "head": "203484b76345dfc04dc3d53226a08bb22505294c",
     "mainHead": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "203484b7",
+        "subject": "fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race"
+      },
+      {
+        "sha": "9c245bad",
+        "subject": "docs(axis): re-derive CURRENT_STATE after rebasing 16.3 onto the Paper Glider shell"
+      },
       {
         "sha": "ad2dce63",
         "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter"
@@ -244,7 +252,7 @@
     "latest": "202607170001_vector_arcade_persistence.sql"
   },
   "defects": {
-    "total": 39,
+    "total": 41,
     "open": 0,
     "openIds": []
   },
