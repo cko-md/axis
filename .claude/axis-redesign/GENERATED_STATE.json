@@ -1,12 +1,32 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-21T05:55:59.637Z",
+  "derivedAt": "2026-07-21T13:20:24.450Z",
   "git": {
-    "branch": "fix/desktop-review-f1-handlerbody-overrun",
-    "head": "7ca4af33453deb187116d2ef5bf478b995787f96",
+    "branch": "integration/nongame-batch",
+    "head": "7ec07179d2f76860f2e9cf3edf75d70932ef129a",
     "mainHead": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "7ec07179",
+        "subject": "chore(nongame): mark the Envoy/Mascot-removal plan dropped; broaden the dead-feed guard"
+      },
+      {
+        "sha": "8f006fb5",
+        "subject": "docs(readme): add the VECTOR arcade and the desktop (Electron) track"
+      },
+      {
+        "sha": "19193a00",
+        "subject": "harden(desktop): contain the recomp spawn, scrub its env, and close the staging TOCTOU (DESKTOP-005)"
+      },
+      {
+        "sha": "065bde35",
+        "subject": "fix(integrations): make Composio win the Mail/Calendar/Contacts dedup (finding I3)"
+      },
+      {
+        "sha": "76948aef",
+        "subject": "docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)"
+      },
       {
         "sha": "7ca4af33",
         "subject": "test(desktop): scope IPC source-scan handlerBody to one handler, not a fixed window (DESKTOP-004)"
@@ -260,7 +280,7 @@
     "latest": "202607170001_vector_arcade_persistence.sql"
   },
   "defects": {
-    "total": 42,
+    "total": 43,
     "open": 0,
     "openIds": []
   },

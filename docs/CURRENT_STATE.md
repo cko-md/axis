@@ -19,19 +19,24 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-21T05:55:59.637Z. Do not hand-edit this block._
+_Derived from the repository at 2026-07-21T13:20:24.450Z. Do not hand-edit this block._
 
 ## Where the code actually is
 
-- **Branch:** `fix/desktop-review-f1-handlerbody-overrun`
-- **HEAD:** `7ca4af33`
+- **Branch:** `integration/nongame-batch`
+- **HEAD:** `7ec07179`
 - **main:** `5572d3ee`
 - **Working tree:** clean
 
-### Not yet on main (5 commit(s))
+### Not yet on main (10 commit(s))
 
 These exist only on this branch. Do not assume main contains them.
 
+- `7ec07179` chore(nongame): mark the Envoy/Mascot-removal plan dropped; broaden the dead-feed guard
+- `8f006fb5` docs(readme): add the VECTOR arcade and the desktop (Electron) track
+- `19193a00` harden(desktop): contain the recomp spawn, scrub its env, and close the staging TOCTOU (DESKTOP-005)
+- `065bde35` fix(integrations): make Composio win the Mail/Calendar/Contacts dedup (finding I3)
+- `76948aef` docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)
 - `7ca4af33` test(desktop): scope IPC source-scan handlerBody to one handler, not a fixed window (DESKTOP-004)
 - `890a7a07` docs(axis): re-derive state after the 16.3 review remediation
 - `203484b7` fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race
@@ -61,7 +66,7 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Defects
 
-- **Total logged:** 42
+- **Total logged:** 43
 - **Open:** 0
 
 ## Gates
