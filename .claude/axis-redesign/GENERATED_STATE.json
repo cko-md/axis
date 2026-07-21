@@ -1,55 +1,110 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-21T13:20:24.450Z",
+  "derivedAt": "2026-07-21T22:56:13.800Z",
   "git": {
-    "branch": "integration/nongame-batch",
-    "head": "7ec07179d2f76860f2e9cf3edf75d70932ef129a",
-    "mainHead": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
+    "branch": "main",
+    "head": "b2a7faf1b0eb4dec18fddfdc29b35e8c2b581d60",
+    "mainHead": "b2a7faf1b0eb4dec18fddfdc29b35e8c2b581d60",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "7ec07179",
-        "subject": "chore(nongame): mark the Envoy/Mascot-removal plan dropped; broaden the dead-feed guard"
-      },
-      {
-        "sha": "8f006fb5",
-        "subject": "docs(readme): add the VECTOR arcade and the desktop (Electron) track"
-      },
-      {
-        "sha": "19193a00",
-        "subject": "harden(desktop): contain the recomp spawn, scrub its env, and close the staging TOCTOU (DESKTOP-005)"
-      },
-      {
-        "sha": "065bde35",
-        "subject": "fix(integrations): make Composio win the Mail/Calendar/Contacts dedup (finding I3)"
-      },
-      {
-        "sha": "76948aef",
-        "subject": "docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)"
-      },
-      {
-        "sha": "7ca4af33",
-        "subject": "test(desktop): scope IPC source-scan handlerBody to one handler, not a fixed window (DESKTOP-004)"
-      },
-      {
-        "sha": "890a7a07",
-        "subject": "docs(axis): re-derive state after the 16.3 review remediation"
-      },
-      {
-        "sha": "203484b7",
-        "subject": "fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race"
-      },
-      {
-        "sha": "9c245bad",
-        "subject": "docs(axis): re-derive CURRENT_STATE after rebasing 16.3 onto the Paper Glider shell"
-      },
-      {
-        "sha": "ad2dce63",
-        "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter"
-      }
-    ]
+    "aheadOfMain": []
   },
   "mergedPrs": [
+    {
+      "pr": null,
+      "sha": "b2a7faf1",
+      "subject": "chore(db): drop the empty legacy Mail/Calendar/Contacts connection tables",
+      "committedAt": "2026-07-21T10:47:41-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "6fedaceb",
+      "subject": "chore(integrations): delete the direct-OAuth Mail/Calendar/Contacts adapters (Composio-only)",
+      "committedAt": "2026-07-21T10:34:20-04:00"
+    },
+    {
+      "pr": 262,
+      "sha": "6833e60e",
+      "subject": "feat(icons): native macOS squircle app icon — cerulean line-art, cinematic depth",
+      "committedAt": "2026-07-21T10:07:55-04:00"
+    },
+    {
+      "pr": 265,
+      "sha": "8be88199",
+      "subject": "chore(supabase): track downloaded fund_bank_transactions provenance snippets",
+      "committedAt": "2026-07-21T10:07:51-04:00"
+    },
+    {
+      "pr": 264,
+      "sha": "28e4b879",
+      "subject": "docs(envoys): add worker future backlog + Linear-style slices (EW-1..EW-10)",
+      "committedAt": "2026-07-21T10:07:48-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "542eaedb",
+      "subject": "docs(axis): re-derive state for the batched non-game integration (43 defects/0 open)",
+      "committedAt": "2026-07-21T09:20:24-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "7ec07179",
+      "subject": "chore(nongame): mark the Envoy/Mascot-removal plan dropped; broaden the dead-feed guard",
+      "committedAt": "2026-07-21T09:20:14-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "8f006fb5",
+      "subject": "docs(readme): add the VECTOR arcade and the desktop (Electron) track",
+      "committedAt": "2026-07-21T09:20:14-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "19193a00",
+      "subject": "harden(desktop): contain the recomp spawn, scrub its env, and close the staging TOCTOU (DESKTOP-005)",
+      "committedAt": "2026-07-21T09:20:14-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "065bde35",
+      "subject": "fix(integrations): make Composio win the Mail/Calendar/Contacts dedup (finding I3)",
+      "committedAt": "2026-07-21T09:20:14-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "76948aef",
+      "subject": "docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)",
+      "committedAt": "2026-07-21T01:55:59-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "7ca4af33",
+      "subject": "test(desktop): scope IPC source-scan handlerBody to one handler, not a fixed window (DESKTOP-004)",
+      "committedAt": "2026-07-21T01:55:59-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "890a7a07",
+      "subject": "docs(axis): re-derive state after the 16.3 review remediation",
+      "committedAt": "2026-07-21T00:31:32-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "203484b7",
+      "subject": "fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race",
+      "committedAt": "2026-07-21T00:31:25-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "9c245bad",
+      "subject": "docs(axis): re-derive CURRENT_STATE after rebasing 16.3 onto the Paper Glider shell",
+      "committedAt": "2026-07-20T12:47:37-04:00"
+    },
+    {
+      "pr": null,
+      "sha": "ad2dce63",
+      "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter",
+      "committedAt": "2026-07-20T12:45:26-04:00"
+    },
     {
       "pr": null,
       "sha": "5572d3ee",
@@ -103,102 +158,6 @@
       "sha": "8203a8b6",
       "subject": "feat(vector): Time to Fly Phaser shell — playable, route-isolated, planned",
       "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "f11082ae",
-      "subject": "feat(vector): Time to Fly core round 1 — player-solvability gate, progress, input, simulation",
-      "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "44a5ad21",
-      "subject": "fix(vector): Time to Fly generator converges — 6/6 seeds at every level",
-      "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "423a4bf4",
-      "subject": "feat(vector): Time to Fly threading rule — breaks the verification wall",
-      "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "b6538e2b",
-      "subject": "wip(vector): Time to Fly verifier and generator — exhaustive count is the wall",
-      "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "42857c73",
-      "subject": "feat(vector): Wave 15.9 Time to Fly — constants, orbit lattice, flight integrator",
-      "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "19a1f19a",
-      "subject": "docs(vector): ADR-0006 — Time to Fly needs disjoint gravity fields",
-      "committedAt": "2026-07-20T02:37:09-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "5d1fb418",
-      "subject": "fix(vector): accept Next build ids starting with _ or - in offline validation",
-      "committedAt": "2026-07-20T02:36:55-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "ad7e3725",
-      "subject": "docs(axis): record the completed post-deploy Sentry review via the CLI",
-      "committedAt": "2026-07-20T01:50:15-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "bd29b2a5",
-      "subject": "docs(axis): re-derive state after #260/#261",
-      "committedAt": "2026-07-20T01:40:27-04:00"
-    },
-    {
-      "pr": 261,
-      "sha": "72f4e738",
-      "subject": "feat(vector): Paper Glider deterministic flight core — rooms, rings, passability oracle (Wave 15.10)",
-      "committedAt": "2026-07-20T01:32:06-04:00"
-    },
-    {
-      "pr": 260,
-      "sha": "62d7a179",
-      "subject": "fix(vector): repair the Brickrise shell defects confirmed by adversarial review",
-      "committedAt": "2026-07-20T01:30:07-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "f225ae72",
-      "subject": "docs(axis): re-derive state after #258/#259; steward the narrative to current truth",
-      "committedAt": "2026-07-20T01:19:12-04:00"
-    },
-    {
-      "pr": 259,
-      "sha": "85cedc96",
-      "subject": "feat(vector): prove the route-isolated vector-engine-three chunk (Wave 15.10 spike)",
-      "committedAt": "2026-07-20T00:57:06-04:00"
-    },
-    {
-      "pr": 258,
-      "sha": "d851b9dd",
-      "subject": "fix(desktop): harden the window-close path against dialogs that block a quit",
-      "committedAt": "2026-07-19T20:02:13-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "7d34ec82",
-      "subject": "fix(vector): accept Next build ids starting with _ or - in offline validation",
-      "committedAt": "2026-07-19T19:40:14-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "194ebe84",
-      "subject": "docs(axis): refresh derived state after the derivation fix",
-      "committedAt": "2026-07-19T11:58:16-04:00"
     }
   ],
   "waves": [
@@ -276,8 +235,8 @@
     }
   ],
   "migrations": {
-    "count": 89,
-    "latest": "202607170001_vector_arcade_persistence.sql"
+    "count": 90,
+    "latest": "20260721144434_drop_legacy_connection_tables.sql"
   },
   "defects": {
     "total": 43,
