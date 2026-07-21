@@ -20,10 +20,12 @@ function handlerBody(channel) {
   const marker = `ipcMain.handle("${channel}"`;
   const start = source.indexOf(marker);
   assert.ok(start !== -1, `expected to find a handler for ${channel}`);
-  // Slice out roughly the next 2000 chars — every handler in this file is
-  // well under that, and this avoids needing a full brace-matching parser
-  // just to scope the assertions below to a single handler body.
-  return source.slice(start, start + 2000);
+  // Delimit by the NEXT ipcMain.handle(, not a fixed-size window. A fixed slice
+  // overruns a short handler into its neighbour(s), so an assertion for this
+  // handler could be satisfied by a sibling's text within the window — a false
+  // pass. Scoping to exactly this handler's body closes that gap.
+  const next = source.indexOf("ipcMain.handle(", start + marker.length);
+  return source.slice(start, next === -1 ? source.length : next);
 }
 
 test("archive-bay:managed-runtime:manifest is sender-gated and never accepts a renderer argument", () => {

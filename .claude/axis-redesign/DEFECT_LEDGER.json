@@ -1,6 +1,6 @@
 {
  "updated": "2026-07-21",
- "revision": "fix/desktop-review-concurrency3-upd3",
+ "revision": "fix/desktop-review-f1-handlerbody-overrun",
  "defects": [
   {
    "id": "SEC-005",
@@ -731,6 +731,24 @@
    "revision_fixed": "fix/desktop-review-concurrency3-upd3",
    "verification": "desktop:check 140/140, eslint clean. The defect was CONFIRMED by 3/3 adversarial verifiers before the fix.",
    "similar_code_search": "The other update-controller manual-gated paths (onAvailable, both onError branches) routed through the same shared boolean and are fixed together via takeManualCheck(). No other shared-flag-across-async-check pattern found in electron/."
+  },
+  {
+   "id": "DESKTOP-004",
+   "severity": "low",
+   "source": "Post-merge adversarial review (workflow wf_4918f1a3, dimension test-honesty, finding F1) \u2014 verifier died on the session limit before adjudication; re-verified by hand this session and CONFIRMED real",
+   "summary": "The source-scan IPC tests main-recomp-ipc.test.cjs and main-managed-runtime-ipc.test.cjs extracted each handler body as a fixed-size character window (source.slice(start, start+2200 / +2000)) from the handler marker. Short handlers (e.g. recomp:manifest/:status) are far under the window, so the slice overruns into the next handler(s) and an assertion for one handler could be satisfied by a sibling's text within the window \u2014 a false pass that would let a specific handler regress undetected.",
+   "reproduction": "handlerBody('archive-bay:recomp:manifest') returns 2200 chars starting at the short manifest handler, spanning into recomp:status/install/etc.; an assertion like archiveBayRecompErrorMessage(error) intended for the manifest handler can match text belonging to a later handler. Same class the new main-launch-error-mapping.test.cjs deliberately avoids by delimiting on the next ipcMain.handle(.",
+   "affected": [
+    "electron/main-recomp-ipc.test.cjs",
+    "electron/main-managed-runtime-ipc.test.cjs"
+   ],
+   "root_cause": "handlerBody scoped each handler by a fixed char count instead of the actual handler boundary, so the assertion target was not guaranteed to be the intended handler.",
+   "fix": "handlerBody now delimits from the handler marker to the NEXT ipcMain.handle( occurrence (end-of-file if last), scoping every assertion to exactly one handler body. All 140 desktop tests still pass, so no assertion was relying on sibling text \u2014 the fix prevents a FUTURE regression from hiding.",
+   "regression_test": "The existing suites now run against correctly-scoped bodies; the same delimiter pattern is independently guarded by electron/main-launch-error-mapping.test.cjs.",
+   "status": "fixed",
+   "revision_fixed": "fix/desktop-review-f1-handlerbody-overrun",
+   "verification": "desktop:test 140/140 after the tightening (no hidden failure surfaced), eslint clean.",
+   "similar_code_search": "Both fixed-window source-scan tests corrected; main-launch-error-mapping.test.cjs already uses the delimiter. No other fixed-window handler slicing remains in electron/."
   }
  ]
 }
