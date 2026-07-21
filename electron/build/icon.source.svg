@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Axis — a luminous cerulean mountain outline over a deep cinematic night sky with a warm sun">
+  <!--
+    Axis macOS/desktop app icon — vector master.
+    Direction: "Line-Art Night" with cinematic depth. Locked brand palette:
+      hero mountain stroke = EXACTLY #5BC2E7 (Axis cerulean); warm sun #FFB44E→#F4842F.
+    Apple "Big Sur+" grid: 824x824 squircle body centered on a 1024 canvas (rx/ry 185.4),
+    100px TRANSPARENT margin so macOS masks/sizes it like a native app. Regenerate all
+    raster targets from this file via scratchpad/bake-icons.mjs.
+  -->
+  <defs>
+    <clipPath id="squircle"><rect x="100" y="100" width="824" height="824" rx="185.4" ry="185.4"/></clipPath>
+
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#060a18"/>
+      <stop offset="0.34" stop-color="#081026"/>
+      <stop offset="0.56" stop-color="#0b1832"/>
+      <stop offset="0.72" stop-color="#0f2340"/>
+      <stop offset="0.82" stop-color="#163350"/>
+      <stop offset="0.9" stop-color="#0c1a30"/>
+      <stop offset="1" stop-color="#060c18"/>
+    </linearGradient>
+
+    <radialGradient id="sunBloom" gradientUnits="userSpaceOnUse" cx="680" cy="340" r="320">
+      <stop offset="0" stop-color="#FFD27A" stop-opacity="0.95"/>
+      <stop offset="0.16" stop-color="#FFC062" stop-opacity="0.78"/>
+      <stop offset="0.4" stop-color="#FFB44E" stop-opacity="0.34"/>
+      <stop offset="0.72" stop-color="#F4842F" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#F4842F" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sunDisc" gradientUnits="userSpaceOnUse" cx="680" cy="340" r="54">
+      <stop offset="0" stop-color="#FFE7B4"/>
+      <stop offset="0.5" stop-color="#FFD27A"/>
+      <stop offset="0.85" stop-color="#FFB44E"/>
+      <stop offset="1" stop-color="#F4842F"/>
+    </radialGradient>
+
+    <radialGradient id="horizonGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F79A3C" stop-opacity="0.3"/>
+      <stop offset="0.5" stop-color="#b5541d" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#b5541d" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="refl" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5BC2E7" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#5BC2E7" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" gradientUnits="userSpaceOnUse" cx="512" cy="500" r="470">
+      <stop offset="0" stop-color="#04060e" stop-opacity="0"/>
+      <stop offset="0.62" stop-color="#04060e" stop-opacity="0"/>
+      <stop offset="0.85" stop-color="#04060e" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#03050c" stop-opacity="0.72"/>
+    </radialGradient>
+    <linearGradient id="topLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="0.16" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="botShadow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#02040a" stop-opacity="0"/>
+      <stop offset="0.78" stop-color="#02040a" stop-opacity="0"/>
+      <stop offset="1" stop-color="#02040a" stop-opacity="0.55"/>
+    </linearGradient>
+
+    <!-- soft downward fade for the mirrored reflection -->
+    <linearGradient id="reflFadeGrad" x1="0" y1="706" x2="0" y2="884" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#000000"/>
+    </linearGradient>
+    <mask id="reflFade"><rect x="100" y="700" width="824" height="210" fill="url(#reflFadeGrad)"/></mask>
+
+    <filter id="bBig" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="bMed" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="8"/></filter>
+    <filter id="bRay" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="24"/></filter>
+    <filter id="bRidge" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="bRidgeFar" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="11"/></filter>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#sky)"/>
+    <ellipse cx="600" cy="688" rx="430" ry="120" fill="url(#horizonGlow)"/>
+
+    <!-- stars -->
+    <g fill="#cfe6f5">
+      <circle cx="250" cy="205" r="2.4" opacity="0.8"/>
+      <circle cx="185" cy="300" r="1.8" opacity="0.6"/>
+      <circle cx="330" cy="250" r="2" opacity="0.7"/>
+      <circle cx="410" cy="185" r="1.6" opacity="0.55"/>
+      <circle cx="205" cy="430" r="2.2" opacity="0.6"/>
+      <circle cx="300" cy="500" r="1.5" opacity="0.5"/>
+      <circle cx="150" cy="560" r="1.8" opacity="0.55"/>
+      <circle cx="885" cy="215" r="1.6" opacity="0.45"/>
+      <circle cx="835" cy="470" r="1.5" opacity="0.4"/>
+    </g>
+
+    <!-- god-rays from the sun -->
+    <g filter="url(#bRay)" opacity="0.5" fill="#FFCB74">
+      <path d="M680 340 L636 880 L724 880 Z" opacity="0.08"/>
+      <path d="M680 340 L636 880 L724 880 Z" opacity="0.08" transform="rotate(22,680,340)"/>
+      <path d="M680 340 L636 880 L724 880 Z" opacity="0.08" transform="rotate(-20,680,340)"/>
+      <path d="M680 340 L636 880 L724 880 Z" opacity="0.07" transform="rotate(44,680,340)"/>
+      <path d="M680 340 L636 880 L724 880 Z" opacity="0.07" transform="rotate(-40,680,340)"/>
+    </g>
+
+    <circle cx="680" cy="340" r="320" fill="url(#sunBloom)"/>
+    <circle cx="680" cy="340" r="54" fill="url(#sunDisc)"/>
+
+    <!-- distant ridge 2 (furthest — flattest, faintest, most haze) for atmospheric depth -->
+    <path d="M100 672 L300 646 L470 660 L640 640 L820 658 L924 646 L924 770 L100 770 Z"
+          fill="#0e2740" opacity="0.5" filter="url(#bRidgeFar)"/>
+    <!-- far ridge (nearer, a touch crisper) -->
+    <path d="M100 690 L260 642 L420 668 L600 618 L780 656 L924 632 L924 770 L100 770 Z"
+          fill="#15334c" opacity="0.6" filter="url(#bRidge)"/>
+
+    <!-- mirrored, foreshortened reflection of the hero line on the implied surface -->
+    <g mask="url(#reflFade)" opacity="0.3">
+      <path d="M150 706 L336 548 L422 602 L560 402 L662 520 L762 452 L876 706"
+            fill="none" stroke="#5BC2E7" stroke-width="18" stroke-linejoin="round" stroke-linecap="round"
+            filter="url(#bMed)" transform="translate(0,706) scale(1,-0.5) translate(0,-706)"/>
+    </g>
+    <ellipse cx="560" cy="742" rx="70" ry="88" fill="url(#refl)" opacity="0.45"/>
+
+    <!-- hero mountain: luminous cerulean pen-stroke (glow passes + crisp core) -->
+    <path d="M150 706 L336 548 L422 602 L560 402 L662 520 L762 452 L876 706"
+          fill="none" stroke="#5BC2E7" stroke-width="40" stroke-linejoin="round" stroke-linecap="round" opacity="0.5" filter="url(#bBig)"/>
+    <path d="M150 706 L336 548 L422 602 L560 402 L662 520 L762 452 L876 706"
+          fill="none" stroke="#5BC2E7" stroke-width="26" stroke-linejoin="round" stroke-linecap="round" opacity="0.55" filter="url(#bMed)"/>
+    <path d="M150 706 L336 548 L422 602 L560 402 L662 520 L762 452 L876 706"
+          fill="none" stroke="#5BC2E7" stroke-width="20" stroke-linejoin="round" stroke-linecap="round"/>
+
+    <rect x="100" y="100" width="824" height="824" fill="url(#topLight)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#botShadow)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#vignette)"/>
+  </g>
+
+  <!-- carved macOS rim bevel -->
+  <rect x="101" y="101" width="822" height="822" rx="184.4" ry="184.4" fill="none" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2"/>
+  <rect x="100" y="100" width="824" height="824" rx="185.4" ry="185.4" fill="none" stroke="#000000" stroke-opacity="0.25" stroke-width="1"/>
+</svg>
