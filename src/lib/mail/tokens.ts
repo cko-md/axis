@@ -1,91 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
-import { encrypt, decrypt } from "@/lib/crypto";
-import { refreshGoogleOAuth, refreshMicrosoftOAuth } from "@/lib/oauth/refresh";
 import { listComposioMailAccounts } from "./composio";
-import type { PostgrestError } from "@supabase/supabase-js";
-
-const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
-const OUTLOOK_MAIL_SCOPE = "Mail.Read Mail.Send offline_access User.Read";
 
 export type MailProvider = "gmail" | "outlook";
-
-interface StoredTokens {
-  accessToken: string;
-  refreshToken: string | null;
-  expiresAt: Date | null;
-  mailEmail: string;
-}
-
-export async function getMailTokens(
-  userId: string,
-  provider: MailProvider,
-  mailEmail: string,
-): Promise<StoredTokens | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("mail_connections")
-    .select("access_token_enc, refresh_token_enc, expires_at, mail_email")
-    .eq("user_id", userId)
-    .eq("provider", provider)
-    .eq("mail_email", mailEmail)
-    .single();
-
-  if (!data) return null;
-  const accessToken = decrypt(data.access_token_enc);
-  if (!accessToken) return null;
-
-  return {
-    accessToken,
-    refreshToken: data.refresh_token_enc ? decrypt(data.refresh_token_enc) : null,
-    expiresAt: data.expires_at ? new Date(data.expires_at) : null,
-    mailEmail: data.mail_email as string,
-  };
-}
-
-export async function saveMailTokens(
-  userId: string,
-  provider: MailProvider,
-  accessToken: string,
-  refreshToken: string | null,
-  expiresInSeconds: number,
-  mailEmail: string,
-): Promise<void> {
-  const supabase = await createClient();
-  const accessEnc = encrypt(accessToken);
-  // encrypt() returns null when ENCRYPTION_KEY is missing/misconfigured — never
-  // persist a null access token (the column is NOT NULL and a null would be useless).
-  if (!accessEnc) throw new Error("Mail token encryption failed — ENCRYPTION_KEY not configured");
-  const refreshEnc = refreshToken ? encrypt(refreshToken) : null;
-  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
-
-  await supabase.from("mail_connections").upsert(
-    {
-      user_id: userId,
-      provider,
-      access_token_enc: accessEnc,
-      refresh_token_enc: refreshEnc,
-      expires_at: expiresAt,
-      mail_email: mailEmail,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,provider,mail_email" },
-  );
-}
-
-export async function deleteMailTokens(
-  userId: string,
-  provider: MailProvider,
-  mailEmail: string,
-): Promise<PostgrestError | null> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("mail_connections")
-    .delete()
-    .eq("user_id", userId)
-    .eq("provider", provider)
-    .eq("mail_email", mailEmail);
-  return error;
-}
 
 export type MailAccountRef = {
   provider: MailProvider;
@@ -94,66 +9,17 @@ export type MailAccountRef = {
   connectedAccountId?: string;
 };
 
+// Mail is Composio-only after the direct-adapter removal, so a "mail account" is
+// simply a Composio-connected mailbox. The direct token store (getMailTokens /
+// saveMailTokens / getFreshMailAccessToken / deleteMailTokens) and the legacy
+// mail_connections table it read/wrote are gone; that table holds zero rows in
+// production and no code path references it anymore.
 export async function listMailAccounts(userId: string): Promise<MailAccountRef[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("mail_connections")
-    .select("provider, mail_email")
-    .eq("user_id", userId);
-  if (error) throw error;
-
-  const oauthAccounts: MailAccountRef[] = (data ?? []).map((row) => ({
-    provider: row.provider as MailProvider,
-    mailEmail: row.mail_email as string,
-  }));
-
   const composioAccounts = await listComposioMailAccounts(userId);
-  const composioRefs: MailAccountRef[] = composioAccounts.map((a) => ({
+  return composioAccounts.map((a) => ({
     provider: a.provider,
     mailEmail: a.mailEmail,
     via: "composio" as const,
     connectedAccountId: a.connectedAccountId,
   }));
-
-  // A given mailbox is connected one way at a time. Composio is the canonical
-  // connect path (Mail/Calendar/Contacts are consolidated onto Composio), so a
-  // Composio connection WINS the dedup: a stale pre-consolidation direct row must
-  // never shadow a live Composio reconnect (that combination showed "connected"
-  // in the UI while silently 401-ing on every read). A legacy direct row is used
-  // only for a mailbox that has no Composio connection at all. Prod has zero
-  // legacy rows and no path writes them, so today this is purely defensive.
-  const seen = new Set(composioRefs.map((a) => `${a.provider}:${a.mailEmail}`));
-  return [...composioRefs, ...oauthAccounts.filter((a) => !seen.has(`${a.provider}:${a.mailEmail}`))];
-}
-
-export async function getFreshMailAccessToken(
-  userId: string,
-  provider: MailProvider,
-  mailEmail: string,
-): Promise<string | null> {
-  const tokens = await getMailTokens(userId, provider, mailEmail);
-  if (!tokens) return null;
-
-  const needsRefresh =
-    tokens.expiresAt && tokens.expiresAt.getTime() - Date.now() < TOKEN_REFRESH_THRESHOLD_MS;
-
-  if (!needsRefresh) return tokens.accessToken;
-  if (!tokens.refreshToken) return null;
-
-  const refreshed =
-    provider === "gmail"
-      ? await refreshGoogleOAuth(tokens.refreshToken)
-      : await refreshMicrosoftOAuth(tokens.refreshToken, OUTLOOK_MAIL_SCOPE);
-
-  if (!refreshed) return null;
-
-  await saveMailTokens(
-    userId,
-    provider,
-    refreshed.accessToken,
-    refreshed.refreshToken ?? tokens.refreshToken,
-    refreshed.expiresIn,
-    mailEmail,
-  );
-  return refreshed.accessToken;
 }

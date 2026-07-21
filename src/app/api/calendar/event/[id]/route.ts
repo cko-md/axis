@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { deleteGoogleEvent, updateGoogleEvent } from "@/lib/calendar/google";
-import { deleteOutlookEvent, updateOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, deleteComposioEvent } from "@/lib/calendar/composio";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 import { resolveCleanupTransport, validateEventPatch, type ScheduleEventPatchInput } from "@/lib/calendar/event-detail";
-import { listHealthyLegacyProviders } from "@/lib/calendar/legacy-providers";
 
 type CalendarDeleteError = {
   source: "google" | "outlook";
-  transport: "direct" | "composio";
+  transport: "composio";
   message: string;
 };
 type CalendarDeleteResult = { ok: boolean; error?: CalendarDeleteError };
-
-type CalendarSyncOutcome = { ok: boolean; error?: CalendarDeleteError };
 
 function captureScheduleFailure(error: unknown, op: string, eventId: string) {
   Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
@@ -25,14 +20,12 @@ function captureScheduleFailure(error: unknown, op: string, eventId: string) {
 }
 
 // PATCH /api/calendar/event/[id]
-// Updates an owned local schedule_event, then best-effort propagates the
-// change to any connected external calendar the event was previously synced
-// to (CAL-2). Direct-OAuth Google/Outlook support update natively. Composio
-// has no verified update tool slug (only LIST/CREATE/DELETE were confirmed
-// live against Composio's tool catalog — see composio.ts's header notes), so
-// a Composio-synced event is left unchanged externally and the response
-// reports it as `notSupported` rather than guessing at an unverified call.
-// Local persistence always succeeds/fails independently of external sync.
+// Updates an owned local schedule_event. Calendar is Composio-only, and
+// Composio has no verified update tool slug (only LIST/CREATE/DELETE were
+// confirmed live against Composio's tool catalog — see composio.ts's header
+// notes), so a Composio-synced event is left unchanged externally and the
+// response reports it as `notSupported` rather than guessing at an unverified
+// call. Local persistence always succeeds/fails independently of external sync.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const routeStartedAt = Date.now();
   const { id: eventId } = await params;
@@ -79,57 +72,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ event, partial: false, errors: [], notSupported: [] });
   }
 
-  const { data: connections } = await supabase
-    .from("calendar_connections")
-    .select("provider")
-    .eq("user_id", user.id);
-  const legacyProviders = await listHealthyLegacyProviders(user.id, connections ?? []);
-
-  async function updateExternal(
-    source: "google" | "outlook",
-    operation: () => Promise<boolean>,
-  ): Promise<CalendarSyncOutcome> {
-    try {
-      const ok = await timedProviderOperation(
-        { area: "calendar", provider: source, transport: "direct", operation: "update_event", timeoutMs: 8_000, slowMs: 2_000 },
-        operation,
-      );
-      if (ok) return { ok: true };
-      return { ok: false, error: { source, transport: "direct", message: `${source === "google" ? "Google Calendar" : "Outlook"} update failed.` } };
-    } catch {
-      return { ok: false, error: { source, transport: "direct", message: `${source === "google" ? "Google Calendar" : "Outlook"} update failed.` } };
-    }
-  }
-
+  // Calendar is Composio-only, and Composio has no verified update tool slug
+  // (only LIST/CREATE/DELETE are confirmed live), so an externally-synced event
+  // is left unchanged and reported as notSupported rather than guessing at an
+  // unverified call — external update is never attempted, so there are no
+  // external update errors.
   const notSupported: Array<"google" | "outlook"> = [];
-  const syncInput = { title, start_at, end_at, description: description ?? undefined };
-
-  function planExternalUpdate(
-    source: "google" | "outlook",
-    externalId: string | null,
-    hasLegacy: boolean,
-    operation: () => Promise<boolean>,
-  ): Promise<CalendarSyncOutcome> {
-    if (!externalId) return Promise.resolve({ ok: true });
-    if (!hasLegacy) {
-      notSupported.push(source);
-      return Promise.resolve({ ok: true });
-    }
-    return updateExternal(source, operation);
-  }
-
-  const [googleResult, outlookResult] = await Promise.all([
-    planExternalUpdate("google", gcal_event_id, legacyProviders.has("google"), () =>
-      updateGoogleEvent(user.id, gcal_event_id as string, syncInput),
-    ),
-    planExternalUpdate("outlook", outlook_event_id, legacyProviders.has("outlook"), () =>
-      updateOutlookEvent(user.id, outlook_event_id as string, syncInput),
-    ),
-  ]);
-  const errors = [
-    ...(googleResult.error ? [googleResult.error] : []),
-    ...(outlookResult.error ? [outlookResult.error] : []),
-  ];
+  if (gcal_event_id) notSupported.push("google");
+  if (outlook_event_id) notSupported.push("outlook");
+  const errors: CalendarDeleteError[] = [];
 
   for (const err of errors) {
     Sentry.captureException(new Error("Schedule calendar event update sync failed"), {
@@ -150,9 +101,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 // Removes the owned schedule_event locally after best-effort cleanup from any
 // connected external calendars. Cleanup failures are surfaced to the caller
 // without blocking local deletion, matching the pre-existing client behavior.
-// Mirrors sync/route.ts's legacy-preferred-over-Composio precedence so a
-// Composio-created event (when no legacy connection exists) is actually
-// cleaned up via the Composio path instead of silently no-op'ing.
+// Calendar is Composio-only, so a Composio-created event is cleaned up via the
+// Composio path (resolveCleanupTransport); when no Composio connection exists
+// the cleanup is flagged as skipped rather than silently no-op'ing.
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const routeStartedAt = Date.now();
   const { id: eventId } = await params;
@@ -175,16 +126,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
   if (!row) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
-  const { data: connections, error: connectionsError } = await supabase
-    .from("calendar_connections")
-    .select("provider")
-    .eq("user_id", user.id);
-  if (connectionsError) {
-    captureScheduleFailure(connectionsError, "delete_load_calendar_connections", eventId);
-    return NextResponse.json({ error: "Could not load calendar connections" }, { status: 500 });
-  }
-
-  const legacyProviders = await listHealthyLegacyProviders(user.id, connections ?? []);
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   if (row.gcal_event_id || row.outlook_event_id) {
     try {
@@ -194,12 +135,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "Could not load calendar connections" }, { status: 500 });
     }
   }
-  const googleTransport = resolveCleanupTransport("google", legacyProviders, composioAccounts);
-  const outlookTransport = resolveCleanupTransport("outlook", legacyProviders, composioAccounts);
+  const googleTransport = resolveCleanupTransport("google", composioAccounts);
+  const outlookTransport = resolveCleanupTransport("outlook", composioAccounts);
 
   async function deleteExternal(
     source: "google" | "outlook",
-    transport: "direct" | "composio",
     operation: () => Promise<boolean>,
   ): Promise<CalendarDeleteResult> {
     try {
@@ -207,7 +147,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         {
           area: "calendar",
           provider: source,
-          transport,
+          transport: "composio",
           operation: "delete_event",
           timeoutMs: 7_000,
           slowMs: 1_500,
@@ -219,7 +159,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         ok: false,
         error: {
           source,
-          transport,
+          transport: "composio",
           message: `${source === "google" ? "Google Calendar" : "Outlook"} cleanup failed.`,
         },
       };
@@ -228,7 +168,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         ok: false,
         error: {
           source,
-          transport,
+          transport: "composio",
           message: `${source === "google" ? "Google Calendar" : "Outlook"} cleanup failed.`,
         },
       };
@@ -239,11 +179,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   let googleDeletePromise: Promise<CalendarDeleteResult> = Promise.resolve({ ok: true });
   if (row.gcal_event_id) {
     const gcalEventId = row.gcal_event_id;
-    if (googleTransport.transport === "direct") {
-      googleDeletePromise = deleteExternal("google", "direct", () => deleteGoogleEvent(user.id, gcalEventId));
-    } else if (googleTransport.transport === "composio") {
+    if (googleTransport.transport === "composio") {
       const connectedAccountId = googleTransport.connectedAccountId;
-      googleDeletePromise = deleteExternal("google", "composio", () =>
+      googleDeletePromise = deleteExternal("google", () =>
         deleteComposioEvent("googlecalendar", connectedAccountId, user.id, gcalEventId),
       );
     } else {
@@ -254,11 +192,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   let outlookDeletePromise: Promise<CalendarDeleteResult> = Promise.resolve({ ok: true });
   if (row.outlook_event_id) {
     const outlookEventId = row.outlook_event_id;
-    if (outlookTransport.transport === "direct") {
-      outlookDeletePromise = deleteExternal("outlook", "direct", () => deleteOutlookEvent(user.id, outlookEventId));
-    } else if (outlookTransport.transport === "composio") {
+    if (outlookTransport.transport === "composio") {
       const connectedAccountId = outlookTransport.connectedAccountId;
-      outlookDeletePromise = deleteExternal("outlook", "composio", () =>
+      outlookDeletePromise = deleteExternal("outlook", () =>
         deleteComposioEvent("outlook", connectedAccountId, user.id, outlookEventId),
       );
     } else {

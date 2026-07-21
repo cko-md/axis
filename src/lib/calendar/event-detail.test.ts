@@ -64,27 +64,23 @@ describe("resolveCleanupTransport", () => {
     { provider: "outlook" as const, connectedAccountId: "ca-outlook" },
   ];
 
-  it("prefers legacy direct-OAuth over a Composio connection for the same provider", () => {
-    expect(resolveCleanupTransport("google", new Set(["google"]), composioAccounts)).toEqual({ transport: "direct" });
-  });
-
-  it("falls back to Composio when no legacy connection exists", () => {
-    expect(resolveCleanupTransport("google", new Set(), composioAccounts)).toEqual({
+  it("resolves to the Composio account for the provider (calendar is Composio-only)", () => {
+    expect(resolveCleanupTransport("google", composioAccounts)).toEqual({
       transport: "composio",
       connectedAccountId: "ca-google",
     });
-    expect(resolveCleanupTransport("outlook", new Set(), composioAccounts)).toEqual({
+    expect(resolveCleanupTransport("outlook", composioAccounts)).toEqual({
       transport: "composio",
       connectedAccountId: "ca-outlook",
     });
   });
 
-  it("returns none when neither transport is connected, so cleanup can be flagged as skipped", () => {
-    expect(resolveCleanupTransport("google", new Set(), [])).toEqual({ transport: "none" });
+  it("returns none when no Composio connection exists, so cleanup can be flagged as skipped", () => {
+    expect(resolveCleanupTransport("google", [])).toEqual({ transport: "none" });
   });
 
   it("does not cross-match outlook composio accounts onto google (and vice versa)", () => {
-    expect(resolveCleanupTransport("google", new Set(), [composioAccounts[1]])).toEqual({ transport: "none" });
-    expect(resolveCleanupTransport("outlook", new Set(), [composioAccounts[0]])).toEqual({ transport: "none" });
+    expect(resolveCleanupTransport("google", [composioAccounts[1]])).toEqual({ transport: "none" });
+    expect(resolveCleanupTransport("outlook", [composioAccounts[0]])).toEqual({ transport: "none" });
   });
 });

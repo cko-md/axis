@@ -539,12 +539,9 @@ export function ControlRoomModule() {
     await refreshAfterComposio();
   };
 
-  const disconnectMailAccount = async (provider: "gmail" | "outlook", account: MailAccount) => {
-    const url =
-      account.via === "composio"
-        ? `/api/integrations/composio/disconnect?toolkit=${provider}`
-        : `/api/mail/disconnect?provider=${provider}&email=${encodeURIComponent(account.mailEmail)}`;
-    const res = await fetch(url, { method: "DELETE" });
+  const disconnectMailAccount = async (provider: "gmail" | "outlook") => {
+    // Mail is Composio-only — disconnect through Composio (toolkit == provider).
+    const res = await fetch(`/api/integrations/composio/disconnect?toolkit=${provider}`, { method: "DELETE" });
     if (!res.ok) {
       toast("Could not disconnect mail.", "error", "Connections");
       return;
@@ -553,7 +550,10 @@ export function ControlRoomModule() {
   };
 
   const disconnectCalendarProvider = async (provider: "google" | "outlook") => {
-    const res = await fetch(`/api/calendar/disconnect?provider=${provider}`, { method: "DELETE" });
+    // Calendar is Composio-only — disconnect through Composio. The Composio
+    // toolkit for Google Calendar is "googlecalendar"; Outlook keeps its name.
+    const toolkit = provider === "google" ? "googlecalendar" : "outlook";
+    const res = await fetch(`/api/integrations/composio/disconnect?toolkit=${toolkit}`, { method: "DELETE" });
     if (!res.ok) {
       toast("Could not disconnect calendar.", "error", "Connections");
       return;
@@ -818,7 +818,7 @@ export function ControlRoomModule() {
             : composioDetail(gmailComposio),
       action:
         gmailState === "on" && gmailAccount
-          ? { label: "Disconnect", onClick: () => void disconnectMailAccount("gmail", gmailAccount) }
+          ? { label: "Disconnect", onClick: () => void disconnectMailAccount("gmail") }
           : gmailState === "off" || gmailState === "broken" || (gmailState === "pending" && gmailComposio)
             ? composioConnectAction("gmail", gmailState)
             : undefined,
@@ -846,7 +846,7 @@ export function ControlRoomModule() {
                   await disconnectComposioToolkit("outlook");
                   return;
                 }
-                if (outlookAccount) await disconnectMailAccount("outlook", outlookAccount);
+                if (outlookAccount) await disconnectMailAccount("outlook");
                 if (calendarStatus?.outlook) await disconnectCalendarProvider("outlook");
               },
             }

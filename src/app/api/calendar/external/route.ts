@@ -2,17 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
-import { listGoogleEvents, type ExternalCalendarEvent } from "@/lib/calendar/google";
-import { listOutlookEvents } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, listComposioEvents } from "@/lib/calendar/composio";
+import type { ExternalCalendarEvent } from "@/lib/calendar/types";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 import { resolveCleanupTransport } from "@/lib/calendar/event-detail";
-import { listHealthyLegacyProviders } from "@/lib/calendar/legacy-providers";
 
 type CalendarSource = "google" | "outlook";
 type ExternalCalendarError = {
   source: CalendarSource;
-  transport: "direct" | "composio";
+  transport: "composio";
   code: "timeout" | "network" | "provider_error";
   message: string;
 };
@@ -26,7 +24,7 @@ function statusFrom(error: unknown): number | undefined {
   return undefined;
 }
 
-function calendarError(source: CalendarSource, transport: "direct" | "composio", error: unknown): ExternalCalendarError {
+function calendarError(source: CalendarSource, transport: "composio", error: unknown): ExternalCalendarError {
   const status = statusFrom(error);
   const isTimeout = error instanceof Error && (error.name === "ProviderTimeoutError" || error.name === "TimeoutError");
   return {
@@ -40,12 +38,10 @@ function calendarError(source: CalendarSource, transport: "direct" | "composio",
 }
 
 // GET /api/calendar/external?start=ISO&end=ISO
-// Pulls the user's actual events from any connected external calendars
-// (read-only — these never get written to schedule_events) so connecting
-// Google/Outlook surfaces real content instead of just a connected badge.
-// Merges legacy direct-OAuth calendars with Composio-connected ones —
-// if both exist for the same provider, only the legacy one is read, to
-// avoid showing duplicate events from the same calendar twice.
+// Pulls the user's actual events from their Composio-connected calendars
+// (read-only — these never get written to schedule_events) so connecting a
+// calendar surfaces real content instead of just a connected badge. Calendar
+// is Composio-only after the direct-adapter removal.
 export async function GET(req: NextRequest) {
   const routeStartedAt = Date.now();
   const supabase = await createClient();
@@ -57,38 +53,12 @@ export async function GET(req: NextRequest) {
   const end = searchParams.get("end");
   if (!start || !end) return NextResponse.json({ error: "start and end are required" }, { status: 400 });
 
-  const { data: connections, error: connectionsError } = await supabase
-    .from("calendar_connections")
-    .select("provider")
-    .eq("user_id", user.id);
-  if (connectionsError) {
-    Sentry.captureException(connectionsError, {
-      tags: { area: "schedule", route: "/api/calendar/external", op: "list_direct_accounts" },
-    });
-    return NextResponse.json(
-      {
-        events: [],
-        partial: true,
-        errors: [{
-          source: "google",
-          transport: "direct",
-          code: "network",
-          message: "Calendar accounts could not be loaded.",
-        }],
-        fetchedAt: new Date().toISOString(),
-      },
-      { status: 503 },
-    );
-  }
-
-  const providers = await listHealthyLegacyProviders(user.id, connections ?? []);
   const displaySource = (toolkit: "googlecalendar" | "outlook") => (toolkit === "googlecalendar" ? "google" : "outlook");
+  // Calendar is Composio-only after the direct-adapter removal.
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   let cachePersistenceError = false;
   try {
-    composioAccounts = (await listComposioCalendarAccounts(user.id)).filter(
-      (a) => !providers.has(displaySource(a.provider)),
-    );
+    composioAccounts = await listComposioCalendarAccounts(user.id);
   } catch (composioError) {
     Sentry.captureException(composioError instanceof Error ? composioError : new Error(String(composioError)), {
       tags: { area: "schedule", route: "/api/calendar/external", op: "list_composio_accounts" },
@@ -111,7 +81,6 @@ export async function GET(req: NextRequest) {
 
   async function loadSource<T>(
     source: CalendarSource,
-    transport: "direct" | "composio",
     operation: () => Promise<T[]>,
   ): Promise<ExternalCalendarResult<T>> {
     try {
@@ -119,7 +88,7 @@ export async function GET(req: NextRequest) {
         {
           area: "calendar",
           provider: source,
-          transport,
+          transport: "composio",
           operation: "list_events",
           captureFailures: false,
           timeoutMs: 7_000,
@@ -129,38 +98,22 @@ export async function GET(req: NextRequest) {
       );
       return { events };
     } catch (error) {
-      return { events: [], error: calendarError(source, transport, error) };
+      return { events: [], error: calendarError(source, "composio", error) };
     }
   }
 
-  const [google, outlook, composioLists] = await Promise.all([
-    providers.has("google")
-      ? loadSource("google", "direct", () => listGoogleEvents(user.id, start, end))
-      : Promise.resolve<ExternalCalendarResult<ExternalCalendarEvent>>({ events: [] }),
-    providers.has("outlook")
-      ? loadSource("outlook", "direct", () => listOutlookEvents(user.id, start, end))
-      : Promise.resolve<ExternalCalendarResult<ExternalCalendarEvent>>({ events: [] }),
-    Promise.all(
-      composioAccounts.map((a) => {
-        const source = displaySource(a.provider);
-        return loadSource(source, "composio", async () =>
-          (await listComposioEvents(a.provider, a.connectedAccountId, user.id, start, end))
-            .map((e) => ({ ...e, source })),
-        );
-      }),
-    ),
-  ]);
+  const composioLists = await Promise.all(
+    composioAccounts.map((a) => {
+      const source = displaySource(a.provider);
+      return loadSource(source, async () =>
+        (await listComposioEvents(a.provider, a.connectedAccountId, user.id, start, end))
+          .map((e) => ({ ...e, source })),
+      );
+    }),
+  );
 
-  const events = [
-    ...google.events.map((e) => ({ ...e, source: "google" as const })),
-    ...outlook.events.map((e) => ({ ...e, source: "outlook" as const })),
-    ...composioLists.flatMap((result) => result.events),
-  ];
-  const errors = [
-    ...(google.error ? [google.error] : []),
-    ...(outlook.error ? [outlook.error] : []),
-    ...composioLists.flatMap((result) => (result.error ? [result.error] : [])),
-  ];
+  const events = composioLists.flatMap((result) => result.events);
+  const errors = composioLists.flatMap((result) => (result.error ? [result.error] : []));
 
   for (const err of errors) {
     Sentry.captureException(new Error("Schedule external calendar list failed"), {
@@ -173,23 +126,21 @@ export async function GET(req: NextRequest) {
   // CAL-3: write-through to calendar_event_cache so the next Schedule load
   // can render instantly from cache and revalidate this route in the
   // background, instead of blocking first paint on live provider calls.
-  // Reuses the same legacy-over-Composio transport precedence CAL-1/CAL-2
-  // already established for delete/update, since "which transport supplied
-  // this data" is the same question.
+  // Reuses the same resolveCleanupTransport helper delete/update use, since
+  // "which transport supplied this data" is the same question.
   const composioResultBySource = new Map<CalendarSource, ExternalCalendarResult<ExternalCalendarEvent>>();
   composioAccounts.forEach((account, i) => composioResultBySource.set(displaySource(account.provider), composioLists[i]));
 
-  const googleTransport = resolveCleanupTransport("google", providers, composioAccounts);
-  const outlookTransport = resolveCleanupTransport("outlook", providers, composioAccounts);
+  const googleTransport = resolveCleanupTransport("google", composioAccounts);
+  const outlookTransport = resolveCleanupTransport("outlook", composioAccounts);
 
-  function outcomeFor(source: CalendarSource, transport: "direct" | "composio" | "none") {
-    if (transport === "direct") return source === "google" ? google : outlook;
+  function outcomeFor(source: CalendarSource, transport: "composio" | "none") {
     if (transport === "composio") return composioResultBySource.get(source) ?? null;
     return null;
   }
 
   const cacheRows: Array<{
-    user_id: string; source: CalendarSource; transport: "direct" | "composio";
+    user_id: string; source: CalendarSource; transport: "composio";
     range_start: string; range_end: string; events: unknown[]; error: null;
     fetched_at: string; updated_at: string;
   }> = [];

@@ -2,15 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
-import { createGoogleEvent } from "@/lib/calendar/google";
-import { createOutlookEvent } from "@/lib/calendar/outlook";
 import { listComposioCalendarAccounts, createComposioEvent } from "@/lib/calendar/composio";
-import { listHealthyLegacyProviders } from "@/lib/calendar/legacy-providers";
 import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
 
 type CalendarSyncError = {
   source: "google" | "outlook";
-  transport: "direct" | "composio";
+  transport: "composio";
   code: "timeout" | "network" | "provider_error";
   message: string;
 };
@@ -31,7 +28,7 @@ function statusFrom(error: unknown): number | undefined {
   return undefined;
 }
 
-function syncError(source: "google" | "outlook", transport: "direct" | "composio", error: unknown): CalendarSyncError {
+function syncError(source: "google" | "outlook", transport: "composio", error: unknown): CalendarSyncError {
   const status = statusFrom(error);
   const isTimeout = error instanceof Error && (error.name === "ProviderTimeoutError" || error.name === "TimeoutError");
   return {
@@ -99,22 +96,6 @@ export async function POST(req: NextRequest) {
     description: ownedEvent.description ?? undefined,
   };
 
-  const { data: connections, error: connectionsError } = await supabase
-    .from("calendar_connections")
-    .select("provider")
-    .eq("user_id", user.id);
-  if (connectionsError) {
-    Sentry.captureException(connectionsError, {
-      tags: { area: "schedule", op: "load_calendar_connections", route: "/api/calendar/sync" },
-      extra: { eventId },
-    });
-    return NextResponse.json(
-      { error: "Calendar connections could not be loaded. Try again in a moment.", code: "connection_lookup_failed" },
-      { status: 500 },
-    );
-  }
-
-  const legacyProviders = await listHealthyLegacyProviders(user.id, connections ?? []);
   let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
   try {
     composioAccounts = await listComposioCalendarAccounts(user.id);
@@ -137,7 +118,6 @@ export async function POST(req: NextRequest) {
 
   async function syncSource(
     source: "google" | "outlook",
-    transport: "direct" | "composio",
     operation: () => Promise<string | null>,
   ): Promise<CalendarSyncResult> {
     try {
@@ -145,7 +125,7 @@ export async function POST(req: NextRequest) {
         {
           area: "calendar",
           provider: source,
-          transport,
+          transport: "composio",
           operation: "create_event",
           timeoutMs: 9_000,
           slowMs: 2_000,
@@ -154,21 +134,17 @@ export async function POST(req: NextRequest) {
       );
       return { id };
     } catch (error) {
-      return { id: null, error: syncError(source, transport, error) };
+      return { id: null, error: syncError(source, "composio", error) };
     }
   }
 
   const [googleSync, outlookSync] = await Promise.all([
     composioGoogle
-      ? syncSource("google", "composio", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
-      : legacyProviders.has("google")
-        ? syncSource("google", "direct", () => createGoogleEvent(user.id, event))
-        : Promise.resolve<CalendarSyncResult>({ id: null }),
+      ? syncSource("google", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
+      : Promise.resolve<CalendarSyncResult>({ id: null }),
     composioOutlook
-      ? syncSource("outlook", "composio", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
-      : legacyProviders.has("outlook")
-        ? syncSource("outlook", "direct", () => createOutlookEvent(user.id, event))
-        : Promise.resolve<CalendarSyncResult>({ id: null }),
+      ? syncSource("outlook", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
+      : Promise.resolve<CalendarSyncResult>({ id: null }),
   ]);
 
   const gcalId = googleSync.id;
@@ -208,9 +184,7 @@ export async function POST(req: NextRequest) {
       });
       errors.push({
         source: gcalId ? "google" : "outlook",
-        transport: gcalId
-          ? (composioGoogle ? "composio" : "direct")
-          : (composioOutlook ? "composio" : "direct"),
+        transport: "composio",
         code: "network",
         message: "Calendar sync succeeded, but AXIS could not save the external event link.",
       });

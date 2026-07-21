@@ -775,7 +775,7 @@ export function ScheduleModule() {
             style={{ background: "none", color: "var(--up)" }}
             onClick={async () => {
               try {
-                await disconnectCalendarAccount("/api/calendar/disconnect?provider=google");
+                await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=googlecalendar");
                 setCalStatus((s) => s ? { ...s, google: false, googleEmail: null } : s);
                 setExternalEvents([]);
                 setExternalNotice(null);
@@ -819,7 +819,7 @@ export function ScheduleModule() {
             style={{ background: "none", color: "var(--up)" }}
             onClick={async () => {
               try {
-                await disconnectCalendarAccount("/api/calendar/disconnect?provider=outlook");
+                await disconnectCalendarAccount("/api/integrations/composio/disconnect?toolkit=outlook");
                 setCalStatus((s) => s ? { ...s, outlook: false, outlookEmail: null } : s);
                 setExternalEvents([]);
                 setExternalNotice(null);

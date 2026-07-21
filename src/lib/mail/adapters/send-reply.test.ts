@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   markComposioGmailReadState: vi.fn(),
   archiveComposioGmailMessage: vi.fn(),
   trashComposioGmailMessage: vi.fn(),
-  getFreshMailAccessToken: vi.fn(),
 }));
 
 vi.mock("../composio", () => ({
@@ -22,13 +21,8 @@ vi.mock("../composio", () => ({
   normalizeOutlookMessageFull: vi.fn(),
 }));
 
-vi.mock("../tokens", () => ({
-  getFreshMailAccessToken: mocks.getFreshMailAccessToken,
-}));
-
 import { gmailComposioAdapter } from "./gmail-composio";
 import { outlookComposioAdapter } from "./outlook-composio";
-import { outlookDirectAdapter } from "./outlook-direct";
 
 const gmailComposioCtx: MailAccountContext = {
   userId: "user-1",
@@ -46,12 +40,6 @@ const outlookComposioCtx: MailAccountContext = {
   connectedAccountId: "conn-2",
 };
 
-const outlookDirectCtx: MailAccountContext = {
-  userId: "user-1",
-  provider: "outlook",
-  mailEmail: "me@example.com",
-  transport: "direct",
-};
 
 describe("mail adapter reply parity", () => {
   beforeEach(() => {
@@ -99,25 +87,4 @@ describe("mail adapter reply parity", () => {
     expect(result.ok && result.data.warning).toMatch(/Composio Outlook threading/);
   });
 
-  it("uses Microsoft Graph native reply for direct Outlook replies", async () => {
-    mocks.getFreshMailAccessToken.mockResolvedValueOnce("token");
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await outlookDirectAdapter.replyToMessage(outlookDirectCtx, {
-      to: "you@example.com",
-      subject: "Re: Hello",
-      body: "Reply body",
-      inReplyTo: "message-1",
-    });
-
-    expect(result.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://graph.microsoft.com/v1.0/me/messages/message-1/reply",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ comment: "Reply body" }),
-      }),
-    );
-  });
 });

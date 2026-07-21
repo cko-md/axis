@@ -22,34 +22,24 @@ vi.mock("../composio", async (importOriginal) => {
   };
 });
 
+// Mail is Composio-only after the direct-adapter removal — resolveMailAdapter
+// takes just a provider and always returns that provider's Composio adapter.
 describe("resolveMailAdapter()", () => {
-  it("returns a gmail direct adapter", () => {
-    const adapter = resolveMailAdapter("gmail", "direct");
-    expect(adapter.provider).toBe("gmail");
-    expect(adapter.transport).toBe("direct");
-  });
-
   it("returns a gmail composio adapter", () => {
-    const adapter = resolveMailAdapter("gmail", "composio");
+    const adapter = resolveMailAdapter("gmail");
     expect(adapter.provider).toBe("gmail");
     expect(adapter.transport).toBe("composio");
   });
 
-  it("returns an outlook direct adapter", () => {
-    const adapter = resolveMailAdapter("outlook", "direct");
-    expect(adapter.provider).toBe("outlook");
-    expect(adapter.transport).toBe("direct");
-  });
-
   it("returns an outlook composio adapter", () => {
-    const adapter = resolveMailAdapter("outlook", "composio");
+    const adapter = resolveMailAdapter("outlook");
     expect(adapter.provider).toBe("outlook");
     expect(adapter.transport).toBe("composio");
   });
 });
 
 describe("adapterForAccount()", () => {
-  it("resolves composio account to composio transport", () => {
+  it("resolves a composio account to the composio adapter", () => {
     const account: MailAccountRef = {
       provider: "gmail",
       mailEmail: "user@gmail.com",
@@ -61,13 +51,13 @@ describe("adapterForAccount()", () => {
     expect(adapter.provider).toBe("gmail");
   });
 
-  it("resolves direct (non-composio) account to direct transport", () => {
+  it("resolves any account (no via) to the composio adapter", () => {
     const account: MailAccountRef = {
       provider: "outlook",
       mailEmail: "user@outlook.com",
     };
     const adapter = adapterForAccount(account);
-    expect(adapter.transport).toBe("direct");
+    expect(adapter.transport).toBe("composio");
     expect(adapter.provider).toBe("outlook");
   });
 });
@@ -116,7 +106,7 @@ describe("Composio mutation guardrails", () => {
     mocks.archiveComposioGmailMessage.mockResolvedValue({ ok: true });
     mocks.trashComposioGmailMessage.mockResolvedValue({ ok: true });
 
-    const adapter = resolveMailAdapter("gmail", "composio");
+    const adapter = resolveMailAdapter("gmail");
     const ctx = {
       userId: "uid",
       provider: "gmail" as const,
@@ -143,7 +133,7 @@ describe("Composio mutation guardrails", () => {
   it("returns structured provider_error when Gmail Composio action fails", async () => {
     mocks.markComposioGmailReadState.mockResolvedValueOnce({ ok: false, error: "provider said no" });
 
-    const adapter = resolveMailAdapter("gmail", "composio");
+    const adapter = resolveMailAdapter("gmail");
     const result = await adapter.markRead({
       userId: "uid",
       provider: "gmail",
@@ -161,7 +151,7 @@ describe("Composio mutation guardrails", () => {
   });
 
   it("keeps Outlook Composio actions disabled until live account validation exists", async () => {
-    const adapter = resolveMailAdapter("outlook", "composio");
+    const adapter = resolveMailAdapter("outlook");
     const ctx = {
       userId: "uid",
       provider: "outlook" as const,

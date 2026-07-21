@@ -5,8 +5,6 @@ const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
   listComposioCalendarAccounts: vi.fn(),
   createComposioEvent: vi.fn(),
-  createGoogleEvent: vi.fn(),
-  listHealthyLegacyProviders: vi.fn(),
   createClient: vi.fn(),
 }));
 
@@ -15,9 +13,6 @@ vi.mock("@/lib/calendar/composio", () => ({
   listComposioCalendarAccounts: mocks.listComposioCalendarAccounts,
   createComposioEvent: mocks.createComposioEvent,
 }));
-vi.mock("@/lib/calendar/google", () => ({ createGoogleEvent: mocks.createGoogleEvent }));
-vi.mock("@/lib/calendar/outlook", () => ({ createOutlookEvent: vi.fn() }));
-vi.mock("@/lib/calendar/legacy-providers", () => ({ listHealthyLegacyProviders: mocks.listHealthyLegacyProviders }));
 vi.mock("@/lib/observability/providerTiming", () => ({
   logRouteTiming: vi.fn(),
   timedProviderOperation: vi.fn((_, operation: () => Promise<unknown>) => operation()),
@@ -33,11 +28,7 @@ function request(eventId = "event-1") {
   }) as NextRequest;
 }
 
-function createSupabaseMock({
-  connectionsError = null,
-}: {
-  connectionsError?: Error | null;
-} = {}) {
+function createSupabaseMock() {
   const scheduleSelect = {
     eq: vi.fn(() => scheduleSelect),
     maybeSingle: vi.fn().mockResolvedValue({
@@ -51,12 +42,6 @@ function createSupabaseMock({
       error: null,
     }),
   };
-  const connectionSelect = {
-    eq: vi.fn().mockResolvedValue({
-      data: connectionsError ? null : [],
-      error: connectionsError,
-    }),
-  };
   // .update(patch).eq(...).eq(...) — a thenable chain that resolves { error: null }.
   const updateChain: { eq: ReturnType<typeof vi.fn>; then: (resolve: (v: { error: null }) => void) => void } = {
     eq: vi.fn(() => updateChain),
@@ -67,8 +52,8 @@ function createSupabaseMock({
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } } }),
     },
-    from: vi.fn((table: string) => ({
-      select: vi.fn(() => (table === "schedule_events" ? scheduleSelect : connectionSelect)),
+    from: vi.fn(() => ({
+      select: vi.fn(() => scheduleSelect),
       update: vi.fn(() => updateChain),
     })),
   };
@@ -78,15 +63,10 @@ describe("POST /api/calendar/sync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listComposioCalendarAccounts.mockResolvedValue([]);
-    mocks.listHealthyLegacyProviders.mockResolvedValue(new Set());
     mocks.createComposioEvent.mockResolvedValue("composio-evt");
-    mocks.createGoogleEvent.mockResolvedValue("google-evt");
   });
 
-  it("prefers Composio over a legacy direct connection when both exist for a provider", async () => {
-    // A pre-consolidation direct Google row AND a Composio Google account both
-    // present: Composio must win, so a stale legacy token can't shadow it.
-    mocks.listHealthyLegacyProviders.mockResolvedValue(new Set(["google"]));
+  it("creates the schedule event through the Composio calendar (Composio-only)", async () => {
     mocks.listComposioCalendarAccounts.mockResolvedValue([
       { provider: "googlecalendar", connectedAccountId: "ca-google-1" },
     ]);
@@ -100,26 +80,6 @@ describe("POST /api/calendar/sync", () => {
       "user-1",
       expect.anything(),
     );
-    expect(mocks.createGoogleEvent).not.toHaveBeenCalled();
-  });
-
-  it("surfaces direct calendar connection discovery failures", async () => {
-    const dbError = new Error("database unavailable");
-    mocks.createClient.mockResolvedValue(createSupabaseMock({ connectionsError: dbError }));
-
-    const res = await POST(request());
-    const body = await res.json();
-
-    expect(res.status).toBe(500);
-    expect(body).toEqual({
-      error: "Calendar connections could not be loaded. Try again in a moment.",
-      code: "connection_lookup_failed",
-    });
-    expect(mocks.captureException).toHaveBeenCalledWith(dbError, {
-      tags: { area: "schedule", op: "load_calendar_connections", route: "/api/calendar/sync" },
-      extra: { eventId: "event-1" },
-    });
-    expect(mocks.listComposioCalendarAccounts).not.toHaveBeenCalled();
   });
 
   it("surfaces Composio calendar discovery failures before provider sync", async () => {

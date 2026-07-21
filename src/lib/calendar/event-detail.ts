@@ -67,7 +67,6 @@ export function validateEventPatch(body: ScheduleEventPatchInput): PatchValidati
 export type ExternalCleanupTransport = "google" | "outlook";
 
 export type CleanupTransportResolution =
-  | { transport: "direct" }
   | { transport: "composio"; connectedAccountId: string }
   | { transport: "none" };
 
@@ -76,18 +75,15 @@ const COMPOSIO_PROVIDER_KEY: Record<ExternalCleanupTransport, ComposioCalendarAc
   outlook: "outlook",
 };
 
-// Which transport should clean up an external event on delete. Legacy
-// direct-OAuth always wins over a Composio connection for the same provider
-// (matches sync/route.ts's create precedence) — a Composio account is only
-// used when no legacy connection exists. Returns "none" when the event has
-// an external id but neither transport is connected, so the caller can
-// surface that cleanup was skipped instead of silently doing nothing.
+// Which transport should clean up an external event on delete. Calendar is
+// Composio-only after the direct-adapter removal, so this resolves to the
+// Composio account for the provider, or "none" when the event has an external
+// id but no Composio connection exists — so the caller can surface that cleanup
+// was skipped instead of silently doing nothing.
 export function resolveCleanupTransport(
   source: ExternalCleanupTransport,
-  legacyProviders: ReadonlySet<string>,
   composioAccounts: readonly Pick<ComposioCalendarAccount, "provider" | "connectedAccountId">[],
 ): CleanupTransportResolution {
-  if (legacyProviders.has(source)) return { transport: "direct" };
   const composioAccount = composioAccounts.find((a) => a.provider === COMPOSIO_PROVIDER_KEY[source]);
   if (composioAccount) return { transport: "composio", connectedAccountId: composioAccount.connectedAccountId };
   return { transport: "none" };

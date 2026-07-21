@@ -1,6 +1,7 @@
-import { getFreshMailAccessToken } from "./tokens";
-import { normalizeMailDate } from "./dates";
-
+// Gmail message/attachment TYPES and payload parsers, shared by the Composio
+// Gmail/Outlook adapters (Composio returns the native Gmail payload shape). The
+// direct-OAuth Gmail API client that used to live below was removed with the
+// rest of the direct adapters — this file no longer performs any I/O.
 export interface MailMessage {
   id: string;
   threadId: string;
@@ -113,106 +114,4 @@ export function extractGmailAttachments(payload: GmailPayload): MailAttachment[]
   };
   walk(payload);
   return attachments;
-}
-
-export async function getGmailAttachment(
-  userId: string,
-  mailEmail: string,
-  messageId: string,
-  attachment: MailAttachment,
-): Promise<MailAttachmentFile | null> {
-  const token = await getFreshMailAccessToken(userId, "gmail", mailEmail);
-  if (!token) return null;
-
-  const res = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!res.ok) return null;
-
-  const data = await res.json().catch(() => null) as { data?: string } | null;
-  if (!data?.data) return null;
-  const base64 = data.data.replace(/-/g, "+").replace(/_/g, "/");
-  return { ...attachment, bytes: Buffer.from(base64, "base64") };
-}
-
-export async function listGmailInbox(
-  userId: string,
-  mailEmail: string,
-  pageToken?: string,
-): Promise<{ messages: MailMessage[]; nextPageToken?: string }> {
-  const token = await getFreshMailAccessToken(userId, "gmail", mailEmail);
-  if (!token) return { messages: [] };
-
-  const params = new URLSearchParams({ labelIds: "INBOX", maxResults: "20" });
-  if (pageToken) params.set("pageToken", pageToken);
-
-  const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!listRes.ok) return { messages: [] };
-  const listData = await listRes.json();
-  if (!listData.messages?.length) return { messages: [], nextPageToken: listData.nextPageToken };
-
-  const messages = await Promise.all(
-    (listData.messages as Array<{ id: string; threadId: string }>).map(async (msg) => {
-      const msgRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!msgRes.ok) return null;
-      const d = await msgRes.json();
-      const headers: Array<{ name: string; value: string }> = d.payload?.headers ?? [];
-      return {
-        id: d.id as string,
-        threadId: d.threadId as string,
-        from: getHeader(headers, "From"),
-        subject: getHeader(headers, "Subject") || "(no subject)",
-        date: normalizeMailDate(getHeader(headers, "Date") || d.internalDate),
-        snippet: (d.snippet as string) ?? "",
-        isUnread: ((d.labelIds as string[]) ?? []).includes("UNREAD"),
-        provider: "gmail" as const,
-        accountEmail: mailEmail,
-      };
-    }),
-  );
-
-  return {
-    messages: messages.filter(Boolean) as MailMessage[],
-    nextPageToken: listData.nextPageToken as string | undefined,
-  };
-}
-
-export async function getGmailMessage(
-  userId: string,
-  mailEmail: string,
-  messageId: string,
-): Promise<MailMessageFull | null> {
-  const token = await getFreshMailAccessToken(userId, "gmail", mailEmail);
-  if (!token) return null;
-
-  const res = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!res.ok) return null;
-  const d = await res.json();
-  const headers: Array<{ name: string; value: string }> = d.payload?.headers ?? [];
-  const { content, isHtml } = extractBody(d.payload ?? {});
-  const attachments = extractGmailAttachments(d.payload ?? {});
-
-  return {
-    id: d.id as string,
-    threadId: d.threadId as string,
-    from: getHeader(headers, "From"),
-    subject: getHeader(headers, "Subject") || "(no subject)",
-    date: normalizeMailDate(getHeader(headers, "Date") || d.internalDate),
-    snippet: (d.snippet as string) ?? "",
-    isUnread: ((d.labelIds as string[]) ?? []).includes("UNREAD"),
-    provider: "gmail",
-    accountEmail: mailEmail,
-    body: content,
-    bodyIsHtml: isHtml,
-    attachments,
-  };
 }

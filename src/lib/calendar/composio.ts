@@ -31,7 +31,7 @@ import {
   OUTLOOK_CALENDAR_COMPOSIO_TOOLS,
 } from "@/lib/integrations/composio-calendar-tools";
 import { normalizeAllDayTimestamp } from "./event-dates";
-import type { ExternalCalendarEvent } from "./google";
+import type { ExternalCalendarEvent } from "./types";
 
 export type CalendarToolkit = "googlecalendar" | "outlook";
 

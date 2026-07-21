@@ -900,14 +900,9 @@ export function MailModule() {
   }, [cursor]);
 
   const disconnect = async (acct: MailAccount) => {
-    // Composio-connected accounts disconnect through Composio (toolkit == provider);
-    // any remaining legacy direct-OAuth accounts use the token-table disconnect.
-    const res = acct.via === "composio"
-      ? await fetch(`/api/integrations/composio/disconnect?toolkit=${acct.provider}`, { method: "DELETE" })
-      : await fetch(
-          `/api/mail/disconnect?provider=${acct.provider}&email=${encodeURIComponent(acct.mailEmail)}`,
-          { method: "DELETE" },
-        );
+    // Mail is Composio-only — every mailbox disconnects through Composio
+    // (toolkit == provider for gmail/outlook).
+    const res = await fetch(`/api/integrations/composio/disconnect?toolkit=${acct.provider}`, { method: "DELETE" });
     if (!res.ok) {
       toast("Failed to disconnect account. Try again.", "error", "Mail");
       return;

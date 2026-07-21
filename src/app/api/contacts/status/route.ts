@@ -1,12 +1,11 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getFreshContactsAccessToken } from "@/lib/contacts/tokens";
 
 type ContactConnection = {
   provider: "google";
   email: string | null;
-  via: "oauth" | "composio";
+  via: "composio";
   status: string;
 };
 
@@ -35,39 +34,20 @@ export async function GET() {
     });
   }
 
-  const [legacyResult, composioResult] = await Promise.all([
-    supabase
-      .from("contacts_connections")
-      .select("email")
-      .eq("user_id", user.id)
-      .eq("provider", "google")
-      .maybeSingle(),
-    supabase
-      .from("composio_connections")
-      .select("status, account_label")
-      .eq("user_id", user.id)
-      .eq("toolkit", "googlecontacts")
-      .eq("status", "ACTIVE"),
-  ]);
+  // Contacts is Composio-only after the direct-adapter removal.
+  const composioResult = await supabase
+    .from("composio_connections")
+    .select("status, account_label")
+    .eq("user_id", user.id)
+    .eq("toolkit", "googlecontacts")
+    .eq("status", "ACTIVE");
 
-  if (legacyResult.error) captureStatusError(legacyResult.error, "contacts_connections");
-  if (composioResult.error) captureStatusError(composioResult.error, "composio_connections");
-
-  if (legacyResult.error || composioResult.error) {
+  if (composioResult.error) {
+    captureStatusError(composioResult.error, "composio_connections");
     return NextResponse.json({ error: "Status unavailable" }, { status: 500 });
   }
 
   const connections: ContactConnection[] = [];
-  const legacyToken = await getFreshContactsAccessToken(user.id);
-  if (legacyResult.data && legacyToken) {
-    connections.push({
-      provider: "google",
-      email: (legacyResult.data.email as string | null) ?? null,
-      via: "oauth",
-      status: "ACTIVE",
-    });
-  }
-
   for (const row of composioResult.data ?? []) {
     connections.push({
       provider: "google",

@@ -3,27 +3,27 @@
 // are stateless singletons; per-call account context is built via `toMailContext`.
 
 import type { MailProvider, MailAccountRef } from "../tokens";
-import type { IntegrationTransport, IntegrationErrorCode } from "../../integrations/types";
+import type { IntegrationErrorCode } from "../../integrations/types";
 import type { MailAdapter } from "./types";
-import { gmailDirectAdapter } from "./gmail-direct";
-import { outlookDirectAdapter } from "./outlook-direct";
 import { gmailComposioAdapter } from "./gmail-composio";
 import { outlookComposioAdapter } from "./outlook-composio";
 
 export * from "./types";
 
-const ADAPTERS: Record<MailProvider, Record<IntegrationTransport, MailAdapter>> = {
-  gmail: { direct: gmailDirectAdapter, composio: gmailComposioAdapter },
-  outlook: { direct: outlookDirectAdapter, composio: outlookComposioAdapter },
+// Mail is Composio-only: the direct-OAuth adapters were removed after the
+// Mail/Calendar/Contacts consolidation (every mailbox connects via Composio).
+const ADAPTERS: Record<MailProvider, MailAdapter> = {
+  gmail: gmailComposioAdapter,
+  outlook: outlookComposioAdapter,
 };
 
-export function resolveMailAdapter(provider: MailProvider, transport: IntegrationTransport): MailAdapter {
-  return ADAPTERS[provider][transport];
+export function resolveMailAdapter(provider: MailProvider): MailAdapter {
+  return ADAPTERS[provider];
 }
 
 /** Convenience: resolve straight from a unified account ref. */
 export function adapterForAccount(account: MailAccountRef): MailAdapter {
-  return resolveMailAdapter(account.provider, account.via === "composio" ? "composio" : "direct");
+  return resolveMailAdapter(account.provider);
 }
 
 /** Map a normalized error code to the HTTP status an API route should return. */
