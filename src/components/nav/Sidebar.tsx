@@ -29,6 +29,12 @@ import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection
 import { UrlModules } from "@/components/nav/UrlModules";
 import { Icon } from "@/components/ui/Icon";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
+import {
+  isEmptyCustomization,
+  loadNavCustomizationFromServer,
+  saveNavCustomizationToServer,
+  type NavCustomization,
+} from "@/lib/nav/navCustomizationSync";
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
 const NAV_ORDER_KEY       = "axis-nav-order";
@@ -101,6 +107,25 @@ function applyGroupOrder(nav: typeof DEFAULT_NAV, order: string[]): typeof DEFAU
     const bi = order.indexOf(b.section);
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
+}
+
+// Snapshot the four LS keys into the one object we sync to the server.
+function readCustomizationSnapshot(): NavCustomization {
+  return {
+    order: loadNavOrder(),
+    groupOrder: loadNavGroupOrder(),
+    labels: loadNavLabels(),
+    groupLabels: loadNavGroupLabels(),
+  };
+}
+
+// Mirror a server-loaded customization back into the four LS keys so the
+// existing load helpers and save paths keep working unchanged.
+function writeCustomizationToLocal(value: NavCustomization) {
+  saveNavOrder(value.order);
+  saveNavGroupOrder(value.groupOrder);
+  saveNavLabels(value.labels);
+  saveNavGroupLabels(value.groupLabels);
 }
 
 // ─── Nav icons (Lucide via Icon primitive) ───────────────────────────────────
@@ -435,14 +460,39 @@ export function Sidebar({ collapsed }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  // Load all persisted nav state on mount
-  useEffect(() => {
+  // Apply the four LS keys to component state (fast path / signed-out path).
+  const applyLocalNav = () => {
     const order = loadNavOrder();
     const groupOrder = loadNavGroupOrder();
     const ordered = applyOrder(DEFAULT_NAV, order);
     setNav(applyGroupOrder(ordered, groupOrder));
     setNavLabels(loadNavLabels());
     setGroupLabels(loadNavGroupLabels());
+  };
+
+  // Load persisted nav state: LS first (no flash), then reconcile with the
+  // server. If the server has a customization it wins (cross-device); if it
+  // has none, a non-empty local one is imported once. Edits made after mount
+  // go through the save helpers, which also push to the server.
+  const navServerReconciled = useRef(false);
+  useEffect(() => {
+    applyLocalNav();
+    if (navServerReconciled.current) return;
+    navServerReconciled.current = true;
+    void (async () => {
+      const remote = await loadNavCustomizationFromServer();
+      if (remote) {
+        if (!isEmptyCustomization(remote)) {
+          writeCustomizationToLocal(remote);
+          applyLocalNav();
+        }
+        return;
+      }
+      // No server row: import the local customization once, if there is one.
+      const local = readCustomizationSnapshot();
+      if (!isEmptyCustomization(local)) saveNavCustomizationToServer(local);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signOut = async () => {
@@ -463,6 +513,7 @@ export function Sidebar({ collapsed }: Props) {
       const group = next.find((g) => g.section === section);
       if (group) order[section] = group.items.map((i) => i.href);
       saveNavOrder(order);
+      saveNavCustomizationToServer(readCustomizationSnapshot());
       return next;
     });
   };
@@ -472,6 +523,7 @@ export function Sidebar({ collapsed }: Props) {
     setNavLabels((prev) => {
       const next = { ...prev, [href]: newLabel };
       saveNavLabels(next);
+      saveNavCustomizationToServer(readCustomizationSnapshot());
       return next;
     });
   };
@@ -481,6 +533,7 @@ export function Sidebar({ collapsed }: Props) {
     setGroupLabels((prev) => {
       const next = { ...prev, [section]: newLabel };
       saveNavGroupLabels(next);
+      saveNavCustomizationToServer(readCustomizationSnapshot());
       return next;
     });
   };
@@ -499,6 +552,7 @@ export function Sidebar({ collapsed }: Props) {
       if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
       saveNavGroupOrder(next.map((g) => g.section));
+      saveNavCustomizationToServer(readCustomizationSnapshot());
       return next;
     });
   };

@@ -26,6 +26,7 @@ import { useVitalityLogs, type MeditationSession } from "@/lib/hooks/useVitality
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { StatusCallout } from "@/components/ui/StatusCallout";
+import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -1143,6 +1144,17 @@ function HealthMetricsPanel() {
 // ── Main VitalityModule ───────────────────────────────────────────────────────
 
 const CRONOMETER_OPENED_KEY = "axis-cronometer-opened";
+const VITALITY_PREFS_SETTING_KEY = "vitality.prefs";
+
+type VitalityPrefs = { raceGoals: RaceGoal[]; paceUnit: PaceUnit; cronometerOpened: boolean };
+function isVitalityPrefs(v: unknown): v is VitalityPrefs {
+  return (
+    !!v && typeof v === "object"
+    && Array.isArray((v as VitalityPrefs).raceGoals)
+    && ((v as VitalityPrefs).paceUnit === "km" || (v as VitalityPrefs).paceUnit === "mi")
+    && typeof (v as VitalityPrefs).cronometerOpened === "boolean"
+  );
+}
 
 export function VitalityModule() {
   const { toast } = useToast();
@@ -1165,12 +1177,59 @@ export function VitalityModule() {
   });
   const [activeGoalId, setActiveGoalId] = useState<string>(() => raceGoals[0]?.id ?? "g1");
 
+  // Latest-value refs so persistVitalityPrefs can merge without re-creating on
+  // every render (it patches one field and reads the others from here).
+  const raceGoalsRef = useRef(raceGoals);
+  raceGoalsRef.current = raceGoals;
+  const paceUnitRef = useRef(paceUnit);
+  paceUnitRef.current = paceUnit;
+  const cronometerOpenedRef = useRef(cronometerOpened);
+  cronometerOpenedRef.current = cronometerOpened;
+
+  // Persist the three device-local vitality prefs (race PR goals, pace unit,
+  // cronometer-opened flag) to the server so they follow the account. All
+  // three ride one settings row; the individual save paths below keep it fresh.
+  const persistVitalityPrefs = useCallback((patch: {
+    raceGoals?: RaceGoal[];
+    paceUnit?: PaceUnit;
+    cronometerOpened?: boolean;
+  }) => {
+    pushSetting(VITALITY_PREFS_SETTING_KEY, {
+      raceGoals: patch.raceGoals ?? raceGoalsRef.current,
+      paceUnit: patch.paceUnit ?? paceUnitRef.current,
+      cronometerOpened: patch.cronometerOpened ?? cronometerOpenedRef.current,
+    });
+  }, []);
+
   useEffect(() => {
     try { setCronometerOpened(localStorage.getItem(CRONOMETER_OPENED_KEY) === "1"); } catch {}
     try {
       const storedUnit = localStorage.getItem(PACE_UNIT_KEY);
       if (storedUnit === "km" || storedUnit === "mi") setPaceUnit(storedUnit);
     } catch {}
+
+    void (async () => {
+      const remote = await pullSetting(VITALITY_PREFS_SETTING_KEY, isVitalityPrefs);
+      if (remote) {
+        if (Array.isArray(remote.raceGoals) && remote.raceGoals.length) {
+          setRaceGoals(remote.raceGoals);
+          setActiveGoalId((prev) => (remote.raceGoals.some((g) => g.id === prev) ? prev : remote.raceGoals[0]?.id ?? prev));
+          try { localStorage.setItem(PR_GOALS_KEY, JSON.stringify(remote.raceGoals)); } catch {}
+        }
+        if (remote.paceUnit === "km" || remote.paceUnit === "mi") {
+          setPaceUnit(remote.paceUnit);
+          try { localStorage.setItem(PACE_UNIT_KEY, remote.paceUnit); } catch {}
+        }
+        if (typeof remote.cronometerOpened === "boolean") {
+          setCronometerOpened(remote.cronometerOpened);
+          try { localStorage.setItem(CRONOMETER_OPENED_KEY, remote.cronometerOpened ? "1" : "0"); } catch {}
+        }
+      } else {
+        // Import the current local prefs once.
+        persistVitalityPrefs({});
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, statusError: stravaStatusError, activitiesError: stravaActivitiesError, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
@@ -1182,6 +1241,7 @@ export function VitalityModule() {
     setPaceUnit(u);
     setStravaUnit(u);
     try { localStorage.setItem(PACE_UNIT_KEY, u); } catch {}
+    persistVitalityPrefs({ paceUnit: u });
   };
 
   const activeGoal = raceGoals.find((g) => g.id === activeGoalId) ?? raceGoals[0] ?? DEFAULT_GOALS[0];
@@ -1189,6 +1249,7 @@ export function VitalityModule() {
   const persistGoals = (next: RaceGoal[]) => {
     setRaceGoals(next);
     try { localStorage.setItem(PR_GOALS_KEY, JSON.stringify(next)); } catch {}
+    persistVitalityPrefs({ raceGoals: next });
   };
 
   const updateActiveGoal = (patch: Partial<RaceGoal>) => {
@@ -1218,6 +1279,7 @@ export function VitalityModule() {
   const openCronometer = () => {
     setCronometerOpened(true);
     try { localStorage.setItem(CRONOMETER_OPENED_KEY, "1"); } catch {}
+    persistVitalityPrefs({ cronometerOpened: true });
     openInApp("https://cronometer.com/login/", "Cronometer");
   };
 

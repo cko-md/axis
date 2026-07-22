@@ -84,8 +84,11 @@ export async function createAgentTaskWithActivity(
       p_user_id: input.userId,
       p_objective: input.objective,
       p_context: input.context,
-      p_source_routine_id: input.sourceRoutineId ?? null,
-      p_source_skill: input.sourceSkill ?? null,
+      // Omit optional args when absent so the RPC's own defaults apply. The
+      // regenerated types type these as string|undefined (the generator no
+      // longer emits |null for optional args); undefined drops the key.
+      p_source_routine_id: input.sourceRoutineId ?? undefined,
+      p_source_skill: input.sourceSkill ?? undefined,
       p_activity_detail: input.activityDetail ?? {},
       ...(idempotent ? { p_idempotency_key: input.idempotencyKey } : {}),
     },
@@ -110,7 +113,7 @@ export async function transitionAgentTask(
     p_task_id: input.taskId,
     p_expected_status: input.expectedStatus,
     p_next_status: input.nextStatus,
-    p_completed_at: input.completedAt ?? null,
+    p_completed_at: input.completedAt ?? undefined,
   });
   if (error) return { ok: false, code: "RPC_FAILED" };
   return parseTaskResult(data, ["updated"]);

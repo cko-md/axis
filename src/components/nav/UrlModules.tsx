@@ -31,12 +31,31 @@ import {
   saveUrlBoards,
   type UrlBoard,
 } from "@/lib/store/url-boards";
+import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
 const URL_MODULES_KEY = "axis-url-modules";
+const URL_MODULES_SETTING_KEY = "nav.urlModules";
+const URL_BOARDS_SETTING_KEY = "nav.urlBoards";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type UrlModule = { id: string; name: string; url: string };
+
+function isUrlModuleArray(v: unknown): v is UrlModule[] {
+  return Array.isArray(v) && v.every(
+    (m) => m && typeof m === "object"
+      && typeof (m as UrlModule).id === "string"
+      && typeof (m as UrlModule).name === "string"
+      && typeof (m as UrlModule).url === "string",
+  );
+}
+function isUrlBoardArray(v: unknown): v is UrlBoard[] {
+  return Array.isArray(v) && v.every(
+    (b) => b && typeof b === "object"
+      && typeof (b as UrlBoard).id === "string"
+      && typeof (b as UrlBoard).name === "string",
+  );
+}
 
 const ASSIGNED_DROP = "board-assigned-drop";
 const POOL_DROP = "board-pool-drop";
@@ -258,20 +277,42 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
-    setUrlModules(loadUrlModules());
-    setBoards(loadUrlBoards());
+    const localModules = loadUrlModules();
+    const localBoards = loadUrlBoards();
+    setUrlModules(localModules);
+    setBoards(localBoards);
+    // Reconcile with the server: a stored value wins (cross-device), else the
+    // local collection is imported once. Modules and boards sync independently.
+    void (async () => {
+      const remoteModules = await pullSetting(URL_MODULES_SETTING_KEY, isUrlModuleArray);
+      if (remoteModules) {
+        try { localStorage.setItem(URL_MODULES_KEY, JSON.stringify(remoteModules)); } catch { /* ignore */ }
+        setUrlModules(remoteModules);
+      } else if (localModules.length) {
+        pushSetting(URL_MODULES_SETTING_KEY, localModules);
+      }
+      const remoteBoards = await pullSetting(URL_BOARDS_SETTING_KEY, isUrlBoardArray);
+      if (remoteBoards) {
+        saveUrlBoards(remoteBoards);
+        setBoards(remoteBoards);
+      } else if (localBoards.length) {
+        pushSetting(URL_BOARDS_SETTING_KEY, localBoards);
+      }
+    })();
   }, []);
 
   const persistModules = (mods: UrlModule[]) => {
     setUrlModules(mods);
     try { localStorage.setItem(URL_MODULES_KEY, JSON.stringify(mods)); }
     catch { /* ignore */ }
+    pushSetting(URL_MODULES_SETTING_KEY, mods);
   };
 
   const persistBoards = (next: UrlBoard[] | ((prev: UrlBoard[]) => UrlBoard[])) => {
     setBoards((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
       saveUrlBoards(resolved);
+      pushSetting(URL_BOARDS_SETTING_KEY, resolved);
       return resolved;
     });
   };
@@ -295,7 +336,7 @@ export function UrlModules({ collapsed, openWebViewer }: Props) {
     setBoardName("");
     setBoardOpen(false);
     setBoardDetail(board);
-    toast(`Board "${board.name}" created (device-local).`, "success", "Boards");
+    toast(`Board "${board.name}" created.`, "success", "Boards");
   };
 
   const removeBoard = (id: string) => {

@@ -40,12 +40,23 @@ import { callAiAction } from "@/lib/ai/callAction";
 import { buildAiRequestBody, type AiActionName } from "@/lib/ai/actions";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
 const DEFAULT_FOLDERS = ["All Notes", "Research", "Manuscripts", "Grants", "Clinical", "Personal", ARCHIVE_FOLDER];
 const FOLDER_ORDER_KEY = "axis-notes-folder-order";
 const CUSTOM_FOLDERS_KEY = "axis-notes-custom-folders";
+const FOLDERS_SETTING_KEY = "notes.folders";
+
+type NotesFolderSetting = { order: string[]; custom: string[] };
+function isNotesFolderSetting(v: unknown): v is NotesFolderSetting {
+  return (
+    !!v && typeof v === "object"
+    && Array.isArray((v as NotesFolderSetting).order)
+    && Array.isArray((v as NotesFolderSetting).custom)
+  );
+}
 
 function SortableFolder({
   folder,
@@ -247,32 +258,52 @@ export function NotesModule() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  // Apply a {order, custom} taxonomy to state, filling in any default folders
+  // missing from a stored order (so a taxonomy saved before a default folder
+  // was added still surfaces it).
+  const applyFolderSetting = useCallback((order: string[], custom: string[]) => {
+    setCustomFolders(custom);
+    const allFolders = [...DEFAULT_FOLDERS, ...custom];
+    const hasAll = allFolders.every((f) => order.includes(f));
+    setFolders(hasAll && order.length === allFolders.length ? order : allFolders);
+  }, []);
+
+  const folderServerReconciled = useRef(false);
   useEffect(() => {
+    // Fast path: hydrate from LS immediately.
+    let localOrder: string[] = [];
+    let localCustom: string[] = [];
     try {
       const storedOrder = localStorage.getItem(FOLDER_ORDER_KEY);
       const storedCustom = localStorage.getItem(CUSTOM_FOLDERS_KEY);
-      const custom: string[] = storedCustom ? (JSON.parse(storedCustom) as string[]) : [];
-      setCustomFolders(custom);
-      const allFolders = [...DEFAULT_FOLDERS, ...custom];
-      if (storedOrder) {
-        const parsed = JSON.parse(storedOrder) as string[];
-        const hasAll = allFolders.every((f) => parsed.includes(f));
-        if (hasAll && parsed.length === allFolders.length) {
-          setFolders(parsed);
-          return;
-        }
-      }
-      setFolders(allFolders);
+      localCustom = storedCustom ? (JSON.parse(storedCustom) as string[]) : [];
+      localOrder = storedOrder ? (JSON.parse(storedOrder) as string[]) : [];
     } catch {
       /* ignore */
     }
-  }, []);
+    applyFolderSetting(localOrder, localCustom);
+
+    if (folderServerReconciled.current) return;
+    folderServerReconciled.current = true;
+    void (async () => {
+      const remote = await pullSetting(FOLDERS_SETTING_KEY, isNotesFolderSetting);
+      if (remote) {
+        localStorage.setItem(FOLDER_ORDER_KEY, JSON.stringify(remote.order));
+        localStorage.setItem(CUSTOM_FOLDERS_KEY, JSON.stringify(remote.custom));
+        applyFolderSetting(remote.order, remote.custom);
+      } else if (localOrder.length || localCustom.length) {
+        // No server row yet: import the local taxonomy once.
+        pushSetting(FOLDERS_SETTING_KEY, { order: localOrder, custom: localCustom });
+      }
+    })();
+  }, [applyFolderSetting]);
 
   function persistFolders(next: string[], custom: string[]) {
     setFolders(next);
     setCustomFolders(custom);
     localStorage.setItem(FOLDER_ORDER_KEY, JSON.stringify(next));
     localStorage.setItem(CUSTOM_FOLDERS_KEY, JSON.stringify(custom));
+    pushSetting(FOLDERS_SETTING_KEY, { order: next, custom });
   }
 
   function handleFolderDragEnd({ active, over }: DragEndEvent) {

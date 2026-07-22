@@ -4,9 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { isAxisDesktop, openDesktopBrowser } from "@/lib/desktop-browser";
 import { createClient } from "@/lib/supabase/client";
+import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
 
 const FAVS_KEY = "axis-wv-favorites";
+const FAVS_SETTING_KEY = "webviewer.favorites";
 type Fav = { url: string; title: string };
+function isFavArray(v: unknown): v is Fav[] {
+  return Array.isArray(v) && v.every(
+    (f) => f && typeof f === "object"
+      && typeof (f as Fav).url === "string"
+      && typeof (f as Fav).title === "string",
+  );
+}
 type Tab = { id: string; url: string; title: string; back: string[]; forward: string[] };
 type ReaderData = {
   url: string;
@@ -72,7 +81,19 @@ export function WebViewer() {
   // Token guards against stale async responses landing on a newer navigation.
   const readerTokenRef = useRef(0);
 
-  useEffect(() => { setFavs(loadFavs()); }, []);
+  useEffect(() => {
+    const local = loadFavs();
+    setFavs(local);
+    void (async () => {
+      const remote = await pullSetting(FAVS_SETTING_KEY, isFavArray);
+      if (remote) {
+        saveFavs(remote);
+        setFavs(remote);
+      } else if (local.length) {
+        pushSetting(FAVS_SETTING_KEY, local);
+      }
+    })();
+  }, []);
 
   // Track whether viewer is open to avoid stale closure in event handler
   const isOpenRef = useRef(false);
@@ -270,6 +291,7 @@ export function WebViewer() {
       : [...favs, { url: activeUrl, title }];
     setFavs(next);
     saveFavs(next);
+    pushSetting(FAVS_SETTING_KEY, next);
   }, [favs, isFaved, activeUrl, activeTab]);
 
   const captureToNotes = useCallback(async () => {

@@ -14,6 +14,10 @@ import {
   aiDegradationLabel,
   type AiResponseMetadata,
 } from "@/lib/ai/response";
+import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
+
+const FOCUS_SETTING_KEY = "companion.focus";
+const isFocusString = (v: unknown): v is string => typeof v === "string";
 
 // ── Module context ─────────────────────────────────────────────────────────────
 const MODULE_CONTEXTS: Record<string, string> = {
@@ -338,7 +342,17 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
   const sendAbortRef  = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    setFocus(localStorage.getItem("axiom-focus") ?? "");
+    const local = localStorage.getItem("axiom-focus") ?? "";
+    setFocus(local);
+    void (async () => {
+      const remote = await pullSetting(FOCUS_SETTING_KEY, isFocusString);
+      if (remote !== null) {
+        setFocus(remote);
+        localStorage.setItem("axiom-focus", remote);
+      } else if (local) {
+        pushSetting(FOCUS_SETTING_KEY, local);
+      }
+    })();
   }, []);
 
   // Abort any in-flight requests on unmount.
@@ -352,6 +366,7 @@ function AxiomChar({ onHide }: { onHide: () => void }) {
   const saveFocus = (v: string) => {
     setFocus(v);
     localStorage.setItem("axiom-focus", v);
+    pushSetting(FOCUS_SETTING_KEY, v);
   };
 
   const generateBrief = useCallback(async () => {

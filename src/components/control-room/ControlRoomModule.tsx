@@ -20,6 +20,7 @@ import { integrationCardView, type IntegrationCardView } from "@/lib/integration
 import { getProviderDescriptor } from "@/lib/integrations/registry";
 import type { IntegrationTransport } from "@/lib/integrations/types";
 import { MakeDeliveryOutboxPanel } from "./MakeDeliveryOutboxPanel";
+import { isAxisLocalKey } from "@/lib/settings/localKeys";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -584,7 +585,7 @@ export function ControlRoomModule() {
       const payload: Record<string, unknown> = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key || !key.startsWith("axis-")) continue;
+        if (!key || !isAxisLocalKey(key)) continue;
         const raw = localStorage.getItem(key);
         try {
           payload[key] = raw ? JSON.parse(raw) : raw;
@@ -611,7 +612,7 @@ export function ControlRoomModule() {
     const keys: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith("axis-")) keys.push(key);
+      if (key && isAxisLocalKey(key)) keys.push(key);
     }
     keys.forEach((k) => localStorage.removeItem(k));
     setClearOpen(false);
@@ -714,7 +715,7 @@ export function ControlRoomModule() {
     let n = 0;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith("axis-")) n++;
+      if (key && isAxisLocalKey(key)) n++;
     }
     setLocalItemCount(n);
   }, [tab]);
