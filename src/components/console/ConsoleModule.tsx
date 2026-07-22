@@ -39,7 +39,12 @@ import { callAiAction } from "@/lib/ai/callAction";
 import { aiDegradationLabel } from "@/lib/ai/response";
 import { useWidgetData } from "@/lib/hooks/useWidgetData";
 import { isSignalActionable, isSignalVisible, useSignals } from "@/lib/hooks/useSignals";
-import { rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
+import { doneTodayTasks, rankTasks, useTasks, type Task } from "@/lib/hooks/useTasks";
+import { localDayNumber, localWeekNumber, seededIndex } from "@/lib/content/daily";
+import { DEVOTIONALS } from "@/lib/content/devotionals";
+import { DAILY_REFLECTIONS } from "@/lib/content/reflections";
+import type { PoemPayload } from "@/lib/content/poems";
+import { buildHeroSentence } from "@/lib/console/heroLine";
 import { useNotes } from "@/lib/hooks/useNotes";
 import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
@@ -60,7 +65,7 @@ type Artwork = {
 };
 
 function ArtGalleryCard() {
-  const [seed, setSeed] = useState(Math.floor(Date.now() / 86400000));
+  const [seed, setSeed] = useState(localDayNumber());
   const [art, setArt] = useState<Artwork | null>(null);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -115,38 +120,47 @@ function ArtGalleryCard() {
   );
 }
 
-/* ── daily reflections ─────────────────────────────────────────── */
+/* ── poem of the day ───────────────────────────────────────────── */
 
-const DAILY_REFLECTIONS = [
-  { text: "The unexamined life is not worth living.", author: "Socrates", source: "Apology" },
-  { text: "Man is condemned to be free.", author: "Jean-Paul Sartre", source: "Existentialism is a Humanism" },
-  { text: "To know what you know and what you do not know — that is true knowledge.", author: "Confucius", source: "Analects" },
-  { text: "The obstacle is the way.", author: "Marcus Aurelius", source: "Meditations" },
-  { text: "Life must be understood backwards, but it must be lived forwards.", author: "Søren Kierkegaard" },
-  { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", author: "Aristotle" },
-  { text: "He who has a why to live can bear almost any how.", author: "Friedrich Nietzsche", source: "Twilight of the Idols" },
-  { text: "Cogito, ergo sum.", author: "René Descartes", source: "Discourse on the Method" },
-  { text: "The limits of my language mean the limits of my world.", author: "Ludwig Wittgenstein", source: "Tractatus" },
-  { text: "One cannot step into the same river twice.", author: "Heraclitus" },
-  { text: "The cave you fear to enter holds the treasure you seek.", author: "Joseph Campbell", source: "The Hero with a Thousand Faces" },
-  { text: "Simplicity is the ultimate sophistication.", author: "Leonardo da Vinci" },
-  { text: "Beauty will save the world.", author: "Fyodor Dostoevsky", source: "The Idiot" },
-  { text: "The journey of a thousand miles begins with one step.", author: "Lao Tzu", source: "Tao Te Ching" },
-  { text: "The soul becomes dyed with the colour of its thoughts.", author: "Marcus Aurelius", source: "Meditations" },
-  { text: "Time you enjoy wasting is not wasted time.", author: "Bertrand Russell" },
-  { text: "All that we see or seem is but a dream within a dream.", author: "Edgar Allan Poe" },
-  { text: "Knowing yourself is the beginning of all wisdom.", author: "Aristotle" },
-  { text: "Not all who wander are lost.", author: "J.R.R. Tolkien", source: "The Fellowship of the Ring" },
-  { text: "The present moment always will have been.", author: "Marcus Aurelius", source: "Meditations" },
-  { text: "To do great work, one must know how to wait.", author: "Leo Tolstoy" },
-  { text: "Between stimulus and response there is a space. In that space is our power to choose.", author: "Viktor Frankl", source: "Man's Search for Meaning" },
-  { text: "The hardest thing in the world is to simplify your life. It's so easy to make it complex.", author: "Yvon Chouinard" },
-  { text: "In the depth of winter I finally learned that there was in me an invincible summer.", author: "Albert Camus" },
-  { text: "Do not pray for an easy life; pray for the strength to endure a difficult one.", author: "Bruce Lee" },
-  { text: "What is not started today is never finished tomorrow.", author: "Johann Wolfgang von Goethe" },
-  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
-  { text: "Excellence is never an accident.", author: "Aristotle" },
-] as const;
+function PoemCard() {
+  const [seed, setSeed] = useState(localDayNumber());
+  const [poem, setPoem] = useState<PoemPayload | null>(null);
+  const [fetching, setFetching] = useState(true);
+
+  useEffect(() => {
+    setFetching(true);
+    fetch(`/api/widgets/poem?seed=${seed}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: PoemPayload | null) => { setPoem(d); setFetching(false); })
+      .catch(() => setFetching(false));
+  }, [seed]);
+
+  return (
+    <Card className="console-premium-card">
+      <h2 className="sec">
+        Poem of the Day<span className="rule" />
+        <span className="count" style={{ cursor: "pointer" }} onClick={() => setSeed((s) => s + 1)} title="Next poem">Next →</span>
+      </h2>
+      <div style={{ marginTop: 12 }}>
+        {fetching ? (
+          <div className="art-loading">Turning the pages…</div>
+        ) : poem ? (
+          <>
+            <div className="g-poem-title">{poem.title}</div>
+            <div className="g-poem-author">{poem.author}</div>
+            <div className="g-poem-lines" style={{ maxHeight: 320, overflowY: "auto" }}>
+              {poem.lines.map((line, i) => (
+                <div key={i} className="g-poem-line">{line || " "}</div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="art-loading">Poem unavailable</div>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 /* ── constants ─────────────────────────────────────────────────── */
 
@@ -165,6 +179,7 @@ const DEFAULT_SECTION_ORDER = [
   "stoic-maxim",
   "markets-body",
   "art-gallery",
+  "poem-of-day",
 ] as const;
 
 type SectionId = (typeof DEFAULT_SECTION_ORDER)[number];
@@ -181,7 +196,7 @@ const DEFAULT_BLOCK_SIZES: Record<SectionId, BlockSize> = {
   "pomodoro": "sm", "routine": "md", "daily-rings": "md",
   "todays-arc": "md", "focus-ranked": "md", "people-spotlight": "md",
   "weekly-devotional": "md", "stoic-maxim": "md", "markets-body": "md",
-  "art-gallery": "md",
+  "art-gallery": "md", "poem-of-day": "md",
 };
 
 // Three-step granular sizing: sm (1 col) → md (2 col) → full (all 4 cols) → sm…
@@ -199,15 +214,41 @@ const BlockSizeContext = createContext<BlockSizeCtx>({ sizes: {}, columns: {}, t
 
 /* ── HeroLine ──────────────────────────────────────────────────── */
 
-function HeroLine({ tasks }: { tasks: Task[] }) {
+function HeroLine({ tasks, events }: {
+  tasks: Task[];
+  events: Array<{ title: string; start_at: string }>;
+}) {
+  const now = new Date();
   const open = tasks.filter((t) => t.status !== "done");
-  const today = new Date();
   const dueToday = open.filter(
-    (t) => t.deadline && new Date(t.deadline).toDateString() === today.toDateString(),
+    (t) => t.deadline && new Date(t.deadline).toDateString() === now.toDateString(),
   );
   const overdue = open.filter((t) => t.status === "overdue");
 
-  if (open.length === 0) {
+  const upcoming = events
+    .map((event) => ({ title: event.title, start: new Date(event.start_at) }))
+    .filter((event) => Number.isFinite(event.start.getTime()) && event.start.getTime() > now.getTime())
+    .sort((a, b) => a.start.getTime() - b.start.getTime())[0] ?? null;
+
+  const sentence = buildHeroSentence({
+    openCount: open.length,
+    overdueCount: overdue.length,
+    dueTodayCount: dueToday.length,
+    doneTodayCount: doneTodayTasks(tasks).length,
+    nextEvent: upcoming
+      ? {
+          title: upcoming.title,
+          minutesUntil: Math.round((upcoming.start.getTime() - now.getTime()) / 60_000),
+          timeLabel: upcoming.start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        }
+      : null,
+    hour: now.getHours(),
+    daySeed: localDayNumber(now),
+  });
+
+  // The first-run wording references the capture bar physically below the
+  // hero, so it stays verbatim rather than joining the rotation.
+  if (sentence.kind === "first-run") {
     return (
       <h1 className="hero-title">
         A clear slate — <em>capture a thought below</em>
@@ -219,16 +260,9 @@ function HeroLine({ tasks }: { tasks: Task[] }) {
 
   return (
     <h1 className="hero-title">
-      {open.length} open {open.length === 1 ? "task" : "tasks"},{" "}
-      <em>
-        {overdue.length > 0
-          ? `${overdue.length} overdue`
-          : dueToday.length > 0
-            ? `${dueToday.length} due today`
-            : "nothing overdue"}
-      </em>
-      ,<br />
-      and the morning block is yours.
+      {sentence.lead}, <em>{sentence.em}</em> —
+      <br />
+      {sentence.tail}
     </h1>
   );
 }
@@ -346,6 +380,9 @@ export function ConsoleModule() {
   const [loading, setLoading] = useState(true);
   const [captureText, setCaptureText] = useState("");
   const [captMode, setCaptMode] = useState<"task" | "note" | "paper" | null>(null);
+  // Manual "Next →" advances for the rotating cards; 0 = today's/this week's pick.
+  const [devotionalOffset, setDevotionalOffset] = useState(0);
+  const [reflectionOffset, setReflectionOffset] = useState(0);
   const [dispatchExpanded, setDispatchExpanded] = useState(false);
   const [triagingIds, setTriagingIds] = useState<Set<string>>(new Set());
   const pomModeRef = useRef<"work" | "break">("work");
@@ -408,9 +445,18 @@ export function ConsoleModule() {
     try {
       const stored = localStorage.getItem(CONSOLE_SECTION_ORDER_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored) as SectionId[];
-        const allPresent = DEFAULT_SECTION_ORDER.every((id) => parsed.includes(id));
-        if (allPresent && parsed.length === DEFAULT_SECTION_ORDER.length) setSectionOrder(parsed);
+        // Same semantics as normalizeConsoleLayout: keep the user's order for
+        // known ids, drop unknown ids, append newly added sections at the end.
+        // (The previous exact-length check silently reset the whole saved
+        // order every time a section was added to the catalog.)
+        const parsed = JSON.parse(stored) as string[];
+        const known = parsed.filter(
+          (id): id is SectionId => (DEFAULT_SECTION_ORDER as readonly string[]).includes(id),
+        );
+        if (known.length > 0) {
+          const missing = DEFAULT_SECTION_ORDER.filter((id) => !known.includes(id));
+          setSectionOrder([...known, ...missing]);
+        }
       }
       const storedSizes = localStorage.getItem(CONSOLE_BLOCK_SIZES_KEY);
       if (storedSizes) {
@@ -829,26 +875,34 @@ export function ConsoleModule() {
     </DraggableBlock>
   );
 
+  const devotional = DEVOTIONALS[seededIndex(localWeekNumber() + devotionalOffset, DEVOTIONALS.length)];
+
   const weeklyDevotionalSection = (
     <DraggableBlock key="weekly-devotional" id="weekly-devotional">
       <Card tick className="devo console-premium-card">
-        <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional · Static local reference</div>
-        <div className="verse">&ldquo;Whatever you do, work heartily, as for the Lord and not for men.&rdquo;</div>
-        <div className="ref">COLOSSIANS 3:23 · ESV</div>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+          <div className="eyebrow" style={{ color: "var(--clay)" }}>Weekly Devotional</div>
+          <span className="count" style={{ cursor: "pointer" }} onClick={() => setDevotionalOffset((o) => o + 1)} title="Next verse">Next →</span>
+        </div>
+        <div className="verse">&ldquo;{devotional.text}&rdquo;</div>
+        <div className="ref">{devotional.ref.toUpperCase()} · ESV</div>
       </Card>
     </DraggableBlock>
   );
 
-  const todayQuote = DAILY_REFLECTIONS[Math.floor(Date.now() / 86400000) % DAILY_REFLECTIONS.length];
+  const todayQuote = DAILY_REFLECTIONS[seededIndex(localDayNumber() + reflectionOffset, DAILY_REFLECTIONS.length)];
 
   const stoicMaximSection = (
     <DraggableBlock key="stoic-maxim" id="stoic-maxim">
       <Card tick className="quote-card console-premium-card">
-        <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Daily Reflection · Static local</div>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+          <div className="eyebrow" style={{ color: "var(--accent-2)" }}>Daily Reflection</div>
+          <span className="count" style={{ cursor: "pointer" }} onClick={() => setReflectionOffset((o) => o + 1)} title="Next reflection">Next →</span>
+        </div>
         <div className="qtext">&ldquo;{todayQuote.text}&rdquo;</div>
         <div className="qauth">
           — {todayQuote.author}
-          {"source" in todayQuote && todayQuote.source ? <>, <em>{todayQuote.source}</em></> : null}
+          {todayQuote.source ? <>, <em>{todayQuote.source}</em></> : null}
         </div>
       </Card>
     </DraggableBlock>
@@ -857,6 +911,12 @@ export function ConsoleModule() {
   const artGallerySection = (
     <DraggableBlock key="art-gallery" id="art-gallery">
       <ArtGalleryCard />
+    </DraggableBlock>
+  );
+
+  const poemSection = (
+    <DraggableBlock key="poem-of-day" id="poem-of-day">
+      <PoemCard />
     </DraggableBlock>
   );
 
@@ -1141,6 +1201,7 @@ export function ConsoleModule() {
     "stoic-maxim": stoicMaximSection,
     "markets-body": marketsBodySection,
     "art-gallery": artGallerySection,
+    "poem-of-day": poemSection,
   };
 
   // Minimal clone for DragOverlay — just a dim placeholder matching the handle
@@ -1285,7 +1346,7 @@ export function ConsoleModule() {
       <div className="module-stage">
         <AxisReflectiveCard className="module-hero-shell">
           <div className="eyebrow">{formatDateLong()}</div>
-          <HeroLine tasks={tasks} />
+          <HeroLine tasks={tasks} events={arcEvents} />
 
           <ConsoleCaptureBar
             value={captureText}
