@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { FundSubNav } from "@/components/fund/FundSubNav";
@@ -88,20 +88,25 @@ export function FundPremiumShell({ children }: Props) {
     plaid: EMPTY_STATUS,
     publicCom: EMPTY_STATUS,
   });
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshStatuses = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [massive, plaid, brokerage] = await Promise.all([
+        fetch("/api/massive/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
+        fetch("/api/plaid/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
+        fetch("/api/brokerage/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
+      ]);
+      setProviders({ polygon: massive, plaid, publicCom: brokerage });
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void Promise.all([
-      fetch("/api/massive/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
-      fetch("/api/plaid/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
-      fetch("/api/brokerage/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
-    ]).then(([massive, plaid, brokerage]) => {
-      setProviders({
-        polygon: massive,
-        plaid,
-        publicCom: brokerage,
-      });
-    });
-  }, []);
+    void refreshStatuses();
+  }, [refreshStatuses]);
 
   const providerHealth = useMemo<ConnectionHealth[]>(() => [
     deriveConnectionHealth({
@@ -145,6 +150,13 @@ export function FundPremiumShell({ children }: Props) {
       ? `${enabledCount}/3 providers enabled`
       : "Demo / manual mode";
   const polygonHealth = providerHealth.find((provider) => provider.provider === "polygon");
+  const quotesEnabled = polygonHealth?.status === "connected" || polygonHealth?.status === "configured";
+  // Subtitle now reflects real connection state instead of a fixed slogan.
+  const subtitle = linkedCount > 0
+    ? `${linkedCount} provider${linkedCount === 1 ? "" : "s"} linked · Tier 1 surfaces live`
+    : enabledCount > 0
+      ? "Providers configured · link an account for live data"
+      : "Demo / manual mode · connect a provider for live data";
 
   return (
     <div className="module-stage fund-stage">
@@ -152,18 +164,19 @@ export function FundPremiumShell({ children }: Props) {
         compact
         eyebrow="Capital · Fund"
         title={activeLabel}
-        subtitle="Chart-safe Tier 1 surfaces · live when connected"
+        subtitle={subtitle}
         stats={[
           { label: "Surface", value: activeLabel },
-          { label: "Mode", value: modeLabel, tone: enabledCount > 0 ? "accent" : "warn" },
+          { label: "Mode", value: modeLabel, tone: linkedCount > 0 ? "success" : enabledCount > 0 ? "accent" : "warn" },
           {
             label: "Quotes",
-            value: polygonHealth?.status === "connected" || polygonHealth?.status === "configured" ? "Enabled" : "Not configured",
-            tone: polygonHealth?.status === "connected" || polygonHealth?.status === "configured" ? "accent" : "default",
+            value: quotesEnabled ? "Enabled" : "Not configured",
+            tone: quotesEnabled ? "accent" : "muted",
           },
         ]}
         actions={[
-          { label: "Refresh quotes", href: "/fund/watchlist" },
+          { label: refreshing ? "Refreshing…" : "Refresh status", onClick: () => void refreshStatuses(), disabled: refreshing },
+          { label: "Watchlist", href: "/fund/watchlist" },
           { label: "Connections", href: "/control-room" },
         ]}
       >

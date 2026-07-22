@@ -34,6 +34,7 @@ import { Modal } from "@/components/ui/Modal";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import styles from "./SignalsModule.module.css";
 
 const CHIPS = ["All", "Critical", "Actionable", "Information", "Noise", "Routed", "Unread", "Snoozed", "Archived"] as const;
@@ -282,6 +283,15 @@ export function SignalsModule() {
     () => applyChip(signals, activeChip, severityFor),
     [signals, activeChip, severityFor],
   );
+
+  // Header summary: live inbox state that updates as signals arrive/route.
+  const signalSummary = useMemo(() => {
+    const visible = signals.filter((s) => isSignalVisible(s));
+    const untriaged = visible.filter((s) => !s.routed_at).length;
+    const unread = visible.filter((s) => !s.read_at).length;
+    const critical = visible.filter((s) => !s.routed_at && severityFor(s) === "critical").length;
+    return { total: visible.length, untriaged, unread, critical };
+  }, [signals, severityFor]);
 
   // The default queue is ordered by deterministic attention tier, with completed routing separate.
   const grouped = useMemo(() => {
@@ -681,6 +691,24 @@ export function SignalsModule() {
 
   return (
     <>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Operate · Dispatch"
+        title="Dispatch"
+        subtitle="Signal inbox — captured, triaged, and routed to the right module."
+        loading={loading && signals.length === 0}
+        stats={[
+          { label: "Open", value: String(signalSummary.total), tone: signalSummary.total > 0 ? "accent" : "default" },
+          { label: "Untriaged", value: String(signalSummary.untriaged), tone: signalSummary.untriaged > 0 ? "warn" : "success" },
+          { label: "Critical", value: String(signalSummary.critical), tone: signalSummary.critical > 0 ? "danger" : "default" },
+          { label: "Routes", value: String(routes.length) },
+        ]}
+        actions={[
+          { label: scanning ? "Scanning…" : "Scan modules", onClick: () => { if (!scanning) void scanPlatform(); }, disabled: scanning },
+          { label: batching ? "Triaging…" : "AI triage all", onClick: () => { if (!batching) void triageAll(); }, disabled: batching },
+          { label: "Routes", onClick: () => setRoutesOpen(true) },
+        ]}
+      />
         <div className={styles.headActions}>
           <button type="button" className="aibtn" onClick={scanning ? undefined : scanPlatform} title="Scan platform modules for new signals">
             {scanning ? "Scanning…" : "✦ Scan modules"}

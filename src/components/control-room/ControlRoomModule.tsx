@@ -15,6 +15,7 @@ import { openComposioOAuthPopup, openOAuthPopup } from "@/lib/auth/openOAuthPopu
 import { Seg } from "@/components/ui/Seg";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import type { AIProviderPref } from "@/lib/ai/router";
 import { integrationCardView, type IntegrationCardView } from "@/lib/integrations/cardView";
 import { getProviderDescriptor } from "@/lib/integrations/registry";
@@ -1001,19 +1002,36 @@ export function ControlRoomModule() {
   const overviewConnections = [...serviceConnections.slice(1), ...providerRows];
   const allConnections = [...serviceConnections, ...providerRows];
   const connectedCount = allConnections.filter((c) => c.state === "on").length;
+  const brokenCount = allConnections.filter((c) => c.state === "broken").length;
 
   const activeTabLabel = TABS.find((t) => t.id === tab)?.label ?? "Overview";
 
   return (
     <>
       <div className="module-stage control-room-stage">
-        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
-          <div className="eyebrow">System · Control Room</div>
-          <h1 className="hero-title">{activeTabLabel}</h1>
-          <p className="sub mail-hero-meta">
-            {connectedCount} of {allConnections.length} connections live
-          </p>
-        </AxisReflectiveCard>
+        <ModuleInteractiveHero
+          compact
+          eyebrow="System · Control Room"
+          title={activeTabLabel}
+          subtitle="Connections, appearance, security, and your local data — all in one place."
+          stats={[
+            {
+              label: "Connections",
+              value: `${connectedCount}/${allConnections.length}`,
+              tone: connectedCount > 0 ? "success" : "default",
+            },
+            {
+              label: "Needs attention",
+              value: String(brokenCount),
+              tone: brokenCount > 0 ? "danger" : "default",
+            },
+            { label: "Local items", value: String(localItemCount), tone: "muted" },
+          ]}
+          actions={[
+            { label: "Connections", onClick: () => setTab("connections") },
+            { label: "Data & privacy", onClick: () => setTab("data") },
+          ]}
+        />
 
         <AxisGlassPanel className="module-glass-zone control-room-workspace">
           <div className="subtabbar">

@@ -1563,6 +1563,41 @@ html.light :is(.card, .axis-reflective-card)::after {
   color: var(--ink-faint);
 }
 
+.module-hero-stat-hint {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+/* First-load skeleton: dim, non-interactive, gently pulsing. */
+.module-hero-stat--loading {
+  opacity: 0.5;
+  animation: module-hero-stat-pulse 1.4s ease-in-out infinite;
+}
+.module-hero-stat--loading .module-hero-stat-v {
+  color: var(--ink-faint);
+}
+@keyframes module-hero-stat-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .module-hero-stat--loading { animation: none; }
+}
+
+/* Primary hero action — filled accent instead of the ghost outline. */
+.module-hero-action--primary {
+  background: color-mix(in srgb, var(--accent) 88%, transparent);
+  border-color: var(--accent);
+  color: var(--on-accent, #0a0b0e);
+}
+.module-hero-action--primary:hover {
+  background: var(--accent);
+}
+
 html.light .module-hero-shell .hero-title {
   color: var(--ink-2);
   text-shadow: none;

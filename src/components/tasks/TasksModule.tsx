@@ -19,6 +19,7 @@ import {
   type TaskStatusGroup,
 } from "@/lib/tasks/taskStatusView";
 import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { RoutineRunsPanel } from "@/components/tasks/RoutineRunsPanel";
 import { actionClassLabel, approvalStatusLabel, type ApprovalStatus } from "@/lib/security/approvalCardView";
 import type { ActionClass } from "@/lib/security/actionPolicy";
@@ -160,6 +161,24 @@ export function TasksModule() {
     () => (filter === "all" ? tasks : tasks.filter((t) => taskStatusGroup(t.status) === filter)),
     [tasks, filter],
   );
+
+  // Header summary: live queue state that updates as tasks move.
+  const taskSummary = useMemo(() => {
+    let active = 0;
+    let waitingBlocked = 0;
+    let done = 0;
+    let spend = 0;
+    let newest: string | null = null;
+    for (const t of tasks) {
+      const group = taskStatusGroup(t.status);
+      if (group === "active" || group === "queued") active += 1;
+      else if (group === "waiting" || group === "blocked") waitingBlocked += 1;
+      else if (group === "done") done += 1;
+      spend += t.actual_cost_usd ?? 0;
+      if (!newest || t.updated_at > newest) newest = t.updated_at;
+    }
+    return { active, waitingBlocked, done, spend, newest };
+  }, [tasks]);
 
   const loadTaskApprovals = useCallback(async (id: string, detailRequestId: number) => {
     const approvalsRequestId = ++approvalsRequestRef.current;
@@ -437,6 +456,24 @@ export function TasksModule() {
 
   return (
     <div>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Operate · Tasks"
+        title="Agent Tasks"
+        subtitle="The durable queue of work the assistant runs for you — state, evidence, and activity persist across pauses."
+        loading={loading && tasks.length === 0}
+        stats={[
+          { label: "Active", value: String(taskSummary.active), tone: taskSummary.active > 0 ? "accent" : "default" },
+          { label: "Waiting", value: String(taskSummary.waitingBlocked), tone: taskSummary.waitingBlocked > 0 ? "warn" : "default" },
+          { label: "Done", value: String(taskSummary.done), tone: taskSummary.done > 0 ? "success" : "default" },
+          { label: "Spend", value: `$${taskSummary.spend.toFixed(2)}`, hint: relativeTimeShort(taskSummary.newest) ?? undefined },
+        ]}
+        actions={[
+          { label: creating ? "Reloading…" : "Reload", onClick: () => void reload(), disabled: creating },
+          { label: running ? "Running…" : "Concentration check", onClick: () => void runConcentrationCheck(), disabled: running },
+        ]}
+      />
+
       <Card tick>
         <div className="seclabel">Agent Tasks</div>
         <p style={{ fontSize: 12.5, color: "var(--ink-dim)", margin: "4px 0 12px", maxWidth: 640 }}>

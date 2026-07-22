@@ -1342,11 +1342,27 @@ export function VitalityModule() {
           subtitle={
             stravaConnected
               ? `Strava synced · ${stravaStatus?.athlete?.name ?? "athlete"}`
-              : "Connect Strava for live training data"
+              : "Sample training data · connect Strava for live metrics"
           }
+          loading={stravaLoading && !stravaStatus}
           stats={[
-            { label: "Strava", value: stravaConnected ? "Connected" : "Offline", tone: stravaConnected ? "accent" : "warn" },
-            { label: "Tab", value: activeTabLabel },
+            {
+              label: "Strava",
+              value: stravaConnected ? "Connected" : "Offline",
+              tone: stravaConnected ? "success" : "warn",
+            },
+            {
+              label: "Weekly",
+              value: `${weeklyDist} ${UNIT_LABELS[paceUnit]}`,
+              tone: stravaConnected ? "accent" : "muted",
+              hint: stravaConnected ? undefined : "sample",
+            },
+            {
+              label: "Avg pace",
+              value: `${avgPace} /${UNIT_LABELS[paceUnit]}`,
+              tone: stravaConnected ? "default" : "muted",
+              hint: stravaConnected ? undefined : "sample",
+            },
           ]}
           actions={[
             {
@@ -1368,47 +1384,6 @@ export function VitalityModule() {
             { label: "Training log", onClick: () => setTab("fit-run") },
           ]}
         />
-
-        <div className="module-layout-tools">
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* Strava badge — live when connected, faded when not */}
-        {stravaConnected ? (
-          <div
-            className="selectbox"
-            style={{ cursor: "pointer" }}
-            role="button"
-            tabIndex={0}
-            title={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"} · click to disconnect`}
-            aria-label={`Connected as ${stravaStatus?.athlete?.name ?? "Strava"}, click to disconnect`}
-            onClick={() => stravaDisconnect()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                stravaDisconnect();
-              }
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L3 14h4l2-4 2 4h4z" opacity=".7" /></svg>
-            Synced: Strava
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="selectbox"
-            style={{ opacity: 0.45, cursor: "pointer", background: "none", border: "none" }}
-            title={stravaStatus?.configured ? "Connect Strava" : "Set STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET to enable"}
-            onClick={() => {
-              openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-                if (status === "ok") void refetchStravaStatus();
-              });
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L3 14h4l2-4 2 4h4z" opacity=".7" /></svg>
-            {stravaLoading ? "Strava…" : "Connect Strava"}
-          </button>
-        )}
-      </div>
-        </div>
 
         <AxisGlassPanel className="module-glass-zone vitality-workspace">
       <div className="subtabbar">

@@ -39,8 +39,9 @@ import { filterNotesByKeyword, orderNotesBySemanticIds } from "@/lib/notes/searc
 import { callAiAction } from "@/lib/ai/callAction";
 import { buildAiRequestBody, type AiActionName } from "@/lib/ai/actions";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
-import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
+import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 import styles from "./NotesEditor.module.css";
 
 const ARCHIVE_FOLDER = "Archive";
@@ -558,6 +559,18 @@ export function NotesModule() {
     });
     c["All Notes"] = notes.filter((n) => !isArchived(n)).length;
     return c;
+  }, [notes]);
+
+  // Header summary: live counts + freshness that update as notes change.
+  const activeNoteCount = folderCounts["All Notes"] ?? 0;
+  const archivedCount = folderCounts[ARCHIVE_FOLDER] ?? 0;
+  const lastUpdatedLabel = useMemo(() => {
+    const newest = notes
+      .filter((n) => !isArchived(n))
+      .reduce<string | null>((latest, n) => (
+        !latest || n.updated_at > latest ? n.updated_at : latest
+      ), null);
+    return relativeTimeShort(newest) ?? "—";
   }, [notes]);
 
   useEffect(() => {
@@ -1442,14 +1455,34 @@ export function NotesModule() {
   return (
     <>
       <div className="module-stage notes-stage">
-        <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
-          <div className="eyebrow">Research · Notes</div>
-          <h1 className="hero-title">Notes</h1>
-          <p className="sub mail-hero-meta">
-            {filtered.length} note{filtered.length === 1 ? "" : "s"}
-            {trimmedQuery ? ` matching “${trimmedQuery}”` : ` in ${activeFolder}`}
-          </p>
-        </AxisReflectiveCard>
+        <ModuleInteractiveHero
+          compact
+          eyebrow="Research · Notes"
+          title="Notes"
+          subtitle={
+            trimmedQuery
+              ? `${filtered.length} note${filtered.length === 1 ? "" : "s"} matching “${trimmedQuery}”`
+              : `Viewing ${activeFolder} · ${filtered.length} shown`
+          }
+          stats={[
+            { label: "Notes", value: String(activeNoteCount), tone: activeNoteCount > 0 ? "accent" : "default" },
+            { label: "Folders", value: String(folders.length) },
+            { label: "Last edit", value: lastUpdatedLabel },
+            ...(archivedCount > 0
+              ? [{ label: "Archived", value: String(archivedCount), tone: "muted" as const }]
+              : []),
+          ]}
+          actions={[
+            {
+              label: "New folder",
+              onClick: () => { setActiveFolder("All Notes"); setAddingFolder(true); },
+            },
+            {
+              label: activeFolder === ARCHIVE_FOLDER ? "Exit archive" : "View archive",
+              onClick: () => setActiveFolder(activeFolder === ARCHIVE_FOLDER ? "All Notes" : ARCHIVE_FOLDER),
+            },
+          ]}
+        />
 
       <div className={`${styles.layout} ${styles.breakout}`}>
         {/* ── Folders (drag to reorder) ── */}
