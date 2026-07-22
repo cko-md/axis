@@ -22,6 +22,11 @@ type AssuranceClient = {
 const MFA_BOOTSTRAP_API_PATHS = new Set([
   "/api/auth/mfa/challenge",
   "/api/auth/mfa/verify",
+  // Trust-status probe: an aal1 session must be able to ask "is this device
+  // already trusted?" BEFORE deciding whether to start a challenge. The GET
+  // handler only verifies the httpOnly cookie; the POST handler independently
+  // re-checks aal2 server-side, so neither grants anything at aal1.
+  "/api/auth/mfa/trust-device",
 ]);
 
 export function isMfaBootstrapApiPath(pathname: string): boolean {

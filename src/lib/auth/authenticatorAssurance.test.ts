@@ -50,9 +50,12 @@ describe("authenticator assurance", () => {
     ).resolves.toBe("unavailable");
   });
 
-  it("allows only challenge and verify through the pre-AAL2 API boundary", () => {
+  it("allows only challenge, verify, and the trust-status probe through the pre-AAL2 API boundary", () => {
     expect(isMfaBootstrapApiPath("/api/auth/mfa/challenge")).toBe(true);
     expect(isMfaBootstrapApiPath("/api/auth/mfa/verify")).toBe(true);
+    // The login page must be able to ask "is this device trusted?" from an
+    // aal1 session, or the challenge decision can never consult the cookie.
+    expect(isMfaBootstrapApiPath("/api/auth/mfa/trust-device")).toBe(true);
     expect(isMfaBootstrapApiPath("/api/auth/mfa/unenroll")).toBe(false);
     expect(isMfaBootstrapApiPath("/api/approvals")).toBe(false);
     expect(isMfaBootstrapApiPath("/api/routines")).toBe(false);

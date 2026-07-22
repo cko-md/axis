@@ -1494,7 +1494,7 @@ export function ControlRoomModule() {
               )}
               {authSettings?.passkey_enabled && (
                 <p className={styles.note} style={{ marginTop: 8 }}>
-                  Passkey sign-in still requires your authenticator code when 2FA is enabled.
+                  Passkey sign-in counts as your second factor — Touch ID / Face ID at login trusts this device without a separate authenticator code.
                 </p>
               )}
             </div>

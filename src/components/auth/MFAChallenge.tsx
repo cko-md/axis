@@ -7,11 +7,13 @@ import { Button } from '@/components/ui/Button';
 interface Props {
   factorId: string;
   challengeId: string;
+  /** When false ("Trust this device" unchecked) the remembered-device token is not requested. */
+  trustDevice?: boolean;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-export default function MFAChallenge({ factorId, challengeId, onSuccess, onCancel }: Props) {
+export default function MFAChallenge({ factorId, challengeId, trustDevice = true, onSuccess, onCancel }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -41,10 +43,12 @@ export default function MFAChallenge({ factorId, challengeId, onSuccess, onCance
     // Deliberately non-blocking: if it fails, the user is still signed in and
     // simply gets challenged next time. Failing to remember a device must never
     // fail the login itself.
-    try {
-      await fetch('/api/auth/mfa/trust-device', { method: 'POST' });
-    } catch {
-      // Non-fatal by design — see above.
+    if (trustDevice) {
+      try {
+        await fetch('/api/auth/mfa/trust-device', { method: 'POST' });
+      } catch {
+        // Non-fatal by design — see above.
+      }
     }
     onSuccess();
   }

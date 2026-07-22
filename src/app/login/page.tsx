@@ -73,6 +73,21 @@ function LoginForm() {
       return 'not-required';
     }
 
+    // A remembered device skips the challenge entirely. The trust cookie is
+    // httpOnly, so ask the server whether it is present and valid; middleware
+    // makes the same check on every request, so skipping here cannot grant
+    // access the server would refuse. Any failure falls through to a normal
+    // challenge — this probe can only ever remove friction, never add access.
+    try {
+      const trustRes = await fetch('/api/auth/mfa/trust-device');
+      if (trustRes.ok) {
+        const trust = await trustRes.json();
+        if (trust?.trusted === true) return 'not-required';
+      }
+    } catch {
+      // Fall through to the challenge.
+    }
+
     const { data: factorsData, error: factorsError } =
       await supabase.auth.mfa.listFactors();
     const totp = factorsData?.totp;
@@ -227,13 +242,6 @@ function LoginForm() {
       return;
     }
 
-    // If not remembering, mark session as ephemeral for AppShell to handle
-    if (!rememberMe) {
-      sessionStorage.setItem('axis-session-ephemeral', 'true');
-    } else {
-      sessionStorage.removeItem('axis-session-ephemeral');
-    }
-
     const mfaResult = await startMFAIfRequired();
     if (mfaResult !== 'not-required') {
       setLoading(false);
@@ -260,6 +268,7 @@ function LoginForm() {
         <MFAChallenge
           factorId={mfaState.factorId}
           challengeId={mfaState.challengeId}
+          trustDevice={rememberMe}
           onSuccess={handleMFASuccess}
           onCancel={() => {
             void supabase.auth.signOut({ scope: 'local' });
@@ -337,13 +346,16 @@ function LoginForm() {
           {/* Remember me / Forgot password row */}
           {mode === 'signin' && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: -4 }}>
-              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 12, color: 'var(--ink-dim)' }}>
+              <label
+                title="After a successful two-factor check, this device is trusted for a while and future sign-ins skip the code."
+                style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 12, color: 'var(--ink-dim)' }}
+              >
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />
-                Remember me
+                Trust this device
               </label>
               <button
                 type="button"

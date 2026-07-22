@@ -9,6 +9,12 @@ import {
   consumeWebAuthnChallenge,
 } from "@/lib/security/passkeyMutations";
 import { buildAuthenticationOptions, verifyAuthentication } from "@/lib/webauthn/server";
+import { optionalEnv } from "@/lib/env";
+import {
+  MFA_TRUST_COOKIE,
+  issueMfaTrustToken,
+  resolveTrustWindowDays,
+} from "@/lib/auth/mfaTrust";
 
 const ROUTE = "passkey_authenticate";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -336,5 +342,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "PASSKEY_SESSION_UNAVAILABLE" }, { status: 503 });
   }
 
-  return NextResponse.json({ verified: true });
+  const response = NextResponse.json({ verified: true });
+
+  // Policy: a verified passkey assertion (userVerification is 'required', so
+  // the authenticator demanded biometrics or a PIN) counts as the second
+  // factor. Without this, a passkey sign-in lands at aal1 and an account with
+  // TOTP enrolled is immediately challenged for a code — a strictly weaker
+  // factor than the ceremony that just succeeded. Minting the same
+  // remembered-device token an authenticator code would earn lets middleware
+  // treat this device as satisfied for the trust window.
+  //
+  // Bounded and non-fatal: requires MFA_TRUST_SECRET (absent => no cookie, the
+  // TOTP challenge appears as before), binds to the account's verified factor
+  // so unenrolling/re-enrolling invalidates it, and never touches the
+  // per-approval WebAuthn step-up path, which ignores assurance entirely.
+  try {
+    const { data: factorsData } = await admin.auth.admin.mfa.listFactors({
+      userId: passkey.user_id,
+    });
+    const verifiedFactor = (factorsData?.factors ?? []).find(
+      (factor: { id: string; status: string }) => factor.status === "verified",
+    );
+    if (verifiedFactor) {
+      const issued = await issueMfaTrustToken({
+        secret: optionalEnv("MFA_TRUST_SECRET"),
+        userId: passkey.user_id,
+        factorId: verifiedFactor.id,
+        nowMs: Date.now(),
+        windowDays: resolveTrustWindowDays(optionalEnv("MFA_TRUST_WINDOW_DAYS")),
+      });
+      if (issued) {
+        response.cookies.set(MFA_TRUST_COOKIE, issued.token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: issued.maxAgeSeconds,
+          path: "/",
+        });
+      }
+    }
+  } catch {
+    // Trust is a convenience; the sign-in itself already succeeded.
+  }
+
+  return response;
 }
