@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useToast } from "@/components/ui/Toast";
 import { StatusCallout } from "@/components/ui/StatusCallout";
+import { ModuleInteractiveHero, type HeroStatTone } from "@/components/ui/axis/ModuleInteractiveHero";
 import { useBriefing } from "@/lib/hooks/useBriefing";
 
 type Story = {
@@ -408,8 +409,43 @@ export function BriefingModule() {
   const reader = allStories.find((s) => s.id === readerId) ?? STORIES[0];
   const readerIsVideo = isVideoStory(reader);
 
+  // Stats derived purely from already-loaded state (no new fetches). "Sync"
+  // reflects connection state honestly: signed-out users only see the curated
+  // sample stories, so it reads "Sample" (muted) rather than implying live data.
+  const heroStats: { label: string; value: string; tone: HeroStatTone; hint?: string }[] = useMemo(
+    () => [
+      { label: "Saved", value: String(saved.length), tone: saved.length > 0 ? "accent" : "default" },
+      { label: "Sources", value: String(savedFeeds.length), tone: savedFeeds.length > 0 ? "accent" : "default" },
+      {
+        label: "Live stories",
+        value: String(feedItems.length),
+        tone: feedLoadError ? "warn" : feedItems.length > 0 ? "success" : "default",
+        hint: feedLoadError ? "refresh failed" : undefined,
+      },
+      { label: "Sync", value: signedIn ? "On" : "Sample", tone: signedIn ? "success" : "muted" },
+    ],
+    [saved.length, savedFeeds.length, feedItems.length, feedLoadError, signedIn],
+  );
+
   return (
     <>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Research · Briefing"
+        title="Briefing"
+        subtitle="Curated stories plus live headlines from the RSS feeds you follow."
+        loading={briefingLoading && saved.length === 0 && savedFeeds.length === 0}
+        stats={heroStats}
+        actions={[
+          {
+            label: feedsLoading ? "Refreshing…" : "Refresh feeds",
+            onClick: () => loadFeeds(),
+            disabled: feedsLoading || savedFeeds.length === 0,
+            primary: true,
+          },
+          { label: "Add feed", onClick: () => setFeedSearchOpen(true) },
+        ]}
+      />
       {!signedIn && !briefingLoading && (
         <StatusCallout kind="info" title="Sign in to sync Briefing">
           Curated stories are available now. Sign in to save articles, add RSS sources, and sync across devices.

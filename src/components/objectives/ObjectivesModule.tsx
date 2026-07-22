@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { formatProgressEntry, formatProgressTime, netProgress, type KeyResultProgressEntry } from "@/lib/objectives/progress";
 import { Button } from "@/components/ui/Button";
+import { ModuleInteractiveHero, type HeroStatTone } from "@/components/ui/axis/ModuleInteractiveHero";
 import { Modal } from "@/components/ui/Modal";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { useToast } from "@/components/ui/Toast";
@@ -325,8 +326,49 @@ export function ObjectivesModule() {
     setPendingDeleteObjective(null);
   };
 
+  // Header stats derived from already-loaded objectives/habits. When signed out
+  // the module renders sample content (not real data), so the header says so
+  // honestly rather than reporting an empty-looking "0 objectives".
+  const heroStats = useMemo<{ label: string; value: string; tone?: HeroStatTone; hint?: string }[]>(() => {
+    if (!signedIn) {
+      return [{ label: "Status", value: "Sample", tone: "warn", hint: "Sign in to track yours" }];
+    }
+    const krList = objectives.flatMap((o) => o.key_results);
+    const krProgress = krList.length
+      ? Math.round(
+          (krList.reduce(
+            (s, kr) => s + Math.min(1, kr.target_value > 0 ? kr.current_value / kr.target_value : 0),
+            0,
+          ) /
+            krList.length) *
+            100,
+        )
+      : 0;
+    const stats: { label: string; value: string; tone?: HeroStatTone; hint?: string }[] = [
+      { label: "Objectives", value: String(objectives.length), tone: objectives.length > 0 ? "accent" : "default" },
+    ];
+    if (krList.length > 0) {
+      stats.push({ label: "KR progress", value: `${krProgress}%`, tone: krProgress >= 100 ? "success" : "default" });
+    }
+    stats.push({ label: "Habits", value: String(habits.length), tone: habits.length > 0 ? "accent" : "default" });
+    return stats;
+  }, [signedIn, objectives, habits]);
+
   return (
     <>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Plan · Objectives"
+        title="Objectives"
+        subtitle="Set outcomes, measure them with key results, and grow daily habits."
+        loading={loading && objectives.length === 0}
+        stats={heroStats}
+        actions={[
+          { label: "+ New objective", onClick: () => setObjModalOpen(true), primary: true },
+          { label: "✦ Scan targets", onClick: () => void runScan() },
+        ]}
+      />
+
       <div className="divider" />
       <div className="crm-toolbar">
         <button type="button" className="sig-go" onClick={() => setObjModalOpen(true)}>+ New Objective</button>

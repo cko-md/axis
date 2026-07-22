@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/client";
 import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { AddAccountPicker } from "@/components/mail/AddAccountPicker";
 import { AddContactsPicker } from "./AddContactsPicker";
+import { ModuleInteractiveHero, type HeroStatTone } from "@/components/ui/axis/ModuleInteractiveHero";
+import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 
 interface GoogleContact {
   id: string;
@@ -367,8 +369,43 @@ export function PeopleModule() {
     return `${p.tag}s` === filter;
   });
 
+  const heroStats = useMemo<{ label: string; value: string; tone?: HeroStatTone; hint?: string }[]>(() => {
+    if (!signedIn) {
+      // Signed-out view shows illustrative demo cards, not the user's data —
+      // say so plainly instead of presenting sample counts as a live CRM.
+      return [
+        { label: "Contacts", value: String(DEMO_PEOPLE.length), tone: "muted", hint: "Sample" },
+        { label: "Mode", value: "Demo", tone: "muted" },
+      ];
+    }
+    const due = people.filter((p) => personIsDue(p)).length;
+    const synced = contacts.length;
+    const lastTouched = people.reduce<string | null>(
+      (latest, p) => (!latest || p.updated_at > latest ? p.updated_at : latest),
+      null,
+    );
+    const updatedHint = relativeTimeShort(lastTouched) ?? undefined;
+    return [
+      { label: "Contacts", value: String(people.length), tone: people.length > 0 ? "accent" : "default", hint: updatedHint },
+      { label: "Follow-ups due", value: String(due), tone: due > 0 ? "warn" : "default" },
+      { label: "Google synced", value: String(synced), tone: synced > 0 ? "success" : "muted" },
+    ];
+  }, [signedIn, people, contacts]);
+
   return (
     <>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Life · People"
+        title="People"
+        subtitle="Mentors, collaborators, and friends you keep up with — follow-ups route to Dispatch."
+        loading={loading && people.length === 0}
+        stats={heroStats}
+        actions={[
+          { label: "Add person", onClick: openAdd, primary: true },
+          { label: "Connect contacts", onClick: () => setShowContactsPicker(true) },
+        ]}
+      />
       {!signedIn && !loading && (
         <StatusCallout kind="info" title="Sign in for your CRM">
           Demo contacts below are illustrative only. Sign in to add people, sync Google Contacts, and route follow-ups to Dispatch.

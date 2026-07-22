@@ -14,7 +14,6 @@ import { usePasskey } from "@/hooks/usePasskey";
 import { openComposioOAuthPopup, openOAuthPopup } from "@/lib/auth/openOAuthPopup";
 import { Seg } from "@/components/ui/Seg";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
-import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import type { AIProviderPref } from "@/lib/ai/router";
 import { integrationCardView, type IntegrationCardView } from "@/lib/integrations/cardView";

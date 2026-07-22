@@ -12,6 +12,7 @@ import { AddCalendarPicker } from "./AddCalendarPicker";
 import { formatCalendarFreshness } from "@/lib/calendar/freshness";
 import { todayLocalIso } from "@/lib/calendar/event-dates";
 import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComposioConnect";
+import { ModuleInteractiveHero, type HeroStatTone } from "@/components/ui/axis/ModuleInteractiveHero";
 
 type ComposioCalState = { active: boolean; email: string | null };
 type CalendarStatusResponse = {
@@ -463,6 +464,49 @@ export function ScheduleModule() {
 
   const displayEvents = useMemo(() => [...events, ...externalEvents], [events, externalEvents]);
 
+  // Header stats derived from already-loaded state (connection status +
+  // in-range events) — no extra fetch. When signed out the visible events are
+  // the demo seed, so we surface a "Sample" session stat instead of dressing
+  // them up as live, per the platform's honesty rule.
+  const heroStats = useMemo<{ label: string; value: string; tone?: HeroStatTone; hint?: string }[]>(() => {
+    const connectedCount = (hasGoogle ? 1 : 0) + (hasOutlook ? 1 : 0);
+    const providerNames = [hasGoogle ? "Google" : null, hasOutlook ? "Outlook" : null]
+      .filter(Boolean)
+      .join(" + ");
+    const stats: { label: string; value: string; tone?: HeroStatTone; hint?: string }[] = [
+      {
+        label: "Calendars",
+        value: String(connectedCount),
+        tone: connectedCount > 0 ? "accent" : "warn",
+        hint: connectedCount > 0 ? providerNames : "Not connected",
+      },
+    ];
+    if (!signedIn) {
+      stats.push({ label: "Session", value: "Sample", tone: "warn", hint: "Sign in for live" });
+      return stats;
+    }
+    stats.push({
+      label: "Events",
+      value: String(displayEvents.length),
+      tone: displayEvents.length > 0 ? "default" : "muted",
+      hint: periodLabel,
+    });
+    const now = Date.now();
+    const upcoming = displayEvents
+      .filter((e) => new Date(e.start_at).getTime() >= now)
+      .sort((a, b) => a.start_at.localeCompare(b.start_at))[0];
+    if (upcoming) {
+      const next = new Date(upcoming.start_at);
+      stats.push({
+        label: "Next",
+        value: next.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        tone: "accent",
+        hint: next.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
+      });
+    }
+    return stats;
+  }, [hasGoogle, hasOutlook, signedIn, displayEvents, periodLabel]);
+
   const openEventDetail = useCallback((event: ScheduleEvent) => {
     setSelectedEvent(event);
     setDetailMode("view");
@@ -745,6 +789,18 @@ export function ScheduleModule() {
 
   return (
     <>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Plan · Schedule"
+        title="Schedule"
+        subtitle="Your week, with real events synced from connected calendars."
+        loading={loading && displayEvents.length === 0}
+        stats={heroStats}
+        actions={[
+          { label: "Refresh", onClick: () => fetchExternalEvents(), disabled: !hasGoogle && !hasOutlook },
+          { label: "Connect calendar", onClick: () => setShowCalPicker(true), primary: !hasGoogle && !hasOutlook },
+        ]}
+      />
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
         {/* Google Calendar — prefer Composio disconnect when that is the live transport */}
         {composioCal.google.active ? (

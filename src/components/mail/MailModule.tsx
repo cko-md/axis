@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import type { MailAttachment, MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 import { getCapabilities, type ProviderCapabilities } from "@/lib/integrations/registry";
 import type { IntegrationTransport } from "@/lib/integrations/types";
@@ -17,6 +17,8 @@ import { refreshAfterComposioConnect } from "@/lib/integrations/refreshAfterComp
 import { mailAccountQuery } from "@/lib/mail/query";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
+import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 
 interface MailAccount {
   provider: "gmail" | "outlook";
@@ -946,6 +948,14 @@ export function MailModule() {
   visibleRef.current = visibleMessages;
   const cursorIdx = visibleMessages.length ? Math.min(cursor, visibleMessages.length - 1) : 0;
 
+  // At-a-glance summary of the whole loaded inbox (independent of the
+  // account/search filters) for the interactive header.
+  const heroSummary = useMemo(() => ({
+    totalUnread: messages.reduce((n, m) => n + (m.isUnread ? 1 : 0), 0),
+    loaded: messages.length,
+    updated: relativeTimeShort(lastFetchedAt),
+  }), [messages, lastFetchedAt]);
+
   // Setup state — no accounts yet
   if (statusLoaded && !isConnected) {
     return (
@@ -990,14 +1000,37 @@ export function MailModule() {
 
   return (
     <div className="module-stage mail-stage">
-      <AxisReflectiveCard className="module-hero-shell module-hero-shell--compact">
-        <div className="eyebrow">Daily · Mail</div>
-        <h1 className="hero-title">Inbox</h1>
-        <p className="sub mail-hero-meta">
-          {accounts.length} account{accounts.length === 1 ? "" : "s"} connected
-          {unreadCount > 0 ? ` · ${unreadCount} unread` : " · all caught up"}
-        </p>
-      </AxisReflectiveCard>
+      <ModuleInteractiveHero
+        compact
+        eyebrow="Daily · Mail"
+        title="Inbox"
+        subtitle={
+          `${accounts.length} account${accounts.length === 1 ? "" : "s"} connected` +
+          (heroSummary.totalUnread > 0 ? ` · ${heroSummary.totalUnread} unread` : " · all caught up")
+        }
+        loading={loading && messages.length === 0}
+        stats={[
+          { label: "Accounts", value: String(accounts.length), tone: accounts.length > 0 ? "accent" : "default" },
+          {
+            label: "Unread",
+            value: String(heroSummary.totalUnread),
+            tone: heroSummary.totalUnread > 0 ? "warn" : "success",
+          },
+          {
+            label: "Loaded",
+            value: String(heroSummary.loaded),
+            hint: heroSummary.updated ? `Updated ${heroSummary.updated}` : undefined,
+          },
+        ]}
+        actions={[
+          {
+            label: syncing ? "Syncing…" : "Sync",
+            onClick: () => void fetchInbox({ refresh: true }),
+            disabled: loading || syncing,
+          },
+          { label: "Compose", onClick: () => setComposeDraft({}), primary: true },
+        ]}
+      />
 
       <AxisGlassPanel className="mail-workspace">
         {/* Toolbar */}

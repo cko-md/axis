@@ -492,7 +492,6 @@ export function Sidebar({ collapsed }: Props) {
       const local = readCustomizationSnapshot();
       if (!isEmptyCustomization(local)) saveNavCustomizationToServer(local);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signOut = async () => {
