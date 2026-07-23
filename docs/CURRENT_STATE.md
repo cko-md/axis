@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `4a0671ed994e3ab3bc543a5096f427d5b4357b9d79ec7a91481b6502fa447009` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `766b3c1edb453d5753f164b0101587eb16d9a34a9598e0b7aa85d8e5324666af`
+- **State fingerprint:** `d5596290c063806fb2979f6eef69d9034c48aebb8415a6b3355dc9921fd097df` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `db556800feda7795fd41272972e4a96a0461def29ad78fc0d5d30f06003376d9`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-00-governance-bootstrap`
-- **HEAD:** `2a6f9c18`
+- **HEAD:** `ec709532`
 - **main:** `44be089b`
-- **Working tree:** had uncommitted changes
+- **Working tree:** clean
 
-### Ahead of source main at derivation (1 commit(s))
+### Ahead of source main at derivation (3 commit(s))
 
+- `ec709532` fix(release): freeze css build configuration
+- `732f393e` docs(state): record governance bootstrap gates
 - `2a6f9c18` harden(release): bootstrap trusted production controls
 
 ## Waves merged to main
@@ -83,9 +85,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 1913/1913 across 227 files
 - **Bundle:** 4287 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `2a6f9c18`
-- **Measured content tree:** `766b3c1edb453d5753f164b0101587eb16d9a34a9598e0b7aa85d8e5324666af`
-- **Measured at:** 2026-07-23T04:14:12.821Z
+- **Measured source:** `ec709532`
+- **Measured content tree:** `db556800feda7795fd41272972e4a96a0461def29ad78fc0d5d30f06003376d9`
+- **Measured at:** 2026-07-23T04:35:17.268Z
 
 <!-- END GENERATED: derive-program-state -->
 
