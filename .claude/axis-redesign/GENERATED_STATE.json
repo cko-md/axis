@@ -1,12 +1,16 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-23T07:30:21.931Z",
+  "derivedAt": "2026-07-23T07:50:42.319Z",
   "git": {
     "branch": "codex/spark-audit-dep-compat-minimatch-clean",
-    "head": "0b7c2ff602a2a6b09f02905311da296b66953cab",
+    "head": "2450fbfcd515856751cafe91f41716cd7006bab1",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "2450fbfc",
+        "subject": "[Spark Audit] state:derive governance branch checkpoint docs"
+      },
       {
         "sha": "0b7c2ff6",
         "subject": "[Spark Audit] test(security): tolerate minimatch dedupe layout"
@@ -18,7 +22,7 @@
     ],
     "contentTreeHash": "dbaf9813c32057cf53f7c2ce061cd0e67c26c7ccbc696880bf713aef14828af0",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "eb461af0c17151dc3914536aa56df104f99e54f2b08285dcda0fb537c8de2107"
+    "fingerprint": "58268b041e75030ff9ce3d6b8f529f9063a4cd533dabaaf75fe65b762156656d"
   },
   "mergedPrs": [
     {

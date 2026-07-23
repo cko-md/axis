@@ -23,7 +23,7 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `eb461af0c17151dc3914536aa56df104f99e54f2b08285dcda0fb537c8de2107` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `58268b041e75030ff9ce3d6b8f529f9063a4cd533dabaaf75fe65b762156656d` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `dbaf9813c32057cf53f7c2ce061cd0e67c26c7ccbc696880bf713aef14828af0`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
@@ -34,12 +34,13 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/spark-audit-dep-compat-minimatch-clean`
-- **HEAD:** `0b7c2ff6`
+- **HEAD:** `2450fbfc`
 - **main:** `44be089b`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (2 commit(s))
+### Ahead of source main at derivation (3 commit(s))
 
+- `2450fbfc` [Spark Audit] state:derive governance branch checkpoint docs
 - `0b7c2ff6` [Spark Audit] test(security): tolerate minimatch dedupe layout
 - `08bd4d7c` docs(state): refresh deterministic bootstrap evidence
 
