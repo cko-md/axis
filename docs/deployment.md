@@ -71,9 +71,10 @@ candidate-reported gate ran.
 Bootstrap caveat: the PR that first introduces `release-governance.yml` cannot
 receive a `pull_request_target` check from a workflow that does not yet exist on
 its protected base. Its production attempt must remain canceled. Immediately
-after that bootstrap merge, make `release-governance` a required branch context;
-only the following protected state-refresh PR may authorize the production
-build.
+after that bootstrap merge, use the first post-bootstrap PR to observe a real
+base-controlled `release-governance` check. Bind that GitHub Actions context as
+a required branch check before the same PR may merge. No broader redesign PR or
+state-refresh PR may merge before the binding is confirmed.
 
 ## PR Flow
 

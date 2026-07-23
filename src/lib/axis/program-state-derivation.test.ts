@@ -165,6 +165,30 @@ describe("program state derivation", { timeout: 30_000 }, () => {
     );
   });
 
+  it("renders fixed eight-character commit prefixes independent of Git abbreviation settings", () => {
+    const fixture = makeFreshStateFixture("feat: Wave 2.0 fixed SHA fixture");
+    git(fixture.cwd, "config", "core.abbrev", "12");
+
+    const derive = runState(fixture.cwd);
+    expect(derive.status, derive.stderr).toBe(0);
+    git(
+      fixture.cwd,
+      "add",
+      "docs/CURRENT_STATE.md",
+      ".claude/axis-redesign/GENERATED_STATE.json",
+    );
+    git(fixture.cwd, "commit", "-m", "docs(state): render fixed SHA prefixes");
+
+    const generated = readFileSync(path.join(fixture.cwd, "docs/CURRENT_STATE.md"), "utf8");
+    expect(generated).toMatch(/\| 1\.0 \| local merge \| `[0-9a-f]{8}` \|/);
+    expect(generated).toMatch(/- `[0-9a-f]{8}` feat: Wave 2\.0 fixed SHA fixture/);
+
+    git(fixture.cwd, "config", "core.abbrev", "4");
+    const check = runState(fixture.cwd, "--check");
+
+    expect(check.status, check.stderr).toBe(0);
+  });
+
   it("scans the complete main history instead of forgetting waves older than 60 commits", () => {
     const fixture = makeFreshStateFixture("feat: feature after long history", 65);
 

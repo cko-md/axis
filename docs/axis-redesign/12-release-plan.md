@@ -60,9 +60,11 @@ closed five-step shape is itself validated so a candidate cannot add an
 execution step under the privileged event.
 
 This PR bootstraps that workflow, so GitHub cannot run it from `main` until the
-workflow has landed. The subsequent state-refresh PR must receive a green
-`release-governance` check before that context is added to required branch
-protection.
+workflow has landed. First merge the bootstrap PR with its production attempt
+still canceled. On the first post-bootstrap PR, observe a real
+base-controlled `release-governance` check; then bind that GitHub Actions
+context as a required branch check before the same PR may merge. No broader
+redesign PR or state-refresh PR may merge before that binding is confirmed.
 
 After this one bootstrap landing, the trusted check freezes the complete
 `.github/workflows` directory and the complete critical gate/toolchain surface

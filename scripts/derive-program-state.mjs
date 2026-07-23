@@ -145,14 +145,18 @@ function readJsonAtRef(relativePath, ref) {
  * exists to prevent, so `pr` is now null rather than a reason to skip.
  */
 function deriveMergedPrs() {
-  const log = git("log", "--format=%h%x1f%s%x1f%cI", MAIN_REF);
+  // `%h` is object-database dependent: the same commit may render at a
+  // different abbreviation length in a shallow CI checkout than it does in a
+  // developer clone. Keep complete object IDs in the derivation, then render a
+  // fixed prefix below so the committed state block is clone-independent.
+  const log = git("log", "--format=%H%x1f%s%x1f%cI", MAIN_REF);
   const prs = [];
   for (const line of log.split("\n").filter(Boolean)) {
     const [sha, subject, committedAt] = line.split("\x1f");
     const match = subject.match(/\(#(\d+)\)\s*$/);
     prs.push({
       pr: match ? Number(match[1]) : null,
-      sha,
+      sha: sha.slice(0, 8),
       subject: subject.replace(/\s*\(#\d+\)\s*$/, ""),
       committedAt,
     });
@@ -459,13 +463,13 @@ function deriveState(previous, ref = "HEAD") {
   // Commits on this branch that main does not have. This is precisely the
   // information a resuming agent needs and the thing prose always gets wrong.
   if (observedProvenance.branch !== "main") {
-    const ahead = git("log", `${MAIN_REF}..${ref}`, "--format=%h%x1f%s");
+    const ahead = git("log", `${MAIN_REF}..${ref}`, "--format=%H%x1f%s");
     observedProvenance.aheadOfMain = ahead
       .split("\n")
       .filter(Boolean)
       .map((line) => {
         const [sha, subject] = line.split("\x1f");
-        return { sha, subject };
+        return { sha: sha.slice(0, 8), subject };
       });
   }
 
@@ -769,7 +773,7 @@ function detectDrift(state, checkTarget, previous) {
     const expected = renderMarkdown(state);
     if (generated !== expected) {
       problems.push(
-        `${CANONICAL_DOC} generated block differs from the deterministic state for ${git("rev-parse", "--short=8", checkTarget)} (${firstGeneratedDifference(generated, expected)}). Run: npm run state:derive`,
+        `${CANONICAL_DOC} generated block differs from the deterministic state for ${git("rev-parse", checkTarget).slice(0, 8)} (${firstGeneratedDifference(generated, expected)}). Run: npm run state:derive`,
       );
     }
   }
