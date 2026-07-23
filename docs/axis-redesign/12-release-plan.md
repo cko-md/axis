@@ -73,9 +73,9 @@ byte-for-byte against the protected base:
 - `package.json`, `package-lock.json`, `.nvmrc`, and therefore the reviewed
   dependency and tool versions as well as package-script indirection;
 - TypeScript, ESLint, Vitest/setup/discovery, Playwright, Electron Playwright,
-  Next build configuration, and the complete `vercel.json` deployment
-  configuration, with alternate config/package-manager override filenames
-  rejected;
+  Next, PostCSS, and Tailwind build configuration, and the complete
+  `vercel.json` deployment configuration, with alternate
+  config/package-manager override filenames rejected;
 - every protected-base unit, browser, and Electron test file byte-for-byte
   (including the complete `tests/` tree), while allowing additive regular test
   files;
@@ -100,6 +100,14 @@ URL, version, and integrity are pinned. A generated-only state-refresh candidate
 must preserve the base snapshot's complete passing gate evidence byte-for-byte;
 trusted base code recomputes the source/base content hashes and evidence
 fingerprint.
+
+The active `postcss.config.mjs` and `tailwind.config.ts` are protected
+byte-for-byte. Alternate PostCSS rc/config names across JSON, YAML, JavaScript,
+ES modules, CommonJS, and TypeScript variants, plus Tailwind's JS/CJS/MJS/CTS/MTS
+root variants, are forbidden. A candidate `package.json#postcss` override is
+already prevented by the complete package freeze. This blocks an alternate
+config from taking discovery precedence and injecting a different CSS build
+plugin.
 
 Existing tests intentionally do not evolve through an ordinary governed PR:
 revised coverage is added in a new test file, preserving the reviewed base

@@ -20,6 +20,7 @@ import {
   collectMigrationEntries,
   findMutableGitHubActionReferences,
   findSecondaryVercelProductionDeploys,
+  FORBIDDEN_GATE_OVERRIDE_PATHS,
   resolveProtectedBaselineRevision,
   TRUSTED_CONTROL_BOOTSTRAP_FILES,
   TRUSTED_CONTROL_PLANE_FILES,
@@ -770,6 +771,8 @@ describe("trusted pull-request release governance", () => {
       const changedControlFiles = [
         "tsconfig.json",
         "vitest.config.ts",
+        "postcss.config.mjs",
+        "tailwind.config.ts",
         "package-lock.json",
         ".claude/axis-redesign/PERFORMANCE_BUDGETS.json",
         "scripts/check-bundle-budget.mjs",
@@ -853,18 +856,27 @@ describe("trusted pull-request release governance", () => {
 
   it("rejects alternate candidate config and package-manager override files", () => {
     withCandidateTrees(({ baseRoot, candidateRoot }) => {
-      writeFileSync(join(candidateRoot, ".npmrc"), "ignore-scripts=false\n");
-      writeFileSync(
-        join(candidateRoot, "vitest.config.mjs"),
-        "export default { test: { include: [] } };\n",
-      );
+      for (const file of FORBIDDEN_GATE_OVERRIDE_PATHS) {
+        writeFileSync(
+          join(candidateRoot, file),
+          file === ".postcssrc.js"
+            ? "module.exports = { plugins: { 'candidate-postcss-plugin': {} } };\n"
+            : file === "tailwind.config.mjs"
+              ? "export default { plugins: ['candidate-tailwind-plugin'] };\n"
+              : "{}\n",
+        );
+      }
 
-      expect(
-        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
-      ).toEqual(
+      const errors = validateCandidateReleaseGovernance({
+        baseRoot,
+        candidateRoot,
+      });
+      expect(errors).toEqual(
         expect.arrayContaining([
-          "candidate alternate gate/toolchain override .npmrc is forbidden; use the documented owner break-glass procedure",
-          "candidate alternate gate/toolchain override vitest.config.mjs is forbidden; use the documented owner break-glass procedure",
+          ...FORBIDDEN_GATE_OVERRIDE_PATHS.map(
+            (file) =>
+              `candidate alternate gate/toolchain override ${file} is forbidden; use the documented owner break-glass procedure`,
+          ),
         ]),
       );
     });

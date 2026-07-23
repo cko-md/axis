@@ -60,7 +60,10 @@ pass before merge. Every protected-base test remains byte-identical; new
 coverage is additive. The complete `vercel.json` is also byte-for-byte frozen,
 so candidate build commands, environment variables such as `NODE_OPTIONS`, and
 other deployment controls cannot perturb the gate while preserving only the
-visible `ignoreCommand`. The semantic value of a newly added test remains a
+visible `ignoreCommand`. The active `postcss.config.mjs` and
+`tailwind.config.ts` are likewise frozen, and alternate recognized root config
+filenames are forbidden so CSS config discovery cannot select a candidate
+shadow config or plugin. The semantic value of a newly added test remains a
 code-review concern. The Vercel ignore command is a final fail-closed
 consistency interlock; it does not replace branch protection or attest that a
 candidate-reported gate ran.
