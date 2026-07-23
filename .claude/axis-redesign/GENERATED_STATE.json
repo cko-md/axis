@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-23T07:16:44.142Z",
+  "derivedAt": "2026-07-23T07:31:57.635Z",
   "git": {
-    "branch": "HEAD",
-    "head": "2f66e7b9fdf025d49674e1b375a08141d19b6957",
+    "branch": "codex/spark-audit-dep-compat-minimatch",
+    "head": "072d675aafe7ddf869c8a342c3cdd15032c04777",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
-    "workingTreeClean": false,
+    "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "072d675a",
+        "subject": "[Spark Audit] test(security): tolerate minimatch dedupe layout"
+      },
+      {
+        "sha": "061c1237",
+        "subject": "docs(state): normalize spark checkpoint evidence"
+      },
       {
         "sha": "2f66e7b9",
         "subject": "docs(state): bind Spark checkpoint evidence"
@@ -16,9 +24,9 @@
         "subject": "test(ci): enforce full public browser gate"
       }
     ],
-    "contentTreeHash": "054b883d2fd8b07dddf765657683e78674db09238f4fac623eebf223e8a05960",
+    "contentTreeHash": "394bb0d575d834f64c0f7bc091f334335bf51ee42da6828406b04c9470aa0f89",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "5f395eb7d2a685d46d2e11e600e0bcc9c584779902691c363e5706ce7e30cbe9"
+    "fingerprint": "88f864e2d6badb950bc22724b61a6433307be8b84cc5946df07ce59374a708f8"
   },
   "mergedPrs": [
     {
@@ -39,7 +47,7 @@
     "openIds": []
   },
   "gates": {
-    "measured": true,
+    "measured": false,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
     "sourceHead": "9634a6c5a2133f2c38c2ec1cf74d032804ccd5f9",
     "sourceContentTreeHash": "054b883d2fd8b07dddf765657683e78674db09238f4fac623eebf223e8a05960",
@@ -67,6 +75,7 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-23T06:53:08.887Z"
+    "measuredAt": "2026-07-23T06:53:08.887Z",
+    "note": "carried forward; re-run with --gates to measure"
   }
 }
