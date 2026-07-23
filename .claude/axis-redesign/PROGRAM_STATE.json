@@ -1647,13 +1647,11 @@
   "recorded": "AGENTS.md 2a"
  },
  "next_dependency_ordered_actions": [
-  "CLOSED: independent read-only review of the convergence \u2014 completed via PR review + merge of #237/#238/#239/#240-#249; rescue stack #196-#235 fully dispositioned (merged subset or closed-superseded).",
-  "CLOSED: fresh-Supabase authenticated CI + VECTOR authenticated browser suite on the (now-merged) convergence head \u2014 GitHub CI run 29659456809 on main@a8c7be32, all 3 jobs (verify/e2e-smoke/e2e-authenticated) green.",
-  "CLOSED: hosted RLS/grant readback for 202607170001_vector_arcade_persistence \u2014 verified via a rolled-back live round-trip (save sync, event apply, conflict create+resolve) against twkcvyhmlguipchfetge.",
-  "LANDED (this session, PR #251 pending owner merge): Wave 15.3 \u2014 Second Sense, the first complete/playable/available VECTOR title. All gates CONFIRMED GREEN: local tsc/lint/1299 tests/191 files/build 175 pages/187 route budgets/4341/4400 KB bundle/real offline-manifest 0->1, AND exact-head GitHub CI run 29661747530 on PR #251 (verify, e2e-smoke, e2e-authenticated \u2014 including the updated tests/e2e/vector-authenticated.spec.ts asserting second-sense is 'available' \u2014 all passed). CodeQL and Vercel preview also green. Ready for owner merge.",
-  "PARALLEL, OWNER-AUTHORIZED: Phase 16 Archive Bay desktop track \u2014 16.0 (licensing/threat-model ADR) then 16.1 (bring-your-own-emulator launcher) may proceed independently of 15.x; see binding_order_amendment below. 16.2+ remain gated on the 16.0 ADR.",
-  "NEXT (after 15.3's PR merges and its CI is confirmed green): 15.4 Envoy core -> 15.5 hatch-pet packages -> 15.6 generation control plane (OpenAI gate) -> 15.7 vendored worker/Render (gate) -> 15.8-15.15 remaining titles in order -> 15.16 convergence.",
-  "WATCH: aggregate static JS budget is now 4341/4400 KB (98.7%). Very little headroom remains for 15.4+; consider raising .claude/axis-redesign/PERFORMANCE_BUDGETS.json deliberately (with evidence) or code-splitting further before adding the next game's chunk."
+  "ACTIVE: complete Phase 0 release and truth containment under the owner-authorized System Redesign program. Generated merge, SHA, migration, defect, and gate facts live only in docs/CURRENT_STATE.md and GENERATED_STATE.json.",
+  "ACTIVE: finish independent review of the trusted owner-merge executor and its active no-bypass main ruleset contract without ever unlocking main.",
+  "REQUIRED BEFORE PHASE 0 CLOSE: immutable candidate head, exact hosted CI and preview evidence, migration-manifest readback, Sentry review, protected owner merge, production verification, and canonical state derivation.",
+  "THEN: begin Phase 1 trust and safety kernel lanes (provider identity, safe outbound fetch, financial truth, cancellable/idempotent mutations, fail-closed auth/rate limits, and safe error normalization).",
+  "ENVOYS: ADR 0007 authorizes only the fresh E0\u2013E6 program. Every product, identity, persistence, worker, and paid-proof item remains open until its acceptance evidence exists."
  ],
  "binding_order_amendment": {
   "recorded": "2026-07-18, post-convergence checkpoint repair",
@@ -1699,25 +1697,26 @@
  "wave_order_revision": {
   "decided": "2026-07-19",
   "decided_by": "owner",
-  "summary": "15.6 skipped; 15.7 deferred; 15.11 blocked. Remaining game waves gated on a bundle-budget decision.",
+  "superseded_for_envoy_governance_by": "2026-07-23 ADR 0007 — Envoy owner reversal and fresh design",
+  "summary": "Historical 2026-07-19 disposition: 15.6 skipped; 15.7 deferred; 15.11 blocked. ADR 0007 supersedes that Envoy-drop posture only: the fresh E0–E6 program is authorized but entirely unbuilt/open; the retired implementation and visual system are not restored. Remaining game waves retain their separate bundle-budget decision.",
   "changes": [
    {
     "wave": "15.6",
-    "status": "SKIPPED",
-    "reason": "Envoy generation control plane has no subject: Envoys was removed entirely in PR #257 pending an owner-directed redesign by a separate agent. Building generation schema, quotas and RLS now would hard-code assumptions about an identity model that does not yet exist."
+    "status": "SUPERSEDED — fresh E4 is open/unbuilt",
+    "reason": "The 2026-07-19 skip followed removal of the rejected implementation. ADR 0007 now authorizes a fresh identity design; it does not restore any prior schema, assets, or completion claim."
    },
    {
     "wave": "15.7",
-    "status": "DEFERRED",
-    "reason": "Owner-gated on paid OpenAI spend and a Render workspace, and depends on 15.6 which is skipped."
+    "status": "SUPERSEDED — fresh E5/E6 are open/unbuilt",
+    "reason": "The paid-worker prerequisites remain binding, but the dependency is now the fresh E4 control plane rather than the retired 15.6 plan."
    },
    {
     "wave": "15.11",
-    "status": "BLOCKED",
-    "reason": "Envoy Arena requires eight selectable Envoys. Envoys was removed; unblocks only after the redesign lands."
+    "status": "BLOCKED — fresh program",
+    "reason": "Envoy Arena requires at least eight validated, selectable original identities. ADR 0007 authorizes a fresh design, but none exist yet."
    }
   ],
-  "next_implementable": "15.9 Time to Fly (in flight on feat/wave-15.9-time-to-fly, concurrent session), then 15.10 Paper Glider shell (core merged-pending on feat/vector-15.10-paper-glider PR #261; engine spike merged in #259).",
+  "next_implementable": "Phase 0 governance bootstrap and protected production-convergence gates; after Phase 0 closes, Phase 1 trust and safety kernel. Envoy implementation starts at the fresh E0 acceptance matrix and does not inherit retired-wave completion.",
   "bundle_budget_blocker": {
    "problem": "Every remaining game wave (15.8-15.15) requires Phaser or Three.js. None are native-engine.",
    "measured_2026_07_19": {

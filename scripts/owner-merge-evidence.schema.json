@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axis.local/schemas/owner-merge-evidence-v1.json",
+  "title": "AXIS owner merge evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repository",
+    "pullRequest",
+    "vercelPreview",
+    "trustedReview",
+    "sentry",
+    "manualValidation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "owner", "name", "rulesetId"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "rulesetId": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "baseSha", "headSha"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "baseSha": { "$ref": "#/$defs/commitSha" },
+        "headSha": { "$ref": "#/$defs/commitSha" }
+      }
+    },
+    "vercelPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deploymentId",
+        "projectId",
+        "teamId",
+        "headSha",
+        "createdAt",
+        "readyAt"
+      ],
+      "properties": {
+        "deploymentId": { "type": "string", "minLength": 1 },
+        "projectId": { "type": "string", "minLength": 1 },
+        "teamId": { "type": "string", "minLength": 1 },
+        "headSha": { "$ref": "#/$defs/commitSha" },
+        "createdAt": { "type": "integer", "minimum": 0 },
+        "readyAt": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "trustedReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "trustedSha",
+        "controlDigest",
+        "reviewedBy",
+        "reviewedAt",
+        "artifact"
+      ],
+      "properties": {
+        "kind": {
+          "enum": ["independent-bootstrap-review", "protected-main-review"]
+        },
+        "trustedSha": { "$ref": "#/$defs/commitSha" },
+        "controlDigest": { "$ref": "#/$defs/sha256" },
+        "reviewedBy": { "type": "string", "minLength": 1 },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "sentry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowStart",
+        "windowEnd",
+        "reviewedAt",
+        "reviewedBy",
+        "newIssueCount",
+        "unresolvedRegressionCount",
+        "artifact"
+      ],
+      "properties": {
+        "windowStart": { "type": "string", "format": "date-time" },
+        "windowEnd": { "type": "string", "format": "date-time" },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "reviewedBy": { "type": "string", "minLength": 1 },
+        "newIssueCount": { "const": 0 },
+        "unresolvedRegressionCount": { "const": 0 },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "manualValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completedAt", "performedBy", "checks"],
+      "properties": {
+        "completedAt": { "type": "string", "format": "date-time" },
+        "performedBy": { "type": "string", "minLength": 1 },
+        "checks": {
+          "type": "array",
+          "minItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "outcome", "artifact"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "outcome": { "const": "pass" },
+              "artifact": { "$ref": "#/$defs/artifact" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "commitSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

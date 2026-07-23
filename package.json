@@ -13,6 +13,7 @@
     "test:e2e": "playwright test --project=public",
     "test:e2e:auth": "AXIS_E2E_AUTH=1 playwright test --project=authenticated",
     "release:validate": "node scripts/validate-release-wave.mjs",
+    "release:owner-merge": "node scripts/owner-merge.mjs",
     "desktop:dev": "electron electron/main.cjs --dev",
     "desktop:start": "electron electron/main.cjs",
     "desktop:test": "node --test electron/*.test.cjs",
@@ -69,12 +70,12 @@
     "@vercel/speed-insights": "^2.0.0",
     "clsx": "^2.1.1",
     "dexie": "^4.4.4",
-    "isomorphic-dompurify": "^3.18.0",
+    "isomorphic-dompurify": "^3.19.0",
     "jsdom": "^26.0.0",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.23.0",
     "motion": "^12.42.2",
-    "next": "^15.3.3",
+    "next": "^15.5.21",
     "phaser": "^3.90.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -85,6 +86,7 @@
     "zod": "^3.25.28"
   },
   "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "6.0.0",
     "@eslint/eslintrc": "^3.3.1",
     "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4.1.8",
@@ -98,6 +100,7 @@
     "eslint": "^9.27.0",
     "eslint-config-next": "^15.3.3",
     "fake-indexeddb": "^6.2.5",
+    "js-yaml": "4.3.0",
     "supabase": "^2.109.1",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3",
@@ -107,12 +110,27 @@
     "@sentry/cli@2.58.6": true,
     "electron@43.1.1": true,
     "fsevents@2.3.3": true,
-    "sharp@0.34.5": true,
+    "sharp@0.35.0": true,
     "unrs-resolver@1.12.2": true
   },
   "overrides": {
+    "fast-uri": "3.1.4",
+    "js-yaml": "4.3.0",
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.16"
+    },
+    "minimatch@5.1.9": {
+      "brace-expansion": "2.1.2"
+    },
+    "minimatch@9.0.9": {
+      "brace-expansion": "2.1.2"
+    },
+    "minimatch@10.2.5": {
+      "brace-expansion": "5.0.7"
+    },
     "next": {
-      "postcss": "8.5.10"
+      "postcss": "8.5.15",
+      "sharp": "0.35.0"
     }
   }
 }

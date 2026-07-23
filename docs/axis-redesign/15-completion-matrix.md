@@ -140,27 +140,28 @@ its result as authoritative, not this local reasoning.
 | Per-game offline install for shell/chunk/fonts/cover/assets/minimal route; estimate/install/update/remove/quota/pending UI | 672–692 | complete for Second Sense; partial overall | Protocol-v3 worker/generator/deployment tests and UI exist; a real production build now verifies a real 5-asset offline manifest for Second Sense (manifest 0→1); the remaining 8 titles are still disabled |
 | Reconnect flush/pull/merge with honest Synced/Pending/Conflict/Error/Local Only | 693–697 | partial | Sync orchestrator and partial/truncation/owner-change tests exist; final browser network-transition rerun is pending |
 
-## Envoy core
+## Retired Envoy requirements (historical)
 
-> **DROPPED (owner decision, 2026-07-19).** Envoys were rejected and removed
-> entirely (route/components/lib/hook/art, nav unwired). Every "open" row in this
-> section and in **Production Envoy generation** below is therefore **dropped, not
-> pending** — do not re-attempt them. In particular the "remove Mascot only after
-> parity" plan is void: `src/components/layout/Mascot.tsx` is the sole, retained
-> presence system and stays. If Envoys are ever revived it will be under a fresh
-> design, so these rows do not describe that future work either.
+> **Superseded for governance (2026-07-23).** The 2026-07-19 removal of the
+> prior Envoy implementation is historical fact, not completion evidence. ADR
+> 0007 authorizes a fresh design and supersedes the former "dropped, do not
+> re-attempt" posture. These source-brief rows remain only as historical
+> requirements: they neither describe the new program nor credit it with prior
+> code, art, or completion. See `envoy-acceptance-matrix.md` for the new E0–E6
+> work, all of which is unbuilt/open. Legacy Mascot remains the rollback path
+> until a future verified parity decision.
 
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|
 | Appearance independent of Focus/Intel/Ask; preserve context/privacy/errors/Sentry/focus/Escape/abort; status-first panel | 703–736 | open | Parity unit/browser matrix |
 | Feature split, dynamic EnvoyHost, safe legacy mapping/show-hide/activeEnvoyId; remove Mascot only after parity | 738–776 | open | Migration tests, bundles, diff/browser proof |
-| Original anthropomorphic non-robot starters; all hatch states and artifacts | 778–836 | partial | Concepts complete; hatch packages/QA open |
+| Original anthropomorphic non-robot starters; all hatch states and artifacts | 778–836 | open | Retired-plan concepts do not satisfy fresh-design evidence |
 | Deterministic truthful mapping of every task state; real fields/counts; approvals/results links; multi-task priority; realtime or bounded polling | 838–900 | open | Adapter/state tests, deep links, browser/API load |
 | Low-rate idle, hidden/game pause, no stutter/shift/leak, reduced motion | 902–923 | open | CPU/memory/visibility traces |
 | Interface Studio quick picker only; Envoy Lab full management | 925–952 | open | Desktop/mobile interaction evidence |
 | Prompt + Surprise Me + structured seeded brief + confirmation; quota/cost/cancel/moderation/privacy/RLS/signed URLs/limits | 954–987 | open | UX, deterministic randomizer, security/rate tests |
 
-## Production Envoy generation
+## Retired production Envoy generation requirements (historical)
 
 | Requirement | Source lines | Status | Evidence needed |
 |---|---:|---|---|

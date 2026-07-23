@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 test("tasks workbench loads and exposes the routine trigger", async ({ page }) => {
   await page.goto("/tasks");
   await expect(page.locator("body")).not.toContainText(/application error|runtime error/i);
-  await expect(page.getByText(/agent tasks/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agent Tasks", exact: true })).toBeVisible();
   // The deterministic routine trigger must be present and operable.
   await expect(page.getByRole("button", { name: /run concentration check/i })).toBeEnabled();
 });

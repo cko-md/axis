@@ -19,19 +19,49 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-21T22:56:13.800Z. Do not hand-edit this block._
+_Deterministically derived from committed repository content. Do not hand-edit this block._
 
-## Where the code actually is
+## Repository state identity
 
-- **Branch:** `main`
-- **HEAD:** `b2a7faf1`
-- **main:** `b2a7faf1`
+- **State fingerprint:** `52fb5b256bb4bcf163681ca60ec8e0d11d11fb958ec91ca7af1a98fea5ae149c` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `7e453e98cb1e5e3b57420836cd9fde703b5d6d7827f93276f923bc95249a45ae`
+- **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
+- **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
+- An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
+
+## Source snapshot provenance
+
+_Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
+
+- **Branch:** `codex/redesign-00-governance-bootstrap`
+- **HEAD:** `63064c3d`
+- **main:** `44be089b`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (9 commit(s))
+
+- `63064c3d` fix(security): patch Next PostCSS override
+- `919a61d6` feat(governance): add fail-closed owner merge controls
+- `9634a6c5` test(ci): enforce full public browser gate
+- `08bd4d7c` docs(state): refresh deterministic bootstrap evidence
+- `65466993` fix(state): make provenance SHA rendering deterministic
+- `9bd49715` docs(state): refresh bootstrap gate evidence
+- `ec709532` fix(release): freeze css build configuration
+- `732f393e` docs(state): record governance bootstrap gates
+- `2a6f9c18` harden(release): bootstrap trusted production controls
 
 ## Waves merged to main
 
 | Wave | PR | Commit | Subject |
 | --- | --- | --- | --- |
+| 4.4 | local merge | `2a0d940d` | feat(fund): multi-currency minor-unit table + FX conversion with provenance (wave 4.4) |
+| 4.5 | local merge | `6dd8f5e1` | feat(fund): tax-lot / cost-basis / corporate-actions domain (wave 4.5) |
+| 4.6 | local merge | `0fc3e503` | feat(fund): populate provenance from write paths + Activity freshness badge (wave 4.6) |
+| 4.7 | local merge | `cb886e1a` | feat(fund): wire holdings reconciliation to real data + surface in UI (wave 4.7) |
+| 6.2 | local merge | `7487cf28` | fix(state): repair PROGRAM_STATE.json (missing/trailing comma from wave 6.2 insert) |
+| 11.2 | local merge | `7c033898` | ci(perf): enforce performance budgets on the CI build (wave 11.2) |
+| 12.1 | local merge | `b7053214` | test: JSON-artifact guard + authenticated Operate e2e smoke (Phase 12.1) |
+| 15.2 | local merge | `64dec9cd` | docs(axis): record Wave 15.2 convergence reconciliation + execution log |
 | 15.3 | #251 | `294dae37` | feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3) |
 | 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
@@ -46,8 +76,8 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Database
 
-- **Tracked migrations:** 90
-- **Latest:** `20260721144434_drop_legacy_connection_tables.sql`
+- **Tracked migrations:** 91
+- **Latest:** `20260722064615_user_settings_kv.sql`
 
 ## Defects
 
@@ -56,8 +86,14 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
-- _carried forward; re-run with --gates to measure_
-- Last known tests: 1820/1820 (STALE)
+_Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
+
+- **Tests:** 1952/1952 across 228 files
+- **Bundle:** 4287 KB / 4400 KB
+- **Route-isolated game bundle:** 1964 KB / 3000 KB
+- **Measured source:** `63064c3d`
+- **Measured content tree:** `7e453e98cb1e5e3b57420836cd9fde703b5d6d7827f93276f923bc95249a45ae`
+- **Measured at:** 2026-07-23T16:16:47.379Z
 
 <!-- END GENERATED: derive-program-state -->
 
