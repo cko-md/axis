@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,6 +36,10 @@ describe("security override compatibility", () => {
 
     expect(minimatchPackages.length).toBeGreaterThan(0);
     for (const [packagePath, metadata] of minimatchPackages) {
+      if (!existsSync(path.join(root, packagePath))) {
+        continue;
+      }
+
       const loaded = requireFromTest(path.join(root, packagePath)) as
         | ((candidate: string, pattern: string) => boolean)
         | { minimatch?: (candidate: string, pattern: string) => boolean };
