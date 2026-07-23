@@ -223,7 +223,9 @@ describe("Vercel canonical-state production gate", { timeout: 30_000 }, () => {
     const result = runGate(cwd, "production");
 
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain("protected release-governance");
+    expect(result.stdout).toContain(
+      "external owner-controlled release authorization remains required",
+    );
   });
 
   it("fails closed when authored PROGRAM_STATE policy changes after derivation", () => {

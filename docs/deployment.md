@@ -48,9 +48,11 @@ snapshot is committed through the protected refresh.
 
 The SHA-256 state fingerprint is deterministic consistency evidence, not a
 cryptographic signature or an independent attestation: candidate authors can
-recompute it. Production authority therefore depends on the immutable
-base-controlled `release-governance` job in
-`.github/workflows/release-governance.yml` plus every protected hosted check.
+recompute it. The base-controlled `release-governance` job in
+`.github/workflows/release-governance.yml` and protected hosted checks are
+strong evidence, but their shared GitHub Actions App contexts are not exact
+workflow identities in this public user-owned repository. They are not the
+merge authority.
 That trusted job executes validator code from the protected base, treats the
 candidate only as inert data, freezes release-critical workflow/script
 semantics, dependency and config/toolchain inputs, critical gate tests, and
@@ -68,13 +70,28 @@ code-review concern. The Vercel ignore command is a final fail-closed
 consistency interlock; it does not replace branch protection or attest that a
 candidate-reported gate ran.
 
-Bootstrap caveat: the PR that first introduces `release-governance.yml` cannot
-receive a `pull_request_target` check from a workflow that does not yet exist on
-its protected base. Its production attempt must remain canceled. Immediately
-after that bootstrap merge, use the first post-bootstrap PR to observe a real
-base-controlled `release-governance` check. Bind that GitHub Actions context as
-a required branch check before the same PR may merge. No broader redesign PR or
-state-refresh PR may merge before the binding is confirmed.
+Merge authority is the local owner-controlled executor documented in
+[`axis-redesign/owner-merge-runbook.md`](axis-redesign/owner-merge-runbook.md),
+until a future organization required workflow or independently controlled
+custom App replaces it. The executor runs only from an independently pinned
+trusted artifact, treats the candidate as inert Git data, verifies exact
+hosted-run/App/deployment/evidence identities, direct and effective rules,
+keeps `main` locked,
+temporarily disables only admin enforcement, squash-merges one exact head, and
+restores/read-backs enforcement in `finally`.
+
+Bootstrap caveat: the PR that first introduces these controls cannot receive a
+`pull_request_target` check from a workflow absent on its base and cannot
+self-authorize its new executor. Its production attempt must remain canceled.
+An independent reviewer must pin the exact bootstrap SHA and control digest,
+and record the exact numeric active/no-bypass main-only repository ruleset and
+external review artifact. Before merge, observe an exact-head successful
+`runtime-dependency-audit` check from App 15368; bind that context to App 15368
+without changing any other branch-protection entry, and read it back. After the
+bootstrap lands, observe the first real base-controlled `release-governance`
+check before broader redesign/state-refresh work and record it as evidence
+only. Do not add its forgeable shared-App context as a required branch status
+on this user-owned repository.
 
 ## PR Flow
 

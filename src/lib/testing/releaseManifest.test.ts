@@ -1046,6 +1046,10 @@ describe("trusted pull-request release governance", () => {
   it("permits the control-plane bootstrap only when every bootstrap file is absent from base", () => {
     expect(TRUSTED_CONTROL_BOOTSTRAP_FILES).toEqual([
       ".github/workflows/release-governance.yml",
+      "scripts/owner-merge.mjs",
+      "scripts/owner-merge-core.mjs",
+      "scripts/owner-merge-evidence.schema.json",
+      "scripts/owner-merge-ruleset.json",
       "scripts/validate-release-candidate.mjs",
       "scripts/release-validation-core.mjs",
       "scripts/vercel-ignore-build.sh",

@@ -13,6 +13,7 @@
     "test:e2e": "playwright test --project=public",
     "test:e2e:auth": "AXIS_E2E_AUTH=1 playwright test --project=authenticated",
     "release:validate": "node scripts/validate-release-wave.mjs",
+    "release:owner-merge": "node scripts/owner-merge.mjs",
     "desktop:dev": "electron electron/main.cjs --dev",
     "desktop:start": "electron electron/main.cjs",
     "desktop:test": "node --test electron/*.test.cjs",

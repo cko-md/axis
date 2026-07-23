@@ -2,29 +2,28 @@
 
 - **Status:** backlog / design-refinement — **not scheduled**
 - **Date:** 2026-07-21
-- **Depends on:** a 15.6-style generation control plane + 15.7-style vendored worker — designed in
-  [`docs/axis-redesign/15-vector-arcade-and-envoys.md`](../axis-redesign/15-vector-arcade-and-envoys.md),
-  but **formally dropped on `main` as of 2026-07-21** (see *Foundation status* below)
-- **Relationship:** these extend the 15.6/15.7 **worker pattern**. None of this is buildable as
-  live/paid work until 15.7 lands. The *deterministic* items need only a durable job runner (the
-  15.6 control plane + a leased worker shell), **not** the paid image provider.
+- **Depends on:** the fresh E4 generation control plane + E5/E6 worker path in
+  [`docs/axis-redesign/envoy-acceptance-matrix.md`](../axis-redesign/envoy-acceptance-matrix.md);
+  all are currently unbuilt/open
+- **Relationship:** these extend the **fresh E4/E5 worker pattern**. None of
+  this is buildable as live/paid work until the relevant E4 control-plane and
+  E5 worker evidence exists. Deterministic items need a durable leased runner,
+  not the E6 paid image-provider proof.
 
-> **For future sessions:** this file is the canonical home for post-15.16 Envoy-worker ideas.
+> **For future sessions:** this file is the canonical home for post-E6 Envoy-worker ideas.
 > It is design-refinement altitude, **not** session-ready — every slice has an *Open design
 > questions* block that must be resolved before it becomes a one-session Linear issue. Do not
-> promote a **presence-facing** slice (EW-1..6) to `Todo` without an explicit owner decision on
-> `main` reviving a presence/generation program (see Foundation below — the current recorded
-> decision is DROPPED). Infra slices (EW-7/8/9/10) need only a durable job runner plus answered
-> open questions.
+> promote any slice to `Todo` before its E0–E6 prerequisites and open design questions are
+> resolved. Infra slices (EW-7/8/9/10) still need a durable job runner plus answered questions.
 
 ---
 
 ## The reusable spine
 
-The 15.7 worker gives Axis a **durable, leased, cost-governed, private place to do slow or
-expensive work off the hot path**. The presence layer owns the other half: a **truthful,
-deep-linked status HUD** (designed in Wave 15.4). Every item below is one variation on a single
-shape:
+The proposed E5 worker gives Axis a **durable, leased, cost-governed, private
+place to do slow or expensive work off the hot path**. The proposed E1/E3
+status surface owns the other half: a **truthful, deep-linked work view**.
+Every item below is one variation on a single shape:
 
 > **worker does the heavy thing → writes owner-scoped truth + emits an event → the presence HUD
 > surfaces it honestly, proposing and never executing.**
@@ -45,38 +44,39 @@ shape:
 
 ## Foundation status & risk (READ FIRST)
 
-The whole backlog is named "Envoy," but the Envoy program's status is **unresolved on this branch**:
+The prior Envoy implementation was removed; the fresh Envoy program is now
+**authorized but unbuilt**:
 
 - The Envoy presence layer (`EnvoyHost`, the 15.4 active-work status HUD, `/envoy` route, hook, art)
   was **removed from the tree on 2026-07-19** when the owner rejected the Envoy visual/UX design.
   `src/components/layout/Mascot.tsx` (mounted in `AppShell`) is currently the **sole retained
   presence system**. There is no `EnvoyHost` or active-work HUD adapter in `src/` today.
-- **Resolved on `main` (2026-07-21):** commit `7ec07179` added an explicit DROPPED banner to
-  `docs/axis-redesign/15-completion-matrix.md` — every **Envoy core** row *and* every
-  **Production Envoy generation (15.6/15.7)** row is now "**dropped, not pending — do not
-  re-attempt**," and the "remove Mascot only after parity" plan is void. Envoy-dropped /
-  Mascot-retained is the recorded owner decision, not a leaning.
+- **Superseded governance (2026-07-23):** ADR 0007 reverses the 2026-07-19
+  drop decision for a fresh design only. It expressly forbids reviving the
+  removed Meridian/Cairn/Vesper/Solace visual system. No replacement host,
+  identity, schema, control plane, worker, or paid proof exists yet; the E0–E6
+  acceptance matrix is the authoritative prospective record.
 
 **Implication for this backlog:**
 
-- Every **presence-facing** slice (EW-1, EW-2, EW-3, EW-4, EW-5, EW-6) is **doubly blocked** — on
-  a 15.6/15.7-style control plane + worker existing *and* on an **explicit owner reversal or a
-  commissioned redesign** of the presence program (a Codex-led Envoy redo was mooted when the design
-  was rejected). Where a slice says "the HUD," read it as *whatever presence surface the owner
-  eventually approves* — the 15.4 Envoy HUD design is a reference, not a live target.
+- Every **presence-facing** slice (EW-1, EW-2, EW-3, EW-4, EW-5, EW-6) remains blocked on the
+  E0–E6 fresh-design program. Where a slice says "the HUD," read it as the
+  future approved surface, never the removed 15.4 design.
 - The **presence-agnostic infra** slices — **EW-9** (cost-governor), **EW-10** (run-repair),
   **EW-7** (enrichment), **EW-8** (sync) — deliver value **regardless of Envoy vs. Mascot**. They
-  survive even if Envoy stays abandoned, and should be sequenced first for that reason.
+  remain useful even if the fresh Envoy product is later paused, and should be
+  sequenced first for that reason.
 
-**The presence decision is settled (dropped); the standing question is narrower:** does the owner
-ever commission a redesigned successor? Until an affirmative decision exists on `main`, treat
-EW-1..EW-6 as ideas-on-ice and schedule only the presence-agnostic infra slices.
+**The presence decision is settled (fresh redesign authorized); the remaining
+question is implementation evidence.** Treat every EW slice as backlog until
+its E0–E6 prerequisites are completed and its own open design questions are
+resolved.
 
 ---
 
 ## Reality check (honesty guardrails)
 
-- **Nothing here is built.** 15.6/15.7 are owner-gated and unimplemented. These are forward ideas.
+- **Nothing here is built.** E4/E5/E6 are gated and unimplemented. These are forward ideas.
 - **The financial-safety kernel is the hard boundary.** Any item touching money or actions stays
   **propose-only** — surface it, deep-link it, let the user approve. Never autonomous execution.
 - **Privacy invariant (wave doc #11).** Personalized prompts, intermediates, and assets stay
@@ -989,6 +989,7 @@ follow.
   why/surfaces/cross-module/technical-scope/guardrails/acceptance/test-strategy/deployment/open-
   questions). Added **Foundation status & risk** (Envoy presence removed 2026-07-19; Mascot retained;
   program status unresolved) and re-sequenced to lead with presence-agnostic infra (EW-9/10/7/8).
-- 2026-07-21 (later) — Foundation **resolved**: `7ec07179` landed the completion-matrix DROPPED
-  banner on `main` voiding Envoy core + Production Envoy generation ("do not re-attempt").
-  Re-framed EW-1..6 as requiring an explicit owner reversal/redesign; EW-7/8/9/10 unaffected.
+- 2026-07-21 (later) — Historical foundation decision: `7ec07179` landed the completion-matrix
+  DROPPED banner after removal of the rejected system. Superseded for governance by ADR 0007
+  (2026-07-23): a fresh design is authorized, no prior implementation is restored, and every
+  E0–E6 prerequisite remains open/unbuilt.

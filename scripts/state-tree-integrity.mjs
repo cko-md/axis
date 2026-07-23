@@ -46,8 +46,8 @@ function stableJson(value) {
 export function stateEvidenceFingerprint(contentTreeHash, boundEvidence) {
   // Deterministic consistency checksum only. This is not a signature or
   // attestation: anyone who can edit the candidate tree can recompute it.
-  // Production authority comes from the immutable base-controlled
-  // release-governance check and the protected hosted checks.
+  // Merge authority comes from the independently pinned owner-controlled
+  // executor. Base-controlled and hosted checks are evidence it verifies.
   return createHash("sha256")
     .update(contentTreeHash)
     .update("\0bound-state-evidence\0")

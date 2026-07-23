@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
@@ -188,6 +188,29 @@ async function searchUsageCount(): Promise<number> {
   return Number(data?.search_select_count ?? 0);
 }
 
+async function openSearchWithShortcut(
+  page: Page,
+  shortcutModifier: "Meta" | "Control",
+) {
+  const searchDialog = page.getByRole("dialog", { name: "Search Axis" });
+
+  // `goto(..., domcontentloaded)` can resolve before the client AppShell has
+  // installed its document-level shortcut listener. Exercise the visible
+  // trigger once as a hydration readiness barrier, then close it and assert
+  // the actual keyboard shortcut opens the same dialog. This preserves the
+  // shortcut contract instead of accepting a retry-only pass on slower CI.
+  const searchTrigger = page.getByTitle("Search Axis (⌘/)");
+  await expect(searchTrigger).toBeVisible();
+  await searchTrigger.click();
+  await expect(searchDialog).toBeVisible();
+  await searchDialog.getByRole("button", { name: "Close search" }).click();
+  await expect(searchDialog).toHaveCount(0);
+
+  await page.keyboard.press(`${shortcutModifier}+Slash`);
+  await expect(searchDialog).toBeVisible();
+  return searchDialog;
+}
+
 test.beforeAll(async () => {
   const accessToken = accessTokenFromAuthState();
   ownerId = ownerIdFromAccessToken(accessToken);
@@ -259,9 +282,7 @@ test("entity search, references, pane history, and responsive workspace restore 
     /application error|runtime error/i,
   );
 
-  await page.keyboard.press(`${shortcutModifier}+Slash`);
-  const searchDialog = page.getByRole("dialog", { name: "Search Axis" });
-  await expect(searchDialog).toBeVisible();
+  const searchDialog = await openSearchWithShortcut(page, shortcutModifier);
   const entitySearch = searchDialog.getByPlaceholder(
     "Search notes, tasks, people, approvals…",
   );

@@ -18,6 +18,10 @@ const MIGRATION_FILE_CONTRACT =
   "<numeric-version>_<lowercase-snake-case-name>.sql";
 export const TRUSTED_CONTROL_BOOTSTRAP_FILES = [
   ".github/workflows/release-governance.yml",
+  "scripts/owner-merge.mjs",
+  "scripts/owner-merge-core.mjs",
+  "scripts/owner-merge-evidence.schema.json",
+  "scripts/owner-merge-ruleset.json",
   "scripts/validate-release-candidate.mjs",
   "scripts/release-validation-core.mjs",
   "scripts/vercel-ignore-build.sh",
@@ -49,6 +53,7 @@ export const TRUSTED_CONTROL_PLANE_FILES = [
   "scripts/bootstrap-authenticated-e2e.mjs",
   "scripts/authenticated-e2e-credentials.mjs",
   "scripts/validate-release-wave.mjs",
+  "docs/axis-redesign/owner-merge-runbook.md",
   "supabase/config.toml",
   "scripts/sql/bootstrap-local-e2e-role-grants.sql",
   "scripts/sql/verify-20260716-contract.sql",

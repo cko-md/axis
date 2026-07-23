@@ -109,7 +109,7 @@ if (
       skipProduction("canonical state fingerprint is invalid");
     } else {
       continueBuild(
-        "canonical state is aligned; protected release-governance remains the authorization boundary",
+        "canonical state is aligned; external owner-controlled release authorization remains required",
       );
     }
   } catch {

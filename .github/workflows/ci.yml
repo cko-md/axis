@@ -9,6 +9,11 @@ on:
   push:
     branches: [main]
 
+# Every job starts from a read-only token. Artifact upload uses the dedicated
+# Actions runtime token; no CI step needs repository write authority.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: ci-${{ github.ref }}
@@ -194,7 +199,9 @@ jobs:
       - name: Authenticated browser suite
         env:
           E2E_WEB_SERVER_COMMAND: npm run start -- --hostname 127.0.0.1 --port 3000
-        run: npx playwright test --project=authenticated
+        # Keep retry diagnostics, but fail the required gate whenever one was
+        # needed. A green retry must not hide a flaky production workflow.
+        run: npx playwright test --project=authenticated --fail-on-flaky-tests
 
       - name: Tear down local Supabase
         if: always()

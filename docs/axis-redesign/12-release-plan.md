@@ -41,7 +41,7 @@ The migration directory is intentionally SQL-only: metadata files, alternate
 extensions, symlinks, and nested directories fail validation rather than being
 silently omitted from the release inventory.
 
-## Trusted pull-request governance
+## Trusted pull-request governance and merge authority
 
 [`release-governance.yml`](../../.github/workflows/release-governance.yml) uses
 `pull_request_target` as a deliberately narrow base-controlled check. It checks
@@ -59,12 +59,29 @@ migration ledger to the independently checked-out base tree. The workflow's
 closed five-step shape is itself validated so a candidate cannot add an
 execution step under the privileged event.
 
-This PR bootstraps that workflow, so GitHub cannot run it from `main` until the
-workflow has landed. First merge the bootstrap PR with its production attempt
-still canceled. On the first post-bootstrap PR, observe a real
-base-controlled `release-governance` check; then bind that GitHub Actions
-context as a required branch check before the same PR may merge. No broader
-redesign PR or state-refresh PR may merge before that binding is confirmed.
+This public, user-owned repository cannot make that Actions context an
+unforgeable authority: GitHub binds a required context to the Actions App, not
+to one exact repository workflow. `release-governance` is therefore
+defense-in-depth evidence only. The temporary merge authority is the local,
+owner-controlled, independently pinned executor in
+[`owner-merge-runbook.md`](owner-merge-runbook.md). It keeps `main` locked,
+disables only admin enforcement for one exact-head squash merge, and restores
+and read-backs enforcement in `finally`. The target architecture is a future
+organization required workflow or independently controlled custom GitHub App.
+
+This PR bootstraps both controls, so neither can self-authorize its own landing.
+Before the bootstrap merge, independently review and pin the exact bootstrap
+SHA and owner-executor control digest. The command-pinned repository ruleset
+must be active, main-only, no-bypass, and carry the executor's exact
+App-bound required-check contract. Observe a real successful
+`runtime-dependency-audit` result for that exact head, verify its check App is
+15368, bind `{context: runtime-dependency-audit, app_id: 15368}` in branch
+protection while preserving every other context, and read the binding back.
+The bootstrap production attempt remains canceled. After landing, observe the
+first genuine base-controlled `release-governance` check before any broader
+redesign/state-refresh merge and record it as evidence only. Do not add its
+forgeable shared-App context as a required branch status on this user-owned
+repository.
 
 After this one bootstrap landing, the trusted check freezes the complete
 `.github/workflows` directory and the complete critical gate/toolchain surface
@@ -72,6 +89,9 @@ byte-for-byte against the protected base:
 
 - the governance validator/core, state derivation/tree-integrity helpers, and
   both layers of the Vercel production-ignore policy;
+- the owner merge executor/core, evidence schema, canonical live ruleset
+  creation payload, exact hosted-check contract, and browser zero-flake
+  semantics;
 - `package.json`, `package-lock.json`, `.nvmrc`, and therefore the reviewed
   dependency and tool versions as well as package-script indirection;
 - TypeScript, ESLint, Vitest/setup/discovery, Playwright, Electron Playwright,
@@ -123,15 +143,20 @@ package-script semantics plus the hosted required checks provide that external
 attestation. A state-refresh PR may refresh only provenance, the independently
 verified source-main hash, and the resulting fingerprint.
 
-Intentional control-plane changes require an owner break-glass operation:
+The installed owner-controlled merge root deliberately rejects changes to its
+own frozen control plane. An intentional control-plane replacement therefore
+requires a new one-time, externally pinned break-glass artifact; it cannot be
+self-authorized by an ordinary candidate or by the installed executor:
 
 1. Record the exact files, reason, threat analysis, independent review, and
    rollback in the defect ledger or an ADR.
-2. Temporarily bypass the `release-governance` required context for one exact
-   reviewed commit through protected-branch administration; do not weaken the
-   workflow in an ordinary candidate PR.
-3. Restore the required context immediately, confirm its GitHub Actions app
-   binding, and require a green base-controlled check on the next PR.
+2. Independently review and pin the replacement executor, complete import
+   graph, exact candidate SHA, and external hash-verified evidence before any
+   candidate process starts. The installed executor is not used to validate or
+   merge its replacement.
+3. Use a separately reviewed one-time operator procedure with the same locked
+   branch, exact-head, double-read, admin-enforcement-only, `finally` restore,
+   and immutable-receipt invariants in `owner-merge-runbook.md`.
 
 This is an exceptional recovery/update path, not a standing label or
 candidate-controlled override.
