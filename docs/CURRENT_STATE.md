@@ -19,35 +19,39 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-21T22:56:13.800Z. Do not hand-edit this block._
+_Deterministically derived from committed repository content. Do not hand-edit this block._
 
-## Where the code actually is
+## Repository state identity
 
-- **Branch:** `main`
-- **HEAD:** `b2a7faf1`
-- **main:** `b2a7faf1`
+- **State fingerprint:** `b1b2f29d8ba2309e219b5531ee48a095bde2d5997f53cb4b9e68e22239599ff5` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `f6f479bd4f0e5511a8f5133b93b6d24a0c1cc3870141fb8f367b54dc42390473`
+- **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
+- **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
+- An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
+
+## Source snapshot provenance
+
+_Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
+
+- **Branch:** `codex/spark-audit-dep-compat-minimatch-clean-baselined`
+- **HEAD:** `20bbd6a0`
+- **main:** `44be089b`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (3 commit(s))
+
+- `20bbd6a0` ci: evaluate checkpoint check on PR head SHA
+- `2f66e7b9` docs(state): bind Spark checkpoint evidence
+- `9634a6c5` test(ci): enforce full public browser gate
 
 ## Waves merged to main
 
-| Wave | PR | Commit | Subject |
-| --- | --- | --- | --- |
-| 15.3 | #251 | `294dae37` | feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3) |
-| 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
-| 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
-| 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
-| 15.9 | local merge | `32a26c72` | feat(vector): Time to Fly deterministic flight mechanics and level progression (Wave 15.9) |
-| 15.10 | local merge | `5572d3ee` | feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard |
-| 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
-| 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
-| 16.2 | #256 | `d8a15e7b` | feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B) |
-
-Every row above is **merged**. A wave listed here is done; do not restart it.
+_No wave-tagged commits found._
 
 ## Database
 
-- **Tracked migrations:** 90
-- **Latest:** `20260721144434_drop_legacy_connection_tables.sql`
+- **Tracked migrations:** 91
+- **Latest:** `20260722064615_user_settings_kv.sql`
 
 ## Defects
 
@@ -56,8 +60,10 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Gates
 
+_Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
+
 - _carried forward; re-run with --gates to measure_
-- Last known tests: 1820/1820 (STALE)
+- Last known tests: 1914/1914 (STALE)
 
 <!-- END GENERATED: derive-program-state -->
 

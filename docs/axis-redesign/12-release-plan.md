@@ -6,16 +6,141 @@ The historical migration set is not renamed or rewritten.
 
 ## Deployment owner
 
-Vercel's Git integration is the sole production deployment owner. Merging an
-approved PR to `main` creates the production deployment. AXIS does not also run
-`vercel deploy --prod` from GitHub Actions because two deployment owners can
-race, publish different revisions, and make rollback evidence ambiguous.
+Vercel's Git integration is the sole production deployment owner. Merging a
+source-changing PR to `main` creates a production attempt that the canonical
+state gate intentionally skips. A following protected, generated-only state
+refresh creates the production build. AXIS does not also run `vercel deploy
+--prod` from GitHub Actions because two deployment owners can race, publish
+different revisions, and make rollback evidence ambiguous.
 
 Manual production CLI deploys are incident-recovery actions only. The incident
 commander must record the Git revision, Vercel deployment ID, reason, and
 recovery owner.
 
-## Release manifest
+## Committed repository migration manifest
+
+[`scripts/release-migration-manifest.json`](../../scripts/release-migration-manifest.json)
+is the complete, committed ledger for the migration tree: each migration's
+lexically ordered filename/version and SHA-256 digest, plus the manifest's
+count and latest entry. `npm run release:validate` compares it to every tracked
+`supabase/migrations/*.sql` file and fails on a missing, changed, extra, or
+reordered migration. It also compares the proposed ledger to the immutable
+protected-base ledger (or, for this first manifest-introducing change, that
+base revision's migration tree): only strict lexical tail additions are
+allowed.
+Updating the working manifest cannot mask a deletion, rename, rewrite, or
+non-tail insertion of a historical migration. If no protected base ref is
+available, validation fails closed. In GitHub Actions, the baseline is bound to
+immutable event data (`pull_request.base.sha` or `push.before`);
+`AXIS_RELEASE_BASE_REF` is rejected. For intentionally offline validation, that
+variable may name only an explicit reviewed ancestor—`HEAD`, the current tree,
+and unrelated commits are rejected.
+Update that manifest in the same reviewed change as any intentional migration
+addition; do not rewrite an already-applied migration.
+The migration directory is intentionally SQL-only: metadata files, alternate
+extensions, symlinks, and nested directories fail validation rather than being
+silently omitted from the release inventory.
+
+## Trusted pull-request governance
+
+[`release-governance.yml`](../../.github/workflows/release-governance.yml) uses
+`pull_request_target` as a deliberately narrow base-controlled check. It checks
+out the immutable base and candidate SHAs into separate directories, installs
+only the base revision's dependencies with lifecycle scripts disabled, and
+passes the candidate tree to the base revision's validator as inert data. It
+never executes candidate code, Actions, dependencies, package scripts, or shell
+commands. Permissions are read-only.
+
+The trusted validator parses candidate workflows as YAML (including flow
+mappings and nested `run`/`uses` forms), requires every external Action to use a
+full 40-character commit SHA plus a readable version comment, rejects direct or
+package-script-indirected production Vercel deploys, and compares the candidate
+migration ledger to the independently checked-out base tree. The workflow's
+closed five-step shape is itself validated so a candidate cannot add an
+execution step under the privileged event.
+
+This PR bootstraps that workflow, so GitHub cannot run it from `main` until the
+workflow has landed. First merge the bootstrap PR with its production attempt
+still canceled. On the first post-bootstrap PR, observe a real
+base-controlled `release-governance` check; then bind that GitHub Actions
+context as a required branch check before the same PR may merge. No broader
+redesign PR or state-refresh PR may merge before that binding is confirmed.
+
+After this one bootstrap landing, the trusted check freezes the complete
+`.github/workflows` directory and the complete critical gate/toolchain surface
+byte-for-byte against the protected base:
+
+- the governance validator/core, state derivation/tree-integrity helpers, and
+  both layers of the Vercel production-ignore policy;
+- `package.json`, `package-lock.json`, `.nvmrc`, and therefore the reviewed
+  dependency and tool versions as well as package-script indirection;
+- TypeScript, ESLint, Vitest/setup/discovery, Playwright, Electron Playwright,
+  Next, PostCSS, and Tailwind build configuration, and the complete
+  `vercel.json` deployment configuration, with alternate
+  config/package-manager override filenames rejected;
+- every protected-base unit, browser, and Electron test file byte-for-byte
+  (including the complete `tests/` tree), while allowing additive regular test
+  files;
+- shared and route-isolated bundle budget scripts/config, route-performance
+  validation, production postbuild generators, authenticated-E2E bootstrap,
+  Supabase E2E configuration, and the SQL grant/contract verifiers.
+
+The complete reviewed `vercel.json` is byte-for-byte protected, and its
+`ignoreCommand` is also parsed and required to keep the exact reviewed outer
+`sh -c` mapping. Candidate changes to build commands, environment—including
+`NODE_OPTIONS`—regions, functions, or other Vercel execution/deployment
+semantics therefore require the same owner break-glass process. The Node policy
+emits its final build sentinel and exits `73`;
+the repository wrapper maps only that pair to `74`; and the inline outer command
+maps only wrapper status `74` to Vercel's non-zero build result. Missing or
+syntax-invalid wrappers and Node syntax/import/runtime crashes all map to exit
+`0` and cancel the deployment. Dependency changes, critical control/test edits,
+protected-test path deletion/rename, alternate config injection, and lower
+measured unit-test totals/files/suites fail closed. The trusted YAML parser is a direct exact
+`js-yaml@4.3.0` development dependency whose root lockfile specifier, registry
+URL, version, and integrity are pinned. A generated-only state-refresh candidate
+must preserve the base snapshot's complete passing gate evidence byte-for-byte;
+trusted base code recomputes the source/base content hashes and evidence
+fingerprint.
+
+The active `postcss.config.mjs` and `tailwind.config.ts` are protected
+byte-for-byte. Alternate PostCSS rc/config names across JSON, YAML, JavaScript,
+ES modules, CommonJS, and TypeScript variants, plus Tailwind's JS/CJS/MJS/CTS/MTS
+root variants, are forbidden. A candidate `package.json#postcss` override is
+already prevented by the complete package freeze. This blocks an alternate
+config from taking discovery precedence and injecting a different CSS build
+plugin.
+
+Existing tests intentionally do not evolve through an ordinary governed PR:
+revised coverage is added in a new test file, preserving the reviewed base
+suite. The remaining automated boundary is that a new additive test could be
+low-value; hosted execution and normal independent review must still assess its
+semantic strength.
+
+The state fingerprint proves deterministic consistency, not independent
+attestation that commands ran. For source-changing PRs, the frozen workflow and
+package-script semantics plus the hosted required checks provide that external
+attestation. A state-refresh PR may refresh only provenance, the independently
+verified source-main hash, and the resulting fingerprint.
+
+Intentional control-plane changes require an owner break-glass operation:
+
+1. Record the exact files, reason, threat analysis, independent review, and
+   rollback in the defect ledger or an ADR.
+2. Temporarily bypass the `release-governance` required context for one exact
+   reviewed commit through protected-branch administration; do not weaken the
+   workflow in an ordinary candidate PR.
+3. Restore the required context immediately, confirm its GitHub Actions app
+   binding, and require a green base-controlled check on the next PR.
+
+This is an exceptional recovery/update path, not a standing label or
+candidate-controlled override.
+
+This inventory is deliberately separate from the historical safety lifecycle
+below. The latter remains an explicit expand → application → contract guard for
+the July task/approval, WebAuthn, and routine-resume rollout.
+
+## Historical lifecycle release sequence
 
 Expansion migrations, in order:
 
@@ -38,10 +163,15 @@ by the older application and replaces the legacy passkey `FOR ALL` policy with
 owner SELECT only. A green preview is necessary but is not proof that the
 production revision is live.
 
-Run `npm run release:validate` before starting. It checks file ordering,
-transaction wrappers, safety markers, read-back scripts, documentation, and
-that no GitHub workflow owns a second Vercel production deployment. It also
-prints SHA-256 checksums; paste that output into the release record.
+Run `npm run release:validate` before starting. It checks the complete committed
+migration manifest, the historical lifecycle's transaction wrappers and safety
+markers, read-back scripts, documentation, immutable commit-SHA pins for every
+GitHub Action in repository workflows, and that no GitHub workflow owns a
+second Vercel production deployment. Deploy-owner detection covers direct and
+multiline CLI commands, package-script indirection, and known Vercel deployment
+actions; it is intentionally a static guard, not proof that arbitrary shell or
+remote action code cannot deploy. It prints the complete ordered digest ledger;
+paste that output into the release record.
 
 ## Preconditions
 

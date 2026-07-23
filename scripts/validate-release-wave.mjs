@@ -1,7 +1,17 @@
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  collectMigrationEntries,
+  findMutableGitHubActionReferences,
+  findSecondaryVercelProductionDeploys,
+  loadProtectedMigrationBaseline,
+  readMigrationManifest,
+  validateAppendOnlyMigrationManifest,
+  validateReleaseGovernanceWorkflow,
+  validateMigrationManifest,
+  validateTrustedYamlParser,
+} from "./release-validation-core.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -39,6 +49,7 @@ const verificationFiles = [
 ];
 
 const releaseDoc = "docs/axis-redesign/12-release-plan.md";
+const migrationManifest = "scripts/release-migration-manifest.json";
 
 function fail(message) {
   console.error(`release validation failed: ${message}`);
@@ -86,10 +97,6 @@ function readRequired(path) {
   return readFileSync(absolute, "utf8");
 }
 
-function checksum(content) {
-  return createHash("sha256").update(content).digest("hex");
-}
-
 function validateMigration(item) {
   const content = readRequired(item.file);
   if (!item.file.split("/").at(-1)?.startsWith(`${item.version}_`)) {
@@ -103,28 +110,70 @@ function validateMigration(item) {
   if (!/\bbegin;\s/i.test(content) || !/\bcommit;\s*$/i.test(content)) {
     fail(`${item.file} must remain transaction-wrapped`);
   }
-  return { ...item, checksum: checksum(content) };
-}
-
-function workflowFiles() {
-  const workflowDir = join(root, ".github", "workflows");
-  return readdirSync(workflowDir)
-    .filter((name) => /\.ya?ml$/i.test(name))
-    .map((name) => join(workflowDir, name));
+  return item;
 }
 
 function validateSingleDeploymentOwner() {
-  for (const file of workflowFiles()) {
-    const content = readFileSync(file, "utf8");
-    if (/\bvercel\s+(?:deploy\s+)?--prod\b/i.test(content)) {
-      fail(
-        `${relative(root, file)} contains a second production deploy; Vercel Git integration is the sole deploy owner`,
-      );
-    }
+  let packageScripts = {};
+  try {
+    packageScripts = JSON.parse(readRequired("package.json")).scripts ?? {};
+  } catch {
+    fail("package.json must be valid JSON to verify deployment ownership");
+  }
+  for (const file of findSecondaryVercelProductionDeploys(
+    join(root, ".github", "workflows"),
+    { packageScripts },
+  )) {
+    fail(
+      `${relative(root, join(root, ".github", "workflows", file))} contains a second production deploy; Vercel Git integration is the sole deploy owner`,
+    );
+  }
+}
+
+function validateGitHubActionPins() {
+  for (const reference of findMutableGitHubActionReferences(
+    join(root, ".github", "workflows"),
+  )) {
+    fail(
+      `${relative(root, join(root, ".github", "workflows"))}/${reference} uses a mutable GitHub Action ref; pin it to a full commit SHA with a readable version comment`,
+    );
+  }
+}
+
+function validateTrustedReleaseGovernance() {
+  for (const error of validateReleaseGovernanceWorkflow(
+    readRequired(".github/workflows/release-governance.yml"),
+  )) {
+    fail(error);
+  }
+  for (const error of validateTrustedYamlParser(root)) {
+    fail(error);
   }
 }
 
 const args = parseArgs(process.argv.slice(2));
+let manifest;
+let actualMigrations;
+try {
+  manifest = readMigrationManifest(join(root, migrationManifest));
+  actualMigrations = collectMigrationEntries(join(root, "supabase", "migrations"));
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+  process.exit();
+}
+const manifestErrors = validateMigrationManifest(
+  manifest,
+  actualMigrations,
+);
+for (const error of manifestErrors) fail(error);
+try {
+  const baseline = loadProtectedMigrationBaseline(root);
+  for (const error of validateAppendOnlyMigrationManifest(baseline.manifest, manifest)) {
+    fail(`${error} (protected baseline ${baseline.revision} via ${baseline.source})`);
+  }
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}
 const expansions = expansionMigrations.map(validateMigration);
 const contract = validateMigration(contractMigration);
 
@@ -152,6 +201,8 @@ if (!doc.includes("NEVER apply the contract migration before")) {
 }
 
 validateSingleDeploymentOwner();
+validateGitHubActionPins();
+validateTrustedReleaseGovernance();
 
 if (args.stage === "contract") {
   if (!args.expansionsVerified) {
@@ -175,14 +226,19 @@ if (args.stage === "contract") {
 if (process.exitCode) process.exit();
 
 console.log(`Release wave validation passed (stage: ${args.stage}).`);
-console.log("Expansion order:");
-for (const item of expansions) {
-  console.log(`  ${item.version}  ${item.checksum}  ${item.file}`);
-}
-console.log("Application: merge to main; Vercel Git integration deploys exactly once.");
 console.log(
-  `Contract: ${contract.version}  ${contract.checksum}  ${contract.file}`,
+  `Committed migration manifest: ${manifest.migrationCount} migrations; latest ${manifest.latest.version}  ${manifest.latest.sha256}  ${manifest.latest.file}`,
 );
+console.log("Migrations (lexical filename order):");
+for (const item of manifest.migrations) {
+  console.log(`  ${item.version}  ${item.sha256}  ${item.file}`);
+}
+console.log(
+  "Application: source merge is production-skipped; the protected canonical-state refresh is the sole production build.",
+);
+console.log("Historical lifecycle safety checks:");
+console.log(`  Expansion order: ${expansions.map(({ version }) => version).join(", ")}`);
+console.log(`  Contract: ${contract.version}  ${contract.file}`);
 console.log(`Expand read-back: ${verificationFiles[0]}`);
 console.log(`Contract read-back: ${verificationFiles[1]}`);
 if (args.stage === "contract") {

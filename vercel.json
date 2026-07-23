@@ -1,5 +1,6 @@
 {
   "framework": "nextjs",
+  "ignoreCommand": "sh -c 'sh scripts/vercel-ignore-build.sh; status=$?; if [ \"$status\" -eq 74 ]; then exit 1; fi; exit 0'",
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "regions": ["iad1"],
