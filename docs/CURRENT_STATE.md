@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `21e24b9bcbcf58153bc0c9e8f48390cb30d6ecf6e78232c9cfc63e0b09927713` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `dbaf9813c32057cf53f7c2ce061cd0e67c26c7ccbc696880bf713aef14828af0`
+- **State fingerprint:** `9bb87c9f803c7c94d173c722137e84d0fb104f5b0d2baa55cb7701ed45d616a5` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `29b2a81253560ec692d48afb48707f9cca38c807e4fcc4c427366f1ba6825ef4`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,16 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/spark-audit-dep-compat-minimatch-clean`
-- **HEAD:** `ac4c4126`
+- **HEAD:** `a397117a`
 - **main:** `44be089b`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (6 commit(s))
+### Ahead of source main at derivation (10 commit(s))
 
+- `a397117a` chore: retrigger CI after docs-currency checkout pin
+- `de3895ea` ci: evaluate checkpoint check on PR head SHA
+- `636dd94e` chore: force one final PR synchronize for clean docs-currency run
+- `e29f5e52` docs(state): derive checkpoint baseline at ac4c412
 - `ac4c4126` chore: retrigger PR checks sync sweep v2
 - `d3bb35f9` chore: retrigger PR checks after checkpoint state alignment
 - `432554d3` docs(state): refresh governance checkpoint state artifacts
