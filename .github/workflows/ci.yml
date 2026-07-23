@@ -121,9 +121,8 @@ jobs:
         run: node scripts/check-perf-budgets.mjs build.log
 
   e2e-smoke:
-    # Public (unauthenticated) browser smoke — boots the app with placeholder
-    # Supabase env and checks the login page renders. Fuller authenticated
-    # flows need the local Supabase stack and run outside CI for now.
+    # Full public (unauthenticated) browser gate. Authenticated workflows run
+    # separately against the isolated local Supabase stack below.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -135,11 +134,19 @@ jobs:
         run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-      - name: Public smoke
+      - name: Build public test server
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-        run: npx playwright test --project=public tests/e2e/ci-smoke.spec.ts
+        run: npm run build
+      - name: Public browser suite
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          E2E_WEB_SERVER_COMMAND: npm run start -- --hostname 127.0.0.1 --port 3000
+        # A required browser gate must cover every public spec, and a retry is
+        # evidence of nondeterminism rather than a passing result.
+        run: npx playwright test --project=public --fail-on-flaky-tests
 
   e2e-authenticated:
     # Secret-free authenticated browser gate. A fresh local Supabase instance
