@@ -2,10 +2,75 @@
 
 AXIS deploys through GitHub PRs and Vercel previews. Agents should push branches and open PRs after local checks pass. Human Sentry review is not a pre-push blocker; Sentry is reviewed after the Vercel preview exists and before production readiness/merge.
 
-Vercel's Git integration is the only production deployment owner. Merging to
-`main` creates the production deploy; GitHub Actions must not also run
-`vercel deploy --prod`. Manual CLI production deploys are reserved for
-documented incident recovery.
+Vercel's Git integration is the only production deployment owner. A source
+merge to `main` creates a production attempt that the canonical-state gate
+skips; the following protected state-refresh merge creates the production
+build. GitHub Actions must not also run `vercel deploy --prod`. Manual CLI
+production deploys are reserved for documented incident recovery.
+
+Production is intentionally a two-merge operation. `vercel.json` runs a
+reviewed inline `sh -c` mapping around `scripts/vercel-ignore-build.sh` using
+Vercel's `ignoreCommand` convention (exit `0` cancels/skips; non-zero builds),
+as defined by
+[Vercel's project configuration](https://vercel.com/docs/project-configuration/vercel-json#ignore-command):
+
+1. A source or authored-policy merge may deploy to a PR preview, but its
+   production deployment is skipped because its canonical state was derived
+   before that content existed on `main`.
+2. From the updated `main`, run `npm run state:derive` (or
+   `npm run state:derive:gates` for fresh local source-gate evidence), commit
+   only the two generated state artifacts, and merge that protected state
+   refresh.
+3. The state-refresh merge builds production because its recorded source tree
+   and source-main tree are identical.
+
+The production decision hashes the checked-out tree and does not require
+history, a network call, or a secret, so it remains fail-closed in Vercel's
+depth-limited shallow clone. Preview and development deployments always
+continue. A missing or unknown `VERCEL_ENV`, or a missing, invalid, or stale
+state snapshot, cancels/skips production.
+
+Both shell layers are part of the fail-closed boundary. The Node policy never
+returns Vercel's build code directly; it emits a final
+`AXIS_VERCEL_DECISION=BUILD` sentinel with child status `73`. The repository
+wrapper maps only that exact pair to status `74`. The immutable inline command
+in `vercel.json` maps only wrapper status `74` to Vercel's non-zero build result.
+Missing or syntax-invalid wrappers, Node syntax/import/runtime crashes,
+malformed output, and every other result map to exit `0`, so an unexpected
+startup failure cannot accidentally authorize a production build.
+
+Production additionally requires `gates.measured: true` bound to the exact
+content-tree hash. A normal state refresh preserves an earlier measured pass
+only when its content-tree hash is unchanged (as it is across an equivalent
+squash merge). If the hash changed or no measured evidence exists, run
+`npm run state:derive:gates`; Vercel skips production until that measured
+snapshot is committed through the protected refresh.
+
+The SHA-256 state fingerprint is deterministic consistency evidence, not a
+cryptographic signature or an independent attestation: candidate authors can
+recompute it. Production authority therefore depends on the immutable
+base-controlled `release-governance` job in
+`.github/workflows/release-governance.yml` plus every protected hosted check.
+That trusted job executes validator code from the protected base, treats the
+candidate only as inert data, freezes release-critical workflow/script
+semantics, dependency and config/toolchain inputs, critical gate tests, and
+protected test paths; it rejects lower measured unit-test totals/files/suites,
+independently compares the candidate snapshot to the protected base, and must
+pass before merge. Every protected-base test remains byte-identical; new
+coverage is additive. The complete `vercel.json` is also byte-for-byte frozen,
+so candidate build commands, environment variables such as `NODE_OPTIONS`, and
+other deployment controls cannot perturb the gate while preserving only the
+visible `ignoreCommand`. The semantic value of a newly added test remains a
+code-review concern. The Vercel ignore command is a final fail-closed
+consistency interlock; it does not replace branch protection or attest that a
+candidate-reported gate ran.
+
+Bootstrap caveat: the PR that first introduces `release-governance.yml` cannot
+receive a `pull_request_target` check from a workflow that does not yet exist on
+its protected base. Its production attempt must remain canceled. Immediately
+after that bootstrap merge, make `release-governance` a required branch context;
+only the following protected state-refresh PR may authorize the production
+build.
 
 ## PR Flow
 
@@ -62,7 +127,9 @@ documented incident recovery.
 
 ## Production Readiness
 
-Merging to `main` triggers one Vercel Git-integration production deployment.
+Merging source to `main` creates one Vercel Git-integration production
+deployment attempt, which the state gate skips. The subsequent protected
+canonical-state refresh is the merge that triggers the production build.
 Production readiness requires completed local checks, a healthy preview build,
 preview validation evidence, Supabase/Tembo impact notes, and post-preview
 Sentry review. Sentry review can happen after the PR is opened; it cannot be
