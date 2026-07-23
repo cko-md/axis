@@ -23,7 +23,7 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `47aaa6c91dffa8ee0b696b9042dd9d569cbb0abdcc7f2e826c254a01c7b73894` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `5f395eb7d2a685d46d2e11e600e0bcc9c584779902691c363e5706ce7e30cbe9` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `054b883d2fd8b07dddf765657683e78674db09238f4fac623eebf223e8a05960`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
@@ -34,43 +34,18 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `HEAD`
-- **HEAD:** `9634a6c5`
+- **HEAD:** `2f66e7b9`
 - **main:** `44be089b`
 - **Working tree:** had uncommitted changes
 
-### Ahead of source main at derivation (7 commit(s))
+### Ahead of source main at derivation (2 commit(s))
 
+- `2f66e7b9` docs(state): bind Spark checkpoint evidence
 - `9634a6c5` test(ci): enforce full public browser gate
-- `08bd4d7c` docs(state): refresh deterministic bootstrap evidence
-- `65466993` fix(state): make provenance SHA rendering deterministic
-- `9bd49715` docs(state): refresh bootstrap gate evidence
-- `ec709532` fix(release): freeze css build configuration
-- `732f393e` docs(state): record governance bootstrap gates
-- `2a6f9c18` harden(release): bootstrap trusted production controls
 
 ## Waves merged to main
 
-| Wave | PR | Commit | Subject |
-| --- | --- | --- | --- |
-| 4.4 | local merge | `2a0d940d` | feat(fund): multi-currency minor-unit table + FX conversion with provenance (wave 4.4) |
-| 4.5 | local merge | `6dd8f5e1` | feat(fund): tax-lot / cost-basis / corporate-actions domain (wave 4.5) |
-| 4.6 | local merge | `0fc3e503` | feat(fund): populate provenance from write paths + Activity freshness badge (wave 4.6) |
-| 4.7 | local merge | `cb886e1a` | feat(fund): wire holdings reconciliation to real data + surface in UI (wave 4.7) |
-| 6.2 | local merge | `7487cf28` | fix(state): repair PROGRAM_STATE.json (missing/trailing comma from wave 6.2 insert) |
-| 11.2 | local merge | `7c033898` | ci(perf): enforce performance budgets on the CI build (wave 11.2) |
-| 12.1 | local merge | `b7053214` | test: JSON-artifact guard + authenticated Operate e2e smoke (Phase 12.1) |
-| 15.2 | local merge | `64dec9cd` | docs(axis): record Wave 15.2 convergence reconciliation + execution log |
-| 15.3 | #251 | `294dae37` | feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3) |
-| 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
-| 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
-| 15.8 | local merge | `f94934d9` | feat(vector): Wave 15.8 Brickrise playable — Phaser shell, engine chunk naming, unclimbable-tower fix |
-| 15.9 | local merge | `32a26c72` | feat(vector): Time to Fly deterministic flight mechanics and level progression (Wave 15.9) |
-| 15.10 | local merge | `5572d3ee` | feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard |
-| 16.0 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
-| 16.1 | #253 | `61e833d4` | feat(archive-bay): Phase 16.0 ADR + 16.1 bring-your-own-emulator launcher |
-| 16.2 | #256 | `d8a15e7b` | feat(archive-bay): managed melonDS runtime (Phase 16.2, ADR-0005 Option B) |
-
-Every row above is **merged**. A wave listed here is done; do not restart it.
+_No wave-tagged commits found._
 
 ## Database
 
