@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-23T04:46:36.152Z",
+  "derivedAt": "2026-07-23T06:53:09.005Z",
   "git": {
-    "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "6546699380bcce3761e11b950e15ca56a9563bd3",
+    "branch": "HEAD",
+    "head": "9634a6c5a2133f2c38c2ec1cf74d032804ccd5f9",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
-    "workingTreeClean": true,
+    "workingTreeClean": false,
     "aheadOfMain": [
+      {
+        "sha": "9634a6c5",
+        "subject": "test(ci): enforce full public browser gate"
+      },
+      {
+        "sha": "08bd4d7c",
+        "subject": "docs(state): refresh deterministic bootstrap evidence"
+      },
       {
         "sha": "65466993",
         "subject": "fix(state): make provenance SHA rendering deterministic"
@@ -28,9 +36,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "70d85c7cbf536f72b0d9123361f8b5b9e74fe72a7fa2991bfe58bb20902a6c6c",
+    "contentTreeHash": "054b883d2fd8b07dddf765657683e78674db09238f4fac623eebf223e8a05960",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "66ce44e521697f4c059a6281af6299191d078014818c63c6b64061e53a843914"
+    "fingerprint": "47aaa6c91dffa8ee0b696b9042dd9d569cbb0abdcc7f2e826c254a01c7b73894"
   },
   "mergedPrs": [
     {
@@ -334,8 +342,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "6546699380bcce3761e11b950e15ca56a9563bd3",
-    "sourceContentTreeHash": "70d85c7cbf536f72b0d9123361f8b5b9e74fe72a7fa2991bfe58bb20902a6c6c",
+    "sourceHead": "9634a6c5a2133f2c38c2ec1cf74d032804ccd5f9",
+    "sourceContentTreeHash": "054b883d2fd8b07dddf765657683e78674db09238f4fac623eebf223e8a05960",
     "typecheck": {
       "passed": true
     },
@@ -353,13 +361,13 @@
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4287,
+      "used": 4285,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-23T04:46:36.041Z"
+    "measuredAt": "2026-07-23T06:53:08.887Z"
   }
 }
