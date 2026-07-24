@@ -33,21 +33,23 @@
  * money.ts, so results are deterministic and unit-testable as an invariant.
  */
 
-import { toMinorUnits } from "./money";
-import { reconcileAmount, type ReconciliationState } from "./provenance";
+import {
+  addMinorUnits,
+  minorUnitsToDecimalString,
+  normalizeFinancialCurrency,
+  strictExactMinorUnits,
+} from "./financialTruth";
+import type { ReconciliationState } from "./provenance";
 
 /** Cent-exact: cost basis from two sources must agree to the penny. */
 const RECONCILE_TOLERANCE_MINOR = 0;
-
-/** Default currency when a row omits it (matches the DB column default). */
-const DEFAULT_CURRENCY = "USD";
 
 /** A source-tagged holding row, as returned by the holdings query. */
 export type ReconcilableHolding = {
   symbol: string;
   source: string;
   cost_basis: number | string | null | undefined;
-  /** ISO-4217 code; defaults to USD when absent (DB column default). */
+  /** Explicit ISO-4217 code. Missing currency is not financially comparable. */
   currency?: string | null;
 };
 
@@ -55,9 +57,9 @@ export type ReconcilableHolding = {
 export type SourceTotal = {
   source: string;
   /** Integer minor units (cents) — the value comparisons are made on. */
-  totalMinor: number;
+  totalMinor: number | null;
   /** Major units (dollars), for display/debugging. */
-  total: number;
+  total: number | null;
   currency: string;
 };
 
@@ -76,11 +78,6 @@ export type SymbolReconciliation = {
   currency: string | null;
 };
 
-function normalizeCurrency(currency: string | null | undefined): string {
-  const c = (currency ?? "").trim().toUpperCase();
-  return c === "" ? DEFAULT_CURRENCY : c;
-}
-
 /**
  * Reconcile source-tagged holdings, grouped by symbol.
  *
@@ -91,7 +88,7 @@ export function reconcileHoldings(
   rows: readonly ReconcilableHolding[],
 ): Map<string, SymbolReconciliation> {
   // symbol -> source -> { minor total, currency (first seen for that source) }
-  const bySymbol = new Map<string, Map<string, { totalMinor: number; currency: string }>>();
+  const bySymbol = new Map<string, Map<string, { totalMinor: number | null; currency: string }>>();
   for (const row of rows) {
     const symbol = row.symbol;
     let sources = bySymbol.get(symbol);
@@ -99,15 +96,20 @@ export function reconcileHoldings(
       sources = new Map();
       bySymbol.set(symbol, sources);
     }
-    const currency = normalizeCurrency(row.currency);
+    const currency = normalizeFinancialCurrency(row.currency, "") ?? "__INVALID__";
+    const amountMinor = currency === "__INVALID__"
+      ? null
+      : strictExactMinorUnits(row.cost_basis, currency);
     const existing = sources.get(row.source);
     if (existing) {
-      existing.totalMinor += toMinorUnits(row.cost_basis);
+      existing.totalMinor = existing.totalMinor === null || amountMinor === null
+        ? null
+        : addMinorUnits(existing.totalMinor, amountMinor);
       // A single source split across currencies is itself a mixed-currency
       // situation; record the divergence by marking the source's currency.
       if (existing.currency !== currency) existing.currency = "__MIXED__";
     } else {
-      sources.set(row.source, { totalMinor: toMinorUnits(row.cost_basis), currency });
+      sources.set(row.source, { totalMinor: amountMinor, currency });
     }
   }
 
@@ -116,16 +118,21 @@ export function reconcileHoldings(
     const sourceTotals: SourceTotal[] = [...sources.entries()].map(([source, v]) => ({
       source,
       totalMinor: v.totalMinor,
-      total: v.totalMinor / 100,
+      total: v.totalMinor === null || v.currency === "__INVALID__"
+        ? null
+        : Number(minorUnitsToDecimalString(v.totalMinor, v.currency)),
       currency: v.currency,
     }));
 
     const currencies = new Set(sourceTotals.map((s) => s.currency));
+    const invalidAmount = sourceTotals.some((source) =>
+      source.totalMinor === null || source.currency === "__INVALID__"
+    );
     const mixedCurrency = currencies.size > 1 || currencies.has("__MIXED__");
-    const sharedCurrency = mixedCurrency ? null : (sourceTotals[0]?.currency ?? DEFAULT_CURRENCY);
+    const sharedCurrency = mixedCurrency || invalidAmount ? null : (sourceTotals[0]?.currency ?? null);
 
     let state: ReconciliationState | null;
-    if (mixedCurrency) {
+    if (mixedCurrency || invalidAmount) {
       // No-mixing rule: cannot compare across currencies without FX.
       state = "pending";
     } else if (sourceTotals.length < 2) {
@@ -138,12 +145,12 @@ export function reconcileHoldings(
       const reference = sourceTotals[0];
       let conflicting = false;
       for (let i = 1; i < sourceTotals.length; i++) {
-        const s = reconcileAmount(
-          reference.total,
-          sourceTotals[i].total,
-          RECONCILE_TOLERANCE_MINOR,
-        );
-        if (s === "conflicting") {
+        const candidate = sourceTotals[i];
+        if (
+          reference.totalMinor === null
+          || candidate.totalMinor === null
+          || Math.abs(reference.totalMinor - candidate.totalMinor) > RECONCILE_TOLERANCE_MINOR
+        ) {
           conflicting = true;
           break;
         }

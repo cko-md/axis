@@ -6,7 +6,7 @@
  * execute); nothing here submits anything.
  */
 
-import { sumBy, toMinorUnits } from "@/lib/fund/money";
+import { strictExactMinorUnits } from "@/lib/fund/financialTruth";
 import { buildOrderTicket, type OrderTicket } from "@/lib/orders/orderTicket";
 
 export type RebalancePosition = { symbol: string; value: number };
@@ -56,8 +56,15 @@ export function proposeRebalance(
 ): RebalanceProposal {
   const drift = opts.driftThreshold ?? DEFAULT_DRIFT;
   const minTrade = opts.minTradeValue ?? DEFAULT_MIN_TRADE;
-  const total = sumBy(input.positions, (p) => Math.max(0, p.value));
-  const totalMinor = input.positions.reduce((s, p) => s + Math.max(0, toMinorUnits(p.value)), 0);
+  const normalized = input.positions.map((position) => ({
+    ...position,
+    valueMinor: strictExactMinorUnits(position.value, "USD"),
+  }));
+  if (normalized.some((position) => position.valueMinor === null || position.valueMinor! < 0)) {
+    return { total: 0, actions: [], skipped: input.positions.map((position) => position.symbol) };
+  }
+  const totalMinor = normalized.reduce((sum, position) => sum + (position.valueMinor as number), 0);
+  const total = totalMinor / 100;
 
   if (totalMinor <= 0) return { total: 0, actions: [], skipped: [] };
 
@@ -70,7 +77,12 @@ export function proposeRebalance(
 
   for (const symbol of symbols) {
     const currentValue = valueBySymbol.get(symbol) ?? 0;
-    const currentWeight = round4(Math.max(0, toMinorUnits(currentValue)) / totalMinor);
+    const currentMinor = strictExactMinorUnits(currentValue, "USD");
+    if (currentMinor === null || currentMinor < 0) {
+      skipped.push(symbol);
+      continue;
+    }
+    const currentWeight = round4(currentMinor / totalMinor);
     const targetWeight = input.targets[symbol] ?? 0;
     if (Math.abs(currentWeight - targetWeight) <= drift) continue;
 
@@ -85,7 +97,7 @@ export function proposeRebalance(
 
     const side = deltaValue > 0 ? "buy" : "sell";
     const quantity = round4(tradeValue / price);
-    const built = buildOrderTicket({ symbol, side, quantity, referencePrice: price });
+    const built = buildOrderTicket({ symbol, side, quantity, referencePrice: price, currency: "USD" });
     if (!built.ok) {
       skipped.push(symbol);
       continue;

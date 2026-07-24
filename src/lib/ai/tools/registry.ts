@@ -1,7 +1,112 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { decrypt } from "@/lib/crypto";
-import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
 import { fetchNews, fetchSnapshot, getPolygonApiKey, searchTickers } from "@/lib/massive/client";
+import {
+  calculateLivePosition,
+  fetchPortfolioQuotes,
+  MAX_PORTFOLIO_QUOTE_SYMBOLS,
+  normalizePositionSymbol,
+  quoteIsAuthoritative,
+  validateAuthoritativeHoldings,
+  validateCurrentConnectionBindings,
+  validateHoldingCoverage,
+  type PositionQuoteInput,
+} from "@/lib/fund/positionTruth";
+import {
+  addMinorUnits,
+  minorUnitsToDecimalString,
+  normalizeFinancialCurrency,
+  scaledUnitsToDecimalString,
+  strictExactMinorUnits,
+  strictMinorUnits,
+  strictScaledUnits,
+} from "@/lib/fund/financialTruth";
+import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
+import {
+  detectedRecurringMatchesCoverage,
+  readCompleteTransactionCoverage,
+  transactionRowsMatchCoverage,
+  TRANSACTION_HISTORY_DAYS,
+} from "@/lib/fund/transactionCoverage";
+import { classifyFreshness, FRESHNESS_SLAS } from "@/lib/fund/provenance";
+
+function requiredUsdMinor(value: unknown, currency: unknown = "USD"): number {
+  if (currency !== "USD") throw new ToolExecutionError("DATA_UNAVAILABLE");
+  const minor = strictMinorUnits(value, "USD");
+  if (minor === null) throw new ToolExecutionError("DATA_UNAVAILABLE");
+  return minor;
+}
+
+function safeAdd(left: number, right: number): number {
+  const total = addMinorUnits(left, right);
+  if (total === null) throw new ToolExecutionError("DATA_UNAVAILABLE");
+  return total;
+}
+
+type ProviderComponent = "holdings" | "liabilities";
+
+async function requireProviderComponentCoverage(
+  supabase: SupabaseClient,
+  userId: string,
+  component: ProviderComponent,
+  rows: Array<{ connection_id?: unknown; provider?: unknown }>,
+) {
+  const [{ data: connections, error: connectionError }, { data: coverage, error: coverageError }] = await Promise.all([
+    supabase
+      .from("fund_connections")
+      .select("id, provider, status, authority, verified_at")
+      .eq("user_id", userId)
+      .limit(33),
+    supabase
+      .from("fund_provider_coverage")
+      .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason")
+      .eq("user_id", userId)
+      .eq("component", component)
+      .limit(33),
+  ]);
+  if (connectionError || coverageError || (connections ?? []).length > 32 || (coverage ?? []).length > 32) {
+    throw new ToolExecutionError("DATA_UNAVAILABLE");
+  }
+  const relevant = (connections ?? []).filter((connection) =>
+    connection.status === "linked"
+    && connection.authority === "provider_verified"
+    && typeof connection.verified_at === "string"
+    && (component === "holdings" || connection.provider === "plaid"),
+  );
+  if (relevant.length === 0) throw new ToolExecutionError("DATA_UNAVAILABLE");
+  const connectionById = new Map(relevant.map((connection) => [connection.id, connection]));
+  if (rows.some((row) =>
+    typeof row.connection_id !== "string"
+    || connectionById.get(row.connection_id)?.provider !== row.provider
+  )) throw new ToolExecutionError("DATA_UNAVAILABLE");
+  const freshness = component === "holdings"
+    ? FRESHNESS_SLAS.holdings
+    : FRESHNESS_SLAS.accountBalance;
+  const facts = relevant.map((connection) => {
+    const fact = (coverage ?? []).find((candidate) =>
+      candidate.connection_id === connection.id
+      && candidate.provider === connection.provider
+      && candidate.component === component,
+    );
+    if (
+      fact?.complete !== true
+      || fact.availability_status !== "available"
+      || classifyFreshness(fact.retrieved_at, freshness) !== "fresh"
+      || fact.record_count !== rows.filter((row) => row.connection_id === connection.id).length
+    ) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    return fact;
+  });
+  return {
+    authority: "provider" as const,
+    component,
+    complete: true as const,
+    facts: facts.map((fact) => ({
+      connection_id: fact.connection_id,
+      provider: fact.provider,
+      record_count: fact.record_count,
+      retrieved_at: fact.retrieved_at,
+    })),
+  };
+}
 
 /**
  * FIN-501: typed read-only adapters around code that already exists
@@ -33,32 +138,6 @@ export class ToolExecutionError extends Error {
     super(code);
     this.name = "ToolExecutionError";
   }
-}
-
-async function fetchPlaidAccounts(
-  accessToken: string,
-): Promise<Array<{ name: string; mask: string | null; type: string; balance: number }>> {
-  const creds = getPlaidCreds();
-  if (!creds) throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
-  const res = await fetch(`${plaidHost(creds.env)}/accounts/balance/get`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: creds.clientId, secret: creds.secret, access_token: accessToken }),
-  });
-  if (!res.ok) throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
-  let data: { accounts?: unknown };
-  try {
-    data = (await res.json()) as { accounts?: unknown };
-  } catch {
-    throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
-  }
-  const accounts = (data.accounts ?? []) as Array<{
-    name: string;
-    mask: string | null;
-    type: string;
-    balances?: { current?: number };
-  }>;
-  return accounts.map((a) => ({ name: a.name, mask: a.mask, type: a.type, balance: a.balances?.current ?? 0 }));
 }
 
 export const TOOLS: ToolDef[] = [
@@ -106,7 +185,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_position",
-    description: "Detail on one ticker: shares, cost basis, live quote (if Polygon configured), unrealized P/L, portfolio weight.",
+    description: "Detail on one ticker: shares and cost basis plus live quote, P/L, and weight only when current quotes cover the whole USD portfolio; unavailable metrics are null with a reason.",
     input_schema: {
       type: "object",
       properties: { symbol: { type: "string", description: "Ticker symbol" } },
@@ -194,9 +273,12 @@ const handlers: Record<string, Handler> = {
   async get_net_worth_history({ supabase, userId }, input) {
     const limit = Number(input.limit ?? 30);
     const { data, error } = await supabase
-      .from("net_worth_snapshots")
-      .select("captured_on, cash, invested, liabilities, net_worth")
-      .eq("user_id", userId)
+      .from("net_worth_snapshots_exact")
+      .select("captured_on, cash, invested, liabilities, net_worth, currency")
+    .eq("user_id", userId)
+    .eq("authority", "provider")
+    .eq("snapshot_status", "fresh")
+    .eq("calculation_version", "financial-truth-v2")
       .order("captured_on", { ascending: false })
       .limit(Number.isFinite(limit) ? limit : 30);
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
@@ -204,13 +286,25 @@ const handlers: Record<string, Handler> = {
   },
 
   async get_spending_by_category({ supabase, userId }, input) {
-    const rangeDays = Number(input.range_days ?? 30);
-    const since = new Date(Date.now() - (Number.isFinite(rangeDays) ? rangeDays : 30) * 86400000)
+    const requestedRange = Number(input.range_days ?? 30);
+    const rangeDays = Number.isSafeInteger(requestedRange)
+      && requestedRange >= 1
+      && requestedRange <= TRANSACTION_HISTORY_DAYS
+      ? requestedRange
+      : 30;
+    const since = new Date(Date.now() - rangeDays * 86400000)
       .toISOString()
       .slice(0, 10);
+    const coverage = await readCompleteTransactionCoverage(
+      supabase,
+      userId,
+      since,
+      new Date().toISOString().slice(0, 10),
+    );
+    if (!coverage.available) throw new ToolExecutionError("DATA_UNAVAILABLE");
     let query = supabase
       .from("fund_bank_transactions")
-      .select("custom_category, plaid_category, amount, posted_date")
+      .select("custom_category, plaid_category, amount, amount_minor, posted_date, iso_currency_code, connection_id, retrieved_at, generation_id, authority")
       .eq("user_id", userId)
       .eq("is_transfer", false)
       .eq("excluded_from_budget", false)
@@ -222,16 +316,29 @@ const handlers: Record<string, Handler> = {
     }
     const { data, error } = await query;
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (!transactionRowsMatchCoverage(data ?? [], coverage)) {
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
+    }
 
     const byCategory = new Map<string, number>();
     for (const t of data ?? []) {
+      if (!t.connection_id || !t.retrieved_at) throw new ToolExecutionError("DATA_UNAVAILABLE");
+      const amountMinor = requiredUsdMinor(t.amount, t.iso_currency_code);
+      if (amountMinor >= 0) throw new ToolExecutionError("DATA_UNAVAILABLE");
       const cat = t.custom_category ?? t.plaid_category ?? "uncategorized";
-      byCategory.set(cat, (byCategory.get(cat) ?? 0) + Math.abs(Number(t.amount)));
+      byCategory.set(cat, safeAdd(byCategory.get(cat) ?? 0, Math.abs(amountMinor)));
     }
     return {
       range_days: rangeDays,
       since,
-      by_category: [...byCategory.entries()].map(([category, total]) => ({ category, total })),
+      authority: "provider",
+      coverage: coverage.facts,
+      by_category: [...byCategory.entries()].map(([category, totalMinor]) => ({
+        category,
+        total: minorUnitsToDecimalString(totalMinor, "USD"),
+        total_minor: totalMinor,
+        currency: "USD",
+      })),
     };
   },
 
@@ -239,12 +346,19 @@ const handlers: Record<string, Handler> = {
     const monthStart = new Date();
     monthStart.setDate(1);
     const since = monthStart.toISOString().slice(0, 10);
+    const coverage = await readCompleteTransactionCoverage(
+      supabase,
+      userId,
+      since,
+      new Date().toISOString().slice(0, 10),
+    );
+    if (!coverage.available) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
     const [{ data: budgets, error: budgetErr }, { data: txns, error: txnErr }] = await Promise.all([
-      supabase.from("fund_category_budgets").select("category, monthly_limit").eq("user_id", userId),
+      supabase.from("fund_category_budgets").select("category, monthly_limit, currency").eq("user_id", userId),
       supabase
         .from("fund_bank_transactions")
-        .select("custom_category, plaid_category, amount")
+        .select("custom_category, plaid_category, amount, amount_minor, iso_currency_code, connection_id, retrieved_at, generation_id, authority")
         .eq("user_id", userId)
         .eq("is_transfer", false)
         .eq("excluded_from_budget", false)
@@ -252,127 +366,242 @@ const handlers: Record<string, Handler> = {
         .gte("posted_date", since),
     ]);
     if (budgetErr || txnErr) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (!transactionRowsMatchCoverage(txns ?? [], coverage)) {
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
+    }
 
-    const spendByCategory = new Map<string, number>();
+    const spendByCategoryCurrency = new Map<string, number>();
     for (const t of txns ?? []) {
+      if (!t.connection_id || !t.retrieved_at) throw new ToolExecutionError("DATA_UNAVAILABLE");
+      const currency = normalizeFinancialCurrency(t.iso_currency_code, "");
+      const amountMinor = currency ? strictExactMinorUnits(t.amount, currency) : null;
+      if (!currency || amountMinor === null) throw new ToolExecutionError("DATA_UNAVAILABLE");
+      if (amountMinor >= 0) throw new ToolExecutionError("DATA_UNAVAILABLE");
       const cat = t.custom_category ?? t.plaid_category ?? "uncategorized";
-      spendByCategory.set(cat, (spendByCategory.get(cat) ?? 0) + Math.abs(Number(t.amount)));
+      const key = `${cat}\u0000${currency}`;
+      spendByCategoryCurrency.set(
+        key,
+        safeAdd(spendByCategoryCurrency.get(key) ?? 0, Math.abs(amountMinor)),
+      );
     }
 
     return {
       month_to_date_since: since,
-      budgets: (budgets ?? []).map((b) => ({
-        category: b.category,
-        monthly_limit: Number(b.monthly_limit),
-        spent_so_far: spendByCategory.get(b.category) ?? 0,
-      })),
+      authority: "provider",
+      coverage: coverage.facts,
+      budgets: (budgets ?? []).map((b) => {
+        const currency = normalizeFinancialCurrency(b.currency, "");
+        const limitMinor = currency ? strictExactMinorUnits(b.monthly_limit, currency) : null;
+        if (!currency || limitMinor === null) throw new ToolExecutionError("DATA_UNAVAILABLE");
+        const spentMinor = spendByCategoryCurrency.get(`${b.category}\u0000${currency}`) ?? 0;
+        return {
+          category: b.category,
+          monthly_limit: minorUnitsToDecimalString(limitMinor, currency),
+          monthly_limit_minor: limitMinor,
+          spent_so_far: minorUnitsToDecimalString(spentMinor, currency),
+          spent_so_far_minor: spentMinor,
+          currency,
+        };
+      }),
     };
   },
 
   async get_recurring_transactions({ supabase, userId }, input) {
     let query = supabase
       .from("fund_recurring_transactions")
-      .select("merchant_name, category, expected_amount, cadence, next_expected_date, last_seen_date, status, source")
+      .select("merchant_name, category, expected_amount, currency, cadence, next_expected_date, last_seen_date, status, source, source_generation_hash")
       .eq("user_id", userId)
       .order("next_expected_date");
     if (input.status) query = query.eq("status", String(input.status));
     const { data, error } = await query;
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-    return { recurring: data ?? [] };
+    const recurring = data ?? [];
+    const detected = recurring.filter((row) => row.source === "detected");
+    if (detected.length === 0) {
+      return { recurring, authority: "manual", coverage: null };
+    }
+    const coverage = await readCompleteTransactionCoverage(
+      supabase,
+      userId,
+      new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000).toISOString().slice(0, 10),
+      new Date().toISOString().slice(0, 10),
+    );
+    if (
+      !coverage.available
+      || detected.some((row) => !detectedRecurringMatchesCoverage(row, coverage))
+    ) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    return {
+      recurring,
+      authority: recurring.some((row) => row.source === "manual") ? "mixed_explicit" : "provider_derived",
+      coverage: coverage.facts,
+    };
   },
 
   async get_holdings({ supabase, userId }, input) {
     const { data, error } = await supabase
       .from("fund_holdings")
-      .select("symbol, name, shares, cost_basis, source")
+      .select("symbol, name, shares, cost_basis, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state")
       .eq("user_id", userId);
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (validateAuthoritativeHoldings(data ?? [])) {
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
+    }
+    const coverage = await requireProviderComponentCoverage(
+      supabase,
+      userId,
+      "holdings",
+      data ?? [],
+    );
 
-    const bySymbol = new Map<string, { symbol: string; name: string; shares: number; cost_basis: number; sources: string[] }>();
+    const bySymbol = new Map<string, { symbol: string; name: string; sharesMicro: number; costBasisMinor: number; sources: string[] }>();
     for (const r of data ?? []) {
+      if (r.currency !== "USD") throw new ToolExecutionError("DATA_UNAVAILABLE");
+      const sharesMicro = strictScaledUnits(r.shares, MICRO_SHARES_PER_SHARE);
+      const costBasisMinor = requiredUsdMinor(r.cost_basis);
+      if (sharesMicro === null || sharesMicro < 0 || costBasisMinor < 0) throw new ToolExecutionError("DATA_UNAVAILABLE");
       const existing = bySymbol.get(r.symbol);
       if (existing) {
-        existing.shares += Number(r.shares);
-        existing.cost_basis += Number(r.cost_basis);
+        existing.sharesMicro = safeAdd(existing.sharesMicro, sharesMicro);
+        existing.costBasisMinor = safeAdd(existing.costBasisMinor, costBasisMinor);
         if (!existing.sources.includes(r.source)) existing.sources.push(r.source);
       } else {
-        bySymbol.set(r.symbol, { symbol: r.symbol, name: r.name, shares: Number(r.shares), cost_basis: Number(r.cost_basis), sources: [r.source] });
+        bySymbol.set(r.symbol, { symbol: r.symbol, name: r.name, sharesMicro, costBasisMinor, sources: [r.source] });
       }
     }
     const symbolFilter = input.symbol ? String(input.symbol).toUpperCase() : null;
-    const aggregated = [...bySymbol.values()].filter((h) => !symbolFilter || h.symbol === symbolFilter);
-    return { holdings: aggregated };
+    const aggregated = [...bySymbol.values()]
+      .filter((h) => !symbolFilter || h.symbol === symbolFilter)
+      .map((h) => ({
+        symbol: h.symbol,
+        name: h.name,
+        shares: scaledUnitsToDecimalString(h.sharesMicro, MICRO_SHARES_PER_SHARE),
+        shares_micro: h.sharesMicro,
+        cost_basis: minorUnitsToDecimalString(h.costBasisMinor, "USD"),
+        cost_basis_minor: h.costBasisMinor,
+        sources: h.sources,
+        currency: "USD",
+      }));
+    return { holdings: aggregated, authority: "provider", coverage };
   },
 
   async get_position({ supabase, userId }, input) {
-    const symbol = String(input.symbol ?? "").toUpperCase();
+    const symbol = normalizePositionSymbol(input.symbol);
     if (!symbol) throw new ToolExecutionError("INVALID_INPUT");
 
     const { data: holdings, error } = await supabase
       .from("fund_holdings")
-      .select("shares, cost_basis, source")
+      .select("symbol, shares, cost_basis, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state, generation_id")
       .eq("user_id", userId)
       .eq("symbol", symbol);
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
-    const { data: allHoldings } = await supabase.from("fund_holdings").select("symbol, shares, cost_basis").eq("user_id", userId);
+    const { data: allHoldings, error: allHoldingsError } = await supabase
+      .from("fund_holdings")
+      .select("symbol, shares, cost_basis, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state, generation_id")
+      .eq("user_id", userId)
+      .limit(MAX_PORTFOLIO_QUOTE_SYMBOLS + 1);
+    if (allHoldingsError) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    const { data: connections, error: connectionError } = await supabase
+      .from("fund_connections")
+      .select("id, provider, status, authority, verified_at")
+      .eq("user_id", userId)
+      .limit(32);
+    if (connectionError) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    const { data: holdingCoverage, error: holdingCoverageError } = await supabase
+      .from("fund_provider_coverage")
+      .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
+      .eq("user_id", userId)
+      .eq("component", "holdings");
+    if (holdingCoverageError) throw new ToolExecutionError("DATA_UNAVAILABLE");
 
-    const shares = (holdings ?? []).reduce((s, h) => s + Number(h.shares), 0);
-    const costBasis = (holdings ?? []).reduce((s, h) => s + Number(h.cost_basis), 0);
     const sources = [...new Set((holdings ?? []).map((h) => h.source))];
 
-    let quote: { price: number; chg: number } | null = null;
-    if (getPolygonApiKey()) {
-      try {
-        quote = await fetchSnapshot(symbol);
-      } catch {
-        // quote stays null — caller must treat as unavailable, not zero
-      }
+    let quote: PositionQuoteInput = null;
+    let quotes = new Map<string, PositionQuoteInput>();
+    let quoteCoverageReason = (allHoldings ?? []).length > MAX_PORTFOLIO_QUOTE_SYMBOLS
+      ? "PORTFOLIO_QUOTE_LIMIT_EXCEEDED" as const
+      : validateAuthoritativeHoldings(allHoldings ?? [])
+        ?? validateCurrentConnectionBindings(allHoldings ?? [], connections ?? [])
+        ?? validateHoldingCoverage(allHoldings ?? [], connections ?? [], holdingCoverage ?? []);
+    if (getPolygonApiKey() && (holdings ?? []).length > 0 && !quoteCoverageReason) {
+      const quoteResult = await fetchPortfolioQuotes((allHoldings ?? []).map((holding) => holding.symbol), fetchSnapshot);
+      quotes = quoteResult.quotes;
+      quoteCoverageReason = quoteResult.reason;
+      const targetQuote = quotes.get(symbol);
+      quote = quoteIsAuthoritative(targetQuote)
+        ? targetQuote
+        : null;
     }
-
-    const positionValue = shares * (quote?.price ?? (shares ? costBasis / shares : 0));
-    const totalPortfolioValue = (allHoldings ?? []).reduce((sum, h) => {
-      const v = quote && h.symbol === symbol ? Number(h.shares) * quote.price : Number(h.cost_basis);
-      return sum + v;
-    }, 0);
+    const metrics = calculateLivePosition(symbol, allHoldings ?? [], quotes, Boolean(getPolygonApiKey()), quoteCoverageReason);
+    const quoteMinor = quote ? strictMinorUnits(quote.price, "USD") : null;
+    const quotePayload = quote && quoteMinor !== null
+      ? {
+          price: minorUnitsToDecimalString(quoteMinor, "USD"),
+          price_minor: quoteMinor,
+          change_percent: quote.chg,
+          source: quote.source,
+          as_of: quote.asOf,
+        }
+      : null;
 
     return {
       symbol,
-      shares,
-      cost_basis: costBasis,
+      shares: metrics.sharesMicro === null ? null : scaledUnitsToDecimalString(metrics.sharesMicro, MICRO_SHARES_PER_SHARE),
+      shares_micro: metrics.sharesMicro,
+      cost_basis: metrics.costBasisMinor === null ? null : minorUnitsToDecimalString(metrics.costBasisMinor, "USD"),
+      cost_basis_minor: metrics.costBasisMinor,
       sources,
-      quote,
-      quote_available: !!quote,
-      unrealized_pl: positionValue - costBasis,
-      weight: totalPortfolioValue ? positionValue / totalPortfolioValue : 0,
+      quote: quotePayload,
+      quote_available: quotePayload !== null,
+      live_available: metrics.available,
+      live_reason: metrics.reason,
+      position_value: metrics.positionValueMinor === null ? null : minorUnitsToDecimalString(metrics.positionValueMinor, "USD"),
+      position_value_minor: metrics.positionValueMinor,
+      unrealized_pl: metrics.unrealizedPLMinor === null ? null : minorUnitsToDecimalString(metrics.unrealizedPLMinor, "USD"),
+      unrealized_pl_minor: metrics.unrealizedPLMinor,
+      weight: metrics.weight,
     };
   },
 
   async get_liabilities({ supabase, userId }) {
     const { data, error } = await supabase
       .from("fund_liabilities")
-      .select("name, kind, balance, apr, minimum_payment, due_date, source")
+      .select("name, kind, balance, apr, minimum_payment, due_date, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state")
       .eq("user_id", userId);
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-    return { liabilities: data ?? [] };
+    const rows = data ?? [];
+    if (rows.some((row) =>
+      row.authority !== "provider"
+      || row.source !== "plaid"
+      || row.provider !== "plaid"
+      || typeof row.provider_record_id !== "string"
+      || !row.provider_record_id
+      || typeof row.connection_id !== "string"
+      || classifyFreshness(row.retrieved_at, FRESHNESS_SLAS.accountBalance) !== "fresh"
+      || row.reconciliation_state !== "matched"
+      || row.currency !== "USD"
+    )) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    const coverage = await requireProviderComponentCoverage(
+      supabase,
+      userId,
+      "liabilities",
+      rows,
+    );
+    return { liabilities: rows, authority: "provider", coverage };
   },
 
   async get_cash_accounts({ supabase, userId }) {
-    const { data: connections, error } = await supabase
-      .from("fund_connections")
-      .select("access_token_enc")
-      .eq("user_id", userId)
-      .eq("provider", "plaid")
-      .eq("status", "linked");
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-
-    const accounts: Array<{ name: string; mask: string | null; type: string; balance: number }> = [];
-    for (const c of connections ?? []) {
-      if (!c.access_token_enc) continue;
-      const token = decrypt(c.access_token_enc);
-      if (token) accounts.push(...(await fetchPlaidAccounts(token)));
-    }
-    return { accounts, total_cash: accounts.reduce((s, a) => s + a.balance, 0) };
+    void supabase;
+    void userId;
+    // The advisor executes with the owner's RLS client, which intentionally
+    // cannot select encrypted access tokens. A future server-only adapter can
+    // expose normalized balances; until then, do not weaken token grants.
+    return {
+      accounts: [],
+      total_cash: null,
+      available: false,
+      reason: "CASH_PROVIDER_SERVER_ADAPTER_REQUIRED",
+    };
   },
 
   async get_market_quote(_ctx, input) {
@@ -417,32 +646,11 @@ const handlers: Record<string, Handler> = {
     }
   },
 
-  async compute_safe_to_invest({ supabase, userId }, input) {
-    const buffer = Number(input.buffer ?? 0);
-    const cashResult = (await handlers.get_cash_accounts({ supabase, userId }, {})) as { total_cash: number };
-
-    const horizon = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: bills, error } = await supabase
-      .from("fund_recurring_transactions")
-      .select("merchant_name, expected_amount, next_expected_date")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .gte("next_expected_date", today)
-      .lte("next_expected_date", horizon);
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-
-    const upcomingBills = (bills ?? []).reduce((sum, b) => sum + Number(b.expected_amount), 0);
-    const safeBuffer = Number.isFinite(buffer) ? buffer : 0;
-    const safeToInvest = cashResult.total_cash - upcomingBills - safeBuffer;
-
-    return {
-      cash_on_hand: cashResult.total_cash,
-      upcoming_bills_next_14_days: upcomingBills,
-      buffer: safeBuffer,
-      safe_to_invest: safeToInvest,
-      bills_counted: bills ?? [],
-    };
+  async compute_safe_to_invest() {
+    // Recurring charges and budget rows do not yet carry complete provider
+    // provenance/currency coverage. Do not turn live cash into an affordability
+    // recommendation by blending those unproven values.
+    return { available: false, reason: "RECURRING_COVERAGE_UNAVAILABLE", cash_on_hand: null, upcoming_bills_next_14_days: null, buffer: null, safe_to_invest: null, bills_counted: [] };
   },
 };
 

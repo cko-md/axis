@@ -7,7 +7,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 const METADATA_SELECT =
-  "id, provider, event_type, status, attempt_count, last_error_code, last_http_status, locked_at, delivered_at, created_at, updated_at";
+  "id, provider, event_type, status, attempt_count, last_error_code, last_http_status, locked_at, accepted_at, delivered_at, created_at, updated_at";
 
 export async function GET() {
   const supabase = await createClient();
@@ -22,7 +22,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("integration_delivery_outbox")
     .select(METADATA_SELECT)
-    .in("status", ["pending", "failed", "dead_letter"])
+    .in("status", ["pending", "accepted", "failed", "dead_letter"])
     .order("updated_at", { ascending: false })
     .limit(25);
 

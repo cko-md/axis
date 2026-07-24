@@ -11,6 +11,7 @@ describe("normalizeAccount", () => {
     );
     expect(a.name).toBe("Everyday Checking");
     expect(a.balanceCurrent).toBe(1234.56);
+    expect(a.balanceCurrentMinor).toBe(123456);
     expect(a.balanceAvailable).toBe(1200);
     expect(a.currency).toBe("USD");
     expect(a.provenance.provider).toBe("plaid");
@@ -18,14 +19,9 @@ describe("normalizeAccount", () => {
     expect(a.freshness).toBe("fresh"); // just retrieved
   });
 
-  it("defaults missing mask/subtype/type/balances to null", () => {
-    const a = normalizeAccount({ name: "Card" }, { now: NOW });
-    expect(a.mask).toBeNull();
-    expect(a.subtype).toBeNull();
-    expect(a.type).toBeNull();
-    expect(a.balanceCurrent).toBeNull();
-    expect(a.balanceAvailable).toBeNull();
-    expect(a.currency).toBe("USD");
+  it("rejects a provider account without explicit currency", () => {
+    expect(() => normalizeAccount({ name: "Card" }, { now: NOW }))
+      .toThrow("PLAID_ACCOUNT_CURRENCY_UNAVAILABLE");
   });
 
   it("honors the account's currency", () => {
@@ -34,13 +30,18 @@ describe("normalizeAccount", () => {
     expect(a.provenance.currency).toBe("GBP");
   });
 
-  it("coerces non-finite balances to null (never NaN)", () => {
-    const a = normalizeAccount({ name: "X", balances: { current: Number.NaN } }, { now: NOW });
-    expect(a.balanceCurrent).toBeNull();
+  it("rejects non-finite balances instead of fabricating null", () => {
+    expect(() => normalizeAccount(
+      { name: "X", balances: { current: Number.NaN, iso_currency_code: "USD" } },
+      { now: NOW },
+    )).toThrow("PLAID_ACCOUNT_AMOUNT_INVALID");
   });
 
   it("normalizes a list", () => {
-    const list = normalizeAccounts([{ name: "A" }, { name: "B" }], { now: NOW });
+    const list = normalizeAccounts([
+      { name: "A", balances: { current: null, iso_currency_code: "USD" } },
+      { name: "B", balances: { current: null, iso_currency_code: "USD" } },
+    ], { now: NOW });
     expect(list.map((a) => a.name)).toEqual(["A", "B"]);
   });
 });

@@ -59,17 +59,17 @@ describe("isStale", () => {
 
 describe("reconcileAmount", () => {
   it("matches equal amounts exactly at the cent", () => {
-    expect(reconcileAmount(100.1, "100.10")).toBe("matched");
-    expect(reconcileAmount(0.1, 0.1)).toBe("matched");
+    expect(reconcileAmount(100.1, "100.10", 0, "USD")).toBe("matched");
+    expect(reconcileAmount(0.1, 0.1, 0, "USD")).toBe("matched");
   });
 
   it("flags disagreement beyond tolerance as conflicting", () => {
-    expect(reconcileAmount(100.0, 100.01)).toBe("conflicting");
+    expect(reconcileAmount(100.0, 100.01, 0, "USD")).toBe("conflicting");
   });
 
   it("honors a cent tolerance", () => {
-    expect(reconcileAmount(100.0, 100.01, 1)).toBe("matched");
-    expect(reconcileAmount(100.0, 100.02, 1)).toBe("conflicting");
+    expect(reconcileAmount(100.0, 100.01, 1, "USD")).toBe("matched");
+    expect(reconcileAmount(100.0, 100.02, 1, "USD")).toBe("conflicting");
   });
 
   it("reports partial when only one source is present", () => {

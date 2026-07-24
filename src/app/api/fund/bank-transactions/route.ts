@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { readCompleteTransactionCoverage, TRANSACTION_HISTORY_DAYS } from "@/lib/fund/transactionCoverage";
 
 /**
  * GET /api/fund/bank-transactions
@@ -25,13 +26,26 @@ export async function GET(request: NextRequest) {
   const from = params.get("from");
   const to = params.get("to");
   const limit = Math.min(Number(params.get("limit")) || 100, 500);
+  const offset = Math.max(Number(params.get("offset")) || 0, 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const coverageStart = from ?? new Date(
+    Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000,
+  ).toISOString().slice(0, 10);
+  const coverageEnd = to ?? today;
+  const coverage = await readCompleteTransactionCoverage(
+    supabase,
+    user.id,
+    coverageStart,
+    coverageEnd,
+  );
 
   let query = supabase
     .from("fund_bank_transactions")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("user_id", user.id)
     .order("posted_date", { ascending: false })
-    .limit(limit);
+    .order("id", { ascending: true })
+    .range(offset, offset + limit - 1);
 
   if (category) query = query.eq("custom_category", category);
   if (accountId) query = query.eq("account_id", accountId);
@@ -42,7 +56,18 @@ export async function GET(request: NextRequest) {
   if (!includeTransfers) query = query.eq("is_transfer", false);
   if (search) query = query.ilike("merchant_name", `%${search}%`);
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) return redactRouteError(error, { route: "fund/bank-transactions", area: "fund" });
-  return NextResponse.json({ transactions: data ?? [] });
+  const total = count ?? null;
+  return NextResponse.json({
+    transactions: data ?? [],
+    completeness: coverage.available ? "complete_source_page" : "unavailable",
+    verifiedEmpty: coverage.available && total === 0,
+    page: {
+      offset,
+      limit,
+      total,
+      hasMore: total === null ? (data?.length ?? 0) === limit : offset + (data?.length ?? 0) < total,
+    },
+  });
 }

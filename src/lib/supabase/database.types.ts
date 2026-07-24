@@ -926,11 +926,14 @@ export type Database = {
         Row: {
           account_id: string | null
           amount: number
+          amount_minor: number | null
+          authority: string
           authorized_date: string | null
           connection_id: string | null
           created_at: string
           custom_category: string | null
           excluded_from_budget: boolean
+          generation_id: string | null
           id: string
           is_transfer: boolean
           iso_currency_code: string
@@ -940,6 +943,7 @@ export type Database = {
           plaid_category: string | null
           plaid_transaction_id: string
           posted_date: string
+          provider: string | null
           raw_name: string | null
           retrieved_at: string | null
           reviewed: boolean
@@ -951,11 +955,14 @@ export type Database = {
         Insert: {
           account_id?: string | null
           amount?: number
+          amount_minor?: number | null
+          authority?: string
           authorized_date?: string | null
           connection_id?: string | null
           created_at?: string
           custom_category?: string | null
           excluded_from_budget?: boolean
+          generation_id?: string | null
           id?: string
           is_transfer?: boolean
           iso_currency_code?: string
@@ -965,6 +972,7 @@ export type Database = {
           plaid_category?: string | null
           plaid_transaction_id: string
           posted_date: string
+          provider?: string | null
           raw_name?: string | null
           retrieved_at?: string | null
           reviewed?: boolean
@@ -976,11 +984,14 @@ export type Database = {
         Update: {
           account_id?: string | null
           amount?: number
+          amount_minor?: number | null
+          authority?: string
           authorized_date?: string | null
           connection_id?: string | null
           created_at?: string
           custom_category?: string | null
           excluded_from_budget?: boolean
+          generation_id?: string | null
           id?: string
           is_transfer?: boolean
           iso_currency_code?: string
@@ -990,6 +1001,7 @@ export type Database = {
           plaid_category?: string | null
           plaid_transaction_id?: string
           posted_date?: string
+          provider?: string | null
           raw_name?: string | null
           retrieved_at?: string | null
           reviewed?: boolean
@@ -1019,6 +1031,7 @@ export type Database = {
         Row: {
           category: string
           created_at: string
+          currency: string
           id: string
           monthly_limit: number
           updated_at: string
@@ -1027,6 +1040,7 @@ export type Database = {
         Insert: {
           category: string
           created_at?: string
+          currency?: string
           id?: string
           monthly_limit?: number
           updated_at?: string
@@ -1035,6 +1049,7 @@ export type Database = {
         Update: {
           category?: string
           created_at?: string
+          currency?: string
           id?: string
           monthly_limit?: number
           updated_at?: string
@@ -1045,52 +1060,66 @@ export type Database = {
       fund_connections: {
         Row: {
           access_token_enc: string | null
+          action_required: string | null
+          authority: string
           created_at: string
           id: string
           institution: string | null
           item_id: string | null
           mask: string | null
           provider: string
+          provider_event_at: string | null
           refresh_token_enc: string | null
           status: string
           updated_at: string
           user_id: string
+          verified_at: string | null
         }
         Insert: {
           access_token_enc?: string | null
+          action_required?: string | null
+          authority?: string
           created_at?: string
           id?: string
           institution?: string | null
           item_id?: string | null
           mask?: string | null
           provider: string
+          provider_event_at?: string | null
           refresh_token_enc?: string | null
           status?: string
           updated_at?: string
           user_id: string
+          verified_at?: string | null
         }
         Update: {
           access_token_enc?: string | null
+          action_required?: string | null
+          authority?: string
           created_at?: string
           id?: string
           institution?: string | null
           item_id?: string | null
           mask?: string | null
           provider?: string
+          provider_event_at?: string | null
           refresh_token_enc?: string | null
           status?: string
           updated_at?: string
           user_id?: string
+          verified_at?: string | null
         }
         Relationships: []
       }
       fund_holdings: {
         Row: {
+          authority: string
           connection_id: string | null
           cost_basis: number
           created_at: string
           currency: string
           effective_at: string | null
+          generation_id: string | null
           id: string
           name: string
           provider: string | null
@@ -1105,11 +1134,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          authority?: string
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
           currency?: string
           effective_at?: string | null
+          generation_id?: string | null
           id?: string
           name: string
           provider?: string | null
@@ -1124,11 +1155,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          authority?: string
           connection_id?: string | null
           cost_basis?: number
           created_at?: string
           currency?: string
           effective_at?: string | null
+          generation_id?: string | null
           id?: string
           name?: string
           provider?: string | null
@@ -1154,6 +1187,7 @@ export type Database = {
       }
       fund_liabilities: {
         Row: {
+          authority: string
           apr: number | null
           balance: number
           connection_id: string | null
@@ -1161,6 +1195,7 @@ export type Database = {
           currency: string
           due_date: string | null
           effective_at: string | null
+          generation_id: string | null
           id: string
           kind: string
           minimum_payment: number | null
@@ -1174,6 +1209,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          authority?: string
           apr?: number | null
           balance?: number
           connection_id?: string | null
@@ -1181,6 +1217,7 @@ export type Database = {
           currency?: string
           due_date?: string | null
           effective_at?: string | null
+          generation_id?: string | null
           id?: string
           kind?: string
           minimum_payment?: number | null
@@ -1194,6 +1231,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          authority?: string
           apr?: number | null
           balance?: number
           connection_id?: string | null
@@ -1201,6 +1239,7 @@ export type Database = {
           currency?: string
           due_date?: string | null
           effective_at?: string | null
+          generation_id?: string | null
           id?: string
           kind?: string
           minimum_payment?: number | null
@@ -1223,17 +1262,88 @@ export type Database = {
           },
         ]
       }
+      fund_provider_coverage: {
+        Row: {
+          availability_reason: string | null
+          availability_status: string
+          complete: boolean
+          component: string
+          connection_id: string
+          created_at: string
+          generation_hash: string | null
+          generation_id: string | null
+          id: string
+          provider: string
+          last_attempt_at: string
+          record_count: number | null
+          retrieved_at: string
+          updated_at: string
+          user_id: string
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          availability_reason?: string | null
+          availability_status?: string
+          complete: boolean
+          component: string
+          connection_id: string
+          created_at?: string
+          generation_hash?: string | null
+          generation_id?: string | null
+          id?: string
+          provider: string
+          last_attempt_at?: string
+          record_count?: number | null
+          retrieved_at: string
+          updated_at?: string
+          user_id: string
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          availability_reason?: string | null
+          availability_status?: string
+          complete?: boolean
+          component?: string
+          connection_id?: string
+          created_at?: string
+          generation_hash?: string | null
+          generation_id?: string | null
+          id?: string
+          provider?: string
+          last_attempt_at?: string
+          record_count?: number | null
+          retrieved_at?: string
+          updated_at?: string
+          user_id?: string
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fund_provider_coverage_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "fund_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fund_recurring_transactions: {
         Row: {
           cadence: string
           category: string | null
           created_at: string
+          currency: string
           expected_amount: number
           id: string
           last_seen_date: string | null
           merchant_name: string
           next_expected_date: string | null
           source: string
+          source_generation_hash: string | null
+          source_generations: Json | null
           status: string
           updated_at: string
           user_id: string
@@ -1242,12 +1352,15 @@ export type Database = {
           cadence?: string
           category?: string | null
           created_at?: string
+          currency?: string
           expected_amount?: number
           id?: string
           last_seen_date?: string | null
           merchant_name: string
           next_expected_date?: string | null
           source?: string
+          source_generation_hash?: string | null
+          source_generations?: Json | null
           status?: string
           updated_at?: string
           user_id: string
@@ -1256,12 +1369,15 @@ export type Database = {
           cadence?: string
           category?: string | null
           created_at?: string
+          currency?: string
           expected_amount?: number
           id?: string
           last_seen_date?: string | null
           merchant_name?: string
           next_expected_date?: string | null
           source?: string
+          source_generation_hash?: string | null
+          source_generations?: Json | null
           status?: string
           updated_at?: string
           user_id?: string
@@ -1827,6 +1943,7 @@ export type Database = {
       }
       integration_delivery_outbox: {
         Row: {
+          accepted_at: string | null
           attempt_count: number
           claim_token: string | null
           created_at: string
@@ -1844,6 +1961,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          accepted_at?: string | null
           attempt_count?: number
           claim_token?: string | null
           created_at?: string
@@ -1861,6 +1979,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          accepted_at?: string | null
           attempt_count?: number
           claim_token?: string | null
           created_at?: string
@@ -2309,38 +2428,121 @@ export type Database = {
         }
         Relationships: []
       }
-      net_worth_snapshots: {
+      net_worth_snapshot_revisions: {
         Row: {
+          calculation_hash: string
+          calculation_version: string
           captured_on: string
           cash: number
           computed_at: string
-          created_at: string
+          currency: string
           id: string
+          input_as_of: string
+          input_provenance: Json
           invested: number
           liabilities: number
           net_worth: number
+          recorded_at: string
+          snapshot_id: string
           user_id: string
         }
         Insert: {
-          captured_on?: string
-          cash?: number
-          computed_at?: string
-          created_at?: string
+          calculation_hash: string
+          calculation_version: string
+          captured_on: string
+          cash: number
+          computed_at: string
+          currency: string
           id?: string
-          invested?: number
-          liabilities?: number
-          net_worth?: number
+          input_as_of: string
+          input_provenance: Json
+          invested: number
+          liabilities: number
+          net_worth: number
+          recorded_at?: string
+          snapshot_id: string
           user_id: string
         }
         Update: {
+          calculation_hash?: string
+          calculation_version?: string
           captured_on?: string
           cash?: number
           computed_at?: string
-          created_at?: string
+          currency?: string
           id?: string
+          input_as_of?: string
+          input_provenance?: Json
           invested?: number
           liabilities?: number
           net_worth?: number
+          recorded_at?: string
+          snapshot_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "net_worth_snapshot_revisions_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "net_worth_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      net_worth_snapshots: {
+        Row: {
+          authority: string
+          calculation_version: string
+          calculation_hash: string | null
+          captured_on: string
+          cash: number
+          computed_at: string
+          currency: string | null
+          created_at: string
+          id: string
+          invested: number
+          input_as_of: string | null
+          input_provenance: Json | null
+          liabilities: number
+          net_worth: number
+          snapshot_status: string
+          user_id: string
+        }
+        Insert: {
+          authority?: string
+          calculation_version?: string
+          calculation_hash?: string | null
+          captured_on?: string
+          cash?: number
+          computed_at?: string
+          currency?: string | null
+          created_at?: string
+          id?: string
+          invested?: number
+          input_as_of?: string | null
+          input_provenance?: Json | null
+          liabilities?: number
+          net_worth?: number
+          snapshot_status?: string
+          user_id: string
+        }
+        Update: {
+          authority?: string
+          calculation_version?: string
+          calculation_hash?: string | null
+          captured_on?: string
+          cash?: number
+          computed_at?: string
+          currency?: string | null
+          created_at?: string
+          id?: string
+          invested?: number
+          input_as_of?: string | null
+          input_provenance?: Json | null
+          liabilities?: number
+          net_worth?: number
+          snapshot_status?: string
           user_id?: string
         }
         Relationships: []
@@ -3404,7 +3606,26 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      net_worth_snapshots_exact: {
+        Row: {
+          authority: string | null
+          calculation_hash: string | null
+          calculation_version: string | null
+          captured_on: string | null
+          cash: string | null
+          computed_at: string | null
+          created_at: string | null
+          currency: string | null
+          id: string | null
+          input_as_of: string | null
+          invested: string | null
+          liabilities: string | null
+          net_worth: string | null
+          snapshot_status: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       apply_vector_event: {
@@ -3420,6 +3641,19 @@ export type Database = {
           p_user_id: string
         }
         Returns: Json
+      }
+      check_fund_transaction_history_coverage: {
+        Args: {
+          p_user_id: string
+          p_window_start: string
+          p_window_end: string
+        }
+        Returns: {
+          available: boolean
+          coverage: Json
+          lineage_hash: string | null
+          reason: string | null
+        }[]
       }
       axis_entity_ref_owned: {
         Args: { p_id: string; p_kind: string; p_user_id: string }
@@ -3456,6 +3690,35 @@ export type Database = {
       }
       cleanup_expired_challenges: { Args: never; Returns: number }
       cleanup_old_signals: { Args: never; Returns: number }
+      fund_currency_minor_factor: {
+        Args: { p_currency: string }
+        Returns: number
+      }
+      fund_transaction_generation_hash: {
+        Args: {
+          p_connection_id: string
+          p_generation_id: string
+          p_user_id: string
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: string
+      }
+      publish_fund_transaction_generation: {
+        Args: {
+          p_connection_id: string
+          p_generation_id: string
+          p_retrieved_at: string
+          p_rows: Json
+          p_user_id: string
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: {
+          generation_hash: string
+          record_count: number
+        }[]
+      }
       commit_approval_step_up: {
         Args: {
           p_approval_id: string

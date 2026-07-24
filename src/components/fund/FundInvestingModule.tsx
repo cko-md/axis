@@ -16,7 +16,7 @@ import { reviewConcentration } from "@/lib/skills/concentrationReview";
 
 export function FundInvestingModule() {
   const { toast } = useToast();
-  const { brokerageConfigured } = usePlaidConnection();
+  const { brokerageConfigured, brokerageStatusState } = usePlaidConnection();
   // FUND-1: holdings come from the shared layout store; mutations call
   // refreshHoldings() so Net Worth/Overview reflect changes with no extra fetch.
   const { rows, aggregated, refreshHoldings: load } = useFundData();
@@ -26,21 +26,23 @@ export function FundInvestingModule() {
   const [addShares, setAddShares] = useState("1");
   const [addCost, setAddCost] = useState("0");
   const concentrationLimit = 0.25;
-  const hasMixedCurrency = aggregated.some((holding) => !holding.currency);
+  const hasMixedCurrency = aggregated.some((holding) =>
+    !holding.currency || holding.cost_basis === null,
+  );
   const allocation = hasMixedCurrency
     ? null
     : calculateAllocation(
         aggregated.map((holding) => ({
           key: holding.symbol,
           label: holding.name,
-          value: holding.cost_basis,
+          value: holding.cost_basis as number,
           currency: holding.currency,
         })),
       );
   const concentration = hasMixedCurrency
     ? null
     : reviewConcentration(
-        aggregated.map((holding) => ({ symbol: holding.symbol, value: holding.cost_basis })),
+        aggregated.map((holding) => ({ symbol: holding.symbol, value: holding.cost_basis as number })),
         concentrationLimit,
       );
 
@@ -68,6 +70,7 @@ export function FundInvestingModule() {
         name: addName.trim() || symbol,
         shares,
         cost_basis: costBasis,
+        currency: "USD",
       }),
     });
     if (!res.ok) {
@@ -103,6 +106,11 @@ export function FundInvestingModule() {
       {aggregated[0] && <FundSparkline symbol={aggregated[0].symbol} />}
 
       <div className="divider" />
+      {brokerageStatusState === "unavailable" && (
+        <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--clay)" }}>
+          Brokerage connection status is unavailable. Live routing remains disabled; ledger-only intent capture is still available.
+        </p>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, alignItems: "start" }}>
         <Card tick>
           <h2 className="sec">Holdings<span className="rule" /><span className="count">{aggregated.length} positions</span></h2>
@@ -114,13 +122,15 @@ export function FundInvestingModule() {
                 <thead><tr><th>Symbol</th><th>Name</th><th>Shares</th><th>Cost</th><th>Source</th><th /></tr></thead>
                 <tbody>
                   {aggregated.map((h) => {
-                    const rowIds = rows.filter((r) => r.symbol === h.symbol).map((r) => r.id);
+                    const rowIds = rows
+                      .filter((r) => r.symbol === h.symbol && r.authority === "manual")
+                      .map((r) => r.id);
                     return (
                       <tr key={h.symbol}>
                         <td><a href={`/fund/position/${h.symbol}`} style={{ color: "var(--accent)" }}>{h.symbol}</a></td>
                         <td>{h.name}</td>
                         <td>{h.shares}</td>
-                        <td>{fmtUsd(h.cost_basis)}</td>
+                        <td>{h.cost_basis === null ? "— · FX required" : fmtUsd(h.cost_basis)}</td>
                         <td style={{ fontSize: 10, color: "var(--ink-faint)" }}>
                           {h.sources.join(" + ")}
                           {(() => {

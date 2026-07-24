@@ -8,7 +8,10 @@
  * Normalization is pure and unit-tested; the adapter does the fetch.
  */
 
-import { parseMoney } from "@/lib/fund/money";
+import {
+  minorUnitsToDecimalString,
+  strictExactMinorUnits,
+} from "@/lib/fund/financialTruth";
 import {
   classifyFreshness,
   FRESHNESS_SLAS,
@@ -22,6 +25,8 @@ export type Transaction = {
   merchantName: string | null;
   /** Major units; positive = inflow (Plaid's sign is flipped). */
   amount: number;
+  /** Exact signed minor units; positive = inflow. */
+  amountMinor: number;
   /** Posted date, YYYY-MM-DD. */
   date: string;
   pending: boolean;
@@ -43,6 +48,7 @@ export type RawPlaidTransaction = {
 
 export type NormalizeTransactionOptions = {
   provider?: string;
+  connectionId?: string;
   now?: number;
 };
 
@@ -53,11 +59,20 @@ export function normalizeTransaction(
 ): Transaction {
   const now = opts.now ?? Date.now();
   const provider = opts.provider ?? "plaid";
-  const currency = raw.iso_currency_code ?? "USD";
+  const currency = raw.iso_currency_code ?? null;
+  if (!currency) throw new Error("PLAID_TRANSACTION_CURRENCY_UNAVAILABLE");
+  const providerMinor = strictExactMinorUnits(raw.amount, currency);
+  if (providerMinor === null || providerMinor === Number.MIN_SAFE_INTEGER) {
+    throw new Error("PLAID_TRANSACTION_AMOUNT_INVALID");
+  }
+  const amountMinor = -providerMinor;
+  const amountText = minorUnitsToDecimalString(amountMinor, currency);
+  if (!amountText) throw new Error("PLAID_TRANSACTION_AMOUNT_INVALID");
   const retrievedAt = new Date(now).toISOString();
 
   const provenance: Provenance = {
     provider,
+    ...(opts.connectionId ? { connectionId: opts.connectionId } : {}),
     providerRecordId: raw.transaction_id,
     retrievedAt,
     // The transaction's own date is its effective date.
@@ -69,7 +84,8 @@ export function normalizeTransaction(
     id: raw.transaction_id,
     name: raw.name,
     merchantName: raw.merchant_name ?? null,
-    amount: parseMoney(-raw.amount), // flip: positive = inflow, cent-exact
+    amount: Number(amountText),
+    amountMinor,
     date: raw.date,
     pending: raw.pending ?? false,
     currency,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 
 const VALID_STATUS = ["active", "cancelled", "irregular"];
 
@@ -11,8 +12,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  if (!VALID_STATUS.includes(body.status)) {
+  const parsedBody = await readBoundedJsonBody(request, 2_048);
+  if (!parsedBody.ok) {
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+  }
+  const body = parsedBody.value;
+  if (typeof body.status !== "string" || !VALID_STATUS.includes(body.status)) {
     return NextResponse.json({ error: "INVALID_STATUS" }, { status: 400 });
   }
 

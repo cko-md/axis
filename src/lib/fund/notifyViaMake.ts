@@ -40,11 +40,13 @@ export type NotifyFailureReason =
   | "ALREADY_QUEUED"
   | "NOT_REPLAYABLE"
   | "AUDIT_WRITE_FAILED"
-  | "DELIVERY_FAILED";
+  | "DELIVERY_FAILED"
+  | "DELIVERY_UNCONFIRMED";
 
 export type NotifyResult =
   | {
       sent: true;
+      accepted: true;
       status: number;
       deliveryId: string;
       deduped: boolean;
@@ -53,9 +55,21 @@ export type NotifyResult =
     }
   | {
       sent: false;
+      accepted?: false;
       reason: NotifyFailureReason;
       retryable: boolean;
       deliveryId?: string;
+      auditRecorded: boolean;
+      outboxRecorded: boolean;
+    }
+  | {
+      sent: false;
+      accepted: true;
+      reason: "DELIVERY_UNCONFIRMED";
+      retryable: false;
+      status: number;
+      deliveryId: string;
+      deduped: boolean;
       auditRecorded: boolean;
       outboxRecorded: boolean;
     };
@@ -203,15 +217,32 @@ async function deliverClaimedMakeNotification(input: {
     };
   }
 
+  const confirmedDelivered = completion.ok
+    && completion.data.status === "delivered"
+    && typeof completion.data.delivered_at === "string";
   const auditRecorded = await appendDeliveryAudit(
     input.admin,
     input.payload,
     input.dedupeKeyHash,
-    "success",
+    confirmedDelivered ? "success" : "pending_confirmation",
     { delivery_id: input.row.id, status: delivery.data.status },
   );
+  if (confirmedDelivered) {
+    return {
+      sent: true,
+      accepted: true,
+      status: delivery.data.status,
+      deliveryId: input.row.id,
+      deduped: false,
+      auditRecorded,
+      outboxRecorded: true,
+    };
+  }
   return {
-    sent: true,
+    sent: false,
+    accepted: true,
+    reason: "DELIVERY_UNCONFIRMED",
+    retryable: false,
     status: delivery.data.status,
     deliveryId: input.row.id,
     deduped: false,
@@ -256,13 +287,43 @@ export async function notifyViaMake(
     now,
   });
   if (!queued.ok) {
+    if (queued.code === "duplicate" && queued.existing?.status === "accepted") {
+      const auditRecorded = await appendDeliveryAudit(
+        admin,
+        payload,
+        dedupeKeyHash,
+        "pending_confirmation",
+        { delivery_id: queued.existing.id, deduped: true, delivery_attempted: false },
+      );
+      return {
+        sent: false,
+        accepted: true,
+        reason: "DELIVERY_UNCONFIRMED",
+        retryable: false,
+        status: queued.existing.last_http_status ?? 202,
+        deliveryId: queued.existing.id,
+        deduped: true,
+        auditRecorded,
+        outboxRecorded: true,
+      };
+    }
     if (queued.code === "duplicate" && queued.existing?.status === "delivered") {
+      // Record a distinct audit observation: this invocation verified a prior
+      // delivery but did not submit a second notification.
+      const auditRecorded = await appendDeliveryAudit(
+        admin,
+        payload,
+        dedupeKeyHash,
+        "success",
+        { delivery_id: queued.existing.id, deduped: true, delivery_attempted: false },
+      );
       return {
         sent: true,
+        accepted: true,
         status: queued.existing.last_http_status ?? 200,
         deliveryId: queued.existing.id,
         deduped: true,
-        auditRecorded: true,
+        auditRecorded,
         outboxRecorded: true,
       };
     }

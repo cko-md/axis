@@ -33,24 +33,23 @@ describe("normalizeLiabilities", () => {
     expect(student.balanceCurrent).toBe(18000);
   });
 
-  it("tolerates a missing account (nulls, default currency)", () => {
-    const out = normalizeLiabilities({ mortgage: [{ account_id: "unknown" }] }, {}, { now: NOW });
-    expect(out).toHaveLength(1);
-    expect(out[0].name).toBeNull();
-    expect(out[0].balanceCurrent).toBeNull();
-    expect(out[0].currency).toBe("USD");
+  it("rejects a liability without an account/currency binding", () => {
+    expect(() => normalizeLiabilities(
+      { mortgage: [{ account_id: "unknown" }] },
+      {},
+      { now: NOW },
+    )).toThrow("PLAID_LIABILITY_CURRENCY_UNAVAILABLE");
   });
 
   it("returns [] when there are no liabilities", () => {
     expect(normalizeLiabilities({}, accounts, { now: NOW })).toEqual([]);
   });
 
-  it("is cent-exact on payment amounts", () => {
-    const out = normalizeLiabilities(
+  it("rejects payment precision that is not exact at the currency boundary", () => {
+    expect(() => normalizeLiabilities(
       { credit: [{ account_id: "acc_credit", last_payment_amount: 0.1 + 0.2 }] },
       accounts,
       { now: NOW },
-    );
-    expect(out[0].lastPaymentAmount).toBe(0.3);
+    )).toThrow("PLAID_LIABILITY_AMOUNT_INVALID");
   });
 });

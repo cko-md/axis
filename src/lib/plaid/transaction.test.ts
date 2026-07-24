@@ -18,27 +18,29 @@ describe("normalizeTransaction", () => {
   });
 
   it("treats a Plaid credit (negative) as a domain inflow (positive)", () => {
-    const t = normalizeTransaction({ transaction_id: "tx2", name: "Payroll", amount: -2000, date: "2026-07-13" }, { now: NOW });
+    const t = normalizeTransaction({ transaction_id: "tx2", name: "Payroll", amount: -2000, date: "2026-07-13", iso_currency_code: "USD" }, { now: NOW });
     expect(t.amount).toBe(2000);
   });
 
-  it("is cent-exact (no float drift)", () => {
-    const t = normalizeTransaction({ transaction_id: "tx3", name: "x", amount: 0.1 + 0.2, date: "2026-07-13" }, { now: NOW });
-    expect(t.amount).toBe(-0.3);
+  it("rejects provider precision that is not exactly representable", () => {
+    expect(() => normalizeTransaction(
+      { transaction_id: "tx3", name: "x", amount: 0.1 + 0.2, date: "2026-07-13", iso_currency_code: "USD" },
+      { now: NOW },
+    )).toThrow("PLAID_TRANSACTION_AMOUNT_INVALID");
   });
 
-  it("defaults merchant/pending/currency", () => {
-    const t = normalizeTransaction({ transaction_id: "tx4", name: "x", amount: 1, date: "2026-07-13" }, { now: NOW });
-    expect(t.merchantName).toBeNull();
-    expect(t.pending).toBe(false);
-    expect(t.currency).toBe("USD");
+  it("rejects missing provider currency", () => {
+    expect(() => normalizeTransaction(
+      { transaction_id: "tx4", name: "x", amount: 1, date: "2026-07-13" },
+      { now: NOW },
+    )).toThrow("PLAID_TRANSACTION_CURRENCY_UNAVAILABLE");
   });
 
   it("normalizes a list", () => {
     const list = normalizeTransactions(
       [
-        { transaction_id: "a", name: "A", amount: 1, date: "2026-07-13" },
-        { transaction_id: "b", name: "B", amount: 2, date: "2026-07-13" },
+        { transaction_id: "a", name: "A", amount: 1, date: "2026-07-13", iso_currency_code: "USD" },
+        { transaction_id: "b", name: "B", amount: 2, date: "2026-07-13", iso_currency_code: "USD" },
       ],
       { now: NOW },
     );

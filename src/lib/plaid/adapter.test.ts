@@ -1,16 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { plaidAccountAdapter } from "./adapter";
 
-const getPlaidAccessTokenMock = vi.hoisted(() => vi.fn());
+const getPlaidAccessConnectionsMock = vi.hoisted(() => vi.fn());
+const admitPlaidRequestMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/fund/plaidTokens", () => ({
-  getPlaidAccessToken: getPlaidAccessTokenMock,
+  getPlaidAccessConnections: getPlaidAccessConnectionsMock,
+}));
+vi.mock("./admission", () => ({
+  admitPlaidRequest: admitPlaidRequestMock,
 }));
 
 const originalFetch = global.fetch;
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+  const value = status >= 200 && status < 300 && body && typeof body === "object"
+    ? {
+        request_id: "request-1",
+        item: { item_id: "item-1" },
+        ...(body as Record<string, unknown>),
+      }
+    : body;
+  return new Response(JSON.stringify(value), {
     status,
     headers: { "Content-Type": "application/json" },
   });
@@ -21,13 +32,20 @@ describe("plaidAccountAdapter", () => {
     vi.stubEnv("PLAID_CLIENT_ID", "client-id");
     vi.stubEnv("PLAID_SECRET", "secret");
     vi.stubEnv("PLAID_ENV", "sandbox");
-    getPlaidAccessTokenMock.mockResolvedValue("access-token");
+    getPlaidAccessConnectionsMock.mockResolvedValue([{
+      id: "connection-1",
+      itemId: "item-1",
+      institution: "Bank",
+      accessToken: "access-token",
+    }]);
+    admitPlaidRequestMock.mockResolvedValue("allowed");
     global.fetch = vi.fn();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
-    getPlaidAccessTokenMock.mockReset();
+    getPlaidAccessConnectionsMock.mockReset();
+    admitPlaidRequestMock.mockReset();
     vi.unstubAllEnvs();
   });
 
@@ -45,7 +63,7 @@ describe("plaidAccountAdapter", () => {
   });
 
   it("returns auth_expired without fetching when the user has no linked token", async () => {
-    getPlaidAccessTokenMock.mockResolvedValue(null);
+    getPlaidAccessConnectionsMock.mockResolvedValue([]);
 
     const result = await plaidAccountAdapter.getLiabilities("user-1");
 
@@ -58,6 +76,7 @@ describe("plaidAccountAdapter", () => {
 
   it("fetches and normalizes recent transactions behind the Result contract", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(jsonResponse({
+      total_transactions: 1,
       transactions: [
         {
           transaction_id: "txn_1",
@@ -77,11 +96,16 @@ describe("plaidAccountAdapter", () => {
     if (result.ok) {
       expect(result.data).toHaveLength(1);
       expect(result.data[0]).toMatchObject({
-        id: "txn_1",
+        id: "connection-1:txn_1",
         merchantName: "Blue Bottle",
         amount: -4.25,
         currency: "USD",
-        provenance: { provider: "plaid", providerRecordId: "txn_1", effectiveAt: "2026-07-14" },
+        provenance: {
+          provider: "plaid",
+          connectionId: "connection-1",
+          providerRecordId: "txn_1",
+          effectiveAt: "2026-07-14",
+        },
       });
     }
     const [url, init] = vi.mocked(global.fetch).mock.calls[0];
@@ -121,14 +145,19 @@ describe("plaidAccountAdapter", () => {
     if (result.ok) {
       expect(result.data).toHaveLength(1);
       expect(result.data[0]).toMatchObject({
-        accountId: "acc_credit",
+        accountId: "connection-1:acc_credit",
         type: "credit",
         name: "Credit Card",
         balanceCurrent: 123.45,
         lastPaymentAmount: 25,
         nextPaymentDueDate: "2026-08-01",
         isOverdue: false,
-        provenance: { provider: "plaid", providerRecordId: "acc_credit", currency: "USD" },
+        provenance: {
+          provider: "plaid",
+          connectionId: "connection-1",
+          providerRecordId: "acc_credit",
+          currency: "USD",
+        },
       });
     }
     expect(vi.mocked(global.fetch).mock.calls[0][0]).toBe("https://sandbox.plaid.com/liabilities/get");
@@ -150,5 +179,29 @@ describe("plaidAccountAdapter", () => {
     if (!network.ok) {
       expect(network.error).toMatchObject({ code: "network", provider: "plaid", retryable: true });
     }
+  });
+
+  it("does not load credentials or call Plaid when distributed admission is unavailable", async () => {
+    admitPlaidRequestMock.mockResolvedValueOnce("unavailable");
+    const result = await plaidAccountAdapter.getAccounts("user-1");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatchObject({ status: 503, retryable: true });
+    expect(getPlaidAccessConnectionsMock).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects provider Item mismatch and missing account currency", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(jsonResponse({
+        item: { item_id: "another-item" },
+        accounts: [],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        accounts: [{ account_id: "cash", name: "Cash", balances: { current: 100 } }],
+      }));
+    const mismatch = await plaidAccountAdapter.getAccounts("user-1");
+    const missingCurrency = await plaidAccountAdapter.getAccounts("user-1");
+    expect(mismatch.ok).toBe(false);
+    expect(missingCurrency.ok).toBe(false);
   });
 });

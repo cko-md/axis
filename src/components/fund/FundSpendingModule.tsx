@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -9,12 +8,15 @@ import { useToast } from "@/components/ui/Toast";
 import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
 import { ACTIVITY_CATEGORIES } from "@/lib/fund/activityRules";
 import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
+import { minorUnitsFor } from "@/lib/fund/currency";
 
 type BankTxn = {
   id: string;
   merchant_name: string | null;
   raw_name: string | null;
   amount: number;
+  amount_minor: number | null;
+  iso_currency_code: string;
   plaid_category: string | null;
   custom_category: string | null;
   tags: string[] | null;
@@ -27,7 +29,7 @@ type BankTxn = {
   retrieved_at?: string | null;
 };
 
-type Budget = { id: string; category: string; monthly_limit: number };
+type Budget = { id: string; category: string; monthly_limit: number; currency: string };
 
 const CATEGORIES = ACTIVITY_CATEGORIES;
 
@@ -37,6 +39,8 @@ function fmtAmount(amount: number) {
 }
 
 type Status = "loading" | "ok" | "no-plaid" | "no-account" | "error";
+const TRANSACTION_PAGE_SIZE = 500;
+const MAX_TRANSACTION_ROWS = 20_000;
 
 export function FundSpendingModule() {
   const { toast } = useToast();
@@ -66,10 +70,28 @@ export function FundSpendingModule() {
       if (search) params.set("search", search);
       if (categoryFilter) params.set("category", categoryFilter);
       if (unreviewedOnly) params.set("reviewed", "false");
-      const res = await fetch(`/api/fund/bank-transactions?${params}`);
-      if (res.status === 401) { setStatus("error"); return; }
-      const data = await res.json();
-      setTxns(data.transactions ?? []);
+      params.set("limit", String(TRANSACTION_PAGE_SIZE));
+      const loaded: BankTxn[] = [];
+      for (let offset = 0; offset < MAX_TRANSACTION_ROWS; offset += TRANSACTION_PAGE_SIZE) {
+        params.set("offset", String(offset));
+        const res = await fetch(`/api/fund/bank-transactions?${params}`);
+        if (res.status === 401) { setStatus("error"); return; }
+        if (!res.ok) throw new Error("TRANSACTION_HISTORY_UNAVAILABLE");
+        const data = await res.json() as {
+          transactions?: BankTxn[];
+          completeness?: string;
+          page?: { hasMore?: boolean };
+        };
+        if (data.completeness !== "complete_source_page" || !Array.isArray(data.transactions)) {
+          throw new Error("TRANSACTION_HISTORY_INCOMPLETE");
+        }
+        loaded.push(...data.transactions);
+        if (!data.page?.hasMore) break;
+        if (offset + TRANSACTION_PAGE_SIZE >= MAX_TRANSACTION_ROWS) {
+          throw new Error("TRANSACTION_HISTORY_LIMIT_EXCEEDED");
+        }
+      }
+      setTxns(loaded);
       setStatus("ok");
       setNotice(null);
     } catch {
@@ -78,6 +100,7 @@ export function FundSpendingModule() {
         setNotice("Transaction refresh failed — showing last loaded results.");
       } else {
         setStatus("error");
+        setNotice("Complete transaction history is unavailable; no totals are shown.");
       }
     } finally {
       setRefreshing(false);
@@ -92,12 +115,13 @@ export function FundSpendingModule() {
       .catch(() => null);
   }, []);
 
-  const spendByCategory = useMemo(() => {
+  const spendByCategoryCurrency = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of txns) {
-      if (t.is_transfer || t.excluded_from_budget || t.amount >= 0) continue;
+      if (t.is_transfer || t.excluded_from_budget || t.amount >= 0 || t.amount_minor === null) continue;
       const cat = t.custom_category ?? t.plaid_category ?? "OTHER";
-      map.set(cat, (map.get(cat) ?? 0) + Math.abs(t.amount));
+      const key = `${cat}\u0000${t.iso_currency_code}`;
+      map.set(key, (map.get(key) ?? 0) + Math.abs(t.amount_minor));
     }
     return map;
   }, [txns]);
@@ -129,59 +153,20 @@ export function FundSpendingModule() {
     return true;
   }
 
-  async function splitTransaction(t: BankTxn) {
-    const amountStr = window.prompt(`Split off how much from ${fmtAmount(t.amount)} (enter a positive number)?`);
-    const splitAmount = Number(amountStr);
-    if (!amountStr || !Number.isFinite(splitAmount) || splitAmount <= 0 || splitAmount >= Math.abs(t.amount)) return;
-
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const sign = t.amount < 0 ? -1 : 1;
-    const remaining = t.amount - sign * splitAmount;
-    const { data: child, error } = await supabase
-      .from("fund_bank_transactions")
-      .insert({
-        user_id: user.id,
-        plaid_transaction_id: `${t.id}-split-${Date.now()}`,
-        merchant_name: t.merchant_name,
-        raw_name: t.raw_name,
-        amount: sign * splitAmount,
-        plaid_category: t.plaid_category,
-        posted_date: t.posted_date,
-        split_parent_id: t.id,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast(error.message, "error", "Spending");
-      return;
-    }
-
-    const parentUpdated = await patchTxn(t.id, { amount: remaining });
-    if (!parentUpdated) {
-      await supabase.from("fund_bank_transactions").delete().eq("id", child.id).eq("user_id", user.id);
-      toast("Split was not saved because the original transaction could not be updated.", "error", "Spending");
-      return;
-    }
-
-    setTxns((prev) => [...prev, child as BankTxn]);
-    toast("Transaction split.", "success", "Spending");
-  }
-
   async function addBudget() {
     const limit = Number(newBudgetLimit);
     if (!Number.isFinite(limit) || limit <= 0) return;
     const res = await fetch("/api/fund/category-budgets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category: newBudgetCategory, monthly_limit: limit }),
+      body: JSON.stringify({ category: newBudgetCategory, monthly_limit: limit, currency: "USD" }),
     });
     if (!res.ok) { toast("Couldn't save budget.", "error", "Spending"); return; }
     const data = await res.json();
-    setBudgets((prev) => [...prev.filter((b) => b.category !== newBudgetCategory), data.budget]);
+    setBudgets((prev) => [
+      ...prev.filter((b) => !(b.category === newBudgetCategory && b.currency === "USD")),
+      data.budget,
+    ]);
     setAddBudgetOpen(false);
   }
 
@@ -223,7 +208,7 @@ export function FundSpendingModule() {
           {refreshing && txns.length > 0 && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Refreshing…</p>}
           {notice && <p style={{ fontSize: 12, color: "var(--clay)" }}>{notice}</p>}
           {status === "loading" && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
-          {status === "error" && <p style={{ fontSize: 12, color: "var(--clay)" }}>Sign in to see transactions.</p>}
+          {status === "error" && <p style={{ fontSize: 12, color: "var(--clay)" }}>{notice ?? "Transactions are unavailable."}</p>}
           {status === "ok" && txns.length === 0 && (
             <div className="empty-state"><strong>No transactions</strong><p>Link a bank on the Cash Flow page, or adjust filters.</p></div>
           )}
@@ -251,9 +236,6 @@ export function FundSpendingModule() {
                 <input type="checkbox" checked={t.excluded_from_budget} onChange={(e) => patchTxn(t.id, { excluded_from_budget: e.target.checked })} />
                 Exclude
               </label>
-              <button type="button" onClick={() => splitTransaction(t)} style={{ background: "none", border: "none", color: "var(--ink-faint)", fontSize: 10, cursor: "pointer", marginRight: 8 }}>
-                Split
-              </button>
               <div className={`txn-v${t.amount >= 0 ? " up" : ""}`}>{fmtAmount(t.amount)}</div>
             </div>
           ))}
@@ -266,13 +248,15 @@ export function FundSpendingModule() {
         <h2 className="sec">Category Budgets<span className="rule" /><span className="count">{budgets.length}</span></h2>
         <div style={{ marginTop: 10 }}>
           {budgets.map((b) => {
-            const spent = spendByCategory.get(b.category) ?? 0;
+            const spentMinor = spendByCategoryCurrency.get(`${b.category}\u0000${b.currency}`) ?? 0;
+            const spent = spentMinor / minorUnitsFor(b.currency);
             const pct = b.monthly_limit ? (spent / b.monthly_limit) * 100 : 0;
+            const format = new Intl.NumberFormat("en-US", { style: "currency", currency: b.currency });
             return (
               <div key={b.id} className="budgetbar">
                 <div className="bl">
                   <span>{b.category.replace(/_/g, " ")}</span>
-                  <span className="bv">${spent.toFixed(0)} / ${b.monthly_limit.toFixed(0)}</span>
+                  <span className="bv">{format.format(spent)} / {format.format(b.monthly_limit)}</span>
                 </div>
                 <div className="track">
                   <div className={pct > 100 ? "over" : pct < 70 ? "good" : ""} style={{ width: `${Math.min(pct, 100)}%` }} />

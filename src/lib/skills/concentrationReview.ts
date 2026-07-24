@@ -7,7 +7,7 @@
  * into a Task — it does not itself touch the DB, network, or any model.
  */
 
-import { sumBy, toMinorUnits } from "@/lib/fund/money";
+import { strictExactMinorUnits } from "@/lib/fund/financialTruth";
 
 export type Position = {
   symbol: string;
@@ -50,8 +50,15 @@ export function reviewConcentration(
   maxWeight: number = DEFAULT_MAX_WEIGHT,
 ): ConcentrationReview {
   const cap = Math.min(1, Math.max(0.0001, maxWeight));
-  const totalMinor = positions.reduce((sum, p) => sum + Math.max(0, toMinorUnits(p.value)), 0);
-  const total = sumBy(positions, (p) => Math.max(0, p.value));
+  const normalized = positions.map((position) => ({
+    ...position,
+    valueMinor: strictExactMinorUnits(position.value, "USD"),
+  }));
+  if (normalized.some((position) => position.valueMinor === null || position.valueMinor! < 0)) {
+    return { total: 0, positions: positions.map((p) => ({ ...p, weight: 0 })), breaches: [] };
+  }
+  const totalMinor = normalized.reduce((sum, position) => sum + (position.valueMinor as number), 0);
+  const total = totalMinor / 100;
 
   if (totalMinor <= 0) {
     return { total: 0, positions: positions.map((p) => ({ ...p, weight: 0 })), breaches: [] };
@@ -59,7 +66,7 @@ export function reviewConcentration(
 
   const withWeights = positions
     .map((p) => {
-      const minor = Math.max(0, toMinorUnits(p.value));
+      const minor = strictExactMinorUnits(p.value, "USD") as number;
       return { ...p, weight: round4(minor / totalMinor) };
     })
     .sort((a, b) => b.weight - a.weight);

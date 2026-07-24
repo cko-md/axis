@@ -1,43 +1,97 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import {
+  minorUnitsToDecimalString,
+  normalizeFinancialCurrency,
+  strictExactMinorUnits,
+} from "@/lib/fund/financialTruth";
+import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { minorUnitsFor } from "@/lib/fund/currency";
+
+const MAX_MONTHLY_LIMIT_MAJOR = 100_000_000_000;
+
+async function authenticate() {
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  try {
+    supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) return { response: NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 }) };
+    if (!user) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+    return { supabase, user };
+  } catch {
+    return { response: NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 }) };
+  }
+}
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authenticate();
+  if ("response" in auth) return auth.response;
+  const { supabase, user } = auth;
 
-  const { data, error } = await supabase
-    .from("fund_category_budgets")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("category");
+  let result;
+  try {
+    result = await supabase
+      .from("fund_category_budgets")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("category");
+  } catch {
+    return NextResponse.json({ error: "BUDGETS_UNAVAILABLE" }, { status: 503 });
+  }
 
-  if (error) return redactRouteError(error, { route: "fund/category-budgets", area: "fund" });
-  return NextResponse.json({ budgets: data ?? [] });
+  if (result.error) return redactRouteError(result.error, { route: "fund/category-budgets", area: "fund" });
+  return NextResponse.json({ budgets: result.data ?? [] }, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authenticate();
+  if ("response" in auth) return auth.response;
+  const { supabase, user } = auth;
 
-  const body = await request.json().catch(() => ({}));
+  const parsedBody = await readBoundedJsonBody(request, 4_096);
+  if (!parsedBody.ok) {
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+  }
+  const body = parsedBody.value;
   const category = String(body.category ?? "").trim();
-  const monthlyLimit = Number(body.monthly_limit);
-  if (!category || !Number.isFinite(monthlyLimit) || monthlyLimit < 0) {
+  const currency = normalizeFinancialCurrency(body.currency, "USD");
+  const monthlyLimitMinor = currency ? strictExactMinorUnits(body.monthly_limit, currency) : null;
+  const monthlyLimit = monthlyLimitMinor === null || !currency
+    ? null
+    : minorUnitsToDecimalString(monthlyLimitMinor, currency);
+  if (
+    !category
+    || category.length > 80
+    || !currency
+    || monthlyLimit === null
+    || monthlyLimitMinor === null
+    || monthlyLimitMinor < 0
+    || monthlyLimitMinor > MAX_MONTHLY_LIMIT_MAJOR * minorUnitsFor(currency)
+  ) {
     return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
-    .from("fund_category_budgets")
-    .upsert(
-      { user_id: user.id, category, monthly_limit: monthlyLimit, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,category" },
-    )
-    .select()
-    .single();
+  let result;
+  try {
+    result = await supabase
+      .from("fund_category_budgets")
+      .upsert(
+        {
+          user_id: user.id,
+          category,
+          currency,
+          monthly_limit: monthlyLimit as unknown as number,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,category,currency" },
+      )
+      .select()
+      .single();
+  } catch {
+    return NextResponse.json({ error: "BUDGET_WRITE_UNAVAILABLE" }, { status: 503 });
+  }
 
-  if (error) return redactRouteError(error, { route: "fund/category-budgets", area: "fund" });
-  return NextResponse.json({ budget: data });
+  if (result.error) return redactRouteError(result.error, { route: "fund/category-budgets", area: "fund" });
+  return NextResponse.json({ budget: result.data }, { headers: { "cache-control": "private, no-store" } });
 }

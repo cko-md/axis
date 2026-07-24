@@ -6,7 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmtUsd } from "@/lib/store/fund-defaults";
-import { sumBy } from "@/lib/fund/money";
+import { addMinorUnits, strictMinorUnits } from "@/lib/fund/financialTruth";
 import { useFundData, type Liability } from "@/components/fund/FundDataProvider";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
@@ -45,6 +45,7 @@ export function FundLiabilities() {
         name, kind, balance: balanceNum,
         minimum_payment: minimumPaymentNum,
         due_date: dueDate || null,
+        currency: "USD",
       }),
     });
     if (!res.ok) {
@@ -69,15 +70,26 @@ export function FundLiabilities() {
     toast("Liability removed.", "info", "Cash Flow");
   }
 
-  const total = sumBy(liabilities, (l) => l.balance);
+  const total = (() => {
+    if (liabilitiesLoading || liabilitiesError) return null;
+    let totalMinor = 0;
+    for (const liability of liabilities) {
+      if ((liability.currency ?? "USD") !== "USD") return null;
+      const amountMinor = strictMinorUnits(liability.balance, "USD");
+      const next = amountMinor === null ? null : addMinorUnits(totalMinor, amountMinor);
+      if (next === null) return null;
+      totalMinor = next;
+    }
+    return totalMinor / 100;
+  })();
 
   return (
     <Card>
-      <h2 className="sec">Liabilities<span className="rule" /><span className="count">{fmtUsd(total)}</span></h2>
+      <h2 className="sec">Liabilities<span className="rule" /><span className="count">{total === null ? "—" : fmtUsd(total)}</span></h2>
       <div style={{ marginTop: 10 }}>
         {liabilitiesLoading && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
-        {liabilitiesError && <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6 }}>Liabilities could not refresh.</p>}
-        {!liabilitiesLoading && liabilities.length === 0 ? (
+        {liabilitiesError && <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6 }}>Liabilities could not refresh; no empty state is assumed.</p>}
+        {!liabilitiesLoading && !liabilitiesError && liabilities.length === 0 ? (
           <div className="empty-state"><strong>No liabilities tracked</strong><p>Add credit cards or loans to see real net worth.</p></div>
         ) : (
           liabilities.map((l) => (
