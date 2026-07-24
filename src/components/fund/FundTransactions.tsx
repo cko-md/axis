@@ -7,7 +7,8 @@ type PlaidTxn = {
   id: string;
   name: string;
   category: string;
-  amount: number;
+  amountMinor: number;
+  currency: string;
   date: string;
   pending: boolean;
 };
@@ -25,9 +26,14 @@ const CATEGORY_IC: Record<string, string> = {
   INCOME: "🏦",
 };
 
-function fmtAmount(amount: number) {
-  const abs = Math.abs(amount).toFixed(2);
-  return amount >= 0 ? `+$${abs}` : `−$${abs}`;
+function fmtAmount(amountMinor: number, currency: string) {
+  const formatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+  });
+  const abs = formatter.format(Math.abs(amountMinor) / 100);
+  return amountMinor >= 0 ? `+${abs}` : `−${abs}`;
 }
 
 function fmtDate(iso: string) {
@@ -113,7 +119,9 @@ export function FundTransactions() {
                   {t.category.replace(/_/g, " ")} · {fmtDate(t.date)}
                 </div>
               </div>
-              <div className={`txn-v${t.amount >= 0 ? " up" : ""}`}>{fmtAmount(t.amount)}</div>
+              <div className={`txn-v${t.amountMinor >= 0 ? " up" : ""}`}>
+                {fmtAmount(t.amountMinor, t.currency)}
+              </div>
             </div>
           ))}
       </div>

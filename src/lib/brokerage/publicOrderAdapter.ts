@@ -82,13 +82,16 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   const type = normalizeOrderType(input.type);
   const limitPrice = finitePositiveNumber(input.limitPrice ?? input.limit_price);
   const referencePrice = finiteNonNegativeNumber(input.referencePrice ?? input.reference_price);
-  const currency = typeof input.currency === "string" && input.currency.trim() ? input.currency.trim().toUpperCase() : "USD";
+  const currency = typeof input.currency === "string" && input.currency.trim()
+    ? input.currency.trim().toUpperCase()
+    : "";
 
   if (!symbol) errors.push("symbol is required");
   if (symbol.length > 12) errors.push("symbol must be 12 characters or fewer");
   if (!side) errors.push("side must be buy or sell");
   if (quantity === null) errors.push("quantity must be > 0");
   if (!type) errors.push("type must be market or limit");
+  if (!currency) errors.push("currency is required");
   if (type === "limit" && limitPrice === null) errors.push("limit order requires a positive limitPrice");
   if (referencePrice === null) warnings.push("referencePrice missing; estimated notional is unavailable until quote verification");
 

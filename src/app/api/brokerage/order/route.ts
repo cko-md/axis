@@ -1,17 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { getBrokerageCreds } from "../_lib";
-
-const orderSchema = z.object({
-  symbol: z.string().min(1).max(12),
-  side: z.enum(["buy", "sell"]),
-  // notional ($) OR quantity (shares); at least one required
-  notional: z.number().positive().optional(),
-  quantity: z.number().positive().optional(),
-  type: z.enum(["market", "limit"]).default("market"),
-  limit_price: z.number().positive().optional(),
-});
 
 /**
  * Order routing scaffold for Public.com (or a generic brokerage).
@@ -24,54 +12,27 @@ const orderSchema = z.object({
  * Trades are never auto-executed without an explicit confirmed request body.
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  let body: unknown;
+  void request;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
-    body = await request.json();
+    supabase = await createClient();
   } catch {
-    return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
   }
-
-  const parsed = orderSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "INVALID_ORDER", details: parsed.error.flatten() },
-      { status: 400 },
-    );
+  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try {
+    authResult = await supabase.auth.getUser();
+  } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
   }
-  if (!parsed.data.notional && !parsed.data.quantity) {
-    return NextResponse.json(
-      { error: "MISSING_SIZE", message: "Provide notional or quantity." },
-      { status: 400 },
-    );
-  }
-
-  const creds = getBrokerageCreds();
-  if (!creds) {
-    return NextResponse.json({
-      routed: false,
-      mode: "log",
-      message:
-        "No brokerage connected. Order captured for your ledger only — connect Public.com to route it.",
-      order: parsed.data,
-    });
-  }
-
-  // --- Live routing would go here ---
-  // const res = await fetch("https://api.public.com/...", {
-  //   method: "POST",
-  //   headers: { Authorization: `Bearer ${creds.apiKey}`, "Content-Type": "application/json" },
-  //   body: JSON.stringify({ accountId: creds.accountId, ...parsed.data }),
-  // });
-  // For now, signal that routing is configured but not yet wired to live execution.
-  return NextResponse.json({
-    routed: false,
-    mode: "configured",
-    message:
-      "Brokerage credentials detected. Live order routing is not enabled in this build — order captured to your ledger.",
-    order: parsed.data,
-  });
+  const { data: { user }, error } = authResult;
+  if (error) return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return NextResponse.json(
+    {
+      error: "LEGACY_ORDER_ROUTE_RETIRED",
+      message: "This legacy order-capture route is retired. Use the reviewed order-intent workflow.",
+    },
+    { status: 410, headers: { "cache-control": "private, no-store" } },
+  );
 }

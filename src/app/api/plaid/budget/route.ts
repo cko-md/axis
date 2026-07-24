@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getPlaidCreds, plaidHost } from "../_lib";
-import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+import {
+  readCompleteTransactionRows,
+  TRANSACTION_HISTORY_DAYS,
+} from "@/lib/fund/transactionCoverage";
+import {
+  addMinorUnits,
+  minorUnitsToDecimalString,
+  strictExactMinorUnits,
+} from "@/lib/fund/financialTruth";
 
 const CATEGORY_LABELS: Record<string, string> = {
   FOOD_AND_DRINK: "Dining",
@@ -17,124 +25,187 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: "Other",
 };
 
-const CATEGORY_BUDGETS: Record<string, number> = {
-  "Dining": 525,
-  "Groceries": 450,
-  "Subscriptions": 120,
-  "Transport": 200,
-  "Medical": 300,
-  "Entertainment": 150,
-  "Other": 200,
+type BudgetTransaction = {
+  connection_id: string;
+  generation_id: string;
+  amount: unknown;
+  iso_currency_code: string;
+  custom_category: string | null;
+  plaid_category: string | null;
+  excluded_from_budget: boolean;
+  pending: boolean;
+  posted_date: string;
 };
 
+function money(minor: number, currency: string): string {
+  const decimal = minorUnitsToDecimalString(minor, currency);
+  if (decimal === null) return "—";
+  return currency === "USD" ? `$${decimal}` : `${currency} ${decimal}`;
+}
+
+function roundedPercent(numerator: number, denominator: number): number {
+  if (denominator <= 0) return 0;
+  return Number(
+    (BigInt(numerator) * BigInt(100) + BigInt(denominator) / BigInt(2))
+      / BigInt(denominator),
+  );
+}
+
+/** Complete persisted spending joined only to user-authored budget targets. */
 export async function POST() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const creds = getPlaidCreds();
-  if (!creds) {
-    return NextResponse.json({ configured: false, budgets: [], insights: [] });
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  try { supabase = await createClient(); } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
   }
-
-  const accessToken = await getPlaidAccessToken(user.id);
-
-  if (!accessToken) {
-    return NextResponse.json({ configured: true, error: "NO_LINKED_ACCOUNT" }, { status: 400 });
+  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try { authResult = await supabase.auth.getUser(); } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
   }
-
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  try {
-    const res = await fetch(`${plaidHost(creds.env)}/transactions/get`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: creds.clientId,
-        secret: creds.secret,
-        access_token: accessToken,
-        start_date: monthStart.toISOString().slice(0, 10),
-        end_date: now.toISOString().slice(0, 10),
-        options: { count: 200, offset: 0 },
-      }),
-      cache: "no-store",
+  const { data: { user }, error: authError } = authResult;
+  if (authError) {
+    captureRouteError(new Error("Plaid budget authentication unavailable"), {
+      route: "/api/plaid/budget",
+      operation: "authenticate",
+      area: "fund",
+      provider: "supabase",
+      status: 503,
+      code: "AUTH_BACKEND_UNAVAILABLE",
     });
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (!res.ok) {
-      const detail = await res.text();
-      console.error("[plaid/budget] upstream error:", detail);
-      return NextResponse.json({ configured: true, error: "PLAID_BUDGET_FAILED" }, { status: 502 });
-    }
-
-    const data = await res.json();
-    const txns: Array<{ amount: number; personal_finance_category?: { primary: string }; pending?: boolean }> =
-      data.transactions ?? [];
-
-    // Aggregate spending by category (exclude pending and positive-flow/income)
-    const spending: Record<string, number> = {};
-    for (const t of txns) {
-      if (t.pending || t.amount <= 0) continue; // skip income and pending
-      const raw = t.personal_finance_category?.primary ?? "OTHER";
-      const label = CATEGORY_LABELS[raw] ?? "Other";
-      spending[label] = (spending[label] ?? 0) + t.amount;
-    }
-
-    const budgets = Object.entries(spending)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 6)
-      .map(([label, spent]) => {
-        const budget = CATEGORY_BUDGETS[label] ?? Math.round(spent * 1.2);
-        const pct = Math.min(Math.round((spent / budget) * 100), 120);
-        return {
-          label,
-          spent: `$${Math.round(spent)} / $${budget}`,
-          spentAmt: Math.round(spent),
-          budgetAmt: budget,
-          pct,
-          cls: pct >= 100 ? "over" : pct >= 80 ? "" : "good",
-        };
+  const today = new Date().toISOString().slice(0, 10);
+  const coverageStart = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)
+    .toISOString().slice(0, 10);
+  const monthStart = `${today.slice(0, 8)}01`;
+  const [complete, budgetResult] = await Promise.all([
+    readCompleteTransactionRows<BudgetTransaction>(
+      supabase,
+      user.id,
+      coverageStart,
+      today,
+      "connection_id, generation_id, amount, iso_currency_code, custom_category, plaid_category, excluded_from_budget, pending, posted_date",
+    ),
+    supabase
+      .from("fund_category_budgets")
+      .select("category, monthly_limit, currency")
+      .eq("user_id", user.id)
+      .order("category", { ascending: true }),
+  ]);
+  if (!complete || budgetResult.error) {
+    if (budgetResult.error) {
+      captureRouteError(new Error("Fund budget query unavailable"), {
+        route: "/api/plaid/budget",
+        operation: "read_persisted_budgets",
+        area: "fund",
+        provider: "supabase",
+        status: 503,
       });
+    }
+    return NextResponse.json(
+      { configured: true, completeness: "unavailable", error: "BUDGET_DATA_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
 
-    // Generate insights
-    const insights = [];
-    const over = budgets.filter((b) => b.pct >= 100);
-    if (over.length > 0) {
-      const b = over[0];
-      const excess = b.spentAmt - b.budgetAmt;
-      insights.push({
+  const spending = new Map<string, number>();
+  for (const transaction of complete.rows) {
+    if (
+      transaction.posted_date < monthStart
+      || transaction.posted_date > today
+      || transaction.pending
+      || transaction.excluded_from_budget
+    ) continue;
+    const amountMinor = strictExactMinorUnits(transaction.amount, transaction.iso_currency_code);
+    if (amountMinor === null) {
+      return NextResponse.json(
+        { configured: true, completeness: "unavailable", error: "BUDGET_AMOUNT_UNAVAILABLE" },
+        { status: 503 },
+      );
+    }
+    if (amountMinor >= 0) continue;
+    const rawCategory = transaction.custom_category ?? transaction.plaid_category ?? "OTHER";
+    const category = CATEGORY_LABELS[rawCategory] ?? rawCategory;
+    const key = `${category}\u0000${transaction.iso_currency_code}`;
+    const total = addMinorUnits(spending.get(key) ?? 0, -amountMinor);
+    if (total === null) {
+      return NextResponse.json(
+        { configured: true, completeness: "unavailable", error: "BUDGET_AMOUNT_UNAVAILABLE" },
+        { status: 503 },
+      );
+    }
+    spending.set(key, total);
+  }
+
+  const budgets = [];
+  for (const target of budgetResult.data ?? []) {
+    const limitMinor = strictExactMinorUnits(target.monthly_limit, target.currency);
+    if (limitMinor === null || limitMinor < 0) {
+      return NextResponse.json(
+        { configured: true, completeness: "unavailable", error: "BUDGET_TARGET_INVALID" },
+        { status: 503 },
+      );
+    }
+    if (limitMinor === 0) continue;
+    const label = CATEGORY_LABELS[target.category] ?? target.category;
+    const spentMinor = spending.get(`${label}\u0000${target.currency}`) ?? 0;
+    const pct = Math.min(roundedPercent(spentMinor, limitMinor), 120);
+    budgets.push({
+      label,
+      spent: `${money(spentMinor, target.currency)} / ${money(limitMinor, target.currency)}`,
+      spentMinor,
+      budgetMinor: limitMinor,
+      currency: target.currency,
+      pct,
+      cls: pct >= 100 ? "over" : pct >= 80 ? "" : "good",
+    });
+  }
+
+  const over = budgets.find((budget) => budget.pct >= 100);
+  const insights: Array<{
+    ic: string;
+    icColor?: string;
+    title: string;
+    meta: string;
+    value: string;
+    up: boolean;
+  }> = over
+    ? [{
         ic: "↗",
         icColor: "var(--down)",
-        title: `${b.label} is over budget by $${excess}`,
-        meta: `$${b.spentAmt} vs $${b.budgetAmt} target this month`,
-        value: `−$${excess}`,
+        title: `${over.label} is over its saved budget`,
+        meta: `${money(over.spentMinor, over.currency)} vs ${money(over.budgetMinor, over.currency)} target this month`,
+        value: `−${money(over.spentMinor - over.budgetMinor, over.currency)}`,
         up: false,
-      });
+      }]
+    : [];
+  const totalsByCurrency = new Map<string, number>();
+  for (const [key, amount] of spending) {
+    const currency = key.split("\u0000")[1];
+    const total = addMinorUnits(totalsByCurrency.get(currency) ?? 0, amount);
+    if (total === null) {
+      return NextResponse.json(
+        { configured: true, completeness: "unavailable", error: "BUDGET_AMOUNT_UNAVAILABLE" },
+        { status: 503 },
+      );
     }
-    const topCategories = Object.entries(spending).sort(([, a], [, b]) => b - a);
-    if (topCategories.length >= 2) {
-      const [label, amt] = topCategories[0];
-      insights.push({
-        ic: "↺",
-        icColor: undefined,
-        title: `${label} is your top category`,
-        meta: `$${Math.round(amt)} spent this month`,
-        value: `$${Math.round(amt)}`,
-        up: false,
-      });
-    }
-    const totalSpent = Object.values(spending).reduce((a, b) => a + b, 0);
+    totalsByCurrency.set(currency, total);
+  }
+  for (const [currency, total] of [...totalsByCurrency].sort(([left], [right]) => left.localeCompare(right))) {
     insights.push({
       ic: "📊",
-      icColor: undefined,
-      title: `$${Math.round(totalSpent)} total spending this month`,
-      meta: `Across ${Object.keys(spending).length} categories`,
-      value: `$${Math.round(totalSpent)}`,
+      title: `${money(total, currency)} complete spending this month`,
+      meta: `${currency} spending is kept separate; no implicit FX conversion`,
+      value: money(total, currency),
       up: false,
     });
-
-    return NextResponse.json({ configured: true, budgets, insights });
-  } catch {
-    return NextResponse.json({ configured: true, error: "PLAID_BUDGET_FAILED" }, { status: 502 });
   }
+
+  return NextResponse.json({
+    configured: true,
+    completeness: "complete",
+    budgets,
+    insights,
+  });
 }

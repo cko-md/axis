@@ -20,6 +20,199 @@
 const MINOR_UNITS_PER_MAJOR = 100;
 
 /**
+ * ISO-4217 minor-unit exponents used by AXIS provider integrations.
+ *
+ * Unknown currencies are rejected by the strict financial-truth functions.
+ * This is deliberate: silently assuming two decimals corrupts JPY/KRW and
+ * three-decimal currencies. Add a currency here only after the provider
+ * contract for it is verified.
+ */
+export const ISO_MINOR_UNIT_EXPONENT = {
+  AUD: 2,
+  BHD: 3,
+  BRL: 2,
+  CAD: 2,
+  CHF: 2,
+  CLP: 0,
+  CNY: 2,
+  CZK: 2,
+  DKK: 2,
+  EUR: 2,
+  GBP: 2,
+  HKD: 2,
+  HUF: 2,
+  IDR: 2,
+  ILS: 2,
+  INR: 2,
+  ISK: 0,
+  JOD: 3,
+  JPY: 0,
+  KRW: 0,
+  KWD: 3,
+  MXN: 2,
+  MYR: 2,
+  NOK: 2,
+  NZD: 2,
+  OMR: 3,
+  PHP: 2,
+  PLN: 2,
+  RON: 2,
+  SEK: 2,
+  SGD: 2,
+  THB: 2,
+  TRY: 2,
+  TWD: 2,
+  USD: 2,
+  VND: 0,
+  ZAR: 2,
+} as const;
+
+export type SupportedCurrency = keyof typeof ISO_MINOR_UNIT_EXPONENT;
+
+export class MoneyValueError extends Error {
+  readonly code:
+    | "UNSUPPORTED_CURRENCY"
+    | "INVALID_DECIMAL"
+    | "UNSAFE_NUMBER"
+    | "UNSAFE_MAJOR_UNIT_CONVERSION";
+
+  constructor(code: MoneyValueError["code"], message: string) {
+    super(message);
+    this.name = "MoneyValueError";
+    this.code = code;
+  }
+}
+
+export function normalizeCurrency(value: unknown): SupportedCurrency {
+  const currency = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (!(currency in ISO_MINOR_UNIT_EXPONENT)) {
+    throw new MoneyValueError("UNSUPPORTED_CURRENCY", "Currency is not supported by the exact-money registry");
+  }
+  return currency as SupportedCurrency;
+}
+
+function decimalParts(value: string): {
+  negative: boolean;
+  digits: string;
+  fractionalDigits: number;
+  exponent: number;
+} {
+  const match = /^([+-]?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(value.trim());
+  if (!match) {
+    throw new MoneyValueError("INVALID_DECIMAL", "Money value must be a finite base-10 decimal");
+  }
+  const exponent = Number(match[4] ?? "0");
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 1_000) {
+    throw new MoneyValueError("INVALID_DECIMAL", "Money exponent is outside the supported range");
+  }
+  const fraction = match[3] ?? "";
+  const digits = `${match[2]}${fraction}`.replace(/^0+(?=\d)/, "");
+  return {
+    negative: match[1] === "-",
+    digits,
+    fractionalDigits: fraction.length,
+    exponent,
+  };
+}
+
+function roundHalfAwayFromZeroBigInt(
+  magnitude: bigint,
+  discarded: string,
+): bigint {
+  return discarded.length > 0 && discarded[0] >= "5" ? magnitude + BigInt(1) : magnitude;
+}
+
+/**
+ * Convert a provider/user major-unit decimal into exact integer minor units.
+ *
+ * The result is BigInt and therefore never silently overflows
+ * Number.MAX_SAFE_INTEGER. Inputs with more precision than the currency permits
+ * are rounded once, half away from zero, at this boundary.
+ */
+export function majorToMinorExact(
+  value: string | number,
+  currencyValue: unknown,
+): bigint {
+  const currency = normalizeCurrency(currencyValue);
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new MoneyValueError("INVALID_DECIMAL", "Money value must be finite");
+  }
+  if (typeof value === "number" && !Number.isSafeInteger(value) && Number.isInteger(value)) {
+    throw new MoneyValueError(
+      "UNSAFE_NUMBER",
+      "Integer money inputs beyond Number.MAX_SAFE_INTEGER must be supplied as strings",
+    );
+  }
+
+  const { negative, digits, fractionalDigits, exponent } = decimalParts(String(value));
+  const currencyExponent = ISO_MINOR_UNIT_EXPONENT[currency];
+  const effectiveScale = fractionalDigits - exponent;
+  const shift = currencyExponent - effectiveScale;
+
+  let magnitude: bigint;
+  if (shift >= 0) {
+    magnitude = BigInt(digits) * BigInt(10) ** BigInt(shift);
+  } else {
+    const remove = -shift;
+    const padded = digits.padStart(remove + 1, "0");
+    const kept = padded.slice(0, padded.length - remove);
+    const discarded = padded.slice(padded.length - remove);
+    magnitude = roundHalfAwayFromZeroBigInt(BigInt(kept || "0"), discarded);
+  }
+  return negative && magnitude !== BigInt(0) ? -magnitude : magnitude;
+}
+
+/** Validate and normalize an integer-minor-unit value received from storage. */
+export function parseMinorExact(value: string | bigint): bigint {
+  if (typeof value === "bigint") return value;
+  if (!/^-?\d+$/.test(value)) {
+    throw new MoneyValueError("INVALID_DECIMAL", "Minor-unit value must be an integer string");
+  }
+  return BigInt(value);
+}
+
+/** Format exact minor units as a base-10 major-unit string without Number. */
+export function minorToMajorExact(
+  value: string | bigint,
+  currencyValue: unknown,
+): string {
+  const currency = normalizeCurrency(currencyValue);
+  const exponent = ISO_MINOR_UNIT_EXPONENT[currency];
+  const minor = parseMinorExact(value);
+  const negative = minor < BigInt(0);
+  const digits = (negative ? -minor : minor).toString();
+  if (exponent === 0) return `${negative ? "-" : ""}${digits}`;
+  const padded = digits.padStart(exponent + 1, "0");
+  return `${negative ? "-" : ""}${padded.slice(0, -exponent)}.${padded.slice(-exponent)}`;
+}
+
+/**
+ * Convert minor units to a display Number only after proving the integer is
+ * safely representable. Calculations and persistence must continue to use
+ * BigInt/string.
+ */
+export function minorToSafeMajorNumber(
+  value: string | bigint,
+  currencyValue: unknown,
+): number {
+  const minor = parseMinorExact(value);
+  if (minor > BigInt(Number.MAX_SAFE_INTEGER) || minor < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new MoneyValueError(
+      "UNSAFE_MAJOR_UNIT_CONVERSION",
+      "Minor-unit value exceeds Number.MAX_SAFE_INTEGER",
+    );
+  }
+  return Number(minorToMajorExact(minor, currencyValue));
+}
+
+/** Sum exact minor-unit strings without crossing a floating-point boundary. */
+export function sumMinorExact(values: Iterable<string | bigint>): bigint {
+  let total = BigInt(0);
+  for (const value of values) total += parseMinorExact(value);
+  return total;
+}
+
+/**
  * Round half away from zero — the convention used for currency rounding
  * ("round half up" for positives, "round half down" for negatives), which keeps
  * `roundHalfAwayFromZero(-2.5) === -3` symmetric with `+2.5 -> +3`. This avoids

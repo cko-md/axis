@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { encrypt, decrypt } from "@/lib/crypto";
 import * as Sentry from "@sentry/nextjs";
 
@@ -9,38 +9,106 @@ import * as Sentry from "@sentry/nextjs";
  * `fund_connections` table — the same table used for the "public" brokerage
  * provider — never in plaintext, and never returned to the client.
  *
- * fund_connections has a UNIQUE(user_id, provider, item_id) constraint, so a
- * user can link multiple Plaid items (e.g. multiple banks); reads here use
- * the most recently updated linked item for "the" Plaid connection.
+ * AXIS currently permits exactly one verified Plaid Item per user. This helper
+ * fails closed if storage violates that invariant; it never chooses a
+ * "latest" row or treats corrupt ciphertext as an ordinary disconnect.
  */
 
 const PROVIDER = "plaid";
+export class PlaidCredentialStoreError extends Error {
+  readonly code = "PLAID_CREDENTIAL_STORE_UNAVAILABLE";
+
+  constructor() {
+    super("Plaid credential store unavailable");
+    this.name = "PlaidCredentialStoreError";
+  }
+}
+
+function captureCredentialStoreFailure(operation: string, code: string) {
+  Sentry.captureException(new PlaidCredentialStoreError(), {
+    tags: { area: "fund", provider: "plaid", operation, code },
+  });
+}
+
+export type PlaidAccessConnection = {
+  id: string;
+  itemId: string;
+  institution: string | null;
+  accessToken: string;
+};
 
 /**
- * Returns the decrypted access_token for the user's most recently linked
- * Plaid item, or null if no item is linked / decryption fails (e.g. missing
- * PASSKEY_ENCRYPTION_KEY).
+ * Returns zero or one verified Plaid connection. Invalid rows, duplicate
+ * linked Items, and decryption failures make the credential store unavailable.
  */
-export async function getPlaidAccessToken(userId: string): Promise<string | null> {
-  const supabase = await createClient();
+export async function getPlaidAccessConnections(userId: string): Promise<PlaidAccessConnection[]> {
+  let supabase: ReturnType<typeof createAdminClient>;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    captureCredentialStoreFailure("load_token", "admin_client_failed");
+    throw new PlaidCredentialStoreError();
+  }
+  if (!supabase) {
+    captureCredentialStoreFailure("load_token", "admin_client_unavailable");
+    throw new PlaidCredentialStoreError();
+  }
   const { data, error } = await supabase
     .from("fund_connections")
-    .select("access_token_enc")
+    .select("id, item_id, institution, access_token_enc")
     .eq("user_id", userId)
     .eq("provider", PROVIDER)
     .eq("status", "linked")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("authority", "provider_verified")
+    .order("id", { ascending: true })
+    .limit(2);
 
   if (error) {
-    Sentry.captureException(error, {
-      tags: { area: "fund", provider: "plaid", operation: "load_token" },
-    });
-    throw error;
+    captureCredentialStoreFailure("load_token", "select_failed");
+    throw new PlaidCredentialStoreError();
   }
-  if (!data?.access_token_enc) return null;
-  return decrypt(data.access_token_enc);
+  if (!data || data.length === 0) return [];
+  if (data.length > 1) {
+    captureCredentialStoreFailure("load_token", "single_item_invariant_failed");
+    throw new PlaidCredentialStoreError();
+  }
+  const connections: PlaidAccessConnection[] = [];
+  for (const row of data) {
+    if (
+      typeof row.id !== "string"
+      || typeof row.item_id !== "string"
+      || typeof row.access_token_enc !== "string"
+    ) {
+      captureCredentialStoreFailure("load_token", "credential_row_invalid");
+      throw new PlaidCredentialStoreError();
+    }
+    let accessToken: string | null;
+    try {
+      accessToken = decrypt(row.access_token_enc);
+    } catch {
+      captureCredentialStoreFailure("load_token", "decrypt_failed");
+      throw new PlaidCredentialStoreError();
+    }
+    if (!accessToken) {
+      captureCredentialStoreFailure("load_token", "decrypt_failed");
+      throw new PlaidCredentialStoreError();
+    }
+    connections.push({
+      id: row.id,
+      itemId: row.item_id,
+      institution: typeof row.institution === "string" ? row.institution : null,
+      accessToken,
+    });
+  }
+  return connections;
+}
+
+/**
+ * Compatibility boundary for operations that consume the single linked Item.
+ */
+export async function getPlaidAccessToken(userId: string): Promise<string | null> {
+  const connections = await getPlaidAccessConnections(userId);
+  return connections.length === 1 ? connections[0].accessToken : null;
 }
 
 /**
@@ -66,7 +134,18 @@ export async function savePlaidConnection(
     return false;
   }
 
-  const supabase = await createClient();
+  let supabase: ReturnType<typeof createAdminClient>;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    captureCredentialStoreFailure("save_token", "admin_client_failed");
+    return false;
+  }
+  if (!supabase) {
+    captureCredentialStoreFailure("save_token", "admin_client_unavailable");
+    return false;
+  }
+  const verifiedAt = new Date().toISOString();
   const { error } = await supabase.from("fund_connections").upsert(
     {
       user_id: userId,
@@ -74,16 +153,16 @@ export async function savePlaidConnection(
       item_id: itemId,
       institution,
       status: "linked",
+      authority: "provider_verified",
+      verified_at: verifiedAt,
       access_token_enc: accessEnc,
-      updated_at: new Date().toISOString(),
+      updated_at: verifiedAt,
     },
     { onConflict: "user_id,provider,item_id" },
   );
 
   if (error) {
-    Sentry.captureException(error, {
-      tags: { area: "fund", provider: "plaid", operation: "save_token" },
-    });
+    captureCredentialStoreFailure("save_token", "upsert_failed");
     return false;
   }
   return true;
@@ -91,17 +170,70 @@ export async function savePlaidConnection(
 
 /** Marks a Plaid connection as revoked (soft delete, mirrors status check constraint). */
 export async function revokePlaidConnection(userId: string, itemId: string): Promise<void> {
-  const supabase = await createClient();
+  let supabase: ReturnType<typeof createAdminClient>;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    captureCredentialStoreFailure("revoke_token", "admin_client_failed");
+    throw new PlaidCredentialStoreError();
+  }
+  if (!supabase) {
+    captureCredentialStoreFailure("revoke_token", "admin_client_unavailable");
+    throw new PlaidCredentialStoreError();
+  }
   const { error } = await supabase
     .from("fund_connections")
-    .update({ status: "revoked", updated_at: new Date().toISOString() })
+    .update({
+      status: "revoked",
+      authority: "legacy_unknown",
+      verified_at: null,
+      access_token_enc: null,
+      refresh_token_enc: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("user_id", userId)
     .eq("provider", PROVIDER)
     .eq("item_id", itemId);
   if (error) {
-    Sentry.captureException(error, {
-      tags: { area: "fund", provider: "plaid", operation: "revoke_token" },
-    });
-    throw error;
+    captureCredentialStoreFailure("revoke_token", "update_failed");
+    throw new PlaidCredentialStoreError();
   }
+}
+
+/** Server-route disconnect boundary keyed by the safe local connection id. */
+export async function revokePlaidConnectionById(
+  userId: string,
+  connectionId: string,
+): Promise<boolean> {
+  let supabase: ReturnType<typeof createAdminClient>;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    captureCredentialStoreFailure("revoke_connection", "admin_client_failed");
+    throw new PlaidCredentialStoreError();
+  }
+  if (!supabase) {
+    captureCredentialStoreFailure("revoke_connection", "admin_client_unavailable");
+    throw new PlaidCredentialStoreError();
+  }
+  const { data, error } = await supabase
+    .from("fund_connections")
+    .update({
+      status: "revoked",
+      authority: "legacy_unknown",
+      verified_at: null,
+      access_token_enc: null,
+      refresh_token_enc: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", connectionId)
+    .eq("user_id", userId)
+    .eq("provider", PROVIDER)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    captureCredentialStoreFailure("revoke_connection", "update_failed");
+    throw new PlaidCredentialStoreError();
+  }
+  return data?.id === connectionId;
 }

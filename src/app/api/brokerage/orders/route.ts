@@ -9,6 +9,7 @@ import {
   type PublicOrderAction,
   type PublicOrderInput,
 } from "@/lib/brokerage/publicOrderAdapter";
+import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 
 function normalizeAction(value: unknown): PublicOrderAction {
   return value === "verify" || value === "submit" ? value : "prepare";
@@ -45,18 +46,28 @@ function errorStatus(code: string): number {
  */
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  let body: Record<string, unknown>;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
-    const parsed = await request.json();
-    body = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+    supabase = await createClient();
   } catch {
-    logRouteTiming("/api/brokerage/orders", routeStartedAt, { ok: false, code: "INVALID_BODY" });
-    return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
   }
+  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try {
+    authResult = await supabase.auth.getUser();
+  } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  const { data: { user }, error: authError } = authResult;
+  if (authError) return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const parsedBody = await readBoundedJsonBody(request, 8_192);
+  if (!parsedBody.ok) {
+    logRouteTiming("/api/brokerage/orders", routeStartedAt, { ok: false, code: "INVALID_BODY" });
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+  }
+  const body = parsedBody.value;
 
   const action = normalizeAction(body.action);
   const input = orderInput(body);

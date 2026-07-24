@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveAccountAdapter } from "@/lib/plaid/adapter";
 import type { IntegrationErrorCode } from "@/lib/integrations/types";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Normalized recent transactions via the §10 Plaid adapter — domain
@@ -21,9 +22,23 @@ const STATUS_FOR_CODE: Partial<Record<IntegrationErrorCode, number>> = {
 };
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  try { supabase = await createClient(); } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try { authResult = await supabase.auth.getUser(); } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  const { data: { user }, error: authError } = authResult;
+  if (authError) {
+    captureRouteError(new Error("Plaid recent-transactions authentication unavailable"), {
+      route: "/api/plaid/transactions/recent", operation: "authenticate", area: "fund",
+      provider: "supabase", status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const daysParam = Number(request.nextUrl.searchParams.get("days"));
   const days = Number.isFinite(daysParam) && daysParam > 0 ? daysParam : 30;

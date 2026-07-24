@@ -11,7 +11,14 @@
  * by free-form reasoning.
  */
 
-import { parseMoney } from "@/lib/fund/money";
+import {
+  minorUnitsToDecimalString,
+  multiplyScaledQuantityByDecimalPrice,
+  normalizeFinancialCurrency,
+  strictScaledUnits,
+} from "@/lib/fund/financialTruth";
+
+const ORDER_QUANTITY_SCALE = 1_000_000;
 
 export type OrderSide = "buy" | "sell";
 export type OrderType = "market" | "limit";
@@ -28,6 +35,7 @@ export type OrderTicket = {
   referencePrice: number;
   /** quantity × (limit price for a limit order, else reference price), cent-exact. */
   estimatedNotional: number;
+  estimatedNotionalMinor: number;
   currency: string;
 };
 
@@ -64,11 +72,24 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
   if (type === "limit" && (!Number.isFinite(input.limitPrice ?? NaN) || (input.limitPrice ?? 0) <= 0)) {
     errors.push("limit order requires a positive limitPrice");
   }
+  const currency = normalizeFinancialCurrency(input.currency, "");
+  if (!currency) errors.push("currency is required and must be supported");
+  const quantityScaled = strictScaledUnits(input.quantity, ORDER_QUANTITY_SCALE);
+  if (quantityScaled === null || quantityScaled <= 0) errors.push("quantity precision is invalid");
   if (errors.length > 0) return { ok: false, errors };
 
   const priceForNotional = type === "limit" ? (input.limitPrice as number) : input.referencePrice;
-  // Notional rounded to the cent (supports fractional shares).
-  const estimatedNotional = parseMoney(input.quantity * priceForNotional);
+  const estimatedNotionalMinor = multiplyScaledQuantityByDecimalPrice(
+    quantityScaled as number,
+    priceForNotional,
+    ORDER_QUANTITY_SCALE,
+    currency as string,
+  );
+  if (estimatedNotionalMinor === null || estimatedNotionalMinor <= 0) {
+    return { ok: false, errors: ["estimated notional is unavailable"] };
+  }
+  const notionalText = minorUnitsToDecimalString(estimatedNotionalMinor, currency as string);
+  if (!notionalText) return { ok: false, errors: ["estimated notional is unavailable"] };
 
   return {
     ok: true,
@@ -79,8 +100,9 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
       type,
       ...(type === "limit" ? { limitPrice: input.limitPrice } : {}),
       referencePrice: input.referencePrice,
-      estimatedNotional,
-      currency: input.currency ?? "USD",
+      estimatedNotional: Number(notionalText),
+      estimatedNotionalMinor,
+      currency: currency as string,
     },
   };
 }

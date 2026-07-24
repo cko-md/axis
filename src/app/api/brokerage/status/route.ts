@@ -18,7 +18,7 @@ export async function GET() {
   const creds = getBrokerageCreds();
   const { data: connections, error } = await supabase
     .from("fund_connections")
-    .select("institution, status, updated_at")
+    .select("institution, status, updated_at, authority")
     .eq("user_id", user.id)
     .eq("provider", "public")
     .order("updated_at", { ascending: false });
@@ -34,12 +34,18 @@ export async function GET() {
     return NextResponse.json({ error: "STATUS_UNAVAILABLE", message: "Could not read brokerage connection status." }, { status: 500 });
   }
 
-  const linkedConnections = (connections ?? []).filter((connection) => connection.status === "linked");
+  const linkedConnections = (connections ?? []).filter((connection) =>
+    connection.status === "linked" && connection.authority === "provider_verified",
+  );
+  const reconnectRequired = (connections ?? []).some((connection) =>
+    connection.status === "linked" && connection.authority === "legacy_unknown",
+  );
   const latestConnection = connections?.[0] ?? null;
 
   return NextResponse.json({
     configured: !!creds,
     linked: linkedConnections.length > 0,
+    reconnectRequired,
     connectionCount: linkedConnections.length,
     latestConnection: latestConnection
       ? {

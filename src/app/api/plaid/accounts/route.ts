@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveAccountAdapter } from "@/lib/plaid/adapter";
 import type { IntegrationErrorCode } from "@/lib/integrations/types";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Normalized account balances via the §10 account adapter — returns domain
@@ -25,9 +26,23 @@ const STATUS_FOR_CODE: Partial<Record<IntegrationErrorCode, number>> = {
 };
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  try { supabase = await createClient(); } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try { authResult = await supabase.auth.getUser(); } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  const { data: { user }, error: authError } = authResult;
+  if (authError) {
+    captureRouteError(new Error("Plaid accounts authentication unavailable"), {
+      route: "/api/plaid/accounts", operation: "authenticate", area: "fund",
+      provider: "supabase", status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const adapter = resolveAccountAdapter();
   const result = await adapter.getAccounts(user.id);

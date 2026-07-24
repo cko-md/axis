@@ -25,7 +25,7 @@ export type MakeNotificationPayload = {
   meta?: Record<string, unknown>;
 };
 
-export type MakeOutboxStatus = "pending" | "delivered" | "failed" | "dead_letter";
+export type MakeOutboxStatus = "pending" | "accepted" | "delivered" | "failed" | "dead_letter";
 
 export type MakeOutboxMetadataRow = {
   id: string;
@@ -36,12 +36,18 @@ export type MakeOutboxMetadataRow = {
   last_error_code: string | null;
   last_http_status: number | null;
   locked_at: string | null;
+  accepted_at: string | null;
   delivered_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export type MakeOutboxRow = MakeOutboxMetadataRow & {
+export type MakeOutboxMetadataInput = Omit<MakeOutboxMetadataRow, "accepted_at"> & {
+  /** Optional only for compatibility with pre-migration in-memory callers. */
+  accepted_at?: string | null;
+};
+
+export type MakeOutboxRow = MakeOutboxMetadataInput & {
   user_id: string;
   dedupe_key_hash: string;
   payload_ciphertext: string;
@@ -99,6 +105,11 @@ function outboxKey(): Buffer | null {
   return Buffer.from(
     crypto.hkdfSync("sha256", Buffer.from(keyHex, "hex"), OUTBOX_SALT, OUTBOX_INFO, 32),
   );
+}
+
+/** Cron preflight: external notifications are disabled when durable encryption is unavailable. */
+export function isMakeOutboxEncryptionReady(): boolean {
+  return outboxKey() !== null;
 }
 
 function authenticatedContext(userId: string, eventType: MakeNotificationKind, hash: string) {
@@ -198,7 +209,7 @@ export function makeOutboxFailureStatus(attemptCount: number): MakeOutboxStatus 
   return attemptCount >= MAKE_OUTBOX_MAX_ATTEMPTS ? "dead_letter" : "failed";
 }
 
-export function isMakeOutboxReplayable(row: MakeOutboxMetadataRow, nowMs = Date.now()): boolean {
+export function isMakeOutboxReplayable(row: MakeOutboxMetadataInput, nowMs = Date.now()): boolean {
   if (row.status === "failed" || row.status === "dead_letter") return true;
   if (row.status !== "pending") return false;
   if (!row.locked_at) return true;
@@ -207,7 +218,7 @@ export function isMakeOutboxReplayable(row: MakeOutboxMetadataRow, nowMs = Date.
 }
 
 export function toMakeOutboxPublicItem(
-  row: MakeOutboxMetadataRow,
+  row: MakeOutboxMetadataInput,
   nowMs = Date.now(),
 ): MakeOutboxPublicItem {
   return {
@@ -219,6 +230,7 @@ export function toMakeOutboxPublicItem(
     last_error_code: row.last_error_code,
     last_http_status: row.last_http_status,
     locked_at: row.locked_at,
+    accepted_at: row.accepted_at ?? null,
     delivered_at: row.delivered_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -227,7 +239,7 @@ export function toMakeOutboxPublicItem(
 }
 
 const OUTBOX_SELECT =
-  "id, user_id, provider, event_type, dedupe_key_hash, payload_ciphertext, status, attempt_count, last_error_code, last_http_status, claim_token, locked_at, delivered_at, created_at, updated_at";
+  "id, user_id, provider, event_type, dedupe_key_hash, payload_ciphertext, status, attempt_count, last_error_code, last_http_status, claim_token, locked_at, accepted_at, delivered_at, created_at, updated_at";
 
 function asRow(value: unknown): MakeOutboxRow {
   return value as MakeOutboxRow;
@@ -288,6 +300,7 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
           attempt_count: row.attempt_count + 1,
           claim_token: claimToken,
           locked_at: now,
+          accepted_at: null,
           last_error_code: null,
           last_http_status: null,
           delivered_at: null,
@@ -310,12 +323,13 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
     async complete({ row, claimToken, completion, now }) {
       const patch = completion.accepted
         ? {
-            status: "delivered",
-            last_error_code: null,
+            status: "accepted",
+            last_error_code: "delivery_confirmation_pending",
             last_http_status: completion.status,
             claim_token: null,
             locked_at: null,
-            delivered_at: now,
+            accepted_at: now,
+            delivered_at: null,
             updated_at: now,
           }
         : {
@@ -324,6 +338,7 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
             last_http_status: completion.status ?? null,
             claim_token: null,
             locked_at: null,
+            accepted_at: null,
             delivered_at: null,
             updated_at: now,
           };
@@ -350,6 +365,7 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
           last_http_status: null,
           claim_token: null,
           locked_at: null,
+          accepted_at: null,
           delivered_at: null,
           updated_at: now,
         })
