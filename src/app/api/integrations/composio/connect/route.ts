@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { optionalEnv } from "@/lib/env";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
@@ -9,31 +10,32 @@ import {
   isSupportedToolkit,
   CUSTOM_AUTH_TOOLKITS,
   ComposioError,
-  deleteConnectedAccount,
+  getPrivateConnectedAccountExact,
+  assertAuthConfigToolkit,
 } from "@/lib/integrations/composio";
+import { assertRemoteBinding } from "@/lib/integrations/composio-identity";
 
-// Toolkits in CUSTOM_AUTH_TOOLKITS need our own OAuth client registered with
-// Composio (it doesn't manage their auth) — map each to the env vars that
-// hold those credentials. googlecontacts reuses the same Google OAuth client
-// credentials as the rest of the app (there is no separate direct Contacts
-// connect flow anymore); spotify reuses the same Spotify app the direct Spotify
-// flow uses (src/app/api/spotify/auth/route.ts) — same SPOTIFY_CLIENT_ID/SECRET.
-const CUSTOM_AUTH_ENV: Record<string, { clientId?: string; clientSecret?: string }> = {
-  googlecontacts: { clientId: optionalEnv("GOOGLE_CLIENT_ID"), clientSecret: optionalEnv("GOOGLE_CLIENT_SECRET") },
-  spotify: { clientId: optionalEnv("SPOTIFY_CLIENT_ID"), clientSecret: optionalEnv("SPOTIFY_CLIENT_SECRET") },
+// Custom credentials are configured and validated in the Composio dashboard.
+// Do not create a custom auth config in a user request: v3.1 requires an
+// auth-scheme-specific body and required-field discovery, and a guessed body
+// can leave an orphaned provider resource. These ids are server-only config.
+const CUSTOM_AUTH_CONFIG_ENV: Record<string, string | undefined> = {
+  googlecontacts: optionalEnv("COMPOSIO_GOOGLECONTACTS_AUTH_CONFIG_ID"),
+  spotify: optionalEnv("COMPOSIO_SPOTIFY_AUTH_CONFIG_ID"),
 };
 
-// gmail/outlook intentionally allow multiple connected mailboxes (see
-// mail_connections' composite key). Every other toolkit is single-account in
-// this app's design — but Composio issues a FRESH connected_account_id on
-// every OAuth grant, and the DB's unique constraint is
-// (user_id, toolkit, connected_account_id), so the upsert below can never
-// match an existing row on reconnect. Left unhandled, every reconnect (e.g.
-// after a token expired, or just retrying) silently piled up a duplicate
-// ACTIVE row — which duplicated every calendar event, Strava activity, etc.
-// in any UI that lists "all active connections" for the toolkit. Revoke prior
-// rows for single-account toolkits before recording the new one.
-const MULTI_ACCOUNT_TOOLKITS = new Set(["gmail", "outlook"]);
+function isTrustedComposioRedirect(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && (url.port === "" || url.port === "443")
+      && (url.hostname === "composio.dev" || url.hostname.endsWith(".composio.dev"));
+  } catch {
+    return false;
+  }
+}
 
 // GET /api/integrations/composio/connect?toolkit=gmail|outlook
 // Mirrors /api/mail/connect's shape (a popup-friendly redirect) so it can be
@@ -43,28 +45,33 @@ export async function GET(req: NextRequest) {
   if (!isSupportedToolkit(toolkit)) {
     return NextResponse.json({ error: `Unsupported toolkit: ${toolkit}` }, { status: 400 });
   }
+  // Opening an OAuth popup from AXIS is same-origin. Reject a cross-site
+  // navigation before it can create a provider-side link session.
+  if (req.headers.get("sec-fetch-site") === "cross-site") {
+    return NextResponse.json({ error: "Cross-site provider initiation is not allowed" }, { status: 403 });
+  }
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const admin = createAdminClient();
+  if (!admin) return NextResponse.json({ error: "Connection authority is unavailable." }, { status: 503 });
 
-  const callbackUrl = `${getAppOrigin(req)}/oauth-done?provider=composio_${toolkit}`;
+  const connectionId = crypto.randomUUID();
+  const callbackUrl = `${getAppOrigin(req)}/oauth-done?provider=composio_${toolkit}&attempt=${encodeURIComponent(connectionId)}`;
 
   const needsCustomAuth = (CUSTOM_AUTH_TOOLKITS as readonly string[]).includes(toolkit);
   if (needsCustomAuth) {
-    const creds = CUSTOM_AUTH_ENV[toolkit];
-    if (!creds?.clientId || !creds?.clientSecret) {
+    if (!CUSTOM_AUTH_CONFIG_ENV[toolkit]) {
       return NextResponse.redirect(buildAppUrl(req, `/oauth-done?provider=composio_${toolkit}&status=error`));
     }
   }
 
   try {
     const authConfigId = needsCustomAuth
-      ? await getOrCreateAuthConfig(toolkit, {
-          clientId: CUSTOM_AUTH_ENV[toolkit].clientId!,
-          clientSecret: CUSTOM_AUTH_ENV[toolkit].clientSecret!,
-        })
+      ? CUSTOM_AUTH_CONFIG_ENV[toolkit]!
       : await getOrCreateAuthConfig(toolkit);
+    await assertAuthConfigToolkit(authConfigId, toolkit);
     const { connectedAccountId, redirectUrl, status } = await initiateConnection({
       toolkitSlug: toolkit,
       authConfigId,
@@ -73,39 +80,34 @@ export async function GET(req: NextRequest) {
       composioManaged: !needsCustomAuth,
     });
 
-    // Revoke any prior connection(s) for this single-account toolkit now that
-    // the new grant is confirmed in-flight — never before, so a failed
-    // initiateConnection above never leaves the user with nothing connected.
-    if (!MULTI_ACCOUNT_TOOLKITS.has(toolkit)) {
-      const { data: staleRows } = await supabase
-        .from("composio_connections")
-        .select("id, connected_account_id")
-        .eq("user_id", user.id)
-        .eq("toolkit", toolkit)
-        .neq("connected_account_id", connectedAccountId);
-      if (staleRows && staleRows.length > 0) {
-        await Promise.allSettled(staleRows.map((row) => deleteConnectedAccount(row.connected_account_id)));
-        await supabase
-          .from("composio_connections")
-          .delete()
-          .eq("user_id", user.id)
-          .in("id", staleRows.map((row) => row.id));
-      }
+    const remote = await getPrivateConnectedAccountExact({
+      toolkit,
+      userId: user.id,
+      authConfigId,
+      connectedAccountId,
+      // Managed link sessions report INITIATED; custom OAuth currently
+      // reports INITIALIZING. Never require ACTIVE before the callback.
+      status: null,
+    });
+    assertRemoteBinding({
+      user_id: user.id,
+      toolkit,
+      connected_account_id: connectedAccountId,
+      auth_config_id: authConfigId,
+    }, remote, { requireActive: false });
+    if (!["INITIATED", "INITIALIZING", "PENDING"].includes(remote.status)) {
+      throw new ComposioError("Composio connection initiation state was not accepted", 403);
     }
 
-    const { error: dbError } = await supabase.from("composio_connections").upsert(
-      {
-        user_id: user.id,
-        toolkit,
-        connected_account_id: connectedAccountId,
-        auth_config_id: authConfigId,
-        status,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,toolkit,connected_account_id" },
-    );
-    // If we can't record the pending connection, don't send the user through
-    // an OAuth flow our status/execute routes will never be able to find.
+    const { error: dbError } = await admin.rpc("axis_create_composio_connection_authority", {
+      p_connection_id: connectionId,
+      p_user_id: user.id,
+      p_toolkit: toolkit,
+      p_connected_account_id: connectedAccountId,
+      p_auth_config_id: authConfigId,
+      p_status: status,
+      p_account_label: null,
+    });
     if (dbError) {
       captureRouteError(dbError, {
         route: "/api/integrations/composio/connect",
@@ -114,10 +116,10 @@ export async function GET(req: NextRequest) {
         provider: "supabase",
         status: 500,
       });
-      return NextResponse.redirect(buildAppUrl(req, `/oauth-done?provider=composio_${toolkit}&status=error`));
+      return NextResponse.redirect(buildAppUrl(req, `/oauth-done?provider=composio_${toolkit}&status=error&attempt=${connectionId}`));
     }
 
-    if (!redirectUrl) {
+    if (!redirectUrl || !isTrustedComposioRedirect(redirectUrl)) {
       captureRouteError(new Error("Composio returned no redirect URL"), {
         route: "/api/integrations/composio/connect",
         operation: "initiate_connection",
@@ -127,7 +129,7 @@ export async function GET(req: NextRequest) {
         code: "NO_REDIRECT_URL",
         tags: { toolkit },
       });
-      return NextResponse.redirect(buildAppUrl(req, `/oauth-done?provider=composio_${toolkit}&status=error`));
+      return NextResponse.redirect(buildAppUrl(req, `/oauth-done?provider=composio_${toolkit}&status=error&attempt=${connectionId}`));
     }
     return NextResponse.redirect(redirectUrl);
   } catch (err) {

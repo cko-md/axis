@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const executeToolMock = vi.hoisted(() => vi.fn());
+const executeVerifiedComposioToolMock = vi.hoisted(() => vi.fn());
+// Alias keeps the historical test bodies readable; every mock intercepts the
+// verified opaque-connection dispatch boundary, never raw Composio execution.
+const executeToolMock = executeVerifiedComposioToolMock;
 
-vi.mock("@/lib/integrations/composio", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/integrations/composio")>("@/lib/integrations/composio");
+vi.mock("@/lib/integrations/composio-identity", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/integrations/composio-identity")>("@/lib/integrations/composio-identity");
   return {
     ...actual,
-    executeTool: executeToolMock,
+    executeVerifiedComposioTool: executeVerifiedComposioToolMock,
   };
 });
 
@@ -27,42 +30,43 @@ const gmailCtx: MailAccountContext = {
   provider: "gmail",
   mailEmail: "me@example.com",
   transport: "composio",
-  connectedAccountId: "conn-1",
+  connectionId: "axis-connection-1",
 };
 
 describe("getComposioMessage() — Gmail", () => {
   beforeEach(() => {
-    executeToolMock.mockReset();
+    executeVerifiedComposioToolMock.mockReset();
   });
 
   it("calls the verified GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID slug exactly once with the canonical arguments", async () => {
-    executeToolMock.mockResolvedValueOnce({
+    executeVerifiedComposioToolMock.mockResolvedValueOnce({
       successful: true,
       data: { id: "msg-1", threadId: "t-1", snippet: "hi" },
     });
 
     await getComposioMessage("gmail", "conn-1", "user-1", "msg-1", "me@example.com");
 
-    expect(executeToolMock).toHaveBeenCalledTimes(1);
-    expect(executeToolMock).toHaveBeenCalledWith({
+    expect(executeVerifiedComposioToolMock).toHaveBeenCalledTimes(1);
+    expect(executeVerifiedComposioToolMock).toHaveBeenCalledWith({
       toolSlug: GMAIL_GET_MESSAGE_TOOL,
-      connectedAccountId: "conn-1",
       userId: "user-1",
+      toolkit: "gmail",
+      connectionId: "conn-1",
       arguments: { message_id: "msg-1", user_id: "me", format: "full" },
     });
   });
 
   it("does not retry with variant argument shapes after a provider failure", async () => {
-    executeToolMock.mockResolvedValue({ successful: false, error: "Internal provider error" });
+    executeVerifiedComposioToolMock.mockResolvedValue({ successful: false, error: "Internal provider error" });
 
     await expect(
       getComposioMessage("gmail", "conn-1", "user-1", "msg-1", "me@example.com"),
     ).rejects.toMatchObject({ status: 502 });
-    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeVerifiedComposioToolMock).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes a native Gmail full payload (headers + base64url body)", async () => {
-    executeToolMock.mockResolvedValueOnce({
+    executeVerifiedComposioToolMock.mockResolvedValueOnce({
       successful: true,
       data: {
         id: "msg-native",
@@ -95,12 +99,11 @@ describe("getComposioMessage() — Gmail", () => {
       isUnread: true,
       body: "<p>html body</p>",
       bodyIsHtml: true,
-      connectedAccountId: "conn-1",
     });
   });
 
   it("normalizes Composio's flattened shape (sender/messageText/attachmentList) nested under data wrappers", async () => {
-    executeToolMock.mockResolvedValueOnce({
+    executeVerifiedComposioToolMock.mockResolvedValueOnce({
       successful: true,
       data: {
         response_data: {

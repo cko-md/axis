@@ -142,7 +142,7 @@ export async function GET(req: NextRequest) {
   if (action === "status") {
     const composio = await getComposioStravaConnection(user.id);
     if (composio) {
-      const athlete = await getComposioStravaAthlete(composio.connectedAccountId, user.id);
+      const athlete = await getComposioStravaAthlete(composio.connectionId, user.id);
       return NextResponse.json({
         connected: Boolean(athlete),
         configured: true,
@@ -167,7 +167,7 @@ export async function GET(req: NextRequest) {
     const composio = await getComposioStravaConnection(user.id);
     if (composio) {
       try {
-        const activities = await listComposioStravaActivities(composio.connectedAccountId, user.id);
+        const activities = await listComposioStravaActivities(composio.connectionId, user.id);
         return NextResponse.json({ connected: true, via: "composio", activities });
       } catch {
         return NextResponse.json({ connected: true, via: "composio", activities: [], error: "fetch_failed" });

@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
           timeoutMs: 7_000,
           slowMs: 1_500,
         },
-        () => queryFreeBusy(googleAccount.connectedAccountId, user.id, start_at, end_at),
+        () => queryFreeBusy(googleAccount.connectionId, user.id, start_at, end_at),
       ).catch((error) => {
         externalError = "Google Calendar free/busy could not be checked.";
         Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
         slowMs: 1_500,
       },
       () => findFreeSlots(
-        googleAccount.connectedAccountId,
+        googleAccount.connectionId,
         user.id,
         windowStart.toISOString(),
         windowEnd.toISOString(),

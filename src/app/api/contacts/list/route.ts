@@ -13,6 +13,7 @@ export type ContactsListResponse = {
   contacts: ContactEntry[];
   connected: boolean;
   via: "composio" | null;
+  truncated?: boolean;
   error?: string;
 };
 
@@ -33,17 +34,17 @@ export async function GET() {
   }
 
   const composioResults = await Promise.allSettled(
-    composioAccounts.map((account) => listComposioContacts(account.connectedAccountId, user.id)),
+    composioAccounts.map((account) => listComposioContacts(account.connectionId, user.id)),
   );
-  const contacts = composioResults.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  const contacts = composioResults.flatMap((result) => (result.status === "fulfilled" ? result.value.contacts : []));
   const composioFailed = composioResults.some((result) => result.status === "rejected");
+  const truncated = composioResults.some((result) => result.status === "fulfilled" && result.value.truncated);
 
   return NextResponse.json({
     contacts,
     connected: true,
     via: "composio",
-    ...(composioFailed && contacts.length === 0
-      ? { error: "Google Contacts could not be refreshed right now." }
-      : {}),
+    truncated,
+    ...(composioFailed ? { error: "Google Contacts could not be refreshed right now." } : {}),
   } satisfies ContactsListResponse);
 }

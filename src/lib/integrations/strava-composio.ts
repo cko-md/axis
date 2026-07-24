@@ -1,22 +1,18 @@
-import { createClient } from "@/lib/supabase/server";
-import { executeTool, ComposioError } from "./composio";
+import { ComposioError } from "./composio";
+import {
+  executeVerifiedComposioTool,
+  listAuthorizedComposioConnections,
+} from "./composio-identity";
 import type { StravaActivity, StravaAthlete } from "@/app/api/strava/_lib";
 
 export type ComposioStravaConnection = {
-  connectedAccountId: string;
+  /** Opaque Axis-owned connection identifier. Never a Composio account id. */
+  connectionId: string;
 };
 
 export async function getComposioStravaConnection(userId: string): Promise<ComposioStravaConnection | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("composio_connections")
-    .select("connected_account_id")
-    .eq("user_id", userId)
-    .eq("toolkit", "strava")
-    .eq("status", "ACTIVE")
-    .maybeSingle();
-  if (error || !data?.connected_account_id) return null;
-  return { connectedAccountId: data.connected_account_id as string };
+  const [connection] = await listAuthorizedComposioConnections(userId, ["strava"]);
+  return connection ? { connectionId: connection.id } : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -28,18 +24,21 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function normalizeComposioActivity(raw: Record<string, unknown>): StravaActivity | null {
   const id = typeof raw.id === "number" ? raw.id : Number(raw.id);
   if (!Number.isFinite(id)) return null;
+  const startDate = typeof raw.start_date === "string" ? raw.start_date : typeof raw.start_date_local === "string" ? raw.start_date_local : null;
+  if (!startDate || typeof raw.distance !== "number" || typeof raw.moving_time !== "number"
+    || typeof raw.total_elevation_gain !== "number" || typeof raw.average_speed !== "number" || typeof raw.max_speed !== "number") return null;
   return {
     id,
     name: typeof raw.name === "string" ? raw.name : "Activity",
     type: typeof raw.type === "string" ? raw.type : typeof raw.sport_type === "string" ? raw.sport_type : "Workout",
     sport_type: typeof raw.sport_type === "string" ? raw.sport_type : typeof raw.type === "string" ? raw.type : "Workout",
-    start_date: typeof raw.start_date === "string" ? raw.start_date : typeof raw.start_date_local === "string" ? raw.start_date_local : new Date().toISOString(),
-    distance: typeof raw.distance === "number" ? raw.distance : 0,
-    moving_time: typeof raw.moving_time === "number" ? raw.moving_time : 0,
-    elapsed_time: typeof raw.elapsed_time === "number" ? raw.elapsed_time : typeof raw.moving_time === "number" ? raw.moving_time : 0,
-    total_elevation_gain: typeof raw.total_elevation_gain === "number" ? raw.total_elevation_gain : 0,
-    average_speed: typeof raw.average_speed === "number" ? raw.average_speed : 0,
-    max_speed: typeof raw.max_speed === "number" ? raw.max_speed : 0,
+    start_date: startDate,
+    distance: raw.distance,
+    moving_time: raw.moving_time,
+    elapsed_time: typeof raw.elapsed_time === "number" ? raw.elapsed_time : raw.moving_time,
+    total_elevation_gain: raw.total_elevation_gain,
+    average_speed: raw.average_speed,
+    max_speed: raw.max_speed,
     average_heartrate: typeof raw.average_heartrate === "number" ? raw.average_heartrate : undefined,
     max_heartrate: typeof raw.max_heartrate === "number" ? raw.max_heartrate : undefined,
     suffer_score: typeof raw.suffer_score === "number" ? raw.suffer_score : undefined,
@@ -53,12 +52,13 @@ function normalizeComposioActivity(raw: Record<string, unknown>): StravaActivity
 }
 
 export async function getComposioStravaAthlete(
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
 ): Promise<StravaAthlete | null> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: "STRAVA_GET_AUTHENTICATED_ATHLETE",
-    connectedAccountId,
+    connectionId,
+    toolkit: "strava",
     userId,
     arguments: {},
   });
@@ -76,12 +76,13 @@ export async function getComposioStravaAthlete(
 }
 
 export async function listComposioStravaActivities(
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
 ): Promise<StravaActivity[]> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: "STRAVA_LIST_ATHLETE_ACTIVITIES",
-    connectedAccountId,
+    connectionId,
+    toolkit: "strava",
     userId,
     arguments: { per_page: 20, page: 1 },
   });

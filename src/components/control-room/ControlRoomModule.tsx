@@ -40,17 +40,18 @@ type ComposioToolkit = "gmail" | "outlook" | "strava" | "spotify" | "googlecalen
 type ComposioConnection = {
   id: string;
   toolkit: ComposioToolkit;
-  connected_account_id: string;
   status: string;
-  account_label: string | null;
-  created_at: string;
+  accountLabel: string | null;
+  createdAt: string;
+  updatedAt: string;
+  remoteVerifiedAt: string | null;
 };
 
 type MailAccount = {
   provider: "gmail" | "outlook";
   mailEmail: string;
   via?: "composio";
-  connectedAccountId?: string;
+  connectionId?: string;
 };
 
 type CalendarStatus = {
@@ -109,7 +110,7 @@ type ConnectionRow = {
   secondaryAction?: ConnectionAction;
 };
 
-const BROKEN_COMPOSIO_STATUSES = new Set(["FAILED", "EXPIRED", "REVOKED"]);
+const BROKEN_COMPOSIO_STATUSES = new Set(["FAILED", "EXPIRED", "REVOKED", "UNKNOWN", "UNVERIFIED", "RECONNECT_REQUIRED"]);
 
 const THEME_LABEL: Record<string, string> = {
   dark: "Dark",
@@ -157,7 +158,7 @@ function pickComposioConnection(
 ): ComposioConnection | null {
   const matches = (connections ?? [])
     .filter((connection) => toolkits.includes(connection.toolkit))
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
     matches.find((connection) => connection.status === "ACTIVE") ??
@@ -726,7 +727,7 @@ export function ControlRoomModule() {
   const isActiveComposio = (connection: ComposioConnection | null) => connection?.status === "ACTIVE";
   const composioDetail = (connection: ComposioConnection | null, disconnected = "Not connected") => {
     if (!connection) return disconnected;
-    const label = connection.account_label;
+    const label = connection.accountLabel;
     if (connection.status === "ACTIVE") return `${label ?? "Connected account"} via Composio`;
     const prefix = label ? `${label} · ` : "";
     const suffix = BROKEN_COMPOSIO_STATUSES.has(connection.status)
@@ -830,7 +831,7 @@ export function ControlRoomModule() {
       state: outlookState,
       integration: mailRisk("outlook", outlookTransport),
       detail: outlookConnected
-        ? `${outlookAccount?.mailEmail ?? calendarStatus?.outlookEmail ?? outlookComposio?.account_label ?? "Microsoft 365"} via ${
+        ? `${outlookAccount?.mailEmail ?? calendarStatus?.outlookEmail ?? outlookComposio?.accountLabel ?? "Microsoft 365"} via ${
             outlookAccount?.via === "composio" || isActiveComposio(outlookComposio) ? "Composio" : "OAuth"
           }`
         : outlookState === "pending"

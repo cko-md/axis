@@ -1,3 +1,4 @@
+import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { MailMessage } from "./gmail";
@@ -11,6 +12,8 @@ type SyncInsert = Database["public"]["Tables"]["integration_sync_state"]["Insert
 export type MailSyncState = {
   provider: "gmail" | "outlook";
   transport: "direct" | "composio";
+  /** Axis-owned opaque connection selector; never use the display label as identity. */
+  connectionId: string;
   accountEmail: string;
   status: "success" | "error";
   lastAttemptedAt: string;
@@ -23,9 +26,9 @@ export function mailAccountTransport(account: MailAccountRef): "direct" | "compo
 }
 
 export function mailAccountRef(account: MailAccountRef): string {
-  return account.via === "composio"
-    ? account.connectedAccountId ?? ""
-    : account.mailEmail.trim().toLowerCase();
+  // The current Mail transport is Composio-only. A provider label or mailbox
+  // address is user-facing metadata and is not unique enough to scope writes.
+  return account.connectionId ?? "";
 }
 
 function parsedReceivedAt(value: string): string | null {
@@ -46,7 +49,7 @@ export function messageToCacheInsert(
     transport: mailAccountTransport(account),
     account_ref: mailAccountRef(account),
     account_email: account.mailEmail,
-    connected_account_id: account.connectedAccountId ?? null,
+    composio_connection_id: account.connectionId ?? null,
     provider_message_id: message.id,
     thread_id: message.threadId,
     sender: message.from,
@@ -72,20 +75,26 @@ export function messageFromCacheRow(row: CacheRow): MailMessage {
     isUnread: row.is_unread,
     provider: row.provider as "gmail" | "outlook",
     accountEmail: row.account_email,
-    connectedAccountId: row.connected_account_id ?? undefined,
+    connectionId: row.composio_connection_id ?? undefined,
   };
 }
 
 export async function readMailCache(
   supabase: AxisSupabase,
   userId: string,
-  account?: Pick<MailAccountRef, "provider" | "mailEmail">,
+  account?: Pick<MailAccountRef, "connectionId">,
 ): Promise<{ messages: MailMessage[]; fetchedAt: string | null }> {
   let query = supabase
     .from("mail_message_cache")
-    .select("user_id,provider,transport,account_ref,account_email,connected_account_id,provider_message_id,thread_id,sender,subject,snippet,message_date,received_at,is_unread,sync_generation,fetched_at,updated_at")
-    .eq("user_id", userId);
-  if (account) query = query.eq("provider", account.provider).eq("account_email", account.mailEmail);
+    .select("user_id,provider,transport,account_ref,account_email,composio_connection_id,provider_message_id,thread_id,sender,subject,snippet,message_date,received_at,is_unread,sync_generation,fetched_at,updated_at")
+    .eq("user_id", userId)
+    // Legacy cache rows without an Axis connection binding must not be shown:
+    // they cannot be safely disambiguated when two mailboxes share a label.
+    .not("composio_connection_id", "is", null);
+  if (account) {
+    if (!account.connectionId) throw new Error("Mail cache connection selector is missing");
+    query = query.eq("composio_connection_id", account.connectionId);
+  }
   const { data, error } = await query
     .order("received_at", { ascending: false, nullsFirst: false })
     .limit(200);
@@ -106,14 +115,16 @@ export async function readMailSyncState(
 ): Promise<MailSyncState[]> {
   const { data, error } = await supabase
     .from("integration_sync_state")
-    .select("provider,transport,account_label,last_status,last_attempted_at,last_synced_at,last_error_code")
+    .select("provider,transport,composio_connection_id,account_label,last_status,last_attempted_at,last_synced_at,last_error_code")
     .eq("user_id", userId)
     .eq("domain", "mail")
+    .not("composio_connection_id", "is", null)
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map((row) => ({
     provider: row.provider as "gmail" | "outlook",
     transport: row.transport as "direct" | "composio",
+    connectionId: row.composio_connection_id!,
     accountEmail: row.account_label,
     status: row.last_status as "success" | "error",
     lastAttemptedAt: row.last_attempted_at,
@@ -172,6 +183,7 @@ export async function persistMailSyncSuccess(
     transport: mailAccountTransport(account),
     account_ref: accountRef,
     account_label: account.mailEmail,
+    composio_connection_id: account.connectionId ?? null,
     last_status: "success",
     last_attempted_at: opts.fetchedAt,
     last_synced_at: opts.fetchedAt,
@@ -211,6 +223,7 @@ export async function persistMailSyncFailure(
     transport: mailAccountTransport(account),
     account_ref: accountRef,
     account_label: account.mailEmail,
+    composio_connection_id: account.connectionId ?? null,
     last_status: "error",
     last_attempted_at: attemptedAt,
     last_synced_at: previous?.last_synced_at ?? null,
@@ -246,7 +259,7 @@ export async function updateCachedMessageAfterAction(
 export async function deleteMailCacheForAccount(
   supabase: AxisSupabase,
   userId: string,
-  account: Pick<MailAccountRef, "provider" | "mailEmail" | "via" | "connectedAccountId">,
+  account: Pick<MailAccountRef, "provider" | "mailEmail" | "via" | "connectionId">,
 ): Promise<void> {
   const accountRef = mailAccountRef(account);
   if (!accountRef) return;

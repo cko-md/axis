@@ -5,10 +5,6 @@
 import {
   listComposioInbox,
   getComposioMessage,
-  sendComposioMail,
-  markComposioGmailReadState,
-  archiveComposioGmailMessage,
-  trashComposioGmailMessage,
   normalizeGmailMessage,
   normalizeGmailMessageFull,
 } from "../composio";
@@ -28,11 +24,11 @@ import type {
   SendResult,
 } from "./types";
 
-function requireConnectedAccount(ctx: MailAccountContext): Result<string> {
-  if (!ctx.connectedAccountId) {
-    return fail("invalid_request", "Missing Composio connected-account id.", { provider: "gmail", transport: "composio" });
+function requireConnectionId(ctx: MailAccountContext): Result<string> {
+  if (!ctx.connectionId) {
+    return fail("invalid_request", "Missing mailbox connection id.", { provider: "gmail", transport: "composio" });
   }
-  return ok(ctx.connectedAccountId);
+  return ok(ctx.connectionId);
 }
 
 export const gmailComposioAdapter: MailAdapter = {
@@ -40,7 +36,7 @@ export const gmailComposioAdapter: MailAdapter = {
   transport: "composio",
 
   async listInbox(ctx: MailAccountContext, opts?: { pageToken?: string; skip?: number }): Promise<Result<InboxPage>> {
-    const acct = requireConnectedAccount(ctx);
+    const acct = requireConnectionId(ctx);
     if (!acct.ok) return acct;
     try {
       const page = await listComposioInbox("gmail", acct.data, ctx.userId, ctx.mailEmail, opts);
@@ -55,7 +51,7 @@ export const gmailComposioAdapter: MailAdapter = {
   },
 
   async getMessage(ctx: MailAccountContext, messageId: string): Promise<Result<MailMessageFull>> {
-    const acct = requireConnectedAccount(ctx);
+    const acct = requireConnectionId(ctx);
     if (!acct.ok) return acct;
     try {
       const message = await getComposioMessage("gmail", acct.data, ctx.userId, messageId, ctx.mailEmail);
@@ -67,15 +63,9 @@ export const gmailComposioAdapter: MailAdapter = {
   },
 
   async sendMessage(ctx: MailAccountContext, input: SendInput): Promise<Result<SendResult>> {
-    const acct = requireConnectedAccount(ctx);
-    if (!acct.ok) return acct;
-    try {
-      const res = await sendComposioMail("gmail", acct.data, ctx.userId, input.to, input.subject, input.body);
-      if (!res.ok) return fail("provider_error", "Gmail send failed.", { provider: "gmail", transport: "composio" });
-      return ok({});
-    } catch (e) {
-      return failFromException(e, "Send failed", { provider: "gmail", transport: "composio" });
-    }
+    void ctx;
+    void input;
+    return fail("not_supported", "Mail send is disabled while provider mutation approval is pending.", { provider: "gmail", transport: "composio" });
   },
 
   // Composio's send tool doesn't expose threading params we've verified, so a
@@ -91,51 +81,27 @@ export const gmailComposioAdapter: MailAdapter = {
   },
 
   async markRead(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
-    const acct = requireConnectedAccount(ctx);
-    if (!acct.ok) return acct;
-    try {
-      const res = await markComposioGmailReadState(acct.data, ctx.userId, messageId, false);
-      if (!res.ok) return fail("provider_error", "Gmail mark-read failed.", { provider: "gmail", transport: "composio" });
-      return ok(undefined);
-    } catch (e) {
-      return failFromException(e, "Mark read failed", { provider: "gmail", transport: "composio" });
-    }
+    void ctx;
+    void messageId;
+    return Promise.resolve(fail("not_supported", "Mail mutations are disabled while provider mutation approval is pending.", { provider: "gmail", transport: "composio" }));
   },
 
   async markUnread(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
-    const acct = requireConnectedAccount(ctx);
-    if (!acct.ok) return acct;
-    try {
-      const res = await markComposioGmailReadState(acct.data, ctx.userId, messageId, true);
-      if (!res.ok) return fail("provider_error", "Gmail mark-unread failed.", { provider: "gmail", transport: "composio" });
-      return ok(undefined);
-    } catch (e) {
-      return failFromException(e, "Mark unread failed", { provider: "gmail", transport: "composio" });
-    }
+    void ctx;
+    void messageId;
+    return Promise.resolve(fail("not_supported", "Mail mutations are disabled while provider mutation approval is pending.", { provider: "gmail", transport: "composio" }));
   },
 
   async archiveMessage(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
-    const acct = requireConnectedAccount(ctx);
-    if (!acct.ok) return acct;
-    try {
-      const res = await archiveComposioGmailMessage(acct.data, ctx.userId, messageId);
-      if (!res.ok) return fail("provider_error", "Gmail archive failed.", { provider: "gmail", transport: "composio" });
-      return ok(undefined);
-    } catch (e) {
-      return failFromException(e, "Archive failed", { provider: "gmail", transport: "composio" });
-    }
+    void ctx;
+    void messageId;
+    return Promise.resolve(fail("not_supported", "Mail mutations are disabled while provider mutation approval is pending.", { provider: "gmail", transport: "composio" }));
   },
 
   async deleteMessage(ctx: MailAccountContext, messageId: string): Promise<Result<void>> {
-    const acct = requireConnectedAccount(ctx);
-    if (!acct.ok) return acct;
-    try {
-      const res = await trashComposioGmailMessage(acct.data, ctx.userId, messageId);
-      if (!res.ok) return fail("provider_error", "Gmail move-to-trash failed.", { provider: "gmail", transport: "composio" });
-      return ok(undefined);
-    } catch (e) {
-      return failFromException(e, "Move to trash failed", { provider: "gmail", transport: "composio" });
-    }
+    void ctx;
+    void messageId;
+    return Promise.resolve(fail("not_supported", "Mail mutations are disabled while provider mutation approval is pending.", { provider: "gmail", transport: "composio" }));
   },
 
   getAttachment(): Promise<Result<never>> {

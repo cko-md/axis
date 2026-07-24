@@ -12,8 +12,8 @@ export interface MailMessage {
   isUnread: boolean;
   provider: "gmail" | "outlook";
   accountEmail: string;
-  /** Present for Composio-connected mailboxes — disambiguates multi-account resolution. */
-  connectedAccountId?: string;
+  /** Opaque Axis connection UUID used by browser account selection. */
+  connectionId?: string;
 }
 
 export interface MailMessageFull extends MailMessage {

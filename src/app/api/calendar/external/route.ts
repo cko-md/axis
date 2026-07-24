@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
     composioAccounts.map((a) => {
       const source = displaySource(a.provider);
       return loadSource(source, async () =>
-        (await listComposioEvents(a.provider, a.connectedAccountId, user.id, start, end))
+        (await listComposioEvents(a.provider, a.connectionId, user.id, start, end))
           .map((e) => ({ ...e, source })),
       );
     }),

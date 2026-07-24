@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import type { MailAttachment, MailMessage, MailMessageFull } from "@/lib/mail/gmail";
+import type { MailAttachment } from "@/lib/mail/gmail";
+import type { MailAccountPublic, MailMessageFullPublic, MailMessagePublic } from "@/lib/mail/tokens";
 import { getCapabilities, type ProviderCapabilities } from "@/lib/integrations/registry";
 import type { IntegrationTransport } from "@/lib/integrations/types";
 import { useToast } from "@/components/ui/Toast";
@@ -20,14 +21,11 @@ import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { relativeTimeShort } from "@/lib/fund/freshnessBadge";
 
-interface MailAccount {
-  provider: "gmail" | "outlook";
-  mailEmail: string;
-  via?: "composio";
-}
+type MailAccount = MailAccountPublic;
 
 type MailInboxError = {
   provider: "gmail" | "outlook";
+  connectionId: string;
   accountEmail: string;
   transport: "direct" | "composio";
   code: string;
@@ -35,7 +33,7 @@ type MailInboxError = {
 };
 
 type MailInboxResponse = {
-  messages?: MailMessage[];
+  messages?: MailMessagePublic[];
   accounts?: MailAccount[];
   partial?: boolean;
   errors?: MailInboxError[];
@@ -60,14 +58,14 @@ type SortMode = "date" | "priority";
 type AccountFilter = "all" | string; // "all" or a specific mailEmail
 type MailMessageAction = "mark-read" | "mark-unread" | "archive" | "delete";
 type MessageDetailError = {
-  message: MailMessage;
+  message: MailMessagePublic;
   error: string;
   code?: string;
 };
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-function priorityScore(msg: MailMessage): number {
+function priorityScore(msg: MailMessagePublic): number {
   const dateTime = getMailDateTime(msg.date);
   const ageHours = dateTime === null
     ? Number.POSITIVE_INFINITY
@@ -75,7 +73,7 @@ function priorityScore(msg: MailMessage): number {
   return (msg.isUnread ? 50 : 0) + Math.max(0, 100 - ageHours);
 }
 
-function comparePriorityDesc(a: MailMessage, b: MailMessage): number {
+function comparePriorityDesc(a: MailMessagePublic, b: MailMessagePublic): number {
   const diff = priorityScore(b) - priorityScore(a);
   if (diff !== 0) return diff;
   const dateDiff = compareMailDateDesc(a, b);
@@ -111,8 +109,11 @@ function abbreviateEmail(email: string, maxLen = 12): string {
   return truncated + domain;
 }
 
-function sameMessage(a: Pick<MailMessage, "id" | "provider" | "accountEmail">, b: Pick<MailMessage, "id" | "provider" | "accountEmail">): boolean {
-  return a.id === b.id && a.provider === b.provider && a.accountEmail === b.accountEmail;
+function sameMessage(
+  a: Pick<MailMessagePublic, "id" | "connectionId">,
+  b: Pick<MailMessagePublic, "id" | "connectionId">,
+): boolean {
+  return Boolean(a.connectionId) && a.id === b.id && a.connectionId === b.connectionId;
 }
 
 function supportsAction(caps: ProviderCapabilities | undefined, action: MailMessageAction): boolean {
@@ -311,7 +312,7 @@ function MessageRow({
   rowIndex,
   onClick,
 }: {
-  msg: MailMessage;
+  msg: MailMessagePublic;
   selected: boolean;
   rowIndex?: number;
   onClick: () => void;
@@ -422,7 +423,7 @@ export function MailModule() {
   const { toast } = useToast();
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [statusLoaded, setStatusLoaded] = useState(false);
-  const [messages, setMessages] = useState<MailMessage[]>([]);
+  const [messages, setMessages] = useState<MailMessagePublic[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [showingCached, setShowingCached] = useState(false);
@@ -431,7 +432,7 @@ export function MailModule() {
   const [inboxPageToken, setInboxPageToken] = useState<string | undefined>();
   const [inboxSkip, setInboxSkip] = useState(0);
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
-  const [selected, setSelected] = useState<MailMessageFull | null>(null);
+  const [selected, setSelected] = useState<MailMessageFullPublic | null>(null);
   const [loadingMsg, setLoadingMsg] = useState(false);
   const [detailError, setDetailError] = useState<MessageDetailError | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("date");
@@ -445,7 +446,7 @@ export function MailModule() {
   const [cursor, setCursor] = useState(0);
   const [cursorActive, setCursorActive] = useState(false);
   const mountedRef = useRef(true);
-  const messagesRef = useRef<MailMessage[]>([]);
+  const messagesRef = useRef<MailMessagePublic[]>([]);
   const accountsRef = useRef<MailAccount[]>([]);
   const accountFilterRef = useRef<AccountFilter>("all");
   const inboxPageTokenRef = useRef<string | undefined>(undefined);
@@ -453,7 +454,7 @@ export function MailModule() {
   const addBtnRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const visibleRef = useRef<MailMessage[]>([]);
+  const visibleRef = useRef<MailMessagePublic[]>([]);
   const cursorRef = useRef(0);
   cursorRef.current = cursor;
   accountsRef.current = accounts;
@@ -521,8 +522,12 @@ export function MailModule() {
       const filter = accountFilterRef.current;
       const currentAccounts = accountsRef.current;
       if (filter !== "all") {
-        const acct = currentAccounts.find((a) => a.mailEmail === filter);
+        const acct = currentAccounts.find((a) => a.connectionId === filter);
         if (acct) {
+          // The local opaque UUID scopes every mailbox request. Provider and
+          // e-mail are duplicated display metadata, retained for a mismatch
+          // check and user-visible errors only.
+          params.set("connectionId", acct.connectionId!);
           params.set("account", acct.mailEmail);
           params.set("provider", acct.provider);
           if (opts?.loadMore) {
@@ -551,12 +556,12 @@ export function MailModule() {
         const incoming = data.messages ?? [];
         const retained = data.partial && data.errors?.length
           ? prev.filter((message) => data.errors!.some(
-              (error) => error.provider === message.provider && error.accountEmail === message.accountEmail,
+              (error) => error.connectionId === message.connectionId,
             ))
           : [];
         const combined = opts?.loadMore ? [...prev, ...incoming] : [...incoming, ...retained];
         const unique = new Map(combined.map((message) => [
-          `${message.provider}:${message.accountEmail}:${message.id}`,
+          `${message.connectionId ?? "unbound"}:${message.id}`,
           message,
         ]));
         return [...unique.values()].sort(compareMailDateDesc);
@@ -628,6 +633,9 @@ export function MailModule() {
   }, [fetchInbox, refreshMailStatus, toast]);
 
   const isConnected = statusLoaded && accounts.length > 0;
+  const canCompose = accounts.some((account) =>
+    getCapabilities("mail", account.provider, account.via === "composio" ? "composio" : "direct")?.send,
+  );
 
   useEffect(() => {
     if (!isConnected) return;
@@ -652,25 +660,25 @@ export function MailModule() {
     refreshMailAfterConnect(provider);
   }, [refreshMailAfterConnect]);
 
-  const messageCapabilities = useCallback((msg: Pick<MailMessage, "provider" | "accountEmail">) => {
-    const account = accounts.find((acct) => acct.provider === msg.provider && acct.mailEmail === msg.accountEmail);
+  const messageCapabilities = useCallback((msg: Pick<MailMessagePublic, "provider" | "connectionId">) => {
+    const account = accounts.find((acct) => acct.connectionId === msg.connectionId);
     const transport: IntegrationTransport = account?.via === "composio" ? "composio" : "direct";
     return getCapabilities("mail", msg.provider, transport);
   }, [accounts]);
 
-  const updateLocalMessage = useCallback((msg: Pick<MailMessage, "id" | "provider" | "accountEmail">, patch: Partial<MailMessage>) => {
+  const updateLocalMessage = useCallback((msg: Pick<MailMessagePublic, "id" | "connectionId">, patch: Partial<MailMessagePublic>) => {
     setMessages((prev) => prev.map((item) => (sameMessage(item, msg) ? { ...item, ...patch } : item)));
     setSelected((prev) => (prev && sameMessage(prev, msg) ? { ...prev, ...patch } : prev));
   }, []);
 
-  const removeLocalMessage = useCallback((msg: Pick<MailMessage, "id" | "provider" | "accountEmail">) => {
+  const removeLocalMessage = useCallback((msg: Pick<MailMessagePublic, "id" | "connectionId">) => {
     setMessages((prev) => prev.filter((item) => !sameMessage(item, msg)));
     setSelected((prev) => (prev && sameMessage(prev, msg) ? null : prev));
     setDetailError((prev) => (prev && sameMessage(prev.message, msg) ? null : prev));
   }, []);
 
   const runMessageAction = useCallback(async (
-    msg: MailMessage,
+    msg: MailMessagePublic,
     action: MailMessageAction,
     opts?: { automatic?: boolean },
   ) => {
@@ -706,7 +714,7 @@ export function MailModule() {
           action,
           provider: msg.provider,
           email: msg.accountEmail,
-          accountId: msg.connectedAccountId,
+          accountId: msg.connectionId,
         }),
       });
 
@@ -730,7 +738,7 @@ export function MailModule() {
         updateLocalMessage(msg, { isUnread: msg.isUnread });
       } else {
         setMessages((prev) => (prev.some((item) => sameMessage(item, msg)) ? prev : [msg, ...prev]));
-        setSelected((prev) => prev ?? ("body" in msg ? msg as MailMessageFull : null));
+        setSelected((prev) => prev ?? ("body" in msg ? msg as MailMessageFullPublic : null));
       }
       toast(
         action === "mark-read"
@@ -749,7 +757,7 @@ export function MailModule() {
     }
   }, [messageCapabilities, removeLocalMessage, toast, updateLocalMessage]);
 
-  const createSignalFromMessage = useCallback(async (msg: MailMessageFull) => {
+  const createSignalFromMessage = useCallback(async (msg: MailMessageFullPublic) => {
     setCreatingSignal(true);
     try {
       const res = await fetch(
@@ -772,7 +780,7 @@ export function MailModule() {
     }
   }, [toast]);
 
-  const routeAttachmentToLibrary = useCallback(async (msg: MailMessageFull, attachment: MailAttachment) => {
+  const routeAttachmentToLibrary = useCallback(async (msg: MailMessageFullPublic, attachment: MailAttachment) => {
     setCreatingSignal(true);
     try {
       const res = await fetch(
@@ -803,7 +811,7 @@ export function MailModule() {
     }
   }, [toast]);
 
-  const openMessage = useCallback(async (msg: MailMessage) => {
+  const openMessage = useCallback(async (msg: MailMessagePublic) => {
     setDetailError(null);
     setSelected(null);
     setLoadingMsg(true);
@@ -813,7 +821,7 @@ export function MailModule() {
       );
       const data = await res.json().catch(() => ({} as { error?: string; code?: string }));
       if (res.ok && mountedRef.current) {
-        const fullMessage = data as MailMessageFull;
+        const fullMessage = data as MailMessageFullPublic;
         setSelected(fullMessage);
         if (msg.isUnread) {
           void runMessageAction(fullMessage, "mark-read", { automatic: true });
@@ -910,12 +918,12 @@ export function MailModule() {
       return;
     }
     setAccounts((prev) =>
-      prev.filter((a) => !(a.provider === acct.provider && a.mailEmail === acct.mailEmail)),
+      prev.filter((a) => a.connectionId !== acct.connectionId),
     );
-    setMessages((prev) => prev.filter((m) => m.accountEmail !== acct.mailEmail));
-    setSelected((prev) => (prev?.accountEmail === acct.mailEmail ? null : prev));
-    setDetailError((prev) => (prev?.message.accountEmail === acct.mailEmail ? null : prev));
-    if (accountFilter === acct.mailEmail) setAccountFilter("all");
+    setMessages((prev) => prev.filter((m) => m.connectionId !== acct.connectionId));
+    setSelected((prev) => (prev?.connectionId === acct.connectionId ? null : prev));
+    setDetailError((prev) => (prev?.message.connectionId === acct.connectionId ? null : prev));
+    if (accountFilter === acct.connectionId) setAccountFilter("all");
     toast("Mailbox disconnected.", "success", "Mail");
     refreshMailStatus();
     void fetchInbox();
@@ -925,7 +933,7 @@ export function MailModule() {
   const visibleMessages = (() => {
     let list = accountFilter === "all"
       ? messages
-      : messages.filter((m) => m.accountEmail === accountFilter);
+      : messages.filter((m) => m.connectionId === accountFilter);
 
     if (unreadOnly) list = list.filter((m) => m.isUnread);
 
@@ -1028,7 +1036,7 @@ export function MailModule() {
             onClick: () => void fetchInbox({ refresh: true }),
             disabled: loading || syncing,
           },
-          { label: "Compose", onClick: () => setComposeDraft({}), primary: true },
+          ...(canCompose ? [{ label: "Compose", onClick: () => setComposeDraft({}), primary: true }] : []),
         ]}
       />
 
@@ -1093,16 +1101,16 @@ export function MailModule() {
             </button>
 
             {/* Per-account tabs */}
-            {accounts.map((acct) => {
-              const isActive = accountFilter === acct.mailEmail;
+            {accounts.map((acct, index) => {
+              const isActive = accountFilter === acct.connectionId;
               return (
                 <span
-                  key={`${acct.provider}:${acct.mailEmail}`}
+                  key={acct.connectionId ?? `unbound-account-${index}`}
                   style={{ display: "flex", alignItems: "center", gap: 3 }}
                 >
                   <button
                     type="button"
-                    onClick={() => setAccountFilter(isActive ? "all" : acct.mailEmail)}
+                    onClick={() => acct.connectionId && setAccountFilter(isActive ? "all" : acct.connectionId)}
                     title={acct.mailEmail}
                     style={{
                       display: "flex",
@@ -1126,7 +1134,7 @@ export function MailModule() {
                       color: isActive
                         ? acct.provider === "gmail" ? "#ea4335" : "#0078d4"
                         : "var(--ink-dim)",
-                      cursor: "pointer",
+                      cursor: acct.connectionId ? "pointer" : "not-allowed",
                     }}
                   >
                     <ProviderDot provider={acct.provider} />
@@ -1250,7 +1258,7 @@ export function MailModule() {
           </div>
 
           {/* Compose */}
-          {accounts.length > 0 && (
+          {canCompose && (
             <button
               type="button"
               onClick={() => setComposeDraft({})}
@@ -1364,16 +1372,15 @@ export function MailModule() {
             busyAction={busyAction}
             creatingSignal={creatingSignal}
             onClose={() => setSelected(null)}
-            onReply={(draft) => {
-              const account = accounts.find(
-                (a) => a.provider === selected.provider && a.mailEmail === selected.accountEmail,
-              );
+            onReply={messageCapabilities(selected)?.reply ? (draft) => {
+              const account = accounts.find((a) => a.connectionId === selected.connectionId);
               setSelected(null);
               setComposeDraft({
                 ...draft,
                 via: account?.via === "composio" ? "composio" : "direct",
+                connectionId: account?.connectionId,
               });
-            }}
+            } : undefined}
             onAction={(action) => { void runMessageAction(selected, action); }}
             onCreateSignal={() => { void createSignalFromMessage(selected); }}
             onRouteAttachmentToLibrary={(attachment) => { void routeAttachmentToLibrary(selected, attachment); }}

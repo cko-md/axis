@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MailAttachment, MailMessageFull } from "@/lib/mail/gmail";
+import type { MailAttachment } from "@/lib/mail/gmail";
+import type { MailMessageFullPublic } from "@/lib/mail/tokens";
 import type { MailProvider } from "@/lib/mail/tokens";
 import type { ProviderCapabilities } from "@/lib/integrations/registry";
 import { callAiAction } from "@/lib/ai/callAction";
@@ -45,7 +46,7 @@ export function MessagePanel({
   onCreateSignal,
   onRouteAttachmentToLibrary,
 }: {
-  message: MailMessageFull;
+  message: MailMessageFullPublic;
   capabilities?: ProviderCapabilities;
   busyAction?: MailMessageAction | null;
   creatingSignal?: boolean;

@@ -8,12 +8,25 @@ const listInbox = vi.fn();
 const persistMailSyncSuccess = vi.fn();
 const persistMailSyncFailure = vi.fn();
 const recordProviderFailure = vi.fn();
+const redisRateLimit = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({ auth: { getUser } }),
 }));
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({ kind: "admin" }),
+}));
+vi.mock("@/lib/ratelimit", () => ({
+  redisRateLimit: (...args: unknown[]) => redisRateLimit(...args),
+}));
 vi.mock("@/lib/mail/tokens", () => ({
   listMailAccounts: (...args: unknown[]) => listMailAccounts(...args),
+  projectMailAccount: (value: unknown) => value,
+  projectMailMessage: (value: unknown) => value,
+  publicMailError: (error: { code: string; retryable: boolean }) => ({
+    ...error,
+    message: "Mailbox action failed.",
+  }),
 }));
 vi.mock("@/lib/mail/adapters", () => ({
   adapterForAccount: () => ({ listInbox }),
@@ -36,7 +49,7 @@ const account = {
   provider: "gmail" as const,
   mailEmail: "owner@example.com",
   via: "composio" as const,
-  connectedAccountId: "ca_1",
+  connectionId: "11111111-1111-4111-8111-111111111111",
 };
 const message = {
   id: "message_1",
@@ -48,7 +61,7 @@ const message = {
   isUnread: true,
   provider: "gmail" as const,
   accountEmail: "owner@example.com",
-  connectedAccountId: "ca_1",
+  connectionId: "11111111-1111-4111-8111-111111111111",
 };
 
 function request(body: unknown) {
@@ -63,6 +76,7 @@ describe("POST /api/mail/sync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getUser.mockResolvedValue({ data: { user: { id: "user_1" } } });
+    redisRateLimit.mockResolvedValue({ success: true });
     listMailAccounts.mockResolvedValue([account]);
     persistMailSyncSuccess.mockResolvedValue(undefined);
     persistMailSyncFailure.mockResolvedValue(undefined);
@@ -101,7 +115,7 @@ describe("POST /api/mail/sync", () => {
   it("appends a requested page without reconciling the first-page window", async () => {
     listInbox.mockResolvedValue({ ok: true, data: { messages: [message], hasMore: false } });
 
-    await POST(request({ account: account.mailEmail, provider: "gmail", pageToken: "page_2" }));
+    await POST(request({ connectionId: account.connectionId, account: account.mailEmail, provider: "gmail", pageToken: "page_2" }));
 
     expect(listInbox).toHaveBeenCalledWith(expect.anything(), { pageToken: "page_2", skip: 0 });
     expect(persistMailSyncSuccess).toHaveBeenCalledWith(
@@ -132,7 +146,7 @@ describe("POST /api/mail/sync", () => {
   });
 
   it("does not allow a caller to sync an unowned mailbox", async () => {
-    const response = await POST(request({ account: "other@example.com", provider: "gmail" }));
+    const response = await POST(request({ connectionId: "22222222-2222-4222-8222-222222222222", account: "other@example.com", provider: "gmail" }));
 
     expect(response.status).toBe(404);
     expect(listInbox).not.toHaveBeenCalled();

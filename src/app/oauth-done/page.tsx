@@ -11,11 +11,12 @@ function OAuthDoneInner(): React.ReactElement {
   // not_configured, token_exchange_failed) so the opener can say something
   // truthful instead of appearing to do nothing.
   const reason = params.get('reason') ?? '';
+  const attempt = params.get('attempt') ?? '';
 
   useEffect(() => {
     if (window.opener) {
       window.opener.postMessage(
-        { type: 'oauth-done', provider, status, reason },
+        { type: 'oauth-done', provider, status, reason, attempt },
         window.location.origin
       );
       window.close();
@@ -30,7 +31,7 @@ function OAuthDoneInner(): React.ReactElement {
       else if (provider.startsWith('composio_')) dest = '/control-room?connected=composio';
       window.location.replace(dest);
     }
-  }, [provider, status, reason]);
+  }, [provider, status, reason, attempt]);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif' }}>

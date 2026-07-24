@@ -44,7 +44,7 @@ describe("adapterForAccount()", () => {
       provider: "gmail",
       mailEmail: "user@gmail.com",
       via: "composio",
-      connectedAccountId: "abc123",
+      connectionId: "axis-connection-123",
     };
     const adapter = adapterForAccount(account);
     expect(adapter.transport).toBe("composio");
@@ -101,18 +101,14 @@ describe("Composio mutation guardrails", () => {
     vi.clearAllMocks();
   });
 
-  it("uses verified Gmail Composio tools for message actions", async () => {
-    mocks.markComposioGmailReadState.mockResolvedValue({ ok: true });
-    mocks.archiveComposioGmailMessage.mockResolvedValue({ ok: true });
-    mocks.trashComposioGmailMessage.mockResolvedValue({ ok: true });
-
+  it("keeps Gmail Composio mutations disabled pending the mutation approval kernel", async () => {
     const adapter = resolveMailAdapter("gmail");
     const ctx = {
       userId: "uid",
       provider: "gmail" as const,
       mailEmail: "user@gmail.com",
       transport: "composio" as const,
-      connectedAccountId: "ca_123",
+      connectionId: "axis-connection-123",
     };
     const results = await Promise.all([
       adapter.markRead(ctx, "msg_1"),
@@ -122,16 +118,14 @@ describe("Composio mutation guardrails", () => {
     ]);
 
     for (const result of results) {
-      expect(result.ok).toBe(true);
+      expect(result.ok).toBe(false);
     }
-    expect(mocks.markComposioGmailReadState).toHaveBeenCalledWith("ca_123", "uid", "msg_1", false);
-    expect(mocks.markComposioGmailReadState).toHaveBeenCalledWith("ca_123", "uid", "msg_1", true);
-    expect(mocks.archiveComposioGmailMessage).toHaveBeenCalledWith("ca_123", "uid", "msg_1");
-    expect(mocks.trashComposioGmailMessage).toHaveBeenCalledWith("ca_123", "uid", "msg_1");
+    expect(mocks.markComposioGmailReadState).not.toHaveBeenCalled();
+    expect(mocks.archiveComposioGmailMessage).not.toHaveBeenCalled();
+    expect(mocks.trashComposioGmailMessage).not.toHaveBeenCalled();
   });
 
-  it("returns structured provider_error when Gmail Composio action fails", async () => {
-    mocks.markComposioGmailReadState.mockResolvedValueOnce({ ok: false, error: "provider said no" });
+  it("returns structured not_supported for Gmail mutations", async () => {
 
     const adapter = resolveMailAdapter("gmail");
     const result = await adapter.markRead({
@@ -139,12 +133,12 @@ describe("Composio mutation guardrails", () => {
       provider: "gmail",
       mailEmail: "user@gmail.com",
       transport: "composio",
-      connectedAccountId: "ca_123",
+      connectionId: "axis-connection-123",
     }, "msg_1");
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe("provider_error");
+      expect(result.error.code).toBe("not_supported");
       expect(result.error.provider).toBe("gmail");
       expect(result.error.transport).toBe("composio");
     }
@@ -157,7 +151,7 @@ describe("Composio mutation guardrails", () => {
       provider: "outlook" as const,
       mailEmail: "user@outlook.com",
       transport: "composio" as const,
-      connectedAccountId: "ca_456",
+      connectionId: "axis-connection-456",
     };
 
     const results = await Promise.all([

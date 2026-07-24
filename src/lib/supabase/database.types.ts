@@ -487,10 +487,13 @@ export type Database = {
           connected_account_id: string
           created_at: string
           id: string
+          lifecycle_version: number
+          remote_verified_at: string | null
           status: string
           toolkit: string
           updated_at: string
           user_id: string
+          verification_error_code: string | null
         }
         Insert: {
           account_label?: string | null
@@ -498,10 +501,13 @@ export type Database = {
           connected_account_id: string
           created_at?: string
           id?: string
+          lifecycle_version?: number
+          remote_verified_at?: string | null
           status?: string
           toolkit: string
           updated_at?: string
           user_id: string
+          verification_error_code?: string | null
         }
         Update: {
           account_label?: string | null
@@ -509,7 +515,55 @@ export type Database = {
           connected_account_id?: string
           created_at?: string
           id?: string
+          lifecycle_version?: number
+          remote_verified_at?: string | null
           status?: string
+          toolkit?: string
+          updated_at?: string
+          user_id?: string
+          verification_error_code?: string | null
+        }
+        Relationships: []
+      }
+      composio_connection_authorities: {
+        Row: {
+          auth_config_id: string
+          connected_account_id: string
+          connection_id: string
+          created_at: string
+          last_observation: string
+          lifecycle_state: string
+          lifecycle_version: number
+          observed_at: string | null
+          remote_verified_at: string | null
+          toolkit: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auth_config_id: string
+          connected_account_id: string
+          connection_id: string
+          created_at?: string
+          last_observation?: string
+          lifecycle_state: string
+          lifecycle_version?: number
+          observed_at?: string | null
+          remote_verified_at?: string | null
+          toolkit: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auth_config_id?: string
+          connected_account_id?: string
+          connection_id?: string
+          created_at?: string
+          last_observation?: string
+          lifecycle_state?: string
+          lifecycle_version?: number
+          observed_at?: string | null
+          remote_verified_at?: string | null
           toolkit?: string
           updated_at?: string
           user_id?: string
@@ -1883,6 +1937,7 @@ export type Database = {
         Row: {
           account_label: string
           account_ref: string
+          composio_connection_id: string | null
           domain: string
           last_attempted_at: string
           last_error_code: string | null
@@ -1897,6 +1952,7 @@ export type Database = {
         Insert: {
           account_label: string
           account_ref: string
+          composio_connection_id?: string | null
           domain: string
           last_attempted_at: string
           last_error_code?: string | null
@@ -1911,6 +1967,7 @@ export type Database = {
         Update: {
           account_label?: string
           account_ref?: string
+          composio_connection_id?: string | null
           domain?: string
           last_attempted_at?: string
           last_error_code?: string | null
@@ -2118,6 +2175,7 @@ export type Database = {
         Row: {
           account_email: string
           account_ref: string
+          composio_connection_id: string | null
           connected_account_id: string | null
           fetched_at: string
           is_unread: boolean
@@ -2137,6 +2195,7 @@ export type Database = {
         Insert: {
           account_email: string
           account_ref: string
+          composio_connection_id?: string | null
           connected_account_id?: string | null
           fetched_at?: string
           is_unread?: boolean
@@ -2156,6 +2215,7 @@ export type Database = {
         Update: {
           account_email?: string
           account_ref?: string
+          composio_connection_id?: string | null
           connected_account_id?: string | null
           fetched_at?: string
           is_unread?: boolean
@@ -3423,6 +3483,22 @@ export type Database = {
       }
       axis_entity_ref_owned: {
         Args: { p_id: string; p_kind: string; p_user_id: string }
+        Returns: boolean
+      }
+      axis_adopt_composio_connection_authority: {
+        Args: { p_auth_config_id: string; p_connected_account_id: string; p_connection_id: string; p_public_status: string; p_remote_verified_at: string; p_toolkit: string; p_user_id: string }
+        Returns: boolean
+      }
+      axis_create_composio_connection_authority: {
+        Args: { p_account_label?: string | null; p_auth_config_id: string; p_connected_account_id: string; p_connection_id: string; p_status: string; p_toolkit: string; p_user_id: string }
+        Returns: string
+      }
+      axis_promote_composio_connection_authority: {
+        Args: { p_connection_id: string; p_expected_version: number; p_remote_verified_at: string; p_toolkit: string; p_user_id: string }
+        Returns: boolean
+      }
+      axis_transition_composio_connection_authority: {
+        Args: { p_connection_id: string; p_expected_state: string; p_expected_version: number; p_next_state: string; p_public_status: string; p_remote_verified_at: string; p_user_id: string; p_verification_error_code?: string | null }
         Returns: boolean
       }
       cas_agent_task_transition: {

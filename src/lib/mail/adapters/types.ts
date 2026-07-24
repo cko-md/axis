@@ -19,8 +19,8 @@ export interface MailAccountContext {
   provider: MailProvider;
   mailEmail: string;
   transport: IntegrationTransport;
-  /** Present (and required) only for the `composio` transport. */
-  connectedAccountId?: string;
+  /** Axis-owned local UUID resolved and freshly verified immediately before dispatch. */
+  connectionId?: string;
 }
 
 export interface ListInboxOptions {
@@ -96,6 +96,6 @@ export function toMailContext(userId: string, account: MailAccountRef): MailAcco
     provider: account.provider,
     mailEmail: account.mailEmail,
     transport: account.via === "composio" ? "composio" : "direct",
-    connectedAccountId: account.connectedAccountId,
+    connectionId: account.connectionId,
   };
 }

@@ -1,80 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import * as Sentry from "@sentry/nextjs";
-import { createClient } from "@/lib/supabase/server";
-import { executeTool, ComposioError, isSupportedToolkit } from "@/lib/integrations/composio";
-import { isAllowedComposioTool } from "@/lib/integrations/composio-allowlist";
-import { memoryRateLimit } from "@/lib/ratelimit";
+import { NextResponse } from "next/server";
 
-interface ExecutePayload {
-  toolkit?: string;
-  tool?: string;
-  arguments?: Record<string, unknown>;
-}
-
-// POST /api/integrations/composio/execute { toolkit, tool, arguments }
-export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const rate = memoryRateLimit(`composio-execute:${user.id}`, 30, 60_000);
-  if (!rate.success) {
-    return NextResponse.json({ error: "Rate limit exceeded. Try again shortly." }, { status: 429 });
-  }
-
-  let payload: ExecutePayload;
-  try {
-    payload = (await req.json()) as ExecutePayload;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 422 });
-  }
-
-  const { toolkit, tool } = payload;
-  if (!toolkit || !tool) {
-    return NextResponse.json({ error: "toolkit and tool are required" }, { status: 422 });
-  }
-  if (!isSupportedToolkit(toolkit)) {
-    return NextResponse.json({ error: `Unsupported toolkit: ${toolkit}` }, { status: 400 });
-  }
-  if (!isAllowedComposioTool(toolkit, tool)) {
-    return NextResponse.json({ error: `Tool not allowed for toolkit ${toolkit}` }, { status: 403 });
-  }
-
-  const { data: connections, error: connError } = await supabase
-    .from("composio_connections")
-    .select("connected_account_id, status")
-    .eq("user_id", user.id)
-    .eq("toolkit", toolkit)
-    .eq("status", "ACTIVE");
-
-  if (connError) {
-    Sentry.captureException(connError, {
-      tags: { area: "integrations", route: "/api/integrations/composio/execute", op: "list_connections" },
-    });
-    return NextResponse.json({ error: "Could not load Composio connection" }, { status: 503 });
-  }
-
-  const connection = connections?.[0];
-  if (!connection) {
-    return NextResponse.json({ error: `No active Composio connection for ${toolkit}` }, { status: 403 });
-  }
-
-  try {
-    const result = await executeTool({
-      toolSlug: tool,
-      connectedAccountId: connection.connected_account_id,
-      userId: user.id,
-      arguments: payload.arguments,
-    });
-    return NextResponse.json({
-      successful: result.successful,
-      error: result.error ?? null,
-    });
-  } catch (err) {
-    const status = err instanceof ComposioError ? err.status : 502;
-    Sentry.captureException(err instanceof Error ? err : new Error("Composio execute failed"), {
-      tags: { area: "integrations", route: "/api/integrations/composio/execute", toolkit, tool },
-    });
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Tool execution failed" }, { status });
-  }
+// The generic Composio deputy accepted caller-selected tool names and has no
+// production caller. Provider work is dispatched only through domain adapters
+// that bind a canonical toolkit/capability/operation to an opaque local
+// connection id and perform exact authority proof immediately before execution.
+export async function POST() {
+  return NextResponse.json(
+    {
+      error: "The generic provider execution endpoint has been retired.",
+      code: "generic_provider_dispatch_retired",
+    },
+    { status: 410 },
+  );
 }

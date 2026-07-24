@@ -8,15 +8,17 @@ import {
   messageToCacheInsert,
 } from "./cache";
 
-const direct: MailAccountRef = {
+const gmail: MailAccountRef = {
   provider: "gmail",
   mailEmail: "Owner@Example.com",
+  via: "composio",
+  connectionId: "axis-gmail-connection-123",
 };
 const composio: MailAccountRef = {
   provider: "outlook",
   mailEmail: "Connected account",
   via: "composio",
-  connectedAccountId: "ca_stable_123",
+  connectionId: "axis-connection-123",
 };
 const message: MailMessage = {
   id: "message_1",
@@ -31,17 +33,17 @@ const message: MailMessage = {
 };
 
 describe("mail cache mapping", () => {
-  it("uses a normalized address for direct accounts and an opaque id for Composio", () => {
-    expect(mailAccountRef(direct)).toBe("owner@example.com");
-    expect(mailAccountTransport(direct)).toBe("direct");
-    expect(mailAccountRef(composio)).toBe("ca_stable_123");
+  it("uses only opaque Axis connection ids as cache account references", () => {
+    expect(mailAccountRef(gmail)).toBe("axis-gmail-connection-123");
+    expect(mailAccountTransport(gmail)).toBe("composio");
+    expect(mailAccountRef(composio)).toBe("axis-connection-123");
     expect(mailAccountTransport(composio)).toBe("composio");
   });
 
   it("stores list metadata without message bodies or attachments", () => {
     const row = messageToCacheInsert(
       "user_1",
-      direct,
+      gmail,
       { ...message, body: "private body", attachments: [{ id: "a1" }] } as MailMessage,
       "generation_1",
       "2026-07-15T20:01:00.000Z",
@@ -62,7 +64,7 @@ describe("mail cache mapping", () => {
   it("keeps the original provider date while making invalid dates unsortable", () => {
     const row = messageToCacheInsert(
       "user_1",
-      direct,
+      gmail,
       { ...message, date: "provider-date-unavailable" },
       "generation_1",
       "2026-07-15T20:01:00.000Z",
@@ -85,7 +87,7 @@ describe("mail cache mapping", () => {
       ...message,
       provider: "outlook",
       accountEmail: "Connected account",
-      connectedAccountId: "ca_stable_123",
+      connectionId: "axis-connection-123",
     });
   });
 });

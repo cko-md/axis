@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { listMailAccounts } from "@/lib/mail/tokens";
+import { listMailAccounts, projectMailAccount } from "@/lib/mail/tokens";
 
 export async function GET() {
   const supabase = await createClient();
@@ -12,7 +12,7 @@ export async function GET() {
 
   try {
     const accounts = await listMailAccounts(user.id);
-    return NextResponse.json({ accounts });
+    return NextResponse.json({ accounts: accounts.map(projectMailAccount) });
   } catch (error) {
     Sentry.captureException(error, {
       tags: { area: "mail", route: "/api/mail/status", op: "list_accounts" },

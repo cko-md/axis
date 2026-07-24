@@ -5,7 +5,6 @@
 import {
   listComposioInbox,
   getComposioMessage,
-  sendComposioMail,
   normalizeOutlookMessage,
   normalizeOutlookMessageFull,
 } from "../composio";
@@ -25,11 +24,11 @@ import type {
   SendResult,
 } from "./types";
 
-function requireConnectedAccount(ctx: MailAccountContext): Result<string> {
-  if (!ctx.connectedAccountId) {
-    return fail("invalid_request", "Missing Composio connected-account id.", { provider: "outlook", transport: "composio" });
+function requireConnectionId(ctx: MailAccountContext): Result<string> {
+  if (!ctx.connectionId) {
+    return fail("invalid_request", "Missing mailbox connection id.", { provider: "outlook", transport: "composio" });
   }
-  return ok(ctx.connectedAccountId);
+  return ok(ctx.connectionId);
 }
 
 const NOT_SUPPORTED = (op: string): Result<void> =>
@@ -43,7 +42,7 @@ export const outlookComposioAdapter: MailAdapter = {
   transport: "composio",
 
   async listInbox(ctx: MailAccountContext, opts?: { pageToken?: string; skip?: number }): Promise<Result<InboxPage>> {
-    const acct = requireConnectedAccount(ctx);
+    const acct = requireConnectionId(ctx);
     if (!acct.ok) return acct;
     try {
       const page = await listComposioInbox("outlook", acct.data, ctx.userId, ctx.mailEmail, opts);
@@ -58,7 +57,7 @@ export const outlookComposioAdapter: MailAdapter = {
   },
 
   async getMessage(ctx: MailAccountContext, messageId: string): Promise<Result<MailMessageFull>> {
-    const acct = requireConnectedAccount(ctx);
+    const acct = requireConnectionId(ctx);
     if (!acct.ok) return acct;
     try {
       const message = await getComposioMessage("outlook", acct.data, ctx.userId, messageId, ctx.mailEmail);
@@ -70,15 +69,9 @@ export const outlookComposioAdapter: MailAdapter = {
   },
 
   async sendMessage(ctx: MailAccountContext, input: SendInput): Promise<Result<SendResult>> {
-    const acct = requireConnectedAccount(ctx);
-    if (!acct.ok) return acct;
-    try {
-      const res = await sendComposioMail("outlook", acct.data, ctx.userId, input.to, input.subject, input.body);
-      if (!res.ok) return fail("provider_error", "Outlook send failed.", { provider: "outlook", transport: "composio" });
-      return ok({});
-    } catch (e) {
-      return failFromException(e, "Send failed", { provider: "outlook", transport: "composio" });
-    }
+    void ctx;
+    void input;
+    return fail("not_supported", "Mail send is disabled while provider mutation approval is pending.", { provider: "outlook", transport: "composio" });
   },
 
   async replyToMessage(ctx: MailAccountContext, input: ReplyInput): Promise<Result<SendResult>> {

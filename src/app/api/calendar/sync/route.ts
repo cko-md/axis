@@ -140,10 +140,10 @@ export async function POST(req: NextRequest) {
 
   const [googleSync, outlookSync] = await Promise.all([
     composioGoogle
-      ? syncSource("google", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
+      ? syncSource("google", () => createComposioEvent("googlecalendar", composioGoogle.connectionId, user.id, event))
       : Promise.resolve<CalendarSyncResult>({ id: null }),
     composioOutlook
-      ? syncSource("outlook", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
+      ? syncSource("outlook", () => createComposioEvent("outlook", composioOutlook.connectionId, user.id, event))
       : Promise.resolve<CalendarSyncResult>({ id: null }),
   ]);
 

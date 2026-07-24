@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { listMailAccounts } from "@/lib/mail/tokens";
+import { listMailAccounts, projectMailMessage, publicMailError } from "@/lib/mail/tokens";
 import { findMailAccount } from "@/lib/mail/findAccount";
 import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
@@ -110,15 +110,16 @@ export async function GET(
       transport,
       ok: true,
     });
-    return NextResponse.json(result.data);
+    return NextResponse.json(projectMailMessage(result.data, account));
   }
 
   const status = mailErrorStatus(result.error.code);
+  const safeError = publicMailError(result.error);
   recordProviderFailure(
     timing,
     {
-      code: result.error.code,
-      message: result.error.message,
+      code: safeError.code,
+      message: safeError.message,
       status: result.error.status ?? status,
     },
     Date.now() - providerStartedAt,
@@ -129,7 +130,7 @@ export async function GET(
     ok: false,
     code: result.error.code,
   });
-  return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
+  return NextResponse.json({ error: safeError.message, code: safeError.code }, { status });
 }
 
 export async function POST(
@@ -232,8 +233,9 @@ export async function POST(
 
   if (!result.ok) {
     const status = mailErrorStatus(result.error.code);
+    const safeError = publicMailError(result.error);
     if (status >= 500) {
-      captureRouteError(new Error(result.error.message), {
+      captureRouteError(new Error(safeError.message), {
         route: "/api/mail/message/[id]",
         operation: body.action,
         area: "mail",
@@ -249,7 +251,7 @@ export async function POST(
       ok: false,
       code: result.error.code,
     });
-    return NextResponse.json({ error: result.error.message, code: result.error.code }, { status });
+    return NextResponse.json({ error: safeError.message, code: safeError.code }, { status });
   }
 
   const attachment = body.action === "route-attachment-library" ? body.attachment : undefined;
@@ -314,7 +316,8 @@ export async function POST(
     if (mailErrorStatus(attachmentResult.error.code) !== 501) {
       const status = mailErrorStatus(attachmentResult.error.code);
       if (status >= 500) {
-        captureRouteError(new Error(attachmentResult.error.message), {
+        const safeError = publicMailError(attachmentResult.error);
+        captureRouteError(new Error(safeError.message), {
           route: "/api/mail/message/[id]",
           operation: "download_mail_attachment",
           area: "mail",
@@ -324,7 +327,8 @@ export async function POST(
           code: attachmentResult.error.code,
         });
       }
-      return NextResponse.json({ error: attachmentResult.error.message, code: attachmentResult.error.code }, { status });
+      const safeError = publicMailError(attachmentResult.error);
+      return NextResponse.json({ error: safeError.message, code: safeError.code }, { status });
     }
   }
 

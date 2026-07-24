@@ -13,8 +13,8 @@ describe("mailAccountQuery", () => {
       mailAccountQuery({
         provider: "gmail",
         accountEmail: "user@gmail.com",
-        connectedAccountId: "ca_abc123",
+        connectionId: "axis-connection-123",
       }),
-    ).toBe("provider=gmail&email=user%40gmail.com&accountId=ca_abc123");
+    ).toBe("provider=gmail&email=user%40gmail.com&accountId=axis-connection-123");
   });
 });

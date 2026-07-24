@@ -9,8 +9,12 @@
 // confirmed against a live connected account — completing a real Gmail/
 // Outlook OAuth grant via Composio is a user step (see plan). Input argument
 // schemas ARE confirmed live against Composio's /tools/{slug} endpoint.
-import { createClient } from "@/lib/supabase/server";
-import { executeTool, ComposioError } from "@/lib/integrations/composio";
+import { ComposioError } from "@/lib/integrations/composio";
+import {
+  executeVerifiedComposioTool,
+  listAuthorizedComposioConnections,
+  listVerifiedComposioConnections,
+} from "@/lib/integrations/composio-identity";
 import { GMAIL_COMPOSIO_TOOLS, OUTLOOK_COMPOSIO_TOOLS } from "@/lib/integrations/composio-mail-tools";
 import { extractBody, extractGmailAttachments, type GmailPayload, type MailAttachment, type MailMessage, type MailMessageFull } from "./gmail";
 import { normalizeMailDate } from "./dates";
@@ -43,28 +47,23 @@ export type ComposioMailAccount = {
   provider: "gmail" | "outlook";
   mailEmail: string;
   via: "composio";
-  connectedAccountId: string;
+  connectionId: string;
 };
 
-export async function listComposioMailAccounts(userId: string): Promise<ComposioMailAccount[]> {
-  const supabase = await createClient();
-  // Don't gate message listing on account_label being resolved — the label is
-  // cosmetic (filled lazily by the status route) and requiring it left a
-  // freshly-connected, ACTIVE inbox showing no mail until that round-trip
-  // landed. List as soon as ACTIVE; fall back to a generic label.
-  const { data, error } = await supabase
-    .from("composio_connections")
-    .select("toolkit, connected_account_id, account_label")
-    .eq("user_id", userId)
-    .eq("status", "ACTIVE")
-    .in("toolkit", ["gmail", "outlook"]);
-  if (error) throw error;
-
-  return (data ?? []).map((row) => ({
-    provider: row.toolkit as "gmail" | "outlook",
-    mailEmail: (row.account_label as string | null) ?? "Connected account",
+export async function listComposioMailAccounts(
+  userId: string,
+  options: { verifyRemote?: boolean } = {},
+): Promise<ComposioMailAccount[]> {
+  // Cache-only reads use private local authority; any provider I/O takes the
+  // exact private remote-proof path below immediately before dispatch.
+  const connections = options.verifyRemote === false
+    ? await listAuthorizedComposioConnections(userId, ["gmail", "outlook"])
+    : await listVerifiedComposioConnections(userId, ["gmail", "outlook"]);
+  return connections.map((connection) => ({
+    provider: connection.toolkit as "gmail" | "outlook",
+    mailEmail: connection.accountLabel ?? "Connected account",
     via: "composio" as const,
-    connectedAccountId: row.connected_account_id as string,
+    connectionId: connection.id,
   }));
 }
 
@@ -417,7 +416,6 @@ function gmailSnippet(m: Record<string, unknown>): string {
 export function normalizeGmailMessage(
   m: Record<string, unknown>,
   accountEmail: string,
-  connectedAccountId?: string,
 ): MailMessage | null {
   const id = messageIdentity(m);
   if (!id) return null;
@@ -438,14 +436,12 @@ export function normalizeGmailMessage(
     isUnread: Array.isArray(m.labelIds) ? (m.labelIds as string[]).includes("UNREAD") : false,
     provider: "gmail",
     accountEmail,
-    ...(connectedAccountId ? { connectedAccountId } : {}),
   };
 }
 
 export function normalizeOutlookMessage(
   m: Record<string, unknown>,
   accountEmail: string,
-  connectedAccountId?: string,
 ): MailMessage | null {
   const id = m.id as string | undefined;
   if (!id) return null;
@@ -461,7 +457,6 @@ export function normalizeOutlookMessage(
     isUnread: m.isRead === false,
     provider: "outlook",
     accountEmail,
-    ...(connectedAccountId ? { connectedAccountId } : {}),
   };
 }
 
@@ -470,9 +465,8 @@ export function normalizeOutlookMessage(
 export function normalizeGmailMessageFull(
   m: Record<string, unknown>,
   accountEmail: string,
-  connectedAccountId?: string,
 ): MailMessageFull | null {
-  const base = normalizeGmailMessage(m, accountEmail, connectedAccountId);
+  const base = normalizeGmailMessage(m, accountEmail);
   if (!base) return null;
   // Prefer the native payload shape (same as the direct Gmail adapter); fall
   // back to Composio's flattened convenience fields and body objects.
@@ -500,9 +494,8 @@ export function normalizeGmailMessageFull(
 export function normalizeOutlookMessageFull(
   m: Record<string, unknown>,
   accountEmail: string,
-  connectedAccountId?: string,
 ): MailMessageFull | null {
-  const base = normalizeOutlookMessage(m, accountEmail, connectedAccountId);
+  const base = normalizeOutlookMessage(m, accountEmail);
   if (!base) return null;
   const { body, bodyIsHtml } = extractProviderBody(m);
   return { ...base, body, bodyIsHtml, attachments: extractGenericAttachments(m) };
@@ -531,7 +524,7 @@ export function composioMailErrorStatus(error: string): number {
  */
 export async function getComposioMessage(
   toolkit: MailToolkit,
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
   messageId: string,
   accountEmail: string,
@@ -543,10 +536,11 @@ export async function getComposioMessage(
   let lastError: string | null = null;
   for (const toolSlug of toolSlugs) {
     for (const args of argVariants) {
-      const res = await executeTool({
+      const res = await executeVerifiedComposioTool({
         toolSlug,
-        connectedAccountId,
         userId,
+        toolkit,
+        connectionId,
         arguments: args,
       });
       if (!res.successful) {
@@ -555,7 +549,7 @@ export async function getComposioMessage(
       }
       const data = res.data as Record<string, unknown>;
       const raw = unwrapMessageRecord(data);
-      const message = normalize(raw, accountEmail, connectedAccountId);
+      const message = normalize(raw, accountEmail);
       if (message) return message;
     }
   }
@@ -568,15 +562,16 @@ export async function getComposioMessage(
 
 export async function listComposioInbox(
   toolkit: MailToolkit,
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
   accountEmail: string,
   opts?: { pageToken?: string; skip?: number },
 ): Promise<{ messages: MailMessage[]; nextPageToken?: string; hasMore?: boolean }> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: LIST_TOOL[toolkit],
-    connectedAccountId,
     userId,
+    toolkit,
+    connectionId,
     arguments:
       toolkit === "gmail"
         ? {
@@ -600,7 +595,7 @@ export async function listComposioInbox(
   const rawMessages = (data.messages ?? data.value ?? []) as Record<string, unknown>[];
   const normalize = toolkit === "gmail" ? normalizeGmailMessage : normalizeOutlookMessage;
   const messages = rawMessages
-    .map((m) => normalize(m, accountEmail, connectedAccountId))
+    .map((m) => normalize(m, accountEmail))
     .filter((m): m is MailMessage => m !== null);
   const nextPageToken =
     (typeof data.nextPageToken === "string" && data.nextPageToken) ||
@@ -615,16 +610,17 @@ export async function listComposioInbox(
 
 export async function sendComposioMail(
   toolkit: MailToolkit,
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
   to: string,
   subject: string,
   body: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: SEND_TOOL[toolkit],
-    connectedAccountId,
     userId,
+    toolkit,
+    connectionId,
     arguments:
       toolkit === "gmail"
         ? buildGmailSendArguments(to, subject, body)
@@ -634,15 +630,16 @@ export async function sendComposioMail(
 }
 
 export async function markComposioGmailReadState(
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
   messageId: string,
   unread: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: GMAIL_MODIFY_LABELS_TOOL,
-    connectedAccountId,
     userId,
+    toolkit: "gmail",
+    connectionId,
     arguments: {
       user_id: "me",
       message_id: messageId,
@@ -654,14 +651,15 @@ export async function markComposioGmailReadState(
 }
 
 export async function archiveComposioGmailMessage(
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
   messageId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: GMAIL_MODIFY_LABELS_TOOL,
-    connectedAccountId,
     userId,
+    toolkit: "gmail",
+    connectionId,
     arguments: {
       user_id: "me",
       message_id: messageId,
@@ -672,14 +670,15 @@ export async function archiveComposioGmailMessage(
 }
 
 export async function trashComposioGmailMessage(
-  connectedAccountId: string,
+  connectionId: string,
   userId: string,
   messageId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await executeTool({
+  const res = await executeVerifiedComposioTool({
     toolSlug: GMAIL_MOVE_TO_TRASH_TOOL,
-    connectedAccountId,
     userId,
+    toolkit: "gmail",
+    connectionId,
     arguments: {
       user_id: "me",
       message_id: messageId,

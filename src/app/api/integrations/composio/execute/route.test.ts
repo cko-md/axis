@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { POST } from "./route";
 
 const executeTool = vi.fn();
-const memoryRateLimit = vi.fn();
+const redisRateLimit = vi.fn();
 
 vi.mock("@/lib/integrations/composio", () => ({
   executeTool: (...args: unknown[]) => executeTool(...args),
@@ -23,7 +23,7 @@ vi.mock("@/lib/integrations/composio-allowlist", () => ({
 }));
 
 vi.mock("@/lib/ratelimit", () => ({
-  memoryRateLimit: (...args: unknown[]) => memoryRateLimit(...args),
+  redisRateLimit: (...args: unknown[]) => redisRateLimit(...args),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -61,7 +61,7 @@ function request(body: Record<string, unknown>) {
 describe("POST /api/integrations/composio/execute", () => {
   beforeEach(() => {
     executeTool.mockReset();
-    memoryRateLimit.mockReturnValue({ success: true });
+    redisRateLimit.mockResolvedValue({ success: true });
   });
 
   it("rejects tools outside the allowlist", async () => {

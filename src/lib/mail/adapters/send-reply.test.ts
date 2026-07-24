@@ -29,7 +29,7 @@ const gmailComposioCtx: MailAccountContext = {
   provider: "gmail",
   mailEmail: "me@example.com",
   transport: "composio",
-  connectedAccountId: "conn-1",
+  connectionId: "axis-conn-1",
 };
 
 const outlookComposioCtx: MailAccountContext = {
@@ -37,7 +37,7 @@ const outlookComposioCtx: MailAccountContext = {
   provider: "outlook",
   mailEmail: "me@example.com",
   transport: "composio",
-  connectedAccountId: "conn-2",
+  connectionId: "axis-conn-2",
 };
 
 
@@ -50,8 +50,7 @@ describe("mail adapter reply parity", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns an explicit warning when Composio Gmail replies degrade to send", async () => {
-    mocks.sendComposioMail.mockResolvedValueOnce({ ok: true });
+  it("keeps Composio Gmail replies disabled pending the mutation approval kernel", async () => {
 
     const result = await gmailComposioAdapter.replyToMessage(gmailComposioCtx, {
       to: "you@example.com",
@@ -61,20 +60,11 @@ describe("mail adapter reply parity", () => {
       threadId: "thread-1",
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.data.warning).toMatch(/Composio Gmail threading/);
-    expect(mocks.sendComposioMail).toHaveBeenCalledWith(
-      "gmail",
-      "conn-1",
-      "user-1",
-      "you@example.com",
-      "Re: Hello",
-      "Reply",
-    );
+    expect(result.ok).toBe(false);
+    expect(mocks.sendComposioMail).not.toHaveBeenCalled();
   });
 
-  it("returns an explicit warning when Composio Outlook replies degrade to send", async () => {
-    mocks.sendComposioMail.mockResolvedValueOnce({ ok: true });
+  it("keeps Composio Outlook replies disabled pending the mutation approval kernel", async () => {
 
     const result = await outlookComposioAdapter.replyToMessage(outlookComposioCtx, {
       to: "you@example.com",
@@ -83,8 +73,8 @@ describe("mail adapter reply parity", () => {
       inReplyTo: "message-1",
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.data.warning).toMatch(/Composio Outlook threading/);
+    expect(result.ok).toBe(false);
+    expect(mocks.sendComposioMail).not.toHaveBeenCalled();
   });
 
 });

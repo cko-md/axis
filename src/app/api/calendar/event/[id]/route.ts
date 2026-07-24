@@ -180,9 +180,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (row.gcal_event_id) {
     const gcalEventId = row.gcal_event_id;
     if (googleTransport.transport === "composio") {
-      const connectedAccountId = googleTransport.connectedAccountId;
+      const connectionId = googleTransport.connectionId;
       googleDeletePromise = deleteExternal("google", () =>
-        deleteComposioEvent("googlecalendar", connectedAccountId, user.id, gcalEventId),
+        deleteComposioEvent("googlecalendar", connectionId, user.id, gcalEventId),
       );
     } else {
       missingCleanupConnection = true;
@@ -193,9 +193,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (row.outlook_event_id) {
     const outlookEventId = row.outlook_event_id;
     if (outlookTransport.transport === "composio") {
-      const connectedAccountId = outlookTransport.connectedAccountId;
+      const connectionId = outlookTransport.connectionId;
       outlookDeletePromise = deleteExternal("outlook", () =>
-        deleteComposioEvent("outlook", connectedAccountId, user.id, outlookEventId),
+        deleteComposioEvent("outlook", connectionId, user.id, outlookEventId),
       );
     } else {
       missingCleanupConnection = true;

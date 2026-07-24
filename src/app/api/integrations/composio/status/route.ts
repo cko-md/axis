@@ -1,62 +1,83 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type { Database } from "@/lib/supabase/database.types";
-import { getConnectedAccount, isSupportedToolkit, resolveProfileLabel } from "@/lib/integrations/composio";
+import {
+  listComposioConnectionProjections,
+  refreshComposioConnectionAuthority,
+} from "@/lib/integrations/composio-identity";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { redisRateLimit } from "@/lib/ratelimit";
 
-// Statuses Composio won't transition out of on its own — no point repolling.
-const DEAD_END_STATUSES = new Set(["FAILED", "EXPIRED", "REVOKED"]);
+const STATUS_REFRESH_LIMIT = 8;
+const STATUS_REFRESH_CONCURRENCY = 3;
+const STATUS_REFRESH_DEADLINE_MS = 15_000;
 
-function errorStatus(err: unknown): number {
-  if (!err || typeof err !== "object" || !("status" in err)) return 502;
-  const status = Number((err as { status: unknown }).status);
-  return Number.isFinite(status) ? status : 502;
+async function refreshBounded(userId: string, connections: Awaited<ReturnType<typeof listComposioConnectionProjections>>) {
+  const output = new Array(connections.length);
+  let cursor = 0;
+  const deadlineAt = Date.now() + STATUS_REFRESH_DEADLINE_MS;
+  await Promise.all(Array.from({ length: Math.min(STATUS_REFRESH_CONCURRENCY, connections.length) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= connections.length) return;
+      const connection = connections[index];
+      if (Date.now() >= deadlineAt) {
+        output[index] = { ...connection, status: "UNVERIFIED", remoteVerifiedAt: null };
+        continue;
+      }
+      output[index] = await refreshComposioConnectionAuthority({ userId, connectionId: connection.id })
+        ?? { ...connection, status: "UNVERIFIED", remoteVerifiedAt: null };
+    }
+  }));
+  return output;
 }
 
 // GET /api/integrations/composio/status
-// Returns this user's Composio connections, refreshing any non-dead-end rows
-// against Composio first (no webhook listener yet — poll-on-read instead).
-// The first time a row reaches ACTIVE it also resolves + persists the
-// account's email (mail toolkits only) so Mail can display it.
-export async function GET() {
+// Polls each opaque local connection id independently. A stale ACTIVE row or a
+// different connection for the same toolkit cannot satisfy an OAuth attempt.
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ connections: [] });
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    return NextResponse.json({ error: "Authentication is temporarily unavailable." }, { status: 503 });
+  }
+  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const rawCursor = req.nextUrl.searchParams.get("cursor");
+  const offset = rawCursor === null ? 0 : Number(rawCursor);
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10_000) {
+    return NextResponse.json({ error: "Invalid status cursor" }, { status: 400 });
+  }
+  let admission;
+  try {
+    admission = await redisRateLimit(user.id, 30, "1 m", "axis-composio-status");
+  } catch {
+    return NextResponse.json({ error: "Provider status admission is unavailable." }, { status: 503 });
+  }
+  if (!admission) return NextResponse.json({ error: "Provider status admission is unavailable." }, { status: 503 });
+  if (!admission.success) return NextResponse.json({ error: "Provider status rate limit exceeded." }, { status: 429 });
 
-  const { data: rows } = await supabase
-    .from("composio_connections")
-    .select("id, toolkit, connected_account_id, status, account_label, created_at")
-    .eq("user_id", user.id);
-
-  const connections = await Promise.all(
-    (rows ?? []).map(async (row) => {
-      if (DEAD_END_STATUSES.has(row.status)) return row;
-      try {
-        const live = await getConnectedAccount(row.connected_account_id);
-        const patch: Record<string, unknown> = {};
-        if (live.status !== row.status) patch.status = live.status;
-        if (live.status === "ACTIVE" && !row.account_label && isSupportedToolkit(row.toolkit)) {
-          const email = await resolveProfileLabel(row.toolkit, row.connected_account_id, user.id);
-          if (email) patch.account_label = email;
-        }
-        if (Object.keys(patch).length > 0) {
-          patch.updated_at = new Date().toISOString();
-          await supabase.from("composio_connections").update(patch as Database["public"]["Tables"]["composio_connections"]["Update"]).eq("id", row.id);
-        }
-        return { ...row, ...patch };
-      } catch (err) {
-        captureRouteError(err, {
-          route: "/api/integrations/composio/status",
-          operation: "refresh_connection",
-          area: "integrations",
-          provider: "composio",
-          status: errorStatus(err),
-          tags: { toolkit: row.toolkit, connectionStatus: row.status },
-        });
-        return row;
-      }
-    }),
-  );
-
-  return NextResponse.json({ connections });
+  try {
+    const projections = await listComposioConnectionProjections(user.id, {
+      limit: STATUS_REFRESH_LIMIT + 1,
+      offset,
+    });
+    // Bound refresh avoids letting a corrupted/legacy account set create an
+    // unbounded provider fan-out during a normal status poll.
+    const visible = projections.slice(0, STATUS_REFRESH_LIMIT);
+    const connections = await refreshBounded(user.id, visible);
+    const hasMore = projections.length > STATUS_REFRESH_LIMIT;
+    return NextResponse.json({
+      connections,
+      truncated: hasMore,
+      nextCursor: hasMore ? String(offset + STATUS_REFRESH_LIMIT) : null,
+    });
+  } catch (error) {
+    captureRouteError(error, {
+      route: "/api/integrations/composio/status",
+      operation: "refresh_connection_authority",
+      area: "integrations",
+      provider: "composio",
+      status: 503,
+    });
+    return NextResponse.json({ connections: [], error: "Connection status is unavailable." }, { status: 503 });
+  }
 }

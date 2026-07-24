@@ -52,21 +52,22 @@ const FULL: ProviderCapabilities = {
 const COMPOSIO_GMAIL: ProviderCapabilities = {
   list: true,
   read: true,
-  send: true,
-  reply: true,
-  markRead: true,
-  archive: true,
-  delete: true,
+  send: false,
+  reply: false,
+  markRead: false,
+  archive: false,
+  delete: false,
   attachmentDownload: false,
 };
 
-// Composio Outlook list/read/send/reply are wired, but per-message mutations
-// stay disabled until an active Outlook account exists for live validation.
+// Phase 1A containment leaves every Composio Mail write disabled pending
+// explicit provider-mutation approval. Cache-backed listing and detail reads
+// remain available through the verified local-connection dispatch boundary.
 const COMPOSIO_OUTLOOK: ProviderCapabilities = {
   list: true,
   read: true,
-  send: true,
-  reply: true,
+  send: false,
+  reply: false,
   markRead: false,
   archive: false,
   delete: false,

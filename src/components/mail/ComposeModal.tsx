@@ -11,6 +11,7 @@ export interface ComposeDraft {
   provider?: MailProvider;
   mailEmail?: string;
   via?: "direct" | "composio";
+  connectionId?: string;
   inReplyTo?: string;
   references?: string;
   threadId?: string;
@@ -20,6 +21,7 @@ interface MailAccount {
   provider: "gmail" | "outlook";
   mailEmail: string;
   via?: "composio";
+  connectionId?: string;
 }
 
 type TransportHint = "direct" | "composio";
@@ -29,7 +31,7 @@ function accountTransport(account: MailAccount): TransportHint {
 }
 
 function accountKey(account: MailAccount): string {
-  return `${account.provider}|${accountTransport(account)}|${account.mailEmail}`;
+  return `${account.provider}|${accountTransport(account)}|${account.mailEmail}|${account.connectionId ?? ""}`;
 }
 
 function accountLabel(account: MailAccount): string {
@@ -69,9 +71,10 @@ export function ComposeModal({
   const [via, setVia] = useState<TransportHint>(
     initialAccount ? accountTransport(initialAccount) : draft.via ?? "direct",
   );
+  const [connectionId, setConnectionId] = useState(initialAccount?.connectionId ?? draft.connectionId ?? "");
   const [sending, setSending] = useState(false);
   const accountMissing = !accounts.some(
-    (a) => a.provider === provider && a.mailEmail === mailEmail && accountTransport(a) === via,
+    (a) => a.provider === provider && a.mailEmail === mailEmail && accountTransport(a) === via && a.connectionId === connectionId,
   );
   const composioReplyFallback = isReply && via === "composio";
 
@@ -108,6 +111,7 @@ export function ComposeModal({
           provider,
           mailEmail,
           via,
+          connectionId,
           inReplyTo: draft.inReplyTo,
           references: draft.references,
           threadId: draft.threadId,
@@ -173,7 +177,7 @@ export function ComposeModal({
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <label style={{ fontSize: 11, color: "var(--ink-faint)", width: 52, flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>FROM</label>
               <select
-                value={`${provider}|${via}|${mailEmail}`}
+                value={`${provider}|${via}|${mailEmail}|${connectionId}`}
                 disabled={isReply}
                 onChange={(e) => {
                   const account = accounts.find((a) => accountKey(a) === e.target.value);
@@ -181,6 +185,7 @@ export function ComposeModal({
                   setProvider(account.provider);
                   setMailEmail(account.mailEmail);
                   setVia(accountTransport(account));
+                  setConnectionId(account.connectionId ?? "");
                 }}
                 style={{ ...inputStyle, cursor: isReply ? "default" : "pointer", opacity: isReply ? 0.75 : 1 }}
               >

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 91,
+  "migrationCount": 93,
   "latest": {
-    "version": "20260722064615",
-    "file": "supabase/migrations/20260722064615_user_settings_kv.sql",
-    "sha256": "e69426bd526dc8d2b749d78a882a9d2adc126b8fa3215609870cf8ed2013bfae"
+    "version": "20260723210001",
+    "file": "supabase/migrations/20260723210001_composio_connection_identity_contract.sql",
+    "sha256": "6d6b54c0fdfa0642a2239ce1dfb0614ea0706b7dfb2664fed70a2524dac7d82b"
   },
   "migrations": [
     {
@@ -461,6 +461,16 @@
       "version": "20260722064615",
       "file": "supabase/migrations/20260722064615_user_settings_kv.sql",
       "sha256": "e69426bd526dc8d2b749d78a882a9d2adc126b8fa3215609870cf8ed2013bfae"
+    },
+    {
+      "version": "20260723210000",
+      "file": "supabase/migrations/20260723210000_composio_connection_identity_expand.sql",
+      "sha256": "ed149e79d3286498e76336fdeb870ca0ee4f5b5d37e364891a942ac5478d06b5"
+    },
+    {
+      "version": "20260723210001",
+      "file": "supabase/migrations/20260723210001_composio_connection_identity_contract.sql",
+      "sha256": "6d6b54c0fdfa0642a2239ce1dfb0614ea0706b7dfb2664fed70a2524dac7d82b"
     }
   ]
 }

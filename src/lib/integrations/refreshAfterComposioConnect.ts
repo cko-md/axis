@@ -6,6 +6,7 @@
 import type { SupportedToolkit } from "./composio";
 
 export type ComposioConnectionRow = {
+  id: string;
   toolkit: string;
   status: string;
   account_label?: string | null;
@@ -49,6 +50,22 @@ export async function waitForComposioToolkitActive(
     if (i < attempts - 1) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
+  }
+  return false;
+}
+
+/** Wait for the exact opaque connection attempt, never merely its toolkit. */
+export async function waitForComposioConnectionActive(
+  connectionId: string,
+  options: { attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+  const attempts = options.attempts ?? 8;
+  const delayMs = options.delayMs ?? 2500;
+  for (let i = 0; i < attempts; i++) {
+    const connection = (await fetchComposioConnections()).find((candidate) => candidate.id === connectionId);
+    if (connection?.status === "ACTIVE") return true;
+    if (connection && DEAD_STATUSES.has(connection.status)) return false;
+    if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   return false;
 }

@@ -1,3 +1,4 @@
+import "server-only";
 // Server-only Composio client. Composio holds the actual OAuth tokens for each
 // connected toolkit (Gmail, Outlook, etc.) — we only ever store the toolkit
 // name + Composio's `connected_account_id` + status, mapped 1:1 to our
@@ -6,6 +7,42 @@
 import { optionalEnv } from "@/lib/env";
 
 const COMPOSIO_BASE = "https://backend.composio.dev/api/v3";
+const COMPOSIO_V31_BASE = "https://backend.composio.dev/api/v3.1";
+const MAX_COMPOSIO_RESPONSE_BYTES = 256 * 1024;
+
+async function boundedJson<T>(res: Response): Promise<T> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_COMPOSIO_RESPONSE_BYTES) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ComposioError("Composio response exceeded the safe size limit", 502);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new ComposioError("Composio returned an empty response body", 502);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_COMPOSIO_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new ComposioError("Composio response exceeded the safe size limit", 502);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    throw new ComposioError("Composio returned invalid JSON", 502);
+  }
+}
 
 // Toolkits the app's connect/execute routes will broker. Extend as more
 // domains (calendar, contacts, spotify, strava, ...) migrate onto Composio.
@@ -51,14 +88,29 @@ async function composioFetch<T>(path: string, init: RequestInit = {}): Promise<T
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(8_000),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ComposioError(`Composio ${path} failed: ${res.status} ${text.slice(0, 300)}`, res.status);
+    // Provider responses can contain OAuth diagnostics and account data. Keep
+    // the error safe for route responses and Sentry; status/path metadata is
+    // enough for observability and callers must never surface the body.
+    await res.body?.cancel().catch(() => undefined);
+    throw new ComposioError(`Composio request failed (${res.status})`, res.status);
   }
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return boundedJson<T>(res);
+}
+
+async function composioV31Fetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${COMPOSIO_V31_BASE}${path}`, {
+    headers: { "x-api-key": getApiKey() },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ComposioError(`Composio request failed (${res.status})`, res.status);
+  }
+  return boundedJson<T>(res);
 }
 
 export type ComposioToolkit = {
@@ -84,39 +136,45 @@ export type ComposioAuthConfig = {
 // connect to a toolkit. For most toolkits we lazily create one Composio-
 // managed auth_config (no client_id/secret of ours required — Composio
 // brokers the OAuth app itself) and reuse it for every user. A few toolkits
-// (CUSTOM_AUTH_TOOLKITS) don't offer managed auth, so the caller must pass
-// `custom` — our own OAuth client credentials — and we register those as a
-// "use_custom_auth" auth_config instead.
-//
-// NOTE: the use_custom_auth request shape below (credentials.client_id/
-// client_secret nested under auth_config) is our best read of Composio's API
-// — it was not exercised against a live POST during implementation (doing so
-// would have meant putting a real client_secret on a command line). Verify
-// it against a real call the first time a googlecontacts connect is tested.
+// (CUSTOM_AUTH_TOOLKITS) don't offer managed auth. AXIS does not create those
+// configurations at request time: Composio v3.1 custom credentials require a
+// toolkit-specific auth scheme and required-field discovery, so guessing a
+// generic payload would be an unsafe provider-side effect. They must use an
+// owner-configured auth-config id created and validated in the Composio
+// dashboard instead (see custom-auth-configs documentation).
 export async function getOrCreateAuthConfig(
   toolkitSlug: string,
-  custom?: { clientId: string; clientSecret: string },
 ): Promise<string> {
+  if ((CUSTOM_AUTH_TOOLKITS as readonly string[]).includes(toolkitSlug)) {
+    throw new ComposioError("Custom auth requires an owner-configured Composio auth config", 503);
+  }
   const existing = await composioFetch<{ items: ComposioAuthConfig[] }>(
     `/auth_configs?toolkit_slug=${encodeURIComponent(toolkitSlug)}&limit=10`,
   );
-  const reusable = existing.items.find((c) => (custom ? !c.is_composio_managed : c.is_composio_managed));
+  const reusable = existing.items.find((c) => c.toolkit?.slug === toolkitSlug && c.is_composio_managed);
   if (reusable) return reusable.id;
 
   const created = await composioFetch<{ auth_config: { id: string } }>(`/auth_configs`, {
     method: "POST",
     body: JSON.stringify({
       toolkit: { slug: toolkitSlug },
-      auth_config: custom
-        ? {
-            type: "use_custom_auth",
-            name: `axis-${toolkitSlug}`,
-            credentials: { client_id: custom.clientId, client_secret: custom.clientSecret },
-          }
-        : { type: "use_composio_managed_auth", name: `axis-${toolkitSlug}` },
+      auth_config: { type: "use_composio_managed_auth", name: `axis-${toolkitSlug}` },
     }),
   });
-  return created.auth_config.id;
+  const createdId = created.auth_config.id;
+  await assertAuthConfigToolkit(createdId, toolkitSlug);
+  return createdId;
+}
+
+/** Bind an auth-config id to the requested toolkit before it enters authority. */
+export async function assertAuthConfigToolkit(authConfigId: string, toolkitSlug: string): Promise<void> {
+  const configs = await composioFetch<{ items: ComposioAuthConfig[] }>(
+    `/auth_configs?toolkit_slug=${encodeURIComponent(toolkitSlug)}&limit=100`,
+  );
+  const config = configs.items.find((item) => item.id === authConfigId);
+  if (!config || config.toolkit?.slug !== toolkitSlug) {
+    throw new ComposioError("Composio auth config did not match toolkit", 403);
+  }
 }
 
 export type InitiateConnectionResult = {
@@ -191,11 +249,49 @@ export async function initiateConnection(opts: {
 export type ConnectedAccount = {
   id: string;
   status: string;
-  toolkit?: { slug: string };
+  toolkit?: { slug?: string };
+  /** Composio returns this on connected-account reads; never expose it to a client. */
+  user_id?: string;
+  /** Tolerated for API-version compatibility, still verified exactly when present. */
+  userId?: string;
+  auth_config?: { id?: string };
+  experimental?: { account_type?: "PRIVATE" | "PUBLIC" };
+  is_disabled?: boolean;
 };
 
 export async function getConnectedAccount(connectedAccountId: string): Promise<ConnectedAccount> {
   return composioFetch<ConnectedAccount>(`/connected_accounts/${encodeURIComponent(connectedAccountId)}`);
+}
+
+/**
+ * v3.1 exact private-account read. The six server-side filters prevent a
+ * response for another user/toolkit/config from becoming an authority input;
+ * the result is still revalidated by the identity resolver before use.
+ */
+export async function getPrivateConnectedAccountExact(input: {
+  toolkit: SupportedToolkit;
+  userId: string;
+  authConfigId: string;
+  connectedAccountId: string;
+  status?: string | null;
+}): Promise<ConnectedAccount> {
+  const params = new URLSearchParams({
+    toolkit_slugs: input.toolkit,
+    user_ids: input.userId,
+    auth_config_ids: input.authConfigId,
+    connected_account_ids: input.connectedAccountId,
+    account_type: "PRIVATE",
+    limit: "2",
+  });
+  if (input.status !== null) params.set("statuses", input.status ?? "ACTIVE");
+  const response = await composioV31Fetch<{ items?: unknown; total?: unknown; next_cursor?: unknown }>(`/connected_accounts?${params.toString()}`);
+  if (response.next_cursor != null || (typeof response.total === "number" && response.total !== 1)) {
+    throw new ComposioError("Composio private account did not resolve uniquely", 403);
+  }
+  if (!Array.isArray(response.items) || response.items.length !== 1) {
+    throw new ComposioError("Composio private account was not uniquely resolved", 403);
+  }
+  return response.items[0] as ConnectedAccount;
 }
 
 export async function deleteConnectedAccount(connectedAccountId: string): Promise<void> {
@@ -208,7 +304,8 @@ export type ToolExecuteResult = {
   error?: string | null;
 };
 
-export async function executeTool(opts: {
+/** Raw provider execution primitive; only composio-identity may import this. */
+export async function executeRawComposioTool(opts: {
   toolSlug: string;
   connectedAccountId: string;
   userId: string;
@@ -222,55 +319,4 @@ export async function executeTool(opts: {
       arguments: opts.arguments ?? {},
     }),
   });
-}
-
-// The tool whose response identifies *whose* account this is (almost always
-// an email address), called once the first time a connection goes ACTIVE so
-// the UI can show "Connected as you@example.com" instead of a bare toolkit
-// name. googlecontacts has no tool that reliably returns the connected
-// account's own identity, so it's handled as a special case below rather
-// than through this map.
-const PROFILE_TOOL: Partial<Record<SupportedToolkit, string>> = {
-  gmail: "GMAIL_GET_PROFILE",
-  outlook: "OUTLOOK_GET_PROFILE",
-  googlecalendar: "GOOGLECALENDAR_LIST_CALENDARS",
-};
-
-function firstString(obj: unknown, keys: string[]): string | null {
-  if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) {
-    const v = (obj as Record<string, unknown>)[k];
-    if (typeof v === "string" && v.includes("@")) return v;
-  }
-  return null;
-}
-
-// Best-effort label resolution, generalized across all supported toolkits
-// (lifted out of the Mail-specific module it started in, since Calendar and
-// Contacts need it too). googlecalendar resolves via its calendar list — the
-// "primary" calendar's `id` field *is* the user's email, the standard way to
-// identify whose Google Calendar this is. googlecontacts has no equivalent
-// tool, so it falls back to a static label — an accepted simplification
-// since a user is only expected to have one Google Contacts connection.
-export async function resolveProfileLabel(
-  toolkit: SupportedToolkit,
-  connectedAccountId: string,
-  userId: string,
-): Promise<string | null> {
-  if (toolkit === "googlecontacts") return "Google Contacts";
-  const toolSlug = PROFILE_TOOL[toolkit];
-  if (!toolSlug) return null;
-  try {
-    const res = await executeTool({ toolSlug, connectedAccountId, userId });
-    if (!res.successful) return null;
-    if (toolkit === "googlecalendar") {
-      const data = res.data as Record<string, unknown>;
-      const items = (data.items ?? []) as Record<string, unknown>[];
-      const primary = items.find((c) => c.primary === true) ?? items[0];
-      return firstString(primary, ["id"]);
-    }
-    return firstString(res.data, ["emailAddress", "email", "mail", "userPrincipalName"]);
-  } catch {
-    return null;
-  }
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { listMailAccounts, type MailProvider } from "@/lib/mail/tokens";
+import { listMailAccounts, publicMailError, type MailProvider } from "@/lib/mail/tokens";
 import { adapterForAccount, toMailContext, mailErrorStatus } from "@/lib/mail/adapters";
 import {
   ProviderTimeoutError,
@@ -17,6 +17,7 @@ interface SendPayload {
   provider: MailProvider;
   mailEmail: string;
   via?: "direct" | "composio";
+  connectionId?: string;
   inReplyTo?: string;
   references?: string;
   threadId?: string;
@@ -38,8 +39,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 422 });
   }
 
-  const { to, subject, body, provider, mailEmail, via, inReplyTo, references, threadId } = payload;
-  if (!to?.trim() || !subject?.trim() || !body?.trim() || !provider || !mailEmail) {
+  const { to, subject, body, provider, mailEmail, via, connectionId, inReplyTo, references, threadId } = payload;
+  if (!to?.trim() || !subject?.trim() || !body?.trim() || !provider || !mailEmail || !connectionId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 422 });
   }
   if (via && via !== "direct" && via !== "composio") {
@@ -61,7 +62,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const account = accounts.find((a) => {
     const transport = a.via === "composio" ? "composio" : "direct";
-    return a.provider === provider && a.mailEmail === mailEmail && (!via || transport === via);
+    return a.provider === provider
+      && a.mailEmail === mailEmail
+      && transport === via
+      && a.connectionId === connectionId;
   });
   if (!account) return NextResponse.json({ error: "Account not connected" }, { status: 403 });
 
@@ -110,12 +114,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true, warning: result.data.warning });
   }
 
+  const safeError = publicMailError(result.error);
   const status = mailErrorStatus(result.error.code);
   recordProviderFailure(
     timing,
     {
-      code: result.error.code,
-      message: result.error.message,
+      code: safeError.code,
+      message: safeError.message,
       status: result.error.status ?? status,
     },
     Date.now() - providerStartedAt,
@@ -127,7 +132,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     code: result.error.code,
   });
   if (status >= 500) {
-    Sentry.captureException(new Error(result.error.message), {
+    Sentry.captureException(new Error(safeError.message), {
       tags: {
         area: "mail",
         route: "/api/mail/send",
@@ -140,7 +145,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
   return NextResponse.json(
-    { error: result.error.message, code: result.error.code, retryable: result.error.retryable },
+    { error: safeError.message, code: safeError.code, retryable: safeError.retryable },
     { status },
   );
 }

@@ -67,7 +67,7 @@ export function validateEventPatch(body: ScheduleEventPatchInput): PatchValidati
 export type ExternalCleanupTransport = "google" | "outlook";
 
 export type CleanupTransportResolution =
-  | { transport: "composio"; connectedAccountId: string }
+  | { transport: "composio"; connectionId: string }
   | { transport: "none" };
 
 const COMPOSIO_PROVIDER_KEY: Record<ExternalCleanupTransport, ComposioCalendarAccount["provider"]> = {
@@ -82,9 +82,13 @@ const COMPOSIO_PROVIDER_KEY: Record<ExternalCleanupTransport, ComposioCalendarAc
 // was skipped instead of silently doing nothing.
 export function resolveCleanupTransport(
   source: ExternalCleanupTransport,
-  composioAccounts: readonly Pick<ComposioCalendarAccount, "provider" | "connectedAccountId">[],
+  composioAccounts: readonly Pick<ComposioCalendarAccount, "provider" | "connectionId">[],
+): CleanupTransportResolution;
+export function resolveCleanupTransport(
+  source: ExternalCleanupTransport,
+  composioAccounts: readonly Pick<ComposioCalendarAccount, "provider" | "connectionId">[],
 ): CleanupTransportResolution {
   const composioAccount = composioAccounts.find((a) => a.provider === COMPOSIO_PROVIDER_KEY[source]);
-  if (composioAccount) return { transport: "composio", connectedAccountId: composioAccount.connectedAccountId };
-  return { transport: "none" };
+  if (!composioAccount) return { transport: "none" };
+  return { transport: "composio", connectionId: composioAccount.connectionId };
 }

@@ -4,20 +4,20 @@ import type { MailAccountRef } from "./tokens";
 
 describe("findMailAccount", () => {
   const accounts: MailAccountRef[] = [
-    { provider: "gmail", mailEmail: "user@gmail.com" },
+    { provider: "gmail", mailEmail: "user@gmail.com", via: "composio", connectionId: "axis-connection-456" },
     {
       provider: "gmail",
       mailEmail: "Connected account",
       via: "composio",
-      connectedAccountId: "ca_123",
+      connectionId: "axis-connection-123",
     },
   ];
 
-  it("matches by connected account id first", () => {
-    expect(findMailAccount(accounts, "gmail", "wrong@example.com", "ca_123")?.via).toBe("composio");
+  it("matches only by local connection id and provider/email binding", () => {
+    expect(findMailAccount(accounts, "gmail", "Connected account", "axis-connection-123")?.via).toBe("composio");
   });
 
-  it("falls back to the sole composio account for placeholder email", () => {
-    expect(findMailAccount(accounts, "gmail", "Connected account")?.connectedAccountId).toBe("ca_123");
+  it("never accepts a display label as a mailbox selector", () => {
+    expect(findMailAccount(accounts, "gmail", "Connected account")).toBeUndefined();
   });
 });

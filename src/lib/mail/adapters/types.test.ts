@@ -14,7 +14,7 @@ describe("toMailContext()", () => {
       provider: "gmail",
       mailEmail: "user@gmail.com",
       transport: "direct",
-      connectedAccountId: undefined,
+      connectionId: undefined,
     });
   });
 
@@ -23,7 +23,7 @@ describe("toMailContext()", () => {
       provider: "outlook",
       mailEmail: "user@outlook.com",
       via: "composio",
-      connectedAccountId: "ca_123",
+      connectionId: "axis-connection-123",
     };
     const ctx = toMailContext("uid2", ref);
     expect(ctx).toEqual({
@@ -31,7 +31,7 @@ describe("toMailContext()", () => {
       provider: "outlook",
       mailEmail: "user@outlook.com",
       transport: "composio",
-      connectedAccountId: "ca_123",
+      connectionId: "axis-connection-123",
     });
   });
 
@@ -43,6 +43,6 @@ describe("toMailContext()", () => {
     };
     const ctx = toMailContext("uid3", ref);
     expect(ctx.transport).toBe("direct");
-    expect(ctx.connectedAccountId).toBeUndefined();
+    expect(ctx.connectionId).toBeUndefined();
   });
 });

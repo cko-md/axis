@@ -112,10 +112,10 @@ describe("normalizeGmailMessage()", () => {
     expect(result!.isUnread).toBe(false);
   });
 
-  it("threads connectedAccountId when provided for multi-account Composio", () => {
+  it("does not embed provider account identity in normalized messages", () => {
     const raw = { id: "msg-ca", subject: "Hi" };
-    const result = normalizeGmailMessage(raw, "user@gmail.com", "ca_xyz");
-    expect(result!.connectedAccountId).toBe("ca_xyz");
+    const result = normalizeGmailMessage(raw, "user@gmail.com");
+    expect(result).not.toHaveProperty("connectedAccountId");
   });
 
   it("uses snippet from messageText when snippet is absent", () => {

@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { listComposioContactsAccounts } from "@/lib/contacts/composio";
 
 type ContactConnection = {
   provider: "google";
@@ -9,12 +10,12 @@ type ContactConnection = {
   status: string;
 };
 
-function captureStatusError(error: unknown, table: string) {
+function captureStatusError(error: unknown) {
   Sentry.captureException(error instanceof Error ? error : new Error("Contacts status query failed"), {
     tags: {
       module: "contacts",
       operation: "status",
-      table,
+      source: "private_authority_membership",
     },
   });
 }
@@ -34,24 +35,21 @@ export async function GET() {
     });
   }
 
-  // Contacts is Composio-only after the direct-adapter removal.
-  const composioResult = await supabase
-    .from("composio_connections")
-    .select("status, account_label")
-    .eq("user_id", user.id)
-    .eq("toolkit", "googlecontacts")
-    .eq("status", "ACTIVE");
-
-  if (composioResult.error) {
-    captureStatusError(composioResult.error, "composio_connections");
+  // Local authority membership is sufficient for this cache/UI projection;
+  // never expose or resolve a provider account id from a status route.
+  let composioAccounts;
+  try {
+    composioAccounts = await listComposioContactsAccounts(user.id);
+  } catch (error) {
+    captureStatusError(error);
     return NextResponse.json({ error: "Status unavailable" }, { status: 500 });
   }
 
   const connections: ContactConnection[] = [];
-  for (const row of composioResult.data ?? []) {
+  for (const account of composioAccounts) {
     connections.push({
       provider: "google",
-      email: (row.account_label as string | null) ?? null,
+      email: account.accountLabel,
       via: "composio",
       status: "ACTIVE",
     });

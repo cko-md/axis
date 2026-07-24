@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import { listMailAccounts } from "@/lib/mail/tokens";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { listMailAccounts, publicMailError } from "@/lib/mail/tokens";
 import { findMailAccount } from "@/lib/mail/findAccount";
 import { adapterForAccount, mailErrorStatus, toMailContext } from "@/lib/mail/adapters";
 import type { MailProvider } from "@/lib/mail/tokens";
@@ -54,6 +55,8 @@ export async function POST(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const admin = createAdminClient();
+  if (!admin) return NextResponse.json({ error: "Saved inbox authority is unavailable.", code: "identity_unavailable" }, { status: 503 });
 
   let accounts;
   try {
@@ -124,7 +127,7 @@ export async function POST(
   if (result.ok) {
     let warning: string | undefined;
     try {
-      await updateCachedMessageAfterAction(supabase, user.id, account, id, action);
+      await updateCachedMessageAfterAction(admin, user.id, account, id, action);
     } catch (cacheError) {
       warning = "The mailbox was updated, but the saved inbox will refresh on the next sync.";
       Sentry.captureException(cacheError, {
@@ -140,12 +143,13 @@ export async function POST(
     return NextResponse.json({ ok: true, warning });
   }
 
+  const safeError = publicMailError(result.error);
   const status = result.error.status ?? mailErrorStatus(result.error.code);
   recordProviderFailure(
     timing,
     {
-      code: result.error.code,
-      message: result.error.message,
+      code: safeError.code,
+      message: safeError.message,
       status: result.error.status ?? status,
     },
     Date.now() - providerStartedAt,
@@ -160,9 +164,9 @@ export async function POST(
 
   return NextResponse.json(
     {
-      error: result.error.message,
-      code: result.error.code,
-      retryable: result.error.retryable,
+      error: safeError.message,
+      code: safeError.code,
+      retryable: safeError.retryable,
     },
     { status },
   );
