@@ -1045,6 +1045,7 @@ export type Database = {
       fund_connections: {
         Row: {
           access_token_enc: string | null
+          authority: string
           created_at: string
           id: string
           institution: string | null
@@ -1055,9 +1056,11 @@ export type Database = {
           status: string
           updated_at: string
           user_id: string
+          verified_at: string | null
         }
         Insert: {
           access_token_enc?: string | null
+          authority?: string
           created_at?: string
           id?: string
           institution?: string | null
@@ -1068,9 +1071,11 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id: string
+          verified_at?: string | null
         }
         Update: {
           access_token_enc?: string | null
+          authority?: string
           created_at?: string
           id?: string
           institution?: string | null
@@ -1081,6 +1086,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+          verified_at?: string | null
         }
         Relationships: []
       }
@@ -3112,6 +3118,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_security_state: {
+        Row: {
+          created_at: string
+          mfa_trust_epoch: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          mfa_trust_epoch?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          mfa_trust_epoch?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_auth_settings: {
         Row: {
           biometric_prompted: boolean
@@ -3407,6 +3434,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      rotate_own_mfa_trust_epoch: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       apply_vector_event: {
         Args: {
           p_client_revision: number

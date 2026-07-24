@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   createPasskey: vi.fn(),
   verifyRegistration: vi.fn(),
   capture: vi.fn(),
+  admit: vi.fn(),
+  rotateEpoch: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -31,6 +33,20 @@ vi.mock("@/lib/ratelimit", () => ({
   redisRateLimit: vi.fn(async () => null),
   memoryRateLimit: vi.fn(() => ({ success: true })),
 }));
+vi.mock("@/lib/admission", () => ({
+  ADMISSION_POLICIES: {
+    passkeyRegister: {
+      name: "passkey-register",
+      limit: 10,
+      window: "10 m",
+      protected: true,
+    },
+  },
+  admit: (...args: unknown[]) => mocks.admit(...args),
+}));
+vi.mock("@/lib/auth/securityState", () => ({
+  rotateMfaTrustEpoch: (...args: unknown[]) => mocks.rotateEpoch(...args),
+}));
 vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: (...args: unknown[]) => mocks.capture(...args),
 }));
@@ -40,7 +56,11 @@ import { POST } from "./route";
 const USER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CHALLENGE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function request(attachment: "platform" | "cross-platform" = "platform") {
+function request(
+  attachment: "platform" | "cross-platform" = "platform",
+  credentialId = "credential_1",
+  padding?: string,
+) {
   return new NextRequest(
     "http://axis.test/api/auth/passkey/register?action=verify",
     {
@@ -50,8 +70,8 @@ function request(attachment: "platform" | "cross-platform" = "platform") {
         challengeId: CHALLENGE_ID,
         deviceName: "Laptop",
         response: {
-          id: "credential_1",
-          rawId: "credential_1",
+          id: credentialId,
+          rawId: credentialId,
           type: "public-key",
           response: {
             attestationObject: "attestation",
@@ -61,6 +81,7 @@ function request(attachment: "platform" | "cross-platform" = "platform") {
           clientExtensionResults: {},
           authenticatorAttachment: attachment,
         },
+        ...(padding ? { padding } : {}),
       }),
     },
   );
@@ -98,6 +119,8 @@ describe("passkey registration route", () => {
       ok: true,
       passkeyId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     });
+    mocks.admit.mockResolvedValue({ kind: "allowed" });
+    mocks.rotateEpoch.mockResolvedValue(2);
   });
 
   it("binds verification to the exact challenge and persists platform attachment", async () => {
@@ -135,5 +158,52 @@ describe("passkey registration route", () => {
     });
     expect(mocks.createPasskey).not.toHaveBeenCalled();
     expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("rotates remembered-device trust before persisting a new passkey", async () => {
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.rotateEpoch).toHaveBeenCalledWith(
+      expect.anything(),
+      "passkey_register",
+    );
+    expect(mocks.rotateEpoch.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createPasskey.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("maps authentication backend failures to 503 rather than unauthenticated", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { code: "AUTH_BACKEND_DOWN" },
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.admit).not.toHaveBeenCalled();
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized registration body before consuming a challenge or rotating trust", async () => {
+    const response = await POST(
+      request("platform", "credential_1", "x".repeat(70_000)),
+    );
+
+    expect(response.status).toBe(413);
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
+    expect(mocks.verifyRegistration).not.toHaveBeenCalled();
+    expect(mocks.rotateEpoch).not.toHaveBeenCalled();
+    expect(mocks.createPasskey).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized credential identifier before consuming the challenge", async () => {
+    const response = await POST(request("platform", "c".repeat(2_048)));
+
+    expect(response.status).toBe(400);
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
+    expect(mocks.verifyRegistration).not.toHaveBeenCalled();
+    expect(mocks.rotateEpoch).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   aiGenerate: vi.fn(),
   aiJSON: vi.fn(),
   captureRouteError: vi.fn(),
+  admit: vi.fn(),
 }));
 
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -45,6 +46,12 @@ vi.mock("@/lib/ai/router", () => ({
 vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: mocks.captureRouteError,
 }));
+vi.mock("@/lib/admission", () => ({
+  ADMISSION_POLICIES: {
+    cost: { name: "cost", limit: 20, window: "1 m", protected: true },
+  },
+  admit: (...args: unknown[]) => mocks.admit(...args),
+}));
 
 import { POST } from "./route";
 
@@ -70,6 +77,7 @@ beforeEach(() => {
   mocks.getGeminiApiKey.mockReturnValue(undefined);
   mocks.redisRateLimit.mockResolvedValue({ success: true });
   mocks.memoryRateLimit.mockReturnValue({ success: true });
+  mocks.admit.mockResolvedValue({ kind: "allowed" });
 });
 
 describe("AI route request parsing", () => {
@@ -139,6 +147,49 @@ describe("AI route request parsing", () => {
 });
 
 describe("POST /api/ai response provenance", () => {
+  it("maps authentication backend failure to 503 without quota or model work", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { code: "AUTH_BACKEND_DOWN" },
+    });
+
+    const response = await POST(aiRequest({
+      mode: "capture",
+      text: "private text",
+    }));
+
+    expect(response.status).toBe(503);
+    expect(mocks.admit).not.toHaveBeenCalled();
+    expect(mocks.maybeSingle).not.toHaveBeenCalled();
+    expect(mocks.aiGenerate).not.toHaveBeenCalled();
+    expect(mocks.aiJSON).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized outer body before profile or model work", async () => {
+    const response = await POST(aiRequest({
+      mode: "capture",
+      text: "private text",
+      padding: "x".repeat(70_000),
+    }));
+
+    expect(response.status).toBe(413);
+    expect(mocks.maybeSingle).not.toHaveBeenCalled();
+    expect(mocks.aiGenerate).not.toHaveBeenCalled();
+    expect(mocks.aiJSON).not.toHaveBeenCalled();
+  });
+
+  it("uses canonical admission as the sole quota authority", async () => {
+    const response = await POST(aiRequest({
+      mode: "capture",
+      text: "private text",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.admit).toHaveBeenCalledOnce();
+    expect(mocks.redisRateLimit).not.toHaveBeenCalled();
+    expect(mocks.memoryRateLimit).not.toHaveBeenCalled();
+  });
+
   it("marks every no-key fallback as an explicit not-configured heuristic", async () => {
     for (const mode of ALLOWED_AI_MODES) {
       const response = await POST(aiRequest({

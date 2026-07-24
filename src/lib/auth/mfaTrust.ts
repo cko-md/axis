@@ -26,18 +26,9 @@
  * signature, an expired window, a different user, or a changed factor all mean
  * "challenge the user". There is no path where an error grants trust.
  *
- * ── Known limitation: revocation is not global ───────────────────────────────
- * Verification is self-contained by design — middleware runs on every request,
- * so calling listFactors() here would add a network round-trip to the whole
- * app. The consequence is that unenrolling a factor clears the cookie on the
- * browser performing the unenrollment, but a token already resident on a
- * DIFFERENT device stays valid until its window expires.
- *
- * Exposure is bounded by that window (default 30d, cap 90d) and the holder
- * still needs valid credentials, since this never authenticates. If global
- * immediate revocation is required, the fix is a `mfa_trusted_devices` table
- * with a per-user epoch that this function compares against — which trades a
- * DB read per request for real revocation. That trade has not been made.
+ * Tokens are bound to a server-owned per-user epoch. Security mutations rotate
+ * the epoch before their provider/DB side effect, immediately invalidating
+ * remembered tokens on every device.
  */
 
 const ENCODER = new TextEncoder();
@@ -55,6 +46,8 @@ export type MfaTrustPayload = {
   sub: string;
   /** Factor id proven at mint time. Re-enrolling a factor invalidates the token. */
   fid: string;
+  /** Server-owned revocation generation. */
+  epoch: number;
   /** Issued at (epoch ms). */
   iat: number;
   /** Expires at (epoch ms). */
@@ -115,16 +108,19 @@ export async function issueMfaTrustToken(input: {
   secret: string | undefined;
   userId: string;
   factorId: string;
+  trustEpoch?: number;
   nowMs: number;
   windowDays: number;
 }): Promise<{ token: string; maxAgeSeconds: number } | null> {
   if (!input.secret) return null;
-  if (!input.userId || !input.factorId) return null;
+  const trustEpoch = input.trustEpoch ?? 1;
+  if (!input.userId || !input.factorId || !Number.isSafeInteger(trustEpoch) || trustEpoch < 1) return null;
 
   const windowMs = input.windowDays * 24 * 60 * 60 * 1000;
   const payload: MfaTrustPayload = {
     sub: input.userId,
     fid: input.factorId,
+    epoch: trustEpoch,
     iat: input.nowMs,
     exp: input.nowMs + windowMs,
   };
@@ -146,8 +142,21 @@ export type MfaTrustVerdict =
         | "malformed"
         | "bad_signature"
         | "expired"
-        | "wrong_user";
+        | "wrong_user"
+        | "wrong_epoch";
     };
+
+export function isMfaTrustFactorCurrent(
+  verdict: MfaTrustVerdict,
+  factors: readonly { id: string; status: string }[],
+): boolean {
+  return verdict.trusted
+    && factors.some(
+      (factor) =>
+        factor.id === verdict.payload.fid
+        && factor.status === "verified",
+    );
+}
 
 /**
  * Decide whether a presented token lets an aal1 session skip its challenge.
@@ -159,6 +168,7 @@ export async function verifyMfaTrustToken(input: {
   secret: string | undefined;
   token: string | undefined;
   userId: string;
+  trustEpoch?: number;
   nowMs: number;
 }): Promise<MfaTrustVerdict> {
   if (!input.secret) return { trusted: false, reason: "not_configured" };
@@ -195,12 +205,15 @@ export async function verifyMfaTrustToken(input: {
     || typeof payload?.fid !== "string"
     || typeof payload?.exp !== "number"
     || typeof payload?.iat !== "number"
+    || !Number.isSafeInteger(payload?.epoch)
+    || payload.epoch < 1
   ) {
     return { trusted: false, reason: "malformed" };
   }
 
   if (payload.exp <= input.nowMs) return { trusted: false, reason: "expired" };
   if (payload.sub !== input.userId) return { trusted: false, reason: "wrong_user" };
+  if (payload.epoch !== (input.trustEpoch ?? 1)) return { trusted: false, reason: "wrong_epoch" };
 
   return { trusted: true, payload };
 }

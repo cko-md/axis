@@ -190,6 +190,7 @@ export async function initiateConnection(opts: {
 
 export type ConnectedAccount = {
   id: string;
+  user_id?: string;
   status: string;
   toolkit?: { slug: string };
 };
@@ -262,7 +263,7 @@ export async function resolveProfileLabel(
   if (!toolSlug) return null;
   try {
     const res = await executeTool({ toolSlug, connectedAccountId, userId });
-    if (!res.successful) return null;
+    if (res.successful !== true) return null;
     if (toolkit === "googlecalendar") {
       const data = res.data as Record<string, unknown>;
       const items = (data.items ?? []) as Record<string, unknown>[];

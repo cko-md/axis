@@ -3,6 +3,7 @@ import {
   DEFAULT_MFA_TRUST_WINDOW_DAYS,
   MAX_MFA_TRUST_WINDOW_DAYS,
   issueMfaTrustToken,
+  isMfaTrustFactorCurrent,
   resolveTrustWindowDays,
   verifyMfaTrustToken,
 } from "@/lib/auth/mfaTrust";
@@ -24,6 +25,29 @@ async function mint(overrides: Partial<Parameters<typeof issueMfaTrustToken>[0]>
 }
 
 describe("mfa trust window", () => {
+  it("requires the bound factor to remain currently verified", () => {
+    const verdict = {
+      trusted: true as const,
+      payload: {
+        sub: "user-1",
+        fid: "factor-old",
+        epoch: 1,
+        iat: NOW,
+        exp: NOW + DAY,
+      },
+    };
+
+    expect(isMfaTrustFactorCurrent(verdict, [
+      { id: "factor-new", status: "verified" },
+    ])).toBe(false);
+    expect(isMfaTrustFactorCurrent(verdict, [
+      { id: "factor-old", status: "unverified" },
+    ])).toBe(false);
+    expect(isMfaTrustFactorCurrent(verdict, [
+      { id: "factor-old", status: "verified" },
+    ])).toBe(true);
+  });
+
   it("accepts a freshly minted token for the same user", async () => {
     const issued = await mint();
     expect(issued).not.toBeNull();

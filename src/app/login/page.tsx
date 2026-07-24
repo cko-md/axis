@@ -69,17 +69,6 @@ function LoginForm() {
   }
 
   const startMFAIfRequired = useCallback(async (): Promise<'not-required' | 'started' | 'error'> => {
-    const { data: aal, error: aalError } =
-      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aalError) {
-      await supabase.auth.signOut({ scope: 'local' });
-      setError('Could not verify two-factor requirements. Please try again.');
-      return 'error';
-    }
-    if (aal?.nextLevel !== 'aal2' || aal.currentLevel === 'aal2') {
-      return 'not-required';
-    }
-
     // A remembered device skips the challenge entirely. The trust cookie is
     // httpOnly, so ask the server whether it is present and valid; middleware
     // makes the same check on every request, so skipping here cannot grant
@@ -95,27 +84,27 @@ function LoginForm() {
       // Fall through to the challenge.
     }
 
-    const { data: factorsData, error: factorsError } =
-      await supabase.auth.mfa.listFactors();
-    const totp = factorsData?.totp;
-    if (factorsError || !totp || totp.length === 0) {
-      await supabase.auth.signOut({ scope: 'local' });
-      setError('Two-factor authentication is required but no verified factor is available.');
+    let challengeResponse: Response;
+    try {
+      challengeResponse = await fetch('/api/auth/mfa/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    } catch {
+      setError('Could not start two-factor authentication. Please try again.');
       return 'error';
     }
-
-    const factorId = totp[0].id;
-    const { data: challengeData, error: challengeError } =
-      await supabase.auth.mfa.challenge({ factorId });
-    if (challengeError || !challengeData) {
-      await supabase.auth.signOut({ scope: 'local' });
-      setError(challengeError?.message ?? 'Failed to start MFA challenge');
+    if (!challengeResponse.ok) {
+      const data = await challengeResponse.json().catch(() => ({}));
+      setError(data.error === 'RATE_LIMITED' ? 'Too many attempts. Please wait before trying again.' : 'Could not start two-factor authentication. Please try again.');
       return 'error';
     }
-
-    setMfaState({ factorId, challengeId: challengeData.id });
+    const challengeData = await challengeResponse.json() as { required?: boolean; factorId?: string; challengeId?: string };
+    if (challengeData.required === false) return 'not-required';
+    if (typeof challengeData.factorId !== 'string' || typeof challengeData.challengeId !== 'string') {
+      setError('Could not start two-factor authentication. Please try again.');
+      return 'error';
+    }
+    setMfaState({ factorId: challengeData.factorId, challengeId: challengeData.challengeId });
     return 'started';
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     if (searchParams.get('authError') === 'assurance_unavailable') {

@@ -3,16 +3,21 @@ import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
-import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
 import {
   consumeWebAuthnChallenge,
   createUserPasskey,
   normalizeAuthenticatorAttachment,
 } from "@/lib/security/passkeyMutations";
 import { buildRegistrationOptions, verifyRegistration } from "@/lib/webauthn/server";
+import { admit, ADMISSION_POLICIES } from "@/lib/admission";
+import { rotateMfaTrustEpoch } from "@/lib/auth/securityState";
+import { readBoundedJson } from "@/lib/http/boundedJson";
 
 const ROUTE = "passkey_register";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_REGISTRATION_BODY_BYTES = 65_536;
+const MAX_CREDENTIAL_ID_CHARS = 1_024;
+const MAX_DEVICE_NAME_CHARS = 100;
 
 function isRegistrationResponse(
   value: unknown,
@@ -20,19 +25,17 @@ function isRegistrationResponse(
   if (!value || typeof value !== "object") return false;
   const candidate = value as {
     id?: unknown;
+    rawId?: unknown;
     response?: unknown;
   };
   return typeof candidate.id === "string"
     && candidate.id.length > 0
+    && candidate.id.length <= MAX_CREDENTIAL_ID_CHARS
+    && typeof candidate.rawId === "string"
+    && candidate.rawId === candidate.id
+    && candidate.rawId.length <= MAX_CREDENTIAL_ID_CHARS
     && Boolean(candidate.response)
     && typeof candidate.response === "object";
-}
-
-async function withinRateLimit(userId: string, operation: "options" | "verify") {
-  return (
-    (await redisRateLimit(userId, 10, "10 m", `axis:passkey-register-${operation}`))
-    ?? memoryRateLimit(`passkey-register-${operation}:${userId}`, 10, 10 * 60_000)
-  ).success;
 }
 
 function safeDeviceName(value: unknown) {
@@ -53,12 +56,11 @@ export async function GET(req: NextRequest) {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
-  if (!(await withinRateLimit(user.id, "options"))) {
-    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
-  }
+  if (authError) return NextResponse.json({ error: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
+  if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  const admission = await admit(user.id, ADMISSION_POLICIES.passkeyRegister);
+  if (admission.kind === "unavailable") return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  if (admission.kind === "limited") return NextResponse.json({ error: "RATE_LIMITED" }, { status: 429, headers: { "retry-after": String(admission.retryAfterSeconds) } });
 
   const { data: existing, error: existingError } = await supabase
     .from("user_passkeys")
@@ -141,14 +143,15 @@ export async function POST(req: NextRequest) {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
-  if (!(await withinRateLimit(user.id, "verify"))) {
-    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
-  }
+  if (authError) return NextResponse.json({ error: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
+  if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  const admission = await admit(user.id, ADMISSION_POLICIES.passkeyRegister);
+  if (admission.kind === "unavailable") return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  if (admission.kind === "limited") return NextResponse.json({ error: "RATE_LIMITED" }, { status: 429, headers: { "retry-after": String(admission.retryAfterSeconds) } });
 
-  const body = (await req.json().catch(() => null)) as {
+  const parsedBody = await readBoundedJson(req, MAX_REGISTRATION_BODY_BYTES);
+  if (!parsedBody.ok) return NextResponse.json({ error: parsedBody.code }, { status: parsedBody.status });
+  const body = parsedBody.value as {
     response?: RegistrationResponseJSON;
     deviceName?: unknown;
     challengeId?: unknown;
@@ -158,6 +161,12 @@ export async function POST(req: NextRequest) {
   }
   if (typeof body.challengeId !== "string" || !UUID_RE.test(body.challengeId)) {
     return NextResponse.json({ error: "MISSING_CHALLENGE_ID" }, { status: 400 });
+  }
+  if (
+    body.deviceName !== undefined
+    && (typeof body.deviceName !== "string" || body.deviceName.length > MAX_DEVICE_NAME_CHARS)
+  ) {
+    return NextResponse.json({ error: "INVALID_DEVICE_NAME" }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -209,6 +218,9 @@ export async function POST(req: NextRequest) {
   const publicKeyBase64 = Buffer.from(
     registrationInfo.credential.publicKey,
   ).toString("base64url");
+  if (await rotateMfaTrustEpoch(supabase, ROUTE) === null) {
+    return NextResponse.json({ error: "SECURITY_STATE_UNAVAILABLE" }, { status: 503 });
+  }
   const created = await createUserPasskey({
     userId: user.id,
     credentialId: registrationInfo.credential.id,

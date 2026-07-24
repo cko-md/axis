@@ -2,6 +2,49 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto";
 import { getPlaidCreds, plaidHost } from "@/app/api/plaid/_lib";
 import { fetchNews, fetchSnapshot, getPolygonApiKey, searchTickers } from "@/lib/massive/client";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+
+const MAX_SAFETY_BUFFER = 1_000_000_000;
+const MAX_SAFETY_BUFFER_CENTS = MAX_SAFETY_BUFFER * 100;
+const MAX_FINANCIAL_VALUE_CENTS = 1_000_000_000_000 * 100;
+const MAX_PLAID_CONNECTIONS = 8;
+const MAX_CASH_ACCOUNTS = 100;
+const PLAID_BALANCE_TIMEOUT_MS = 5_000;
+const CASH_DEPOSITORY_SUBTYPES = new Set([
+  "checking",
+  "savings",
+  "money market",
+]);
+
+function canonicalMoneyCents(
+  value: unknown,
+  {
+    allowNegative,
+    maxAbsoluteCents = MAX_FINANCIAL_VALUE_CENTS,
+  }: {
+    allowNegative: boolean;
+    maxAbsoluteCents?: number;
+  },
+): number | null {
+  if (
+    typeof value !== "number"
+    || !Number.isFinite(value)
+    || Object.is(value, -0)
+    || (!allowNegative && value < 0)
+  ) {
+    return null;
+  }
+  const cents = Math.round(value * 100);
+  if (
+    !Number.isSafeInteger(cents)
+    || Math.abs(cents) > maxAbsoluteCents
+    || cents / 100 !== value
+  ) {
+    return null;
+  }
+  return cents;
+}
 
 /**
  * FIN-501: typed read-only adapters around code that already exists
@@ -37,28 +80,144 @@ export class ToolExecutionError extends Error {
 
 async function fetchPlaidAccounts(
   accessToken: string,
-): Promise<Array<{ name: string; mask: string | null; type: string; balance: number }>> {
+  connectionId: string,
+  itemId: string,
+  retrievedAt: string,
+  signal: AbortSignal,
+): Promise<Array<{
+  connection_id: string;
+  item_id: string;
+  provider_account_id: string;
+  persistent_account_id: string | null;
+  name: string;
+  mask: string | null;
+  type: "depository";
+  subtype: string;
+  balance: number;
+  balance_basis: "available";
+  currency: "USD";
+  source: "plaid_live";
+  retrieved_at: string;
+}>> {
   const creds = getPlaidCreds();
   if (!creds) throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
   const res = await fetch(`${plaidHost(creds.env)}/accounts/balance/get`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: creds.clientId, secret: creds.secret, access_token: accessToken }),
+    signal,
   });
   if (!res.ok) throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
-  let data: { accounts?: unknown };
+  let data: { accounts?: unknown; item?: unknown };
   try {
-    data = (await res.json()) as { accounts?: unknown };
+    data = (await res.json()) as { accounts?: unknown; item?: unknown };
   } catch {
     throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
   }
-  const accounts = (data.accounts ?? []) as Array<{
-    name: string;
-    mask: string | null;
-    type: string;
-    balances?: { current?: number };
-  }>;
-  return accounts.map((a) => ({ name: a.name, mask: a.mask, type: a.type, balance: a.balances?.current ?? 0 }));
+  if (
+    !data.item
+    || typeof data.item !== "object"
+    || Array.isArray(data.item)
+    || (data.item as { item_id?: unknown }).item_id !== itemId
+    || !Array.isArray(data.accounts)
+  ) {
+    throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
+  }
+  return data.accounts.filter((raw) =>
+    Boolean(
+      raw
+      && typeof raw === "object"
+      && !Array.isArray(raw)
+      && (raw as { type?: unknown }).type === "depository",
+    )).map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
+    }
+    const account = raw as {
+      name?: unknown;
+      account_id?: unknown;
+      persistent_account_id?: unknown;
+      mask?: unknown;
+      type?: unknown;
+      subtype?: unknown;
+      balances?: {
+        available?: unknown;
+        current?: unknown;
+        iso_currency_code?: unknown;
+        unofficial_currency_code?: unknown;
+      };
+    };
+    // Plaid's depository `available` balance is the conservative spendable
+    // projection after pending flows. Credit/loan current balances are debt,
+    // and investment current balances are portfolio value, so they are never
+    // included in cash.
+    const cents = canonicalMoneyCents(account.balances?.available, {
+      allowNegative: true,
+    });
+    const currentCents =
+      account.balances?.current === null
+      || account.balances?.current === undefined
+        ? null
+        : canonicalMoneyCents(account.balances.current, {
+          allowNegative: true,
+        });
+    if (
+      typeof account.name !== "string"
+      || account.name.trim().length === 0
+      || account.name.length > 240
+      || typeof account.account_id !== "string"
+      || account.account_id.trim().length === 0
+      || account.account_id.length > 240
+      || (
+        account.persistent_account_id !== null
+        && account.persistent_account_id !== undefined
+        && (
+          typeof account.persistent_account_id !== "string"
+          || account.persistent_account_id.trim().length === 0
+          || account.persistent_account_id.length > 240
+        )
+      )
+      || (
+        account.mask !== null
+        && account.mask !== undefined
+        && (
+          typeof account.mask !== "string"
+          || account.mask.length > 240
+        )
+      )
+      || account.type !== "depository"
+      || typeof account.subtype !== "string"
+      || !CASH_DEPOSITORY_SUBTYPES.has(account.subtype)
+      || account.balances?.iso_currency_code !== "USD"
+      || (
+        account.balances?.unofficial_currency_code !== null
+        && account.balances?.unofficial_currency_code !== undefined
+      )
+      || cents === null
+      || (
+        account.balances?.current !== null
+        && account.balances?.current !== undefined
+        && currentCents === null
+      )
+    ) {
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
+    }
+    return {
+      connection_id: connectionId,
+      item_id: itemId,
+      provider_account_id: account.account_id,
+      persistent_account_id: account.persistent_account_id ?? null,
+      name: account.name.trim(),
+      mask: account.mask ?? null,
+      type: "depository" as const,
+      subtype: account.subtype.trim(),
+      balance: cents / 100,
+      balance_basis: "available" as const,
+      currency: "USD" as const,
+      source: "plaid_live" as const,
+      retrieved_at: retrievedAt,
+    };
+  });
 }
 
 export const TOOLS: ToolDef[] = [
@@ -120,7 +279,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_cash_accounts",
-    description: "Live bank account balances from all linked Plaid connections.",
+    description: "Complete live USD depository available balances from every bounded linked Plaid connection; unavailable if coverage or provenance cannot be verified.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -160,10 +319,17 @@ export const TOOLS: ToolDef[] = [
   {
     name: "compute_safe_to_invest",
     description:
-      "Cash on hand minus bills/subscriptions expected in the next 14 days minus an optional safety buffer. Use this for any 'can I afford'/'is it safe to invest' question — never estimate it from memory.",
+      "Currently unavailable until cash and recurring liabilities share verified USD provenance, freshness, and complete coverage. Never estimate a safe-to-invest amount.",
     input_schema: {
       type: "object",
-      properties: { buffer: { type: "number", description: "Extra safety margin to hold back, default 0" } },
+      properties: {
+        buffer: {
+          type: "number",
+          minimum: 0,
+          maximum: MAX_SAFETY_BUFFER,
+          description: "Non-negative extra safety margin to hold back, default 0",
+        },
+      },
     },
   },
 ];
@@ -357,22 +523,128 @@ const handlers: Record<string, Handler> = {
     return { liabilities: data ?? [] };
   },
 
-  async get_cash_accounts({ supabase, userId }) {
-    const { data: connections, error } = await supabase
+  async get_cash_accounts({ userId }) {
+    const admin = createAdminClient();
+    if (!admin) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    const { data: connections, error } = await admin
       .from("fund_connections")
-      .select("access_token_enc")
+      .select("id, item_id, access_token_enc")
       .eq("user_id", userId)
       .eq("provider", "plaid")
-      .eq("status", "linked");
+      .eq("status", "linked")
+      .eq("authority", "provider_verified")
+      .not("verified_at", "is", null)
+      .limit(MAX_PLAID_CONNECTIONS + 1);
     if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-
-    const accounts: Array<{ name: string; mask: string | null; type: string; balance: number }> = [];
-    for (const c of connections ?? []) {
-      if (!c.access_token_enc) continue;
-      const token = decrypt(c.access_token_enc);
-      if (token) accounts.push(...(await fetchPlaidAccounts(token)));
+    if (
+      !connections
+      || connections.length === 0
+      || connections.length > MAX_PLAID_CONNECTIONS
+    ) {
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
     }
-    return { accounts, total_cash: accounts.reduce((s, a) => s + a.balance, 0) };
+    const connectionCredentials = connections.map((connection) => {
+      if (
+        !connection.item_id
+        || !connection.access_token_enc
+      ) {
+        throw new ToolExecutionError("DATA_UNAVAILABLE");
+      }
+      const token = decrypt(connection.access_token_enc);
+      if (!token) {
+        captureRouteError(new Error("Advisor Plaid token decryption failed"), {
+          route: "/api/fund/advisor",
+          operation: "decrypt_plaid_token",
+          area: "fund",
+          provider: "plaid",
+          status: 503,
+          code: "CONNECTION_STORE_UNAVAILABLE",
+        });
+        throw new ToolExecutionError("DATA_UNAVAILABLE");
+      }
+      return {
+        connectionId: connection.id,
+        itemId: connection.item_id,
+        token,
+      };
+    });
+    const retrievedAt = new Date().toISOString();
+    const batchController = new AbortController();
+    let accountGroups;
+    try {
+      accountGroups = await Promise.all(
+        connectionCredentials.map(({ connectionId, itemId, token }) =>
+          fetchPlaidAccounts(
+            token,
+            connectionId,
+            itemId,
+            retrievedAt,
+            AbortSignal.any([
+              batchController.signal,
+              AbortSignal.timeout(PLAID_BALANCE_TIMEOUT_MS),
+            ]),
+          )),
+      );
+    } catch (error) {
+      batchController.abort();
+      if (error instanceof ToolExecutionError) throw error;
+      throw new ToolExecutionError("PROVIDER_UNAVAILABLE");
+    } finally {
+      batchController.abort();
+    }
+    const accounts = accountGroups.flat();
+    if (
+      accounts.length === 0
+      || accounts.length > MAX_CASH_ACCOUNTS
+    ) {
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
+    }
+    const providerAccountKeys = new Set<string>();
+    for (const account of accounts) {
+      const key = `${account.item_id}:${account.provider_account_id}`;
+      if (providerAccountKeys.has(key)) {
+        throw new ToolExecutionError("DATA_UNAVAILABLE");
+      }
+      providerAccountKeys.add(key);
+    }
+    if (connections.length > 1) {
+      const persistentIds = accounts
+        .map((account) => account.persistent_account_id)
+        .filter((id): id is string => Boolean(id));
+      // A repeated persistent id proves a duplicate. Its absence cannot prove
+      // global non-duplication because Plaid only supplies this identifier for
+      // a subset of institutions, so every multi-Item aggregate remains
+      // unavailable in this lane.
+      if (new Set(persistentIds).size !== persistentIds.length) {
+        throw new ToolExecutionError("DATA_UNAVAILABLE");
+      }
+      throw new ToolExecutionError("DATA_UNAVAILABLE");
+    }
+    let totalCashCents = 0;
+    for (const account of accounts) {
+      const cents = canonicalMoneyCents(account.balance, {
+        allowNegative: true,
+      });
+      if (
+        cents === null
+        || !Number.isSafeInteger(totalCashCents + cents)
+      ) {
+        throw new ToolExecutionError("DATA_UNAVAILABLE");
+      }
+      totalCashCents += cents;
+    }
+    return {
+      accounts,
+      total_cash: totalCashCents / 100,
+      currency: "USD",
+      source: "plaid_live",
+      retrieved_at: retrievedAt,
+      coverage: {
+        connections_expected: connections.length,
+        connections_succeeded: connections.length,
+        complete: true,
+      },
+    };
   },
 
   async get_market_quote(_ctx, input) {
@@ -417,32 +689,19 @@ const handlers: Record<string, Handler> = {
     }
   },
 
-  async compute_safe_to_invest({ supabase, userId }, input) {
-    const buffer = Number(input.buffer ?? 0);
-    const cashResult = (await handlers.get_cash_accounts({ supabase, userId }, {})) as { total_cash: number };
-
-    const horizon = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: bills, error } = await supabase
-      .from("fund_recurring_transactions")
-      .select("merchant_name, expected_amount, next_expected_date")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .gte("next_expected_date", today)
-      .lte("next_expected_date", horizon);
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-
-    const upcomingBills = (bills ?? []).reduce((sum, b) => sum + Number(b.expected_amount), 0);
-    const safeBuffer = Number.isFinite(buffer) ? buffer : 0;
-    const safeToInvest = cashResult.total_cash - upcomingBills - safeBuffer;
-
-    return {
-      cash_on_hand: cashResult.total_cash,
-      upcoming_bills_next_14_days: upcomingBills,
-      buffer: safeBuffer,
-      safe_to_invest: safeToInvest,
-      bills_counted: bills ?? [],
-    };
+  async compute_safe_to_invest(_ctx, input) {
+    const buffer = input.buffer ?? 0;
+    const bufferCents = canonicalMoneyCents(buffer, {
+      allowNegative: false,
+      maxAbsoluteCents: MAX_SAFETY_BUFFER_CENTS,
+    });
+    if (bufferCents === null) {
+      throw new ToolExecutionError("INVALID_INPUT");
+    }
+    // Disabled until recurring liabilities carry verified currency,
+    // provenance, freshness, and complete coverage. Returning an unavailable
+    // tool result is safer than fabricating a cross-source "safe" number.
+    throw new ToolExecutionError("DATA_UNAVAILABLE");
   },
 };
 

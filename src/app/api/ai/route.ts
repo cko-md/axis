@@ -3,8 +3,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { aiGenerate, aiJSON, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 import { getGeminiApiKey, optionalEnv } from "@/lib/env";
-import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { admit, ADMISSION_POLICIES } from "@/lib/admission";
 import { normalizePayload, parseJsonBody } from "@/lib/ai/request";
+import { readBoundedJson } from "@/lib/http/boundedJson";
 import {
   AI_INTERNAL_ACTION_PATHS,
   sanitizeAiDeckCards,
@@ -98,6 +99,7 @@ function heuristicLiteratureRelevance(articleTitle: string, summary: string, top
 }
 
 export const runtime = "nodejs";
+const MAX_AI_REQUEST_BYTES = 65_536;
 
 // ── Heuristic fallbacks (no API key) ─────────────────────────────────────────
 
@@ -300,23 +302,24 @@ function heuristicStudySummary(text: string, title?: string): { summary: string 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  // Rate limit: 30 requests per minute per user (Redis when available, memory fallback)
-  const { success } =
-    (await redisRateLimit(user.id, 30, "1 m", "axis:ai")) ??
-    memoryRateLimit(`ai:${user.id}`, 30, 60_000);
-  if (!success) {
-    return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+  if (authError) {
+    captureRouteError(new Error("AI authentication backend unavailable"), {
+      route: "/api/ai", operation: "authenticate", area: "ai",
+      status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
   }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let rawPayload: unknown;
-  try {
-    rawPayload = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const admission = await admit(user.id, { ...ADMISSION_POLICIES.cost, name: "ai" });
+  if (admission.kind === "unavailable") return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  if (admission.kind === "limited") return NextResponse.json({ error: "RATE_LIMITED" }, { status: 429, headers: { "retry-after": String(admission.retryAfterSeconds) } });
+
+  const rawPayload = await readBoundedJson(req, MAX_AI_REQUEST_BYTES);
+  if (!rawPayload.ok) {
+    return NextResponse.json({ error: rawPayload.code }, { status: rawPayload.status });
   }
-  const normalized = normalizePayload(rawPayload);
+  const normalized = normalizePayload(rawPayload.value);
   if (!normalized.ok) {
     return NextResponse.json({ error: normalized.error }, { status: normalized.status });
   }

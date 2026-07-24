@@ -2,6 +2,7 @@ import { createHash, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
+import { classifyAccess, requiresSupabaseAuth } from "@/lib/auth/accessPolicy";
 
 const ORIGIN = "https://axis.example";
 const workerSource = readFileSync("public/sw.js", "utf8");
@@ -705,9 +706,11 @@ describe("VECTOR offline worker", () => {
 });
 
 describe("VECTOR offline deployment boundaries", () => {
-  it("keeps only reviewed worker artifacts public and guards VECTOR APIs in middleware", () => {
+  it("keeps only reviewed worker artifacts public and guards VECTOR APIs by default", () => {
     expect(middleware).toContain("isPublicVectorArtifactPath(pathname)");
-    expect(middleware).toContain('"/api/vector"');
+    expect(classifyAccess("/api/vector")).toBe("authenticated");
+    expect(classifyAccess("/api/vector/install")).toBe("authenticated");
+    expect(requiresSupabaseAuth(classifyAccess("/api/vector/install"))).toBe(true);
   });
 
   it("serves the root worker with explicit scope and no-cache headers", () => {

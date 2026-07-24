@@ -35,7 +35,9 @@ export async function GET(req: NextRequest) {
     .from("fund_connections")
     .select("id, user_id, access_token_enc")
     .eq("provider", "plaid")
-    .eq("status", "linked");
+    .eq("status", "linked")
+    .eq("authority", "provider_verified")
+    .not("verified_at", "is", null);
 
   let syncedConnections = 0;
   let syncErrors = 0;
@@ -55,7 +57,9 @@ export async function GET(req: NextRequest) {
   const { data: users } = await admin
     .from("fund_connections")
     .select("user_id")
-    .eq("status", "linked");
+    .eq("status", "linked")
+    .eq("authority", "provider_verified")
+    .not("verified_at", "is", null);
   const { data: holdingUsers } = await admin.from("fund_holdings").select("user_id");
   const userIds = [
     ...new Set([...(users ?? []).map((u) => u.user_id), ...(holdingUsers ?? []).map((u) => u.user_id)]),

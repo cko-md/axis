@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
     .eq("provider", "plaid")
     .eq("item_id", body.item_id)
     .eq("status", "linked")
+    .eq("authority", "provider_verified")
+    .not("verified_at", "is", null)
     .maybeSingle();
   if (connectionError) {
     Sentry.captureException(connectionError, {

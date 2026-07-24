@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState } from "react";
 
 type Step = "start" | "scan" | "verify";
 
@@ -16,7 +15,6 @@ type EnrollData = {
 };
 
 export function MFASetup({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
-  const supabase = useMemo(() => createClient(), []);
   const [step, setStep] = useState<Step>("start");
   const [enrollData, setEnrollData] = useState<EnrollData | null>(null);
   const [challengeId, setChallengeId] = useState<string | null>(null);
@@ -52,13 +50,25 @@ export function MFASetup({ onSuccess, onClose }: { onSuccess: () => void; onClos
     if (!enrollData) return;
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase.auth.mfa.challenge({ factorId: enrollData.id });
-    setLoading(false);
-    if (error || !data) {
-      setError(error?.message ?? "Could not start verification. Please try again.");
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/mfa/challenge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ factorId: enrollData.id }) });
+    } catch {
+      setLoading(false);
+      setError("Could not start verification. Please try again.");
       return;
     }
-    setChallengeId(data.id);
+    setLoading(false);
+    if (!response.ok) {
+      setError("Could not start verification. Please try again.");
+      return;
+    }
+    const data = await response.json() as { challengeId?: string };
+    if (typeof data.challengeId !== "string") {
+      setError("Could not start verification. Please try again.");
+      return;
+    }
+    setChallengeId(data.challengeId);
     setStep("verify");
   };
 
@@ -70,28 +80,18 @@ export function MFASetup({ onSuccess, onClose }: { onSuccess: () => void; onClos
     }
     setLoading(true);
     setError(null);
-    const { error: verifyError } = await supabase.auth.mfa.verify({ factorId: enrollData.id, challengeId, code });
-    if (verifyError) {
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/mfa/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ factorId: enrollData.id, challengeId, code, trustDevice: true }) });
+    } catch {
       setLoading(false);
-      setError(verifyError.message ?? "Incorrect code. Please try again.");
+      setError("Verification is temporarily unavailable. Please try again.");
       return;
     }
-    // Remember this device straight away, so enrolling a factor does not mean
-    // being challenged again on the very next sign-in. Server-verified; a
-    // failure here is non-fatal and just means the next login challenges.
-    try {
-      await fetch("/api/auth/mfa/trust-device", { method: "POST" });
-    } catch {
-      // Non-fatal by design.
-    }
-
-    // Persist 2FA status in DB using the now-aal2 session
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      await supabase.from("user_auth_settings").upsert(
-        { user_id: user.id, twofa_enabled: true, twofa_method: "totp", updated_at: new Date().toISOString() },
-        { onConflict: "user_id" },
-      );
+    if (!response.ok) {
+      setLoading(false);
+      setError("Incorrect code. Please try again.");
+      return;
     }
     setLoading(false);
     onSuccess();

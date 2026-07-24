@@ -3,7 +3,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
-import { memoryRateLimit, redisRateLimit } from "@/lib/ratelimit";
+import { admit, ADMISSION_POLICIES } from "@/lib/admission";
 import {
   commitPasskeyAuthentication,
   consumeWebAuthnChallenge,
@@ -15,9 +15,16 @@ import {
   issueMfaTrustToken,
   resolveTrustWindowDays,
 } from "@/lib/auth/mfaTrust";
+import { readMfaTrustEpoch } from "@/lib/auth/securityState";
+import { readBoundedJson } from "@/lib/http/boundedJson";
 
 const ROUTE = "passkey_authenticate";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_AUTH_BODY_BYTES = 32_768;
+const MAX_CREDENTIAL_ID_CHARS = 1_024;
+// This broad pre-identity ceiling limits anonymous spray while leaving the
+// owner-bound quota below as the tight authority once a credential is known.
+const PASSKEY_AUTHENTICATION_GLOBAL_CAPACITY = 300;
 
 function isAuthenticationResponse(
   value: unknown,
@@ -29,25 +36,9 @@ function isAuthenticationResponse(
   };
   return typeof candidate.id === "string"
     && candidate.id.length > 0
+    && candidate.id.length <= MAX_CREDENTIAL_ID_CHARS
     && Boolean(candidate.response)
     && typeof candidate.response === "object";
-}
-
-function requestIp(req: NextRequest) {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("x-real-ip")?.trim()
-    || "anonymous";
-}
-
-async function withinRateLimit(
-  ip: string,
-  operation: "options" | "verify",
-  limit: number,
-) {
-  return (
-    (await redisRateLimit(ip, limit, "10 m", `axis:passkey-auth-${operation}`))
-    ?? memoryRateLimit(`passkey-auth-${operation}:${ip}`, limit, 10 * 60_000)
-  ).success;
 }
 
 // ── GET ?action=options ────────────────────────────────────────────────────────
@@ -56,9 +47,13 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("action") !== "options") {
     return NextResponse.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
   }
-  if (!(await withinRateLimit(requestIp(req), "options", 20))) {
-    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
-  }
+  const admission = await admit("passkey-authentication-options", {
+    ...ADMISSION_POLICIES.passkeyRegister,
+    name: "passkey-auth-options-global",
+    limit: PASSKEY_AUTHENTICATION_GLOBAL_CAPACITY,
+  });
+  if (admission.kind === "unavailable") return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  if (admission.kind === "limited") return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429, headers: { "retry-after": String(admission.retryAfterSeconds) } });
   const admin = createAdminClient();
   if (!admin) {
     captureRouteError(new Error("Passkey authentication service role unavailable"), {
@@ -114,10 +109,21 @@ export async function POST(req: NextRequest) {
   if (req.nextUrl.searchParams.get("action") !== "verify") {
     return NextResponse.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
   }
-  if (!(await withinRateLimit(requestIp(req), "verify", 10))) {
-    return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429 });
+  const preAdmission = await admit("passkey-authentication-verify", {
+    ...ADMISSION_POLICIES.passkeyRegister,
+    name: "passkey-auth-verify-global",
+    limit: PASSKEY_AUTHENTICATION_GLOBAL_CAPACITY,
+  });
+  if (preAdmission.kind === "unavailable") return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  if (preAdmission.kind === "limited") return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429, headers: { "retry-after": String(preAdmission.retryAfterSeconds) } });
+  const parsedBody = await readBoundedJson(req, MAX_AUTH_BODY_BYTES);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: parsedBody.code },
+      { status: parsedBody.status },
+    );
   }
-  const body = (await req.json().catch(() => null)) as {
+  const body = parsedBody.value as {
     response?: AuthenticationResponseJSON;
     challengeId?: unknown;
   } | null;
@@ -140,6 +146,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "PASSKEY_SERVICE_UNAVAILABLE" }, { status: 503 });
   }
 
+  const { data: passkey, error: passkeyError } = await admin
+    .from("user_passkeys")
+    .select(
+      "id, user_id, credential_id, credential_public_key, counter, transports, last_used_at",
+    )
+    .eq("credential_id", body.response.id)
+    .maybeSingle();
+  if (passkeyError) {
+    captureRouteError(new Error("Passkey authentication credential lookup failed"), {
+      route: ROUTE,
+      operation: "load_passkey",
+      area: "auth",
+      status: 500,
+      code: "PASSKEYS_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "PASSKEYS_UNAVAILABLE" }, { status: 500 });
+  }
+  if (!passkey) {
+    return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
+  }
+  const ownerAdmission = await admit(passkey.user_id, { ...ADMISSION_POLICIES.passkeyRegister, name: "passkey-auth-owner", limit: 10 });
+  if (ownerAdmission.kind === "unavailable") return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  if (ownerAdmission.kind === "limited") return NextResponse.json({ error: "TOO_MANY_ATTEMPTS" }, { status: 429, headers: { "retry-after": String(ownerAdmission.retryAfterSeconds) } });
+
   const consumed = await consumeWebAuthnChallenge({
     challengeId: body.challengeId,
     type: "authentication",
@@ -161,27 +191,6 @@ export async function POST(req: NextRequest) {
       { error: "CHALLENGE_CONSUME_FAILED" },
       { status: consumed.code === "SERVICE_UNAVAILABLE" ? 503 : 500 },
     );
-  }
-
-  const { data: passkey, error: passkeyError } = await admin
-    .from("user_passkeys")
-    .select(
-      "id, user_id, credential_id, credential_public_key, counter, transports, last_used_at",
-    )
-    .eq("credential_id", body.response.id)
-    .maybeSingle();
-  if (passkeyError) {
-    captureRouteError(new Error("Passkey authentication credential lookup failed"), {
-      route: ROUTE,
-      operation: "load_passkey",
-      area: "auth",
-      status: 500,
-      code: "PASSKEYS_UNAVAILABLE",
-    });
-    return NextResponse.json({ error: "PASSKEYS_UNAVAILABLE" }, { status: 500 });
-  }
-  if (!passkey) {
-    return NextResponse.json({ error: "PASSKEY_AUTHENTICATION_FAILED" }, { status: 400 });
   }
 
   const userHandle = body.response.response.userHandle;
@@ -357,17 +366,21 @@ export async function POST(req: NextRequest) {
   // so unenrolling/re-enrolling invalidates it, and never touches the
   // per-approval WebAuthn step-up path, which ignores assurance entirely.
   try {
-    const { data: factorsData } = await admin.auth.admin.mfa.listFactors({
+    const { data: factorsData, error: factorsError } =
+      await admin.auth.admin.mfa.listFactors({
       userId: passkey.user_id,
     });
+    if (factorsError) throw new Error("MFA factor projection unavailable");
     const verifiedFactor = (factorsData?.factors ?? []).find(
       (factor: { id: string; status: string }) => factor.status === "verified",
     );
     if (verifiedFactor) {
-      const issued = await issueMfaTrustToken({
+      const trustEpoch = await readMfaTrustEpoch(verificationClient, passkey.user_id);
+      const issued = trustEpoch === null ? null : await issueMfaTrustToken({
         secret: optionalEnv("MFA_TRUST_SECRET"),
         userId: passkey.user_id,
         factorId: verifiedFactor.id,
+        trustEpoch,
         nowMs: Date.now(),
         windowDays: resolveTrustWindowDays(optionalEnv("MFA_TRUST_WINDOW_DAYS")),
       });
@@ -382,7 +395,15 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch {
-    // Trust is a convenience; the sign-in itself already succeeded.
+    // Trust is a convenience; the sign-in itself already succeeded, but a
+    // failed remember-device projection must remain observable.
+    captureRouteError(new Error("Passkey remembered-device projection failed"), {
+      route: ROUTE,
+      operation: "issue_mfa_trust",
+      area: "auth",
+      status: 503,
+      code: "MFA_TRUST_PROJECTION_FAILED",
+    });
   }
 
   return response;

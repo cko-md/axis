@@ -1,252 +1,311 @@
 import { createServerClient } from "@supabase/ssr/dist/module/createServerClient";
 import { NextResponse, type NextRequest } from "next/server";
 import { buildAppUrl } from "@/lib/auth/getAppOrigin";
+import { classifyAccess, requiresSupabaseAuth } from "@/lib/auth/accessPolicy";
 import {
   isMfaBootstrapApiPath,
   requireAuthenticatorAssurance,
   type AuthenticatorAssuranceState,
 } from "@/lib/auth/authenticatorAssurance";
-import { MFA_TRUST_COOKIE, verifyMfaTrustToken } from "@/lib/auth/mfaTrust";
+import { readMfaTrustEpoch } from "@/lib/auth/securityState";
+import {
+  isMfaTrustFactorCurrent,
+  MFA_TRUST_COOKIE,
+  verifyMfaTrustToken,
+} from "@/lib/auth/mfaTrust";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
+import { reportAuthConfigurationUnavailable } from "@/lib/auth/configPreflight";
+import { isAllowedSupabaseUrl } from "@/lib/auth/supabaseUrl";
 
-// /oauth-done is the return leg of EVERY provider popup (Spotify, Strava,
-// Composio). It is a client-only shim: it reads `provider` and `status` from the
-// query string, postMessages them to window.opener, and closes. It carries no
-// user data and reads no session.
-//
-// It must be public. Gating it meant the popup returning from the provider was
-// evaluated for both a session AND authenticator assurance, and any miss
-// redirected the popup to /login — so the grant succeeded upstream, the opener
-// never received its postMessage, and the app silently stayed "not connected".
-// Its signed-out fallback still navigates to a protected destination, so making
-// this page public does not widen access to anything behind it.
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy", "/oauth-done"];
+const PUBLIC_STATIC_FILES = new Set([
+  "/manifest.json",
+  "/apple-touch-icon.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-512-maskable.png",
+  "/offline.html",
+  "/workbox-f52fd911.js",
+]);
 
-// request.nextUrl.clone() inherits Next's NextURL bug where 127.0.0.1/[::1]
-// get silently rewritten to the literal string "localhost" at parse time (see
-// the long comment in getAppOrigin.ts) — so a plain `.clone()` redirect issued
-// while browsing via 127.0.0.1 bounces the browser to a DIFFERENT origin
-// (localhost), dropping the session's cookies (origin-scoped) entirely. Build
-// the redirect target from buildAppUrl (reads the raw Host header) instead.
-function redirectWithinApp(request: NextRequest, pathname: string, search?: URLSearchParams): NextResponse {
+function redirectWithinApp(
+  request: NextRequest,
+  pathname: string,
+  search?: URLSearchParams,
+): NextResponse {
   const url = buildAppUrl(request, pathname);
   if (search) url.search = search.toString();
   return NextResponse.redirect(url);
 }
 
+function unavailable(code: string) {
+  captureRouteError(new Error("Authentication infrastructure unavailable"), {
+    route: "middleware",
+    operation: "authenticate",
+    area: "auth",
+    status: 503,
+    code,
+  });
+  return NextResponse.json(
+    {
+      error: code,
+      message: "Authentication is temporarily unavailable.",
+    },
+    { status: 503 },
+  );
+}
+
+function clearBrokenAuthCookies(
+  request: NextRequest,
+  response: NextResponse,
+) {
+  request.cookies
+    .getAll()
+    .filter(
+      (cookie) =>
+        cookie.name.startsWith("sb-")
+        && cookie.name.includes("auth-token"),
+    )
+    .forEach((cookie) =>
+      response.cookies.set(cookie.name, "", {
+        path: "/",
+        maxAge: 0,
+        sameSite: "lax",
+      }),
+    );
+}
+
+function carryCookies(source: NextResponse, target: NextResponse) {
+  source.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
+  return target;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Offline executable/art manifests are public, immutable inputs. They must
-  // bypass session refresh so install verification never receives Set-Cookie.
-  if (isPublicVectorArtifactPath(pathname)) {
+  if (
+    isPublicVectorArtifactPath(pathname)
+    || PUBLIC_STATIC_FILES.has(pathname)
+  ) {
     return NextResponse.next({ request });
   }
 
-  // Skip auth entirely for purely public/keyless routes — avoids a DB round-trip
-  const PUBLIC_API_PREFIXES = [
-    "/api/widgets/",
-    "/api/literature",
-    "/api/gallery",
-    // Auth routes that don't require a session (pre-login flows)
-    "/api/auth/forgot-password",
-    "/api/auth/passkey/authenticate", // login-time: no session yet
-    "/api/spotify/callback",          // OAuth redirect from Spotify
-    "/api/plaid/webhook",             // Inbound from Plaid — self-authenticates via signed JWT
-    "/api/webhooks/make",             // Inbound from Make — self-authenticates via shared secret + HMAC
-  ];
-  if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next({ request });
-  }
+  const access = classifyAccess(pathname);
+  if (!requiresSupabaseAuth(access)) return NextResponse.next({ request });
 
   let supabaseResponse = NextResponse.next({ request });
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   if (!supabaseUrl || !supabaseAnonKey) {
+    reportAuthConfigurationUnavailable();
+    return unavailable("AUTH_CONFIGURATION_UNAVAILABLE");
+  }
+  if (!isAllowedSupabaseUrl(supabaseUrl)) {
+    reportAuthConfigurationUnavailable();
+    return unavailable("AUTH_CONFIGURATION_UNAVAILABLE");
+  }
+
+  let supabase: ReturnType<typeof createServerClient>;
+  try {
+    supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll(
+          cookiesToSet: Array<{
+            name: string;
+            value: string;
+            options?: Record<string, unknown>;
+          }>,
+        ) {
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value),
+          );
+          supabaseResponse = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options),
+          );
+        },
+      },
+    });
+  } catch {
+    reportAuthConfigurationUnavailable();
+    return unavailable("AUTH_CONFIGURATION_UNAVAILABLE");
+  }
+
+  let user: { id: string } | null = null;
+  let provenAbsentSession = false;
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) {
+      const hasAuthCookie = request.cookies.getAll().some(
+        (cookie) =>
+          cookie.name.startsWith("sb-")
+          && cookie.name.includes("auth-token"),
+      );
+      if (
+        error.code === "refresh_token_not_found"
+        || error.code === "invalid_refresh_token"
+      ) {
+        clearBrokenAuthCookies(request, supabaseResponse);
+        provenAbsentSession = true;
+      } else if (
+        !hasAuthCookie
+        && error.name === "AuthSessionMissingError"
+        && error.status === 400
+      ) {
+        // Supabase reports a normal first-time, cookie-less visitor as an
+        // AuthSessionMissingError. Only the exact missing-session shape with no
+        // auth cookie proves absence; retryable/network failures remain 503.
+        provenAbsentSession = true;
+      } else {
+        return carryCookies(
+          supabaseResponse,
+          unavailable("AUTH_BACKEND_UNAVAILABLE"),
+        );
+      }
+    } else {
+      user = data.user;
+      provenAbsentSession = !user;
+    }
+  } catch {
+    return carryCookies(
+      supabaseResponse,
+      unavailable("AUTH_BACKEND_UNAVAILABLE"),
+    );
+  }
+
+  if (!user) {
+    if (pathname.startsWith("/api/")) {
+      if (access === "keyless-public" && provenAbsentSession) {
+        return supabaseResponse;
+      }
+      return carryCookies(
+        supabaseResponse,
+        NextResponse.json(
+          { error: "UNAUTHORIZED", message: "Sign in required." },
+          { status: 401 },
+        ),
+      );
+    }
+    if (access === "authenticated" && provenAbsentSession) {
+      return carryCookies(
+        supabaseResponse,
+        redirectWithinApp(
+          request,
+          "/login",
+          new URLSearchParams({
+            redirect: `${pathname}${request.nextUrl.search}`,
+          }),
+        ),
+      );
+    }
     return supabaseResponse;
   }
 
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
-        cookiesToSet.forEach(({ name, value }) =>
-          request.cookies.set(name, value),
-        );
-        supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
-        );
-      },
-    },
-  });
-
-  let user = null;
   let assurance: AuthenticatorAssuranceState = "satisfied";
   try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error?.code === "refresh_token_not_found" || error?.code === "invalid_refresh_token") {
-      request.cookies
-        .getAll()
-        .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
-        .forEach((cookie) => {
-          supabaseResponse.cookies.set(cookie.name, "", {
-            path: "/",
-            maxAge: 0,
-            sameSite: "lax",
-          });
-        });
-    }
-    user = data.user;
-    if (user) {
-      assurance = await requireAuthenticatorAssurance(supabase);
-      // A remembered device lets an enrolled account skip the second factor for
-      // a bounded window instead of being challenged on every single sign-in.
-      // Only ever narrows mfa_required -> satisfied: `unavailable` still fails
-      // closed, and `user` here is already server-verified by getUser() above,
-      // so this can elevate a session but can never create one.
-      if (assurance === "mfa_required") {
-        const verdict = await verifyMfaTrustToken({
-          secret: process.env.MFA_TRUST_SECRET,
-          token: request.cookies.get(MFA_TRUST_COOKIE)?.value,
-          userId: user.id,
-          nowMs: Date.now(),
-        });
-        if (verdict.trusted) assurance = "satisfied";
+    assurance = await requireAuthenticatorAssurance(supabase);
+  } catch {
+    return carryCookies(
+      supabaseResponse,
+      unavailable("AUTH_ASSURANCE_UNAVAILABLE"),
+    );
+  }
+  if (assurance === "mfa_required") {
+    const epoch = await readMfaTrustEpoch(supabase, user.id);
+    if (epoch !== null) {
+      const verdict = await verifyMfaTrustToken({
+        secret: process.env.MFA_TRUST_SECRET,
+        token: request.cookies.get(MFA_TRUST_COOKIE)?.value,
+        userId: user.id,
+        trustEpoch: epoch,
+        nowMs: Date.now(),
+      });
+      if (verdict.trusted) {
+        let factorsResult;
+        try {
+          factorsResult = await supabase.auth.mfa.listFactors();
+        } catch {
+          return carryCookies(
+            supabaseResponse,
+            unavailable("AUTH_BACKEND_UNAVAILABLE"),
+          );
+        }
+        if (
+          factorsResult.error
+          || !factorsResult.data
+          || !Array.isArray(factorsResult.data.all)
+        ) {
+          return carryCookies(
+            supabaseResponse,
+            unavailable("AUTH_BACKEND_UNAVAILABLE"),
+          );
+        }
+        if (
+          isMfaTrustFactorCurrent(
+            verdict,
+            factorsResult.data.all,
+          )
+        ) {
+          assurance = "satisfied";
+        }
       }
-    }
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    if (code === "refresh_token_not_found" || code === "invalid_refresh_token") {
-      request.cookies
-        .getAll()
-        .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
-        .forEach((cookie) => {
-          supabaseResponse.cookies.set(cookie.name, "", {
-            path: "/",
-            maxAge: 0,
-            sameSite: "lax",
-          });
-        });
-    } else {
-      throw error;
     }
   }
 
-  // API routes never redirect to the login page.
-  // Financial, AI, and data-mutation routes require a session — returning 401
-  // provides defense-in-depth on top of per-route auth guards.
-  // Widget routes are intentionally left open. /api/spotify/auth issues its
-  // own redirect-to-provider and is guarded below the same as other actions.
-  if (pathname.startsWith("/api")) {
-    if (
-      user
-      && assurance !== "satisfied"
-      && !isMfaBootstrapApiPath(pathname)
-    ) {
-      if (assurance === "mfa_required") {
-        return NextResponse.json(
+  if (assurance === "unavailable") {
+    return carryCookies(
+      supabaseResponse,
+      unavailable("AUTH_ASSURANCE_UNAVAILABLE"),
+    );
+  }
+  if (assurance === "mfa_required" && access !== "mfa-bootstrap") {
+    if (pathname.startsWith("/api/")) {
+      return carryCookies(
+        supabaseResponse,
+        NextResponse.json(
           {
             error: "MFA_REQUIRED",
             message: "Complete two-factor authentication to continue.",
           },
           { status: 403 },
-        );
-      }
-      captureRouteError(new Error("Authenticator assurance unavailable"), {
-        route: "middleware",
-        operation: "check_authenticator_assurance",
-        area: "auth",
-        status: 503,
-        code: "AUTH_ASSURANCE_UNAVAILABLE",
-      });
-      return NextResponse.json(
-        {
-          error: "AUTH_ASSURANCE_UNAVAILABLE",
-          message: "Authentication assurance could not be verified.",
-        },
-        { status: 503 },
+        ),
       );
     }
-
-    const GUARDED_PREFIXES = [
-      "/api/massive",
-      "/api/plaid",
-      "/api/brokerage",
-      "/api/fund",
-      "/api/ai",
-      "/api/signals-ai",
-      "/api/strava",
-      "/api/spotify",
-      "/api/profile",
-      "/api/auth/passkey/register",
-      "/api/auth/passkey/token",
-      "/api/auth/passkey/list",
-      "/api/auth/passkey/delete",
-      "/api/auth/settings",
-      "/api/auth/mfa",
-      "/api/auth/account",
-      "/api/calendar",
-      "/api/mail",
-      "/api/briefing",
-      "/api/entities",
-      "/api/entity-references",
-      "/api/vector",
-      // Note: /api/cron uses CRON_SECRET bearer auth, not user session
-    ];
-    if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {
-      return NextResponse.json({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 });
+    if (access === "authenticated") {
+      return carryCookies(
+        supabaseResponse,
+        redirectWithinApp(
+          request,
+          "/login",
+          new URLSearchParams({
+            mfa: "required",
+            redirect: `${pathname}${request.nextUrl.search}`,
+          }),
+        ),
+      );
     }
-    return supabaseResponse;
   }
 
-  const isPublic = pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
-  if (!user && !isPublic) {
-    // Preserve canonical entity selection and the opaque `ws` workspace state
-    // across authentication. The login page re-validates this as a same-origin
-    // relative path before navigating, so query preservation does not widen the
-    // redirect boundary.
-    const search = new URLSearchParams({ redirect: `${pathname}${request.nextUrl.search}` });
-    return redirectWithinApp(request, "/login", search);
+  if (
+    access === "mfa-bootstrap"
+    && pathname.startsWith("/api/")
+    && !isMfaBootstrapApiPath(pathname)
+  ) {
+    return carryCookies(
+      supabaseResponse,
+      NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 }),
+    );
   }
-
-  if (user && assurance === "mfa_required" && !isPublic) {
-    const search = new URLSearchParams({
-      mfa: "required",
-      redirect: `${pathname}${request.nextUrl.search}`,
-    });
-    return redirectWithinApp(request, "/login", search);
+  if (assurance === "satisfied" && pathname === "/login") {
+    return carryCookies(
+      supabaseResponse,
+      redirectWithinApp(request, "/command"),
+    );
   }
-
-  if (user && assurance === "unavailable" && !isPublic) {
-    captureRouteError(new Error("Authenticator assurance unavailable"), {
-      route: "middleware",
-      operation: "check_authenticator_assurance",
-      area: "auth",
-      status: 503,
-      code: "AUTH_ASSURANCE_UNAVAILABLE",
-    });
-    const search = new URLSearchParams({
-      authError: "assurance_unavailable",
-      redirect: `${pathname}${request.nextUrl.search}`,
-    });
-    return redirectWithinApp(request, "/login", search);
-  }
-
-  if (user && assurance === "satisfied" && pathname === "/login") {
-    return redirectWithinApp(request, "/command");
-  }
-
   return supabaseResponse;
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

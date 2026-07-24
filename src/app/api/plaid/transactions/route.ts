@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
 import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
 import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 export async function POST() {
   const routeStartedAt = Date.now();
@@ -16,7 +17,23 @@ export async function POST() {
     return NextResponse.json({ configured: false, transactions: [] });
   }
 
-  const accessToken = await getPlaidAccessToken(user.id);
+  let accessToken: string | null;
+  try {
+    accessToken = await getPlaidAccessToken(user.id);
+  } catch {
+    captureRouteError(new Error("Plaid connection lookup unavailable"), {
+      route: "/api/plaid/transactions",
+      operation: "load_connection",
+      area: "fund",
+      provider: "supabase",
+      status: 503,
+      code: "CONNECTION_STORE_UNAVAILABLE",
+    });
+    return NextResponse.json(
+      { configured: true, error: "CONNECTION_STORE_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
 
   if (!accessToken) {
     return NextResponse.json({ configured: true, error: "NO_LINKED_ACCOUNT" }, { status: 400 });

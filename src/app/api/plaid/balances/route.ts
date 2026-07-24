@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
 import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
 import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 /**
  * Fetches account balances for the authenticated user's linked Plaid item.
@@ -32,7 +33,23 @@ export async function POST() {
 
   // Retrieve the stored access_token from the server-side record for this user.
   // The client must never supply the token directly.
-  const accessToken = await getPlaidAccessToken(user.id);
+  let accessToken: string | null;
+  try {
+    accessToken = await getPlaidAccessToken(user.id);
+  } catch {
+    captureRouteError(new Error("Plaid connection lookup unavailable"), {
+      route: "/api/plaid/balances",
+      operation: "load_connection",
+      area: "fund",
+      provider: "supabase",
+      status: 503,
+      code: "CONNECTION_STORE_UNAVAILABLE",
+    });
+    return NextResponse.json(
+      { configured: true, error: "CONNECTION_STORE_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
 
   if (!accessToken) {
     return NextResponse.json(

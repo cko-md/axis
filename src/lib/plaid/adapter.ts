@@ -57,7 +57,16 @@ export const plaidAccountAdapter: AccountAdapter = {
       });
     }
 
-    const accessToken = await getPlaidAccessToken(userId);
+    let accessToken: string | null;
+    try {
+      accessToken = await getPlaidAccessToken(userId);
+    } catch {
+      return fail<Account[]>("network", "Bank connection state is temporarily unavailable.", {
+        provider: "plaid",
+        retryable: true,
+        status: 503,
+      });
+    }
     if (!accessToken) {
       return fail<Account[]>("auth_expired", "No linked bank account — connect one to see balances.", {
         provider: "plaid",
@@ -91,7 +100,16 @@ export const plaidAccountAdapter: AccountAdapter = {
         retryable: false,
       });
     }
-    const accessToken = await getPlaidAccessToken(userId);
+    let accessToken: string | null;
+    try {
+      accessToken = await getPlaidAccessToken(userId);
+    } catch {
+      return fail<Transaction[]>("network", "Bank connection state is temporarily unavailable.", {
+        provider: "plaid",
+        retryable: true,
+        status: 503,
+      });
+    }
     if (!accessToken) {
       return fail<Transaction[]>("auth_expired", "No linked bank account — connect one to see transactions.", {
         provider: "plaid",
@@ -135,7 +153,16 @@ export const plaidAccountAdapter: AccountAdapter = {
         retryable: false,
       });
     }
-    const accessToken = await getPlaidAccessToken(userId);
+    let accessToken: string | null;
+    try {
+      accessToken = await getPlaidAccessToken(userId);
+    } catch {
+      return fail<Liability[]>("network", "Bank connection state is temporarily unavailable.", {
+        provider: "plaid",
+        retryable: true,
+        status: 503,
+      });
+    }
     if (!accessToken) {
       return fail<Liability[]>("auth_expired", "No linked bank account — connect one to see liabilities.", {
         provider: "plaid",

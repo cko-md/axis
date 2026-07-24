@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds, plaidHost } from "../_lib";
 import { getPlaidAccessToken } from "@/lib/fund/plaidTokens";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 
 const CATEGORY_LABELS: Record<string, string> = {
   FOOD_AND_DRINK: "Dining",
@@ -37,7 +38,23 @@ export async function POST() {
     return NextResponse.json({ configured: false, budgets: [], insights: [] });
   }
 
-  const accessToken = await getPlaidAccessToken(user.id);
+  let accessToken: string | null;
+  try {
+    accessToken = await getPlaidAccessToken(user.id);
+  } catch {
+    captureRouteError(new Error("Plaid connection lookup unavailable"), {
+      route: "/api/plaid/budget",
+      operation: "load_connection",
+      area: "fund",
+      provider: "supabase",
+      status: 503,
+      code: "CONNECTION_STORE_UNAVAILABLE",
+    });
+    return NextResponse.json(
+      { configured: true, error: "CONNECTION_STORE_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
 
   if (!accessToken) {
     return NextResponse.json({ configured: true, error: "NO_LINKED_ACCOUNT" }, { status: 400 });

@@ -5,9 +5,13 @@ import { requireAuthenticatorAssurance } from "@/lib/auth/authenticatorAssurance
 import {
   MFA_TRUST_COOKIE,
   issueMfaTrustToken,
+  isMfaTrustFactorCurrent,
   resolveTrustWindowDays,
   verifyMfaTrustToken,
 } from "@/lib/auth/mfaTrust";
+import { readMfaTrustEpoch } from "@/lib/auth/securityState";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { admit, ADMISSION_POLICIES } from "@/lib/admission";
 
 // ── GET /api/auth/mfa/trust-device ───────────────────────────────────────────
 // Reports whether THIS device holds a valid remembered-device token for the
@@ -20,19 +24,58 @@ import {
 // (middleware already redirects untrusted aal1 sessions to the challenge).
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    captureRouteError(new Error("Trust-device auth backend unavailable"), {
+      route: "auth/mfa/trust-device", operation: "authenticate", area: "auth", status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
+  }
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
+  const epoch = await readMfaTrustEpoch(supabase, user.id);
+  if (epoch === null) return NextResponse.json({ trusted: false, reason: "security_state_unavailable" }, { status: 503 });
   const verdict = await verifyMfaTrustToken({
     secret: optionalEnv("MFA_TRUST_SECRET"),
     token: req.cookies.get(MFA_TRUST_COOKIE)?.value,
     userId: user.id,
+    trustEpoch: epoch,
     nowMs: Date.now(),
   });
 
-  if (verdict.trusted) return NextResponse.json({ trusted: true });
+  if (verdict.trusted) {
+    let factorsResult;
+    try {
+      factorsResult = await supabase.auth.mfa.listFactors();
+    } catch {
+      factorsResult = {
+        data: null,
+        error: { code: "AUTH_BACKEND_UNAVAILABLE" },
+      };
+    }
+    if (factorsResult.error || !factorsResult.data) {
+      captureRouteError(new Error("Trust-device factor lookup unavailable"), {
+        route: "auth/mfa/trust-device",
+        operation: "verify_current_factor",
+        area: "auth",
+        status: 503,
+        code: "AUTH_BACKEND_UNAVAILABLE",
+      });
+      return NextResponse.json(
+        { trusted: false, reason: "factor_state_unavailable" },
+        { status: 503 },
+      );
+    }
+    if (
+      isMfaTrustFactorCurrent(
+        verdict,
+        factorsResult.data.all ?? [],
+      )
+    ) {
+      return NextResponse.json({ trusted: true });
+    }
+    return NextResponse.json({ trusted: false, reason: "wrong_factor" });
+  }
   return NextResponse.json({ trusted: false, reason: verdict.reason });
 }
 
@@ -53,12 +96,44 @@ export async function GET(req: NextRequest) {
 // request body is ignored entirely.
 export async function POST() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    captureRouteError(new Error("Trust-device auth backend unavailable"), {
+      route: "auth/mfa/trust-device", operation: "authenticate", area: "auth", status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
+  }
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  const assurance = await requireAuthenticatorAssurance(supabase);
+  const admission = await admit(user.id, {
+    ...ADMISSION_POLICIES.mfaVerify,
+    name: "mfa-trust-device",
+  });
+  if (admission.kind === "unavailable") {
+    return NextResponse.json({ error: "ADMISSION_UNAVAILABLE" }, { status: 503 });
+  }
+  if (admission.kind === "limited") {
+    return NextResponse.json(
+      { error: "RATE_LIMITED" },
+      {
+        status: 429,
+        headers: { "retry-after": String(admission.retryAfterSeconds) },
+      },
+    );
+  }
+
+  let assurance;
+  try {
+    assurance = await requireAuthenticatorAssurance(supabase);
+  } catch {
+    assurance = "unavailable" as const;
+  }
+  if (assurance === "unavailable") {
+    captureRouteError(new Error("Trust-device assurance backend unavailable"), {
+      route: "auth/mfa/trust-device", operation: "assurance", area: "auth", status: 503, code: "AUTH_ASSURANCE_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_ASSURANCE_UNAVAILABLE" }, { status: 503 });
+  }
   if (assurance !== "satisfied") {
     return NextResponse.json(
       { error: "MFA_NOT_SATISFIED", message: "Complete the second factor before trusting this device." },
@@ -68,7 +143,22 @@ export async function POST() {
 
   // Bind the token to the factor that actually proved the challenge, so
   // unenrolling or re-enrolling a factor invalidates every remembered device.
-  const { data: factorsData } = await supabase.auth.mfa.listFactors();
+  let factorsData;
+  let factorsError: unknown;
+  try {
+    const factorsResult = await supabase.auth.mfa.listFactors();
+    factorsData = factorsResult.data;
+    factorsError = factorsResult.error;
+  } catch {
+    factorsData = null;
+    factorsError = { code: "AUTH_BACKEND_UNAVAILABLE" };
+  }
+  if (factorsError || !factorsData) {
+    captureRouteError(new Error("Trust-device factor lookup unavailable"), {
+      route: "auth/mfa/trust-device", operation: "load_factors", area: "auth", status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
+    });
+    return NextResponse.json({ error: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
+  }
   const verifiedFactor = (factorsData?.all ?? []).find(
     (factor: { id: string; status: string }) => factor.status === "verified",
   );
@@ -79,10 +169,13 @@ export async function POST() {
     );
   }
 
+  const epoch = await readMfaTrustEpoch(supabase, user.id);
+  if (epoch === null) return NextResponse.json({ trusted: false, reason: "security_state_unavailable" }, { status: 503 });
   const issued = await issueMfaTrustToken({
     secret: optionalEnv("MFA_TRUST_SECRET"),
     userId: user.id,
     factorId: verifiedFactor.id,
+    trustEpoch: epoch,
     nowMs: Date.now(),
     windowDays: resolveTrustWindowDays(optionalEnv("MFA_TRUST_WINDOW_DAYS")),
   });

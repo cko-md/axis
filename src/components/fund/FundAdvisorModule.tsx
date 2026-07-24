@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 
 type Citation = {
@@ -11,12 +11,53 @@ type Citation = {
   requires_review: boolean;
 };
 
+export type AdvisorEvidence = {
+  source: string;
+  title: string;
+  facts: string[];
+};
+
 type Msg = {
   role: "user" | "assistant";
   content: string;
   citation?: Citation | null;
+  evidence?: AdvisorEvidence[];
   toolCallCount?: number;
 };
+
+export function AdvisorEvidenceView({
+  evidence,
+}: {
+  evidence: readonly AdvisorEvidence[];
+}) {
+  if (evidence.length === 0) return null;
+  return (
+    <div
+      aria-label="Verified evidence"
+      style={{
+        marginTop: 6,
+        fontSize: 11,
+        color: "var(--ink-dim)",
+        background: "var(--surface-1)",
+        border: "1px solid var(--line)",
+        borderRadius: 8,
+        padding: "9px 11px",
+      }}
+    >
+      <b>Verified evidence</b>
+      {evidence.map((item, index) => (
+        <section key={`${item.source}-${index}`} style={{ marginTop: 6 }}>
+          <div style={{ fontWeight: 600 }}>{item.title}</div>
+          <ul style={{ margin: "3px 0 0", paddingLeft: 17 }}>
+            {item.facts.map((fact, factIndex) => (
+              <li key={factIndex}>{fact}</li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 /**
  * FIN-508: Advisor chat UI. Reuses the .cp-msg/.cp-you/.cp-ai/.cp-input-bar
@@ -55,8 +96,22 @@ export function FundAdvisorModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversation_id: conversationId, message: text }),
       });
+      const data = (await res.json()) as {
+        conversation_id?: string;
+        text?: string;
+        citation?: Citation | null;
+        evidence?: AdvisorEvidence[];
+        tool_call_count?: number;
+        error?: string;
+      };
       if (res.status === 503) {
-        setError("Set ANTHROPIC_API_KEY to enable the advisor.");
+        setError(
+          data.error === "ANTHROPIC_API_KEY_NOT_CONFIGURED"
+            ? "Set ANTHROPIC_API_KEY to enable the advisor."
+            : data.error === "ADVISOR_EVIDENCE_UNAVAILABLE"
+              ? "Verified financial data could not be rendered safely. Try again."
+              : "The advisor is temporarily unavailable. Try again.",
+        );
         setMessages((p) => p.slice(0, -1));
         return;
       }
@@ -65,20 +120,19 @@ export function FundAdvisorModule() {
         setMessages((p) => p.slice(0, -1));
         return;
       }
-      const data = (await res.json()) as {
-        conversation_id?: string;
-        text?: string;
-        citation?: Citation | null;
-        tool_call_count?: number;
-        error?: string;
-      };
       if (data.error) {
         setError(data.error);
         setMessages((p) => p.slice(0, -1));
         return;
       }
       setConversationId(data.conversation_id);
-      setMessages((p) => [...p, { role: "assistant", content: data.text ?? "…", citation: data.citation, toolCallCount: data.tool_call_count }]);
+      setMessages((p) => [...p, {
+        role: "assistant",
+        content: data.text ?? "…",
+        citation: data.citation,
+        evidence: data.evidence,
+        toolCallCount: data.tool_call_count,
+      }]);
     } catch {
       setError("Connection lost — try again.");
       setMessages((p) => p.slice(0, -1));
@@ -104,6 +158,7 @@ export function FundAdvisorModule() {
             <div className={`cp-msg ${m.role === "user" ? "cp-you" : "cp-ai"}`}>
               <span>{m.content}</span>
             </div>
+            {m.evidence && <AdvisorEvidenceView evidence={m.evidence} />}
             {m.citation && (
               <div
                 style={{

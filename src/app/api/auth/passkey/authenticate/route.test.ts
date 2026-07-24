@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   verifyOtp: vi.fn(),
   signOut: vi.fn(),
   getCookieUser: vi.fn(),
+  admit: vi.fn(),
+  listFactors: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -34,11 +36,22 @@ vi.mock("@/lib/ratelimit", () => ({
   redisRateLimit: vi.fn(async () => null),
   memoryRateLimit: vi.fn(() => ({ success: true })),
 }));
+vi.mock("@/lib/admission", () => ({
+  ADMISSION_POLICIES: {
+    passkeyRegister: {
+      name: "passkey-register",
+      limit: 10,
+      window: "10 m",
+      protected: true,
+    },
+  },
+  admit: (...args: unknown[]) => mocks.admit(...args),
+}));
 vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: (...args: unknown[]) => mocks.capture(...args),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const USER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PASSKEY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -63,7 +76,7 @@ function passkeyQuery() {
   return query;
 }
 
-function request() {
+function request(credentialId = "credential_1", padding?: string) {
   return new NextRequest(
     "http://axis.test/api/auth/passkey/authenticate?action=verify",
     {
@@ -72,8 +85,8 @@ function request() {
       body: JSON.stringify({
         challengeId: CHALLENGE_ID,
         response: {
-          id: "credential_1",
-          rawId: "credential_1",
+          id: credentialId,
+          rawId: credentialId,
           type: "public-key",
           response: {
             authenticatorData: "authenticator-data",
@@ -84,6 +97,7 @@ function request() {
           clientExtensionResults: {},
           authenticatorAttachment: "platform",
         },
+        ...(padding ? { padding } : {}),
       }),
     },
   );
@@ -103,6 +117,7 @@ describe("passkey authentication route", () => {
       authenticationInfo: { newCounter: 5 },
     });
     mocks.commitAuthentication.mockResolvedValue({ ok: true });
+    mocks.admit.mockResolvedValue({ kind: "allowed" });
     mocks.getUserById.mockResolvedValue({
       data: { user: { id: USER_ID, email: "user@example.test" } },
       error: null,
@@ -123,12 +138,17 @@ describe("passkey authentication route", () => {
       data: { user: { id: USER_ID } },
       error: null,
     });
+    mocks.listFactors.mockResolvedValue({
+      data: { factors: [] },
+      error: null,
+    });
     mocks.admin.mockReturnValue({
       from: vi.fn(() => passkeyQuery()),
       auth: {
         admin: {
           getUserById: mocks.getUserById,
           generateLink: mocks.generateLink,
+          mfa: { listFactors: mocks.listFactors },
         },
       },
     });
@@ -193,6 +213,27 @@ describe("passkey authentication route", () => {
     expect(mocks.capture).toHaveBeenCalledOnce();
   });
 
+  it("keeps successful sign-in but observes remembered-device projection failure", async () => {
+    mocks.listFactors.mockRejectedValue(
+      new Error("sensitive provider failure"),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ verified: true });
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        code: "MFA_TRUST_PROJECTION_FAILED",
+        operation: "issue_mfa_trust",
+      }),
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "sensitive provider failure",
+    );
+  });
+
   it("clears the issued cookie and fails when the verified cookie owner mismatches", async () => {
     mocks.getCookieUser.mockResolvedValue({
       data: { user: { id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" } },
@@ -223,5 +264,77 @@ describe("passkey authentication route", () => {
     });
     expect(mocks.generateLink).not.toHaveBeenCalled();
     expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not consume a one-time challenge before owner admission succeeds", async () => {
+    mocks.admit
+      .mockResolvedValueOnce({ kind: "allowed" })
+      .mockResolvedValueOnce({ kind: "limited", retryAfterSeconds: 60 });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(429);
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
+    expect(mocks.verifyAuthentication).not.toHaveBeenCalled();
+    expect(mocks.commitAuthentication).not.toHaveBeenCalled();
+  });
+
+  it("uses a broad global guard followed by the credential owner's tight quota", async () => {
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.admit.mock.calls[0]).toEqual([
+      "passkey-authentication-verify",
+      expect.objectContaining({
+        name: "passkey-auth-verify-global",
+        limit: 300,
+      }),
+    ]);
+    expect(mocks.admit.mock.calls[1]).toEqual([
+      USER_ID,
+      expect.objectContaining({
+        name: "passkey-auth-owner",
+        limit: 10,
+      }),
+    ]);
+    expect(mocks.admit.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.consumeChallenge.mock.invocationCallOrder[0],
+    );
+  });
+
+  it.each([
+    ["options", () => GET(new NextRequest(
+      "http://axis.test/api/auth/passkey/authenticate?action=options",
+    ))],
+    ["verify", () => POST(request())],
+  ])("stops %s global exhaustion before challenge storage or lookup", async (_name, invoke) => {
+    mocks.admit.mockResolvedValueOnce({
+      kind: "limited",
+      retryAfterSeconds: 30,
+    });
+
+    const response = await invoke();
+
+    expect(response.status).toBe(429);
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized authentication body before credential lookup or challenge consumption", async () => {
+    const response = await POST(
+      request("credential_1", "x".repeat(70_000)),
+    );
+
+    expect(response.status).toBe(413);
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized credential identifier before credential lookup", async () => {
+    const response = await POST(request("c".repeat(2_048)));
+
+    expect(response.status).toBe(400);
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(mocks.consumeChallenge).not.toHaveBeenCalled();
   });
 });

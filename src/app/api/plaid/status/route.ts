@@ -18,7 +18,7 @@ export async function GET() {
 
   const { data: connections, error } = await supabase
     .from("fund_connections")
-    .select("institution, status, updated_at")
+    .select("institution, status, authority, verified_at, updated_at")
     .eq("user_id", user.id)
     .eq("provider", "plaid")
     .order("updated_at", { ascending: false });
@@ -33,7 +33,12 @@ export async function GET() {
     return NextResponse.json({ error: "STATUS_UNAVAILABLE", message: "Could not read Plaid connection status." }, { status: 500 });
   }
 
-  const linkedConnections = (connections ?? []).filter((connection) => connection.status === "linked");
+  const linkedConnections = (connections ?? []).filter(
+    (connection) =>
+      connection.status === "linked"
+      && connection.authority === "provider_verified"
+      && connection.verified_at !== null,
+  );
   const latestConnection = connections?.[0] ?? null;
 
   return NextResponse.json({

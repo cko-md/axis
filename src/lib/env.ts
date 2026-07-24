@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAllowedSupabaseUrl } from "@/lib/auth/supabaseUrl";
 
 export const REQUIRED_ENV_NAMES = [
   "NEXT_PUBLIC_SUPABASE_URL",
@@ -6,7 +7,11 @@ export const REQUIRED_ENV_NAMES = [
 ] as const;
 
 const requiredPublicEnvSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().trim().url(),
+  NEXT_PUBLIC_SUPABASE_URL: z
+    .string()
+    .trim()
+    .url()
+    .refine(isAllowedSupabaseUrl, "Supabase URL must use HTTPS or exact loopback HTTP"),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1),
 });
 
@@ -115,6 +120,8 @@ export const OPTIONAL_ENV_NAMES = [
   "PASSKEY_ENCRYPTION_KEY",
   "MFA_TRUST_SECRET",
   "MFA_TRUST_WINDOW_DAYS",
+  "QUOTA_SUBJECT_SECRET",
+  "MASSIVE_ADMISSION_PER_MINUTE",
   "CRON_SECRET",
   "FEED_DIGEST_SECRET",
   "GARMIN_CLIENT_ID",

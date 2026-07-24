@@ -1,10 +1,36 @@
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { getPolygonApiKeyEnv } from "@/lib/env";
+import { admit, ADMISSION_POLICIES, type AdmissionPolicy } from "@/lib/admission";
 
 const BASE = "https://api.polygon.io";
 const GAP_MS = 280;
+const RESERVED_SECRET_QUERY_KEYS = new Set([
+  "apikey",
+  "accesstoken",
+  "authorization",
+  "token",
+]);
 
-let lastRequest = 0;
+let nextPacedRequestAt = 0;
+let pacingTail: Promise<void> = Promise.resolve();
+
+function massiveAdmissionPolicy(): AdmissionPolicy {
+  const configured = Number(process.env.MASSIVE_ADMISSION_PER_MINUTE);
+  // No provider quota is assumed. Four requests/minute is deliberately
+  // conservative until an account-specific limit is explicitly configured.
+  const limit = Number.isSafeInteger(configured) && configured >= 1 && configured <= 120 ? configured : ADMISSION_POLICIES.providerGlobal.limit;
+  return { ...ADMISSION_POLICIES.providerGlobal, limit };
+}
+
+function localPace() {
+  const run = pacingTail.then(async () => {
+    const wait = Math.max(0, nextPacedRequestAt - Date.now());
+    if (wait) await new Promise<void>((resolve) => setTimeout(resolve, wait));
+    nextPacedRequestAt = Date.now() + GAP_MS;
+  });
+  pacingTail = run.catch(() => undefined);
+  return run;
+}
 
 export function getPolygonApiKey(): string | undefined {
   return getPolygonApiKeyEnv();
@@ -25,21 +51,56 @@ export async function massiveRequest<T>(
     throw new Error("POLYGON_API_KEY_NOT_CONFIGURED");
   }
 
-  const wait = Math.max(0, GAP_MS - (Date.now() - lastRequest));
-  if (wait) await new Promise((r) => setTimeout(r, wait));
-  lastRequest = Date.now();
+  // Distributed admission is the provider-wide authority across serverless
+  // instances. The tiny local queue only smooths same-process bursts.
+  const admission = await admit("massive-provider-global", massiveAdmissionPolicy());
+  if (admission.kind === "unavailable") {
+    const error = new Error("MASSIVE_ADMISSION_UNAVAILABLE") as Error & { status: number };
+    error.status = 503;
+    throw error;
+  }
+  if (admission.kind === "limited") {
+    const error = new Error("MASSIVE_ADMISSION_LIMITED") as Error & { status: number; retryAfterSeconds: number };
+    error.status = 429;
+    error.retryAfterSeconds = admission.retryAfterSeconds;
+    throw error;
+  }
+  await localPace();
 
-  const qs = new URLSearchParams({ ...params, apiKey });
+  if (
+    !path.startsWith("/")
+    || path.includes("?")
+    || path.includes("#")
+    || /[\u0000-\u001f\u007f]/.test(path)
+  ) {
+    throw new Error("MASSIVE_INVALID_PATH");
+  }
+  if (
+    Object.keys(params).some((key) =>
+      RESERVED_SECRET_QUERY_KEYS.has(
+        key.toLowerCase().replaceAll("_", "").replaceAll("-", ""),
+      ),
+    )
+  ) {
+    throw new Error("MASSIVE_RESERVED_QUERY_PARAMETER");
+  }
+  const qs = new URLSearchParams(params);
+  const query = qs.size > 0 ? `?${qs}` : "";
   const res = await timedProviderFetch(
-    `${BASE}${path}?${qs}`,
-    { next: { revalidate: 60 } },
+    `${BASE}${path}${query}`,
+    {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      next: { revalidate: 60 },
+    },
     {
       area: "fund",
       provider: "polygon",
       operation: path.split("/").filter(Boolean).slice(0, 3).join("_") || "request",
       timeoutMs: 5_000,
       slowMs: 1_500,
-      retry: { maxAttempts: 3, baseDelayMs: 200, maxDelayMs: 1_200 },
+      // Each admission decision authorizes exactly one outbound attempt.
+      // Retrying here would bypass the distributed provider-wide quota.
+      retry: { maxAttempts: 1, baseDelayMs: 200, maxDelayMs: 1_200 },
       tags: { host: "api.polygon.io" },
     },
   );

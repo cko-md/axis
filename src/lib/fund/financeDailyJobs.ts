@@ -37,7 +37,9 @@ export async function snapshotNetWorth(admin: SupabaseClient, userId: string): P
     .select("access_token_enc")
     .eq("user_id", userId)
     .eq("provider", "plaid")
-    .eq("status", "linked");
+    .eq("status", "linked")
+    .eq("authority", "provider_verified")
+    .not("verified_at", "is", null);
   if (connectionsError) throw connectionsError;
 
   let cash = 0;

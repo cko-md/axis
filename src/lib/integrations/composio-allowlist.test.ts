@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ALLOWED_COMPOSIO_TOOLS, isAllowedComposioTool } from "@/lib/integrations/composio-allowlist";
+import {
+  ALLOWED_COMPOSIO_TOOLS,
+  isAllowedComposioTool,
+  isReadOnlyComposioTool,
+} from "@/lib/integrations/composio-allowlist";
 
 describe("Composio execute allowlist", () => {
   it("permits known Gmail read tools", () => {
@@ -23,5 +27,13 @@ describe("Composio execute allowlist", () => {
   it("keeps empty allowlists for toolkits without execute bridge exposure", () => {
     expect(ALLOWED_COMPOSIO_TOOLS.spotify).toEqual([]);
     expect(isAllowedComposioTool("spotify", "SPOTIFY_PLAY")).toBe(false);
+  });
+
+  it("keeps the generic bridge read-only until mutation-kernel composition", () => {
+    expect(isReadOnlyComposioTool("gmail", "GMAIL_FETCH_EMAILS")).toBe(true);
+    expect(isReadOnlyComposioTool("outlook", "OUTLOOK_GET_MESSAGE")).toBe(true);
+    expect(isReadOnlyComposioTool("gmail", "GMAIL_SEND_EMAIL")).toBe(false);
+    expect(isReadOnlyComposioTool("gmail", "GMAIL_MOVE_TO_TRASH")).toBe(false);
+    expect(isReadOnlyComposioTool("outlook", "OUTLOOK_SEND_EMAIL")).toBe(false);
   });
 });

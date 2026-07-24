@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 
 interface Props {
@@ -14,7 +13,6 @@ interface Props {
 }
 
 export default function MFAChallenge({ factorId, challengeId, trustDevice = true, onSuccess, onCancel }: Props) {
-  const supabase = useMemo(() => createClient(), []);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,27 +26,25 @@ export default function MFAChallenge({ factorId, challengeId, trustDevice = true
     if (codeToVerify.length !== 6) return;
     setLoading(true);
     setError(null);
-    const { error: verifyError } = await supabase.auth.mfa.verify({ factorId, challengeId, code: codeToVerify });
-    if (verifyError) {
-      setError(verifyError.message ?? 'Verification failed. Try again.');
+    let response: Response;
+    try {
+      response = await fetch('/api/auth/mfa/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ factorId, challengeId, code: codeToVerify, trustDevice }),
+      });
+    } catch {
+      setError('Verification is temporarily unavailable. Please try again.');
+      setLoading(false);
+      inputRef.current?.focus();
+      return;
+    }
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error === 'RATE_LIMITED' ? 'Too many attempts. Please wait before trying again.' : 'Verification failed. Try again.');
       setLoading(false);
       setCode('');
       inputRef.current?.focus();
       return;
-    }
-    // The session is now aal2. Ask the server to remember this device so the
-    // next sign-in does not challenge again. The server re-checks assurance
-    // itself, so this call cannot grant trust that was not earned.
-    //
-    // Deliberately non-blocking: if it fails, the user is still signed in and
-    // simply gets challenged next time. Failing to remember a device must never
-    // fail the login itself.
-    if (trustDevice) {
-      try {
-        await fetch('/api/auth/mfa/trust-device', { method: 'POST' });
-      } catch {
-        // Non-fatal by design — see above.
-      }
     }
     onSuccess();
   }

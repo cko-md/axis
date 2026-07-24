@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 91,
+  "migrationCount": 93,
   "latest": {
-    "version": "20260722064615",
-    "file": "supabase/migrations/20260722064615_user_settings_kv.sql",
-    "sha256": "e69426bd526dc8d2b749d78a882a9d2adc126b8fa3215609870cf8ed2013bfae"
+    "version": "20260723235900",
+    "file": "supabase/migrations/20260723235900_credential_column_lockdown.sql",
+    "sha256": "b0642a62fa69e41fafa515a0d1f81ca8719490b550ac23acad9ec537b9198d4c"
   },
   "migrations": [
     {
@@ -461,6 +461,16 @@
       "version": "20260722064615",
       "file": "supabase/migrations/20260722064615_user_settings_kv.sql",
       "sha256": "e69426bd526dc8d2b749d78a882a9d2adc126b8fa3215609870cf8ed2013bfae"
+    },
+    {
+      "version": "20260723223000",
+      "file": "supabase/migrations/20260723223000_user_security_state.sql",
+      "sha256": "aaab2421f382d29b22e341922fb2334dd9727c7be84f237ef89193e521288dce"
+    },
+    {
+      "version": "20260723235900",
+      "file": "supabase/migrations/20260723235900_credential_column_lockdown.sql",
+      "sha256": "b0642a62fa69e41fafa515a0d1f81ca8719490b550ac23acad9ec537b9198d4c"
     }
   ]
 }

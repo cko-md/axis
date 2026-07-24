@@ -77,7 +77,33 @@ $$;
 revoke insert, update, delete on public.agent_tasks from anon, authenticated;
 revoke insert on public.agent_task_activity from anon, authenticated;
 revoke insert, update on public.approvals from anon, authenticated;
-revoke insert, update, delete on public.user_passkeys from anon, authenticated;
+revoke all privileges on public.fund_connections from anon, authenticated;
+grant select (
+  id,
+  user_id,
+  provider,
+  institution,
+  mask,
+  status,
+  authority,
+  verified_at,
+  created_at,
+  updated_at
+) on public.fund_connections to authenticated;
+revoke all privileges on public.user_passkeys from anon, authenticated;
+grant select (
+  id,
+  user_id,
+  credential_id,
+  credential_public_key,
+  counter,
+  device_type,
+  backed_up,
+  transports,
+  name,
+  created_at,
+  last_used_at
+) on public.user_passkeys to authenticated;
 
 -- PostgREST does not expose sequences directly. Usage is required only when an
 -- allowed table insert relies on an identity/serial default.
