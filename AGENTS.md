@@ -37,6 +37,22 @@ Rules that apply to every agent, in every tool:
   `state-steward` subagent (`.claude/agents/state-steward.md`) does this plus the
   narrative updates the script cannot derive.
 
+### 0a. Active System Redesign continuation
+
+The owner-authorized adversarial remediation program is preserved in
+[`docs/axis-redesign/16-adversarial-remediation-production-convergence-program.md`](docs/axis-redesign/16-adversarial-remediation-production-convergence-program.md).
+Before resuming it, read the dated
+[`2026-07-23 checkpoint handoff`](docs/agent-handoff/2026-07-23-adversarial-remediation-checkpoint.md)
+and then independently re-derive current Git and hosted state.
+
+At that checkpoint, the governance bootstrap and auth/admission lane had
+accepted branch-level evidence; financial truth, provider mutation, provider
+identity, safe-fetch, and order-intent work remained incomplete or required
+recovery/composition. The exact branch/SHA ledger, open P0/P1 findings, overlap
+hazards, and ordered next steps live in the handoff. Never merge a lane merely
+because it has a checkpoint commit: complete independent review, clean
+migration/RLS replay, full local gates, and exact-SHA hosted validation first.
+
 ---
 
 ## 1. Project summary
