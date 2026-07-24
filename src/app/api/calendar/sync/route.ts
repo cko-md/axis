@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
-import type { Database } from "@/lib/supabase/database.types";
-import { listComposioCalendarAccounts, createComposioEvent } from "@/lib/calendar/composio";
-import { logRouteTiming, timedProviderOperation } from "@/lib/observability/providerTiming";
+import { readBoundedJson } from "@/lib/http/boundedJson";
+import {
+  CalendarMutationError,
+  listComposioCalendarAccounts,
+  createComposioEvent,
+} from "@/lib/calendar/composio";
 
-type CalendarSyncError = {
-  source: "google" | "outlook";
-  transport: "composio";
-  code: "timeout" | "network" | "provider_error";
-  message: string;
-};
-type CalendarSyncResult = { id: string | null; error?: CalendarSyncError };
 type ScheduleEventRow = {
   id: string;
   title: string;
@@ -20,182 +16,86 @@ type ScheduleEventRow = {
   end_at: string;
 };
 
-function statusFrom(error: unknown): number | undefined {
-  if (error && typeof error === "object" && "status" in error) {
-    const status = (error as { status: unknown }).status;
-    if (typeof status === "number") return status;
-  }
-  return undefined;
-}
-
-function syncError(source: "google" | "outlook", transport: "composio", error: unknown): CalendarSyncError {
-  const status = statusFrom(error);
-  const isTimeout = error instanceof Error && (error.name === "ProviderTimeoutError" || error.name === "TimeoutError");
-  return {
-    source,
-    transport,
-    code: isTimeout ? "timeout" : status && status >= 500 ? "provider_error" : "network",
-    message: isTimeout
-      ? `${source === "google" ? "Google Calendar" : "Outlook"} sync timed out.`
-      : `${source === "google" ? "Google Calendar" : "Outlook"} sync failed.`,
-  };
-}
-
 // POST /api/calendar/sync
-// Creates the given schedule_event in all connected calendars and
-// writes the external IDs back to the schedule_events row. A Composio
-// connection is preferred over a legacy direct-OAuth one for the same
-// provider (Composio is the canonical connect path), so the event is never
-// created twice in the same calendar.
+// `createComposioEvent` is the mutation boundary: it durably prepares and
+// claims the provider command before dispatch. This route deliberately never
+// has a raw provider-create path.
 export async function POST(req: NextRequest) {
-  const routeStartedAt = Date.now();
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > 16_000) {
+    return NextResponse.json({ error: "Request body is too large" }, { status: 413 });
+  }
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) return NextResponse.json({ error: "Authentication service unavailable" }, { status: 503 });
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
-  let body: { eventId?: unknown };
-  try { body = await req.json(); } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  let body: { eventId?: unknown } | null;
+  try { body = await readBoundedJson(req, 16_000) as { eventId?: unknown }; } catch (cause) {
+    return NextResponse.json({ error: cause instanceof Error && cause.message === "body_too_large" ? "Request body is too large" : "Invalid JSON" }, { status: cause instanceof Error && cause.message === "body_too_large" ? 413 : 400 });
   }
-
-  const { eventId } = body;
-  if (typeof eventId !== "string") {
+  if (!body || typeof body.eventId !== "string") {
     return NextResponse.json({ error: "eventId is required" }, { status: 400 });
   }
 
-  const { data: scheduleEvent, error: eventError } = await supabase
+  const { data, error } = await supabase
     .from("schedule_events")
     .select("id,title,description,start_at,end_at")
-    .eq("id", eventId)
+    .eq("id", body.eventId)
     .eq("user_id", user.id)
     .maybeSingle();
-
-  const ownedEvent = scheduleEvent as ScheduleEventRow | null;
-
-  if (eventError) {
-    Sentry.captureException(eventError, {
-      tags: { area: "schedule", op: "load_event_for_calendar_sync" },
-      extra: { eventId },
-    });
-    return NextResponse.json({ error: "Could not load this schedule event." }, { status: 500 });
-  }
-  if (!ownedEvent) {
-    return NextResponse.json({ error: "Schedule event not found" }, { status: 404 });
+  if (error) return NextResponse.json({ error: "Could not load this schedule event." }, { status: 500 });
+  const event = data as ScheduleEventRow | null;
+  if (!event) return NextResponse.json({ error: "Schedule event not found" }, { status: 404 });
+  if (!Number.isFinite(Date.parse(event.start_at)) || !Number.isFinite(Date.parse(event.end_at)) || Date.parse(event.end_at) <= Date.parse(event.start_at)) {
+    return NextResponse.json({ error: "Schedule event has an invalid time range." }, { status: 422 });
   }
 
-  const startTime = Date.parse(ownedEvent.start_at);
-  const endTime = Date.parse(ownedEvent.end_at);
-  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
-    return NextResponse.json({ error: "Schedule event has an invalid time range." }, { status: 400 });
-  }
-
-  const event = {
-    title: ownedEvent.title,
-    start_at: ownedEvent.start_at,
-    end_at: ownedEvent.end_at,
-    description: ownedEvent.description ?? undefined,
-  };
-
-  let composioAccounts: Awaited<ReturnType<typeof listComposioCalendarAccounts>> = [];
+  let accounts;
   try {
-    composioAccounts = await listComposioCalendarAccounts(user.id);
-  } catch (error) {
-    Sentry.captureException(error instanceof Error ? error : new Error(String(error)), {
+    accounts = await listComposioCalendarAccounts(user.id);
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error("Calendar account lookup failed");
+    Sentry.captureException(error, {
       tags: { area: "schedule", op: "list_composio_calendar_accounts", route: "/api/calendar/sync" },
-      extra: { eventId },
+      extra: { eventId: event.id },
     });
-    return NextResponse.json(
-      { error: "Connected calendar accounts could not be refreshed. Try again in a moment.", code: "connection_lookup_failed" },
-      { status: 502 },
-    );
+    return NextResponse.json({
+      error: "Connected calendar accounts could not be refreshed. Try again in a moment.",
+      code: "connection_lookup_failed",
+    }, { status: 502 });
   }
 
-  // Composio wins: a Composio calendar connection is used ahead of any legacy
-  // direct-OAuth one for the same provider; the legacy path is a fallback only
-  // for a provider with no Composio connection. (Prod has zero legacy rows.)
-  const composioGoogle = composioAccounts.find((a) => a.provider === "googlecalendar");
-  const composioOutlook = composioAccounts.find((a) => a.provider === "outlook");
-
-  async function syncSource(
-    source: "google" | "outlook",
-    operation: () => Promise<string | null>,
-  ): Promise<CalendarSyncResult> {
+  const results = await Promise.all(accounts.map(async (account) => {
+    const provider = account.provider;
     try {
-      const id = await timedProviderOperation(
-        {
-          area: "calendar",
-          provider: source,
-          transport: "composio",
-          operation: "create_event",
-          timeoutMs: 9_000,
-          slowMs: 2_000,
-        },
-        operation,
-      );
-      return { id };
-    } catch (error) {
-      return { id: null, error: syncError(source, "composio", error) };
-    }
-  }
-
-  const [googleSync, outlookSync] = await Promise.all([
-    composioGoogle
-      ? syncSource("google", () => createComposioEvent("googlecalendar", composioGoogle.connectedAccountId, user.id, event))
-      : Promise.resolve<CalendarSyncResult>({ id: null }),
-    composioOutlook
-      ? syncSource("outlook", () => createComposioEvent("outlook", composioOutlook.connectedAccountId, user.id, event))
-      : Promise.resolve<CalendarSyncResult>({ id: null }),
-  ]);
-
-  const gcalId = googleSync.id;
-  const outlookId = outlookSync.id;
-  const errors = [
-    ...(googleSync.error ? [googleSync.error] : []),
-    ...(outlookSync.error ? [outlookSync.error] : []),
-  ];
-
-  // Reserve Sentry for 5xx-class/unexpected failures — expected outcomes
-  // (timeout, network hiccup) are still worth a tagged event here since a
-  // silently-unsynced event is exactly the kind of thing a human should see,
-  // but they're not app bugs, so this stays a single event per failure, not
-  // an escalating alert.
-  for (const err of errors) {
-    Sentry.captureException(new Error("Schedule calendar event create sync failed"), {
-      tags: { area: "schedule", op: "sync_event", provider: err.source, transport: err.transport, code: err.code },
-      extra: { eventId },
-    });
-  }
-
-  // Write IDs back — only update columns where sync succeeded
-  const patch: Record<string, string> = {};
-  if (gcalId) patch.gcal_event_id = gcalId;
-  if (outlookId) patch.outlook_event_id = outlookId;
-
-  if (Object.keys(patch).length) {
-    const { error: persistError } = await supabase
-      .from("schedule_events")
-      .update(patch as Database["public"]["Tables"]["schedule_events"]["Update"])
-      .eq("id", eventId)
-      .eq("user_id", user.id);
-    if (persistError) {
-      Sentry.captureException(persistError, {
-        tags: { area: "schedule", op: "persist_external_event_ids" },
-        extra: { eventId, providers: Object.keys(patch) },
+      await createComposioEvent(provider, account.connectedAccountId, user.id, {
+        ...event,
+        description: event.description ?? undefined,
       });
-      errors.push({
-        source: gcalId ? "google" : "outlook",
-        transport: "composio",
-        code: "network",
-        message: "Calendar sync succeeded, but AXIS could not save the external event link.",
+      return { provider, state: "succeeded", ok: true, status: 200 };
+    } catch (cause) {
+      if (cause instanceof CalendarMutationError) {
+        if (
+          cause.status >= 500
+          || cause.state === "outcome_unknown"
+          || cause.state === "reconciliation_required"
+        ) {
+          Sentry.captureException(cause, {
+            tags: { area: "calendar", route: "/api/calendar/sync", provider, state: cause.state },
+          });
+        }
+        return { provider, state: cause.state, ok: false, status: cause.status };
+      }
+      Sentry.captureException(new Error("Calendar create requires reconciliation"), {
+        tags: { area: "calendar", route: "/api/calendar/sync", provider, state: "outcome_unknown" },
       });
+      return { provider, state: "outcome_unknown", ok: false, status: 202 };
     }
-  }
+  }));
 
-  logRouteTiming("/api/calendar/sync", routeStartedAt, {
-    google: !!gcalId,
-    outlook: !!outlookId,
-    partial: errors.length > 0,
-  });
-
-  return NextResponse.json({ gcalId, outlookId, partial: errors.length > 0, errors });
+  return NextResponse.json({
+    partial: results.some((result) => !result.ok),
+    results: results.map((result) => ({ provider: result.provider, state: result.state, ok: result.ok })),
+  }, { status: results.some((result) => result.status === 503) ? 503 : 200 });
 }

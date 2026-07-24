@@ -198,6 +198,46 @@ actions; it is intentionally a static guard, not proof that arbitrary shell or
 remote action code cannot deploy. It prints the complete ordered digest ledger;
 paste that output into the release record.
 
+## Phase 1A provider-mutation kernel — mandatory held release gate
+
+This phase is **not production-complete** until the named release owner attaches
+the hosted outputs below. The new delete command schema is future-facing only:
+external calendar deletion stays unavailable in the application until an atomic
+cohort preparer and provider-absence reconciler ship.
+
+1. **Expand.** Apply only
+   `20260723183000_provider_mutation_kernel.sql`, then run the additive
+   provider-mutation expansion probe against the linked target. Record the
+   exact SQL output and its `sha256` checksum in the release record. Expansion
+   retains authenticated Schedule provider-ID writes and owner DELETE for
+   mixed-version compatibility, while hiding rows with `deleted_at` and
+   protecting tombstone metadata.
+2. **Compatible app revision live and drained.** Deploy the application
+   revision that uses the governed mutation policy, records external calendar
+   deletion as unavailable, and does not depend on legacy Schedule provider
+   writes. Record the full production Git SHA, Vercel deployment ID/Ready
+   timestamp, and an explicit old-instance plus in-flight-request drain time.
+   Do not apply contract until the drain is complete and the release owner has
+   recorded those values.
+3. **Contract.** With database recovery owner approval, apply only
+   `20260723183001_provider_mutation_kernel_contract.sql`. It removes legacy
+   browser provider-ID writes and direct delete, hides tombstones in owner
+   policies, and asserts that the restrictive grants, policies, and authority
+   trigger are actually installed. Record the contract SQL output and its
+   `sha256` checksum.
+4. **Post-contract verifier.** Run the full
+   `scripts/sql/verify-provider-mutations.sql` against the hosted target, then
+   capture `supabase migration list --linked`. Attach both outputs and checksums
+   plus the production smoke/Sentry window to the release record.
+
+If any hosted output, checksum, deployment SHA, drain record, or verifier is
+missing, **hold production**. The release owner is the deployment owner named
+at the top of this document; the database recovery owner owns rollback/PITR.
+Before contract, roll back the application only and leave the expansion in
+place. During a contract failure, verify the transaction rolled back and hold.
+After contract, never restore an older application revision; use a reviewed,
+timestamped recovery migration or roll forward a compatible revision.
+
 ## Preconditions
 
 - CI, production build, authenticated/public browser gates, preview validation,

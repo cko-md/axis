@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 91,
+  "migrationCount": 93,
   "latest": {
-    "version": "20260722064615",
-    "file": "supabase/migrations/20260722064615_user_settings_kv.sql",
-    "sha256": "e69426bd526dc8d2b749d78a882a9d2adc126b8fa3215609870cf8ed2013bfae"
+    "version": "20260723183001",
+    "file": "supabase/migrations/20260723183001_provider_mutation_kernel_contract.sql",
+    "sha256": "fc0355ce02c90d43f2371cf1e4bdd99796276c9882f1ebd3705905721966813b"
   },
   "migrations": [
     {
@@ -461,6 +461,16 @@
       "version": "20260722064615",
       "file": "supabase/migrations/20260722064615_user_settings_kv.sql",
       "sha256": "e69426bd526dc8d2b749d78a882a9d2adc126b8fa3215609870cf8ed2013bfae"
+    },
+    {
+      "version": "20260723183000",
+      "file": "supabase/migrations/20260723183000_provider_mutation_kernel.sql",
+      "sha256": "faed4b3a5ec274cfc2dcd13cb03952aa01b025a9073ee86b2e13bc839babbd3c"
+    },
+    {
+      "version": "20260723183001",
+      "file": "supabase/migrations/20260723183001_provider_mutation_kernel_contract.sql",
+      "sha256": "fc0355ce02c90d43f2371cf1e4bdd99796276c9882f1ebd3705905721966813b"
     }
   ]
 }

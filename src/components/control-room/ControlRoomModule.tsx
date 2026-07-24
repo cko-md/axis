@@ -18,6 +18,7 @@ import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHer
 import type { AIProviderPref } from "@/lib/ai/router";
 import { integrationCardView, type IntegrationCardView } from "@/lib/integrations/cardView";
 import { getProviderDescriptor } from "@/lib/integrations/registry";
+import { governedMailDescriptor } from "@/lib/integrations/mutationContainment";
 import type { IntegrationTransport } from "@/lib/integrations/types";
 import { MakeDeliveryOutboxPanel } from "./MakeDeliveryOutboxPanel";
 import { isAxisLocalKey } from "@/lib/settings/localKeys";
@@ -749,7 +750,9 @@ export function ControlRoomModule() {
   const stravaComposio = pickComposioConnection(composioConnections, ["strava"]);
   const mailRisk = (provider: "gmail" | "outlook", transport: IntegrationTransport) => {
     const descriptor = getProviderDescriptor("mail", provider);
-    return descriptor ? integrationCardView(descriptor, transport) : null;
+    // Registry stays a technical adapter contract; Control Room must present
+    // the governed release surface, not mutations unavailable to users today.
+    return descriptor ? integrationCardView(governedMailDescriptor(descriptor), transport) : null;
   };
   const gmailTransport: IntegrationTransport = gmailAccount?.via === "composio" || isActiveComposio(gmailComposio) ? "composio" : "direct";
   const outlookTransport: IntegrationTransport = outlookAccount?.via === "composio" || isActiveComposio(outlookComposio) ? "composio" : "direct";

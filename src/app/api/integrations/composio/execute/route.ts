@@ -36,8 +36,8 @@ export async function POST(req: NextRequest) {
   if (!isSupportedToolkit(toolkit)) {
     return NextResponse.json({ error: `Unsupported toolkit: ${toolkit}` }, { status: 400 });
   }
-  if (!isAllowedComposioTool(toolkit, tool)) {
-    return NextResponse.json({ error: `Tool not allowed for toolkit ${toolkit}` }, { status: 403 });
+  if (!isAllowedComposioTool(toolkit, tool, "generic_read_only")) {
+    return NextResponse.json({ error: `Tool requires the governed mutation path for toolkit ${toolkit}` }, { status: 403 });
   }
 
   const { data: connections, error: connError } = await supabase
@@ -68,13 +68,23 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({
       successful: result.successful,
-      error: result.error ?? null,
+      // `result.error` is provider-controlled content. Keep it server-private.
+      error: result.successful ? null : "Provider tool execution did not succeed",
     });
   } catch (err) {
     const status = err instanceof ComposioError ? err.status : 502;
-    Sentry.captureException(err instanceof Error ? err : new Error("Composio execute failed"), {
-      tags: { area: "integrations", route: "/api/integrations/composio/execute", toolkit, tool },
+    // ComposioError may embed an upstream response body. Capture only safe,
+    // fixed telemetry rather than the exception object or its message.
+    Sentry.captureMessage("Composio tool execution failed", {
+      level: "warning",
+      tags: {
+        area: "integrations",
+        route: "/api/integrations/composio/execute",
+        toolkit,
+        tool,
+        provider_status: String(status),
+      },
     });
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Tool execution failed" }, { status });
+    return NextResponse.json({ error: "Provider tool execution failed" }, { status });
   }
 }

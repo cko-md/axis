@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { MailProvider } from "@/lib/mail/tokens";
+import { getCapabilities } from "@/lib/integrations/registry";
+import { governedMailCapabilities } from "@/lib/integrations/mutationContainment";
 import { useToast } from "@/components/ui/Toast";
 
 export interface ComposeDraft {
@@ -70,10 +72,14 @@ export function ComposeModal({
     initialAccount ? accountTransport(initialAccount) : draft.via ?? "direct",
   );
   const [sending, setSending] = useState(false);
+  const pendingIdempotencyKey = useRef<string | null>(null);
   const accountMissing = !accounts.some(
     (a) => a.provider === provider && a.mailEmail === mailEmail && accountTransport(a) === via,
   );
   const composioReplyFallback = isReply && via === "composio";
+  // Registry preserves technical adapter truth; governed availability is the
+  // release policy consumed by the user-facing compose entry point.
+  const canSend = !!governedMailCapabilities(getCapabilities("mail", provider, via))?.send;
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -96,7 +102,13 @@ export function ComposeModal({
       toast("Choose a connected sending account.", "error", "Mail");
       return;
     }
+    if (!canSend) {
+      toast("Sending is temporarily unavailable until provider reconciliation is verified.", "warn", "Mail");
+      return;
+    }
     setSending(true);
+    const idempotencyKey = pendingIdempotencyKey.current ?? crypto.randomUUID();
+    pendingIdempotencyKey.current = idempotencyKey;
     try {
       const res = await fetch("/api/mail/send", {
         method: "POST",
@@ -111,17 +123,27 @@ export function ComposeModal({
           inReplyTo: draft.inReplyTo,
           references: draft.references,
           threadId: draft.threadId,
+          idempotencyKey,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; warning?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; error?: string; warning?: string;
+        state?: "succeeded" | "outcome_unknown" | "reconciliation_required" | "failed_before_dispatch" | "idempotency_conflict" | "unavailable";
+      };
       if (res.ok && data.ok) {
+        pendingIdempotencyKey.current = null;
         toast(data.warning ?? "Message sent.", data.warning ? "info" : "success", "Mail");
         onSent();
+      } else if (data.state === "outcome_unknown" || data.state === "reconciliation_required") {
+        toast("Message outcome is being reconciled. Do not retry it.", "warn", "Mail");
+      } else if (data.state === "failed_before_dispatch") {
+        pendingIdempotencyKey.current = null;
+        toast(data.error ?? "Message was not sent.", "warn", "Mail");
       } else {
         toast(data.error ?? "Send failed.", "error", "Mail");
       }
     } catch {
-      toast("Network error — message not sent.", "error", "Mail");
+      toast("Network error — the message outcome is unknown. Do not retry yet.", "warn", "Mail");
     } finally {
       setSending(false);
     }
@@ -200,7 +222,7 @@ export function ComposeModal({
               </div>
             </div>
           )}
-          {composioReplyFallback && (
+          {composioReplyFallback && canSend && (
             <div
               role="status"
               style={{
@@ -214,6 +236,22 @@ export function ComposeModal({
               }}
             >
               Composio can send this reply, but native thread attachment is not verified yet. It will be sent as a new message with the reply subject and quote.
+            </div>
+          )}
+          {!canSend && (
+            <div
+              role="status"
+              style={{
+                border: "1px solid var(--line)",
+                background: "var(--surface-2)",
+                borderRadius: 6,
+                color: "var(--ink-dim)",
+                fontSize: "12px",
+                lineHeight: 1.5,
+                padding: "8px 10px",
+              }}
+            >
+              Sending is temporarily unavailable while AXIS completes provider receipt and reconciliation safeguards. Your draft remains here, but it will not be sent.
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -242,8 +280,9 @@ export function ComposeModal({
           <button
             type="button"
             onClick={() => void send()}
-            disabled={sending}
-            style={{ padding: "6px 16px", borderRadius: "var(--r)", background: "var(--accent)", border: "none", color: "var(--on-accent)", fontSize: "12px", fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.7 : 1 }}
+            disabled={sending || !canSend}
+            title={canSend ? undefined : "Sending is temporarily unavailable while provider reconciliation is being completed."}
+            style={{ padding: "6px 16px", borderRadius: "var(--r)", background: "var(--accent)", border: "none", color: "var(--on-accent)", fontSize: "12px", fontWeight: 600, cursor: sending || !canSend ? "default" : "pointer", opacity: sending || !canSend ? 0.7 : 1 }}
           >
             {sending ? "Sending…" : "Send"}
           </button>

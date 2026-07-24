@@ -190,6 +190,7 @@ export function ScheduleModule() {
   });
   const [savingDetail, setSavingDetail] = useState(false);
   const [deletingDetail, setDeletingDetail] = useState(false);
+  const pendingDeleteIdempotency = useRef<Record<string, string>>({});
   const [calStatus, setCalStatus] = useState<CalendarStatusResponse | null>(null);
   const [composioCal, setComposioCal] = useState<{ google: ComposioCalState; outlook: ComposioCalState }>({
     google: { active: false, email: null },
@@ -293,7 +294,7 @@ export function ScheduleModule() {
 
     const { data, error } = await supabase
       .from("schedule_events")
-      .select("*")
+      .select("id,title,description,start_at,end_at,color_class,all_day,recurrence_rule,created_at,updated_at")
       .eq("user_id", user.id)
       .gte("start_at", range.start.toISOString())
       .lt("start_at", range.end.toISOString())
@@ -757,14 +758,19 @@ export function ScheduleModule() {
         setEvents((current) => current.filter((event) => event.id !== selectedEvent.id));
         toast("Sample event removed.", "info", "Schedule");
       } else {
-        const response = await fetch(`/api/calendar/event/${encodeURIComponent(selectedEvent.id)}`, { method: "DELETE" });
-        const payload = (await response.json().catch(() => ({}))) as { error?: string; calendarCleanupFailed?: boolean };
+        const deletionKey = pendingDeleteIdempotency.current[selectedEvent.id] ?? crypto.randomUUID();
+        pendingDeleteIdempotency.current[selectedEvent.id] = deletionKey;
+        const response = await fetch(`/api/calendar/event/${encodeURIComponent(selectedEvent.id)}`, {
+          method: "DELETE",
+          headers: { "Idempotency-Key": deletionKey },
+        });
+        const payload = (await response.json().catch(() => ({}))) as { error?: string; calendarCleanupFailed?: boolean; state?: string };
         if (!response.ok) throw new Error(payload.error || "Could not delete event.");
 
         setEvents((current) => current.filter((event) => event.id !== selectedEvent.id));
         toast(
           payload.calendarCleanupFailed
-            ? "Event removed locally, but calendar cleanup failed."
+            ? "Event hidden locally; calendar cleanup is being reconciled. Do not retry it."
             : "Event removed.",
           payload.calendarCleanupFailed ? "warn" : "info",
           "Schedule",

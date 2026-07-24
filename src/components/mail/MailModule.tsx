@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import type { MailAttachment, MailMessage, MailMessageFull } from "@/lib/mail/gmail";
 import { getCapabilities, type ProviderCapabilities } from "@/lib/integrations/registry";
+import { governedMailCapabilities } from "@/lib/integrations/mutationContainment";
 import type { IntegrationTransport } from "@/lib/integrations/types";
 import { useToast } from "@/components/ui/Toast";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -655,7 +656,9 @@ export function MailModule() {
   const messageCapabilities = useCallback((msg: Pick<MailMessage, "provider" | "accountEmail">) => {
     const account = accounts.find((acct) => acct.provider === msg.provider && acct.mailEmail === msg.accountEmail);
     const transport: IntegrationTransport = account?.via === "composio" ? "composio" : "direct";
-    return getCapabilities("mail", msg.provider, transport);
+    // Registry describes technical adapter capability; release policy prevents
+    // mutation affordances until the durable provider-mutation path is live.
+    return governedMailCapabilities(getCapabilities("mail", msg.provider, transport));
   }, [accounts]);
 
   const updateLocalMessage = useCallback((msg: Pick<MailMessage, "id" | "provider" | "accountEmail">, patch: Partial<MailMessage>) => {

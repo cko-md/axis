@@ -57,6 +57,8 @@ export const TRUSTED_CONTROL_PLANE_FILES = [
   "supabase/config.toml",
   "scripts/sql/bootstrap-local-e2e-role-grants.sql",
   "scripts/sql/verify-20260716-contract.sql",
+  "scripts/sql/verify-provider-mutations-expand.sql",
+  "scripts/sql/verify-provider-mutations.sql",
 ];
 const REQUIRED_VERCEL_IGNORE_COMMAND =
   "sh -c 'sh scripts/vercel-ignore-build.sh; status=$?; if [ \"$status\" -eq 74 ]; then exit 1; fi; exit 0'";

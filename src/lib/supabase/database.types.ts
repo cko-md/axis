@@ -2804,12 +2804,123 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_mutation_commands: {
+        Row: {
+          completed_at: string | null
+          connection_ref: string
+          created_at: string
+          deletion_cohort_id: string | null
+          deletion_expected_count: number | null
+          dispatched_at: string | null
+          external_resource_id: string | null
+          id: string
+          idempotency_key: string
+          kind: string
+          last_error_code: string | null
+          provider: string
+          repair_required: boolean
+          semantic_hash: string
+          state: string
+          target_resource_id: string | null
+          transport: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          completed_at?: string | null
+          connection_ref: string
+          created_at?: string
+          deletion_cohort_id?: string | null
+          deletion_expected_count?: number | null
+          dispatched_at?: string | null
+          external_resource_id?: string | null
+          id?: string
+          idempotency_key: string
+          kind: string
+          last_error_code?: string | null
+          provider: string
+          repair_required?: boolean
+          semantic_hash: string
+          state?: string
+          target_resource_id?: string | null
+          transport: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          completed_at?: string | null
+          connection_ref?: string
+          created_at?: string
+          deletion_cohort_id?: string | null
+          deletion_expected_count?: number | null
+          dispatched_at?: string | null
+          external_resource_id?: string | null
+          id?: string
+          idempotency_key?: string
+          kind?: string
+          last_error_code?: string | null
+          provider?: string
+          repair_required?: boolean
+          semantic_hash?: string
+          state?: string
+          target_resource_id?: string | null
+          transport?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      provider_mutation_receipts: {
+        Row: {
+          command_id: string
+          created_at: string
+          error_code: string | null
+          external_resource_id: string | null
+          id: string
+          observed_at: string
+          provider_receipt_id: string | null
+          provider_status: number | null
+          receipt_kind: string
+          user_id: string
+        }
+        Insert: {
+          command_id: string
+          created_at?: string
+          error_code?: string | null
+          external_resource_id?: string | null
+          id?: string
+          observed_at?: string
+          provider_receipt_id?: string | null
+          provider_status?: number | null
+          receipt_kind: string
+          user_id: string
+        }
+        Update: {
+          command_id?: string
+          created_at?: string
+          error_code?: string | null
+          external_resource_id?: string | null
+          id?: string
+          observed_at?: string
+          provider_receipt_id?: string | null
+          provider_status?: number | null
+          receipt_kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       schedule_events: {
         Row: {
           all_day: boolean
+          calendar_delete_command_id: string | null
           color_class: string
           created_at: string
+          deleted_at: string | null
           description: string | null
+          external_cleanup_state: string
           end_at: string
           gcal_event_id: string | null
           id: string
@@ -2822,9 +2933,12 @@ export type Database = {
         }
         Insert: {
           all_day?: boolean
+          calendar_delete_command_id?: string | null
           color_class?: string
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
+          external_cleanup_state?: string
           end_at: string
           gcal_event_id?: string | null
           id?: string
@@ -2837,9 +2951,12 @@ export type Database = {
         }
         Update: {
           all_day?: boolean
+          calendar_delete_command_id?: string | null
           color_class?: string
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
+          external_cleanup_state?: string
           end_at?: string
           gcal_event_id?: string | null
           id?: string
@@ -3404,7 +3521,22 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      provider_mutation_command_status: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          dispatched_at: string | null
+          id: string | null
+          kind: string | null
+          last_error_code: string | null
+          provider: string | null
+          repair_required: boolean | null
+          state: string | null
+          updated_at: string | null
+          version: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       apply_vector_event: {

@@ -25,7 +25,16 @@
 //   offset) + timezone field + event_duration_hour/event_duration_minutes
 //   — it has no end_datetime parameter at all, unlike Outlook's create tool.
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { executeTool } from "@/lib/integrations/composio";
+import { timedProviderOperation } from "@/lib/observability/providerTiming";
+import {
+  createProviderMutationKernel,
+  type ProviderMutationExecutionResult,
+  type ProviderMutationState,
+} from "@/lib/mutations/providerMutationKernel";
+import { createSupabaseProviderMutationStore } from "@/lib/mutations/providerMutationStore";
+import { providerMutationSemanticHash, providerMutationStableIdempotencyKey } from "@/lib/mutations/semanticHash";
 import {
   GOOGLECALENDAR_COMPOSIO_TOOLS,
   OUTLOOK_CALENDAR_COMPOSIO_TOOLS,
@@ -43,10 +52,6 @@ const CREATE_EVENT_TOOL: Record<CalendarToolkit, string> = {
   googlecalendar: GOOGLECALENDAR_COMPOSIO_TOOLS[1],
   outlook: OUTLOOK_CALENDAR_COMPOSIO_TOOLS[1],
 };
-const DELETE_EVENT_TOOL: Record<CalendarToolkit, string> = {
-  googlecalendar: GOOGLECALENDAR_COMPOSIO_TOOLS[2],
-  outlook: OUTLOOK_CALENDAR_COMPOSIO_TOOLS[2],
-};
 
 export type ComposioCalendarAccount = {
   provider: CalendarToolkit;
@@ -54,6 +59,20 @@ export type ComposioCalendarAccount = {
   via: "composio";
   connectedAccountId: string;
 };
+
+/**
+ * A safe status emitted by the durable create boundary. It intentionally
+ * contains no provider response, account reference, or command identity.
+ */
+export class CalendarMutationError extends Error {
+  constructor(
+    readonly state: ProviderMutationState | "unavailable" | "idempotency_conflict",
+    readonly status: 202 | 409 | 422 | 503,
+  ) {
+    super("Calendar mutation did not reach a durable successful outcome");
+    this.name = "CalendarMutationError";
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -255,11 +274,12 @@ function computeDuration(startAt: string, endAt: string): { hour: number; minute
   return { hour: Math.min(24, Math.floor(totalMinutes / 60)), minutes: totalMinutes % 60 };
 }
 
-export async function createComposioEvent(
+async function dispatchComposioEvent(
   toolkit: CalendarToolkit,
   connectedAccountId: string,
   userId: string,
   event: { title: string; start_at: string; end_at: string; description?: string },
+  signal: AbortSignal,
 ): Promise<string | null> {
   let args: Record<string, unknown>;
   if (toolkit === "googlecalendar") {
@@ -283,29 +303,103 @@ export async function createComposioEvent(
       user_id: "me",
     };
   }
-  const res = await executeTool({ toolSlug: CREATE_EVENT_TOOL[toolkit], connectedAccountId, userId, arguments: args });
+  const res = await executeTool({ toolSlug: CREATE_EVENT_TOOL[toolkit], connectedAccountId, userId, arguments: args, signal });
   if (!res.successful) throw composioCalendarError("create_event");
   const data = res.data as Record<string, unknown>;
   return unwrapCreatedEventId(data);
 }
 
-export async function deleteComposioEvent(
+function durableCreateFailure(result: ProviderMutationExecutionResult): never {
+  if (result.kind === "service_unavailable") throw new CalendarMutationError("unavailable", 503);
+  if (result.kind === "idempotency_conflict") throw new CalendarMutationError("idempotency_conflict", 409);
+  if (result.kind === "failed_before_dispatch") throw new CalendarMutationError("failed_before_dispatch", 422);
+  if (result.kind === "outcome_unknown") throw new CalendarMutationError("outcome_unknown", 202);
+  if (result.kind === "repair_required") throw new CalendarMutationError("reconciliation_required", 202);
+  if (result.kind === "replayed") {
+    throw new CalendarMutationError(result.mutation.state, result.mutation.state === "failed_before_dispatch" ? 422 : 202);
+  }
+  throw new CalendarMutationError("reconciliation_required", 202);
+}
+
+/**
+ * Calendar creation is a mutation boundary, not a raw Composio helper. The
+ * durable command is prepared and claimed before the provider call; this
+ * function returns only after a receipt with an external event id is stored.
+ * Route tests may mock this boundary in the same way they mock any provider
+ * adapter, but production code has no direct-create escape hatch.
+ */
+export async function createComposioEvent(
   toolkit: CalendarToolkit,
   connectedAccountId: string,
   userId: string,
-  externalEventId: string,
-): Promise<boolean> {
-  const res = await executeTool({
-    toolSlug: DELETE_EVENT_TOOL[toolkit],
-    connectedAccountId,
-    userId,
-    arguments:
-      toolkit === "googlecalendar"
-        ? { calendar_id: "primary", event_id: externalEventId }
-        : { event_id: externalEventId, user_id: "me" },
+  event: { id: string; title: string; start_at: string; end_at: string; description?: string },
+): Promise<string> {
+  const admin = createAdminClient();
+  if (!admin) throw new CalendarMutationError("unavailable", 503);
+  const externalColumn = toolkit === "googlecalendar" ? "gcal_event_id" : "outlook_event_id";
+  const { data: existingEvent, error: existingEventError } = await admin
+    .from("schedule_events")
+    .select("gcal_event_id,outlook_event_id,deleted_at")
+    .eq("id", event.id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  // The linked external id is server-authoritative. Returning it before a
+  // create intent prevents an app rollout from duplicating events that predate
+  // the mutation ledger.
+  if (existingEventError || !existingEvent) throw new CalendarMutationError("unavailable", 503);
+  if (existingEvent.deleted_at) throw new CalendarMutationError("failed_before_dispatch", 422);
+  const existingExternalId = existingEvent[externalColumn];
+  if (typeof existingExternalId === "string" && existingExternalId.length > 0) return existingExternalId;
+
+  const kernel = createProviderMutationKernel({
+    store: createSupabaseProviderMutationStore(admin),
   });
-  if (!res.successful) throw composioCalendarError("delete_event");
-  return true;
+  let idempotencyKey: string;
+  let semanticHash: string;
+  try {
+    idempotencyKey = providerMutationStableIdempotencyKey({
+      protocol: "calendar-create-v1", userId, eventId: event.id, provider: toolkit,
+    });
+    semanticHash = providerMutationSemanticHash({
+      protocol: "calendar-create-v1", userId, event, provider: toolkit, connectionRef: connectedAccountId,
+    });
+  } catch {
+    throw new CalendarMutationError("unavailable", 503);
+  }
+  const result = await kernel.execute({
+    userId,
+    idempotencyKey,
+    kind: "calendar_create",
+    provider: toolkit,
+    transport: "composio",
+    connectionRef: connectedAccountId,
+    targetResourceId: event.id,
+    semanticHash,
+    requireExternalResourceId: true,
+    dispatch: async (signal) => {
+      const externalResourceId = await timedProviderOperation(
+        {
+          area: "calendar",
+          provider: toolkit,
+          transport: "composio",
+          operation: "create_event",
+          captureFailures: false,
+          timeoutMs: 9_000,
+          slowMs: 2_000,
+        },
+        () => dispatchComposioEvent(toolkit, connectedAccountId, userId, event, signal),
+      );
+      return {
+        acknowledged: true as const,
+        receipt: { externalResourceId },
+      };
+    },
+  });
+  if (result.kind === "succeeded" && result.mutation.externalResourceId) return result.mutation.externalResourceId;
+  if (result.kind === "replayed" && result.mutation.state === "succeeded" && result.mutation.externalResourceId) {
+    return result.mutation.externalResourceId;
+  }
+  return durableCreateFailure(result);
 }
 
 // Google Calendar only — Outlook has no confirmed free/busy tool slug, so

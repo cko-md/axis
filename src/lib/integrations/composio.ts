@@ -44,6 +44,8 @@ function getApiKey(): string {
 }
 
 async function composioFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const timeout = AbortSignal.timeout(20000);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   const res = await fetch(`${COMPOSIO_BASE}${path}`, {
     ...init,
     headers: {
@@ -51,7 +53,7 @@ async function composioFetch<T>(path: string, init: RequestInit = {}): Promise<T
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(20000),
+    signal,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -213,6 +215,7 @@ export async function executeTool(opts: {
   connectedAccountId: string;
   userId: string;
   arguments?: Record<string, unknown>;
+  signal?: AbortSignal;
 }): Promise<ToolExecuteResult> {
   return composioFetch<ToolExecuteResult>(`/tools/execute/${encodeURIComponent(opts.toolSlug)}`, {
     method: "POST",
@@ -221,6 +224,7 @@ export async function executeTool(opts: {
       user_id: opts.userId,
       arguments: opts.arguments ?? {},
     }),
+    signal: opts.signal,
   });
 }
 

@@ -46,6 +46,8 @@ const contractMigration = {
 const verificationFiles = [
   "scripts/sql/verify-20260716-expand.sql",
   "scripts/sql/verify-20260716-contract.sql",
+  "scripts/sql/verify-provider-mutations-expand.sql",
+  "scripts/sql/verify-provider-mutations.sql",
 ];
 
 const releaseDoc = "docs/axis-redesign/12-release-plan.md";
@@ -241,6 +243,8 @@ console.log(`  Expansion order: ${expansions.map(({ version }) => version).join(
 console.log(`  Contract: ${contract.version}  ${contract.file}`);
 console.log(`Expand read-back: ${verificationFiles[0]}`);
 console.log(`Contract read-back: ${verificationFiles[1]}`);
+console.log(`Provider mutation expansion read-back: ${verificationFiles[2]}`);
+console.log(`Provider mutation contract read-back: ${verificationFiles[3]}`);
 if (args.stage === "contract") {
   console.log(
     `Contract authorization recorded for deployed revision ${args.appLiveRevision}; recovery owner ${args.recoveryOwner}.`,
