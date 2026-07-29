@@ -40,10 +40,13 @@ function git(cwd: string, ...args: string[]) {
 function fixtureEnvironment(overrides: Record<string, string> = {}) {
   const env = { ...process.env };
   // These subprocesses validate disposable histories, never the GitHub PR that
-  // happens to be running this test. A real trusted-branch test must opt in
-  // through `overrides`, so hosted CI cannot leak its branch into a fixture.
+  // happens to be running this test. A real trusted-branch/target test must opt
+  // in through `overrides`, so hosted CI cannot select a foreign PR head or
+  // synthetic merge target in a fixture.
   delete env.GITHUB_HEAD_REF;
   delete env.GITHUB_BASE_REF;
+  delete env.GITHUB_EVENT_NAME;
+  delete env.AXIS_STATE_TARGET_REF;
   return { ...env, ...overrides };
 }
 
@@ -184,25 +187,89 @@ describe("program state derivation", { timeout: 30_000 }, () => {
     );
   });
 
-  it("does not let an ambient hosted-CI head branch contaminate disposable fixtures", () => {
+  it("does not let a realistic ambient hosted-CI environment contaminate disposable fixtures", () => {
     const fixture = makeFreshStateFixture();
-    const previous = process.env.GITHUB_HEAD_REF;
-    process.env.GITHUB_HEAD_REF = "foreign-hosted-ci-branch";
+    const hostileEnvironment = {
+      GITHUB_ACTIONS: "true",
+      CI: "true",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_HEAD_REF: "foreign-hosted-ci-branch",
+      GITHUB_BASE_REF: "main",
+      AXIS_STATE_TARGET_REF: "main",
+    };
+    const previous = Object.fromEntries(
+      Object.keys(hostileEnvironment).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, hostileEnvironment);
     try {
       const result = runState(fixture.cwd, "--check");
       expect(result.status, result.stderr).toBe(0);
     } finally {
-      if (previous === undefined) delete process.env.GITHUB_HEAD_REF;
-      else process.env.GITHUB_HEAD_REF = previous;
+      for (const key of Object.keys(hostileEnvironment)) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
     }
   });
 
-  it("accepts an explicitly supplied trusted fixture branch", () => {
+  it("accepts explicitly supplied trusted fixture branch and PR target semantics", () => {
     const fixture = makeFreshStateFixture();
     const result = runStateWithEnv(
       fixture.cwd,
       ["--check"],
-      { GITHUB_HEAD_REF: "codex/state-fixture" },
+      {
+        GITHUB_ACTIONS: "true",
+        CI: "true",
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_HEAD_REF: "codex/state-fixture",
+        AXIS_STATE_TARGET_REF: "HEAD",
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+
+    const foreignTarget = runStateWithEnv(
+      fixture.cwd,
+      ["--check"],
+      {
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_HEAD_REF: "codex/state-fixture",
+        AXIS_STATE_TARGET_REF: "main",
+      },
+    );
+    expect(foreignTarget.status).toBe(1);
+    expect(foreignTarget.stderr).toContain("generated block differs from the deterministic state");
+  });
+
+  it("accepts explicit pull-request merge topology through HEAD^2", () => {
+    const fixture = makeFreshStateFixture();
+    git(fixture.cwd, "checkout", "main");
+    git(
+      fixture.cwd,
+      "merge",
+      "--no-ff",
+      "codex/state-fixture",
+      "-m",
+      "Synthetic pull-request merge fixture",
+    );
+    // A GitHub pull-request checkout's reviewed main is the merge commit's
+    // first parent, exposed as origin/main; the local main name above only
+    // exists to construct this synthetic merge topology.
+    git(
+      fixture.cwd,
+      "update-ref",
+      "refs/remotes/origin/main",
+      git(fixture.cwd, "rev-parse", "HEAD^1"),
+    );
+
+    const result = runStateWithEnv(
+      fixture.cwd,
+      ["--check"],
+      {
+        GITHUB_ACTIONS: "true",
+        CI: "true",
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_HEAD_REF: "codex/state-fixture",
+      },
     );
     expect(result.status, result.stderr).toBe(0);
   });
