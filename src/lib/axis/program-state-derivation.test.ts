@@ -37,11 +37,21 @@ function git(cwd: string, ...args: string[]) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
+function fixtureEnvironment(overrides: Record<string, string> = {}) {
+  const env = { ...process.env };
+  // These subprocesses validate disposable histories, never the GitHub PR that
+  // happens to be running this test. A real trusted-branch test must opt in
+  // through `overrides`, so hosted CI cannot leak its branch into a fixture.
+  delete env.GITHUB_HEAD_REF;
+  delete env.GITHUB_BASE_REF;
+  return { ...env, ...overrides };
+}
+
 function runState(cwd: string, ...args: string[]) {
   return spawnSync(process.execPath, ["scripts/derive-program-state.mjs", ...args], {
     cwd,
     encoding: "utf8",
-    env: process.env,
+    env: fixtureEnvironment(),
   });
 }
 
@@ -53,7 +63,7 @@ function runStateWithEnv(
   return spawnSync(process.execPath, ["scripts/derive-program-state.mjs", ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: fixtureEnvironment(env),
   });
 }
 
@@ -172,6 +182,29 @@ describe("program state derivation", { timeout: 30_000 }, () => {
     expect(readFileSync(path.join(fixture.cwd, "docs/CURRENT_STATE.md"), "utf8")).toContain(
       "**State fingerprint:**",
     );
+  });
+
+  it("does not let an ambient hosted-CI head branch contaminate disposable fixtures", () => {
+    const fixture = makeFreshStateFixture();
+    const previous = process.env.GITHUB_HEAD_REF;
+    process.env.GITHUB_HEAD_REF = "foreign-hosted-ci-branch";
+    try {
+      const result = runState(fixture.cwd, "--check");
+      expect(result.status, result.stderr).toBe(0);
+    } finally {
+      if (previous === undefined) delete process.env.GITHUB_HEAD_REF;
+      else process.env.GITHUB_HEAD_REF = previous;
+    }
+  });
+
+  it("accepts an explicitly supplied trusted fixture branch", () => {
+    const fixture = makeFreshStateFixture();
+    const result = runStateWithEnv(
+      fixture.cwd,
+      ["--check"],
+      { GITHUB_HEAD_REF: "codex/state-fixture" },
+    );
+    expect(result.status, result.stderr).toBe(0);
   });
 
   it("renders fixed eight-character commit prefixes independent of Git abbreviation settings", () => {
