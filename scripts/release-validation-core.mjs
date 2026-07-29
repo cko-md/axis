@@ -12,6 +12,7 @@ import {
   gitTreeContentHash,
   stateEvidenceFingerprint,
 } from "./state-tree-integrity.mjs";
+import { validateStateSnapshotProvenance } from "./state-provenance.mjs";
 
 const MIGRATION_FILE = /^(\d+)_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$/;
 const MIGRATION_FILE_CONTRACT =
@@ -27,6 +28,7 @@ export const TRUSTED_CONTROL_BOOTSTRAP_FILES = [
   "scripts/vercel-ignore-build.sh",
   "scripts/vercel-ignore-build.mjs",
   "scripts/state-tree-integrity.mjs",
+  "scripts/state-provenance.mjs",
 ];
 export const TRUSTED_CONTROL_PLANE_FILES = [
   ...TRUSTED_CONTROL_BOOTSTRAP_FILES,
@@ -867,7 +869,7 @@ export function validateReleaseGovernanceWorkflow(content) {
         ref: "${{ github.event.pull_request.head.sha }}",
         path: "candidate",
         "persist-credentials": false,
-        "fetch-depth": 1,
+        "fetch-depth": 0,
       })
   ) {
     errors.push("release-governance candidate checkout is not immutable and credential-free");
@@ -1143,6 +1145,33 @@ function validateGeneratedStateAlignment(baseRoot, candidateRoot) {
       ? snapshot.git.aheadOfMain
       : [],
   };
+  let protectedBaseHead;
+  try {
+    protectedBaseHead = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: baseRoot,
+      encoding: "utf8",
+    }).trim();
+    if (snapshot?.git?.mainHead !== protectedBaseHead) {
+      errors.push("candidate GENERATED_STATE mainHead does not equal the independently checked-out protected base HEAD");
+    }
+  } catch {
+    errors.push("cannot resolve independently checked-out protected base HEAD");
+  }
+  errors.push(...validateStateSnapshotProvenance({
+    git: (...args) => execFileSync("git", args, { cwd: candidateRoot, encoding: "utf8" }).trim(),
+    contentTreeHash: (ref) => gitTreeContentHash({ cwd: candidateRoot, ref }),
+    persistedGit: snapshot?.git,
+    checkTarget: "HEAD",
+    // The candidate checkout has full history in the trusted workflow. Resolve
+    // the recorded base there to prove the candidate's ancestry without ever
+    // executing candidate-controlled code.
+    protectedMainRef: snapshot?.git?.mainHead,
+    expectedContentTreeHash: candidateHash,
+    expectedSourceMainContentTreeHash: baseHash,
+    expectedGateSourceHead: gates?.sourceHead,
+    expectedGateSourceContentTreeHash: gates?.sourceContentTreeHash,
+    requireMeasuredGateBinding: true,
+  }));
   const expectedFingerprint = stateEvidenceFingerprint(candidateHash, {
     gates: snapshot?.gates,
     provenance,

@@ -80,6 +80,7 @@ export const OWNER_MERGE_CONTROL_FILES = [
   "scripts/validate-release-candidate.mjs",
   "scripts/release-validation-core.mjs",
   "scripts/state-tree-integrity.mjs",
+  "scripts/state-provenance.mjs",
   "supabase/project.json",
   "package.json",
   "package-lock.json",
@@ -385,9 +386,9 @@ export function validateFrozenBrowserSemantics(trustedRoot) {
     "trusted CI workflow",
   ).toString("utf8");
   const publicCommand =
-    "npx playwright test --project=public --fail-on-flaky-tests";
+    "npx playwright test --project=public --fail-on-flaky-tests --forbid-only";
   const authenticatedCommand =
-    "npx playwright test --project=authenticated --fail-on-flaky-tests";
+    "npx playwright test --project=authenticated --fail-on-flaky-tests --forbid-only";
   if (!workflow.includes(publicCommand)) {
     fail("trusted CI must run the complete public browser project with zero-flake enforcement");
   }

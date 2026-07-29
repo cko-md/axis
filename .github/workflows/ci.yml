@@ -151,7 +151,7 @@ jobs:
           E2E_WEB_SERVER_COMMAND: npm run start -- --hostname 127.0.0.1 --port 3000
         # A required browser gate must cover every public spec, and a retry is
         # evidence of nondeterminism rather than a passing result.
-        run: npx playwright test --project=public --fail-on-flaky-tests
+        run: npx playwright test --project=public --fail-on-flaky-tests --forbid-only
 
   e2e-authenticated:
     # Secret-free authenticated browser gate. A fresh local Supabase instance
@@ -201,7 +201,7 @@ jobs:
           E2E_WEB_SERVER_COMMAND: npm run start -- --hostname 127.0.0.1 --port 3000
         # Keep retry diagnostics, but fail the required gate whenever one was
         # needed. A green retry must not hide a flaky production workflow.
-        run: npx playwright test --project=authenticated --fail-on-flaky-tests
+        run: npx playwright test --project=authenticated --fail-on-flaky-tests --forbid-only
 
       - name: Tear down local Supabase
         if: always()

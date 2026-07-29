@@ -136,6 +136,7 @@ function withGitHistory(
 
 function withCandidateTrees(
   run: (fixture: { baseRoot: string; candidateRoot: string }) => void,
+  { initializeState = true }: { initializeState?: boolean } = {},
 ) {
   const fixture = mkdtempSync(join(tmpdir(), "axis-release-candidate-"));
   const baseRoot = join(fixture, "base");
@@ -188,7 +189,12 @@ function withCandidateTrees(
       git(tree, "add", ".");
       git(tree, "commit", "-m", "source");
     }
-    writeSynchronizedGeneratedState(baseRoot, candidateRoot);
+    // Model the PR checkout faithfully: its history contains the protected
+    // base, so a trusted validator can prove candidate ancestry without
+    // executing candidate code.
+    rmSync(join(candidateRoot, ".git"), { recursive: true, force: true });
+    cpSync(join(baseRoot, ".git"), join(candidateRoot, ".git"), { recursive: true });
+    if (initializeState) writeSynchronizedGeneratedState(baseRoot, candidateRoot);
     run({ baseRoot, candidateRoot });
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -199,18 +205,25 @@ function writeSynchronizedGeneratedState(
   baseRoot: string,
   candidateRoot: string,
 ) {
+  const baseSourceHead = git(baseRoot, "rev-parse", "HEAD");
+  const baseHash = gitTreeContentHash({ cwd: baseRoot, ref: "HEAD" });
+  writeFileSync(
+    join(candidateRoot, "src", "candidate-source.ts"),
+    "export const candidateSourceFixture = true;\n",
+  );
   git(candidateRoot, "add", ".");
   if (git(candidateRoot, "status", "--porcelain")) {
     git(candidateRoot, "commit", "-m", "candidate source change");
+  } else {
+    git(candidateRoot, "commit", "--allow-empty", "-m", "candidate source change");
   }
-  const baseHash = gitTreeContentHash({ cwd: baseRoot, ref: "HEAD" });
-  const candidateHash = gitTreeContentHash({ cwd: candidateRoot, ref: "HEAD" });
   const gates = {
     measured: true,
     measuredAt: "2026-07-22T00:00:00.000Z",
     contract:
       "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    sourceContentTreeHash: candidateHash,
+    sourceContentTreeHash: baseHash,
+    sourceHead: baseSourceHead,
     typecheck: { passed: true },
     lint: { passed: true },
     build: { passed: true, cleanOutput: true },
@@ -220,8 +233,8 @@ function writeSynchronizedGeneratedState(
   };
   const baseProvenance = {
     branch: "main",
-    head: "base",
-    mainHead: "base",
+    head: baseSourceHead,
+    mainHead: baseSourceHead,
     workingTreeClean: true,
     aheadOfMain: [],
   };
@@ -245,12 +258,35 @@ function writeSynchronizedGeneratedState(
   git(baseRoot, "add", ".");
   git(baseRoot, "commit", "-m", "base state");
 
+  // Record the protected base as an actual parent of the inert candidate. The
+  // `ours` strategy models a candidate that deliberately retains its reviewed
+  // control plane while still proving it was based on this exact base; no
+  // candidate script is executed.
+  try {
+    git(candidateRoot, "remote", "set-url", "protected-base", baseRoot);
+  } catch {
+    git(candidateRoot, "remote", "add", "protected-base", baseRoot);
+  }
+  git(candidateRoot, "fetch", "protected-base");
+  git(candidateRoot, "merge", "--no-ff", "-s", "ours", "-m", "candidate merges protected base", "protected-base/master");
+  const candidateSourceHead = git(candidateRoot, "rev-parse", "HEAD");
+  const protectedBaseHead = git(baseRoot, "rev-parse", "HEAD");
+  const candidateHash = gitTreeContentHash({ cwd: candidateRoot, ref: "HEAD" });
+  const candidateGates = { ...gates, sourceContentTreeHash: candidateHash, sourceHead: candidateSourceHead };
+
+  const candidateAhead = git(candidateRoot, "log", `${protectedBaseHead}..${candidateSourceHead}`, "--format=%H%x1f%s")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, subject] = line.split("\x1f");
+      return { sha: sha.slice(0, 8), subject };
+    });
   const candidateProvenance = {
     branch: "candidate",
-    head: "candidate",
-    mainHead: "base",
+    head: candidateSourceHead,
+    mainHead: protectedBaseHead,
     workingTreeClean: true,
-    aheadOfMain: [],
+    aheadOfMain: candidateAhead,
   };
   const candidateSnapshot = {
     git: {
@@ -258,12 +294,12 @@ function writeSynchronizedGeneratedState(
       contentTreeHash: candidateHash,
       sourceMainContentTreeHash: baseHash,
       fingerprint: stateEvidenceFingerprint(candidateHash, {
-        gates,
+        gates: candidateGates,
         provenance: candidateProvenance,
         sourceMainContentTreeHash: baseHash,
       }),
     },
-    gates,
+    gates: candidateGates,
   };
   writeFileSync(
     join(
@@ -295,7 +331,7 @@ function withBootstrapCandidateTrees(
     git(baseRoot, "commit", "-m", "pre-governance protected base");
     writeSynchronizedGeneratedState(baseRoot, candidateRoot);
     run({ baseRoot, candidateRoot });
-  });
+  }, { initializeState: false });
 }
 
 describe("committed release migration manifest", () => {
@@ -1218,7 +1254,7 @@ describe("trusted pull-request release governance", () => {
     });
   });
 
-  it("rejects fabricated gate evidence in a source-identical state refresh", () => {
+  it("rejects fabricated gate evidence even when its fingerprint is recomputed", () => {
     withCandidateTrees(({ baseRoot, candidateRoot }) => {
       const snapshotPath = join(
         candidateRoot,
@@ -1252,7 +1288,7 @@ describe("trusted pull-request release governance", () => {
       expect(
         validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
       ).toContain(
-        "state-refresh candidate changed gate evidence even though source content is unchanged; preserve the protected measured evidence",
+        "candidate GENERATED_STATE must contain a complete passing measured-gate shape for its source tree",
       );
     });
   });
@@ -1269,6 +1305,7 @@ describe("trusted pull-request release governance", () => {
       "scripts/vercel-ignore-build.sh",
       "scripts/vercel-ignore-build.mjs",
       "scripts/state-tree-integrity.mjs",
+      "scripts/state-provenance.mjs",
     ]);
 
     withCandidateTrees(({ baseRoot, candidateRoot }) => {

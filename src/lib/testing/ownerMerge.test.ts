@@ -523,6 +523,7 @@ describe("owner-controlled merge root", () => {
         "scripts/owner-merge-ruleset.json",
         "scripts/release-validation-core.mjs",
         "scripts/state-tree-integrity.mjs",
+        "scripts/state-provenance.mjs",
         "supabase/project.json",
         ".github/workflows/ci.yml",
         "playwright.config.ts",

@@ -40,7 +40,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           persist-credentials: false
-          fetch-depth: 1
+          # Provenance validation proves the candidate is descended from the
+          # exact protected base. This fetches objects only; no candidate code
+          # or dependency is executed in pull_request_target.
+          fetch-depth: 0
 
       - name: Validate candidate with trusted base code
         run: node trusted/scripts/validate-release-candidate.mjs --base=trusted --candidate=candidate

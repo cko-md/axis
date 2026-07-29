@@ -46,6 +46,7 @@ import {
   gitTreeContentHash,
   stateEvidenceFingerprint,
 } from "./state-tree-integrity.mjs";
+import { validateStateSnapshotProvenance } from "./state-provenance.mjs";
 
 const REPO = process.cwd();
 const args = new Set(process.argv.slice(2));
@@ -945,6 +946,24 @@ function detectDrift(state, checkTarget, previous) {
 
   if (!previous) {
     problems.push(`${GENERATED_JSON} is missing or invalid. Run: npm run state:derive`);
+  } else {
+    const expectedBranch = process.env.GITHUB_HEAD_REF
+      || (checkTarget === "HEAD" && git("rev-parse", "--abbrev-ref", "HEAD") !== "HEAD"
+        ? git("rev-parse", "--abbrev-ref", "HEAD")
+        : undefined);
+    problems.push(...validateStateSnapshotProvenance({
+      git,
+      contentTreeHash: (ref) => gitTreeContentHash({ cwd: REPO, ref }),
+      persistedGit: previous.git,
+      checkTarget,
+      protectedMainRef: MAIN_REF,
+      expectedBranch,
+      expectedContentTreeHash: state.git.contentTreeHash,
+      expectedSourceMainContentTreeHash: gitTreeContentHash({ cwd: REPO, ref: MAIN_REF }),
+      expectedGateSourceHead: previous.gates?.sourceHead,
+      expectedGateSourceContentTreeHash: previous.gates?.sourceContentTreeHash,
+      requireMeasuredGateBinding: previous.gates?.measured === true,
+    }));
   }
 
   problems.push(...findInvalidClosedDefectProvenance(checkTarget));
