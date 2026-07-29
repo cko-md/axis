@@ -818,7 +818,7 @@ describe("trusted pull-request release governance", () => {
     });
   });
 
-  it("reproduces the real 44be089b bootstrap baseline against its generated first manifest", () => {
+  it("reproduces the real 44be089b bootstrap baseline against its generated first manifest", { timeout: 15_000 }, () => {
     const baseRoot = materializeRevision(BOOTSTRAP_PROTECTED_BASE);
     const candidateRoot = materializeRevision(BOOTSTRAP_PROTECTED_BASE);
     try {

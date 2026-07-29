@@ -27,6 +27,10 @@ const TREE_INTEGRITY_SOURCE = readFileSync(
   path.join(process.cwd(), "scripts/state-tree-integrity.mjs"),
   "utf8",
 );
+const STATE_PROVENANCE_SOURCE = readFileSync(
+  path.join(process.cwd(), "scripts/state-provenance.mjs"),
+  "utf8",
+);
 const fixtures: string[] = [];
 
 function git(cwd: string, ...args: string[]) {
@@ -75,6 +79,7 @@ function makeFreshStateFixture(
   mkdirSync(path.join(cwd, "public/vector-assets/manifests"), { recursive: true });
   writeFileSync(path.join(cwd, "scripts/derive-program-state.mjs"), SCRIPT_SOURCE);
   writeFileSync(path.join(cwd, "scripts/state-tree-integrity.mjs"), TREE_INTEGRITY_SOURCE);
+  writeFileSync(path.join(cwd, "scripts/state-provenance.mjs"), STATE_PROVENANCE_SOURCE);
   writeFileSync(
     path.join(cwd, "scripts/check-bundle-budget.mjs"),
     `if (process.env.AXIS_TEST_BUNDLE_FAIL === "1") process.exit(2);
