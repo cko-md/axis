@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/nextjs";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -274,6 +275,8 @@ export function SearchWidget({ open, onClose }: SearchWidgetProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
+  const focusRestoreFrameRef = useRef<number | null>(null);
+  const focusRestoreGenerationRef = useRef(0);
   const previewCacheRef = useRef(new Map<string, EntityPreviewPayload>());
   const activationLockRef = useRef(false);
 
@@ -286,17 +289,37 @@ export function SearchWidget({ open, onClose }: SearchWidgetProps) {
     onClose();
   }, [onClose]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
+    focusRestoreGenerationRef.current += 1;
+    // A close restores focus on the next frame. If the user reopens Search
+    // before that frame (for example via ⌘/), that stale restore must not
+    // steal focus back to the trigger after the new dialog has focused input.
+    if (focusRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(focusRestoreFrameRef.current);
+      focusRestoreFrameRef.current = null;
+    }
     invokerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 40);
+    inputRef.current?.focus({ preventScroll: true });
     return () => {
-      window.clearTimeout(focusTimer);
       const invoker = invokerRef.current;
       invokerRef.current = null;
-      if (invoker?.isConnected) window.requestAnimationFrame(() => invoker.focus());
+      if (invoker?.isConnected) {
+        const restoreGeneration = focusRestoreGenerationRef.current;
+        focusRestoreFrameRef.current = window.requestAnimationFrame(() => {
+          focusRestoreFrameRef.current = null;
+          if (focusRestoreGenerationRef.current !== restoreGeneration) return;
+          invoker.focus();
+        });
+      }
     };
   }, [open]);
+
+  useEffect(() => () => {
+    if (focusRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(focusRestoreFrameRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (open) return;
