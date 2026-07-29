@@ -16,10 +16,10 @@ const FAT_ARCH_SIZE = 20;
 const FAT_ARCH_64_SIZE = 32;
 
 const MACHO_THIN_MAGICS = new Map([
-  [0xfeedface, { byteOrder: "be", headerSize: 28 }],
-  [0xcefaedfe, { byteOrder: "le", headerSize: 28 }],
-  [0xfeedfacf, { byteOrder: "be", headerSize: 32 }],
-  [0xcffaedfe, { byteOrder: "le", headerSize: 32 }],
+  [0xfeedface, { byteOrder: "be", headerSize: 28, is64Bit: false }],
+  [0xcefaedfe, { byteOrder: "le", headerSize: 28, is64Bit: false }],
+  [0xfeedfacf, { byteOrder: "be", headerSize: 32, is64Bit: true }],
+  [0xcffaedfe, { byteOrder: "le", headerSize: 32, is64Bit: true }],
 ]);
 const FAT_MAGICS = new Map([
   [0xcafebabe, { byteOrder: "be", entrySize: FAT_ARCH_SIZE, name: "fat Mach-O" }],
@@ -33,9 +33,9 @@ const MACHO_ARCHITECTURES = new Map([
 ]);
 const MACHO_FILE_TYPES = new Set([2, 6]); // MH_EXECUTE and MH_DYLIB (Electron Framework).
 const PE_MACHINES = new Map([
-  [0x014c, 0x010b], // x86 PE32
-  [0x8664, 0x020b], // x86_64 PE32+
-  [0xaa64, 0x020b], // arm64 PE32+
+  [0x014c, { optionalHeaderMagic: 0x010b, minimumOptionalHeaderSize: 0xe0 }], // x86 PE32
+  [0x8664, { optionalHeaderMagic: 0x020b, minimumOptionalHeaderSize: 0xf0 }], // x86_64 PE32+
+  [0xaa64, { optionalHeaderMagic: 0x020b, minimumOptionalHeaderSize: 0xf0 }], // arm64 PE32+
 ]);
 const ELF_MACHINES = new Map([
   [3, 1], // x86 ELF32
@@ -183,6 +183,9 @@ async function readThinMachOArchitecture(handle, start, end, expectedTuple) {
   if (!descriptor || start + descriptor.headerSize > end) {
     throw new Error(`Thin Mach-O architecture header at byte ${start} is invalid or truncated`);
   }
+  if (!descriptor.is64Bit) {
+    throw new Error(`Thin Mach-O architecture header at byte ${start} must be 64-bit for Electron`);
+  }
   const header = await readExactly(handle, descriptor.headerSize, start, "thin Mach-O header");
   const cpuType = readInt32(header, 4, descriptor.byteOrder);
   const cpuSubtype = readInt32(header, 8, descriptor.byteOrder);
@@ -201,9 +204,32 @@ async function readThinMachOArchitecture(handle, start, end, expectedTuple) {
   if (
     !MACHO_FILE_TYPES.has(fileType)
     || commandCount === 0
+    || commandBytes === 0
     || commandBytes > end - start - descriptor.headerSize
   ) {
     throw new Error(`Thin Mach-O architecture header at byte ${start} is not a canonical Electron binary`);
+  }
+  const commands = await readExactly(
+    handle,
+    commandBytes,
+    start + descriptor.headerSize,
+    "thin Mach-O load commands",
+  );
+  let commandOffset = 0;
+  let parsedCommandCount = 0;
+  while (commandOffset < commands.length) {
+    if (commands.length - commandOffset < 8) {
+      throw new Error(`Thin Mach-O architecture at byte ${start} has a truncated load command`);
+    }
+    const commandSize = readUInt32(commands, commandOffset + 4, descriptor.byteOrder);
+    if (commandSize < 8 || commandSize % 8 !== 0 || commandSize > commands.length - commandOffset) {
+      throw new Error(`Thin Mach-O architecture at byte ${start} has an invalid load command size`);
+    }
+    commandOffset += commandSize;
+    parsedCommandCount += 1;
+  }
+  if (commandOffset !== commandBytes || parsedCommandCount !== commandCount) {
+    throw new Error(`Thin Mach-O architecture at byte ${start} has inconsistent load command metadata`);
   }
   return { cpuSubtype, cpuType, end, start };
 }
@@ -283,12 +309,21 @@ async function readPortableExecutableArchitecture(handle, size) {
   const machine = coffHeader.readUInt16LE(4);
   const sectionCount = coffHeader.readUInt16LE(6);
   const optionalHeaderSize = coffHeader.readUInt16LE(20);
-  const expectedOptionalMagic = PE_MACHINES.get(machine);
-  if (!expectedOptionalMagic || sectionCount === 0 || optionalHeaderSize < 2 || peOffset + 24 + optionalHeaderSize > size) {
+  const expectedOptionalHeader = PE_MACHINES.get(machine);
+  const sectionTableOffset = peOffset + 24 + optionalHeaderSize;
+  const sectionTableSize = sectionCount * 40;
+  if (
+    !expectedOptionalHeader
+    || sectionCount === 0
+    || optionalHeaderSize < expectedOptionalHeader.minimumOptionalHeaderSize
+    || sectionTableOffset > size
+    || !Number.isSafeInteger(sectionTableSize)
+    || sectionTableSize > size - sectionTableOffset
+  ) {
     throw new Error("PE executable has an unknown machine architecture");
   }
   const optionalHeader = await readExactly(handle, 2, peOffset + 24, "PE optional header");
-  if (optionalHeader.readUInt16LE(0) !== expectedOptionalMagic) {
+  if (optionalHeader.readUInt16LE(0) !== expectedOptionalHeader.optionalHeaderMagic) {
     throw new Error("PE executable has a non-canonical optional header");
   }
   return wholeFileArchitecture("PE", size);
@@ -308,6 +343,23 @@ async function readElfArchitecture(handle, size) {
   const version = ident.readUInt32LE(20);
   if (ELF_MACHINES.get(machine) !== elfClass || (fileType !== 2 && fileType !== 3) || version !== 1) {
     throw new Error("ELF executable has an unknown or non-canonical machine architecture");
+  }
+  const header = await readExactly(handle, headerSize, 0, "ELF header");
+  const programHeaderOffset = elfClass === 1 ? header.readUInt32LE(28) : Number(header.readBigUInt64LE(32));
+  const programHeaderEntrySize = header.readUInt16LE(elfClass === 1 ? 42 : 54);
+  const programHeaderCount = header.readUInt16LE(elfClass === 1 ? 44 : 56);
+  const declaredHeaderSize = header.readUInt16LE(elfClass === 1 ? 40 : 52);
+  const expectedProgramHeaderEntrySize = elfClass === 1 ? 32 : 56;
+  const programHeaderSize = programHeaderEntrySize * programHeaderCount;
+  if (
+    declaredHeaderSize !== headerSize
+    || programHeaderEntrySize !== expectedProgramHeaderEntrySize
+    || programHeaderCount === 0
+    || programHeaderOffset < headerSize
+    || !Number.isSafeInteger(programHeaderSize)
+    || programHeaderSize > size - programHeaderOffset
+  ) {
+    throw new Error("ELF executable has non-canonical header or program-header bounds");
   }
   return wholeFileArchitecture("ELF", size);
 }

@@ -25,6 +25,8 @@ function writeThinMachOHeader(binary, offset, cpuType, cpuSubtype, fileType = 2)
   binary.writeUInt32LE(8, offset + 20);
   binary.writeUInt32LE(0, offset + 24);
   binary.writeUInt32LE(0, offset + 28);
+  binary.writeUInt32LE(1, offset + 32);
+  binary.writeUInt32LE(8, offset + 36);
 }
 
 function universalMachO(wires) {
@@ -65,7 +67,7 @@ function fat64MachO(wire) {
 }
 
 function portableExecutable(wire) {
-  const binary = Buffer.alloc(0x240);
+  const binary = Buffer.alloc(0x280);
   binary.write("MZ", 0);
   binary.writeUInt32LE(0x80, 0x3c);
   binary.write("PE\0\0", 0x80);
@@ -73,17 +75,21 @@ function portableExecutable(wire) {
   binary.writeUInt16LE(1, 0x86);
   binary.writeUInt16LE(0xf0, 0x94);
   binary.writeUInt16LE(0x20b, 0x98);
-  wire.copy(binary, 0x190);
+  wire.copy(binary, 0x1c0);
   return binary;
 }
 
 function elfExecutable(wire) {
-  const binary = Buffer.alloc(0x100);
+  const binary = Buffer.alloc(0x180);
   binary.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1], 0);
   binary.writeUInt16LE(3, 16);
   binary.writeUInt16LE(0x3e, 18);
   binary.writeUInt32LE(1, 20);
-  wire.copy(binary, 0x40);
+  binary.writeBigUInt64LE(0x40n, 32);
+  binary.writeUInt16LE(64, 52);
+  binary.writeUInt16LE(56, 54);
+  binary.writeUInt16LE(1, 56);
+  wire.copy(binary, 0x100);
   return binary;
 }
 
@@ -204,6 +210,21 @@ test("malformed architecture headers and unsupported PE/ELF machines fail closed
   await writeFile(binary, badThin);
   await assert.rejects(readAllFuseWires(binary), /unsupported CPU tuple 0:0/);
 
+  const zeroLoadCommandBytes = thinMachO(wire);
+  zeroLoadCommandBytes.writeUInt32LE(0, 20);
+  await writeFile(binary, zeroLoadCommandBytes);
+  await assert.rejects(readAllFuseWires(binary), /not a canonical Electron binary/);
+
+  const zeroLoadCommandSize = thinMachO(wire);
+  zeroLoadCommandSize.writeUInt32LE(0, 36);
+  await writeFile(binary, zeroLoadCommandSize);
+  await assert.rejects(readAllFuseWires(binary), /invalid load command size/);
+
+  const arm64With32BitMagic = thinMachO(wire);
+  arm64With32BitMagic.writeUInt32LE(0xfeedface, 0);
+  await writeFile(binary, arm64With32BitMagic);
+  await assert.rejects(readAllFuseWires(binary), /must be 64-bit for Electron/);
+
   const badFatPayload = universalMachO([wire, wire]);
   badFatPayload.writeUInt32LE(0, 0x200);
   await writeFile(binary, badFatPayload);
@@ -220,6 +241,20 @@ test("malformed architecture headers and unsupported PE/ELF machines fail closed
   await writeFile(binary, badPe);
   await assert.rejects(readAllFuseWires(binary), /PE executable has an unknown machine architecture/);
 
+  const shortOptionalHeader = portableExecutable(wire);
+  shortOptionalHeader.writeUInt16LE(2, 0x94);
+  await writeFile(binary, shortOptionalHeader);
+  await assert.rejects(readAllFuseWires(binary), /PE executable has an unknown machine architecture/);
+
+  const truncatedOptionalHeader = portableExecutable(wire).subarray(0, 0x100);
+  await writeFile(binary, truncatedOptionalHeader);
+  await assert.rejects(readAllFuseWires(binary), /PE executable has an unknown machine architecture/);
+
+  const sectionTableOutsideBinary = portableExecutable(wire);
+  sectionTableOutsideBinary.writeUInt16LE(0xffff, 0x86);
+  await writeFile(binary, sectionTableOutsideBinary);
+  await assert.rejects(readAllFuseWires(binary), /PE executable has an unknown machine architecture/);
+
   const badElfMachine = elfExecutable(wire);
   badElfMachine.writeUInt16LE(0xffff, 18);
   await writeFile(binary, badElfMachine);
@@ -229,6 +264,11 @@ test("malformed architecture headers and unsupported PE/ELF machines fail closed
   badElfVersion[6] = 0;
   await writeFile(binary, badElfVersion);
   await assert.rejects(readAllFuseWires(binary), /ELF executable has an unknown or truncated architecture header/);
+
+  const badElfHeaderSize = elfExecutable(wire);
+  badElfHeaderSize.writeUInt16LE(0, 52);
+  await writeFile(binary, badElfHeaderSize);
+  await assert.rejects(readAllFuseWires(binary), /ELF executable has non-canonical header or program-header bounds/);
 });
 
 test("the direct 2.x afterPack hook is the sole fuse mutation owner", async () => {
