@@ -275,7 +275,12 @@ export function SearchWidget({ open, onClose }: SearchWidgetProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
-  const focusRestoreFrameRef = useRef<number | null>(null);
+  const wasOpenRef = useRef(false);
+  const focusRestoreRef = useRef<{
+    frame: number;
+    generation: number;
+    invoker: HTMLElement;
+  } | null>(null);
   const focusRestoreGenerationRef = useRef(0);
   const previewCacheRef = useRef(new Map<string, EntityPreviewPayload>());
   const activationLockRef = useRef(false);
@@ -290,34 +295,67 @@ export function SearchWidget({ open, onClose }: SearchWidgetProps) {
   }, [onClose]);
 
   useLayoutEffect(() => {
-    if (!open) return;
-    focusRestoreGenerationRef.current += 1;
-    // A close restores focus on the next frame. If the user reopens Search
-    // before that frame (for example via ⌘/), that stale restore must not
-    // steal focus back to the trigger after the new dialog has focused input.
-    if (focusRestoreFrameRef.current !== null) {
-      window.cancelAnimationFrame(focusRestoreFrameRef.current);
-      focusRestoreFrameRef.current = null;
-    }
-    invokerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    inputRef.current?.focus({ preventScroll: true });
-    return () => {
-      const invoker = invokerRef.current;
-      invokerRef.current = null;
-      if (invoker?.isConnected) {
-        const restoreGeneration = focusRestoreGenerationRef.current;
-        focusRestoreFrameRef.current = window.requestAnimationFrame(() => {
-          focusRestoreFrameRef.current = null;
-          if (focusRestoreGenerationRef.current !== restoreGeneration) return;
-          invoker.focus();
-        });
+    if (open) {
+      focusRestoreGenerationRef.current += 1;
+      // A close restores focus on the next frame. If the user reopens Search
+      // before that frame (for example via ⌘/), that stale restore must not
+      // steal focus back to the trigger after the new dialog has focused input.
+      const pendingRestore = focusRestoreRef.current;
+      if (pendingRestore) {
+        window.cancelAnimationFrame(pendingRestore.frame);
+        if (focusRestoreRef.current === pendingRestore) {
+          focusRestoreRef.current = null;
+        }
       }
-    };
+      // StrictMode replays layout effects after this has focused the input.
+      // Preserve the original invoker rather than replacing it with the input.
+      const activeElement = document.activeElement;
+      if (
+        !invokerRef.current
+        && activeElement instanceof HTMLElement
+        && activeElement !== inputRef.current
+        && !dialogRef.current?.contains(activeElement)
+      ) {
+        invokerRef.current = activeElement;
+      }
+      inputRef.current?.focus({ preventScroll: true });
+      wasOpenRef.current = true;
+      return;
+    }
+
+    if (!wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    const invoker = invokerRef.current;
+    if (!invoker?.isConnected) {
+      invokerRef.current = null;
+      return;
+    }
+    const generation = ++focusRestoreGenerationRef.current;
+    const restore = { frame: 0, generation, invoker };
+    restore.frame = window.requestAnimationFrame(() => {
+      // A stale frame must not clear a newer frame's ownership or restore focus.
+      if (focusRestoreRef.current !== restore) return;
+      focusRestoreRef.current = null;
+      if (focusRestoreGenerationRef.current !== restore.generation) return;
+      if (!restore.invoker.isConnected) {
+        if (invokerRef.current === restore.invoker) invokerRef.current = null;
+        return;
+      }
+      restore.invoker.focus();
+      if (invokerRef.current === restore.invoker) invokerRef.current = null;
+    });
+    focusRestoreRef.current = restore;
   }, [open]);
 
   useEffect(() => () => {
-    if (focusRestoreFrameRef.current !== null) {
-      window.cancelAnimationFrame(focusRestoreFrameRef.current);
+    const pendingRestore = focusRestoreRef.current;
+    if (pendingRestore) {
+      focusRestoreGenerationRef.current += 1;
+      window.cancelAnimationFrame(pendingRestore.frame);
+      if (focusRestoreRef.current === pendingRestore) {
+        focusRestoreRef.current = null;
+      }
+      if (invokerRef.current === pendingRestore.invoker) invokerRef.current = null;
     }
   }, []);
 

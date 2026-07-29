@@ -45,12 +45,14 @@ afterEach(() => {
 });
 
 describe("SearchWidget focus restoration", () => {
-  it("keeps the combobox focused when reopened before close restoration runs", () => {
-    let pendingRestore: FrameRequestCallback | null = null;
+  function setup() {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let nextFrame = 1;
     const cancelAnimationFrame = vi.fn();
     vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
-      pendingRestore = callback;
-      return 17;
+      const frame = nextFrame++;
+      callbacks.set(frame, callback);
+      return frame;
     }));
     vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrame);
 
@@ -61,24 +63,86 @@ describe("SearchWidget focus restoration", () => {
     document.body.append(container);
     root = createRoot(container);
 
-    act(() => root?.render(<SearchWidget open onClose={vi.fn()} />));
-    const input = container.querySelector<HTMLInputElement>("[role=combobox]");
-    expect(input).not.toBeNull();
-    expect(document.activeElement).toBe(input);
+    const render = (open: boolean, strict = false) => {
+      const widget = <SearchWidget open={open} onClose={vi.fn()} />;
+      act(() => root?.render(strict ? <React.StrictMode>{widget}</React.StrictMode> : widget));
+    };
+    const input = () => container.querySelector<HTMLInputElement>("[role=combobox]");
+    const release = (frame: number) => {
+      const callback = callbacks.get(frame);
+      if (!callback) throw new Error(`No queued animation frame ${frame}.`);
+      act(() => callback(0));
+    };
 
-    act(() => root?.render(<SearchWidget open={false} onClose={vi.fn()} />));
-    expect(pendingRestore).not.toBeNull();
+    return { callbacks, cancelAnimationFrame, container, input, release, render, trigger };
+  }
 
-    act(() => root?.render(<SearchWidget open onClose={vi.fn()} />));
-    const reopenedInput = container.querySelector<HTMLInputElement>("[role=combobox]");
-    expect(reopenedInput).not.toBeNull();
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(17);
-    expect(document.activeElement).toBe(reopenedInput);
+  it("restores normal close focus to the invoker", () => {
+    const { input, release, render, trigger } = setup();
+    render(true);
+    expect(document.activeElement).toBe(input());
 
-    // Browsers suppress canceled frames, but make the stale callback run here
-    // to prove a callback already queued for dispatch still cannot steal focus.
-    if (!pendingRestore) throw new Error("Expected close to queue focus restoration.");
-    act(() => pendingRestore?.(0));
-    expect(document.activeElement).toBe(reopenedInput);
+    render(false);
+    release(1);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("retains the original invoker through rapid reopen and final close", () => {
+    const { cancelAnimationFrame, input, release, render, trigger } = setup();
+    render(true);
+    render(false); // frame A
+    render(true);
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+    expect(document.activeElement).toBe(input());
+
+    render(false); // frame B
+    release(1); // An already-dispatched stale A must not disown B.
+    release(2);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("does not recapture the input as its invoker during StrictMode replay", () => {
+    const { input, release, render, trigger } = setup();
+    render(true, true);
+    expect(document.activeElement).toBe(input());
+
+    render(false, true);
+    release(1);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("drops a disconnected restore target and captures the next valid invoker", () => {
+    const { release, render, trigger } = setup();
+    render(true);
+    render(false); // frame A captures trigger while it is connected.
+    trigger.remove();
+    release(1);
+
+    const nextTrigger = document.createElement("button");
+    document.body.append(nextTrigger);
+    nextTrigger.focus();
+    render(true);
+    render(false); // frame B must use the new connected trigger.
+    release(2);
+    expect(document.activeElement).toBe(nextTrigger);
+  });
+
+  it("does not let a stale frame disown a newer restore before unmount", () => {
+    const { cancelAnimationFrame, release, render } = setup();
+    const sentinel = document.createElement("button");
+    document.body.append(sentinel);
+
+    render(true);
+    render(false); // frame A
+    render(true);
+    render(false); // frame B
+    release(1); // A must leave B as the active restoration owner.
+
+    act(() => root?.unmount());
+    root = null;
+    sentinel.focus();
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(2);
+    release(2); // A canceled-but-released B cannot steal focus post-unmount.
+    expect(document.activeElement).toBe(sentinel);
   });
 });
