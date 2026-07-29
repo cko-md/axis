@@ -1,12 +1,24 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-29T22:10:31.164Z",
+  "derivedAt": "2026-07-29T23:38:15.798Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "433f76d886579981d77cd4b263fb6462deb061a5",
+    "head": "c77ee11d7e65f483556860b40341b31ef083564e",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "c77ee11d",
+        "subject": "fix(auth): fail closed on settings lookup errors"
+      },
+      {
+        "sha": "8b30b101",
+        "subject": "fix(auth): avoid navigation auth fetch console error"
+      },
+      {
+        "sha": "60d94f44",
+        "subject": "docs(state): bind workflow completion gates"
+      },
       {
         "sha": "433f76d8",
         "subject": "docs(governance): record workflow completion contract"
@@ -176,9 +188,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "ebf866e177b15a86b513aa05b58bb45fa3d452fe2564cdcff4980c65d43f180c",
+    "contentTreeHash": "e9538c788fbce73f277fb2116094ad720165762135e54787e8339c5a6f1e43f4",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "ed3d400c581a983ac2e80954038f81e9e1ff2f9abed747ddfd005834dbadf7c6"
+    "fingerprint": "d3f7b66f67fc3ca9ce737c903c845e0a3ee76c539bbabbcecac5d1e8805a977f"
   },
   "mergedPrs": [
     {
@@ -491,8 +503,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "433f76d886579981d77cd4b263fb6462deb061a5",
-    "sourceContentTreeHash": "ebf866e177b15a86b513aa05b58bb45fa3d452fe2564cdcff4980c65d43f180c",
+    "sourceHead": "c77ee11d7e65f483556860b40341b31ef083564e",
+    "sourceContentTreeHash": "e9538c788fbce73f277fb2116094ad720165762135e54787e8339c5a6f1e43f4",
     "typecheck": {
       "passed": true
     },
@@ -500,23 +512,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 1991,
-      "total": 1991,
-      "files": 231,
-      "suites": 673
+      "passed": 2002,
+      "total": 2002,
+      "files": 233,
+      "suites": 677
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4287,
+      "used": 4288,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-29T22:10:30.928Z"
+    "measuredAt": "2026-07-29T23:38:15.668Z"
   }
 }
