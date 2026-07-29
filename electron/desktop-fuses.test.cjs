@@ -8,12 +8,23 @@ const path = require("node:path");
 const { packagedTarget } = require("./after-pack-fuses.cjs");
 const SENTINEL = Buffer.from("dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX");
 
-function writeFatArch(table, entryOffset, cpuType, offset, size) {
+function writeFatArch(table, entryOffset, cpuType, cpuSubtype, offset, size) {
   table.writeInt32BE(cpuType, entryOffset);
-  table.writeInt32BE(3, entryOffset + 4);
+  table.writeInt32BE(cpuSubtype, entryOffset + 4);
   table.writeUInt32BE(offset, entryOffset + 8);
   table.writeUInt32BE(size, entryOffset + 12);
   table.writeUInt32BE(2, entryOffset + 16);
+}
+
+function writeThinMachOHeader(binary, offset, cpuType, cpuSubtype, fileType = 2) {
+  binary.writeUInt32LE(0xfeedfacf, offset);
+  binary.writeInt32LE(cpuType, offset + 4);
+  binary.writeInt32LE(cpuSubtype, offset + 8);
+  binary.writeUInt32LE(fileType, offset + 12);
+  binary.writeUInt32LE(1, offset + 16);
+  binary.writeUInt32LE(8, offset + 20);
+  binary.writeUInt32LE(0, offset + 24);
+  binary.writeUInt32LE(0, offset + 28);
 }
 
 function universalMachO(wires) {
@@ -23,15 +34,17 @@ function universalMachO(wires) {
   binary.writeUInt32BE(0xcafebabe, 0);
   binary.writeUInt32BE(2, 4);
   // x86_64 and arm64: this is a real two-slice universal-Mach-O table shape.
-  writeFatArch(binary, 8, 0x01000007, sliceOffsets[0], sliceSize);
-  writeFatArch(binary, 28, 0x0100000c, sliceOffsets[1], sliceSize);
-  for (const [index, wire] of wires.entries()) wire.copy(binary, sliceOffsets[index]);
+  writeFatArch(binary, 8, 0x01000007, 3, sliceOffsets[0], sliceSize);
+  writeFatArch(binary, 28, 0x0100000c, 0, sliceOffsets[1], sliceSize);
+  writeThinMachOHeader(binary, sliceOffsets[0], 0x01000007, 3);
+  writeThinMachOHeader(binary, sliceOffsets[1], 0x0100000c, 0);
+  for (const [index, wire] of wires.entries()) wire.copy(binary, sliceOffsets[index] + 0x40);
   return binary;
 }
 
 function thinMachO(wire) {
   const binary = Buffer.alloc(0x100);
-  binary.writeUInt32BE(0xfeedfacf, 0);
+  writeThinMachOHeader(binary, 0, 0x0100000c, 0, 6);
   wire.copy(binary, 0x40);
   return binary;
 }
@@ -46,24 +59,30 @@ function fat64MachO(wire) {
   binary.writeBigUInt64BE(0x100n, 24);
   binary.writeUInt32BE(2, 32);
   binary.writeUInt32BE(0, 36);
-  wire.copy(binary, 0x100);
+  writeThinMachOHeader(binary, 0x100, 0x0100000c, 0);
+  wire.copy(binary, 0x140);
   return binary;
 }
 
 function portableExecutable(wire) {
-  const binary = Buffer.alloc(0x200);
+  const binary = Buffer.alloc(0x240);
   binary.write("MZ", 0);
   binary.writeUInt32LE(0x80, 0x3c);
   binary.write("PE\0\0", 0x80);
   binary.writeUInt16LE(0x8664, 0x84);
-  wire.copy(binary, 0x100);
+  binary.writeUInt16LE(1, 0x86);
+  binary.writeUInt16LE(0xf0, 0x94);
+  binary.writeUInt16LE(0x20b, 0x98);
+  wire.copy(binary, 0x190);
   return binary;
 }
 
 function elfExecutable(wire) {
   const binary = Buffer.alloc(0x100);
-  binary.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+  binary.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1], 0);
+  binary.writeUInt16LE(3, 16);
   binary.writeUInt16LE(0x3e, 18);
+  binary.writeUInt32LE(1, 20);
   wire.copy(binary, 0x40);
   return binary;
 }
@@ -167,6 +186,49 @@ test("thin/fat64 Mach-O and supported PE/ELF executables get an exact one-wire c
 
   await writeFile(binary, Buffer.concat([Buffer.from("not an executable"), wire]));
   await assert.rejects(readAllFuseWires(binary), /Unsupported or ambiguous executable format/);
+});
+
+test("malformed architecture headers and unsupported PE/ELF machines fail closed", async (t) => {
+  const { REQUIRED_FUSES, readAllFuseWires } = await policy();
+  const { FuseState } = await import("@electron/fuses");
+  const states = Buffer.from(
+    REQUIRED_FUSES.map((item) => item.enabled ? FuseState.ENABLE : FuseState.DISABLE),
+  );
+  const wire = Buffer.concat([SENTINEL, Buffer.from([1, states.length]), states]);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "axis-fuse-rejects-"));
+  const binary = path.join(directory, "AXIS");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const badThin = thinMachO(wire);
+  badThin.writeInt32LE(0, 4);
+  await writeFile(binary, badThin);
+  await assert.rejects(readAllFuseWires(binary), /unsupported CPU tuple 0:0/);
+
+  const badFatPayload = universalMachO([wire, wire]);
+  badFatPayload.writeUInt32LE(0, 0x200);
+  await writeFile(binary, badFatPayload);
+  await assert.rejects(readAllFuseWires(binary), /Thin Mach-O architecture header.*invalid or truncated/);
+
+  const duplicateFatTuple = universalMachO([wire, wire]);
+  writeFatArch(duplicateFatTuple, 28, 0x01000007, 3, 0x200, 0x100);
+  writeThinMachOHeader(duplicateFatTuple, 0x200, 0x01000007, 3);
+  await writeFile(binary, duplicateFatTuple);
+  await assert.rejects(readAllFuseWires(binary), /fat Mach-O architecture slice 2\/2 is malformed/);
+
+  const badPe = portableExecutable(wire);
+  badPe.writeUInt16LE(0xffff, 0x84);
+  await writeFile(binary, badPe);
+  await assert.rejects(readAllFuseWires(binary), /PE executable has an unknown machine architecture/);
+
+  const badElfMachine = elfExecutable(wire);
+  badElfMachine.writeUInt16LE(0xffff, 18);
+  await writeFile(binary, badElfMachine);
+  await assert.rejects(readAllFuseWires(binary), /ELF executable has an unknown or non-canonical machine architecture/);
+
+  const badElfVersion = elfExecutable(wire);
+  badElfVersion[6] = 0;
+  await writeFile(binary, badElfVersion);
+  await assert.rejects(readAllFuseWires(binary), /ELF executable has an unknown or truncated architecture header/);
 });
 
 test("the direct 2.x afterPack hook is the sole fuse mutation owner", async () => {

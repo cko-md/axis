@@ -15,17 +15,33 @@ const FAT_HEADER_SIZE = 8;
 const FAT_ARCH_SIZE = 20;
 const FAT_ARCH_64_SIZE = 32;
 
-const MACHO_THIN_MAGICS = new Set([
-  0xfeedface,
-  0xcefaedfe,
-  0xfeedfacf,
-  0xcffaedfe,
+const MACHO_THIN_MAGICS = new Map([
+  [0xfeedface, { byteOrder: "be", headerSize: 28 }],
+  [0xcefaedfe, { byteOrder: "le", headerSize: 28 }],
+  [0xfeedfacf, { byteOrder: "be", headerSize: 32 }],
+  [0xcffaedfe, { byteOrder: "le", headerSize: 32 }],
 ]);
 const FAT_MAGICS = new Map([
   [0xcafebabe, { byteOrder: "be", entrySize: FAT_ARCH_SIZE, name: "fat Mach-O" }],
   [0xbebafeca, { byteOrder: "le", entrySize: FAT_ARCH_SIZE, name: "fat Mach-O" }],
   [0xcafebabf, { byteOrder: "be", entrySize: FAT_ARCH_64_SIZE, name: "fat64 Mach-O" }],
   [0xbfbafeca, { byteOrder: "le", entrySize: FAT_ARCH_64_SIZE, name: "fat64 Mach-O" }],
+]);
+const MACHO_ARCHITECTURES = new Map([
+  ["16777223:3", "x86_64"],
+  ["16777228:0", "arm64"],
+]);
+const MACHO_FILE_TYPES = new Set([2, 6]); // MH_EXECUTE and MH_DYLIB (Electron Framework).
+const PE_MACHINES = new Map([
+  [0x014c, 0x010b], // x86 PE32
+  [0x8664, 0x020b], // x86_64 PE32+
+  [0xaa64, 0x020b], // arm64 PE32+
+]);
+const ELF_MACHINES = new Map([
+  [3, 1], // x86 ELF32
+  [40, 1], // ARM ELF32
+  [62, 2], // x86_64 ELF64
+  [183, 2], // AArch64 ELF64
 ]);
 
 export const REQUIRED_FUSES = Object.freeze([
@@ -157,6 +173,41 @@ function wholeFileArchitecture(format, size) {
   };
 }
 
+function architectureTuple(cpuType, cpuSubtype) {
+  return `${cpuType}:${cpuSubtype}`;
+}
+
+async function readThinMachOArchitecture(handle, start, end, expectedTuple) {
+  const magic = await readExactly(handle, 4, start, "thin Mach-O header");
+  const descriptor = MACHO_THIN_MAGICS.get(magic.readUInt32BE(0));
+  if (!descriptor || start + descriptor.headerSize > end) {
+    throw new Error(`Thin Mach-O architecture header at byte ${start} is invalid or truncated`);
+  }
+  const header = await readExactly(handle, descriptor.headerSize, start, "thin Mach-O header");
+  const cpuType = readInt32(header, 4, descriptor.byteOrder);
+  const cpuSubtype = readInt32(header, 8, descriptor.byteOrder);
+  const tuple = architectureTuple(cpuType, cpuSubtype);
+  if (!MACHO_ARCHITECTURES.has(tuple)) {
+    throw new Error(`Thin Mach-O architecture at byte ${start} has unsupported CPU tuple ${tuple}`);
+  }
+  if (expectedTuple && tuple !== expectedTuple) {
+    throw new Error(
+      `Thin Mach-O architecture at byte ${start} (${tuple}) does not match its fat-table tuple ${expectedTuple}`,
+    );
+  }
+  const fileType = readUInt32(header, 12, descriptor.byteOrder);
+  const commandCount = readUInt32(header, 16, descriptor.byteOrder);
+  const commandBytes = readUInt32(header, 20, descriptor.byteOrder);
+  if (
+    !MACHO_FILE_TYPES.has(fileType)
+    || commandCount === 0
+    || commandBytes > end - start - descriptor.headerSize
+  ) {
+    throw new Error(`Thin Mach-O architecture header at byte ${start} is not a canonical Electron binary`);
+  }
+  return { cpuSubtype, cpuType, end, start };
+}
+
 async function readFatMachOArchitectures(handle, size, descriptor) {
   const header = await readExactly(handle, FAT_HEADER_SIZE, 0, `${descriptor.name} header`);
   const count = readUInt32(header, 4, descriptor.byteOrder);
@@ -174,6 +225,7 @@ async function readFatMachOArchitectures(handle, size, descriptor) {
 
   const table = await readExactly(handle, tableSize, FAT_HEADER_SIZE, `${descriptor.name} architecture table`);
   const architectures = [];
+  const tuples = new Set();
   const fileSize = BigInt(size);
   const minimumOffset = BigInt(tableEnd);
   for (let index = 0; index < count; index += 1) {
@@ -188,15 +240,23 @@ async function readFatMachOArchitectures(handle, size, descriptor) {
       : BigInt(readUInt32(table, entryOffset + 12, descriptor.byteOrder));
     const end = offset + length;
 
-    if (cpuType === 0 || length === 0n || offset < minimumOffset || end > fileSize) {
+    const tuple = architectureTuple(cpuType, cpuSubtype);
+    if (
+      !MACHO_ARCHITECTURES.has(tuple)
+      || tuples.has(tuple)
+      || length === 0n
+      || offset < minimumOffset
+      || end > fileSize
+    ) {
       throw new Error(`${descriptor.name} architecture slice ${index + 1}/${count} is malformed`);
     }
-    architectures.push({
-      cpuSubtype,
-      cpuType,
-      end: Number(end),
-      start: Number(offset),
-    });
+    tuples.add(tuple);
+    architectures.push(await readThinMachOArchitecture(
+      handle,
+      Number(offset),
+      Number(end),
+      tuple,
+    ));
   }
 
   const sorted = [...architectures].sort((left, right) => left.start - right.start);
@@ -220,23 +280,35 @@ async function readPortableExecutableArchitecture(handle, size) {
   if (!coffHeader.subarray(0, 4).equals(Buffer.from("PE\0\0"))) {
     throw new Error("PE executable is missing its COFF signature");
   }
-  if (coffHeader.readUInt16LE(4) === 0) {
+  const machine = coffHeader.readUInt16LE(4);
+  const sectionCount = coffHeader.readUInt16LE(6);
+  const optionalHeaderSize = coffHeader.readUInt16LE(20);
+  const expectedOptionalMagic = PE_MACHINES.get(machine);
+  if (!expectedOptionalMagic || sectionCount === 0 || optionalHeaderSize < 2 || peOffset + 24 + optionalHeaderSize > size) {
     throw new Error("PE executable has an unknown machine architecture");
+  }
+  const optionalHeader = await readExactly(handle, 2, peOffset + 24, "PE optional header");
+  if (optionalHeader.readUInt16LE(0) !== expectedOptionalMagic) {
+    throw new Error("PE executable has a non-canonical optional header");
   }
   return wholeFileArchitecture("PE", size);
 }
 
 async function readElfArchitecture(handle, size) {
-  if (size < 20) throw new Error("ELF executable is truncated before its header");
-  const ident = await readExactly(handle, 20, 0, "ELF header");
+  if (size < 24) throw new Error("ELF executable is truncated before its header");
+  const ident = await readExactly(handle, 24, 0, "ELF header");
   const elfClass = ident[4];
   const byteOrder = ident[5];
   const headerSize = elfClass === 1 ? 52 : elfClass === 2 ? 64 : 0;
-  if (headerSize === 0 || (byteOrder !== 1 && byteOrder !== 2) || size < headerSize) {
+  if (headerSize === 0 || byteOrder !== 1 || ident[6] !== 1 || size < headerSize) {
     throw new Error("ELF executable has an unknown or truncated architecture header");
   }
-  const machine = byteOrder === 1 ? ident.readUInt16LE(18) : ident.readUInt16BE(18);
-  if (machine === 0) throw new Error("ELF executable has an unknown machine architecture");
+  const machine = ident.readUInt16LE(18);
+  const fileType = ident.readUInt16LE(16);
+  const version = ident.readUInt32LE(20);
+  if (ELF_MACHINES.get(machine) !== elfClass || (fileType !== 2 && fileType !== 3) || version !== 1) {
+    throw new Error("ELF executable has an unknown or non-canonical machine architecture");
+  }
   return wholeFileArchitecture("ELF", size);
 }
 
@@ -247,7 +319,12 @@ async function readExecutableArchitectures(handle) {
   }
   const magic = await readExactly(handle, 4, 0, "executable header");
   const magicBe = magic.readUInt32BE(0);
-  if (MACHO_THIN_MAGICS.has(magicBe)) return wholeFileArchitecture("thin Mach-O", size);
+  if (MACHO_THIN_MAGICS.has(magicBe)) {
+    return {
+      architectures: [await readThinMachOArchitecture(handle, 0, size)],
+      format: "thin Mach-O",
+    };
+  }
   const fatDescriptor = FAT_MAGICS.get(magicBe);
   if (fatDescriptor) return readFatMachOArchitectures(handle, size, fatDescriptor);
   if (magic.subarray(0, 2).equals(Buffer.from("MZ"))) {
