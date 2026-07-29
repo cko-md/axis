@@ -181,6 +181,7 @@ async function main() {
     name,
     baseSha: snapshot.baseSha,
     headSha: expectedHeadSha,
+    expectedBranch: snapshot.headBranch,
     bootstrap,
   });
   const evidence = loadAndValidateOwnerEvidence({

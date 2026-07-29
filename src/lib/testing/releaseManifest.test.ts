@@ -7,7 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -25,7 +25,7 @@ import {
   TRUSTED_CONTROL_BOOTSTRAP_FILES,
   TRUSTED_CONTROL_PLANE_FILES,
   validateAppendOnlyMigrationManifest,
-  validateCandidateReleaseGovernance,
+  validateCandidateReleaseGovernance as validateCandidateReleaseGovernanceRaw,
   validateMigrationManifest,
   validateReleaseGovernanceWorkflow,
 } from "../../../scripts/release-validation-core.mjs";
@@ -44,6 +44,17 @@ const root = process.cwd();
 const migrationDirectory = join(root, "supabase", "migrations");
 const manifestPath = join(root, "scripts", "release-migration-manifest.json");
 const BOOTSTRAP_PROTECTED_BASE = "44be089b";
+
+function validateCandidateReleaseGovernance(args: {
+  baseRoot: string;
+  candidateRoot: string;
+  governanceWorkflow?: string;
+}) {
+  return validateCandidateReleaseGovernanceRaw({
+    ...args,
+    expectedBranch: "candidate",
+  });
+}
 
 function committedManifest() {
   return JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -770,6 +781,8 @@ describe("trusted pull-request release governance", () => {
       "utf8",
     );
     expect(validateReleaseGovernanceWorkflow(content)).toEqual([]);
+    expect(content).toContain("AXIS_EXPECTED_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}");
+    expect(content).not.toContain("run: node trusted/scripts/validate-release-candidate.mjs --base=trusted --candidate=candidate ${{ github.event.pull_request.head.ref }}");
   });
 
   it("rejects extra candidate execution even when appended to an otherwise trusted workflow", () => {
@@ -790,6 +803,78 @@ describe("trusted pull-request release governance", () => {
       expect(
         validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
       ).toEqual([]);
+    });
+  });
+
+  it("runs the trusted validator with the expected branch supplied only as environment data", () => {
+    withCandidateTrees(({ baseRoot, candidateRoot }) => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(root, "scripts", "validate-release-candidate.mjs"),
+          `--base=${baseRoot}`,
+          `--candidate=${candidateRoot}`,
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: { ...process.env, AXIS_EXPECTED_PR_HEAD_REF: "candidate" },
+        },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+    });
+  });
+
+  it("fails closed when the trusted validator's branch environment data is missing or unsafe", () => {
+    const run = (branch?: string) => {
+      const env = { ...process.env };
+      if (branch === undefined) {
+        delete env.AXIS_EXPECTED_PR_HEAD_REF;
+      } else {
+        env.AXIS_EXPECTED_PR_HEAD_REF = branch;
+      }
+      return spawnSync(
+        process.execPath,
+        [
+          join(root, "scripts", "validate-release-candidate.mjs"),
+          "--base=unused",
+          "--candidate=unused",
+        ],
+        { cwd: root, encoding: "utf8", env },
+      );
+    };
+
+    for (const result of [run(), run("unsafe..branch")]) {
+      expect(result.error).toBeUndefined();
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "AXIS_EXPECTED_PR_HEAD_REF must contain a nonempty safe pull-request head branch",
+      );
+    }
+  });
+
+  it("rejects forged generated-state branch provenance even with a recomputed fingerprint", () => {
+    withCandidateTrees(({ baseRoot, candidateRoot }) => {
+      const snapshotPath = join(candidateRoot, ".claude", "axis-redesign", "GENERATED_STATE.json");
+      const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+      snapshot.git.branch = "forged-branch";
+      const provenance = {
+        branch: snapshot.git.branch,
+        head: snapshot.git.head,
+        mainHead: snapshot.git.mainHead,
+        workingTreeClean: snapshot.git.workingTreeClean,
+        aheadOfMain: snapshot.git.aheadOfMain,
+      };
+      snapshot.git.fingerprint = stateEvidenceFingerprint(snapshot.git.contentTreeHash, {
+        gates: snapshot.gates,
+        provenance,
+        sourceMainContentTreeHash: snapshot.git.sourceMainContentTreeHash,
+      });
+      writeFileSync(snapshotPath, JSON.stringify(snapshot));
+      expect(validateCandidateReleaseGovernance({ baseRoot, candidateRoot })).toContain(
+        "generated state provenance branch does not match the independently selected PR branch",
+      );
     });
   });
 
@@ -867,6 +952,7 @@ describe("trusted pull-request release governance", () => {
           name: "axis-test",
           baseSha,
           headSha,
+          expectedBranch: "candidate",
           bootstrap: true,
           materialize,
         }),

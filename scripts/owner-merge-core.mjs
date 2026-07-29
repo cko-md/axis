@@ -2552,6 +2552,7 @@ export async function collectOwnerMergeSnapshot({
     deployKeyCount: deployKeys.length,
     baseSha,
     headSha: expectedHeadSha,
+    headBranch: pull.head.ref,
     prNumber,
     ci: {
       workflowId: ciWorkflowId,
@@ -2720,6 +2721,7 @@ export function validateCandidateAsInertData({
   name,
   baseSha,
   headSha,
+  expectedBranch,
   bootstrap,
   materialize = materializeGitRevision,
 }) {
@@ -2755,6 +2757,7 @@ export function validateCandidateAsInertData({
     const errors = validateCandidateReleaseGovernance({
       baseRoot: base.tree,
       candidateRoot: candidate.tree,
+      expectedBranch,
     });
     if (errors.length > 0) {
       fail(`trusted-base candidate validation failed: ${errors.join("; ")}`);

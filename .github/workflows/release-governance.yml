@@ -46,4 +46,6 @@ jobs:
           fetch-depth: 0
 
       - name: Validate candidate with trusted base code
+        env:
+          AXIS_EXPECTED_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: node trusted/scripts/validate-release-candidate.mjs --base=trusted --candidate=candidate

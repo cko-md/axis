@@ -1,6 +1,17 @@
 import { resolve } from "node:path";
 import { validateCandidateReleaseGovernance } from "./release-validation-core.mjs";
 
+const EXPECTED_BRANCH_ENV = "AXIS_EXPECTED_PR_HEAD_REF";
+const SAFE_BRANCH = /^(?!.*(?:\.\.|\/\/))[A-Za-z0-9][A-Za-z0-9._/-]{0,254}(?<![./])$/;
+
+function expectedBranchFromEnvironment() {
+  const branch = process.env[EXPECTED_BRANCH_ENV];
+  if (typeof branch !== "string" || !SAFE_BRANCH.test(branch)) {
+    throw new Error(`${EXPECTED_BRANCH_ENV} must contain a nonempty safe pull-request head branch`);
+  }
+  return branch;
+}
+
 function parseArgs(argv) {
   const values = new Map();
   for (const argument of argv) {
@@ -24,9 +35,10 @@ function parseArgs(argv) {
 }
 
 try {
-  const errors = validateCandidateReleaseGovernance(
-    parseArgs(process.argv.slice(2)),
-  );
+  const errors = validateCandidateReleaseGovernance({
+    ...parseArgs(process.argv.slice(2)),
+    expectedBranch: expectedBranchFromEnvironment(),
+  });
   if (errors.length > 0) {
     for (const error of errors) {
       console.error(`release governance failed: ${error}`);

@@ -830,7 +830,9 @@ export function validateReleaseGovernanceWorkflow(content) {
   for (const [index, step] of job.steps.entries()) {
     const allowed = step?.uses
       ? ["name", "uses", "with"]
-      : ["name", "run", "working-directory"];
+      : index === 4
+        ? ["name", "run", "env", "working-directory"]
+        : ["name", "run", "working-directory"];
     if (!objectHasOnlyKeys(step, allowed)) {
       errors.push(`release-governance step ${index + 1} has unexpected keys`);
     }
@@ -877,9 +879,13 @@ export function validateReleaseGovernanceWorkflow(content) {
   if (
     validate?.run !==
       "node trusted/scripts/validate-release-candidate.mjs --base=trusted --candidate=candidate" ||
-    Object.hasOwn(validate ?? {}, "working-directory")
+    Object.hasOwn(validate ?? {}, "working-directory") ||
+    JSON.stringify(validate?.env) !== JSON.stringify({
+      AXIS_EXPECTED_PR_HEAD_REF: "${{ github.event.pull_request.head.ref }}",
+    }) ||
+    /\$\{\{\s*github\.event\.pull_request\.head\.ref\s*\}\}/.test(String(validate?.run ?? ""))
   ) {
-    errors.push("release-governance must invoke only the trusted candidate validator");
+    errors.push("release-governance must pass the PR head branch only as exact trusted-validator environment data");
   }
   return errors;
 }
@@ -1024,7 +1030,7 @@ export function validateTrustedYamlParser(root) {
   return errors;
 }
 
-function validateGeneratedStateAlignment(baseRoot, candidateRoot) {
+function validateGeneratedStateAlignment(baseRoot, candidateRoot, expectedBranch) {
   const errors = [];
   let snapshot;
   try {
@@ -1166,6 +1172,7 @@ function validateGeneratedStateAlignment(baseRoot, candidateRoot) {
     // the recorded base there to prove the candidate's ancestry without ever
     // executing candidate-controlled code.
     protectedMainRef: snapshot?.git?.mainHead,
+    expectedBranch,
     expectedContentTreeHash: candidateHash,
     expectedSourceMainContentTreeHash: baseHash,
     expectedGateSourceHead: gates?.sourceHead,
@@ -1527,12 +1534,17 @@ export function findMutableGitHubActionReferences(workflowDirectory) {
 export function validateCandidateReleaseGovernance({
   baseRoot,
   candidateRoot,
+  expectedBranch,
   governanceWorkflow = ".github/workflows/release-governance.yml",
 }) {
   const errors = [];
   try {
+    if (typeof expectedBranch !== "string" || !/^(?!.*(?:\.\.|\/\/))[A-Za-z0-9][A-Za-z0-9._/-]{0,254}(?<![./])$/.test(expectedBranch)) {
+      errors.push("trusted candidate validation requires a nonempty safe expectedBranch");
+      return errors;
+    }
     errors.push(...validateTrustedControlPlane(baseRoot, candidateRoot));
-    errors.push(...validateGeneratedStateAlignment(baseRoot, candidateRoot));
+    errors.push(...validateGeneratedStateAlignment(baseRoot, candidateRoot, expectedBranch));
 
     const proposedManifest = readRegularJson(
       candidateRoot,
