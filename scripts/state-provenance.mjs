@@ -25,6 +25,7 @@ export function validateStateSnapshotProvenance(params) {
   expectedGateSourceHead = undefined,
   expectedGateSourceContentTreeHash = undefined,
   requireMeasuredGateBinding = false,
+  allowEquivalentProtectedMerge = false,
   } = params;
   const errors = [];
   if (!persistedGit || typeof persistedGit !== "object") {
@@ -55,13 +56,13 @@ export function validateStateSnapshotProvenance(params) {
   }
   if (errors.length > 0) return errors;
 
-  if (expectedBranch && branch !== expectedBranch) {
+  if (!allowEquivalentProtectedMerge && expectedBranch && branch !== expectedBranch) {
     errors.push("generated state provenance branch does not match the independently selected PR branch");
   }
   if (persistedContentTreeHash !== expectedContentTreeHash) {
     errors.push("generated state provenance contentTreeHash does not match the checked candidate source tree");
   }
-  if (sourceMainContentTreeHash !== expectedSourceMainContentTreeHash) {
+  if (!allowEquivalentProtectedMerge && sourceMainContentTreeHash !== expectedSourceMainContentTreeHash) {
     errors.push("generated state provenance sourceMainContentTreeHash does not match the checked protected base tree");
   }
   if (requireMeasuredGateBinding && !SHA_40.test(expectedGateSourceHead ?? "")) {
@@ -94,10 +95,11 @@ export function validateStateSnapshotProvenance(params) {
   }
 
   try {
-    if (git("rev-parse", protectedMainRef) !== mainHead) {
+    const relationshipBase = allowEquivalentProtectedMerge ? mainHead : protectedMainRef;
+    if (!allowEquivalentProtectedMerge && git("rev-parse", protectedMainRef) !== mainHead) {
       errors.push("generated state provenance mainHead does not equal the independently resolved protected base");
     }
-    if (git("merge-base", mainHead, head) !== mainHead) {
+    if (git("merge-base", relationshipBase, head) !== mainHead) {
       errors.push("generated state provenance mainHead is not an ancestor of provenance head");
     }
     if (contentTreeHash(head) !== persistedContentTreeHash) {

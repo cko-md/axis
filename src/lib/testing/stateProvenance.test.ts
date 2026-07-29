@@ -104,4 +104,26 @@ describe("persisted generated-state provenance", () => {
       "measured gate evidence must bind a sourceContentTreeHash SHA-256",
     ]));
   });
+
+  it("allows an equivalent protected merge only after proving the historical base and candidate trees", () => {
+    expect(validateStateSnapshotProvenance({
+      persistedGit: snapshot(),
+      checkTarget: "protected-main",
+      protectedMainRef: "current-main",
+      expectedBranch: "main",
+      expectedContentTreeHash: TREE,
+      expectedSourceMainContentTreeHash: "changed".repeat(11).slice(0, 64),
+      expectedGateSourceHead: HEAD,
+      expectedGateSourceContentTreeHash: TREE,
+      requireMeasuredGateBinding: true,
+      allowEquivalentProtectedMerge: true,
+      git: (...args: string[]) => {
+        if (args[0] === "rev-parse") return args[1] === "current-main" ? "z".repeat(40) : args[1] ?? "";
+        if (args[0] === "merge-base") return BASE;
+        if (args[0] === "log") return `${HEAD}\u001f${AHEAD[0].subject}`;
+        throw new Error(`unexpected git invocation ${args.join(" ")}`);
+      },
+      contentTreeHash: (ref: string) => ref === BASE ? BASE_TREE : TREE,
+    })).toEqual([]);
+  });
 });

@@ -947,9 +947,13 @@ function detectDrift(state, checkTarget, previous) {
   if (!previous) {
     problems.push(`${GENERATED_JSON} is missing or invalid. Run: npm run state:derive`);
   } else {
+    const checkedOutBranch = checkTarget === "HEAD"
+      ? git("rev-parse", "--abbrev-ref", "HEAD")
+      : null;
+    const allowEquivalentProtectedMerge = checkedOutBranch === "main";
     const expectedBranch = process.env.GITHUB_HEAD_REF
-      || (checkTarget === "HEAD" && git("rev-parse", "--abbrev-ref", "HEAD") !== "HEAD"
-        ? git("rev-parse", "--abbrev-ref", "HEAD")
+      || (checkTarget === "HEAD" && checkedOutBranch !== "HEAD"
+        ? checkedOutBranch
         : undefined);
     problems.push(...validateStateSnapshotProvenance({
       git,
@@ -963,6 +967,7 @@ function detectDrift(state, checkTarget, previous) {
       expectedGateSourceHead: previous.gates?.sourceHead,
       expectedGateSourceContentTreeHash: previous.gates?.sourceContentTreeHash,
       requireMeasuredGateBinding: previous.gates?.measured === true,
+      allowEquivalentProtectedMerge,
     }));
   }
 
