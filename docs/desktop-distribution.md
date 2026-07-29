@@ -35,7 +35,10 @@ npm run desktop:dist -- --mac        # → dist-electron/AXIS-*.dmg (+ .app)
 The build flips all nine Electron 43 fuse bytes in one direct
 `@electron/fuses` 2.1.3 `afterPack` hook, verifies every architecture slice,
 then applies and verifies a teamless ad-hoc signature. Preview verification
-rejects Developer ID identities, signing teams, and notarization tickets.
+rejects Developer ID identities, signing teams, and notarization tickets. Its
+`stapler validate` check accepts only Apple's documented no-ticket response:
+exit status `65` with `does not have a ticket stapled to it.`; any other
+nonzero result is a verification failure.
 
 Open the `.app` once via **right‑click → Open** (then "Open" in the dialog), or
 clear the quarantine attribute:

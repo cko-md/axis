@@ -8,6 +8,66 @@ const path = require("node:path");
 const { packagedTarget } = require("./after-pack-fuses.cjs");
 const SENTINEL = Buffer.from("dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX");
 
+function writeFatArch(table, entryOffset, cpuType, offset, size) {
+  table.writeInt32BE(cpuType, entryOffset);
+  table.writeInt32BE(3, entryOffset + 4);
+  table.writeUInt32BE(offset, entryOffset + 8);
+  table.writeUInt32BE(size, entryOffset + 12);
+  table.writeUInt32BE(2, entryOffset + 16);
+}
+
+function universalMachO(wires) {
+  const sliceOffsets = [0x100, 0x200];
+  const sliceSize = 0x100;
+  const binary = Buffer.alloc(0x300);
+  binary.writeUInt32BE(0xcafebabe, 0);
+  binary.writeUInt32BE(2, 4);
+  // x86_64 and arm64: this is a real two-slice universal-Mach-O table shape.
+  writeFatArch(binary, 8, 0x01000007, sliceOffsets[0], sliceSize);
+  writeFatArch(binary, 28, 0x0100000c, sliceOffsets[1], sliceSize);
+  for (const [index, wire] of wires.entries()) wire.copy(binary, sliceOffsets[index]);
+  return binary;
+}
+
+function thinMachO(wire) {
+  const binary = Buffer.alloc(0x100);
+  binary.writeUInt32BE(0xfeedfacf, 0);
+  wire.copy(binary, 0x40);
+  return binary;
+}
+
+function fat64MachO(wire) {
+  const binary = Buffer.alloc(0x200);
+  binary.writeUInt32BE(0xcafebabf, 0);
+  binary.writeUInt32BE(1, 4);
+  binary.writeInt32BE(0x0100000c, 8);
+  binary.writeInt32BE(0, 12);
+  binary.writeBigUInt64BE(0x100n, 16);
+  binary.writeBigUInt64BE(0x100n, 24);
+  binary.writeUInt32BE(2, 32);
+  binary.writeUInt32BE(0, 36);
+  wire.copy(binary, 0x100);
+  return binary;
+}
+
+function portableExecutable(wire) {
+  const binary = Buffer.alloc(0x200);
+  binary.write("MZ", 0);
+  binary.writeUInt32LE(0x80, 0x3c);
+  binary.write("PE\0\0", 0x80);
+  binary.writeUInt16LE(0x8664, 0x84);
+  wire.copy(binary, 0x100);
+  return binary;
+}
+
+function elfExecutable(wire) {
+  const binary = Buffer.alloc(0x100);
+  binary.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+  binary.writeUInt16LE(0x3e, 18);
+  wire.copy(binary, 0x40);
+  return binary;
+}
+
 async function policy() {
   return import("../scripts/desktop-fuse-policy.mjs");
 }
@@ -55,7 +115,7 @@ test("missing and extra fuse bytes fail closed", async () => {
   );
 });
 
-test("every architecture slice in a packaged binary is read and verified", async (t) => {
+test("every x86_64 and arm64 universal-Mach-O slice has one verified fuse wire", async (t) => {
   const {
     REQUIRED_FUSES,
     readAllFuseWires,
@@ -65,13 +125,21 @@ test("every architecture slice in a packaged binary is read and verified", async
   const states = Buffer.from(
     REQUIRED_FUSES.map((item) => item.enabled ? FuseState.ENABLE : FuseState.DISABLE),
   );
-  const wire = Buffer.concat([SENTINEL, Buffer.from([1, states.length]), states]);
+  const validWire = Buffer.concat([SENTINEL, Buffer.from([1, states.length]), states]);
   const directory = await mkdtemp(path.join(os.tmpdir(), "axis-fuses-"));
   const binary = path.join(directory, "AXIS");
   t.after(() => rm(directory, { recursive: true, force: true }));
-  await writeFile(binary, Buffer.concat([Buffer.from("slice-one"), wire, Buffer.from("slice-two"), wire]));
+
+  await writeFile(binary, universalMachO([validWire]));
+  await assert.rejects(
+    readAllFuseWires(binary),
+    /Found 1 fuse wires.*declares 2 architecture slice/s,
+  );
+
+  await writeFile(binary, universalMachO([validWire, validWire]));
 
   const result = await readAllFuseWires(binary);
+  assert.equal(result.architectureCount, 2);
   assert.equal(result.wires.length, 2);
   await assert.doesNotReject(verifyFuseTarget(binary));
 
@@ -79,6 +147,26 @@ test("every architecture slice in a packaged binary is read and verified", async
   bytes[bytes.lastIndexOf(SENTINEL) + SENTINEL.length + 2] = FuseState.INHERIT;
   await writeFile(binary, bytes);
   await assert.rejects(verifyFuseTarget(binary), /slice 2\/2.*RunAsNode.*INHERIT/s);
+});
+
+test("thin/fat64 Mach-O and supported PE/ELF executables get an exact one-wire cardinality", async (t) => {
+  const { REQUIRED_FUSES, readAllFuseWires } = await policy();
+  const { FuseState } = await import("@electron/fuses");
+  const states = Buffer.from(
+    REQUIRED_FUSES.map((item) => item.enabled ? FuseState.ENABLE : FuseState.DISABLE),
+  );
+  const wire = Buffer.concat([SENTINEL, Buffer.from([1, states.length]), states]);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "axis-fuse-formats-"));
+  const binary = path.join(directory, "AXIS");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  for (const fixture of [thinMachO(wire), fat64MachO(wire), portableExecutable(wire), elfExecutable(wire)]) {
+    await writeFile(binary, fixture);
+    assert.equal((await readAllFuseWires(binary)).architectureCount, 1);
+  }
+
+  await writeFile(binary, Buffer.concat([Buffer.from("not an executable"), wire]));
+  await assert.rejects(readAllFuseWires(binary), /Unsupported or ambiguous executable format/);
 });
 
 test("the direct 2.x afterPack hook is the sole fuse mutation owner", async () => {

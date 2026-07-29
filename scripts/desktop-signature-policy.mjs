@@ -72,6 +72,30 @@ function run(command, args) {
   return spawnSync(command, args, { encoding: "utf8" });
 }
 
+const PREVIEW_STAPLER_NO_TICKET_STATUS = 65;
+const PREVIEW_STAPLER_NO_TICKET_MESSAGE = "does not have a ticket stapled to it.";
+
+export function validateStaplerResult(result, mode) {
+  if (result.error) return [`could not run stapler validation: ${result.error.message}`];
+  if (mode === "preview") {
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    if (
+      result.status !== PREVIEW_STAPLER_NO_TICKET_STATUS
+      || !output.includes(PREVIEW_STAPLER_NO_TICKET_MESSAGE)
+    ) {
+      return [
+        "preview must fail stapler validation with the expected no-ticket result "
+          + `(status ${PREVIEW_STAPLER_NO_TICKET_STATUS}: ${PREVIEW_STAPLER_NO_TICKET_MESSAGE})`,
+      ];
+    }
+    return [];
+  }
+  if (mode === "release" && result.status !== 0) {
+    return [`release notarization ticket is invalid: ${result.stderr || result.stdout}`];
+  }
+  return [];
+}
+
 export function verifyMacSignature(application, mode) {
   try {
     execFileSync("codesign", ["--verify", "--deep", "--strict", "--verbose=4", application], {
@@ -90,13 +114,7 @@ export function verifyMacSignature(application, mode) {
   const problems = validateSignatureMetadata(metadata, mode);
 
   const staple = run("xcrun", ["stapler", "validate", application]);
-  if (staple.error) {
-    problems.push(`could not run stapler validation: ${staple.error.message}`);
-  } else if (mode === "preview" && staple.status === 0) {
-    problems.push("preview unexpectedly carries a valid notarization ticket");
-  } else if (mode === "release" && staple.status !== 0) {
-    problems.push(`release notarization ticket is invalid: ${staple.stderr || staple.stdout}`);
-  }
+  problems.push(...validateStaplerResult(staple, mode));
 
   if (mode === "release") {
     const gatekeeper = run("spctl", ["--assess", "--type", "execute", "--verbose=4", application]);

@@ -33,3 +33,23 @@ test("release signature policy requires Developer ID and a signing team", async 
     /Developer ID.*team identifier.*ad-hoc/s,
   );
 });
+
+test("preview stapler validation accepts only the documented no-ticket response", async () => {
+  const { validateStaplerResult } = await policy();
+  assert.deepEqual(
+    validateStaplerResult({
+      status: 65,
+      stdout: "AXIS.app does not have a ticket stapled to it.\n",
+      stderr: "",
+    }, "preview"),
+    [],
+  );
+  assert.match(
+    validateStaplerResult({ status: 1, stdout: "something else", stderr: "" }, "preview").join("\n"),
+    /expected no-ticket result/,
+  );
+  assert.match(
+    validateStaplerResult({ status: 0, stdout: "The validate action worked!", stderr: "" }, "preview").join("\n"),
+    /expected no-ticket result/,
+  );
+});
