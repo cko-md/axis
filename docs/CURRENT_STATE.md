@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `52fb5b256bb4bcf163681ca60ec8e0d11d11fb958ec91ca7af1a98fea5ae149c` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `7e453e98cb1e5e3b57420836cd9fde703b5d6d7827f93276f923bc95249a45ae`
+- **State fingerprint:** `ce81280ac774f8363dc3c282d23c3be6ad63fc2b798d2c6754f9fe036dd86d25` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `05a6af73be9af58cb590170189e353722b0bc93f1da016ee57e30dd37dc42da0`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-00-governance-bootstrap`
-- **HEAD:** `63064c3d`
+- **HEAD:** `b1e23278`
 - **main:** `44be089b`
-- **Working tree:** clean
+- **Working tree:** had uncommitted changes
 
-### Ahead of source main at derivation (9 commit(s))
+### Ahead of source main at derivation (11 commit(s))
 
+- `b1e23278` fix(governance): close production evidence bypasses
+- `d6be9261` docs(state): bind Phase 0 governance evidence
 - `63064c3d` fix(security): patch Next PostCSS override
 - `919a61d6` feat(governance): add fail-closed owner merge controls
 - `9634a6c5` test(ci): enforce full public browser gate
@@ -81,19 +83,19 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Defects
 
-- **Total logged:** 43
-- **Open:** 0
+- **Total logged:** 50
+- **Open:** 8 (AUTH-006, FIN-003, FIN-004, MUTATION-001, INTEGRATION-002, SSRF-001, AUTH-007, RATE-001)
 
 ## Gates
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 1952/1952 across 228 files
+- **Tests:** 1956/1956 across 228 files
 - **Bundle:** 4287 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `63064c3d`
-- **Measured content tree:** `7e453e98cb1e5e3b57420836cd9fde703b5d6d7827f93276f923bc95249a45ae`
-- **Measured at:** 2026-07-23T16:16:47.379Z
+- **Measured source:** `b1e23278`
+- **Measured content tree:** `05a6af73be9af58cb590170189e353722b0bc93f1da016ee57e30dd37dc42da0`
+- **Measured at:** 2026-07-29T04:25:18.415Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -101,6 +103,38 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
+
+### 2026-07-29 adversarial remediation continuation
+
+Phase 0 governance is the active release candidate shown in the generated block
+above. Independent adversarial review reports no open P0/P1 in the candidate.
+The control plane now fails closed on defect deletion or staged false closure,
+expired hosted evidence, migration-history rewrites, unbound production
+database targets, and malformed or recombined migration/RLS/Tembo receipts.
+The runtime dependency audit is clean; development-tool advisories remain a
+recorded non-runtime residual.
+
+The safe outbound-read lane is preserved as a separately reviewed local commit
+in its isolated worktree. It closes the mapped/private-address exploit, pins
+connections to validated DNS answers, bounds redirects/body/time, removes raw
+target identifiers from telemetry, and makes RSS/proxy/reader partial failures
+explicit. It remains intentionally unpushed until Phase 0 lands, after which it
+must be rebased onto canonical main and repeat hosted gates before promotion.
+
+The dependency order is:
+
+1. push Phase 0 and collect fresh exact-head CI, Vercel preview, Sentry,
+   migration/Tembo, and manual evidence;
+2. merge only through the locked owner-merge control, verify production, and
+   re-derive state from canonical main;
+3. rebase and promote safe fetch through the same protected review/gate cycle;
+4. then compose provider identity, financial truth/order intent, cancellable
+   mutation, generic-mutation containment, and fail-closed auth/rate limits.
+
+The eight open defects in the generated block are active stop-lines, not
+historical backlog. A defect closes only after its fix is on canonical main and
+a later reviewed state change binds the closure to the predeclared verification
+paths.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 
@@ -296,4 +330,3 @@ isolated worktree above but not yet merged — rebase onto current main first
 — see `wave_order_revision` in PROGRAM_STATE.json. Brickrise and Paper Glider
 artwork both remain externally gated on the design lane (Codex); registry
 status stays `planned` for both until art lands.
-
