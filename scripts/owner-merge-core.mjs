@@ -1791,44 +1791,92 @@ function assertReviewInventoriesAgree(restReviews, graphReviews) {
   }
 }
 
-function latestReviewsByAuthor(reviews, source) {
+function effectiveReviewsByAuthor(reviews, source) {
   if (!Array.isArray(reviews)) {
     fail(`${source} review inventory must be an array`);
   }
-  const latest = new Map();
+  const histories = new Map();
   for (const review of reviews) {
-    const previous = latest.get(review.authorId);
-    if (!previous) {
-      latest.set(review.authorId, review);
-      continue;
-    }
+    const history = histories.get(review.authorId) ?? [];
+    const previous = history[0];
     if (
-      review.author !== previous.author ||
-      review.authorType !== previous.authorType
+      previous &&
+      (review.author !== previous.author ||
+        review.authorType !== previous.authorType)
     ) {
       fail(`${source} review inventory has inconsistent author identity`);
     }
-    const comparison = compareGitHubTimestamps(
-      review.submittedAt,
-      previous.submittedAt,
-    );
-    if (comparison === 0) {
-      fail(
-        `${source} review inventory has ambiguous equal timestamps for ${review.author}`,
-      );
-    }
-    if (comparison > 0) {
-      latest.set(review.authorId, review);
-    }
+    history.push(review);
+    histories.set(review.authorId, history);
   }
-  return latest;
+  const effective = new Map();
+  for (const [authorId, history] of histories) {
+    history.sort((left, right) =>
+      compareGitHubTimestamps(left.submittedAt, right.submittedAt),
+    );
+    for (let index = 1; index < history.length; index += 1) {
+      if (
+        compareGitHubTimestamps(
+          history[index - 1].submittedAt,
+          history[index].submittedAt,
+        ) === 0
+      ) {
+        fail(
+          `${source} review inventory has ambiguous equal timestamps for ${history[index].author}`,
+        );
+      }
+    }
+    let effectiveReview;
+    for (const review of history) {
+      if (review.state !== "COMMENTED" || !effectiveReview) {
+        effectiveReview = review;
+      }
+    }
+    effective.set(authorId, effectiveReview);
+  }
+  return effective;
 }
 
-function assertLatestReviewsAreClear(latestReviews) {
-  const blocking = [...latestReviews.values()].filter(
+function blockingEffectiveReviews(effectiveReviews) {
+  return [...effectiveReviews.values()].filter(
     (review) =>
       review.state === "CHANGES_REQUESTED" || review.state === "PENDING",
   );
+}
+
+function assertReviewDecision(effectiveReviews, pullRequest) {
+  if (!Object.hasOwn(pullRequest, "reviewDecision")) {
+    fail("GraphQL pull request reviewDecision is missing");
+  }
+  const decision = pullRequest.reviewDecision;
+  if (
+    decision !== null &&
+    decision !== "APPROVED" &&
+    decision !== "CHANGES_REQUESTED" &&
+    decision !== "REVIEW_REQUIRED"
+  ) {
+    fail("GraphQL pull request reviewDecision is malformed");
+  }
+  const hasBlockingReview =
+    blockingEffectiveReviews(effectiveReviews).length > 0;
+  if ((decision === "CHANGES_REQUESTED") !== hasBlockingReview) {
+    fail("GraphQL reviewDecision disagrees with reconciled review history");
+  }
+  if (
+    decision === "APPROVED" &&
+    ![...effectiveReviews.values()].some(
+      (review) => review.state === "APPROVED",
+    )
+  ) {
+    fail("GraphQL reviewDecision disagrees with reconciled review history");
+  }
+  if (decision === "REVIEW_REQUIRED") {
+    fail("PR still requires review");
+  }
+}
+
+function assertEffectiveReviewsAreClear(effectiveReviews) {
+  const blocking = blockingEffectiveReviews(effectiveReviews);
   if (blocking.length > 0) {
     fail(
       `PR has unresolved blocking reviews from ${blocking.map((r) => r.author).join(", ")}`,
@@ -1888,8 +1936,9 @@ export function validatePullRequestReviewState({ reviews, threadResult }) {
   }
   const normalizedGraphReviews = normalizeGraphReviews(graphReviews.nodes);
   assertReviewInventoriesAgree(restReviews, normalizedGraphReviews);
-  const restLatest = latestReviewsByAuthor(restReviews, "REST");
-  assertLatestReviewsAreClear(restLatest);
+  const effectiveReviews = effectiveReviewsByAuthor(restReviews, "REST");
+  assertReviewDecision(effectiveReviews, pullRequest);
+  assertEffectiveReviewsAreClear(effectiveReviews);
 }
 
 function readPullRequestReviewState(gh, { owner, name, prNumber }) {
@@ -1901,6 +1950,7 @@ function readPullRequestReviewState(gh, { owner, name, prNumber }) {
     `query($owner:String!,$name:String!,$number:Int!){
       repository(owner:$owner,name:$name){
         pullRequest(number:$number){
+          reviewDecision
           reviewThreads(first:100){
             nodes{isResolved}
             pageInfo{hasNextPage}

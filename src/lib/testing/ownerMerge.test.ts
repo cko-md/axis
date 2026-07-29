@@ -347,11 +347,13 @@ function graphReviewResult(
       "APPROVED",
     ),
   ],
+  reviewDecision: string | null = null,
 ) {
   return {
     data: {
       repository: {
         pullRequest: {
+          reviewDecision,
           reviewThreads: {
             nodes: [{ isResolved: true }],
             pageInfo: { hasNextPage: false },
@@ -1376,7 +1378,7 @@ describe("owner-controlled merge root", () => {
         3,
         "commented",
         "2026-07-23T00:00:00Z",
-        "CHANGES_REQUESTED",
+        "COMMENTED",
       ),
       restReviewFixture(
         4,
@@ -1495,6 +1497,176 @@ describe("owner-controlled merge root", () => {
     ).toThrow("REST and GraphQL full review inventories disagree");
   });
 
+  it("preserves change requests across comments until approval or dismissal clears them", () => {
+    const requestedThenCommented = [
+      restReviewFixture(
+        1,
+        "blocking-reviewer",
+        "2026-07-23T00:00:00Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        2,
+        "blocking-reviewer",
+        "2026-07-23T00:01:00Z",
+        "COMMENTED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: requestedThenCommented,
+        threadResult: graphReviewResult(
+          requestedThenCommented,
+          "CHANGES_REQUESTED",
+        ),
+      }),
+    ).toThrow("unresolved blocking reviews from blocking-reviewer");
+
+    const requestedThenApproved = [
+      requestedThenCommented[0],
+      restReviewFixture(
+        3,
+        "blocking-reviewer",
+        "2026-07-23T00:02:00Z",
+        "APPROVED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: requestedThenApproved,
+        threadResult: graphReviewResult(
+          requestedThenApproved,
+          "APPROVED",
+        ),
+      }),
+    ).not.toThrow();
+
+    const requestedThenDismissed = [
+      requestedThenCommented[0],
+      restReviewFixture(
+        4,
+        "blocking-reviewer",
+        "2026-07-23T00:02:00Z",
+        "DISMISSED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: requestedThenDismissed,
+        threadResult: graphReviewResult(requestedThenDismissed),
+      }),
+    ).not.toThrow();
+
+    const mixedAuthors = [
+      ...requestedThenCommented,
+      restReviewFixture(
+        5,
+        "approving-reviewer",
+        "2026-07-23T00:02:00Z",
+        "APPROVED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: mixedAuthors,
+        threadResult: graphReviewResult(
+          mixedAuthors,
+          "CHANGES_REQUESTED",
+        ),
+      }),
+    ).toThrow("unresolved blocking reviews from blocking-reviewer");
+  });
+
+  it("cross-checks the aggregate GraphQL reviewDecision fail closed", () => {
+    const approved = [
+      restReviewFixture(
+        1,
+        "reviewer",
+        "2026-07-23T00:00:00Z",
+        "APPROVED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: approved,
+        threadResult: graphReviewResult(approved, "APPROVED"),
+      }),
+    ).not.toThrow();
+
+    const requested = [
+      restReviewFixture(
+        2,
+        "reviewer",
+        "2026-07-23T00:00:00Z",
+        "CHANGES_REQUESTED",
+      ),
+    ];
+    for (const decision of [null, "APPROVED"]) {
+      expect(() =>
+        validatePullRequestReviewState({
+          reviews: requested,
+          threadResult: graphReviewResult(requested, decision),
+        }),
+      ).toThrow("reviewDecision disagrees with reconciled review history");
+    }
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: approved,
+        threadResult: graphReviewResult(
+          approved,
+          "CHANGES_REQUESTED",
+        ),
+      }),
+    ).toThrow("reviewDecision disagrees with reconciled review history");
+
+    const commentOnly = [
+      restReviewFixture(
+        3,
+        "reviewer",
+        "2026-07-23T00:00:00Z",
+        "COMMENTED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: commentOnly,
+        threadResult: graphReviewResult(commentOnly, "APPROVED"),
+      }),
+    ).toThrow("reviewDecision disagrees with reconciled review history");
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: commentOnly,
+        threadResult: graphReviewResult(
+          commentOnly,
+          "REVIEW_REQUIRED",
+        ),
+      }),
+    ).toThrow("PR still requires review");
+
+    const missingDecision = graphReviewResult(commentOnly);
+    Reflect.deleteProperty(
+      missingDecision.data.repository.pullRequest,
+      "reviewDecision",
+    );
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: commentOnly,
+        threadResult: missingDecision,
+      }),
+    ).toThrow("reviewDecision is missing");
+
+    const malformedDecision = graphReviewResult(commentOnly);
+    malformedDecision.data.repository.pullRequest.reviewDecision = "UNKNOWN";
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: commentOnly,
+        threadResult: malformedDecision,
+      }),
+    ).toThrow("reviewDecision is malformed");
+  });
+
   it("uses only each reviewer's latest submitted state and fails closed on timestamp ties", () => {
     const historicalReviews = [
       restReviewFixture(
@@ -1540,7 +1712,10 @@ describe("owner-controlled merge root", () => {
     expect(() =>
       validatePullRequestReviewState({
         reviews: laterBlock,
-        threadResult: graphReviewResult(laterBlock),
+        threadResult: graphReviewResult(
+          laterBlock,
+          "CHANGES_REQUESTED",
+        ),
       }),
     ).toThrow("unresolved blocking reviews from approved, pending");
 
