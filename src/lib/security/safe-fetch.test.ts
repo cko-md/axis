@@ -194,6 +194,21 @@ describe("safeFetch", () => {
     expect(transport).toHaveBeenCalledTimes(2);
   });
 
+  it.each([204, 205, 304])("treats HTTP %s as a terminal response, not a redirect", async (status) => {
+    const transport = vi.fn(async () => new Response(null, {
+      status,
+      headers: { location: "https://169.254.169.254/latest/meta-data" },
+    }));
+
+    const response = await safeFetch("https://public.example/status", {}, {
+      resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+      transport,
+    });
+
+    expect(response.status).toBe(status);
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
   it("pins the connection to the validated resolver result and strips credentials", async () => {
     const transport = vi.fn(async (...args: [URL, unknown]) => {
       expect(args[0].hostname).toBe("public.example");
@@ -396,6 +411,99 @@ describe("safeFetch", () => {
       await expect(pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/dribble`), {
         headers: undefined, timeoutMs: 30, maxBodyBytes: 32, address: { address: "127.0.0.1", family: 4 },
       })).rejects.toMatchObject({ code: "SAFE_FETCH_TIMEOUT" });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it.each([204, 205, 304])("constructs a no-body Response for production transport status %s", async (status) => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(status, { location: "http://169.254.169.254/latest/meta-data" });
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server did not bind");
+    try {
+      const response = await pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/status`), {
+        headers: undefined, timeoutMs: 500, maxBodyBytes: 32, address: { address: "127.0.0.1", family: 4 },
+      });
+      expect(response.status).toBe(status);
+      expect(await response.text()).toBe("");
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("bounds an invalid upstream status as a typed production transport failure", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(600);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server did not bind");
+    try {
+      const request = pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/invalid-status`), {
+        headers: undefined, timeoutMs: 500, maxBodyBytes: 32, address: { address: "127.0.0.1", family: 4 },
+      });
+      await expect(Promise.race([
+        request,
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("transport did not settle")), 200)),
+      ])).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("bounds Response construction failures from the production transport", async () => {
+    const server = http.createServer((_req, res) => res.end("ok"));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server did not bind");
+    const NativeResponse = globalThis.Response;
+    try {
+      vi.stubGlobal("Response", class {
+        constructor() {
+          throw new TypeError("forced response/header construction failure");
+        }
+      });
+      await expect(pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/forced-construction-error`), {
+        headers: undefined, timeoutMs: 500, maxBodyBytes: 32, address: { address: "127.0.0.1", family: 4 },
+      })).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+    } finally {
+      vi.stubGlobal("Response", NativeResponse);
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("aborts an active production socket, closes the peer, and never later resolves", async () => {
+    let peerClosed = false;
+    let requestStarted!: () => void;
+    const started = new Promise<void>((resolve) => { requestStarted = resolve; });
+    const server = http.createServer((_req, res) => {
+      res.on("close", () => { peerClosed = true; });
+      res.write("partial");
+      requestStarted();
+      setTimeout(() => res.end("late"), 100);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server did not bind");
+    const controller = new AbortController();
+    try {
+      const request = pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/abort`), {
+        headers: undefined, timeoutMs: 500, maxBodyBytes: 32, address: { address: "127.0.0.1", family: 4 }, signal: controller.signal,
+      });
+      await started;
+      controller.abort();
+      await expect(request).rejects.toMatchObject({ code: "SAFE_FETCH_ABORTED" });
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      expect(peerClosed).toBe(true);
+      await expect(Promise.race([
+        request.then(() => "resolved", () => "rejected"),
+        new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 50)),
+      ])).resolves.toBe("rejected");
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

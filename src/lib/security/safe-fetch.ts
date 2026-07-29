@@ -361,13 +361,29 @@ const defaultResolve = (hostname: string) => dnsLookup(hostname, { all: true, ve
 
 export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((resolve, reject) => {
   let settled = false;
+  let upstreamResponse: http.IncomingMessage | undefined;
   const control: { deadlineTimer?: ReturnType<typeof setTimeout> } = {};
+  const cleanup = () => {
+    if (control.deadlineTimer) clearTimeout(control.deadlineTimer);
+    input.signal?.removeEventListener("abort", abort);
+  };
   const settle = (fn: () => void) => {
     if (settled) return;
     settled = true;
-    if (control.deadlineTimer) clearTimeout(control.deadlineTimer);
-    input.signal?.removeEventListener("abort", abort);
+    cleanup();
     fn();
+  };
+  const asTransportFailure = (error: unknown) => error instanceof SafeFetchError
+    ? error
+    : new SafeFetchError("SAFE_FETCH_TRANSPORT_FAILED");
+  const fail = (error: unknown, closePeer = false) => {
+    const safeError = asTransportFailure(error);
+    if (settled) return;
+    if (closePeer) {
+      upstreamResponse?.destroy(safeError);
+      request.destroy(safeError);
+    }
+    settle(() => reject(safeError));
   };
   const client = url.protocol === "https:" ? https : http;
   // Dial the validated IP directly instead of asking Node's HTTP agent to look
@@ -389,10 +405,10 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
     headers: { ...Object.fromEntries(new Headers(input.headers).entries()), host: url.host },
     servername: url.hostname,
   }, (upstream) => {
+    upstreamResponse = upstream;
     const contentLength = Number(upstream.headers["content-length"] ?? "0");
     if (Number.isFinite(contentLength) && contentLength > input.maxBodyBytes) {
-      request.destroy();
-      settle(() => reject(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE")));
+      fail(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"), true);
       return;
     }
     const chunks: Buffer[] = [];
@@ -400,26 +416,39 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
     upstream.on("data", (chunk: Buffer) => {
       received += chunk.length;
       if (received > input.maxBodyBytes) {
-        upstream.destroy(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"));
+        fail(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"), true);
         return;
       }
       chunks.push(chunk);
     });
-    upstream.on("error", (error) => settle(() => reject(error)));
-    upstream.on("end", () => settle(() => resolve(responseWithUrl(new Response(Buffer.concat(chunks), {
-      status: upstream.statusCode ?? 502,
-      statusText: upstream.statusMessage,
-      headers: upstream.headers as HeadersInit,
-    }), url))));
+    upstream.on("error", (error) => fail(error));
+    upstream.on("end", () => {
+      // The Fetch standard forbids bodies for these statuses. More
+      // importantly, constructing a Response with a Buffer for one throws;
+      // construction must happen before the promise settles so it can be
+      // returned as a bounded, typed transport failure.
+      const status = upstream.statusCode ?? 502;
+      const body = status === 204 || status === 205 || status === 304 ? null : Buffer.concat(chunks);
+      try {
+        const response = responseWithUrl(new Response(body, {
+          status,
+          statusText: upstream.statusMessage,
+          headers: upstream.headers as HeadersInit,
+        }), url);
+        settle(() => resolve(response));
+      } catch (error) {
+        fail(error, true);
+      }
+    });
   });
-  request.setTimeout(input.timeoutMs, () => request.destroy(new SafeFetchError("SAFE_FETCH_TIMEOUT")));
+  request.setTimeout(input.timeoutMs, () => fail(new SafeFetchError("SAFE_FETCH_TIMEOUT"), true));
   // `request.setTimeout` is an inactivity timeout; retain a total deadline so
   // a peer dribbling bytes cannot keep a request alive indefinitely.
-  control.deadlineTimer = setTimeout(() => request.destroy(new SafeFetchError("SAFE_FETCH_TIMEOUT")), input.timeoutMs);
-  const abort = () => request.destroy(new SafeFetchError("SAFE_FETCH_ABORTED"));
+  control.deadlineTimer = setTimeout(() => fail(new SafeFetchError("SAFE_FETCH_TIMEOUT"), true), input.timeoutMs);
+  const abort = () => fail(new SafeFetchError("SAFE_FETCH_ABORTED"), true);
   if (input.signal?.aborted) abort();
   else input.signal?.addEventListener("abort", abort, { once: true });
-  request.on("error", (error) => settle(() => reject(error)));
+  request.on("error", (error) => fail(error));
   request.end();
 });
 
@@ -456,7 +485,10 @@ export async function safeFetch(raw: string | URL, options: SafeFetchOptions = {
     if (Number.isFinite(advertisedLength) && advertisedLength > maxBodyBytes) {
       throw new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE");
     }
-    if (response.status < 300 || response.status > 399) return response;
+    // Fetch only follows the defined redirect statuses. In particular, 304 is
+    // a terminal cache-validation response even when a hostile Location header
+    // is present; treating every 3xx as a redirect would issue an extra hop.
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     if (redirects === maxRedirects) throw new SafeFetchError("SAFE_FETCH_TOO_MANY_REDIRECTS");
     const location = response.headers.get("location");
     if (!location) throw new SafeFetchError("SAFE_FETCH_INVALID_REDIRECT");
