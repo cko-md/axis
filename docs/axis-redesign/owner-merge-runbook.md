@@ -102,6 +102,61 @@ section. After bootstrap lands, observe the first genuine base-controlled
 add its forgeable shared-App context as a required branch status on this
 user-owned repository.
 
+## Exact-candidate execution discipline
+
+Use this checklist for every remediation cycle and every later production
+phase. It is the durable anti-repeat protocol for evidence gathered during an
+adversarial review.
+
+1. **Reproduce the real boundary before fixing it.** A regression fixture must
+   model the transport and topology that failed: hosted environment variables,
+   a genuinely shallow remote rather than a local-path fetch that ignores
+   `--depth`, a synthetic pull-request merge when CI checks `HEAD^2`, or a
+   post-squash state-refresh branch when that is the production workflow.
+   A fixture that bypasses the failing boundary is not evidence.
+2. **Keep roles separate.** The implementation owner may run focused and full
+   checks, but a different agent/operator performs the final read-only review.
+   An unresolved P0, P1, or P2 finding is a merge blocker until reproduced,
+   fixed or explicitly rejected with evidence, and independently re-reviewed.
+3. **Treat every source change as a new candidate.** Recompute and commit the
+   generated state, content-tree hash, state fingerprint, and owner-control
+   digest only after all source, test, and workflow-document changes are final.
+   Any later change makes the prior trusted-review artifact, CI runs, Vercel
+   deployment, browser captures, Sentry window, Supabase readback, and dry-run
+   evidence stale. Never relabel or reuse those artifacts for the new SHA.
+4. **Query review threads after every push.** Do not assume a previously clean
+   review remains clean. Resolve a thread only after its exact finding is
+   covered by the candidate and the independent reviewer agrees.
+5. **Separate diagnosis from authority.** A selective failed-job rerun may
+   diagnose nondeterminism, but it is not the merge-authoritative run. The
+   authoritative attempt runs every required job on the exact head. When a
+   reliability defect requires consecutive hosted passes, record each complete
+   attempt and verify worker count, pass count, retries, flaky results, and
+   captured browser-console failures from the logs.
+6. **Bind hosted and manual proof to one immutable identity.** The CI run and
+   attempt, Vercel deployment, GitHub App permissions capture, authenticated
+   workflow, RLS/anonymous probes, cleanup verification, Vercel log review,
+   Sentry queries, and Supabase/Tembo assessment must all name the same exact
+   candidate SHA and their own immutable IDs/timestamps/hashes.
+7. **Use disposable browser data and prove cleanup.** Exercise happy, error,
+   persistence, authorization, and recovery paths with one disposable account;
+   verify foreign-row denial and anonymous `401`; remove the account and rows;
+   record the zero-remnant readback. Never place credentials, share URLs,
+   tokens, or private payloads in logs or handoffs.
+8. **Require the dry run before owner approval.** Build the external evidence
+   file from the final artifacts, hash every attachment, and obtain
+   `DRY_RUN_PASS`. Ask for the exact approval phrase only after that pass.
+   Never infer or synthesize approval from earlier authorization.
+9. **Verify after mutation and checkpoint before continuing.** After merge,
+   read back the protected branch, ruleset, deployment, production workflow,
+   Sentry window, and cleanup state. Run the required protected state-refresh
+   flow. Update the canonical derived state and the session handoff before
+   moving to the next phase.
+
+If a candidate is superseded, mark its evidence stale in the working notes and
+restart at step 2. A green result from a superseded SHA remains useful only as
+diagnostic history.
+
 ## Evidence file
 
 The external file must satisfy
