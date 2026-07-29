@@ -153,6 +153,34 @@ This temporary threat model trusts the owner/operator boundary and the recorded
 independent review. It does not describe those assertions as third-party
 attestation.
 
+### Freshness is an execution-time control
+
+All owner-merge evidence expires **24 hours** after it was produced. The
+executor checks the exact GitHub CI run completion, every required job
+completion, the runtime-SBOM artifact `created_at`, Vercel preview `readyAt`,
+the trusted review, manual validation, and the Sentry review on the initial
+read and again immediately before the critical section. Exactly 24 hours is
+accepted; one millisecond older is rejected. Re-run the affected check rather
+than editing its timestamp or reusing a prior PR's result.
+
+### Migration validation evidence (schema v2)
+
+`migrationValidation` is mandatory. For a candidate with no migration delta,
+it records `kind: "no-migration-delta"` and the SHA-256 of both manifests; the
+trusted executor independently requires those manifest bytes to be identical.
+
+For a strict append, use `kind: "migration-append"`. The evidence must bind a
+single Supabase `projectRef` to its derived `db.<projectRef>.supabase.co` host;
+include hash-bound, timestamped command output for the complete remote
+before/after migration-version ledgers, the exact pending appended version set
+and successful application result, and an RLS verification. State Tembo's
+verified role explicitly (`not-configured`, `analytics-postgres`,
+`queue-cache`, or `primary-postgres`) with its own fresh hash-bound artifact.
+All remote captures, application, RLS, and Tembo evidence use the same 24-hour
+window. A partial ledger, a reordered/deleted/re-written protected version, a
+target not matching the project ref, or a prose-only migration assertion is a
+hard failure.
+
 ## Trusted preparation and dry run
 
 Use Node 24. Prepare an isolated clean worktree at the independently reviewed

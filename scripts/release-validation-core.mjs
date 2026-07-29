@@ -55,6 +55,7 @@ export const TRUSTED_CONTROL_PLANE_FILES = [
   "scripts/validate-release-wave.mjs",
   "docs/axis-redesign/owner-merge-runbook.md",
   "supabase/config.toml",
+  "supabase/project.json",
   "scripts/sql/bootstrap-local-e2e-role-grants.sql",
   "scripts/sql/verify-20260716-contract.sql",
 ];

@@ -120,6 +120,10 @@ exit 0
     path.join(cwd, ".claude/axis-redesign/PROGRAM_STATE.json"),
     `${JSON.stringify({ program: "fixture", waves: [] }, null, 2)}\n`,
   );
+  writeFileSync(
+    path.join(cwd, ".claude/axis-redesign/DEFECT_LEDGER.json"),
+    `${JSON.stringify({ defects: [] }, null, 2)}\n`,
+  );
 
   git(cwd, "init", "--initial-branch=main");
   git(cwd, "config", "user.name", "AXIS test");
@@ -475,6 +479,175 @@ describe("program state derivation", { timeout: 30_000 }, () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("State fingerprint");
+  });
+
+  it("fails closed on fixed-defect provenance unless the canonical main verification SHA is an ancestor", () => {
+    const fixture = makeFreshStateFixture();
+    const ledgerPath = path.join(
+      fixture.cwd,
+      ".claude/axis-redesign/DEFECT_LEDGER.json",
+    );
+    const mainVerificationCommit = git(fixture.cwd, "rev-parse", "main");
+    commitFile(
+      fixture.cwd,
+      ".claude/axis-redesign/DEFECT_LEDGER.json",
+      `${JSON.stringify({
+        defects: [
+          {
+            id: "GOV-TEST-001",
+            severity: "low",
+            status: "fixed",
+            mainVerificationCommit,
+            mainVerificationPaths: ["merged-wave.txt"],
+          },
+        ],
+      }, null, 2)}\n`,
+      "docs: bind fixture defect to canonical main verification",
+    );
+    const deriveValidClosure = runState(fixture.cwd);
+    expect(deriveValidClosure.status, deriveValidClosure.stderr).toBe(0);
+    git(
+      fixture.cwd,
+      "add",
+      "docs/CURRENT_STATE.md",
+      ".claude/axis-redesign/GENERATED_STATE.json",
+    );
+    git(fixture.cwd, "commit", "-m", "docs(state): refresh fixture defect state");
+    expect(runState(fixture.cwd, "--check").status).toBe(0);
+
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    ledger.defects[0].mainVerificationCommit = "pending-commit";
+    commitFile(
+      fixture.cwd,
+      ".claude/axis-redesign/DEFECT_LEDGER.json",
+      `${JSON.stringify(ledger, null, 2)}\n`,
+      "docs: attempt freeform defect closure provenance",
+    );
+    expect(runState(fixture.cwd).status).toBe(0);
+    git(
+      fixture.cwd,
+      "add",
+      "docs/CURRENT_STATE.md",
+      ".claude/axis-redesign/GENERATED_STATE.json",
+    );
+    git(fixture.cwd, "commit", "-m", "docs(state): refresh invalid fixture provenance");
+
+    const invalid = runState(fixture.cwd, "--check");
+    expect(invalid.status).toBe(1);
+    expect(invalid.stderr).toContain("GOV-TEST-001 is fixed but lacks a valid mainVerificationCommit");
+    expect(invalid.stderr).toContain("free-form or pending provenance is rejected");
+
+    ledger.defects[0].mainVerificationCommit = git(fixture.cwd, "rev-list", "--max-parents=0", "HEAD");
+    commitFile(
+      fixture.cwd,
+      ".claude/axis-redesign/DEFECT_LEDGER.json",
+      `${JSON.stringify(ledger, null, 2)}\n`,
+      "docs: attempt unrelated-root defect closure provenance",
+    );
+    const unrelated = runState(fixture.cwd, "--check");
+    expect(unrelated.status).toBe(1);
+    expect(unrelated.stderr).toContain("GOV-TEST-001 is fixed but mainVerificationCommit");
+  });
+
+  it("fails closed on ledger continuity bypasses and accepts only a fresh, path-bound open-to-fixed transition", () => {
+    const fixture = makeFreshStateFixture();
+    git(fixture.cwd, "checkout", "main");
+    const threshold = git(fixture.cwd, "rev-parse", "HEAD");
+    const baseline = {
+      defects: [
+        {
+          id: "BASE-CLOSED",
+          severity: "high",
+          source: "fixture",
+          summary: "closed fixture",
+          affected: ["merged-wave.txt"],
+          root_cause: "fixture",
+          reproduction: "fixture",
+          fix: "fixture",
+          regression_test: "fixture",
+          verification: "fixture",
+          status: "fixed",
+          mainVerificationCommit: threshold,
+          mainVerificationPaths: ["merged-wave.txt"],
+        },
+        {
+          id: "BASE-OPEN",
+          severity: "high",
+          source: "fixture",
+          summary: "open fixture",
+          affected: ["merged-wave.txt"],
+          root_cause: "may evolve",
+          reproduction: "fixture",
+          fix: "may evolve",
+          regression_test: "may evolve",
+          verification: "may evolve",
+          status: "open",
+          verificationPaths: ["merged-wave.txt"],
+          closureAfterMainCommit: threshold,
+        },
+      ],
+    };
+    commitFile(
+      fixture.cwd,
+      ".claude/axis-redesign/DEFECT_LEDGER.json",
+      `${JSON.stringify(baseline, null, 2)}\n`,
+      "docs: add canonical fixture ledger",
+    );
+    // This canonical-main commit is the only valid future closure proof: it
+    // is strictly after the open threshold and changes the bound path.
+    commitFile(fixture.cwd, "merged-wave.txt", "verified remediation\n", "fix: fixture remediation");
+    const validMainVerification = git(fixture.cwd, "rev-parse", "HEAD");
+    git(fixture.cwd, "checkout", "-b", "codex/ledger-continuity-fixture");
+
+    const checkCandidate = (mutate: (ledger: { defects: Record<string, unknown>[] }) => void) => {
+      const ledger = structuredClone(baseline) as { defects: Record<string, unknown>[] };
+      mutate(ledger);
+      commitFile(
+        fixture.cwd,
+        ".claude/axis-redesign/DEFECT_LEDGER.json",
+        `${JSON.stringify(ledger, null, 2)}\n`,
+        "docs: attempt ledger continuity bypass",
+      );
+      return runState(fixture.cwd, "--check");
+    };
+
+    const cases: Array<[string, (ledger: { defects: Record<string, unknown>[] }) => void, string]> = [
+      ["deletion", (ledger) => { ledger.defects.shift(); }, "was deleted"],
+      ["duplicate", (ledger) => { ledger.defects.push(structuredClone(ledger.defects[0]!)); }, "duplicate id"],
+      ["invalid status", (ledger) => { ledger.defects[0]!.status = "invented"; }, "invalid status"],
+      ["new preclosed", (ledger) => { ledger.defects.push({ id: "NEW", severity: "low", status: "fixed" }); }, "cannot be introduced already fixed"],
+      ["new open wrong threshold", (ledger) => { ledger.defects.push({ id: "NEW", severity: "low", source: "fixture", summary: "fixture", reproduction: "fixture", affected: ["merged-wave.txt"], status: "open", verificationPaths: ["merged-wave.txt"], closureAfterMainCommit: threshold }); }, "new open defect NEW requires complete open evidence"],
+      ["new open malformed evidence", (ledger) => { ledger.defects.push({ id: "NEW", severity: "none", status: "open", verificationPaths: ["merged-wave.txt"], closureAfterMainCommit: validMainVerification }); }, "defect NEW has an invalid severity"],
+      ["open binding rewrite", (ledger) => { ledger.defects[1]!.verificationPaths = ["package.json"]; }, "open defect BASE-OPEN rewrites immutable verificationPaths"],
+      ["closure at threshold", (ledger) => { ledger.defects[1]!.status = "fixed"; ledger.defects[1]!.mainVerificationCommit = threshold; ledger.defects[1]!.mainVerificationPaths = ["merged-wave.txt"]; }, "closing transition lacks"],
+      ["closure non-touching", (ledger) => { ledger.defects[1]!.status = "fixed"; ledger.defects[1]!.mainVerificationCommit = validMainVerification; ledger.defects[1]!.mainVerificationPaths = ["package.json"]; }, "BASE-OPEN is fixed but mainVerificationCommit"],
+      ["weak reopen", (ledger) => { ledger.defects[0]!.status = "open"; ledger.defects[0]!.verificationPaths = ["package.json"]; ledger.defects[0]!.closureAfterMainCommit = git(fixture.cwd, "rev-list", "--max-parents=0", "HEAD"); }, "reopened defect BASE-CLOSED requires complete open evidence"],
+      ["closed rewrite", (ledger) => { ledger.defects[0]!.summary = "rewritten evidence"; }, "closed defect BASE-CLOSED rewrites immutable summary"],
+    ];
+
+    for (const [, mutate, expected] of cases) {
+      const result = checkCandidate(mutate);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(expected);
+      git(fixture.cwd, "reset", "--hard", validMainVerification);
+    }
+
+    const valid = structuredClone(baseline) as { defects: Record<string, unknown>[] };
+    valid.defects[1]!.status = "fixed";
+    valid.defects[1]!.mainVerificationCommit = validMainVerification;
+    valid.defects[1]!.mainVerificationPaths = ["merged-wave.txt"];
+    commitFile(
+      fixture.cwd,
+      ".claude/axis-redesign/DEFECT_LEDGER.json",
+      `${JSON.stringify(valid, null, 2)}\n`,
+      "docs: valid path-bound closure",
+    );
+    mkdirSync(path.join(fixture.cwd, "docs"), { recursive: true });
+    const deriveValidClosure = runState(fixture.cwd);
+    expect(deriveValidClosure.status, deriveValidClosure.stderr).toBe(0);
+    git(fixture.cwd, "add", "docs/CURRENT_STATE.md", ".claude/axis-redesign/GENERATED_STATE.json");
+    git(fixture.cwd, "commit", "-m", "docs(state): refresh valid ledger closure");
+    expect(runState(fixture.cwd, "--check").status).toBe(0);
   });
 
   it("records local source-gate evidence only after the complete contract passes", () => {

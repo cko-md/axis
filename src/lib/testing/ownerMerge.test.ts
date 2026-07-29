@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   statSync,
@@ -15,8 +16,10 @@ import {
   GITHUB_ACTIONS_APP_ID,
   OWNER_MERGE_CONTROL_FILES,
   OWNER_MERGE_EVIDENCE_CLOCK_SKEW_MS,
+  OWNER_MERGE_EVIDENCE_MAX_AGE_MS,
   REQUIRED_MANUAL_CHECK_IDS,
   buildOwnerMergePreparedIntent,
+  describeOwnerMergeMigrationDelta,
   executeOwnerMergeWithJournal,
   executeProtectedOwnerMerge,
   loadAndValidateOwnerEvidence,
@@ -32,6 +35,7 @@ import {
   validateOwnerMergeProtection,
   validateOwnerMergeRepositoryIdentity,
   validateOwnerMergeRuleset,
+  validateOwnerMergeSnapshotFreshness,
   validatePullRequestReviewState,
 } from "../../../scripts/owner-merge-core.mjs";
 
@@ -49,6 +53,17 @@ type MergeExecutionContext = {
   recordCriticalVerification: (
     record: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
+};
+type MutableMigrationEvidence = {
+  kind: string;
+  baseManifestSha256: string;
+  candidateManifestSha256: string;
+  target?: { provider: string; projectRef: string; databaseHost: string };
+  remoteBefore?: { versions: string[]; capturedAt: string; artifact: { path: string; sha256: string } };
+  remoteAfter?: { versions: string[]; capturedAt: string; artifact: { path: string; sha256: string } };
+  application?: { outcome: string; pendingVersions: string[]; appliedAt: string; artifact: { path: string; sha256: string } };
+  rlsVerification?: { reviewedAt: string; impact: string; classification: Record<string, unknown>; artifact: { path: string; sha256: string } };
+  tembo?: { role: string; projectRef: string; databaseHost: string; reviewedAt: string; artifact: { path: string; sha256: string } };
 };
 
 function temp(prefix: string) {
@@ -201,13 +216,16 @@ function snapshot(admin = true) {
       runId: 20,
       runAttempt: 1,
       checkSuiteId: 30,
+      completedAt: PREVIEW_READY_AT,
       jobs: EXPECTED_CI_JOB_NAMES.map((name, index) => ({
         name,
         id: 200 + index,
+        completedAt: PREVIEW_READY_AT,
       })),
       checks,
       sbom: {
         artifactId: 40,
+        createdAt: PREVIEW_READY_AT,
         zipSha256: "5".repeat(64),
         sbomSha256: "6".repeat(64),
         components: 1,
@@ -437,6 +455,7 @@ describe("owner-controlled merge root", () => {
         "scripts/owner-merge-ruleset.json",
         "scripts/release-validation-core.mjs",
         "scripts/state-tree-integrity.mjs",
+        "supabase/project.json",
         ".github/workflows/ci.yml",
         "playwright.config.ts",
         "tests/e2e/adversarial-rescue.spec.ts",
@@ -470,7 +489,7 @@ describe("owner-controlled merge root", () => {
       artifact: attachment(evidenceRoot, `${id}.txt`),
     }));
     const evidence = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       repository: { id: 1, owner: "cko-md", name: "axis", rulesetId: 70 },
       pullRequest: { number: 300, baseSha: BASE, headSha: HEAD },
       vercelPreview: {
@@ -503,6 +522,11 @@ describe("owner-controlled merge root", () => {
         performedBy: "cko-md",
         checks,
       },
+      migrationValidation: {
+        kind: "no-migration-delta",
+        baseManifestSha256: "b".repeat(64),
+        candidateManifestSha256: "b".repeat(64),
+      } as MutableMigrationEvidence,
     };
     const evidencePath = join(evidenceRoot, "evidence.json");
     writeFileSync(evidencePath, JSON.stringify(evidence), { mode: 0o600 });
@@ -530,10 +554,18 @@ describe("owner-controlled merge root", () => {
           vercelDeploymentId: "dpl_test",
           vercelProjectId: "prj_test",
           vercelTeamId: "team_test",
+          migrationValidation: {
+            kind: "no-migration-delta",
+            baseManifestSha256: "b".repeat(64),
+            candidateManifestSha256: "b".repeat(64),
+            baseVersions: ["20260701000000"],
+            candidateVersions: ["20260701000000"],
+            appendedVersions: [],
+          },
         },
         previewCreatedAt: options.previewCreatedAt ?? PREVIEW_CREATED_AT,
         previewReadyAt: options.previewReadyAt ?? PREVIEW_READY_AT,
-        currentTime: options.currentTime,
+        currentTime: options.currentTime ?? Date.parse("2026-07-23T02:00:00.000Z"),
       });
 
     expect(loadEvidence()).toMatchObject({
@@ -542,6 +574,188 @@ describe("owner-controlled merge root", () => {
         reviewedBy: "independent-sol-reviewer",
       },
     });
+
+    evidence.migrationValidation.candidateManifestSha256 = "c".repeat(64);
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(loadEvidence).toThrow("not bound to the exact protected/candidate migration manifests");
+    evidence.migrationValidation.candidateManifestSha256 = "b".repeat(64);
+    evidence.migrationValidation.kind = "migration-append";
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(loadEvidence).toThrow("must declare no-migration-delta for an unchanged manifest");
+    evidence.migrationValidation.kind = "no-migration-delta";
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+
+    mkdirSync(join(trustedRoot, "supabase"), { recursive: true });
+    writeFileSync(
+      join(trustedRoot, "supabase", "project.json"),
+      JSON.stringify({ project_id: "twkcvyhmlguipchfetge" }),
+    );
+    const migrationArtifact = (name: string, payload: Record<string, unknown>) =>
+      attachment(evidenceRoot, name, `${JSON.stringify(payload)}\n`);
+    const migrationBinding = {
+      baseManifestSha256: "b".repeat(64),
+      candidateManifestSha256: "c".repeat(64),
+      baseVersions: ["20260701000000"],
+      candidateVersions: ["20260701000000", "20260702000000"],
+      appendedVersions: ["20260702000000"],
+    };
+    const migrationArtifacts = {
+      before: migrationArtifact("migration-before.json", {
+        schemaVersion: 1, kind: "supabase-migration-ledger", projectRef: "twkcvyhmlguipchfetge", databaseHost: "db.twkcvyhmlguipchfetge.supabase.co", ...migrationBinding, capturedAt: reviewedAt, versions: ["20260701000000"],
+      }),
+      after: migrationArtifact("migration-after.json", {
+        schemaVersion: 1, kind: "supabase-migration-ledger", projectRef: "twkcvyhmlguipchfetge", databaseHost: "db.twkcvyhmlguipchfetge.supabase.co", ...migrationBinding, capturedAt: reviewedAt, versions: ["20260701000000", "20260702000000"],
+      }),
+      applied: migrationArtifact("migration-applied.json", {
+        schemaVersion: 1, kind: "supabase-migration-application", projectRef: "twkcvyhmlguipchfetge", databaseHost: "db.twkcvyhmlguipchfetge.supabase.co", ...migrationBinding, appliedAt: reviewedAt, outcome: "applied", pendingVersions: ["20260702000000"],
+      }),
+      rls: migrationArtifact("migration-rls.json", {
+        schemaVersion: 1, kind: "supabase-rls-verification", projectRef: "twkcvyhmlguipchfetge", databaseHost: "db.twkcvyhmlguipchfetge.supabase.co", ...migrationBinding, reviewedAt, outcome: "pass", impact: "no-rls-impact", classification: { kind: "no-rls-impact", reason: "append adds no RLS-bearing object", migrationObjects: ["public.fixture_function"] },
+      }),
+      tembo: migrationArtifact("migration-tembo.json", {
+        schemaVersion: 1, kind: "tembo-role-verification", projectRef: "twkcvyhmlguipchfetge", databaseHost: "db.twkcvyhmlguipchfetge.supabase.co", ...migrationBinding, role: "not-configured", reviewedAt,
+      }),
+    };
+    evidence.migrationValidation = {
+      kind: "migration-append",
+      baseManifestSha256: "b".repeat(64),
+      candidateManifestSha256: "c".repeat(64),
+      target: {
+        provider: "supabase",
+        projectRef: "twkcvyhmlguipchfetge",
+        databaseHost: "db.twkcvyhmlguipchfetge.supabase.co",
+      },
+      remoteBefore: {
+        versions: ["20260701000000"],
+        capturedAt: reviewedAt,
+        artifact: migrationArtifacts.before,
+      },
+      remoteAfter: {
+        versions: ["20260701000000", "20260702000000"],
+        capturedAt: reviewedAt,
+        artifact: migrationArtifacts.after,
+      },
+      application: {
+        outcome: "applied",
+        pendingVersions: ["20260702000000"],
+        appliedAt: reviewedAt,
+        artifact: migrationArtifacts.applied,
+      },
+      rlsVerification: { reviewedAt, impact: "no-rls-impact", classification: { kind: "no-rls-impact", reason: "append adds no RLS-bearing object", migrationObjects: ["public.fixture_function"] }, artifact: migrationArtifacts.rls },
+      tembo: { role: "not-configured", projectRef: "twkcvyhmlguipchfetge", databaseHost: "db.twkcvyhmlguipchfetge.supabase.co", reviewedAt, artifact: migrationArtifacts.tembo },
+    };
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    const loadAppendEvidence = (currentTime = Date.parse("2026-07-23T02:00:00.000Z")) =>
+      loadAndValidateOwnerEvidence({
+        evidencePath,
+        trustedRoot,
+        expected: {
+          repositoryId: 1, rulesetId: 70, owner: "cko-md", name: "axis",
+          prNumber: 300, baseSha: BASE, headSha: HEAD, trustedSha: HEAD,
+          trustedControlDigest: "a".repeat(64), bootstrap: true,
+          vercelDeploymentId: "dpl_test", vercelProjectId: "prj_test", vercelTeamId: "team_test",
+          migrationValidation: {
+            kind: "migration-append", baseManifestSha256: "b".repeat(64),
+            candidateManifestSha256: "c".repeat(64),
+            baseVersions: ["20260701000000"],
+            candidateVersions: ["20260701000000", "20260702000000"],
+            appendedVersions: ["20260702000000"],
+          },
+        },
+        previewCreatedAt: PREVIEW_CREATED_AT,
+        previewReadyAt: PREVIEW_READY_AT,
+        currentTime,
+      });
+    expect(loadAppendEvidence()).toMatchObject({ migrationValidation: { kind: "migration-append" } });
+    const appendEvidence = structuredClone(evidence.migrationValidation);
+    const originalArtifacts = Object.fromEntries(
+      Object.entries(migrationArtifacts).map(([name, artifact]) => [name, readFileSync(artifact.path, "utf8")]),
+    );
+    const restoreAppendEvidence = () => {
+      evidence.migrationValidation = structuredClone(appendEvidence);
+      for (const [name, content] of Object.entries(originalArtifacts)) {
+        const artifact = migrationArtifacts[name as keyof typeof migrationArtifacts];
+        writeFileSync(artifact.path, content);
+      }
+      writeFileSync(evidencePath, JSON.stringify(evidence));
+    };
+    const replaceArtifact = (
+      artifact: { path: string; sha256: string },
+      content: string,
+    ) => {
+      writeFileSync(artifact.path, content);
+      artifact.sha256 = digest(content);
+      writeFileSync(evidencePath, JSON.stringify(evidence));
+    };
+    replaceArtifact(evidence.migrationValidation.remoteBefore!.artifact, "operator prose\n");
+    expect(loadAppendEvidence).toThrow("must be a hash-bound JSON receipt, not a prose artifact");
+    restoreAppendEvidence();
+
+    const beforeWithUnexpected = JSON.parse(originalArtifacts.before!);
+    beforeWithUnexpected.unexpected = true;
+    replaceArtifact(
+      evidence.migrationValidation.remoteBefore!.artifact,
+      `${JSON.stringify(beforeWithUnexpected)}\n`,
+    );
+    expect(loadAppendEvidence).toThrow("contains unexpected keys: unexpected");
+    restoreAppendEvidence();
+
+    evidence.migrationValidation.target!.projectRef = "aaaaaaaaaaaaaaaaaaaa";
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(loadAppendEvidence).toThrow("must exactly match the trusted Supabase production project ref");
+    restoreAppendEvidence();
+
+    const beforeWithWrongCandidate = JSON.parse(originalArtifacts.before!);
+    beforeWithWrongCandidate.candidateManifestSha256 = "d".repeat(64);
+    replaceArtifact(
+      evidence.migrationValidation.remoteBefore!.artifact,
+      `${JSON.stringify(beforeWithWrongCandidate)}\n`,
+    );
+    expect(loadAppendEvidence).toThrow("does not match the exact expected candidateManifestSha256");
+    restoreAppendEvidence();
+
+    const afterWithWrongVersions = JSON.parse(originalArtifacts.after!);
+    afterWithWrongVersions.appendedVersions = ["20260709999999"];
+    replaceArtifact(
+      evidence.migrationValidation.remoteAfter!.artifact,
+      `${JSON.stringify(afterWithWrongVersions)}\n`,
+    );
+    expect(loadAppendEvidence).toThrow("does not match the exact expected appendedVersions");
+    restoreAppendEvidence();
+
+    const earlier = "2026-07-23T01:59:00.000Z";
+    const chronologyCases: Array<[
+      keyof typeof migrationArtifacts,
+      "remoteBefore" | "remoteAfter" | "application" | "rlsVerification" | "tembo",
+      "capturedAt" | "appliedAt" | "reviewedAt",
+    ]> = [
+      ["applied", "application", "appliedAt"],
+      ["after", "remoteAfter", "capturedAt"],
+      ["rls", "rlsVerification", "reviewedAt"],
+      ["tembo", "tembo", "reviewedAt"],
+    ];
+    for (const [artifactName, evidenceKey, timestampKey] of chronologyCases) {
+      const artifact = evidence.migrationValidation[`${evidenceKey}`]!.artifact;
+      const payload = JSON.parse(originalArtifacts[artifactName]!);
+      payload[timestampKey] = earlier;
+      (evidence.migrationValidation[evidenceKey]! as Record<string, unknown>)[timestampKey] = earlier;
+      replaceArtifact(artifact, `${JSON.stringify(payload)}\n`);
+      expect(loadAppendEvidence).toThrow("migration evidence chronology must be");
+      restoreAppendEvidence();
+    }
+    evidence.migrationValidation.remoteBefore!.capturedAt = new Date(
+      Date.parse(reviewedAt) - OWNER_MERGE_EVIDENCE_MAX_AGE_MS - 1,
+    ).toISOString();
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(loadAppendEvidence).toThrow(
+      "migrationValidation.remoteBefore.capturedAt is older than the 24-hour owner-merge evidence window",
+    );
+    evidence.migrationValidation = {
+      kind: "no-migration-delta",
+      baseManifestSha256: "b".repeat(64),
+      candidateManifestSha256: "b".repeat(64),
+    };
+    writeFileSync(evidencePath, JSON.stringify(evidence));
 
     evidence.manualValidation.checks = checks.filter(
       (check) => check.id !== "github-app-installation-permissions",
@@ -631,6 +845,12 @@ describe("owner-controlled merge root", () => {
     evidence.vercelPreview.readyAt = PREVIEW_READY_AT;
     writeFileSync(evidencePath, JSON.stringify(evidence));
 
+    const freshnessBoundary = PREVIEW_READY_AT + OWNER_MERGE_EVIDENCE_MAX_AGE_MS;
+    expect(loadEvidence({ currentTime: freshnessBoundary })).toBeTruthy();
+    expect(() => loadEvidence({ currentTime: freshnessBoundary + 1 })).toThrow(
+      "vercelPreview.readyAt is older than the 24-hour owner-merge evidence window",
+    );
+
     const evidenceSymlink = join(evidenceRoot, "evidence-link.json");
     symlinkSync(evidencePath, evidenceSymlink);
     expect(() =>
@@ -659,6 +879,73 @@ describe("owner-controlled merge root", () => {
 
     writeFileSync(sentryArtifact.path, "tampered\n");
     expect(loadEvidence).toThrow("sentry.artifact digest mismatch");
+  });
+
+  it("enforces the 24-hour execution boundary for exact CI jobs, SBOM, and preview evidence", () => {
+    const currentTime = PREVIEW_READY_AT + OWNER_MERGE_EVIDENCE_MAX_AGE_MS;
+    expect(() =>
+      validateOwnerMergeSnapshotFreshness({ snapshot: snapshot(), currentTime }),
+    ).not.toThrow();
+    expect(() =>
+      validateOwnerMergeSnapshotFreshness({
+        snapshot: snapshot(),
+        currentTime: currentTime + 1,
+      }),
+    ).toThrow("CI run completedAt is older than the 24-hour owner-merge evidence window");
+
+    const staleJob = snapshot();
+    staleJob.ci.completedAt = currentTime;
+    staleJob.ci.jobs[0]!.completedAt = PREVIEW_READY_AT;
+    staleJob.ci.sbom.createdAt = currentTime;
+    staleJob.vercel.readyAt = currentTime;
+    expect(() =>
+      validateOwnerMergeSnapshotFreshness({
+        snapshot: staleJob,
+        currentTime: currentTime + 1,
+      }),
+    ).toThrow("CI job docs-currency completedAt is older than the 24-hour owner-merge evidence window");
+  });
+
+  it("accepts only byte-identical unchanged migration manifests or a strict protected-prefix append", () => {
+    const baseRoot = temp("axis-owner-migration-base-");
+    const candidateRoot = temp("axis-owner-migration-candidate-");
+    const writeManifest = (root: string, versions: string[], spacing = 0) => {
+      mkdirSync(join(root, "scripts"), { recursive: true });
+      writeFileSync(
+        join(root, "scripts", "release-migration-manifest.json"),
+        `${JSON.stringify({ migrations: versions.map((version) => ({ version })) }, null, spacing)}\n`,
+      );
+    };
+    const protectedVersions = ["20260701000000", "20260702000000"];
+    writeManifest(baseRoot, protectedVersions);
+    writeManifest(candidateRoot, protectedVersions);
+    expect(describeOwnerMergeMigrationDelta(baseRoot, candidateRoot)).toMatchObject({
+      kind: "no-migration-delta",
+      appendedVersions: [],
+    });
+
+    // Semantically identical is insufficient: unchanged manifests must be the
+    // same bytes, so a candidate cannot smuggle metadata-only provenance drift.
+    writeManifest(candidateRoot, protectedVersions, 4);
+    expect(() => describeOwnerMergeMigrationDelta(baseRoot, candidateRoot)).toThrow(
+      "no migration delta but its release migration manifest is not byte-for-byte identical",
+    );
+
+    writeManifest(candidateRoot, [...protectedVersions, "20260703000000"]);
+    expect(describeOwnerMergeMigrationDelta(baseRoot, candidateRoot)).toMatchObject({
+      kind: "migration-append",
+      appendedVersions: ["20260703000000"],
+    });
+    for (const invalid of [
+      ["20260701000000"],
+      ["20260701000001", "20260702000000"],
+      ["20260702000000", "20260701000000"],
+    ]) {
+      writeManifest(candidateRoot, invalid);
+      expect(() => describeOwnerMergeMigrationDelta(baseRoot, candidateRoot)).toThrow(
+        "not an exact protected prefix followed only by append-only migrations",
+      );
+    }
   });
 
   it("fails closed when an external evidence path is swapped after descriptor validation", () => {

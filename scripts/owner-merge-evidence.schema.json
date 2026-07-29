@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://axis.local/schemas/owner-merge-evidence-v1.json",
+  "$id": "https://axis.local/schemas/owner-merge-evidence-v2.json",
   "title": "AXIS owner merge evidence",
   "type": "object",
   "additionalProperties": false,
@@ -11,10 +11,11 @@
     "vercelPreview",
     "trustedReview",
     "sentry",
-    "manualValidation"
+    "manualValidation",
+    "migrationValidation"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "repository": {
       "type": "object",
       "additionalProperties": false,
@@ -122,6 +123,36 @@
           }
         }
       }
+    },
+    "migrationValidation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseManifestSha256", "candidateManifestSha256"],
+          "properties": {
+            "kind": { "const": "no-migration-delta" },
+            "baseManifestSha256": { "$ref": "#/$defs/sha256" },
+            "candidateManifestSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "baseManifestSha256", "candidateManifestSha256", "target", "remoteBefore", "remoteAfter", "application", "rlsVerification", "tembo"],
+          "properties": {
+            "kind": { "const": "migration-append" },
+            "baseManifestSha256": { "$ref": "#/$defs/sha256" },
+            "candidateManifestSha256": { "$ref": "#/$defs/sha256" },
+            "target": { "$ref": "#/$defs/supabaseTarget" },
+            "remoteBefore": { "$ref": "#/$defs/migrationLedger" },
+            "remoteAfter": { "$ref": "#/$defs/migrationLedger" },
+            "application": { "$ref": "#/$defs/migrationApplication" },
+            "rlsVerification": { "$ref": "#/$defs/rlsVerification" },
+            "tembo": { "$ref": "#/$defs/temboRole" }
+          }
+        }
+      ]
     }
   },
   "$defs": {
@@ -140,6 +171,117 @@
       "properties": {
         "path": { "type": "string", "pattern": "^/" },
         "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "timestampedArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewedAt", "artifact"],
+      "properties": {
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "rlsVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewedAt", "impact", "classification", "artifact"],
+      "properties": {
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "impact": { "enum": ["no-rls-impact", "verified"] },
+        "classification": { "$ref": "#/$defs/rlsClassification" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "rlsClassification": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reason", "migrationObjects"],
+          "properties": {
+            "kind": { "const": "no-rls-impact" },
+            "reason": { "type": "string", "minLength": 1 },
+            "migrationObjects": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "machineResults"],
+          "properties": {
+            "kind": { "const": "verified" },
+            "machineResults": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["object", "kind", "policies", "grants"],
+                "properties": {
+                  "object": { "type": "string", "minLength": 1 },
+                  "kind": { "enum": ["table", "view", "function", "schema"] },
+                  "policies": { "type": "array", "items": { "type": "string" } },
+                  "grants": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["role", "privileges"],
+                      "properties": {
+                        "role": { "type": "string", "minLength": 1 },
+                        "privileges": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "supabaseTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "projectRef", "databaseHost"],
+      "properties": {
+        "provider": { "const": "supabase" },
+        "projectRef": { "type": "string", "pattern": "^[a-z0-9]{20}$" },
+        "databaseHost": { "type": "string", "pattern": "^db\\.[a-z0-9]{20}\\.supabase\\.co$" }
+      }
+    },
+    "migrationLedger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["versions", "capturedAt", "artifact"],
+      "properties": {
+        "versions": { "type": "array", "items": { "type": "string", "pattern": "^[0-9]+$" }, "uniqueItems": true },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "migrationApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "pendingVersions", "appliedAt", "artifact"],
+      "properties": {
+        "outcome": { "const": "applied" },
+        "pendingVersions": { "type": "array", "items": { "type": "string", "pattern": "^[0-9]+$" }, "uniqueItems": true },
+        "appliedAt": { "type": "string", "format": "date-time" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "temboRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "projectRef", "databaseHost", "reviewedAt", "artifact"],
+      "properties": {
+        "role": { "enum": ["not-configured", "analytics-postgres", "queue-cache", "primary-postgres"] },
+        "projectRef": { "type": "string", "pattern": "^[a-z0-9]{20}$" },
+        "databaseHost": { "type": "string", "pattern": "^db\\.[a-z0-9]{20}\\.supabase\\.co$" },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "artifact": { "$ref": "#/$defs/artifact" }
       }
     }
   }

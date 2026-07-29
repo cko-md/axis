@@ -31,10 +31,15 @@ import ownerMergeRulesetPayload from "./owner-merge-ruleset.json" with {
 
 export const OWNER_MERGE_APPROVAL_PHRASE =
   "I APPROVE THE EXACT AXIS OWNER MERGE";
-export const OWNER_MERGE_EVIDENCE_SCHEMA_VERSION = 1;
+export const OWNER_MERGE_EVIDENCE_SCHEMA_VERSION = 2;
 // Evidence is operator-supplied. Permit a small clock discrepancy, but never
 // accept timestamps that purport to describe validation materially in the future.
 export const OWNER_MERGE_EVIDENCE_CLOCK_SKEW_MS = 5 * 60 * 1000;
+// Evidence is an execution-time authorization input, not an indefinitely
+// reusable receipt. A complete second read occurs immediately before the
+// critical section, so a 24-hour window gives operators room to finish a
+// preview review without accepting yesterday's CI, SBOM, or manual result.
+export const OWNER_MERGE_EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const GITHUB_ACTIONS_APP_ID = 15368;
 export const VERCEL_GITHUB_APP_ID = 8329;
 export const VERCEL_BOT_ID = 35613825;
@@ -72,6 +77,7 @@ export const OWNER_MERGE_CONTROL_FILES = [
   "scripts/validate-release-candidate.mjs",
   "scripts/release-validation-core.mjs",
   "scripts/state-tree-integrity.mjs",
+  "supabase/project.json",
   "package.json",
   "package-lock.json",
   ".nvmrc",
@@ -437,7 +443,7 @@ export function readExternalOwnerMergeFile(
   }
 }
 
-function validateEvidenceAttachment(attachment, label, trustedRoot) {
+function validateEvidenceAttachment(attachment, label, trustedRoot, { includeContent = false } = {}) {
   assertObject(attachment, label);
   assertOnlyKeys(attachment, ["path", "sha256"], label);
   const path = assertNonEmptyString(attachment.path, `${label}.path`);
@@ -451,11 +457,103 @@ function validateEvidenceAttachment(attachment, label, trustedRoot) {
   if (actual !== expected) {
     fail(`${label} digest mismatch`);
   }
-  return {
+  const metadata = {
     file: basename(resolved),
     sha256: actual,
     bytes: content.length,
   };
+  return includeContent ? { ...metadata, content } : metadata;
+}
+
+function readTrustedSupabaseTarget(trustedRoot) {
+  const raw = readRegularFile(
+    join(trustedRoot, "supabase/project.json"),
+    "trusted Supabase project descriptor",
+  );
+  let project;
+  try {
+    project = JSON.parse(raw.toString("utf8"));
+  } catch {
+    fail("trusted Supabase project descriptor is invalid JSON");
+  }
+  if (typeof project?.project_id !== "string" || !/^[a-z0-9]{20}$/.test(project.project_id)) {
+    fail("trusted Supabase project descriptor lacks a valid project_id");
+  }
+  return {
+    projectRef: project.project_id,
+    databaseHost: `db.${project.project_id}.supabase.co`,
+  };
+}
+
+function validateStructuredMigrationArtifact({
+  attachment,
+  label,
+  trustedRoot,
+  required,
+}) {
+  const validated = validateEvidenceAttachment(attachment, label, trustedRoot, { includeContent: true });
+  let artifact;
+  try {
+    artifact = JSON.parse(validated.content.toString("utf8"));
+  } catch {
+    fail(`${label} must be a hash-bound JSON receipt, not a prose artifact`);
+  }
+  assertObject(artifact, label);
+  for (const [key, value] of Object.entries(required)) {
+    if (canonicalJson(artifact[key]) !== canonicalJson(value)) {
+      fail(`${label} JSON receipt does not match the exact expected ${key}`);
+    }
+  }
+  assertOnlyKeys(artifact, Object.keys(required), label);
+  return {
+    file: validated.file,
+    sha256: validated.sha256,
+    bytes: validated.bytes,
+  };
+}
+
+function validateRlsClassification(value, label, impact) {
+  const classification = assertObject(value, label);
+  if (impact === "no-rls-impact") {
+    assertOnlyKeys(classification, ["kind", "reason", "migrationObjects"], label);
+    if (classification.kind !== "no-rls-impact") {
+      fail(`${label}.kind must match no-rls-impact`);
+    }
+    assertNonEmptyString(classification.reason, `${label}.reason`);
+    if (!Array.isArray(classification.migrationObjects) || classification.migrationObjects.length === 0 || classification.migrationObjects.some((object) => typeof object !== "string" || object.trim() === "")) {
+      fail(`${label}.migrationObjects must identify the reviewed migration objects`);
+    }
+  } else {
+    assertOnlyKeys(classification, ["kind", "machineResults"], label);
+    if (classification.kind !== "verified") fail(`${label}.kind must match verified`);
+    if (!Array.isArray(classification.machineResults) || classification.machineResults.length === 0) {
+      fail(`${label}.machineResults must contain non-empty live RLS query results`);
+    }
+    for (const [index, result] of classification.machineResults.entries()) {
+      const resultLabel = `${label}.machineResults[${index}]`;
+      assertObject(result, resultLabel);
+      assertOnlyKeys(result, ["object", "kind", "policies", "grants"], resultLabel);
+      assertNonEmptyString(result.object, `${resultLabel}.object`);
+      if (!new Set(["table", "view", "function", "schema"]).has(result.kind)) {
+        fail(`${resultLabel}.kind must identify the reviewed database object kind`);
+      }
+      if (!Array.isArray(result.policies) || result.policies.some((policy) => typeof policy !== "string")) {
+        fail(`${resultLabel}.policies must be a machine-derived policy-name array`);
+      }
+      if (!Array.isArray(result.grants) || result.grants.some((grant) => typeof grant !== "object" || !grant || Array.isArray(grant))) {
+        fail(`${resultLabel}.grants must be machine-derived grant rows`);
+      }
+      for (const [grantIndex, grant] of result.grants.entries()) {
+        const grantLabel = `${resultLabel}.grants[${grantIndex}]`;
+        assertOnlyKeys(grant, ["role", "privileges"], grantLabel);
+        assertNonEmptyString(grant.role, `${grantLabel}.role`);
+        if (!Array.isArray(grant.privileges) || grant.privileges.some((privilege) => typeof privilege !== "string" || privilege.trim() === "")) {
+          fail(`${grantLabel}.privileges must be a machine-derived privilege array`);
+        }
+      }
+    }
+  }
+  return classification;
 }
 
 export function loadAndValidateOwnerEvidence({
@@ -484,6 +582,13 @@ export function loadAndValidateOwnerEvidence({
       );
     }
   };
+  const assertFresh = (timestamp, label) => {
+    if (currentTime - timestamp > OWNER_MERGE_EVIDENCE_MAX_AGE_MS) {
+      fail(
+        `${label} is older than the ${OWNER_MERGE_EVIDENCE_MAX_AGE_MS / (60 * 60 * 1000)}-hour owner-merge evidence window`,
+      );
+    }
+  };
   const { content: raw, resolved: resolvedEvidence } =
     readExternalOwnerMergeFile(
       evidencePath,
@@ -507,6 +612,7 @@ export function loadAndValidateOwnerEvidence({
       "trustedReview",
       "sentry",
       "manualValidation",
+      "migrationValidation",
     ],
     "owner evidence",
   );
@@ -569,6 +675,7 @@ export function loadAndValidateOwnerEvidence({
   }
   assertNotMateriallyFuture(preview.createdAt, "vercelPreview.createdAt");
   assertNotMateriallyFuture(preview.readyAt, "vercelPreview.readyAt");
+  assertFresh(preview.readyAt, "vercelPreview.readyAt");
   assertSha(preview.headSha, "Vercel preview head SHA");
 
   const trustedReview = assertObject(
@@ -609,6 +716,7 @@ export function loadAndValidateOwnerEvidence({
     "trustedReview.reviewedAt",
   );
   assertNotMateriallyFuture(reviewedAt, "trustedReview.reviewedAt");
+  assertFresh(reviewedAt, "trustedReview.reviewedAt");
   const trustedArtifact = validateEvidenceAttachment(
     trustedReview.artifact,
     "trustedReview.artifact",
@@ -635,6 +743,7 @@ export function loadAndValidateOwnerEvidence({
   assertNotMateriallyFuture(windowStart, "sentry.windowStart");
   assertNotMateriallyFuture(windowEnd, "sentry.windowEnd");
   assertNotMateriallyFuture(sentryReviewedAt, "sentry.reviewedAt");
+  assertFresh(sentryReviewedAt, "sentry.reviewedAt");
   if (
     windowStart > previewCreatedAt ||
     windowEnd < previewReadyAt ||
@@ -659,6 +768,7 @@ export function loadAndValidateOwnerEvidence({
     "manualValidation.completedAt",
   );
   assertNotMateriallyFuture(completedAt, "manualValidation.completedAt");
+  assertFresh(completedAt, "manualValidation.completedAt");
   if (completedAt < previewReadyAt) {
     fail("manual validation must complete after the exact preview became Ready");
   }
@@ -696,6 +806,219 @@ export function loadAndValidateOwnerEvidence({
     fail(`manual validation is missing required checks: ${missing.join(", ")}`);
   }
 
+  const expectedMigration = assertObject(
+    expected.migrationValidation,
+    "expected candidate migration validation",
+  );
+  const migration = assertObject(evidence.migrationValidation, "migration-validation evidence");
+  const expectedMigrationKeys = [
+    "kind",
+    "baseManifestSha256",
+    "candidateManifestSha256",
+    "baseVersions",
+    "candidateVersions",
+    "appendedVersions",
+  ];
+  assertOnlyKeys(expectedMigration, expectedMigrationKeys, "expected candidate migration validation");
+  const baseManifestSha256 = assertSha256(
+    migration.baseManifestSha256,
+    "migrationValidation.baseManifestSha256",
+  );
+  const candidateManifestSha256 = assertSha256(
+    migration.candidateManifestSha256,
+    "migrationValidation.candidateManifestSha256",
+  );
+  if (
+    baseManifestSha256 !== expectedMigration.baseManifestSha256 ||
+    candidateManifestSha256 !== expectedMigration.candidateManifestSha256
+  ) {
+    fail("migration-validation evidence is not bound to the exact protected/candidate migration manifests");
+  }
+  const sameVersions = (left, right) =>
+    Array.isArray(left) && Array.isArray(right) && left.length === right.length &&
+    left.every((value, index) => value === right[index]);
+  if (expectedMigration.kind === "no-migration-delta") {
+    assertOnlyKeys(
+      migration,
+      ["kind", "baseManifestSha256", "candidateManifestSha256"],
+      "migration-validation evidence",
+    );
+    if (migration.kind !== "no-migration-delta") {
+      fail("migration-validation evidence must declare no-migration-delta for an unchanged manifest");
+    }
+  } else if (expectedMigration.kind === "migration-append") {
+    assertOnlyKeys(
+      migration,
+      [
+        "kind", "baseManifestSha256", "candidateManifestSha256", "target",
+        "remoteBefore", "remoteAfter", "application", "rlsVerification", "tembo",
+      ],
+      "migration-validation evidence",
+    );
+    if (migration.kind !== "migration-append") {
+      fail("migration-validation evidence must declare migration-append for a candidate migration delta");
+    }
+    const target = assertObject(migration.target, "migrationValidation.target");
+    assertOnlyKeys(target, ["provider", "projectRef", "databaseHost"], "migrationValidation.target");
+    const trustedTarget = readTrustedSupabaseTarget(trustedRoot);
+    if (
+      target.provider !== "supabase" ||
+      target.projectRef !== trustedTarget.projectRef ||
+      target.databaseHost !== trustedTarget.databaseHost
+    ) {
+      fail("migration-validation target must exactly match the trusted Supabase production project ref and database host");
+    }
+    // Every external receipt is bound to the complete candidate migration
+    // delta, not merely its own local row set.  This prevents combining fresh
+    // receipts from two candidates which happen to share a version prefix.
+    const migrationBinding = {
+      baseManifestSha256: expectedMigration.baseManifestSha256,
+      candidateManifestSha256: expectedMigration.candidateManifestSha256,
+      baseVersions: expectedMigration.baseVersions,
+      candidateVersions: expectedMigration.candidateVersions,
+      appendedVersions: expectedMigration.appendedVersions,
+    };
+    const validateRemoteLedger = (value, label, expectedVersions) => {
+      const ledger = assertObject(value, label);
+      assertOnlyKeys(ledger, ["versions", "capturedAt", "artifact"], label);
+      if (
+        !Array.isArray(ledger.versions) ||
+        ledger.versions.some((version) => typeof version !== "string" || !/^\d+$/.test(version)) ||
+        new Set(ledger.versions).size !== ledger.versions.length ||
+        !sameVersions(ledger.versions, expectedVersions)
+      ) {
+        fail(`${label}.versions must exactly match the candidate-bound migration ledger`);
+      }
+      const capturedAt = assertIsoDate(ledger.capturedAt, `${label}.capturedAt`);
+      assertNotMateriallyFuture(capturedAt, `${label}.capturedAt`);
+      assertFresh(capturedAt, `${label}.capturedAt`);
+      return {
+        capturedAt,
+        artifact: validateStructuredMigrationArtifact({
+          attachment: ledger.artifact,
+          label: `${label}.artifact`,
+          trustedRoot,
+          required: {
+            schemaVersion: 1,
+            kind: "supabase-migration-ledger",
+            projectRef: trustedTarget.projectRef,
+            databaseHost: trustedTarget.databaseHost,
+            ...migrationBinding,
+            capturedAt: ledger.capturedAt,
+            versions: ledger.versions,
+          },
+        }),
+      };
+    };
+    const remoteBefore = validateRemoteLedger(
+      migration.remoteBefore,
+      "migrationValidation.remoteBefore",
+      expectedMigration.baseVersions,
+    );
+    const remoteAfter = validateRemoteLedger(
+      migration.remoteAfter,
+      "migrationValidation.remoteAfter",
+      expectedMigration.candidateVersions,
+    );
+    const application = assertObject(migration.application, "migrationValidation.application");
+    assertOnlyKeys(application, ["outcome", "pendingVersions", "appliedAt", "artifact"], "migrationValidation.application");
+    if (
+      application.outcome !== "applied" ||
+      !sameVersions(application.pendingVersions, expectedMigration.appendedVersions)
+    ) {
+      fail("migration application result must report the exact candidate append set as applied");
+    }
+    const appliedAt = assertIsoDate(application.appliedAt, "migrationValidation.application.appliedAt");
+    assertNotMateriallyFuture(appliedAt, "migrationValidation.application.appliedAt");
+    assertFresh(appliedAt, "migrationValidation.application.appliedAt");
+    const applicationArtifact = validateStructuredMigrationArtifact({
+      attachment: application.artifact,
+      label: "migrationValidation.application.artifact",
+      trustedRoot,
+      required: {
+        schemaVersion: 1,
+        kind: "supabase-migration-application",
+        projectRef: trustedTarget.projectRef,
+        databaseHost: trustedTarget.databaseHost,
+        ...migrationBinding,
+        appliedAt: application.appliedAt,
+        outcome: application.outcome,
+        pendingVersions: application.pendingVersions,
+      },
+    });
+    const rls = assertObject(migration.rlsVerification, "migrationValidation.rlsVerification");
+    assertOnlyKeys(rls, ["reviewedAt", "impact", "classification", "artifact"], "migrationValidation.rlsVerification");
+    if (!new Set(["no-rls-impact", "verified"]).has(rls.impact)) {
+      fail("migrationValidation.rlsVerification.impact must classify RLS impact");
+    }
+    const rlsReviewedAt = assertIsoDate(rls.reviewedAt, "migrationValidation.rlsVerification.reviewedAt");
+    assertNotMateriallyFuture(rlsReviewedAt, "migrationValidation.rlsVerification.reviewedAt");
+    assertFresh(rlsReviewedAt, "migrationValidation.rlsVerification.reviewedAt");
+    const rlsClassification = validateRlsClassification(
+      rls.classification,
+      "migrationValidation.rlsVerification.classification",
+      rls.impact,
+    );
+    const rlsArtifact = validateStructuredMigrationArtifact({
+      attachment: rls.artifact,
+      label: "migrationValidation.rlsVerification.artifact",
+      trustedRoot,
+      required: {
+        schemaVersion: 1,
+        kind: "supabase-rls-verification",
+        projectRef: trustedTarget.projectRef,
+        databaseHost: trustedTarget.databaseHost,
+        ...migrationBinding,
+        reviewedAt: rls.reviewedAt,
+        outcome: "pass",
+        impact: rls.impact,
+        classification: rlsClassification,
+      },
+    });
+    const tembo = assertObject(migration.tembo, "migrationValidation.tembo");
+    assertOnlyKeys(tembo, ["role", "projectRef", "databaseHost", "reviewedAt", "artifact"], "migrationValidation.tembo");
+    if (!new Set(["not-configured", "analytics-postgres", "queue-cache", "primary-postgres"]).has(tembo.role)) {
+      fail("migrationValidation.tembo.role must explicitly identify Tembo's role");
+    }
+    const temboReviewedAt = assertIsoDate(tembo.reviewedAt, "migrationValidation.tembo.reviewedAt");
+    assertNotMateriallyFuture(temboReviewedAt, "migrationValidation.tembo.reviewedAt");
+    assertFresh(temboReviewedAt, "migrationValidation.tembo.reviewedAt");
+    if (tembo.projectRef !== trustedTarget.projectRef || tembo.databaseHost !== trustedTarget.databaseHost) {
+      fail("migrationValidation.tembo must cross-bind the exact trusted Supabase project ref and database host");
+    }
+    const temboArtifact = validateStructuredMigrationArtifact({
+      attachment: tembo.artifact,
+      label: "migrationValidation.tembo.artifact",
+      trustedRoot,
+      required: {
+        schemaVersion: 1,
+        kind: "tembo-role-verification",
+        projectRef: trustedTarget.projectRef,
+        databaseHost: trustedTarget.databaseHost,
+        ...migrationBinding,
+        role: tembo.role,
+        reviewedAt: tembo.reviewedAt,
+      },
+    });
+    if (
+      remoteBefore.capturedAt > appliedAt ||
+      appliedAt > remoteAfter.capturedAt ||
+      remoteAfter.capturedAt > rlsReviewedAt ||
+      remoteAfter.capturedAt > temboReviewedAt
+    ) {
+      fail("migration evidence chronology must be remoteBefore <= application <= remoteAfter <= RLS and Tembo verification");
+    }
+    migration.artifacts = {
+      remoteBeforeArtifact: remoteBefore.artifact,
+      remoteAfterArtifact: remoteAfter.artifact,
+      applicationArtifact,
+      rlsArtifact,
+      temboArtifact,
+    };
+  } else {
+    fail("candidate migration validation kind is unsupported");
+  }
+
   return {
     digest: sha256(raw),
     file: basename(resolvedEvidence),
@@ -713,7 +1036,46 @@ export function loadAndValidateOwnerEvidence({
       completedAt: new Date(completedAt).toISOString(),
       checkArtifacts: Object.fromEntries(byId),
     },
+    migrationValidation: {
+      kind: migration.kind,
+      baseManifestSha256,
+      candidateManifestSha256,
+      artifacts: migration.artifacts,
+    },
   };
+}
+
+/** Validate timestamps fetched from GitHub/Vercel during this exact execution. */
+export function validateOwnerMergeSnapshotFreshness({
+  snapshot,
+  currentTime = Date.now(),
+}) {
+  if (!Number.isSafeInteger(currentTime) || currentTime < 0) {
+    fail("current snapshot-validation time is invalid");
+  }
+  const assertFresh = (timestamp, label) => {
+    if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+      fail(`${label} must be a valid numeric timestamp`);
+    }
+    if (timestamp > currentTime + OWNER_MERGE_EVIDENCE_CLOCK_SKEW_MS) {
+      fail(`${label} is materially in the future`);
+    }
+    if (currentTime - timestamp > OWNER_MERGE_EVIDENCE_MAX_AGE_MS) {
+      fail(
+        `${label} is older than the ${OWNER_MERGE_EVIDENCE_MAX_AGE_MS / (60 * 60 * 1000)}-hour owner-merge evidence window`,
+      );
+    }
+  };
+  const ci = assertObject(snapshot?.ci, "owner-merge CI snapshot");
+  assertFresh(ci.completedAt, "CI run completedAt");
+  if (!Array.isArray(ci.jobs) || ci.jobs.length !== EXPECTED_CI_JOB_NAMES.length) {
+    fail("owner-merge CI jobs are malformed for freshness validation");
+  }
+  for (const job of ci.jobs) {
+    assertFresh(job?.completedAt, `CI job ${job?.name ?? "unknown"} completedAt`);
+  }
+  assertFresh(ci?.sbom?.createdAt, "runtime SBOM createdAt");
+  assertFresh(snapshot?.vercel?.readyAt, "Vercel preview readyAt");
 }
 
 export class GhApi {
@@ -1404,6 +1766,7 @@ function inspectSbomArtifact(gh, artifact, runtimeJob, runId) {
     artifact?.expired !== false ||
     !Number.isInteger(artifact?.id) ||
     artifact?.workflow_run?.id !== runId ||
+    typeof artifact?.created_at !== "string" ||
     !Number.isFinite(artifactCreatedAt) ||
     !Number.isFinite(jobStartedAt) ||
     !Number.isFinite(jobCompletedAt) ||
@@ -1454,6 +1817,7 @@ function inspectSbomArtifact(gh, artifact, runtimeJob, runId) {
   }
   return {
     artifactId: artifact.id,
+    createdAt: artifactCreatedAt,
     zipSha256: sha256(zip),
     sbomSha256: sha256(Buffer.from(sbom)),
     components: parsed.components.length,
@@ -1722,6 +2086,7 @@ export async function collectOwnerMergeSnapshot({
   }
   const run = gh.get(`${gh.repoPath}/actions/runs/${ciRunId}`);
   const runPr = run?.pull_requests?.find((entry) => entry?.number === prNumber);
+  const runCompletedAt = Date.parse(run?.completed_at);
   if (
     run?.id !== ciRunId ||
     run?.workflow_id !== ciWorkflowId ||
@@ -1733,6 +2098,7 @@ export async function collectOwnerMergeSnapshot({
     run?.head_repository?.id !== repositoryId ||
     run?.status !== "completed" ||
     run?.conclusion !== "success" ||
+    !Number.isFinite(runCompletedAt) ||
     runPr?.head?.sha !== expectedHeadSha ||
     runPr?.base?.sha !== baseSha ||
     runPr?.base?.ref !== "main"
@@ -1767,6 +2133,7 @@ export async function collectOwnerMergeSnapshot({
       job?.run_attempt !== ciRunAttempt ||
       job?.head_sha !== expectedHeadSha ||
       job?.workflow_name !== "CI" ||
+      !Number.isFinite(Date.parse(job?.completed_at)) ||
       job?.steps?.some((step) => !["success", "skipped"].includes(step.conclusion))
     ) {
       fail(`CI job ${jobName} is not an exact zero-failure success`);
@@ -1902,9 +2269,11 @@ export async function collectOwnerMergeSnapshot({
       runId: ciRunId,
       runAttempt: ciRunAttempt,
       checkSuiteId: run.check_suite_id,
+      completedAt: runCompletedAt,
       jobs: EXPECTED_CI_JOB_NAMES.map((jobName) => ({
         name: jobName,
         id: jobsByName.get(jobName).id,
+        completedAt: Date.parse(jobsByName.get(jobName).completed_at),
       })),
       checks: normalizedChecks,
       sbom,
@@ -1962,6 +2331,53 @@ function materializeGitRevision({ owner, name, sha, label }) {
   return { temp, tree };
 }
 
+export function describeOwnerMergeMigrationDelta(baseRoot, candidateRoot) {
+  const manifestPath = "scripts/release-migration-manifest.json";
+  const readManifest = (root, label) => {
+    const raw = readRegularFile(join(root, manifestPath), `${label} migration manifest`);
+    let manifest;
+    try {
+      manifest = JSON.parse(raw.toString("utf8"));
+    } catch {
+      fail(`${label} migration manifest is invalid JSON`);
+    }
+    if (!Array.isArray(manifest?.migrations)) {
+      fail(`${label} migration manifest has no migrations array`);
+    }
+    const versions = manifest.migrations.map((entry) => {
+      if (typeof entry?.version !== "string" || !/^\d+$/.test(entry.version)) {
+        fail(`${label} migration manifest has an invalid migration version`);
+      }
+      return entry.version;
+    });
+    return { digest: sha256(raw), versions };
+  };
+  const base = readManifest(baseRoot, "base");
+  const candidate = readManifest(candidateRoot, "candidate");
+  const protectedPrefixIsUnchanged =
+    candidate.versions.length >= base.versions.length &&
+    base.versions.every((version, index) => candidate.versions[index] === version);
+  if (!protectedPrefixIsUnchanged) {
+    fail("candidate migration manifest is not an exact protected prefix followed only by append-only migrations");
+  }
+  const appendedVersions = candidate.versions.slice(base.versions.length);
+  const sameVersions =
+    appendedVersions.length === 0 &&
+    candidate.versions.length === base.versions.length &&
+    candidate.versions.every((version, index) => version === base.versions[index]);
+  if (sameVersions && base.digest !== candidate.digest) {
+    fail("candidate has no migration delta but its release migration manifest is not byte-for-byte identical to protected main");
+  }
+  return {
+    kind: sameVersions ? "no-migration-delta" : "migration-append",
+    baseManifestSha256: base.digest,
+    candidateManifestSha256: candidate.digest,
+    baseVersions: base.versions,
+    candidateVersions: candidate.versions,
+    appendedVersions,
+  };
+}
+
 export function validateCandidateAsInertData({
   trustedRoot,
   owner,
@@ -2007,7 +2423,12 @@ export function validateCandidateAsInertData({
     if (errors.length > 0) {
       fail(`trusted-base candidate validation failed: ${errors.join("; ")}`);
     }
-    return { baseSha, headSha, passed: true };
+    return {
+      baseSha,
+      headSha,
+      passed: true,
+      migrationValidation: describeOwnerMergeMigrationDelta(base.tree, candidate.tree),
+    };
   } finally {
     rmSync(candidate.temp, { recursive: true, force: true });
     rmSync(base.temp, { recursive: true, force: true });

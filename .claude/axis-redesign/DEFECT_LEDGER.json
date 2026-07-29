@@ -1,6 +1,6 @@
 {
- "updated": "2026-07-21",
- "revision": "harden/recomp-spawn-path",
+ "updated": "2026-07-28",
+ "revision": "codex/redesign-00-governance-bootstrap",
  "defects": [
   {
    "id": "SEC-005",
@@ -16,6 +16,8 @@
    "regression_test": "unit test asserting the raw message never reaches the client response",
    "status": "fixed",
    "revision_fixed": "PR #241 (merged 2026-07-18)",
+   "mainVerificationCommit": "5996244e2597111e320a6f7c36165e4f062ff89a",
+   "mainVerificationPaths": ["src/lib/observability/redactRouteError.test.ts"],
    "verification": "tsc + eslint clean; new unit test passes; superseded #228 and #230 (closed)",
    "similar_code_search": "Related raw-error leakage in mail, plaid, make, ai/tools, calendar/cron/make routes was found and fixed separately \u2014 see MAIL-002, PLAID-002, AI-003, RELIABILITY-001 below"
   },
@@ -32,6 +34,8 @@
    "regression_test": "adapter error-path unit tests",
    "status": "fixed",
    "revision_fixed": "PR #244 (merged 2026-07-18)",
+   "mainVerificationCommit": "a98c4f8d533e2f64eb1588051e574fac146b1752",
+   "mainVerificationPaths": ["src/lib/mail/adapters/gmail-composio.ts"],
    "verification": "tsc + eslint clean; targeted tests pass"
   },
   {
@@ -47,6 +51,8 @@
    "regression_test": "webhook sync error-path unit tests",
    "status": "fixed",
    "revision_fixed": "PR #243 (merged 2026-07-18)",
+   "mainVerificationCommit": "8964bb91c12aeef5a99649bbe54122aab1d333ac",
+   "mainVerificationPaths": ["src/app/api/plaid/webhook/route.ts"],
    "verification": "tsc + eslint clean; targeted tests pass"
   },
   {
@@ -63,6 +69,8 @@
    "regression_test": "registry.ts targeted tests",
    "status": "fixed",
    "revision_fixed": "PR #247 (merged 2026-07-18)",
+   "mainVerificationCommit": "5b838be4c37d09b13a3ec2f6c4dfc1ff33883e92",
+   "mainVerificationPaths": ["src/lib/ai/tools/registry.ts"],
    "verification": "eslint clean; self-contained change, no caller changes required",
    "similar_code_search": "Model-facing tool-result content across the Advisor tool layer is now audited for raw error passthrough; see also AI-002 (navigation/response boundary, fixed earlier)"
   },
@@ -86,6 +94,8 @@
    "regression_test": "targeted unit tests per PR (plaidTokens, financeNarratorContext, financeDailyJobs, cron routes)",
    "status": "fixed",
    "revision_fixed": "PRs #240, #242, #245, #246 (merged 2026-07-18)",
+   "mainVerificationCommit": "18aea3537e9d46027bdcc6387c52221de05f4ded",
+   "mainVerificationPaths": ["src/app/api/cron/daily/route.ts"],
    "verification": "tsc + eslint clean per PR; extracted cleanly from the larger rescue branches to avoid unrelated churn (e.g. #220's stale ai/navigation.ts changes, since superseded by main)"
   },
   {
@@ -99,11 +109,152 @@
     "Strava OAuth/token routes and shared helper"
    ],
    "root_cause": "Token cookies were keyed only by provider, not by the authenticated Supabase user id, and the OAuth callback did not require an active session before persisting tokens",
-   "fix": "OAuth callback now requires a Supabase session before persisting tokens and sets an httpOnly *_token_owner cookie to the current user.id; getAccessToken takes userId and returns null unless the owner cookie matches; owner marker is cleared on disconnect",
+   "fix": "Pending Phase 1 provider-identity composition. PRs #217/#218 implemented owner binding only on codex/phase9-resume-executor; those commits are not ancestors of protected main or this Phase 0 branch.",
    "regression_test": "PR-level route tests for callback/session-required and owner-mismatch null return",
-   "status": "fixed",
-   "revision_fixed": "PRs #217, #218 (merged 2026-07-18)",
-   "verification": "npm run lint --quiet + npx tsc --noEmit + git diff --check per PR; direct OAuth reads for Spotify/Strava/health remain intentional per the OAuth consolidation decision (Mail/Calendar/Contacts route through Composio only)"
+   "status": "open",
+   "verificationPaths": ["src/app/api/spotify/_lib.ts", "src/app/api/strava/_lib.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Reopened: GitHub records PRs #217/#218 as merged into codex/phase9-resume-executor, not main; merge-base checks against this branch fail and current Spotify/Strava helpers remain browser-cookie based without an owner argument."
+  },
+  {
+   "id": "FIN-003",
+   "severity": "critical",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "Missing or failed provider cash and quote data can become authoritative numeric values in persisted net-worth snapshots",
+   "reproduction": "Fail the Plaid balance request or a holding quote during the finance-daily run; the current implementation initializes cash to zero, maps missing account balances to zero, falls back from a failed quote to cost basis, and still upserts net_worth_snapshots.",
+   "affected": [
+    "src/lib/fund/financeDailyJobs.ts"
+   ],
+   "root_cause": "Financial inputs do not carry fresh/stale/missing/error authority states, so unavailable provider values collapse into ordinary numbers before persistence.",
+   "fix": "Pending Phase 1 financial-truth composition: preserve typed availability and authority provenance, refuse high-confidence/authoritative snapshots from missing or error inputs, and keep stale/estimated/manual/provider values partitioned.",
+   "regression_test": "Fault tests must prove provider failure is never converted to zero or cost basis and cannot write an authoritative snapshot.",
+   "status": "open",
+   "verificationPaths": ["src/lib/fund/financeDailyJobs.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open program stop-line; no composed financial-truth fix is an ancestor of this branch."
+  },
+  {
+   "id": "FIN-004",
+   "severity": "critical",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "Fund can persist an order intent as an executed transaction without a verified provider execution receipt",
+   "reproduction": "Submit an order through FundOrderTicket while brokerage execution is unavailable or fails; the current path can insert a fund_transactions row with executed_at and announce success.",
+   "affected": [
+    "src/components/fund/FundOrderTicket.tsx",
+    "src/app/api/brokerage/order/route.ts"
+   ],
+   "root_cause": "Order intent and immutable provider-confirmed execution share one persistence/UI contract.",
+   "fix": "Pending Phase 1 order-intent recovery and financial composition: separate intent from execution and allow only a verified provider receipt to establish an immutable execution that affects holdings, P&L, activity, or reporting.",
+   "regression_test": "Provider rejection, timeout, unavailable brokerage, retry, and duplicate submission must leave only a truthful intent and never an executed transaction.",
+   "status": "open",
+   "verificationPaths": ["src/components/fund/FundOrderTicket.tsx"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open financial safety stop-line; prior order-intent work exists only in session evidence and is not present on this branch."
+  },
+  {
+   "id": "MUTATION-001",
+   "severity": "critical",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "Provider mutation timeouts can return an ordinary retryable error while the un-aborted operation continues and later succeeds",
+   "reproduction": "Delay a Composio Mail or Calendar mutation beyond timedProviderOperation's timer; Promise.race returns a timeout but does not terminate the provider operation, and current Mail actions tell the user to try again.",
+   "affected": [
+    "src/lib/observability/providerTiming.ts",
+    "src/app/api/mail/send/route.ts",
+    "src/app/api/mail/message/[id]/action/route.ts",
+    "src/app/api/calendar/event/[id]/route.ts",
+    "src/app/api/calendar/sync/route.ts"
+   ],
+   "root_cause": "Timing is an outer promise race without abort propagation, durable idempotency, command receipts, unknown-outcome state, or reconciliation proof.",
+   "fix": "Pending Phase 1 mutation-kernel composition: abortable commands, durable idempotency and receipts, explicit outcome_unknown/reconciling states, and provider-state reconciliation before retry.",
+   "regression_test": "Hung/late-success fault tests must prove hard cancellation or a durable unknown outcome, prevent unsafe retry, and reconcile before confirmation.",
+   "status": "open",
+   "verificationPaths": ["src/lib/observability/providerTiming.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open program stop-line; the mutation-kernel checkpoint remains WIP and uncomposed."
+  },
+  {
+   "id": "INTEGRATION-002",
+   "severity": "high",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "The generic Composio executor still accepts caller-supplied arguments for mutation-capable tools",
+   "reproduction": "Call /api/integrations/composio/execute with an allowlisted mutation tool such as send, label, or trash and arbitrary tool arguments; the route bypasses dedicated operation schemas, provenance, stable account selection, idempotency, and action-policy approval.",
+   "affected": [
+    "src/app/api/integrations/composio/execute/route.ts",
+    "src/lib/integrations/composio-allowlist.ts"
+   ],
+   "root_cause": "A generic toolkit/tool/arguments surface mixes reads and writes behind an in-process limiter.",
+   "fix": "Pending Phase 1 provider-identity and mutation composition: constrain the generic executor to read-only tools and move mutations to dedicated Zod-validated, owner-bound, policy-enforced command routes.",
+   "regression_test": "Every mutation tool must be rejected by the generic endpoint; dedicated routes must enforce ownership, schema, action policy, idempotency, and distributed admission.",
+   "status": "open",
+   "verificationPaths": ["src/app/api/integrations/composio/execute/route.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open high-risk integration topology defect."
+  },
+  {
+   "id": "SSRF-001",
+   "severity": "high",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "Untrusted outbound fetches use string-only URL checks and automatic redirects without DNS/private-range enforcement or connection pinning",
+   "reproduction": "Use alternate loopback/private/metadata addresses, mixed public/private DNS, IPv4-mapped IPv6, or a public URL that redirects to an internal target through reader, proxy, OG-image, or RSS fetch paths.",
+   "affected": [
+    "src/lib/security/ssrf.ts",
+    "src/app/api/reader/extract/route.ts",
+    "src/app/api/proxy/route.ts",
+    "src/app/api/og-image/route.ts",
+    "src/lib/feeds/rss.ts"
+   ],
+   "root_cause": "The existing boundary validates URL strings but does not resolve A/AAAA answers, reject every reserved range, validate each redirect hop, pin or revalidate the connect target, or bound streamed bodies consistently.",
+   "fix": "Pending Phase 1 safe-fetch recovery: one server-only boundary with DNS A/AAAA validation, private/reserved/mapped-address denial, manual bounded redirects, pinned or revalidated connections, total time and streaming body limits, and safe errors.",
+   "regression_test": "Adversarial resolver/transport fixtures must prove the internal target receives zero requests for direct, redirect, and rebinding attacks across every affected route.",
+   "status": "open",
+   "verificationPaths": ["src/lib/security/ssrf.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open; the prior safe-fetch lane was not recovered into Git."
+  },
+  {
+   "id": "AUTH-007",
+   "severity": "high",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "Missing Supabase configuration and non-enumerated API routes can fail open at the middleware boundary",
+   "reproduction": "Remove required Supabase public auth configuration or request an API route outside the enumerated guarded prefixes; current middleware can continue instead of returning a protected-service 503 or requiring authentication by default.",
+   "affected": [
+    "src/middleware.ts",
+    "src/lib/env.ts"
+   ],
+   "root_cause": "Auth protection is an opt-in prefix list and required production auth configuration is not a fail-closed precondition.",
+   "fix": "Pending Phase 1 auth composition: explicit public allowlist, authenticated-by-default API policy, production configuration preflight, and 503 for protected routes when auth infrastructure is unavailable.",
+   "regression_test": "Missing-env, public-lookalike, dotted-path, and newly added API route tests must fail closed while the exact public allowlist remains reachable.",
+   "status": "open",
+   "verificationPaths": ["src/middleware.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open; the accepted auth checkpoint is not composed into this branch."
+  },
+  {
+   "id": "RATE-001",
+   "severity": "high",
+   "source": "2026-07-28 adversarial production-convergence review",
+   "summary": "Cost and mutation admission can fall back to process-local rate limiting in serverless execution",
+   "reproduction": "Distribute requests across concurrent or recycled serverless instances, or make Redis unavailable; process-local counters do not enforce a global user quota and the outage policy is not consistently fail closed.",
+   "affected": [
+    "src/lib/rateLimit.ts",
+    "src/app/api/integrations/composio/execute/route.ts",
+    "cost-bearing AI and provider mutation routes"
+   ],
+   "root_cause": "Distributed quotas and bounded Redis-outage policy are not a shared required contract for cost-bearing or mutation routes.",
+   "fix": "Pending Phase 1 auth/rate-limit composition: distributed admission with route-class policies, bounded fallback, explicit retry metadata, and fail-closed behavior where authority or spend is at risk.",
+   "regression_test": "Multi-instance and Redis-outage fault tests must prove global quotas and the documented fail-closed/fallback policy.",
+   "status": "open",
+   "verificationPaths": ["src/lib/rateLimit.ts"],
+   "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
+   "revision_fixed": null,
+   "verification": "Open; the accepted distributed-admission checkpoint is not composed into this branch."
   },
   {
    "id": "FIN-001",
@@ -125,6 +276,8 @@
    "regression_test": "src/lib/fund/money.test.ts (financial invariants)",
    "status": "fixed",
    "revision_fixed": "wave-4.2",
+   "mainVerificationCommit": "45e7124b0e9cb8a347f1599e596d8621c60f10ee",
+   "mainVerificationPaths": ["src/components/fund/FundNetWorthModule.tsx"],
    "verification": "All listed aggregation sites now route through sumBy/sumMoney; net-worth combinations use sumMoney; 427 tests green, tsc clean",
    "similar_code_search": "All reduce(+ Number()) money aggregation sites in Fund adopted in wave 4.2 (OverviewModule, FundNetWorthModule, FundLiabilities, FundRecurringList, FundCashflowModule, financeDailyJobs, usePlaidConnection)"
   },
@@ -140,7 +293,9 @@
    "fix": "safeMoney delegates to parseMoney (cent-rounded)",
    "regression_test": "src/lib/fund/money.test.ts",
    "status": "fixed",
-   "revision_fixed": "pending-commit",
+   "revision_fixed": "251d1f06e9ae221b0546b45ac65e77348d594056",
+   "mainVerificationCommit": "251d1f06e9ae221b0546b45ac65e77348d594056",
+   "mainVerificationPaths": ["src/lib/fund/money.test.ts"],
    "verification": "existing financeNarratorContext.test.ts still passes"
   },
   {
@@ -158,6 +313,8 @@
    "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-10.13",
+   "mainVerificationCommit": "3356bcbbff0a111c7b499f2bad0712254e9f4a8e",
+   "mainVerificationPaths": ["src/lib/integrations/make.test.ts"],
    "verification": "HTTP 503 maps to provider_error, no success audit is written, focused tests and full 737-test suite pass"
   },
   {
@@ -175,6 +332,8 @@
    "regression_test": "src/lib/integrations/make.test.ts; src/lib/fund/notifyViaMake.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-10.13",
+   "mainVerificationCommit": "3356bcbbff0a111c7b499f2bad0712254e9f4a8e",
+   "mainVerificationPaths": ["src/lib/integrations/make.test.ts"],
    "verification": "Secret-bearing response/error fixtures are absent from Results, Sentry messages, and audit rows; independent review found no substantiated regression"
   },
   {
@@ -193,6 +352,8 @@
    "regression_test": "src/lib/integrations/makeOutbox.test.ts; src/lib/fund/notifyViaMake.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-10.14",
+   "mainVerificationCommit": "d35f77413921f47854c5c32c4d09afe0f6cc3ae2",
+   "mainVerificationPaths": ["src/lib/integrations/makeOutbox.test.ts"],
    "verification": "17 focused tests pass; local and hosted migrations verify RLS/grants; duplicate, tamper, failed-delivery, third-attempt dead-letter, and replay-success paths are covered"
   },
   {
@@ -210,6 +371,8 @@
    "regression_test": "Database privilege read-back",
    "status": "fixed",
    "revision_fixed": "wave-10.14",
+   "mainVerificationCommit": "d35f77413921f47854c5c32c4d09afe0f6cc3ae2",
+   "mainVerificationPaths": ["src/lib/integrations/makeOutbox.test.ts"],
    "verification": "Local and hosted has_function_privilege: anon=false, authenticated=false, service_role=true; security advisor warning cleared"
   },
   {
@@ -226,6 +389,8 @@
    "regression_test": "src/lib/integrations/make.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-10.15",
+   "mainVerificationCommit": "6f3bfb650906a8053008492cd69671cbc402f473",
+   "mainVerificationPaths": ["src/lib/integrations/make.test.ts"],
    "verification": "49 focused tests pass; 757-test full suite passes; configured Make list/detail reads passed live id/team/state shape checks without exposing scenario content; no live write performed"
   },
   {
@@ -244,6 +409,8 @@
    "regression_test": "src/lib/mail/cache.test.ts; src/app/api/mail/sync/route.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-10.16",
+   "mainVerificationCommit": "3d203117997e9214bb77868ad87e9461ce1db2ff",
+   "mainVerificationPaths": ["src/lib/mail/cache.test.ts"],
    "verification": "Focused Mail/cache/sync/disconnect tests pass; 768-test full suite and seeded authenticated Mail smoke pass; local and hosted migration/RLS/owner-isolation checks pass"
   },
   {
@@ -260,6 +427,8 @@
    "regression_test": "src/app/api/routines/concentration-check/route.test.ts; src/lib/routines/concentrationCheck.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-8.8",
+   "mainVerificationCommit": "246f7646cc439fbc2212e2645a922fb2f6844673",
+   "mainVerificationPaths": ["src/app/api/routines/concentration-check/route.test.ts"],
    "verification": "Malformed null and unsafe threshold cases return 400 with no profile query or routine execution; valid request/profile/default provenance cases remain covered"
   },
   {
@@ -277,6 +446,8 @@
    "regression_test": "src/lib/signals/severity.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-8.9",
+   "mainVerificationCommit": "845bfac90200da433bb03fa221402a1487f96a96",
+   "mainVerificationPaths": ["src/lib/signals/severity.test.ts"],
    "verification": "Focused tests cover hi escalation and punctuation-varied resolution memory; synthetic local desktop/mobile verification showed one row in each tier and responsive filter wrapping"
   },
   {
@@ -294,6 +465,8 @@
    "regression_test": "src/lib/design/systemTokens.test.ts; tests/e2e/authenticated.spec.ts",
    "status": "fixed",
    "revision_fixed": "wave-6.3",
+   "mainVerificationCommit": "6dc1484d430b7a383ea5ec503a9713cc6c3fcf57",
+   "mainVerificationPaths": ["src/lib/design/systemTokens.test.ts"],
    "verification": "Static contract rejects root family aliases and the authenticated gallery verifies a body-level runtime face change through computed style."
   },
   {
@@ -312,6 +485,8 @@
    "regression_test": "src/lib/design/systemTokens.test.ts",
    "status": "fixed",
    "revision_fixed": "wave-6.3",
+   "mainVerificationCommit": "6dc1484d430b7a383ea5ec503a9713cc6c3fcf57",
+   "mainVerificationPaths": ["src/lib/design/systemTokens.test.ts"],
    "verification": "Automated matrix covers all four themes, four solid surfaces per theme, and all six accent plus hover pairs."
   },
   {
@@ -330,6 +505,8 @@
    "regression_test": "src/components/ui/designSystemA11y.test.tsx",
    "status": "fixed",
    "revision_fixed": "wave-6.3",
+   "mainVerificationCommit": "6dc1484d430b7a383ea5ec503a9713cc6c3fcf57",
+   "mainVerificationPaths": ["src/components/ui/designSystemA11y.test.tsx"],
    "verification": "Both focused TSX and token files execute (16 tests), all call sites typecheck, and the authenticated gallery exposes named theme/density groups."
   },
   {
@@ -346,6 +523,8 @@
    "regression_test": "src/lib/theme/preferences.test.ts; tests/e2e/theme-preferences-authenticated.spec.ts",
    "status": "fixed",
    "revision_fixed": "wave-7.5",
+   "mainVerificationCommit": "400278d521498cf2837163bd4c81fa396bd0febf",
+   "mainVerificationPaths": ["src/lib/theme/preferences.test.ts"],
    "verification": "Pure envelope/ordering tests pass; deterministic delayed-read and failed-read browser tests pass; full authenticated production-mode suite passes 13/13"
   },
   {
@@ -366,6 +545,8 @@
    "regression_test": "src/app/api/agent-tasks/[id]/route.test.ts; src/app/api/approvals/[id]/route.test.ts; src/lib/tasks/taskPersistence.test.ts; src/lib/security/approvalMutations.test.ts; scripts/validate-task-approval-cas.mjs",
    "status": "fixed",
    "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+   "mainVerificationCommit": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+   "mainVerificationPaths": ["src/app/api/agent-tasks/[id]/route.test.ts"],
    "verification": "Focused route/domain tests and the local task/approval SQL validator pass concurrent stale-version rejection, atomic activity/audit failure rollback, ownership, strict scope/challenge, expiry/freshness, and successful transition checks. Hosted expansion migration 202607161300 is applied and read back; contract migration 202607161401 remains intentionally pending until the compatible application revision is production-live.",
    "similar_code_search": "The same stale-read/unconditional-update pattern was reviewed across task transitions, approval decisions/step-up/execution, WebAuthn counters, and routine resume. WebAuthn and routine resume received their own atomic RPC contracts in the same revision."
   },
@@ -385,6 +566,8 @@
    "regression_test": "src/app/api/routines/runs/[id]/resume/route.test.ts; src/lib/routines/executor.test.ts; src/lib/routines/resumeClaims.test.ts; scripts/validate-routine-resume-claims.mjs",
    "status": "fixed",
    "revision_fixed": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+   "mainVerificationCommit": "bc9fc1adf9b5a948074ba3aee9e2041a0f5658f4",
+   "mainVerificationPaths": ["src/app/api/routines/runs/[id]/resume/route.test.ts"],
    "verification": "Focused route/executor/claim tests and the 50-check local SQL validator pass double-submit exclusion, stale-fence rejection, lease expiry and reclaim, failed-resume retry, idempotent task materialization, replayed completed outputs, finalization-failure rollback, and atomic terminal approval consumption. Hosted expansion migration 202607161400 is applied and read back."
   },
   {
@@ -403,6 +586,8 @@
    "regression_test": "src/app/api/routines/rebalance-proposal/route.test.ts; src/lib/routines/versioning.test.ts",
    "status": "fixed",
    "revision_fixed": "cb138215b87b9cad65be764cd3ea67d54f6fc82c",
+   "mainVerificationCommit": "cb138215b87b9cad65be764cd3ea67d54f6fc82c",
+   "mainVerificationPaths": ["src/app/api/routines/rebalance-proposal/route.test.ts"],
    "verification": "Focused route/versioning tests cover historical v1 resolution, v2 stamping, no approval creation, no broker placeholder/waiting state, rate and request limits, quote completeness/currency/freshness rejection, blocked-run persistence, and complete unsubmitted drafts. Full 1064-test suite, tsc, lint, and independent financial-safety review are green."
   },
   {
@@ -421,6 +606,8 @@
    "regression_test": "src/lib/ai/navigation.test.ts; src/lib/ai/response.test.ts; src/lib/ai/actions.test.ts; src/lib/ai/privacy.test.ts; src/app/api/ai/route.test.ts",
    "status": "fixed",
    "revision_fixed": "d40cab6ad48ca6ca69981781e6443d5ad26b90d1",
+   "mainVerificationCommit": "d40cab6ad48ca6ca69981781e6443d5ad26b90d1",
+   "mainVerificationPaths": ["src/lib/ai/navigation.test.ts"],
    "verification": "72 focused AI boundary tests pass, including unsafe action paths, normalized internal paths, provider failure/degraded provenance, heuristic fallback labeling, and privacy-safe telemetry. Current full suite passes 1064 tests across 165 files; tsc and lint are clean.",
    "similar_code_search": "Console and mascot action consumers now share the normalized contract; provider fallbacks returned by the AI route are discriminated from model success instead of relying on display text."
   },
@@ -441,6 +628,8 @@
    "regression_test": "src/lib/auth/authenticatorAssurance.test.ts; src/middleware.test.ts",
    "status": "fixed",
    "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+   "mainVerificationCommit": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+   "mainVerificationPaths": ["src/lib/auth/authenticatorAssurance.test.ts"],
    "verification": "Eight focused assurance/middleware tests prove direct protected API denial at aal1, exact challenge/verify access, login recovery, and protected access at aal2. The full 1064-test suite, tsc, and lint pass. A real hardware authenticator plus TOTP ceremony remains an explicit human gate.",
    "similar_code_search": "All middleware-protected and route-owned APIs now pass through the same assurance boundary; unenroll and other MFA management routes are intentionally not bootstrap exceptions."
   },
@@ -461,6 +650,8 @@
    "regression_test": "scripts/sql/verify-20260716-contract.sql; .github/workflows/ci.yml",
    "status": "fixed",
    "revision_fixed": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+   "mainVerificationCommit": "bb2cff555ff85ccf136ce7e5ef84b5c8566d5c05",
+   "mainVerificationPaths": ["scripts/sql/verify-20260716-contract.sql"],
    "verification": "Updated migration, CI-equivalent grant bootstrap, catalog verifier, and real authenticated insert/update/delete denial probes pass against local Supabase. release:validate records contract checksum 31291dd9e3a0d9eb5aac3766015036becaebff005d417f8bf16ad3fbd37b78f7. Hosted migration 202607161401 remains intentionally unapplied until the compatible production SHA is live.",
    "similar_code_search": "The same post-bootstrap revocation covers agent_tasks, agent_task_activity, approvals, and user_passkeys so a future broad policy cannot silently restore browser lifecycle writes."
   },
@@ -481,6 +672,8 @@
    "regression_test": "src/lib/testing/ciWorkflow.test.ts",
    "status": "fixed",
    "revision_fixed": "a1fa177496851f2b700fa42c3fdbd66de4104af5",
+   "mainVerificationCommit": "a1fa177496851f2b700fa42c3fdbd66de4104af5",
+   "mainVerificationPaths": ["src/lib/testing/ciWorkflow.test.ts"],
    "verification": "The exact-head clean-runner verify, public, and authenticated jobs passed in GitHub run 29528783685. The current full local suite passes 1072 tests across 166 files; typecheck, lint, release validation, production build, public 13/13, and authenticated 14/14 are green.",
    "similar_code_search": "Release documentation now requires a multi-statement-capable PostgreSQL executor for every expansion, contract, and read-back SQL script instead of recommending the incompatible prepared-query path."
   },
@@ -501,6 +694,8 @@
    "regression_test": "src/lib/auth/getAppOrigin.test.ts; src/middleware.test.ts",
    "status": "fixed",
    "revision_fixed": "89705a4a507a3e453d9c965452815b01c176ebbb",
+   "mainVerificationCommit": "89705a4a507a3e453d9c965452815b01c176ebbb",
+   "mainVerificationPaths": ["src/lib/auth/getAppOrigin.test.ts"],
    "verification": "Fifteen focused origin/middleware tests cover preview isolation, no-config loopback handling, and crafted Host rejection. The current full local suite and both production-mode browser projects are green. Exact new-preview redirect validation remains required before merge.",
    "similar_code_search": "All same-app redirects using `buildAppUrl`, including middleware and OAuth completion/error surfaces, now remain on the current deployment; provider callback URI construction continues to use the configured canonical helper."
   },
@@ -519,6 +714,8 @@
    "regression_test": "supabase db push --dry-run reports 'Remote database is up to date' (87 branch files == 87 tracked prod versions at merge time; 89 after #239's arcade migration)",
    "status": "fixed",
    "revision_fixed": "PRs #237, #238 (merged 2026-07-17)",
+   "mainVerificationCommit": "085e5cd60f97b04e937eb501d22c44b933784cd6",
+   "mainVerificationPaths": ["supabase/migrations/202607161401_task_approval_lockdown.sql"],
    "verification": "supabase db push --dry-run clean; prod pg_constraint read-back confirms routine_versions_routine_version_check exists; PR #237 independently verified prod already matched via 4 migration-repair calls + 1 real db push, all out-of-band and confirmed via SQL before this PR merged",
    "similar_code_search": "This was the last outstanding migration-filename drift between main and prod; the VECTOR convergence (#239) subsequently reset supabase/migrations/ to this now-reconciled tree and added only the genuinely new 202607170001_vector_arcade_persistence.sql on top"
   },
@@ -537,6 +734,8 @@
    "regression_test": "src/lib/vector/games/brickrise/physics.test.ts 'reachability' block: derives peak rise by running the real stepBody (not arithmetic), asserts rise > FLOOR_SPACING with >12 px margin and < 2x FLOOR_SPACING, and searches real generated towers across three seeds asserting every floor is reachable from the one below. Verified to FAIL at the old -11.6 value",
    "status": "fixed",
    "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "mainVerificationCommit": "f94934d961ab37df10298886381ff4ac41ad6618",
+   "mainVerificationPaths": ["src/lib/vector/games/brickrise/physics.ts"],
    "verification": "18/18 physics tests pass at -14 and 2 fail at -11.6; the tower was never player-reachable in production because the registry kept brickrise status 'planned' with no loader until this wave",
    "similar_code_search": "The same class of defect (two independently-tuned constants with no relating assertion) applies to every remaining game wave. 15.9 Time to Fly and 15.10 Paper Glider must each land a reachability/solvability test alongside their generator before their mechanical core is considered complete"
   },
@@ -554,6 +753,8 @@
    "regression_test": "game.test.ts input tests now dispatch on harness.mount rather than on the inner root, plus 'releases held input when focus leaves the mount' covering the focusout path. Verified to FAIL when reverted to root/blur",
    "status": "fixed",
    "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "mainVerificationCommit": "f94934d961ab37df10298886381ff4ac41ad6618",
+   "mainVerificationPaths": ["src/lib/vector/games/brickrise/game.ts"],
    "verification": "26/26 brickrise shell tests pass; the four review-driven guards each verified to fail with their fix reverted",
    "similar_code_search": "Second Sense sets tabindex=0 on the element it binds to (second-sense/game.ts) so it is unaffected. Any future game shell must bind input to context.mount, not to its own subtree \u2014 this is now stated in game.ts's attachInput comment"
   },
@@ -571,6 +772,8 @@
    "regression_test": "game.test.ts 'regressions from the Wave 15.8 adversarial review' block \u2014 all four verified to fail with their fix reverted",
    "status": "fixed",
    "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "mainVerificationCommit": "f94934d961ab37df10298886381ff4ac41ad6618",
+   "mainVerificationPaths": ["src/lib/vector/games/brickrise/game.ts"],
    "verification": "1464/1464 tests pass",
    "similar_code_search": "The redraw-gating and pointerId patterns apply to every future engine-backed game; the async-score-readback race applies to any game calling recordScore then getBestScore"
   },
@@ -590,6 +793,8 @@
    "regression_test": "src/lib/vector/engine-chunks.test.ts \u2014 asserts every budget-excluded chunk name has a matching cacheGroup, that the cacheGroups outrank Next's own, that no production source pairs an engine import with a webpackChunkName comment (subpath imports included, typeof-import excluded), and that phaser has exactly one import site",
    "status": "fixed",
    "revision_fixed": "feat/wave-15.8-brickrise-scene",
+   "mainVerificationCommit": "f94934d961ab37df10298886381ff4ac41ad6618",
+   "mainVerificationPaths": ["next.config.ts"],
    "verification": "Build emits vector-engine-phaser.2802fafb02cad78b.js (1164 KB); shared bundle 4245/4400 KB \u2014 BELOW the 4255 KB pre-Phaser baseline; route-isolated 1191/3000 KB; 0 of 197 routes list the phaser chunk in app-build-manifest.json, confirming the chunk is genuinely route-isolated and not merely reclassified",
    "similar_code_search": "Applies identically to Three for Wave 15.10 Paper Glider; the vectorEngineThree cacheGroup is declared now (three is not yet a dependency, so it is inert until installed) precisely so that wave does not rediscover this"
   },
@@ -608,6 +813,8 @@
    "regression_test": "src/lib/vector/games/brickrise/inputState.test.ts cross-source block: keyboard hold survives a touch press+release for both directions and jump, and vice versa; jump edge does not re-arm when the second source joins an existing hold",
    "status": "fixed",
    "revision_fixed": "fix/vector-brickrise-shell-defects",
+   "mainVerificationCommit": "62d7a179767f097736af29f69e82ba4c531ced95",
+   "mainVerificationPaths": ["src/lib/vector/games/brickrise/inputState.test.ts"],
    "verification": "Vector suite green in the fix worktree; the new tests fail against the pre-fix reducer",
    "similar_code_search": "Second Sense's inputState collapses sources the same flat way but its interaction is a single hold surface with no parallel on-screen controls for the same verb; Time to Fly (15.9, in flight elsewhere) uses drag+launch and should check its launch control for the same cross-source union if it ever gains on-screen duplicates of a keyboard verb"
   },
@@ -625,6 +832,8 @@
    "regression_test": "src/lib/vector/games/brickrise/game.test.ts finishRun block: slower-run scenario asserts the HUD shows the stored best, first-climb null case shows the run's own time, and reset refreshes the field",
    "status": "fixed",
    "revision_fixed": "fix/vector-brickrise-shell-defects",
+   "mainVerificationCommit": "62d7a179767f097736af29f69e82ba4c531ced95",
+   "mainVerificationPaths": ["src/lib/vector/games/brickrise/game.test.ts"],
    "verification": "Vector suite green in the fix worktree; the slower-run test fails against the pre-fix shell",
    "similar_code_search": "Second Sense already re-reads via getBestScore in its finishRun; Paper Glider's core (15.10) keeps best-score merge as Math.max in progress.ts and its future shell must re-read rather than assume"
   },
@@ -644,6 +853,8 @@
    "regression_test": "src/lib/vector/games/paper-glider/determinism.test.ts \u2014 a source-text scan of every pure module (physics.ts, level.ts, simulation.ts, progress.ts, inputState.ts, rng.ts) against a banned-Math-call regex (hypot/sin/cos/tan/atan2/pow/exp/log/random, etc.); fails if Math.hypot or any other implementation-approximated Math function reappears anywhere on the list",
    "status": "fixed",
    "revision_fixed": "feat/vector-15.10-paper-glider-shell",
+   "mainVerificationCommit": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
+   "mainVerificationPaths": ["src/lib/vector/games/paper-glider/determinism.test.ts"],
    "verification": "determinism.test.ts passes against the fixed source; its own header records that the original Wave 15.10 draft failed it with Math.hypot present in physics.ts, level.ts, AND simulation.ts while the draft's own test files were already using sqrt. Part of the 1820-test green suite this wave reports",
    "similar_code_search": "Same determinism-rule class as the project's blanket ban on Math.cos/sin/atan2/hypot on the generation/simulation path (this worktree's own non-negotiables). Time to Fly's orbit.ts already follows the sqrt-of-squares pattern per its own comment; every future VECTOR game core should add the same source-scan guard rather than relying on review alone to catch a reintroduced hypot call \u2014 Brickrise and Time to Fly currently have no equivalent scan"
   },
@@ -661,6 +872,8 @@
    "regression_test": "src/lib/vector/games/paper-glider/completability.test.ts \"regression: witness seeds of the swept-clearance furniture defect\" flies all 8 witness seeds through 15 rooms with the bounded pilot and asserts none collide; the dynamic pilot sweep tiers (broad/standard/deep/fuzz, up to 1,500 seeds) and the static audit's own furniture-clearance assertion cover the general case. The suite's header records a manual falsification run proving the guard fails when the fix is weakened",
    "status": "fixed",
    "revision_fixed": "feat/vector-15.10-paper-glider-shell",
+   "mainVerificationCommit": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
+   "mainVerificationPaths": ["src/lib/vector/games/paper-glider/completability.test.ts"],
    "verification": "All 8 witness seeds plus the 1,500-seed fuzz tier and the broad/standard/deep tiers fly clean through their target room counts against the fixed generator; part of the 1820-test green suite",
    "similar_code_search": "Same defect class as BRICKRISE-001 (a generator producing structurally-valid-looking but dynamically un-flyable/unclimbable output, caught only by an authoritative step-by-step sweep, never by an analytic or single-point shortcut). Time to Fly's and Brickrise's generators should be re-audited for any other clearance/reachability check that samples one representative point instead of the swept extent a moving hull actually occupies"
   },
@@ -678,6 +891,8 @@
    "regression_test": "game.test.ts \"no fake state\" block: \"pins the manifest fields this wave decided\" asserts manifest.score.achievements === false and manifest.reducedMotionBehavior does not match /curtain|dust|loose[- ]page/i; a companion assertion in the same block renders a finished run and confirms the DOM never contains rank/leaderboard/achievement/player-count/install/sync language",
    "status": "fixed",
    "revision_fixed": "feat/vector-15.10-paper-glider-shell",
+   "mainVerificationCommit": "5572d3ee5ea5dae296c659fe3222f811e6b2387c",
+   "mainVerificationPaths": ["src/lib/vector/games/paper-glider/game.test.ts"],
    "verification": "Both assertions pass against the fixed registry.ts; part of the 1820-test green suite this wave reports",
    "similar_code_search": "Same class as the Brickrise manifest fixes (achievements/leaderboard/reduced-motion promises ahead of the implementation). Every VECTOR game manifest authored before its shell lands should get the same \"pins the manifest fields this wave decided\" reconciliation pass once the shell ships, not just once at authoring time \u2014 Time to Fly's manifest has not yet had this pass"
   },
@@ -695,6 +910,8 @@
    "fix": "No app-side code fix exists for the upstream native deref, and none was invented (guessing at teardown changes on an unreproducible native crash risks regressing a hardened path). Mitigations were landed instead: (1) every app-causable quit-hang shape that turns a benign close into a stuck quit is hardened and pinned by electron/main-shutdown.test.cjs \u2014 shutdown-aware showDialog/showFilePicker, single-flight window creation, ids captured before teardown, did-fail-load never stacks a dialog, before-quit latches isQuitting; (2) native crashes are captured as minidumps and uploaded via crashReporter (electron/desktop-observability.cjs), smoke-tested by runCrashReporterSmoke at startup and pinned by electron/desktop-observability.test.cjs, so any recurrence is recorded for triage rather than lost.",
    "regression_test": "electron/main-shutdown.test.cjs (quit-hang hardening); electron/desktop-observability.test.cjs (native minidump capture + scrubbed upload)",
    "status": "closed",
+   "mainVerificationCommit": "d851b9dd5bad9f6d2a4ea5e0f0b24beff9e7a125",
+   "mainVerificationPaths": ["electron/main-shutdown.test.cjs"],
    "revision_fixed": "Mitigated by desktop-hardening work merged before 2026-07-20; characterization recorded 2026-07-20. No upstream fix is available \u2014 43.1.1 is the latest STABLE Electron (newer is 44.x alpha only). Revisit an Electron major upgrade when 44.x reaches stable.",
    "verification": "npm run desktop:test green (incl. main-shutdown + desktop-observability); electron e2e 9/9 green. The residual native crash is upstream and uncatchable; no actionable app-side defect remains open."
   },
@@ -712,6 +929,8 @@
    "regression_test": "electron/main-launch-error-mapping.test.cjs \u2014 extracts each of the five handler bodies delimited by the next ipcMain.handle( (a real delimiter, not a fixed char window, avoiding review finding F1's overrun flaw) and asserts each state read sits inside a try whose catch maps through the coded helper (ordering assertion try < read < coded-catch). Falsified: reverting archive-bay:remove to the bare read fails its case.",
    "status": "fixed",
    "revision_fixed": "fix/desktop-review-concurrency3-upd3",
+   "mainVerificationCommit": "203484b76345dfc04dc3d53226a08bb22505294c",
+   "mainVerificationPaths": ["electron/main.cjs"],
    "verification": "desktop:check 140/140 (7 new tests incl. the 5 mapping guards), eslint clean, electron e2e 9/9. The defect itself was CONFIRMED by 3/3 adversarial verifiers in the review workflow before the fix.",
    "similar_code_search": "The same coded-error-only invariant is already enforced for the managed-runtime and recomp handlers by main-managed-runtime-ipc.test.cjs / main-recomp-ipc.test.cjs; the base archive-bay handlers had no equivalent guard, which is how :remove and :runtime-status also shipped unwrapped. Every future Archive Bay read handler must map its state-read error or main-launch-error-mapping.test.cjs fails."
   },
@@ -729,6 +948,8 @@
    "regression_test": "electron/update-controller.test.cjs \u2014 two tests interleave an interactive check, a background check, then a single not-available / error event and assert the owned dialog still appears. Both fail against the pre-fix `manualCheckPending = interactive`.",
    "status": "fixed",
    "revision_fixed": "fix/desktop-review-concurrency3-upd3",
+   "mainVerificationCommit": "203484b76345dfc04dc3d53226a08bb22505294c",
+   "mainVerificationPaths": ["electron/update-controller.cjs"],
    "verification": "desktop:check 140/140, eslint clean. The defect was CONFIRMED by 3/3 adversarial verifiers before the fix.",
    "similar_code_search": "The other update-controller manual-gated paths (onAvailable, both onError branches) routed through the same shared boolean and are fixed together via takeManualCheck(). No other shared-flag-across-async-check pattern found in electron/."
   },
@@ -747,6 +968,8 @@
    "regression_test": "The existing suites now run against correctly-scoped bodies; the same delimiter pattern is independently guarded by electron/main-launch-error-mapping.test.cjs.",
    "status": "fixed",
    "revision_fixed": "fix/desktop-review-f1-handlerbody-overrun",
+   "mainVerificationCommit": "7ca4af33453deb187116d2ef5bf478b995787f96",
+   "mainVerificationPaths": ["electron/main-recomp-ipc.test.cjs"],
    "verification": "desktop:test 140/140 after the tightening (no hidden failure surfaced), eslint clean.",
    "similar_code_search": "Both fixed-window source-scan tests corrected; main-launch-error-mapping.test.cjs already uses the delimiter. No other fixed-window handler slicing remains in electron/."
   },
@@ -765,6 +988,8 @@
    "regression_test": "electron/archive-bay-recomp.test.cjs \u2014 pathContainedIn (inside/nested ok; ../escape, absolute, sibling-prefix, and self all refused); minimalSpawnEnv (drops OPENAI/SUPABASE/SENTRY/AWS secrets, keeps PATH/HOME/LANG on posix and SystemRoot on win32); staging leaves no .incoming temp on success or on a rejected re-stage and preserves the prior good original. electron/main-recomp-ipc.test.cjs \u2014 recomp:launch source-guards pathContainedIn + RECOMP_BINARY_OUTSIDE_PORT + minimalSpawnEnv. Both pure guards were FALSIFIED (weaken each helper -> exactly 2 targeted failures) before commit.",
    "status": "fixed",
    "revision_fixed": "harden/recomp-spawn-path",
+   "mainVerificationCommit": "19193a009c389973581985d2e39c973042c4e13d",
+   "mainVerificationPaths": ["electron/archive-bay-recomp.test.cjs"],
    "verification": "desktop:check 144/144, electron e2e 9/9, eslint clean.",
    "similar_code_search": "The BYO emulator spawn (archive-bay:launch) also inherits the full env, but it spawns the user's OWN chosen melonDS binary (trusted) rather than a downloaded one, so env-scrubbing it is a lower-priority follow-up (noted, not done here). The copy-then-hash staging pattern should be the template for any future staged-asset validation. RECOMP-SEC path-leak (raw fs error to renderer) was already fixed separately as DESKTOP-002."
   }

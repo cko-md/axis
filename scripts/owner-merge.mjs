@@ -15,6 +15,7 @@ import {
   loadAndValidateOwnerEvidence,
   validateCandidateAsInertData,
   validateExternalNewReceiptPath,
+  validateOwnerMergeSnapshotFreshness,
   verifyTrustedExecutionRoot,
 } from "./owner-merge-core.mjs";
 
@@ -174,6 +175,14 @@ async function main() {
         : "normal mode requires the trusted SHA to equal exact current main",
     );
   }
+  const inertValidation = validateCandidateAsInertData({
+    trustedRoot: root,
+    owner,
+    name,
+    baseSha: snapshot.baseSha,
+    headSha: expectedHeadSha,
+    bootstrap,
+  });
   const evidence = loadAndValidateOwnerEvidence({
     evidencePath,
     trustedRoot: root,
@@ -191,18 +200,12 @@ async function main() {
       vercelDeploymentId,
       vercelProjectId,
       vercelTeamId,
+      migrationValidation: inertValidation.migrationValidation,
     },
     previewCreatedAt: snapshot.vercel.createdAt,
     previewReadyAt: snapshot.vercel.readyAt,
   });
-  const inertValidation = validateCandidateAsInertData({
-    trustedRoot: root,
-    owner,
-    name,
-    baseSha: snapshot.baseSha,
-    headSha: expectedHeadSha,
-    bootstrap,
-  });
+  validateOwnerMergeSnapshotFreshness({ snapshot });
 
   if (!execute) {
     process.stdout.write(
@@ -270,6 +273,7 @@ async function main() {
         vercelDeploymentId,
         vercelProjectId,
         vercelTeamId,
+        migrationValidation: inertValidation.migrationValidation,
       },
       previewCreatedAt: latest.vercel.createdAt,
       previewReadyAt: latest.vercel.readyAt,
@@ -279,6 +283,7 @@ async function main() {
         "external owner evidence changed before the merge critical section",
       );
     }
+    validateOwnerMergeSnapshotFreshness({ snapshot: latest });
     return {
       snapshot: latest,
       evidenceSha256: latestEvidence.digest,

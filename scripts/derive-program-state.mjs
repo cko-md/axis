@@ -56,6 +56,7 @@ const GENERATED_JSON = ".claude/axis-redesign/GENERATED_STATE.json";
 const CANONICAL_DOC = "docs/CURRENT_STATE.md";
 const BEGIN = "<!-- BEGIN GENERATED: derive-program-state -->";
 const END = "<!-- END GENERATED: derive-program-state -->";
+const SHA_40 = /^[a-f0-9]{40}$/;
 function git(...gitArgs) {
   return execFileSync("git", gitArgs, { cwd: REPO, encoding: "utf8" }).trim();
 }
@@ -237,6 +238,209 @@ function deriveDefects(ref) {
     open: open.length,
     openIds: open.map((entry) => entry.id ?? entry.defect_id ?? "unknown"),
   };
+}
+
+const CLOSED_DEFECT_STATUSES = new Set(["fixed", "closed"]);
+const MAIN_VERIFICATION_COMMIT_FIELD = "mainVerificationCommit";
+const DEFECT_STATUSES = new Set(["open", "fixed", "closed"]);
+const SEVERITY_RANK = new Map([["low", 1], ["medium", 2], ["high", 3], ["critical", 4]]);
+const OPEN_EVIDENCE_FIELDS = ["verificationPaths", "closureAfterMainCommit"];
+// A still-open finding may refine its diagnosis and remediation, but its
+// identity and the evidence boundary which governs a later closure are fixed
+// once it enters the ledger.  This prevents a two-PR bypass that edits the
+// affected scope immediately before marking a finding fixed.
+const OPEN_CORE_EVIDENCE_FIELDS = ["id", "source", "summary", "reproduction", "affected"];
+const CLOSED_CONTENT_FIELDS = [
+  "id", "severity", "source", "summary", "affected", "root_cause",
+  "reproduction", "fix", "regression_test", "verification",
+  MAIN_VERIFICATION_COMMIT_FIELD, "mainVerificationPaths",
+];
+
+function defectEntries(ledger) {
+  return Array.isArray(ledger?.defects)
+    ? ledger.defects
+    : Array.isArray(ledger?.entries)
+      ? ledger.entries
+      : [];
+}
+
+function hasSupportedDefectEntries(ledger) {
+  return Array.isArray(ledger?.defects) || Array.isArray(ledger?.entries);
+}
+
+function validVerificationPaths(paths) {
+  return Array.isArray(paths)
+    && paths.length > 0
+    && paths.every((entry) => typeof entry === "string" && /^[A-Za-z0-9._@/\[\]-]+$/.test(entry));
+}
+
+function isCurrentMainThreshold(value) {
+  return value === git("rev-parse", MAIN_REF);
+}
+
+function hasOpenCoreEvidence(entry) {
+  return ["source", "summary", "reproduction"].every(
+    (field) => typeof entry?.[field] === "string" && entry[field].trim() !== "",
+  ) && Array.isArray(entry?.affected) && entry.affected.length > 0
+    && entry.affected.every((value) => typeof value === "string" && value.trim() !== "");
+}
+
+function canonicalValue(value) {
+  return JSON.stringify(value);
+}
+
+function findDefectLedgerContinuityProblems(ref) {
+  const baseline = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", MAIN_REF);
+  const candidate = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", ref);
+  if (!baseline || !candidate || !hasSupportedDefectEntries(baseline) || !hasSupportedDefectEntries(candidate)) {
+    return ["defect ledger must exist with a defects or entries array in both canonical main and checked ref"];
+  }
+  const baselineEntries = defectEntries(baseline);
+  const candidateEntries = defectEntries(candidate);
+  const byId = new Map();
+  const problems = [];
+  for (const entry of candidateEntries) {
+    if (typeof entry?.id !== "string" || entry.id.trim() === "") {
+      problems.push("defect ledger contains an entry without a stable id");
+    } else if (byId.has(entry.id)) {
+      problems.push(`defect ledger contains duplicate id ${entry.id}`);
+    } else {
+      byId.set(entry.id, entry);
+    }
+    if (!DEFECT_STATUSES.has(entry?.status)) {
+      problems.push(`defect ${entry?.id ?? "unknown"} has invalid status`);
+    }
+    if (!SEVERITY_RANK.has(entry?.severity)) {
+      problems.push(`defect ${entry?.id ?? "unknown"} has an invalid severity`);
+    }
+  }
+  for (const base of baselineEntries) {
+    const current = byId.get(base?.id);
+    if (!current) {
+      problems.push(`defect ${base?.id ?? "unknown"} was deleted from the canonical ledger`);
+      continue;
+    }
+    if (!SEVERITY_RANK.has(base?.severity) || !SEVERITY_RANK.has(current?.severity)) {
+      problems.push(`defect ${base.id} has an invalid severity`);
+    } else if (SEVERITY_RANK.get(current.severity) < SEVERITY_RANK.get(base.severity)) {
+      problems.push(`defect ${base.id} cannot downgrade severity`);
+    }
+    if (CLOSED_DEFECT_STATUSES.has(base?.status) && CLOSED_DEFECT_STATUSES.has(current?.status)) {
+      for (const field of CLOSED_CONTENT_FIELDS) {
+        // Phase-zero bootstraps legacy closed rows that predate machine-bound
+        // provenance.  Introducing an absent provenance field is additive;
+        // once main carries it, every subsequent rewrite requires reopening.
+        const additiveLegacyProvenance =
+          (field === MAIN_VERIFICATION_COMMIT_FIELD || field === "mainVerificationPaths")
+          && base?.[field] === undefined;
+        if (!additiveLegacyProvenance && canonicalValue(base?.[field]) !== canonicalValue(current?.[field])) {
+          problems.push(`closed defect ${base.id} rewrites immutable ${field}; reopen it before changing closed evidence`);
+        }
+      }
+    }
+    if (!CLOSED_DEFECT_STATUSES.has(base?.status) && CLOSED_DEFECT_STATUSES.has(current?.status)) {
+      const paths = base?.verificationPaths;
+      const after = base?.closureAfterMainCommit;
+      if (!validVerificationPaths(paths) || typeof after !== "string" || !SHA_40.test(after)) {
+        problems.push(`defect ${base.id} closing transition requires immutable open-state verificationPaths and closureAfterMainCommit`);
+      } else {
+        const sha = current?.[MAIN_VERIFICATION_COMMIT_FIELD];
+        try {
+          if (typeof sha !== "string" || !SHA_40.test(sha)) throw new Error("invalid SHA");
+          execFileSync("git", ["merge-base", "--is-ancestor", sha, MAIN_REF], { cwd: REPO, stdio: "ignore" });
+          execFileSync("git", ["merge-base", "--is-ancestor", sha, ref], { cwd: REPO, stdio: "ignore" });
+          if (sha === after) throw new Error("not descendant");
+          execFileSync("git", ["merge-base", "--is-ancestor", after, sha], { cwd: REPO, stdio: "ignore" });
+          const changed = git("diff-tree", "--no-commit-id", "--name-only", "-r", sha).split("\n");
+          if (!paths.some((path) => changed.includes(path))) throw new Error("path mismatch");
+        } catch {
+          problems.push(`defect ${base.id} closing transition lacks a canonical-main verification commit touching mainVerificationPaths`);
+        }
+      }
+    }
+    if (base?.status === "open") {
+      for (const field of [...OPEN_EVIDENCE_FIELDS, ...OPEN_CORE_EVIDENCE_FIELDS]) {
+        if (canonicalValue(base?.[field]) !== canonicalValue(current?.[field])) {
+          problems.push(`open defect ${base.id} rewrites immutable ${field}`);
+        }
+      }
+    }
+    if (CLOSED_DEFECT_STATUSES.has(base?.status) && current?.status === "open") {
+      if (!validVerificationPaths(current.verificationPaths) || !isCurrentMainThreshold(current.closureAfterMainCommit) || !hasOpenCoreEvidence(current)) {
+        problems.push(`reopened defect ${base.id} requires complete open evidence, verificationPaths, and closureAfterMainCommit bound to current canonical main`);
+      }
+    }
+  }
+  const baselineIds = new Set(baselineEntries.map((entry) => entry?.id));
+  for (const entry of candidateEntries) {
+    if (baselineEntries.length > 0 && !baselineIds.has(entry?.id) && CLOSED_DEFECT_STATUSES.has(entry?.status)) {
+      problems.push(`new defect ${entry.id} cannot be introduced already ${entry.status}`);
+    }
+    if (!baselineIds.has(entry?.id) && entry?.status === "open") {
+      if (!validVerificationPaths(entry.verificationPaths) || !isCurrentMainThreshold(entry.closureAfterMainCommit) || !hasOpenCoreEvidence(entry)) {
+        problems.push(`new open defect ${entry.id} requires complete open evidence, verificationPaths, and closureAfterMainCommit bound to current canonical main`);
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * A defect is not closed by narrative alone. The ledger must bind that claim to
+ * the full, lowercase SHA of the commit whose verification ran from canonical
+ * main. Requiring it to be an ancestor of both main and the checked candidate
+ * prevents a branch-local (or free-form "pending commit") assertion from
+ * making the canonical state report a clean defect count.
+ */
+function findInvalidClosedDefectProvenance(ref) {
+  const ledger = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", ref);
+  if (!ledger) return [];
+  const entries = Array.isArray(ledger.defects)
+    ? ledger.defects
+    : Array.isArray(ledger.entries)
+      ? ledger.entries
+      : [];
+  const invalid = [];
+  for (const [index, entry] of entries.entries()) {
+    if (!CLOSED_DEFECT_STATUSES.has(entry?.status)) continue;
+    const id = entry?.id ?? entry?.defect_id ?? `index ${index}`;
+    const verificationCommit = entry?.[MAIN_VERIFICATION_COMMIT_FIELD];
+    const verificationPaths = entry?.mainVerificationPaths;
+    if (typeof verificationCommit !== "string" || !SHA_40.test(verificationCommit)) {
+      invalid.push(
+        `defect ${id} is ${entry.status} but lacks a valid ${MAIN_VERIFICATION_COMMIT_FIELD} (must be a lowercase full 40-character SHA; free-form or pending provenance is rejected)`,
+      );
+      continue;
+    }
+    if (!validVerificationPaths(verificationPaths)) {
+      invalid.push(
+        `defect ${id} is ${entry.status} but lacks non-empty exact mainVerificationPaths bound to the canonical-main verification commit`,
+      );
+      continue;
+    }
+    try {
+      git("rev-parse", "--verify", `${verificationCommit}^{commit}`);
+      execFileSync(
+        "git",
+        ["merge-base", "--is-ancestor", verificationCommit, MAIN_REF],
+        { cwd: REPO, stdio: "ignore" },
+      );
+      const changed = git("diff-tree", "--no-commit-id", "--name-only", "-r", verificationCommit).split("\n");
+      if (!verificationPaths.some((verificationPath) => changed.includes(verificationPath))) {
+        throw new Error("verification path not touched");
+      }
+      execFileSync(
+        "git",
+        ["merge-base", "--is-ancestor", verificationCommit, ref],
+        { cwd: REPO, stdio: "ignore" },
+      );
+    } catch {
+      invalid.push(
+        `defect ${id} is ${entry.status} but ${MAIN_VERIFICATION_COMMIT_FIELD} ${verificationCommit} is not a resolvable canonical-main ancestor of checked ref ${git("rev-parse", ref).slice(0, 8)}`,
+      );
+    }
+  }
+  return invalid;
 }
 
 const LOCAL_GATE_CONTRACT =
@@ -742,6 +946,9 @@ function detectDrift(state, checkTarget, previous) {
   if (!previous) {
     problems.push(`${GENERATED_JSON} is missing or invalid. Run: npm run state:derive`);
   }
+
+  problems.push(...findInvalidClosedDefectProvenance(checkTarget));
+  problems.push(...findDefectLedgerContinuityProblems(checkTarget));
 
   for (const stale of findStaleWaveStatuses(state, checkTarget)) {
     problems.push(
