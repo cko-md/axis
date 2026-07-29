@@ -9,7 +9,8 @@ const webServerCommand =
 // invocation also passes --forbid-only, so a future config refactor cannot
 // accidentally weaken either mandatory suite.
 const isCi = process.env.CI === "true" || process.env.CI === "1" || process.env.GITHUB_ACTIONS === "true";
-const authProjects = process.env.AXIS_E2E_AUTH
+const authenticatedE2e = Boolean(process.env.AXIS_E2E_AUTH);
+const authProjects = authenticatedE2e
   ? [
       {
         name: "auth-setup",
@@ -26,6 +27,11 @@ const authProjects = process.env.AXIS_E2E_AUTH
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // Authenticated specs share one ephemeral Supabase Auth instance and owner
+  // session. Serializing only that opt-in gate avoids concurrent getUser calls
+  // racing the local Auth service while leaving the public suite at Playwright's
+  // default parallelism.
+  ...(authenticatedE2e ? { workers: 1 } : {}),
   forbidOnly: isCi || process.env.AXIS_FORBID_FOCUSED_TESTS === "1",
   timeout: 30_000,
   expect: { timeout: 7_500 },
