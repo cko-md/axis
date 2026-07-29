@@ -40,6 +40,7 @@ import {
   validateOwnerMergeRepositoryIdentity,
   validateOwnerMergeRuleset,
   validateOwnerMergeSnapshotFreshness,
+  validateExactCompletedCiWorkflowRun,
   validatePullRequestReviewState,
 } from "../../../scripts/owner-merge-core.mjs";
 
@@ -278,6 +279,45 @@ function snapshot(admin = true) {
       name: "axis",
     }),
   };
+}
+
+function completedCiWorkflowRun(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 20,
+    workflow_id: 10,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request",
+    run_attempt: 1,
+    head_sha: HEAD,
+    repository: { id: 1 },
+    head_repository: { id: 1 },
+    status: "completed",
+    conclusion: "success",
+    // The workflow-run REST response does not populate completed_at. Jobs do.
+    completed_at: null,
+    updated_at: "2026-07-23T00:05:00Z",
+    pull_requests: [
+      {
+        number: 300,
+        head: { sha: HEAD },
+        base: { sha: BASE, ref: "main" },
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function validateCompletedCiWorkflowRun(run: Record<string, unknown>) {
+  return validateExactCompletedCiWorkflowRun({
+    run,
+    ciRunId: 20,
+    ciWorkflowId: 10,
+    ciRunAttempt: 1,
+    expectedHeadSha: HEAD,
+    repositoryId: 1,
+    prNumber: 300,
+    baseSha: BASE,
+  });
 }
 
 function verifiedSnapshot(value = snapshot()) {
@@ -1100,6 +1140,78 @@ describe("owner-controlled merge root", () => {
         currentTime: currentTime + 1,
       }),
     ).toThrow("CI job docs-currency completedAt is older than the 24-hour owner-merge evidence window");
+  });
+
+  it("uses only canonical workflow-run updated_at while retaining exact terminal run identity", () => {
+    const run = completedCiWorkflowRun();
+    expect(run.completed_at).toBeNull();
+    expect(validateCompletedCiWorkflowRun(run)).toBe(PREVIEW_READY_AT);
+    expect(
+      validateCompletedCiWorkflowRun(
+        completedCiWorkflowRun({ completed_at: "not-a-workflow-run-timestamp" }),
+      ),
+    ).toBe(PREVIEW_READY_AT);
+
+    const stale = snapshot();
+    const staleUpdatedAt = validateCompletedCiWorkflowRun(
+      completedCiWorkflowRun({ updated_at: "2026-07-22T00:05:00Z" }),
+    );
+    expect(staleUpdatedAt).toBeTypeOf("number");
+    if (typeof staleUpdatedAt !== "number") {
+      throw new Error("test fixture must yield a numeric workflow-run timestamp");
+    }
+    stale.ci.completedAt = staleUpdatedAt;
+    stale.ci.jobs = stale.ci.jobs.map((job) => ({
+      ...job,
+      completedAt: PREVIEW_READY_AT,
+    }));
+    stale.ci.sbom.createdAt = PREVIEW_READY_AT;
+    stale.vercel.readyAt = PREVIEW_READY_AT;
+    expect(() =>
+      validateOwnerMergeSnapshotFreshness({
+        snapshot: stale,
+        currentTime: stale.ci.completedAt + OWNER_MERGE_EVIDENCE_MAX_AGE_MS + 1,
+      }),
+    ).toThrow("CI run completedAt is older than the 24-hour owner-merge evidence window");
+
+    for (const updatedAt of [
+      undefined,
+      null,
+      "",
+      "not-a-timestamp",
+      "2026-02-30T00:05:00Z",
+      "2026-07-23T00:05:00+00:00",
+    ]) {
+      expect(() =>
+        validateCompletedCiWorkflowRun(
+          completedCiWorkflowRun({ updated_at: updatedAt }),
+        ),
+      ).toThrow(
+        "CI run is not the exact successful pull_request attempt for this base/head",
+      );
+    }
+
+    const wrongBase = completedCiWorkflowRun({
+      pull_requests: [
+        {
+          number: 300,
+          head: { sha: HEAD },
+          base: { sha: MERGED, ref: "main" },
+        },
+      ],
+    });
+    for (const invalidRun of [
+      completedCiWorkflowRun({ id: 21 }),
+      completedCiWorkflowRun({ run_attempt: 2 }),
+      completedCiWorkflowRun({ head_sha: BASE }),
+      completedCiWorkflowRun({ status: "in_progress" }),
+      completedCiWorkflowRun({ conclusion: "failure" }),
+      wrongBase,
+    ]) {
+      expect(() => validateCompletedCiWorkflowRun(invalidRun)).toThrow(
+        "CI run is not the exact successful pull_request attempt for this base/head",
+      );
+    }
   });
 
   it("accepts only byte-identical unchanged migration manifests or a strict protected-prefix append", () => {

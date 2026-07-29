@@ -1617,7 +1617,10 @@ function parseGitHubTimestamp(value) {
   ) {
     return null;
   }
+  const timestamp = Date.parse(value);
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) return null;
   return {
+    timestamp,
     secondKey:
       yearText +
       monthText +
@@ -2162,6 +2165,45 @@ export function validateRequiredCiCheckRuns({
   return normalized;
 }
 
+/**
+ * GitHub's workflow-run resource does not provide a usable completed_at
+ * timestamp. Its canonical terminal timestamp is updated_at; jobs retain
+ * their own completed_at checks.
+ */
+export function validateExactCompletedCiWorkflowRun({
+  run,
+  ciRunId,
+  ciWorkflowId,
+  ciRunAttempt,
+  expectedHeadSha,
+  repositoryId,
+  prNumber,
+  baseSha,
+}) {
+  const runPr = run?.pull_requests?.find((entry) => entry?.number === prNumber);
+  const runUpdatedAt = parseGitHubTimestamp(run?.updated_at)?.timestamp;
+  if (
+    run?.id !== ciRunId ||
+    run?.workflow_id !== ciWorkflowId ||
+    run?.path !== ".github/workflows/ci.yml" ||
+    run?.event !== "pull_request" ||
+    run?.run_attempt !== ciRunAttempt ||
+    run?.head_sha !== expectedHeadSha ||
+    run?.repository?.id !== repositoryId ||
+    run?.head_repository?.id !== repositoryId ||
+    run?.status !== "completed" ||
+    run?.conclusion !== "success" ||
+    typeof runUpdatedAt !== "number" ||
+    !Number.isSafeInteger(runUpdatedAt) ||
+    runPr?.head?.sha !== expectedHeadSha ||
+    runPr?.base?.sha !== baseSha ||
+    runPr?.base?.ref !== "main"
+  ) {
+    fail("CI run is not the exact successful pull_request attempt for this base/head");
+  }
+  return runUpdatedAt;
+}
+
 function latestCommitStatus(statuses, context) {
   const matches = statuses
     .filter((status) => status?.context === context)
@@ -2374,26 +2416,16 @@ export async function collectOwnerMergeSnapshot({
     fail("CI workflow numeric ID/path/state does not match the trusted contract");
   }
   const run = gh.get(`${gh.repoPath}/actions/runs/${ciRunId}`);
-  const runPr = run?.pull_requests?.find((entry) => entry?.number === prNumber);
-  const runCompletedAt = Date.parse(run?.completed_at);
-  if (
-    run?.id !== ciRunId ||
-    run?.workflow_id !== ciWorkflowId ||
-    run?.path !== ".github/workflows/ci.yml" ||
-    run?.event !== "pull_request" ||
-    run?.run_attempt !== ciRunAttempt ||
-    run?.head_sha !== expectedHeadSha ||
-    run?.repository?.id !== repositoryId ||
-    run?.head_repository?.id !== repositoryId ||
-    run?.status !== "completed" ||
-    run?.conclusion !== "success" ||
-    !Number.isFinite(runCompletedAt) ||
-    runPr?.head?.sha !== expectedHeadSha ||
-    runPr?.base?.sha !== baseSha ||
-    runPr?.base?.ref !== "main"
-  ) {
-    fail("CI run is not the exact successful pull_request attempt for this base/head");
-  }
+  const runCompletedAt = validateExactCompletedCiWorkflowRun({
+    run,
+    ciRunId,
+    ciWorkflowId,
+    ciRunAttempt,
+    expectedHeadSha,
+    repositoryId,
+    prNumber,
+    baseSha,
+  });
   if (!Number.isSafeInteger(run.check_suite_id) || run.check_suite_id <= 0) {
     fail("CI run check_suite_id must be a positive safe integer");
   }
