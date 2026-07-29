@@ -74,39 +74,127 @@ function ipv4Octets(address: string): number[] | null {
   return octets.some((part) => part > 255) ? null : octets;
 }
 
+type Ipv4Cidr = { bits: number; octets: readonly [number, number, number, number] };
+
+function matchesIpv4Cidr(octets: number[], cidr: Ipv4Cidr) {
+  const value = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+  const network = ((cidr.octets[0] << 24) | (cidr.octets[1] << 16) | (cidr.octets[2] << 8) | cidr.octets[3]) >>> 0;
+  const mask = cidr.bits === 0 ? 0 : (0xffffffff << (32 - cidr.bits)) >>> 0;
+  return (value & mask) === (network & mask);
+}
+
+// IANA IPv4 Special-Purpose Address Registry, snapshot 2025-10-09:
+// https://www.iana.org/assignments/iana-ipv4-special-registry/
+// More-specific globally reachable entries must win over a non-global parent.
+const IPV4_IANA_GLOBAL_EXCEPTIONS: readonly Ipv4Cidr[] = [
+  { bits: 32, octets: [192, 0, 0, 9] }, // PCP anycast
+  { bits: 32, octets: [192, 0, 0, 10] }, // TURN anycast
+  { bits: 24, octets: [192, 31, 196, 0] }, // AS112-v4
+  { bits: 24, octets: [192, 52, 193, 0] }, // AMT
+  { bits: 24, octets: [192, 175, 48, 0] }, // Direct Delegation AS112
+];
+
+const IPV4_NON_GLOBAL_CIDRS: readonly Ipv4Cidr[] = [
+  { bits: 8, octets: [0, 0, 0, 0] },
+  { bits: 8, octets: [10, 0, 0, 0] },
+  { bits: 10, octets: [100, 64, 0, 0] },
+  { bits: 8, octets: [127, 0, 0, 0] },
+  { bits: 16, octets: [169, 254, 0, 0] },
+  { bits: 12, octets: [172, 16, 0, 0] },
+  { bits: 24, octets: [192, 0, 0, 0] },
+  { bits: 24, octets: [192, 0, 2, 0] },
+  { bits: 24, octets: [192, 88, 99, 0] },
+  { bits: 16, octets: [192, 168, 0, 0] },
+  { bits: 15, octets: [198, 18, 0, 0] },
+  { bits: 24, octets: [198, 51, 100, 0] },
+  { bits: 24, octets: [203, 0, 113, 0] },
+  // IPv4 multicast plus the IANA reserved/limited-broadcast tail.
+  { bits: 4, octets: [224, 0, 0, 0] },
+  { bits: 4, octets: [240, 0, 0, 0] },
+];
+
 function isBlockedIPv4(address: string) {
   const octets = ipv4Octets(address);
   if (!octets) return true;
-  const [a, b, c, d] = octets;
-  return a === 0 || a === 10 || a === 127 || a >= 224
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 0 && c === 0 && (d <= 8 || d === 170 || d === 171))
-    || (a === 192 && b === 0 && c === 2)
-    || (a === 192 && b === 88 && c === 99)
-    || (a === 192 && b === 168)
-    || (a === 198 && (b === 18 || b === 19 || b === 51 && c === 100))
-    || (a === 203 && b === 0 && c === 113);
+  if (IPV4_IANA_GLOBAL_EXCEPTIONS.some((cidr) => matchesIpv4Cidr(octets, cidr))) return false;
+  return IPV4_NON_GLOBAL_CIDRS.some((cidr) => matchesIpv4Cidr(octets, cidr));
 }
 
 type Ipv6Cidr = { bits: number; words: number[] };
 
-const IPV6_BLOCKED_CIDRS: readonly Ipv6Cidr[] = [
-  // special/compatible/mapped, NAT64 well-known/local-use, discard-only
+// IANA IPv6 Special-Purpose Address Registry, snapshot 2025-10-09:
+// https://www.iana.org/assignments/iana-ipv6-special-registry/
+// These globally reachable, more-specific assignments override 2001::/23.
+const IPV6_IANA_GLOBAL_EXCEPTIONS: readonly Ipv6Cidr[] = [
+  { bits: 128, words: [0x2001, 1, 0, 0, 0, 0, 0, 1] }, // PCP anycast
+  { bits: 128, words: [0x2001, 1, 0, 0, 0, 0, 0, 2] }, // TURN anycast
+  { bits: 128, words: [0x2001, 1, 0, 0, 0, 0, 0, 3] }, // DNS-SD anycast
+  { bits: 32, words: [0x2001, 3, 0, 0, 0, 0, 0, 0] }, // AMT
+  { bits: 48, words: [0x2001, 4, 0x112, 0, 0, 0, 0, 0] }, // AS112-v6
+  { bits: 28, words: [0x2001, 0x20, 0, 0, 0, 0, 0, 0] }, // ORCHIDv2
+  { bits: 28, words: [0x2001, 0x30, 0, 0, 0, 0, 0, 0] }, // Drone DETs
+];
+
+const IPV6_NON_GLOBAL_CIDRS: readonly Ipv6Cidr[] = [
+  // Unspecified/compatible/mapped, local-use NAT64, discard, and dummy.
   { bits: 96, words: [0, 0, 0, 0, 0, 0, 0, 0] },
   { bits: 96, words: [0, 0, 0, 0, 0, 0xffff, 0, 0] },
-  { bits: 96, words: [0x64, 0xff9b, 0, 0, 0, 0, 0, 0] },
   { bits: 48, words: [0x64, 0xff9b, 1, 0, 0, 0, 0, 0] },
   { bits: 64, words: [0x100, 0, 0, 0, 0, 0, 0, 0] },
-  // Teredo, benchmarking, Orchid, documentation, 6to4, and retired 6bone.
-  { bits: 32, words: [0x2001, 0, 0, 0, 0, 0, 0, 0] },
-  { bits: 48, words: [0x2001, 2, 0, 0, 0, 0, 0, 0] },
+  { bits: 64, words: [0x100, 0, 0, 1, 0, 0, 0, 0] },
+  // IETF assignments are non-global unless a more-specific exception above
+  // says otherwise. This covers Teredo, benchmarking, and unassigned children.
+  { bits: 23, words: [0x2001, 0, 0, 0, 0, 0, 0, 0] },
   { bits: 28, words: [0x2001, 0x10, 0, 0, 0, 0, 0, 0] },
-  { bits: 28, words: [0x2001, 0x20, 0, 0, 0, 0, 0, 0] },
   { bits: 32, words: [0x2001, 0xdb8, 0, 0, 0, 0, 0, 0] },
   { bits: 16, words: [0x2002, 0, 0, 0, 0, 0, 0, 0] },
+  // Returned 6bone space and current documentation space.
   { bits: 16, words: [0x3ffe, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 20, words: [0x3fff, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 16, words: [0x5f00, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 7, words: [0xfc00, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 10, words: [0xfe80, 0, 0, 0, 0, 0, 0, 0] },
+];
+
+// IANA IPv6 Global Unicast Address Assignments, snapshot 2025-10-09:
+// https://www.iana.org/assignments/ipv6-unicast-address-assignments/
+// Fail closed for the rest of 2000::/3 because IANA marks it reserved for
+// future allocation. Broader entries below subsume their later child entries.
+const IPV6_ALLOCATED_GLOBAL_CIDRS: readonly Ipv6Cidr[] = [
+  { bits: 23, words: [0x2001, 0x200, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x400, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x600, 0, 0, 0, 0, 0, 0] },
+  { bits: 22, words: [0x2001, 0x800, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0xc00, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0xe00, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x1200, 0, 0, 0, 0, 0, 0] },
+  { bits: 22, words: [0x2001, 0x1400, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x1800, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x1a00, 0, 0, 0, 0, 0, 0] },
+  { bits: 22, words: [0x2001, 0x1c00, 0, 0, 0, 0, 0, 0] },
+  { bits: 19, words: [0x2001, 0x2000, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4000, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4200, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4400, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4600, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4800, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4a00, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2001, 0x4c00, 0, 0, 0, 0, 0, 0] },
+  { bits: 20, words: [0x2001, 0x5000, 0, 0, 0, 0, 0, 0] },
+  { bits: 19, words: [0x2001, 0x8000, 0, 0, 0, 0, 0, 0] },
+  { bits: 20, words: [0x2001, 0xa000, 0, 0, 0, 0, 0, 0] },
+  { bits: 20, words: [0x2001, 0xb000, 0, 0, 0, 0, 0, 0] },
+  { bits: 18, words: [0x2003, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2400, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2410, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2600, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2610, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 23, words: [0x2620, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2630, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2800, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2a00, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2a10, 0, 0, 0, 0, 0, 0, 0] },
+  { bits: 12, words: [0x2c00, 0, 0, 0, 0, 0, 0, 0] },
 ];
 
 function matchesIpv6Cidr(words: number[], cidr: Ipv6Cidr) {
@@ -127,15 +215,22 @@ function isBlockedIPv6(address: string) {
     `${words[start] >> 8}.${words[start] & 0xff}.${words[start + 1] >> 8}.${words[start + 1] & 0xff}`;
   const allZero = (endExclusive: number) => words.slice(0, endExclusive).every((word) => word === 0);
   // IPv4-compatible and IPv4-mapped addresses can arrive from DNS as hex
-  // words (e.g. ::ffff:7f00:1), not dotted text. Treat both representations
-  // exactly like their embedded IPv4 address.
-  if (allZero(6)) return isBlockedIPv4(embeddedV4(6));
-  if (allZero(5) && words[5] === 0xffff) return isBlockedIPv4(embeddedV4(6));
-  // Deny every non-global-unicast address, then carve the globally-routed
-  // special-purpose CIDRs above out as well. This word/CIDR table avoids the
-  // textual-prefix bypasses that occur when Node canonicalizes IPv6 literals.
-  if ((words[0] & 0xe000) !== 0x2000) return true;
-  return IPV6_BLOCKED_CIDRS.some((cidr) => matchesIpv6Cidr(words, cidr));
+  // words (e.g. ::ffff:7f00:1), not dotted text. IANA marks both parent
+  // prefixes non-global/reserved-by-protocol, so reject them regardless of
+  // whether their embedded IPv4 value would otherwise be public.
+  if (allZero(6)) return true;
+  if (allZero(5) && words[5] === 0xffff) return true;
+  // The well-known NAT64 prefix is globally reachable, but its embedded target
+  // still must pass the IPv4 policy or it becomes an IPv4 SSRF tunnel.
+  if (matchesIpv6Cidr(words, { bits: 96, words: [0x64, 0xff9b, 0, 0, 0, 0, 0, 0] })) {
+    return isBlockedIPv4(embeddedV4(6));
+  }
+  if (IPV6_IANA_GLOBAL_EXCEPTIONS.some((cidr) => matchesIpv6Cidr(words, cidr))) return false;
+  if (IPV6_NON_GLOBAL_CIDRS.some((cidr) => matchesIpv6Cidr(words, cidr))) return true;
+  // A syntactically global-unicast address is not necessarily allocated or
+  // globally reachable. The allocation allowlist makes future IANA space fail
+  // closed until this audited snapshot is updated.
+  return !IPV6_ALLOCATED_GLOBAL_CIDRS.some((cidr) => matchesIpv6Cidr(words, cidr));
 }
 
 function ipv6Words(address: string): number[] | null {
@@ -238,17 +333,27 @@ function sanitizedHeaders(input: HeadersInit | undefined): HeadersInit | undefin
   return allowed;
 }
 
-async function within<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function within<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
   try {
-    return await Promise.race([
+    if (signal?.aborted) throw new SafeFetchError("SAFE_FETCH_ABORTED");
+    const operations = [
       promise,
       new Promise<T>((_resolve, reject) => {
         timer = setTimeout(() => reject(new SafeFetchError("SAFE_FETCH_TIMEOUT")), timeoutMs);
       }),
-    ]);
+    ];
+    if (signal) {
+      operations.push(new Promise<T>((_resolve, reject) => {
+        abort = () => reject(new SafeFetchError("SAFE_FETCH_ABORTED"));
+        signal.addEventListener("abort", abort, { once: true });
+      }));
+    }
+    return await Promise.race(operations);
   } finally {
     if (timer) clearTimeout(timer);
+    if (abort) signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -338,7 +443,7 @@ export async function safeFetch(raw: string | URL, options: SafeFetchOptions = {
   for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new SafeFetchError("SAFE_FETCH_TIMEOUT");
-    const address = await within(resolvePublicAddress(url, resolve), remaining);
+    const address = await within(resolvePublicAddress(url, resolve), remaining, options.signal);
     let response: Response;
     try {
       response = await transport(url, { headers, timeoutMs: remaining, maxBodyBytes, address, signal: options.signal });

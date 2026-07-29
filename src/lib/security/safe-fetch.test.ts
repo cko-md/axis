@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import http from "node:http";
 import { networkInterfaces } from "node:os";
-import { SafeFetchError, pinnedSafeFetchTransport, safeFetch, safeFetchHttpStatus } from "./safe-fetch";
+import {
+  isBlockedAddress,
+  SafeFetchError,
+  pinnedSafeFetchTransport,
+  safeFetch,
+  safeFetchHttpStatus,
+} from "./safe-fetch";
 
 const hasIpv6Interface = Object.values(networkInterfaces()).flat().some((address) => address?.family === "IPv6");
 
@@ -66,7 +72,95 @@ describe("safeFetch", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it.each(["192.0.0.9", "192.0.1.1"])('permits public 192.0.x address %s', async (address) => {
+  it.each([
+    "192.0.0.0",
+    "192.0.0.8",
+    "192.0.0.11",
+    "192.0.0.169",
+    "192.0.0.170",
+    "192.0.0.171",
+    "192.0.0.255",
+    "192.88.99.0",
+    "192.88.99.255",
+    "198.18.0.0",
+    "198.19.255.255",
+  ])("classifies IPv4 IANA boundary %s as blocked", (address) => {
+    expect(isBlockedAddress(address)).toBe(true);
+  });
+
+  it.each([
+    "192.0.0.9",
+    "192.0.0.10",
+    "192.0.1.1",
+    "192.31.196.1",
+    "192.52.193.1",
+    "192.175.48.1",
+    "198.17.255.255",
+    "198.20.0.0",
+  ])("keeps IANA globally reachable IPv4 exception %s public", (address) => {
+    expect(isBlockedAddress(address)).toBe(false);
+  });
+
+  it.each([
+    "2001::",
+    "2001:1::",
+    "2001:1::4",
+    "2001:1:ffff:ffff:ffff:ffff:ffff:ffff",
+    "2001:2::",
+    "2001:4:111:ffff:ffff:ffff:ffff:ffff",
+    "2001:4:113::",
+    "2001:db8::",
+    "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
+    "2002::",
+    "2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+    "3000::1",
+    "3ffe:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+    "3fff::",
+    "3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff",
+    "3fff:1000::",
+    "5f00::1",
+    "100:0:0:1::1",
+  ])("classifies IPv6 IANA reserved boundary %s as blocked", (address) => {
+    expect(isBlockedAddress(address)).toBe(true);
+  });
+
+  it.each([
+    "64:ff9b::808:808",
+    "2001:1::1",
+    "2001:1::2",
+    "2001:1::3",
+    "2001:3::1",
+    "2001:4:112::1",
+    "2001:20::1",
+    "2001:30::1",
+    "2001:4860:4860::8888",
+    "2410::1",
+    "2606:4700:4700::1111",
+    "2610::1",
+    "2620:4f:8000::1",
+    "2630::1",
+    "2a10::1",
+    "2c00::1",
+  ])("keeps IANA globally reachable IPv6 allocation %s public", (address) => {
+    expect(isBlockedAddress(address)).toBe(false);
+  });
+
+  it.each([
+    "64:ff9b::7f00:1",
+    "64:ff9b::a00:1",
+  ])("applies IPv4 policy through globally reachable NAT64 address %s", (address) => {
+    expect(isBlockedAddress(address)).toBe(true);
+  });
+
+  it.each([
+    "::8.8.8.8",
+    "::ffff:8.8.8.8",
+    "::ffff:127.0.0.1",
+  ])("rejects non-global IPv4-compatible/mapped IPv6 address %s", (address) => {
+    expect(isBlockedAddress(address)).toBe(true);
+  });
+
+  it.each(["192.0.0.9", "192.0.0.10", "192.0.1.1"])('permits public 192.0.x address %s', async (address) => {
     const transport = vi.fn(async () => new Response("ok"));
     await expect(safeFetch("https://public.example/article", {}, {
       resolve: async () => [{ address, family: 4 }],
@@ -173,6 +267,23 @@ describe("safeFetch", () => {
     await expect(safeFetch("https://slow.example", { timeoutMs: 10 }, {
       resolve: async () => new Promise(() => undefined),
     })).rejects.toMatchObject({ code: "SAFE_FETCH_TIMEOUT" });
+  });
+
+  it("honors caller abort while DNS resolution is still pending", async () => {
+    const controller = new AbortController();
+    const transport = vi.fn();
+    const operation = safeFetch("https://slow.example", {
+      timeoutMs: 1_000,
+      signal: controller.signal,
+    }, {
+      resolve: async () => new Promise(() => undefined),
+      transport,
+    });
+
+    controller.abort();
+
+    await expect(operation).rejects.toMatchObject({ code: "SAFE_FETCH_ABORTED" });
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it("rejects an oversized declared body before any consumer can read it", async () => {
