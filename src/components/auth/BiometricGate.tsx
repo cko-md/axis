@@ -6,6 +6,17 @@ import BiometricPrompt from './BiometricPrompt';
 import { usePasskey } from '@/hooks/usePasskey';
 import { useToast } from '@/components/ui/Toast';
 
+function isMfaAssuranceDeferral(payload: unknown) {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
+  const entries = Object.entries(payload);
+  const body = payload as { error?: unknown; message?: unknown };
+  return (
+    entries.length === 2
+    && body.error === 'MFA_REQUIRED'
+    && body.message === 'Complete two-factor authentication to continue.'
+  );
+}
+
 export default function BiometricGate() {
   const [show, setShow] = useState(false);
   const { isSupported, register } = usePasskey();
@@ -24,6 +35,11 @@ export default function BiometricGate() {
         const response = await fetch('/api/auth/settings', { signal: controller.signal });
         responseStatus = response.status;
         if (!alive || response.status === 401) return;
+        if (response.status === 403) {
+          const payload: unknown = await response.json();
+          if (isMfaAssuranceDeferral(payload)) return;
+          throw new Error('Settings request was forbidden');
+        }
         if (!response.ok) throw new Error(`Settings request failed (${response.status})`);
 
         const settings: unknown = await response.json();

@@ -126,6 +126,46 @@ describe('BiometricGate settings lookup', () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
+  it('defers silently for the exact middleware MFA assurance response', async () => {
+    mocks.fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: vi.fn().mockResolvedValue({
+        error: 'MFA_REQUIRED',
+        message: 'Complete two-factor authentication to continue.',
+      }),
+    } satisfies SettingsResponse);
+
+    act(() => root?.render(<BiometricGate />));
+    await act(flushPromises);
+
+    expect(mocks.captureException).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it('reports a hostile 403 payload instead of treating it as an MFA deferral', async () => {
+    mocks.fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: vi.fn().mockResolvedValue({ error: 'MFA_REQUIRED', message: 'untrusted' }),
+    } satisfies SettingsResponse);
+
+    act(() => root?.render(<BiometricGate />));
+    await act(flushPromises);
+
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Biometric setup settings lookup failed' }),
+      expect.objectContaining({
+        tags: expect.objectContaining({ status: '403', error_type: 'Error' }),
+      }),
+    );
+    expect(mocks.toast).toHaveBeenCalledWith(
+      'Could not check passkey setup. Please try again.',
+      'error',
+      'Security',
+    );
+  });
+
   it('reports a malformed successful settings response instead of silently hiding the prompt', async () => {
     mocks.fetch.mockResolvedValueOnce({
       ok: true,
