@@ -44,6 +44,9 @@ const root = process.cwd();
 const migrationDirectory = join(root, "supabase", "migrations");
 const manifestPath = join(root, "scripts", "release-migration-manifest.json");
 const BOOTSTRAP_PROTECTED_BASE = "44be089b";
+// Candidate-governance fixtures commit, fetch, merge, and inspect separate
+// repositories. Keep their budget scoped to these hostile multiprocess cases.
+const MULTIPROCESS_GIT_FIXTURE_TIMEOUT_MS = 20_000;
 
 function validateCandidateReleaseGovernance(args: {
   baseRoot: string;
@@ -879,7 +882,7 @@ describe("GitHub Action provenance", () => {
   });
 });
 
-describe("trusted pull-request release governance", () => {
+describe("trusted pull-request release governance", { timeout: MULTIPROCESS_GIT_FIXTURE_TIMEOUT_MS }, () => {
   it("keeps the committed pull_request_target workflow closed to candidate execution", () => {
     const content = readFileSync(
       join(root, ".github", "workflows", "release-governance.yml"),

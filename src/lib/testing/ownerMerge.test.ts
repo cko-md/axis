@@ -45,6 +45,9 @@ import {
 
 const root = resolve(import.meta.dirname, "../../..");
 const temporaryDirectories: string[] = [];
+// This hostile path proves ancestry using multiple local Git repositories and
+// a full fetch; it needs a scoped budget under file-parallel CI contention.
+const MULTIPROCESS_GIT_FIXTURE_TIMEOUT_MS = 20_000;
 const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
 const MERGED = "3".repeat(40);
@@ -517,7 +520,7 @@ afterEach(async () => {
 });
 
 describe("owner-controlled merge root", () => {
-  it("materializes full candidate ancestry instead of a depth-one provenance blind spot", () => {
+  it("materializes full candidate ancestry instead of a depth-one provenance blind spot", { timeout: MULTIPROCESS_GIT_FIXTURE_TIMEOUT_MS }, () => {
     const repository = temp("axis-owner-merge-history-");
     const git = (...args: string[]) =>
       execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
