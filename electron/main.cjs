@@ -8,7 +8,6 @@ const {
   crashReporter,
   dialog,
   ipcMain,
-  nativeImage,
   session,
   shell,
 } = require("electron");
@@ -1480,9 +1479,6 @@ app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient("axis");
   } else if (process.argv[1]) {
     app.setAsDefaultProtocolClient("axis", process.execPath, [path.resolve(process.argv[1])]);
-  }
-  if (process.platform === "darwin" && app.dock && !nativeImage.createFromPath(appIconPath).isEmpty()) {
-    app.dock.setIcon(appIconPath);
   }
   await configureBrowserSession();
   registerIpc();
