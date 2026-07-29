@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { heuristicCapture } from "@/lib/ai/capture";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } from "../_lib";
 
@@ -9,7 +10,7 @@ import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } f
  * POST /api/spotify/focus { prompt: string, create?: boolean }
  *
  * Flow:
- *  1. Ask /api/ai {mode:"capture"} to distill the prompt into a label + action (reused, not edited).
+ *  1. Distill the prompt locally into a safe label.
  *  2. Derive seed terms, search Spotify for matching tracks/artists.
  *  3. Use Spotify recommendations seeded by those artists to assemble a track set.
  *  4. If create=true, build a private playlist and add the tracks; else just return the set to queue.
@@ -25,22 +26,11 @@ export async function POST(req: Request) {
   const { prompt, create } = (await req.json()) as { prompt: string; create?: boolean };
   if (!prompt?.trim()) return NextResponse.json({ error: "prompt required" }, { status: 400 });
 
-  // 1. Distill intent via the existing AI route (graceful: heuristic if no key).
-  let label = "Focus";
-  try {
-    const origin = new URL(req.url).origin;
-    const aiRes = await fetch(`${origin}/api/ai`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "capture", text: prompt }),
-    });
-    if (aiRes.ok) {
-      const ai = await aiRes.json();
-      if (ai?.label) label = String(ai.label);
-    }
-  } catch {
-    /* fall through with default label */
-  }
+  // Do not derive an internal URL from the request Host or forward a request
+  // back into this server. The deterministic capture heuristic is the same
+  // graceful fallback used by the AI route and keeps playlist construction
+  // independent of hostile proxy headers.
+  const label = heuristicCapture(prompt).label || "Focus";
 
   // 2. Search Spotify using the user's prompt + the AI label as queries.
   const queries = [prompt, label].filter(Boolean);

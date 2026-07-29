@@ -37,9 +37,11 @@ describe("untrusted outbound fetch surfaces", () => {
     expect(youtube).toMatch(/allowedHosts: \["www\.youtube\.com"\]/);
   });
 
-  it("pins each connection to its checked DNS address", async () => {
+  it("pins each connection to its checked DNS address without rewriting IPv6 URL hostnames", async () => {
     const source = await readFile(path.join(root, "src/lib/security/safe-fetch.ts"), "utf8");
-    expect(source).toMatch(/pinnedUrl\.hostname = pinnedAddress/);
+    expect(source).toMatch(/hostname: pinnedAddress/);
+    expect(source).toMatch(/family: input\.address\.family/);
+    expect(source).not.toMatch(/pinnedUrl\.hostname = pinnedAddress/);
     expect(source).toMatch(/servername: url\.hostname/);
     expect(source).toMatch(/redirects <= maxRedirects/);
   });
