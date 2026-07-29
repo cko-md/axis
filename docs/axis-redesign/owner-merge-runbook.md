@@ -113,7 +113,11 @@ adversarial review.
    a genuinely shallow remote rather than a local-path fetch that ignores
    `--depth`, a synthetic pull-request merge when CI checks `HEAD^2`, or a
    post-squash state-refresh branch when that is the production workflow.
-   A fixture that bypasses the failing boundary is not evidence.
+   A fixture that bypasses the failing boundary is not evidence. Treat
+   mutative Git/database fixture initializers as one-shot: apply the intended
+   mutation first, initialize once, and never derive/fetch/merge the same
+   disposable state a second time unless idempotency is the behavior under
+   test.
 2. **Keep roles separate.** The implementation owner may run focused and full
    checks, but a different agent/operator performs the final read-only review.
    An unresolved P0, P1, or P2 finding is a merge blocker until reproduced,
