@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import http from "node:http";
+import { networkInterfaces } from "node:os";
 import { SafeFetchError, pinnedSafeFetchTransport, safeFetch, safeFetchHttpStatus } from "./safe-fetch";
+
+const hasIpv6Interface = Object.values(networkInterfaces()).flat().some((address) => address?.family === "IPv6");
 
 describe("safeFetch", () => {
   it("refuses a DNS-resolved loopback target before the transport is invoked", async () => {
@@ -150,6 +153,22 @@ describe("safeFetch", () => {
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a YouTube caption fetch on the allowed host across a hostile redirect", async () => {
+    const transport = vi.fn(async () => new Response(null, {
+      status: 302,
+      headers: { location: "http://127.0.0.1/caption?token=never" },
+    }));
+
+    await expect(safeFetch("https://www.youtube.com/api/timedtext?fmt=json3", {
+      allowedHosts: ["www.youtube.com"],
+    }, {
+      resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+      transport,
+    })).rejects.toMatchObject({ code: "SAFE_FETCH_BLOCKED_HOST" });
+
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
   it("enforces the total deadline while DNS is still pending", async () => {
     await expect(safeFetch("https://slow.example", { timeoutMs: 10 }, {
       resolve: async () => new Promise(() => undefined),
@@ -178,6 +197,43 @@ describe("safeFetch", () => {
       expect(internalHits).toBe(0);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it.skipIf(!hasIpv6Interface)("pins a public hostname to an IPv6 socket without a second DNS lookup", async () => {
+    let requestHost = "";
+    let socketAddress = "";
+    const server = http.createServer((req, res) => {
+      requestHost = req.headers.host ?? "";
+      socketAddress = req.socket.remoteAddress ?? "";
+      res.end("IPV6_PINNED");
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "::1", () => resolve());
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("IPv6 test server did not bind");
+
+      // The original hostname is intentionally unresolvable. The old
+      // `URL.hostname = "::1"` transport leaves it in place, so it cannot
+      // reach this server. A pinned request must use ::1 directly while
+      // preserving the original Host header for virtual-host correctness.
+      const response = await pinnedSafeFetchTransport(new URL(`http://safe-fetch.invalid:${address.port}/ipv6`), {
+        headers: undefined,
+        timeoutMs: 500,
+        maxBodyBytes: 32,
+        address: { address: "::1", family: 6 },
+      });
+
+      expect(await response.text()).toBe("IPV6_PINNED");
+      expect(requestHost).toBe(`safe-fetch.invalid:${address.port}`);
+      expect(socketAddress).toBe("::1");
+    } finally {
+      if (server.listening) {
+        await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      }
     }
   });
 

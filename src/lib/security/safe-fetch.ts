@@ -269,9 +269,17 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
   // it up again. Retain the original Host/SNI identity so virtual hosts and
   // HTTPS certificate validation behave like the validated URL.
   const pinnedAddress = input.address.address;
-  const pinnedUrl = new URL(url.href);
-  pinnedUrl.hostname = pinnedAddress;
-  const request = client.request(pinnedUrl, {
+  // Do not rewrite URL.hostname here. In particular, assigning a raw IPv6
+  // literal to URL.hostname produces a malformed authority on supported Node
+  // versions. Explicit request options also make the no-second-lookup
+  // guarantee inspectable: the socket destination is the checked address,
+  // while Host and SNI retain the original URL identity.
+  const request = client.request({
+    protocol: url.protocol,
+    hostname: pinnedAddress,
+    family: input.address.family,
+    port: url.port || undefined,
+    path: `${url.pathname}${url.search}`,
     method: "GET",
     headers: { ...Object.fromEntries(new Headers(input.headers).entries()), host: url.host },
     servername: url.hostname,
