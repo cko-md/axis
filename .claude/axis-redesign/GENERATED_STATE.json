@@ -1,12 +1,24 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-29T21:02:58.683Z",
+  "derivedAt": "2026-07-29T22:10:31.164Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "5331da141ce7ff9150ce93aede3bc7c5c6ce8508",
+    "head": "433f76d886579981d77cd4b263fb6462deb061a5",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "433f76d8",
+        "subject": "docs(governance): record workflow completion contract"
+      },
+      {
+        "sha": "b6663169",
+        "subject": "fix(governance): use workflow run updated timestamp"
+      },
+      {
+        "sha": "5f1eac79",
+        "subject": "docs(state): bind multiprocess fixture gates"
+      },
       {
         "sha": "5331da14",
         "subject": "test(governance): budget multiprocess fixtures"
@@ -164,9 +176,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "61e750b9ff93420ee1e9ed954fe565110a2a42b9d27464a9dcd324b0bd1c4b2c",
+    "contentTreeHash": "ebf866e177b15a86b513aa05b58bb45fa3d452fe2564cdcff4980c65d43f180c",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "b9b6f1dc2aa0a55d2dcb3e1c9e2b108cbb521e400cad26573c69286265b53a1b"
+    "fingerprint": "ed3d400c581a983ac2e80954038f81e9e1ff2f9abed747ddfd005834dbadf7c6"
   },
   "mergedPrs": [
     {
@@ -479,8 +491,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "5331da141ce7ff9150ce93aede3bc7c5c6ce8508",
-    "sourceContentTreeHash": "61e750b9ff93420ee1e9ed954fe565110a2a42b9d27464a9dcd324b0bd1c4b2c",
+    "sourceHead": "433f76d886579981d77cd4b263fb6462deb061a5",
+    "sourceContentTreeHash": "ebf866e177b15a86b513aa05b58bb45fa3d452fe2564cdcff4980c65d43f180c",
     "typecheck": {
       "passed": true
     },
@@ -488,8 +500,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 1990,
-      "total": 1990,
+      "passed": 1991,
+      "total": 1991,
       "files": 231,
       "suites": 673
     },
@@ -505,6 +517,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-29T21:02:58.555Z"
+    "measuredAt": "2026-07-29T22:10:30.928Z"
   }
 }
