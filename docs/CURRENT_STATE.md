@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `afaee585b6a2b8cf9952dea471c37ca9d6142b4b230c7f8b7b0a5081fadb4c82` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `6b29804ced1f16893c8c89bdecdadf34e66869fb4898604547d3f517597fa29c`
+- **State fingerprint:** `745f82b5f01738fb9a0fbdb03d394ef3f651a9992d892b604e38e9086d2e3617` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `aa142d2822d5915a241cf7638ab56fe8109142dd87aac12ae9d44c6bdb78d1b6`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,15 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-00-governance-bootstrap`
-- **HEAD:** `b090ff3b`
+- **HEAD:** `ea543c18`
 - **main:** `44be089b`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (31 commit(s))
+### Ahead of source main at derivation (34 commit(s))
 
+- `ea543c18` docs(governance): record one-shot fixture discipline
+- `c837f585` test(governance): initialize mutation fixtures once
+- `e4a8557c` docs(state): bind post-squash governance gates
 - `b090ff3b` docs(governance): persist exact-candidate discipline
 - `0c062f76` fix(governance): preserve proven post-squash state
 - `02ac210f` docs(state): bind authenticated gate determinism
@@ -113,9 +116,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 1985/1985 across 230 files
 - **Bundle:** 4287 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `b090ff3b`
-- **Measured content tree:** `6b29804ced1f16893c8c89bdecdadf34e66869fb4898604547d3f517597fa29c`
-- **Measured at:** 2026-07-29T18:26:57.012Z
+- **Measured source:** `ea543c18`
+- **Measured content tree:** `aa142d2822d5915a241cf7638ab56fe8109142dd87aac12ae9d44c6bdb78d1b6`
+- **Measured at:** 2026-07-29T19:10:54.572Z
 
 <!-- END GENERATED: derive-program-state -->
 

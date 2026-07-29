@@ -1,12 +1,24 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-29T18:26:57.122Z",
+  "derivedAt": "2026-07-29T19:10:54.721Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "b090ff3b2777386d6021009928cba062d764548a",
+    "head": "ea543c1843df35821c1d0ba667348230b683da5c",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "ea543c18",
+        "subject": "docs(governance): record one-shot fixture discipline"
+      },
+      {
+        "sha": "c837f585",
+        "subject": "test(governance): initialize mutation fixtures once"
+      },
+      {
+        "sha": "e4a8557c",
+        "subject": "docs(state): bind post-squash governance gates"
+      },
       {
         "sha": "b090ff3b",
         "subject": "docs(governance): persist exact-candidate discipline"
@@ -132,9 +144,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "6b29804ced1f16893c8c89bdecdadf34e66869fb4898604547d3f517597fa29c",
+    "contentTreeHash": "aa142d2822d5915a241cf7638ab56fe8109142dd87aac12ae9d44c6bdb78d1b6",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "afaee585b6a2b8cf9952dea471c37ca9d6142b4b230c7f8b7b0a5081fadb4c82"
+    "fingerprint": "745f82b5f01738fb9a0fbdb03d394ef3f651a9992d892b604e38e9086d2e3617"
   },
   "mergedPrs": [
     {
@@ -447,8 +459,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "b090ff3b2777386d6021009928cba062d764548a",
-    "sourceContentTreeHash": "6b29804ced1f16893c8c89bdecdadf34e66869fb4898604547d3f517597fa29c",
+    "sourceHead": "ea543c1843df35821c1d0ba667348230b683da5c",
+    "sourceContentTreeHash": "aa142d2822d5915a241cf7638ab56fe8109142dd87aac12ae9d44c6bdb78d1b6",
     "typecheck": {
       "passed": true
     },
@@ -473,6 +485,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-29T18:26:57.012Z"
+    "measuredAt": "2026-07-29T19:10:54.572Z"
   }
 }
