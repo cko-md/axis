@@ -22,8 +22,11 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import {
+  collectMigrationEntries,
+  loadMigrationBaselineFromDirectory,
   TRUSTED_CONTROL_BOOTSTRAP_FILES,
   validateCandidateReleaseGovernance,
+  validateMigrationManifest,
 } from "./release-validation-core.mjs";
 import ownerMergeRulesetPayload from "./owner-merge-ruleset.json" with {
   type: "json",
@@ -811,28 +814,32 @@ export function loadAndValidateOwnerEvidence({
     "expected candidate migration validation",
   );
   const migration = assertObject(evidence.migrationValidation, "migration-validation evidence");
+  const bootstrapManifest = expectedMigration.kind === "bootstrap-manifest";
   const expectedMigrationKeys = [
     "kind",
-    "baseManifestSha256",
+    bootstrapManifest ? "baseMigrationTreeSha256" : "baseManifestSha256",
     "candidateManifestSha256",
     "baseVersions",
     "candidateVersions",
     "appendedVersions",
   ];
   assertOnlyKeys(expectedMigration, expectedMigrationKeys, "expected candidate migration validation");
-  const baseManifestSha256 = assertSha256(
-    migration.baseManifestSha256,
-    "migrationValidation.baseManifestSha256",
+  const baseDigestKey = bootstrapManifest
+    ? "baseMigrationTreeSha256"
+    : "baseManifestSha256";
+  const baseBaselineSha256 = assertSha256(
+    migration[baseDigestKey],
+    `migrationValidation.${baseDigestKey}`,
   );
   const candidateManifestSha256 = assertSha256(
     migration.candidateManifestSha256,
     "migrationValidation.candidateManifestSha256",
   );
   if (
-    baseManifestSha256 !== expectedMigration.baseManifestSha256 ||
+    baseBaselineSha256 !== expectedMigration[baseDigestKey] ||
     candidateManifestSha256 !== expectedMigration.candidateManifestSha256
   ) {
-    fail("migration-validation evidence is not bound to the exact protected/candidate migration manifests");
+    fail("migration-validation evidence is not bound to the exact protected baseline and candidate manifest");
   }
   const sameVersions = (left, right) =>
     Array.isArray(left) && Array.isArray(right) && left.length === right.length &&
@@ -845,6 +852,15 @@ export function loadAndValidateOwnerEvidence({
     );
     if (migration.kind !== "no-migration-delta") {
       fail("migration-validation evidence must declare no-migration-delta for an unchanged manifest");
+    }
+  } else if (expectedMigration.kind === "bootstrap-manifest") {
+    assertOnlyKeys(
+      migration,
+      ["kind", "baseMigrationTreeSha256", "candidateManifestSha256"],
+      "migration-validation evidence",
+    );
+    if (migration.kind !== "bootstrap-manifest") {
+      fail("migration-validation evidence must declare bootstrap-manifest for a historical-tree baseline");
     }
   } else if (expectedMigration.kind === "migration-append") {
     assertOnlyKeys(
@@ -1038,7 +1054,9 @@ export function loadAndValidateOwnerEvidence({
     },
     migrationValidation: {
       kind: migration.kind,
-      baseManifestSha256,
+      ...(bootstrapManifest
+        ? { baseMigrationTreeSha256: baseBaselineSha256 }
+        : { baseManifestSha256: baseBaselineSha256 }),
       candidateManifestSha256,
       artifacts: migration.artifacts,
     },
@@ -2331,7 +2349,11 @@ function materializeGitRevision({ owner, name, sha, label }) {
   return { temp, tree };
 }
 
-export function describeOwnerMergeMigrationDelta(baseRoot, candidateRoot) {
+export function describeOwnerMergeMigrationDelta(
+  baseRoot,
+  candidateRoot,
+  { allowHistoricalTreeBootstrap = false } = {},
+) {
   const manifestPath = "scripts/release-migration-manifest.json";
   const readManifest = (root, label) => {
     const raw = readRegularFile(join(root, manifestPath), `${label} migration manifest`);
@@ -2350,9 +2372,36 @@ export function describeOwnerMergeMigrationDelta(baseRoot, candidateRoot) {
       }
       return entry.version;
     });
-    return { digest: sha256(raw), versions };
+    const migrations = collectMigrationEntries(join(root, "supabase", "migrations"));
+    const errors = validateMigrationManifest(manifest, migrations);
+    if (errors.length > 0) {
+      fail(`${label} migration manifest does not match its migration tree: ${errors.join("; ")}`);
+    }
+    return { digest: sha256(raw), manifest, versions };
   };
-  const base = readManifest(baseRoot, "base");
+  const baseBaseline = loadMigrationBaselineFromDirectory(baseRoot);
+  const base = baseBaseline.sourceKind === "manifest"
+    ? readManifest(baseRoot, "base")
+    : (() => {
+        if (!allowHistoricalTreeBootstrap) {
+          fail(
+            "base migration manifest is missing; historical migration-tree baselines are allowed only during the one-time bootstrap",
+          );
+        }
+        const manifest = baseBaseline.manifest;
+        return {
+          // This is a digest of the deterministic ledger reconstructed from the
+          // exact materialized protected-base tree. It never reads candidate
+          // bytes, so the first manifest cannot forge its own baseline.
+          digest: sha256(canonicalJson(manifest)),
+          manifest,
+          versions: manifest.migrations.map((entry) => entry.version),
+          sourceKind: "migration-tree",
+        };
+      })();
+  if (baseBaseline.sourceKind === "manifest") {
+    base.sourceKind = "manifest";
+  }
   const candidate = readManifest(candidateRoot, "candidate");
   const protectedPrefixIsUnchanged =
     candidate.versions.length >= base.versions.length &&
@@ -2365,12 +2414,28 @@ export function describeOwnerMergeMigrationDelta(baseRoot, candidateRoot) {
     appendedVersions.length === 0 &&
     candidate.versions.length === base.versions.length &&
     candidate.versions.every((version, index) => version === base.versions[index]);
-  if (sameVersions && base.digest !== candidate.digest) {
+  if (
+    sameVersions &&
+    base.sourceKind === "manifest" &&
+    base.digest !== candidate.digest
+  ) {
     fail("candidate has no migration delta but its release migration manifest is not byte-for-byte identical to protected main");
   }
+  if (base.sourceKind === "migration-tree" && appendedVersions.length > 0) {
+    fail(
+      "bootstrap candidate must introduce the first release manifest without appending migrations",
+    );
+  }
   return {
-    kind: sameVersions ? "no-migration-delta" : "migration-append",
-    baseManifestSha256: base.digest,
+    kind:
+      base.sourceKind === "migration-tree"
+        ? "bootstrap-manifest"
+        : sameVersions
+          ? "no-migration-delta"
+          : "migration-append",
+    ...(base.sourceKind === "migration-tree"
+      ? { baseMigrationTreeSha256: base.digest }
+      : { baseManifestSha256: base.digest }),
     candidateManifestSha256: candidate.digest,
     baseVersions: base.versions,
     candidateVersions: candidate.versions,
@@ -2427,7 +2492,9 @@ export function validateCandidateAsInertData({
       baseSha,
       headSha,
       passed: true,
-      migrationValidation: describeOwnerMergeMigrationDelta(base.tree, candidate.tree),
+      migrationValidation: describeOwnerMergeMigrationDelta(base.tree, candidate.tree, {
+        allowHistoricalTreeBootstrap: bootstrap,
+      }),
     };
   } finally {
     rmSync(candidate.temp, { recursive: true, force: true });

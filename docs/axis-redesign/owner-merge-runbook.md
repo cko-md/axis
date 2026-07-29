@@ -169,6 +169,15 @@ than editing its timestamp or reusing a prior PR's result.
 it records `kind: "no-migration-delta"` and the SHA-256 of both manifests; the
 trusted executor independently requires those manifest bytes to be identical.
 
+The one-time control-plane bootstrap is intentionally distinct: it records
+`kind: "bootstrap-manifest"`, `baseMigrationTreeSha256`, and
+`candidateManifestSha256`. The base digest is the canonical ledger derived
+solely from the exact materialized protected migration tree, because that
+historical commit predates any manifest. The bootstrap candidate may not append
+migrations; its new manifest must exactly describe that protected ledger and
+its own tree. Once a base manifest exists, this exception is unavailable and
+the normal byte-identical manifest rule resumes.
+
 For a strict append, use `kind: "migration-append"`. The evidence must bind a
 single Supabase `projectRef` to its derived `db.<projectRef>.supabase.co` host;
 include hash-bound, timestamped command output for the complete remote

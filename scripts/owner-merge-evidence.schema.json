@@ -139,6 +139,16 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["kind", "baseMigrationTreeSha256", "candidateManifestSha256"],
+          "properties": {
+            "kind": { "const": "bootstrap-manifest" },
+            "baseMigrationTreeSha256": { "$ref": "#/$defs/sha256" },
+            "candidateManifestSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["kind", "baseManifestSha256", "candidateManifestSha256", "target", "remoteBefore", "remoteAfter", "application", "rlsVerification", "tembo"],
           "properties": {
             "kind": { "const": "migration-append" },

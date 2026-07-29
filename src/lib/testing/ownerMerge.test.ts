@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -56,7 +57,8 @@ type MergeExecutionContext = {
 };
 type MutableMigrationEvidence = {
   kind: string;
-  baseManifestSha256: string;
+  baseManifestSha256?: string;
+  baseMigrationTreeSha256?: string;
   candidateManifestSha256: string;
   target?: { provider: string; projectRef: string; databaseHost: string };
   remoteBefore?: { versions: string[]; capturedAt: string; artifact: { path: string; sha256: string } };
@@ -536,6 +538,22 @@ describe("owner-controlled merge root", () => {
         previewCreatedAt?: number;
         previewReadyAt?: number;
       } = {},
+      migrationValidation: {
+        kind: string;
+        baseManifestSha256?: string;
+        baseMigrationTreeSha256?: string;
+        candidateManifestSha256: string;
+        baseVersions: string[];
+        candidateVersions: string[];
+        appendedVersions: string[];
+      } = {
+        kind: "no-migration-delta",
+        baseManifestSha256: "b".repeat(64),
+        candidateManifestSha256: "b".repeat(64),
+        baseVersions: ["20260701000000"],
+        candidateVersions: ["20260701000000"],
+        appendedVersions: [],
+      },
     ) =>
       loadAndValidateOwnerEvidence({
         evidencePath,
@@ -554,14 +572,7 @@ describe("owner-controlled merge root", () => {
           vercelDeploymentId: "dpl_test",
           vercelProjectId: "prj_test",
           vercelTeamId: "team_test",
-          migrationValidation: {
-            kind: "no-migration-delta",
-            baseManifestSha256: "b".repeat(64),
-            candidateManifestSha256: "b".repeat(64),
-            baseVersions: ["20260701000000"],
-            candidateVersions: ["20260701000000"],
-            appendedVersions: [],
-          },
+          migrationValidation,
         },
         previewCreatedAt: options.previewCreatedAt ?? PREVIEW_CREATED_AT,
         previewReadyAt: options.previewReadyAt ?? PREVIEW_READY_AT,
@@ -575,9 +586,57 @@ describe("owner-controlled merge root", () => {
       },
     });
 
+    const bootstrapMigrationValidation = {
+      kind: "bootstrap-manifest",
+      baseMigrationTreeSha256: "d".repeat(64),
+      candidateManifestSha256: "b".repeat(64),
+      baseVersions: ["20260701000000"],
+      candidateVersions: ["20260701000000"],
+      appendedVersions: [],
+    };
+    evidence.migrationValidation = {
+      kind: "bootstrap-manifest",
+      baseMigrationTreeSha256: "d".repeat(64),
+      candidateManifestSha256: "b".repeat(64),
+    };
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(loadEvidence({}, bootstrapMigrationValidation)).toMatchObject({
+      migrationValidation: {
+        kind: "bootstrap-manifest",
+        baseMigrationTreeSha256: "d".repeat(64),
+      },
+    });
+
+    evidence.migrationValidation = {
+      kind: "bootstrap-manifest",
+      baseManifestSha256: "d".repeat(64),
+      candidateManifestSha256: "b".repeat(64),
+    } as MutableMigrationEvidence;
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(() => loadEvidence({}, bootstrapMigrationValidation)).toThrow(
+      "migrationValidation.baseMigrationTreeSha256 must be a lowercase SHA-256 digest",
+    );
+
+    evidence.migrationValidation = {
+      kind: "bootstrap-manifest",
+      baseMigrationTreeSha256: "e".repeat(64),
+      candidateManifestSha256: "b".repeat(64),
+    };
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    expect(() => loadEvidence({}, bootstrapMigrationValidation)).toThrow(
+      "not bound to the exact protected baseline and candidate manifest",
+    );
+
+    evidence.migrationValidation = {
+      kind: "no-migration-delta",
+      baseManifestSha256: "b".repeat(64),
+      candidateManifestSha256: "b".repeat(64),
+    };
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+
     evidence.migrationValidation.candidateManifestSha256 = "c".repeat(64);
     writeFileSync(evidencePath, JSON.stringify(evidence));
-    expect(loadEvidence).toThrow("not bound to the exact protected/candidate migration manifests");
+    expect(loadEvidence).toThrow("not bound to the exact protected baseline and candidate manifest");
     evidence.migrationValidation.candidateManifestSha256 = "b".repeat(64);
     evidence.migrationValidation.kind = "migration-append";
     writeFileSync(evidencePath, JSON.stringify(evidence));
@@ -911,9 +970,23 @@ describe("owner-controlled merge root", () => {
     const candidateRoot = temp("axis-owner-migration-candidate-");
     const writeManifest = (root: string, versions: string[], spacing = 0) => {
       mkdirSync(join(root, "scripts"), { recursive: true });
+      const migrationsRoot = join(root, "supabase", "migrations");
+      rmSync(migrationsRoot, { recursive: true, force: true });
+      mkdirSync(migrationsRoot, { recursive: true });
+      const migrations = versions.map((version) => {
+        const file = `supabase/migrations/${version}_fixture.sql`;
+        const content = `select '${version}';\n`;
+        writeFileSync(join(root, file), content);
+        return { version, file, sha256: digest(content) };
+      });
       writeFileSync(
         join(root, "scripts", "release-migration-manifest.json"),
-        `${JSON.stringify({ migrations: versions.map((version) => ({ version })) }, null, spacing)}\n`,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          migrationCount: migrations.length,
+          latest: migrations.at(-1),
+          migrations,
+        }, null, spacing)}\n`,
       );
     };
     const protectedVersions = ["20260701000000", "20260702000000"];
@@ -936,14 +1009,23 @@ describe("owner-controlled merge root", () => {
       kind: "migration-append",
       appendedVersions: ["20260703000000"],
     });
-    for (const invalid of [
-      ["20260701000000"],
-      ["20260701000001", "20260702000000"],
-      ["20260702000000", "20260701000000"],
+    for (const { versions, error } of [
+      {
+        versions: ["20260701000000"],
+        error: "not an exact protected prefix followed only by append-only migrations",
+      },
+      {
+        versions: ["20260701000001", "20260702000000"],
+        error: "not an exact protected prefix followed only by append-only migrations",
+      },
+      {
+        versions: ["20260702000000", "20260701000000"],
+        error: "migration manifest entries are not in lexical filename order",
+      },
     ]) {
-      writeManifest(candidateRoot, invalid);
+      writeManifest(candidateRoot, versions);
       expect(() => describeOwnerMergeMigrationDelta(baseRoot, candidateRoot)).toThrow(
-        "not an exact protected prefix followed only by append-only migrations",
+        error,
       );
     }
   });

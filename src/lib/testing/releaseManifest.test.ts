@@ -29,6 +29,10 @@ import {
   validateMigrationManifest,
   validateReleaseGovernanceWorkflow,
 } from "../../../scripts/release-validation-core.mjs";
+import {
+  describeOwnerMergeMigrationDelta,
+  validateCandidateAsInertData,
+} from "../../../scripts/owner-merge-core.mjs";
 
 type MigrationEntry = {
   version: string;
@@ -39,6 +43,7 @@ type MigrationEntry = {
 const root = process.cwd();
 const migrationDirectory = join(root, "supabase", "migrations");
 const manifestPath = join(root, "scripts", "release-migration-manifest.json");
+const BOOTSTRAP_PROTECTED_BASE = "44be089b";
 
 function committedManifest() {
   return JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -93,6 +98,19 @@ function git(root: string, ...args: string[]) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
+}
+
+function materializeRevision(revision: string) {
+  const fixture = mkdtempSync(join(tmpdir(), "axis-release-revision-"));
+  const archive = execFileSync("git", ["archive", "--format=tar", revision], {
+    cwd: root,
+    maxBuffer: 128 * 1024 * 1024,
+  });
+  execFileSync("tar", ["-xf", "-", "-C", fixture], {
+    input: archive,
+    maxBuffer: 128 * 1024 * 1024,
+  });
+  return fixture;
 }
 
 function withGitHistory(
@@ -258,6 +276,26 @@ function writeSynchronizedGeneratedState(
   );
   git(candidateRoot, "add", ".");
   git(candidateRoot, "commit", "-m", "state refresh");
+}
+
+function withBootstrapCandidateTrees(
+  run: (fixture: { baseRoot: string; candidateRoot: string }) => void,
+) {
+  withCandidateTrees(({ baseRoot, candidateRoot }) => {
+    // Model the protected commit immediately before the bootstrap control
+    // plane landed: it has real migrations but no release-manifest/control
+    // files. The candidate is still a fully governed tree.
+    for (const file of TRUSTED_CONTROL_BOOTSTRAP_FILES) {
+      rmSync(join(baseRoot, file), { force: true });
+    }
+    rmSync(join(baseRoot, "scripts", "release-migration-manifest.json"), {
+      force: true,
+    });
+    git(baseRoot, "add", "-A");
+    git(baseRoot, "commit", "-m", "pre-governance protected base");
+    writeSynchronizedGeneratedState(baseRoot, candidateRoot);
+    run({ baseRoot, candidateRoot });
+  });
 }
 
 describe("committed release migration manifest", () => {
@@ -716,6 +754,182 @@ describe("trusted pull-request release governance", () => {
       expect(
         validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
       ).toEqual([]);
+    });
+  });
+
+  it("bootstraps the first manifest from only the exact protected migration tree", () => {
+    withBootstrapCandidateTrees(({ baseRoot, candidateRoot }) => {
+      // This is the P1 regression: the outer governance validator already
+      // accepts the historical tree, but the owner-merge descriptor used to
+      // reopen a manifest that the protected commit could not contain.
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toEqual([]);
+      expect(() =>
+        describeOwnerMergeMigrationDelta(baseRoot, candidateRoot),
+      ).toThrow("historical migration-tree baselines are allowed only during the one-time bootstrap");
+      expect(
+        describeOwnerMergeMigrationDelta(baseRoot, candidateRoot, {
+          allowHistoricalTreeBootstrap: true,
+        }),
+      ).toMatchObject({
+        kind: "bootstrap-manifest",
+        baseMigrationTreeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        baseVersions: ["20260701000000"],
+        candidateVersions: ["20260701000000"],
+        appendedVersions: [],
+      });
+    });
+  });
+
+  it("reproduces the real 44be089b bootstrap baseline against its generated first manifest", () => {
+    const baseRoot = materializeRevision(BOOTSTRAP_PROTECTED_BASE);
+    const candidateRoot = materializeRevision(BOOTSTRAP_PROTECTED_BASE);
+    try {
+      expect(() =>
+        readFileSync(
+          join(baseRoot, "scripts", "release-migration-manifest.json"),
+          "utf8",
+        ),
+      ).toThrow();
+      const protectedEntries = collectMigrationEntries(
+        join(baseRoot, "supabase", "migrations"),
+      );
+      mkdirSync(join(candidateRoot, "scripts"), { recursive: true });
+      writeFileSync(
+        join(candidateRoot, "scripts", "release-migration-manifest.json"),
+        `${JSON.stringify(synchronizedManifest(protectedEntries), null, 2)}\n`,
+      );
+      expect(
+        describeOwnerMergeMigrationDelta(baseRoot, candidateRoot, {
+          allowHistoricalTreeBootstrap: true,
+        }),
+      ).toMatchObject({
+        kind: "bootstrap-manifest",
+        baseVersions: protectedEntries.map((entry) => entry.version),
+        appendedVersions: [],
+      });
+    } finally {
+      rmSync(baseRoot, { recursive: true, force: true });
+      rmSync(candidateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("lets validateCandidateAsInertData complete the one-time historical-tree bootstrap", () => {
+    withBootstrapCandidateTrees(({ baseRoot, candidateRoot }) => {
+      const baseSha = git(baseRoot, "rev-parse", "HEAD");
+      const headSha = git(candidateRoot, "rev-parse", "HEAD");
+      const materialize = ({ label }: { label: string }) =>
+        label === "base"
+          ? { tree: baseRoot, temp: baseRoot }
+          : { tree: candidateRoot, temp: candidateRoot };
+
+      expect(
+        validateCandidateAsInertData({
+          trustedRoot: candidateRoot,
+          owner: "axis-test",
+          name: "axis-test",
+          baseSha,
+          headSha,
+          bootstrap: true,
+          materialize,
+        }),
+      ).toMatchObject({
+        baseSha,
+        headSha,
+        passed: true,
+        migrationValidation: {
+          kind: "bootstrap-manifest",
+          baseMigrationTreeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          baseVersions: ["20260701000000"],
+          candidateVersions: ["20260701000000"],
+        },
+      });
+    });
+  });
+
+  it("rejects a forged first manifest or any altered, deleted, or reordered protected migration", () => {
+    withBootstrapCandidateTrees(({ baseRoot, candidateRoot }) => {
+      const manifestFile = join(
+        candidateRoot,
+        "scripts",
+        "release-migration-manifest.json",
+      );
+      const migrationFile = join(
+        candidateRoot,
+        "supabase",
+        "migrations",
+        "20260701000000_alpha.sql",
+      );
+      const originalManifest = readFileSync(manifestFile, "utf8");
+      const originalMigration = readFileSync(migrationFile, "utf8");
+
+      // A candidate cannot invent the historical digest in its new manifest.
+      const forged = JSON.parse(originalManifest);
+      forged.migrations[0].sha256 = "f".repeat(64);
+      forged.latest.sha256 = "f".repeat(64);
+      writeFileSync(manifestFile, JSON.stringify(forged));
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("changed tracked migration"),
+          expect.stringContaining("rewritten protected migration"),
+        ]),
+      );
+
+      // Updating the candidate tree and its manifest together still cannot
+      // rewrite the exact protected tree-derived ledger.
+      writeFileSync(migrationFile, "select 2;\n");
+      const altered = synchronizedManifest(
+        collectMigrationEntries(join(candidateRoot, "supabase", "migrations")),
+      );
+      writeFileSync(manifestFile, JSON.stringify(altered));
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toContain("rewritten protected migration supabase/migrations/20260701000000_alpha.sql");
+
+      // A synchronized deletion is still a protected-ledger truncation.
+      rmSync(migrationFile);
+      writeFileSync(manifestFile, JSON.stringify(synchronizedManifest([])));
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toEqual(
+        expect.arrayContaining([
+          "deleted protected migration supabase/migrations/20260701000000_alpha.sql",
+          "proposed migration manifest truncates the protected ledger",
+        ]),
+      );
+
+      // Restore the valid candidate, then make its manifest order disagree
+      // with a two-entry protected tree. Lexical order and protected order
+      // are both independently enforced.
+      writeFileSync(migrationFile, originalMigration);
+      const secondFile = "20260702000000_bravo.sql";
+      const secondContent = "select 3;\n";
+      for (const tree of [baseRoot, candidateRoot]) {
+        writeFileSync(
+          join(tree, "supabase", "migrations", secondFile),
+          secondContent,
+        );
+      }
+      const reordered = synchronizedManifest(
+        collectMigrationEntries(join(candidateRoot, "supabase", "migrations")),
+      );
+      [reordered.migrations[0], reordered.migrations[1]] = [
+        reordered.migrations[1]!,
+        reordered.migrations[0]!,
+      ];
+      reordered.latest = reordered.migrations.at(-1);
+      writeFileSync(manifestFile, JSON.stringify(reordered));
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toEqual(
+        expect.arrayContaining([
+          "migration manifest entries are not in lexical filename order",
+          expect.stringContaining("reordered protected migration"),
+        ]),
+      );
     });
   });
 
