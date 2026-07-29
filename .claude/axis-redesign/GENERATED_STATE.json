@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-29T04:56:09.920Z",
+  "derivedAt": "2026-07-29T14:43:45.167Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "43c55969e359ed2043b30c8af90d48b9124d23de",
+    "head": "caa860069aec9cb41a11edc5145d1c91c18b870e",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
-    "workingTreeClean": false,
+    "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "caa86006",
+        "subject": "fix(governance): reconcile complete review history"
+      },
+      {
+        "sha": "04039373",
+        "subject": "docs(state): bind bootstrap repair gates"
+      },
       {
         "sha": "43c55969",
         "subject": "fix(governance): bind bootstrap to protected migration tree"
@@ -60,9 +68,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "f37e1c054eea9370be975a6648d395c4b2bea6ba48b5bd1b1a967c342e94801a",
+    "contentTreeHash": "4f7aa61bfbba55f8a5e3e5a66a69ff26b4936e9d48435ca65212ebfc0bb7b8f3",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "8f7470e82699c845f676a1c54146e061cf98bfcc314112172c2ece619358851c"
+    "fingerprint": "c91e61ed2105022798226a7f97e7ba077e57e54db53d866fa023bf64afd0a081"
   },
   "mergedPrs": [
     {
@@ -373,7 +381,7 @@
     ]
   },
   "gates": {
-    "measured": true,
+    "measured": false,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
     "sourceHead": "43c55969e359ed2043b30c8af90d48b9124d23de",
     "sourceContentTreeHash": "f37e1c054eea9370be975a6648d395c4b2bea6ba48b5bd1b1a967c342e94801a",
@@ -401,6 +409,7 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-29T04:56:09.825Z"
+    "measuredAt": "2026-07-29T04:56:09.825Z",
+    "note": "carried forward; re-run with --gates to measure"
   }
 }
