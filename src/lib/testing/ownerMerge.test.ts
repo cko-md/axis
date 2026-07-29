@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -11,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   EXPECTED_CI_JOB_NAMES,
@@ -24,6 +26,7 @@ import {
   executeOwnerMergeWithJournal,
   executeProtectedOwnerMerge,
   loadAndValidateOwnerEvidence,
+  materializeGitRevision,
   readExternalOwnerMergeFile,
   sanitizeOwnerMergeChildEnvironment,
   sanitizeOwnerMergeGitEnvironment,
@@ -514,6 +517,70 @@ afterEach(async () => {
 });
 
 describe("owner-controlled merge root", () => {
+  it("materializes full candidate ancestry instead of a depth-one provenance blind spot", () => {
+    const repository = temp("axis-owner-merge-history-");
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
+    git("init", "--initial-branch=main");
+    git("config", "user.name", "AXIS Owner Merge Test");
+    git("config", "user.email", "owner-merge@example.invalid");
+    writeFileSync(join(repository, "history.txt"), "base\n");
+    git("add", "history.txt");
+    git("commit", "-m", "protected base");
+    const base = git("rev-parse", "HEAD");
+    git("checkout", "-b", "candidate");
+    writeFileSync(join(repository, "history.txt"), "candidate\n");
+    git("commit", "-am", "candidate change");
+    const head = git("rev-parse", "HEAD");
+
+    const remote = temp("axis-owner-merge-remote-");
+    execFileSync("git", ["clone", "--bare", repository, remote]);
+    const shallow = temp("axis-owner-merge-shallow-");
+    const shallowGitDir = join(shallow, "objects.git");
+    const repositoryUrl = pathToFileURL(remote).href;
+    execFileSync("git", ["init", "--bare", shallowGitDir]);
+    execFileSync("git", [
+      `--git-dir=${shallowGitDir}`,
+      "fetch",
+      "--depth=1",
+      repositoryUrl,
+      "+refs/heads/candidate:refs/heads/materialized",
+    ]);
+    expect(() =>
+      execFileSync("git", [
+        `--git-dir=${shallowGitDir}`,
+        "merge-base",
+        base,
+        head,
+      ], { encoding: "utf8" }),
+    ).toThrow();
+
+    expect(() => materializeGitRevision({
+      owner: "unused",
+      name: "unused",
+      sha: head,
+      label: "candidate",
+      repositoryUrl,
+    })).toThrow("candidate materialization must use the canonical GitHub repository URL");
+
+    const materialized = materializeGitRevision({
+      owner: "unused",
+      name: "unused",
+      sha: head,
+      label: "candidate",
+      repositoryUrl,
+      allowFileProtocolForTest: true,
+    });
+    temporaryDirectories.push(materialized.temp);
+    const materializedGit = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: materialized.tree,
+        encoding: "utf8",
+      }).trim();
+    expect(materializedGit("rev-parse", "--verify", base)).toBe(base);
+    expect(materializedGit("merge-base", base, head)).toBe(base);
+  });
+
   it("freezes the executor, schema, validator, CI semantics, and browser surfaces", () => {
     expect(OWNER_MERGE_CONTROL_FILES).toEqual(
       expect.arrayContaining([

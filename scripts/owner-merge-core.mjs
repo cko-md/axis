@@ -2575,8 +2575,19 @@ export async function collectOwnerMergeSnapshot({
   };
 }
 
-function materializeGitRevision({ owner, name, sha, label }) {
+export function materializeGitRevision({
+  owner,
+  name,
+  sha,
+  label,
+  repositoryUrl = `https://github.com/${owner}/${name}.git`,
+  allowFileProtocolForTest = false,
+}) {
   assertSha(sha, `${label} SHA`);
+  const canonicalRepositoryUrl = `https://github.com/${owner}/${name}.git`;
+  if (repositoryUrl !== canonicalRepositoryUrl && !allowFileProtocolForTest) {
+    fail(`${label} materialization must use the canonical GitHub repository URL`);
+  }
   const temp = mkdtempSync(join(tmpdir(), `axis-owner-merge-${label}-`));
   chmodSync(temp, 0o700);
   const gitDir = join(temp, "objects.git");
@@ -2584,12 +2595,12 @@ function materializeGitRevision({ owner, name, sha, label }) {
   mkdirSync(tree, { mode: 0o700 });
   git(temp, ["init", "--bare", gitDir]);
   git(temp, [
+    ...(allowFileProtocolForTest ? ["-c", "protocol.file.allow=always"] : []),
     `--git-dir=${gitDir}`,
     "fetch",
     "--no-tags",
-    "--depth=1",
     "--no-recurse-submodules",
-    `https://github.com/${owner}/${name}.git`,
+    repositoryUrl,
     `+${sha}:refs/heads/materialized`,
   ]);
   const fetched = git(temp, [

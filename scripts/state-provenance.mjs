@@ -26,6 +26,7 @@ export function validateStateSnapshotProvenance(params) {
   expectedGateSourceContentTreeHash = undefined,
   requireMeasuredGateBinding = false,
   allowEquivalentProtectedMerge = false,
+  allowAlignedGateSourceHeadCarry = false,
   } = params;
   const errors = [];
   if (!persistedGit || typeof persistedGit !== "object") {
@@ -67,7 +68,11 @@ export function validateStateSnapshotProvenance(params) {
   }
   if (requireMeasuredGateBinding && !SHA_40.test(expectedGateSourceHead ?? "")) {
     errors.push("measured gate evidence must bind a lowercase full sourceHead SHA");
-  } else if (expectedGateSourceHead && head !== expectedGateSourceHead) {
+  } else if (
+    expectedGateSourceHead
+    && head !== expectedGateSourceHead
+    && !allowAlignedGateSourceHeadCarry
+  ) {
     errors.push("generated state provenance head does not match measured gate sourceHead");
   }
   if (requireMeasuredGateBinding && (typeof expectedGateSourceContentTreeHash !== "string" || expectedGateSourceContentTreeHash.length !== 64)) {

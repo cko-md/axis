@@ -1127,11 +1127,13 @@ function validateGeneratedStateAlignment(baseRoot, candidateRoot, expectedBranch
     );
   }
 
-  if (candidateHash === baseHash) {
+  const alignedStateRefresh = candidateHash === baseHash;
+  let carriesExactProtectedGates = false;
+  if (alignedStateRefresh) {
     try {
-      if (
-        JSON.stringify(snapshot?.gates) !== JSON.stringify(baseSnapshot?.gates)
-      ) {
+      carriesExactProtectedGates =
+        JSON.stringify(snapshot?.gates) === JSON.stringify(baseSnapshot?.gates);
+      if (!carriesExactProtectedGates) {
         errors.push(
           "state-refresh candidate changed gate evidence even though source content is unchanged; preserve the protected measured evidence",
         );
@@ -1178,6 +1180,12 @@ function validateGeneratedStateAlignment(baseRoot, candidateRoot, expectedBranch
     expectedGateSourceHead: gates?.sourceHead,
     expectedGateSourceContentTreeHash: gates?.sourceContentTreeHash,
     requireMeasuredGateBinding: true,
+    // An equivalent-tree post-squash state refresh preserves the exact
+    // protected measurement. Its refreshed provenance head can differ from
+    // the protected gate's historical sourceHead after a squash, so only this
+    // fully aligned carry may retain that historical binding.
+    allowAlignedGateSourceHeadCarry:
+      alignedStateRefresh && carriesExactProtectedGates,
   }));
   const expectedFingerprint = stateEvidenceFingerprint(candidateHash, {
     gates: snapshot?.gates,

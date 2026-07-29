@@ -951,6 +951,13 @@ function detectDrift(state, checkTarget, previous) {
       ? git("rev-parse", "--abbrev-ref", "HEAD")
       : null;
     const allowEquivalentProtectedMerge = checkedOutBranch === "main";
+    const protectedSnapshot = readJsonAtRef(GENERATED_JSON, MAIN_REF);
+    const allowAlignedGateSourceHeadCarry =
+      previous?.gates?.measured === true
+      && previous?.gates?.sourceContentTreeHash === state.git.contentTreeHash
+      && previous?.git?.contentTreeHash === state.git.contentTreeHash
+      && state.git.contentTreeHash === gitTreeContentHash({ cwd: REPO, ref: MAIN_REF })
+      && JSON.stringify(previous.gates) === JSON.stringify(protectedSnapshot?.gates);
     const expectedBranch = process.env.GITHUB_HEAD_REF
       || (checkTarget === "HEAD" && checkedOutBranch !== "HEAD"
         ? checkedOutBranch
@@ -968,6 +975,7 @@ function detectDrift(state, checkTarget, previous) {
       expectedGateSourceContentTreeHash: previous.gates?.sourceContentTreeHash,
       requireMeasuredGateBinding: previous.gates?.measured === true,
       allowEquivalentProtectedMerge,
+      allowAlignedGateSourceHeadCarry,
     }));
   }
 

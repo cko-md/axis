@@ -399,6 +399,98 @@ describe("program state derivation", { timeout: 30_000 }, () => {
     ).not.toContain("Production state base:");
   });
 
+  it("refreshes post-squash provenance while carrying exact measured gates", () => {
+    const fixture = makeFreshStateFixture();
+    const gateEnv = {
+      PATH: `${path.join(fixture.cwd, ".fake-bin")}:${process.env.PATH}`,
+    };
+    const measured = runStateWithEnv(fixture.cwd, ["--gates"], gateEnv);
+    expect(measured.status, measured.stderr).toBe(0);
+    git(
+      fixture.cwd,
+      "add",
+      "docs/CURRENT_STATE.md",
+      ".claude/axis-redesign/GENERATED_STATE.json",
+    );
+    git(fixture.cwd, "commit", "-m", "docs(state): measure candidate gates");
+
+    git(fixture.cwd, "checkout", "main");
+    git(fixture.cwd, "merge", "--squash", "codex/state-fixture");
+    git(fixture.cwd, "commit", "-m", "Squash merge measured state fixture");
+    git(fixture.cwd, "checkout", "-b", "codex/state-refresh");
+
+    const refreshed = runState(fixture.cwd);
+    expect(refreshed.status, refreshed.stderr).toBe(0);
+    git(
+      fixture.cwd,
+      "add",
+      "docs/CURRENT_STATE.md",
+      ".claude/axis-redesign/GENERATED_STATE.json",
+    );
+    git(fixture.cwd, "commit", "-m", "docs(state): refresh squash provenance");
+
+    const snapshot = JSON.parse(
+      readFileSync(
+        path.join(fixture.cwd, ".claude/axis-redesign/GENERATED_STATE.json"),
+        "utf8",
+      ),
+    );
+    expect(snapshot.gates.measured).toBe(true);
+    expect(snapshot.gates.sourceContentTreeHash).toBe(snapshot.git.contentTreeHash);
+    expect(snapshot.gates.sourceHead).not.toBe(snapshot.git.head);
+    const check = runState(fixture.cwd, "--check");
+    expect(check.status, check.stderr).toBe(0);
+
+    snapshot.gates.tests = { passed: 3, total: 3, files: 1, suites: 1 };
+    writeFileSync(
+      path.join(fixture.cwd, ".claude/axis-redesign/GENERATED_STATE.json"),
+      `${JSON.stringify(snapshot, null, 2)}\n`,
+    );
+    git(fixture.cwd, "add", ".claude/axis-redesign/GENERATED_STATE.json");
+    git(fixture.cwd, "commit", "-m", "docs(state): forge carried gate metric");
+    const alteredGates = runState(fixture.cwd, "--check");
+    expect(alteredGates.status).toBe(1);
+    expect(alteredGates.stderr).toContain(
+      "generated state provenance head does not match measured gate sourceHead",
+    );
+    git(fixture.cwd, "reset", "--hard", "HEAD~1");
+
+    commitFile(fixture.cwd, "post-refresh-source.txt", "changed\n", "feat: source drift");
+    const alteredSource = runState(fixture.cwd, "--check");
+    expect(alteredSource.status).toBe(1);
+    expect(alteredSource.stderr).toContain(
+      "generated block differs from the deterministic state",
+    );
+    git(fixture.cwd, "reset", "--hard", "HEAD~1");
+
+    git(fixture.cwd, "checkout", "main");
+    git(
+      fixture.cwd,
+      "merge",
+      "--no-ff",
+      "codex/state-refresh",
+      "-m",
+      "Synthetic pull-request state-refresh merge",
+    );
+    git(
+      fixture.cwd,
+      "update-ref",
+      "refs/remotes/origin/main",
+      git(fixture.cwd, "rev-parse", "HEAD^1"),
+    );
+    const syntheticCheck = runStateWithEnv(
+      fixture.cwd,
+      ["--check"],
+      {
+        GITHUB_ACTIONS: "true",
+        CI: "true",
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_HEAD_REF: "codex/state-refresh",
+      },
+    );
+    expect(syntheticCheck.status, syntheticCheck.stderr).toBe(0);
+  });
+
   it.each(["merge commit", "squash merge"])(
     "requires a protected state refresh when a %s introduces a new numeric wave",
     (strategy) => {

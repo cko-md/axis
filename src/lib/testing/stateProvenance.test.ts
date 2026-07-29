@@ -126,4 +126,40 @@ describe("persisted generated-state provenance", () => {
       contentTreeHash: (ref: string) => ref === BASE ? BASE_TREE : TREE,
     })).toEqual([]);
   });
+
+  it("permits a carried gate sourceHead only when the caller proved an aligned state refresh", () => {
+    const refreshedHead = "f".repeat(40);
+    const refreshed = snapshot({
+      head: refreshedHead,
+      aheadOfMain: [{ sha: refreshedHead.slice(0, 8), subject: "docs(state): refresh" }],
+    });
+    const params = {
+      persistedGit: refreshed,
+      checkTarget: "candidate",
+      protectedMainRef: "origin/main",
+      expectedBranch: "codex/governance",
+      expectedContentTreeHash: TREE,
+      expectedSourceMainContentTreeHash: BASE_TREE,
+      expectedGateSourceHead: HEAD,
+      expectedGateSourceContentTreeHash: TREE,
+      requireMeasuredGateBinding: true,
+      git: (...args: string[]) => {
+        if (args[0] === "rev-parse") {
+          if (args[1] === "origin/main") return BASE;
+          return args[1] ?? "";
+        }
+        if (args[0] === "merge-base") return BASE;
+        if (args[0] === "log") return `${refreshedHead}\u001fdocs(state): refresh`;
+        throw new Error(`unexpected git invocation ${args.join(" ")}`);
+      },
+      contentTreeHash: (ref: string) => ref === BASE ? BASE_TREE : TREE,
+    };
+    expect(validateStateSnapshotProvenance(params)).toContain(
+      "generated state provenance head does not match measured gate sourceHead",
+    );
+    expect(validateStateSnapshotProvenance({
+      ...params,
+      allowAlignedGateSourceHeadCarry: true,
+    })).toEqual([]);
+  });
 });

@@ -325,6 +325,111 @@ function writeSynchronizedGeneratedState(
   git(candidateRoot, "commit", "-m", "state refresh");
 }
 
+function writeEquivalentTreeStateRefresh(
+  baseRoot: string,
+  candidateRoot: string,
+) {
+  const originalBaseHead = git(baseRoot, "rev-parse", "HEAD");
+  writeFileSync(
+    join(candidateRoot, "src", "squashed-source.ts"),
+    "export const squashedSourceFixture = true;\n",
+  );
+  git(candidateRoot, "add", ".");
+  git(candidateRoot, "commit", "-m", "candidate source before squash");
+  const historicalSourceHead = git(candidateRoot, "rev-parse", "HEAD");
+  const sourceHash = gitTreeContentHash({ cwd: candidateRoot, ref: "HEAD" });
+  const gates = {
+    measured: true,
+    measuredAt: "2026-07-22T00:00:00.000Z",
+    contract:
+      "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
+    sourceContentTreeHash: sourceHash,
+    sourceHead: historicalSourceHead,
+    typecheck: { passed: true },
+    lint: { passed: true },
+    build: { passed: true, cleanOutput: true },
+    tests: { passed: 1, total: 1, files: 1, suites: 1 },
+    bundleKb: { used: 1, budget: 2 },
+    routeIsolatedBundleKb: { used: 1, budget: 2 },
+  };
+  const historicalProvenance = {
+    branch: "candidate",
+    head: historicalSourceHead,
+    mainHead: originalBaseHead,
+    workingTreeClean: true,
+    aheadOfMain: [{
+      sha: historicalSourceHead.slice(0, 8),
+      subject: "candidate source before squash",
+    }],
+  };
+  const staleSnapshot = {
+    git: {
+      ...historicalProvenance,
+      contentTreeHash: sourceHash,
+      sourceMainContentTreeHash: gitTreeContentHash({ cwd: baseRoot, ref: "HEAD" }),
+      fingerprint: stateEvidenceFingerprint(sourceHash, {
+        gates,
+        provenance: historicalProvenance,
+        sourceMainContentTreeHash: gitTreeContentHash({ cwd: baseRoot, ref: "HEAD" }),
+      }),
+    },
+    gates,
+  };
+
+  // Model a protected squash: main receives the candidate's source tree but
+  // retains its exact, historical measured-gate object.
+  writeFileSync(
+    join(baseRoot, "src", "squashed-source.ts"),
+    "export const squashedSourceFixture = true;\n",
+  );
+  writeFileSync(
+    join(baseRoot, ".claude", "axis-redesign", "GENERATED_STATE.json"),
+    JSON.stringify(staleSnapshot),
+  );
+  git(baseRoot, "add", ".");
+  git(baseRoot, "commit", "-m", "squash candidate source");
+  const protectedBaseHead = git(baseRoot, "rev-parse", "HEAD");
+  const protectedHash = gitTreeContentHash({ cwd: baseRoot, ref: "HEAD" });
+  expect(protectedHash).toBe(sourceHash);
+
+  // A state-only PR starts from the post-squash protected base. It refreshes
+  // provenance while carrying the exact protected measurement unchanged.
+  rmSync(join(candidateRoot, ".git"), { recursive: true, force: true });
+  cpSync(join(baseRoot, ".git"), join(candidateRoot, ".git"), { recursive: true });
+  git(candidateRoot, "reset", "--hard", "HEAD");
+  git(candidateRoot, "checkout", "-b", "candidate");
+  const refreshedProvenance = {
+    branch: "candidate",
+    head: protectedBaseHead,
+    mainHead: protectedBaseHead,
+    workingTreeClean: true,
+    aheadOfMain: [],
+  };
+  const refreshedSnapshot = {
+    git: {
+      ...refreshedProvenance,
+      contentTreeHash: protectedHash,
+      sourceMainContentTreeHash: protectedHash,
+      fingerprint: stateEvidenceFingerprint(protectedHash, {
+        gates,
+        provenance: refreshedProvenance,
+        sourceMainContentTreeHash: protectedHash,
+      }),
+    },
+    gates,
+  };
+  const snapshotPath = join(
+    candidateRoot,
+    ".claude",
+    "axis-redesign",
+    "GENERATED_STATE.json",
+  );
+  writeFileSync(snapshotPath, JSON.stringify(refreshedSnapshot));
+  git(candidateRoot, "add", ".");
+  git(candidateRoot, "commit", "-m", "docs(state): refresh after squash");
+  return { snapshotPath, protectedHash };
+}
+
 function withBootstrapCandidateTrees(
   run: (fixture: { baseRoot: string; candidateRoot: string }) => void,
 ) {
@@ -804,6 +909,42 @@ describe("trusted pull-request release governance", () => {
         validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
       ).toEqual([]);
     });
+  });
+
+  it("allows only exact carried gates for an equivalent-tree post-squash state refresh", () => {
+    withCandidateTrees(({ baseRoot, candidateRoot }) => {
+      const { snapshotPath, protectedHash } = writeEquivalentTreeStateRefresh(
+        baseRoot,
+        candidateRoot,
+      );
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toEqual([]);
+
+      const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+      snapshot.gates.tests = { passed: 2, total: 2, files: 1, suites: 1 };
+      const provenance = {
+        branch: snapshot.git.branch,
+        head: snapshot.git.head,
+        mainHead: snapshot.git.mainHead,
+        workingTreeClean: snapshot.git.workingTreeClean,
+        aheadOfMain: snapshot.git.aheadOfMain,
+      };
+      snapshot.git.fingerprint = stateEvidenceFingerprint(protectedHash, {
+        gates: snapshot.gates,
+        provenance,
+        sourceMainContentTreeHash: protectedHash,
+      });
+      writeFileSync(snapshotPath, JSON.stringify(snapshot));
+      git(candidateRoot, "add", ".");
+      git(candidateRoot, "commit", "-m", "forge refreshed gate metric");
+
+      expect(
+        validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
+      ).toContain(
+        "state-refresh candidate changed gate evidence even though source content is unchanged; preserve the protected measured evidence",
+      );
+    }, { initializeState: false });
   });
 
   it("runs the trusted validator with the expected branch supplied only as environment data", () => {
