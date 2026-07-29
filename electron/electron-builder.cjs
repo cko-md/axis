@@ -2,6 +2,7 @@ const isRelease = process.env.AXIS_DESKTOP_RELEASE === "1";
 const isWindowsRelease = isRelease && process.platform === "win32";
 const productionUrl = process.env.AXIS_DESKTOP_PRODUCTION_URL || "https://axis-cko.vercel.app";
 const sentryDsn = process.env.AXIS_DESKTOP_SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN || "";
+const fuseHook = require.resolve("./after-pack-fuses.cjs");
 
 function requireReleaseEnv(name) {
   const value = process.env[name]?.trim();
@@ -41,30 +42,11 @@ module.exports = {
   removePackageKeywords: true,
   removePackageScripts: true,
   forceCodeSigning: isRelease && (process.platform === "darwin" || process.platform === "win32"),
-  // Package-time Electron fuses. These are flipped in the packaged binary
-  // itself, so they hold even if someone tampers with the JavaScript: an
-  // attacker who can drop a file next to the app still cannot turn it into a
-  // general-purpose Node runtime.
-  //
-  // runAsNode / NODE_OPTIONS / inspect arguments are the three standard ways to
-  // coerce an Electron binary into executing arbitrary code with the app's
-  // entitlements — all disabled. ASAR integrity plus only-load-from-ASAR means
-  // a swapped or added source file fails to load rather than silently
-  // executing. Cookie encryption protects the session cookies at rest, which
-  // for AXIS includes the Supabase session and the OAuth tokens.
-  //
-  // Verified after packaging by scripts/verify-desktop-fuses.mjs — a fuse
-  // asserted in config but not present in the artifact is worth nothing.
-  electronFuses: {
-    runAsNode: false,
-    enableCookieEncryption: true,
-    enableNodeOptionsEnvironmentVariable: false,
-    enableNodeCliInspectArguments: false,
-    enableEmbeddedAsarIntegrityValidation: true,
-    onlyLoadAppFromAsar: true,
-    loadBrowserProcessSpecificV8Snapshot: false,
-    grantFileProtocolExtraPrivileges: false,
-  },
+  // One owner mutates the fuse wire: this direct @electron/fuses 2.x afterPack
+  // hook. electron-builder's built-in electronFuses uses its own older
+  // dependency and cannot configure Electron 43's ninth WasmTrapHandlers fuse.
+  // afterPack runs after app.asar is embedded and before signing.
+  afterPack: fuseHook,
   directories: {
     buildResources: "build",
     output: "../dist-electron",
@@ -72,6 +54,7 @@ module.exports = {
   files: [
     "*.cjs",
     "!*.test.cjs",
+    "!after-pack-fuses.cjs",
     "*.html",
     "*.css",
     "*.js",
@@ -102,6 +85,10 @@ module.exports = {
   mac: {
     category: "public.app-category.productivity",
     hardenedRuntime: isRelease,
+    // Preview packages are deliberately ad-hoc signed by afterPack. Prevent a
+    // local Developer ID identity from being auto-discovered and silently
+    // turning a preview into a release-shaped artifact.
+    identity: isRelease ? undefined : null,
     icon: "build/icon.icns",
     notarize: isRelease,
     target: ["dmg", "zip"],

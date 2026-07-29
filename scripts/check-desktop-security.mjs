@@ -7,6 +7,7 @@ const requiredFiles = [
   "electron/build/icon.ico",
   "electron/build/icon.png",
   "electron/build/icons/512x512.png",
+  "electron/after-pack-fuses.cjs",
   "electron/browser-capabilities.cjs",
   "electron/desktop-observability.cjs",
   "electron/electron-builder.cjs",
@@ -19,6 +20,7 @@ const packageJson = JSON.parse(await readFile(path.join(root, "electron/package.
 const mainSource = await readFile(path.join(root, "electron/main.cjs"), "utf8");
 const trustedPreloadSource = await readFile(path.join(root, "electron/axis-preload.cjs"), "utf8");
 const builderSource = await readFile(path.join(root, "electron/electron-builder.cjs"), "utf8");
+const fuseHookSource = await readFile(path.join(root, "electron/after-pack-fuses.cjs"), "utf8");
 // desktop-release.yml is deliberately deferred until signing secrets exist
 // (see docs/desktop-distribution.md). Its invariant checks run only when the
 // workflow is present; everything else below always runs.
@@ -52,6 +54,10 @@ if (!packageJson.axisDesktop?.productionUrl?.startsWith("https://")) {
 }
 if (packageJson.dependencies?.["electron-updater"] !== "6.8.9") {
   throw new Error("electron-updater must remain an exact runtime dependency");
+}
+const rootPackageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+if (rootPackageJson.devDependencies?.["@electron/fuses"] !== "2.1.3") {
+  throw new Error("@electron/fuses must remain pinned to the audited 2.1.3 owner");
 }
 for (const invariant of [
   "contextIsolation: true",
@@ -92,19 +98,31 @@ for (const invariant of [
   "notarize: isRelease",
   "azureSignOptions",
   "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
-  // Package-time fuses. Each of the first three is a documented way to turn an
-  // Electron binary into an arbitrary Node runtime; the ASAR pair makes a
-  // swapped source file fail to load rather than execute.
-  "electronFuses",
-  "runAsNode: false",
-  "enableNodeOptionsEnvironmentVariable: false",
-  "enableNodeCliInspectArguments: false",
-  "enableEmbeddedAsarIntegrityValidation: true",
-  "onlyLoadAppFromAsar: true",
-  "enableCookieEncryption: true",
-  "grantFileProtocolExtraPrivileges: false",
+  "afterPack: fuseHook",
+  "identity: isRelease ? undefined : null",
 ]) {
   if (!builderSource.includes(invariant)) throw new Error(`Missing release invariant: ${invariant}`);
+}
+if (/\belectronFuses\s*:/.test(builderSource)) {
+  throw new Error("electron-builder's legacy electronFuses owner must not be restored");
+}
+for (const invariant of [
+  "strictlyRequireAllFuses: true",
+  "resetAdHocDarwinSignature:",
+  "[FuseV1Options.RunAsNode]: false",
+  "[FuseV1Options.EnableCookieEncryption]: true",
+  "[FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false",
+  "[FuseV1Options.EnableNodeCliInspectArguments]: false",
+  "[FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true",
+  "[FuseV1Options.OnlyLoadAppFromAsar]: true",
+  "[FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: false",
+  "[FuseV1Options.GrantFileProtocolExtraPrivileges]: false",
+  "[FuseV1Options.WasmTrapHandlers]: true",
+  "verifyFuseTarget(target)",
+]) {
+  if (!fuseHookSource.includes(invariant)) {
+    throw new Error(`Missing direct fuse-hook invariant: ${invariant}`);
+  }
 }
 if (releaseWorkflowSource === null) {
   console.log("desktop-release.yml not present yet; skipping signed-release workflow invariant checks.");
@@ -113,6 +131,8 @@ if (releaseWorkflowSource === null) {
     "Verify Windows Authenticode signatures",
     "AZURE_CLIENT_SECRET",
     "AZURE_TRUSTED_SIGNING_CERT_PROFILE",
+    "desktop:verify:fuses",
+    "desktop:verify:signature -- --release",
   ]) {
     if (!releaseWorkflowSource.includes(invariant)) {
       throw new Error(`Missing Windows signing workflow invariant: ${invariant}`);
