@@ -222,6 +222,15 @@ read and again immediately before the critical section. Exactly 24 hours is
 accepted; one millisecond older is rejected. Re-run the affected check rather
 than editing its timestamp or reusing a prior PR's result.
 
+GitHub's workflow-run REST resource uses `updated_at` as its terminal run
+timestamp; it does not expose a reliable workflow-level `completed_at`.
+Therefore run completion requires an exact canonical `updated_at` together
+with `status: completed`, `conclusion: success`, and the exact
+workflow/run/attempt/head/base/repository bindings. Every required job must
+independently remain `completed`/`success` and carry its own valid
+`completed_at`. Never infer completion from `updated_at` without retaining
+those terminal-state and per-job controls.
+
 ### Migration validation evidence (schema v2)
 
 `migrationValidation` is mandatory. For a candidate with no migration delta,
@@ -390,6 +399,10 @@ documented five-minute clock-skew allowance. This applies to the Vercel
 timestamps recorded in the evidence, trusted-review time, every Sentry time,
 and manual completion. The exact preview-Ready → manual-completion → Sentry
 window/review ordering remains mandatory.
+Owner-evidence ISO timestamps must be canonical `Date.toISOString()` values,
+including millisecond precision (for example, `.000Z`). Validate the assembled
+file with the exact trusted candidate's custom evidence loader before the live
+dry run; generic JSON or permissive ISO validation is not sufficient.
 
 ## Filesystem boundary and residual limits
 
