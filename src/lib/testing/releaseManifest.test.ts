@@ -1295,7 +1295,7 @@ describe("trusted pull-request release governance", () => {
       expect(
         validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
       ).toEqual([]);
-    });
+    }, { initializeState: false });
   });
 
   it("rejects deleted protected test paths and lower measured test totals", () => {
@@ -1328,7 +1328,7 @@ describe("trusted pull-request release governance", () => {
           ),
         ]),
       );
-    });
+    }, { initializeState: false });
   });
 
   it("rejects alternate candidate config and package-manager override files", () => {
@@ -1546,7 +1546,7 @@ describe("trusted pull-request release governance", () => {
       expect(
         validateCandidateReleaseGovernance({ baseRoot, candidateRoot }),
       ).toEqual([]);
-    });
+    }, { initializeState: false });
   });
 
   it("fails closed when the protected base has only part of the trusted control plane", () => {
@@ -1561,7 +1561,7 @@ describe("trusted pull-request release governance", () => {
       ).toContain(
         "protected base has an incomplete release control plane; owner break-glass recovery is required",
       );
-    });
+    }, { initializeState: false });
   });
 
   it("rejects symlinked candidate control-plane parents without following them", () => {
