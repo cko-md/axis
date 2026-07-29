@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { isBlockedUrl } from "@/lib/security/ssrf";
+import { SafeFetchError, safeFetch, safeFetchHttpStatus } from "@/lib/security/safe-fetch";
 import { extractReadableArticle } from "@/lib/web-reader";
 
 // jsdom requires the Node.js runtime (not edge) and must not be bundled — see
@@ -17,8 +17,6 @@ export async function GET(req: NextRequest) {
 
   const rawUrl = req.nextUrl.searchParams.get("url")?.trim() ?? "";
   if (!rawUrl) return NextResponse.json({ error: "Missing URL" }, { status: 400 });
-  if (isBlockedUrl(rawUrl)) return NextResponse.json({ error: "This URL cannot be opened safely." }, { status: 403 });
-
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -27,19 +25,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const upstream = await fetch(url, {
+    const upstream = await safeFetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; AxisReader/1.0)",
         Accept: "text/html,application/xhtml+xml;q=0.9",
       },
-      redirect: "follow",
-      signal: AbortSignal.timeout(12_000),
-      cache: "no-store",
+      timeoutMs: 12_000,
+      maxBodyBytes: MAX_HTML_BYTES,
     });
-
-    if (isBlockedUrl(upstream.url)) {
-      return NextResponse.json({ error: "The page redirected to a blocked URL." }, { status: 403 });
-    }
 
     if (!upstream.ok) {
       return NextResponse.json({ error: `The page returned ${upstream.status}.` }, { status: 422 });
@@ -70,10 +63,17 @@ export async function GET(req: NextRequest) {
       { headers: { "Cache-Control": "private, max-age=300" } },
     );
   } catch (error) {
-    Sentry.captureException(error instanceof Error ? error : new Error("Reader extraction failed"), {
-      tags: { area: "webviewer", operation: "reader_extract" },
-      extra: { hostname: url.hostname },
-    });
-    return NextResponse.json({ error: "Reader view could not load this page." }, { status: 502 });
+    const code = error instanceof SafeFetchError ? error.code : "READER_FETCH_FAILED";
+    if (error instanceof SafeFetchError) {
+      // A refused target is an expected policy outcome, not an application
+      // exception. Keep only a safe diagnostic breadcrumb.
+      Sentry.addBreadcrumb({ category: "safe-fetch", level: "info", data: { operation: "reader_extract", code } });
+    } else {
+      Sentry.captureException(new Error(code), { tags: { area: "webviewer", operation: "reader_extract", code } });
+    }
+    return NextResponse.json(
+      { error: "Reader view could not load this page.", code },
+      { status: safeFetchHttpStatus(error) },
+    );
   }
 }

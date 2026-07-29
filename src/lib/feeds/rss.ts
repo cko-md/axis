@@ -1,4 +1,4 @@
-import { isBlockedUrl } from "@/lib/security/ssrf";
+import { safeFetch } from "@/lib/security/safe-fetch";
 
 // Shared RSS/Atom fetch + parse — extracted from /api/briefing/fetch-feeds/route.ts
 // so the feed-digest cron (src/app/api/cron/feed-digest/route.ts) can pre-warm the
@@ -16,11 +16,10 @@ export interface RssItem {
 }
 
 export async function fetchAndParse(url: string): Promise<RssItem[]> {
-  if (isBlockedUrl(url)) throw new Error("blocked");
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; Axis/1.0; +feed-reader)" },
-    signal: AbortSignal.timeout(6000),
-    cache: "no-store",
+    timeoutMs: 6000,
+    maxBodyBytes: 2 * 1024 * 1024,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const xml = await res.text();
