@@ -1573,50 +1573,277 @@ export function validateOwnerMergeProtection(
   }
 }
 
+function parseGitHubTimestamp(value) {
+  if (typeof value !== "string") return null;
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/.exec(
+      value,
+    );
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] =
+    match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const leapYear =
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [
+    31,
+    leapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  if (
+    year < 1 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth[month - 1] ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    return null;
+  }
+  return {
+    secondKey:
+      yearText +
+      monthText +
+      dayText +
+      hourText +
+      minuteText +
+      secondText,
+    fraction: match[7] ?? "",
+  };
+}
+
 function isGitHubTimestamp(value) {
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value) &&
-    Number.isFinite(Date.parse(value))
+  return parseGitHubTimestamp(value) !== null;
+}
+
+function compareGitHubTimestamps(left, right) {
+  const leftTimestamp = parseGitHubTimestamp(left);
+  const rightTimestamp = parseGitHubTimestamp(right);
+  if (!leftTimestamp || !rightTimestamp) {
+    fail("review inventory contains an invalid timestamp");
+  }
+  const secondComparison =
+    leftTimestamp.secondKey === rightTimestamp.secondKey
+      ? 0
+      : leftTimestamp.secondKey < rightTimestamp.secondKey
+        ? -1
+        : 1;
+  if (secondComparison !== 0) return secondComparison;
+  const precision = Math.max(
+    leftTimestamp.fraction.length,
+    rightTimestamp.fraction.length,
+  );
+  const leftFraction = leftTimestamp.fraction.padEnd(precision, "0");
+  const rightFraction = rightTimestamp.fraction.padEnd(precision, "0");
+  return leftFraction === rightFraction
+    ? 0
+    : leftFraction < rightFraction
+      ? -1
+      : 1;
+}
+
+const REVIEW_STATES = new Set([
+  "APPROVED",
+  "CHANGES_REQUESTED",
+  "COMMENTED",
+  "DISMISSED",
+  "PENDING",
+]);
+
+function normalizeBotLogin(login, authorType, source) {
+  return source === "REST" &&
+    authorType === "Bot" &&
+    login.endsWith("[bot]")
+    ? login.slice(0, -"[bot]".length)
+    : login;
+}
+
+function normalizeReviewRecord(review, source) {
+  if (
+    !review ||
+    typeof review !== "object" ||
+    Array.isArray(review) ||
+    typeof review.databaseId !== "string" ||
+    !/^[1-9]\d*$/.test(review.databaseId) ||
+    typeof review.nodeId !== "string" ||
+    review.nodeId.trim() === "" ||
+    typeof review.authorId !== "string" ||
+    review.authorId.trim() === "" ||
+    typeof review.author !== "string" ||
+    review.author.trim() === "" ||
+    typeof review.authorType !== "string" ||
+    review.authorType.trim() === "" ||
+    !isGitHubTimestamp(review.submittedAt) ||
+    !REVIEW_STATES.has(review.state)
+  ) {
+    fail(`${source} review inventory contains a malformed review`);
+  }
+  return {
+    databaseId: review.databaseId,
+    nodeId: review.nodeId,
+    authorId: review.authorId,
+    author: normalizeBotLogin(review.author, review.authorType, source),
+    authorType: review.authorType,
+    submittedAt: review.submittedAt,
+    state: review.state,
+  };
+}
+
+function normalizeRestReviews(reviews) {
+  if (!Array.isArray(reviews)) {
+    fail("REST review inventory must be an array");
+  }
+  return reviews.map((review) =>
+    normalizeReviewRecord(
+      {
+        databaseId:
+          Number.isSafeInteger(review?.id) && review.id > 0
+            ? String(review.id)
+            : undefined,
+        nodeId: review?.node_id,
+        authorId: review?.user?.node_id,
+        author: review?.user?.login,
+        authorType: review?.user?.type,
+        submittedAt: review?.submitted_at,
+        state: review?.state,
+      },
+      "REST",
+    ),
   );
 }
 
-function latestReviewsAreClear(reviews) {
+function normalizeGraphReviews(reviews) {
   if (!Array.isArray(reviews)) {
-    fail("review inventory must be an array");
+    fail("GraphQL review inventory must be an array");
   }
-  const allowedStates = new Set([
-    "APPROVED",
-    "CHANGES_REQUESTED",
-    "COMMENTED",
-    "DISMISSED",
-    "PENDING",
-  ]);
-  const latest = new Map();
+  return reviews.map((review) =>
+    normalizeReviewRecord(
+      {
+        databaseId: review?.fullDatabaseId,
+        nodeId: review?.id,
+        authorId: review?.author?.id,
+        author: review?.author?.login,
+        authorType: review?.author?.__typename,
+        submittedAt: review?.submittedAt,
+        state: review?.state,
+      },
+      "GraphQL",
+    ),
+  );
+}
+
+function indexReviewInventory(reviews, source) {
+  const byDatabaseId = new Map();
+  const nodeIds = new Set();
   for (const review of reviews) {
     if (
-      typeof review?.user?.login !== "string" ||
-      review.user.login.trim() === "" ||
-      !isGitHubTimestamp(review?.submitted_at) ||
-      !allowedStates.has(review?.state)
+      byDatabaseId.has(review.databaseId) ||
+      nodeIds.has(review.nodeId)
     ) {
-      fail("review inventory contains a malformed review");
+      fail(`${source} review inventory contains duplicate review identities`);
     }
-    const previous = latest.get(review.user.login);
-    if (!previous || Date.parse(previous.submitted_at) < Date.parse(review.submitted_at)) {
-      latest.set(review.user.login, review);
+    byDatabaseId.set(review.databaseId, review);
+    nodeIds.add(review.nodeId);
+  }
+  return byDatabaseId;
+}
+
+function assertReviewInventoriesAgree(restReviews, graphReviews) {
+  const restById = indexReviewInventory(restReviews, "REST");
+  const graphById = indexReviewInventory(graphReviews, "GraphQL");
+  if (restById.size !== graphById.size) {
+    fail("REST and GraphQL full review inventories disagree");
+  }
+  const comparedFields = [
+    "nodeId",
+    "authorId",
+    "author",
+    "authorType",
+    "submittedAt",
+    "state",
+  ];
+  for (const [databaseId, restReview] of restById) {
+    const graphReview = graphById.get(databaseId);
+    if (
+      !graphReview ||
+      comparedFields.some(
+        (field) => graphReview[field] !== restReview[field],
+      )
+    ) {
+      fail("REST and GraphQL full review inventories disagree");
     }
   }
-  const blocking = [...latest.values()].filter(
-    (review) => review.state === "CHANGES_REQUESTED" || review.state === "PENDING",
+}
+
+function latestReviewsByAuthor(reviews, source) {
+  if (!Array.isArray(reviews)) {
+    fail(`${source} review inventory must be an array`);
+  }
+  const latest = new Map();
+  for (const review of reviews) {
+    const previous = latest.get(review.authorId);
+    if (!previous) {
+      latest.set(review.authorId, review);
+      continue;
+    }
+    if (
+      review.author !== previous.author ||
+      review.authorType !== previous.authorType
+    ) {
+      fail(`${source} review inventory has inconsistent author identity`);
+    }
+    const comparison = compareGitHubTimestamps(
+      review.submittedAt,
+      previous.submittedAt,
+    );
+    if (comparison === 0) {
+      fail(
+        `${source} review inventory has ambiguous equal timestamps for ${review.author}`,
+      );
+    }
+    if (comparison > 0) {
+      latest.set(review.authorId, review);
+    }
+  }
+  return latest;
+}
+
+function assertLatestReviewsAreClear(latestReviews) {
+  const blocking = [...latestReviews.values()].filter(
+    (review) =>
+      review.state === "CHANGES_REQUESTED" || review.state === "PENDING",
   );
   if (blocking.length > 0) {
-    fail(`PR has unresolved blocking reviews from ${blocking.map((r) => r.user.login).join(", ")}`);
+    fail(
+      `PR has unresolved blocking reviews from ${blocking.map((r) => r.author).join(", ")}`,
+    );
   }
 }
 
 export function validatePullRequestReviewState({ reviews, threadResult }) {
-  latestReviewsAreClear(reviews);
+  if (!Array.isArray(reviews)) {
+    fail("REST review inventory must be an array");
+  }
+  if (reviews.length >= 100) {
+    fail("REST review inventory reached the 100-item safety boundary");
+  }
+  const restReviews = normalizeRestReviews(reviews);
   assertObject(threadResult, "GraphQL review response");
   if (Object.hasOwn(threadResult, "errors")) {
     fail("GraphQL review response contains errors or partial data");
@@ -1651,31 +1878,18 @@ export function validatePullRequestReviewState({ reviews, threadResult }) {
   ) {
     fail("PR has unresolved or unbounded review conversations");
   }
-  const allowedGraphStates = new Set([
-    "APPROVED",
-    "CHANGES_REQUESTED",
-    "COMMENTED",
-    "DISMISSED",
-    "PENDING",
-  ]);
   if (
     !Array.isArray(graphReviews.nodes) ||
+    graphReviews.nodes.length >= 100 ||
     graphReviews.pageInfo?.hasNextPage !== false ||
-    graphReviews.nodes.some(
-      (review) =>
-        !review ||
-        typeof review !== "object" ||
-        Array.isArray(review) ||
-        !allowedGraphStates.has(review.state) ||
-        !isGitHubTimestamp(review.submittedAt) ||
-        typeof review.author?.login !== "string" ||
-        review.author.login.trim() === "" ||
-        review.state === "PENDING" ||
-        review.state === "CHANGES_REQUESTED",
-    )
+    threads.nodes.length >= 100
   ) {
     fail("PR has unresolved pending or unbounded reviews");
   }
+  const normalizedGraphReviews = normalizeGraphReviews(graphReviews.nodes);
+  assertReviewInventoriesAgree(restReviews, normalizedGraphReviews);
+  const restLatest = latestReviewsByAuthor(restReviews, "REST");
+  assertLatestReviewsAreClear(restLatest);
 }
 
 function readPullRequestReviewState(gh, { owner, name, prNumber }) {
@@ -1692,7 +1906,13 @@ function readPullRequestReviewState(gh, { owner, name, prNumber }) {
             pageInfo{hasNextPage}
           }
           reviews(first:100){
-            nodes{state submittedAt author{login}}
+            nodes{
+              id
+              fullDatabaseId
+              state
+              submittedAt
+              author{__typename login ... on Node{id}}
+            }
             pageInfo{hasNextPage}
           }
         }

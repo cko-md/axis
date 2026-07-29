@@ -291,7 +291,63 @@ function criticalRecordSink(records: unknown[]) {
   };
 }
 
-function graphReviewResult() {
+function restReviewFixture(
+  id: number,
+  login: string,
+  submittedAt: string,
+  state: string,
+  options: {
+    authorId?: string;
+    authorType?: string;
+    nodeId?: string;
+  } = {},
+) {
+  const authorType = options.authorType ?? "User";
+  const canonicalLogin =
+    authorType === "Bot" && login.endsWith("[bot]")
+      ? login.slice(0, -"[bot]".length)
+      : login;
+  return {
+    id,
+    node_id: options.nodeId ?? `PRR_${id}`,
+    user: {
+      login,
+      node_id: options.authorId ?? `${authorType}_${canonicalLogin}`,
+      type: authorType,
+    },
+    submitted_at: submittedAt,
+    state,
+  };
+}
+
+function graphReviewFixture(review: ReturnType<typeof restReviewFixture>) {
+  const login =
+    review.user.type === "Bot" && review.user.login.endsWith("[bot]")
+      ? review.user.login.slice(0, -"[bot]".length)
+      : review.user.login;
+  return {
+    id: review.node_id,
+    fullDatabaseId: String(review.id),
+    state: review.state,
+    submittedAt: review.submitted_at,
+    author: {
+      __typename: review.user.type,
+      id: review.user.node_id,
+      login,
+    },
+  };
+}
+
+function graphReviewResult(
+  reviews = [
+    restReviewFixture(
+      1,
+      "reviewer",
+      "2026-07-23T00:00:00Z",
+      "APPROVED",
+    ),
+  ],
+) {
   return {
     data: {
       repository: {
@@ -301,13 +357,7 @@ function graphReviewResult() {
             pageInfo: { hasNextPage: false },
           },
           reviews: {
-            nodes: [
-              {
-                state: "APPROVED",
-                submittedAt: "2026-07-23T00:00:00Z",
-                author: { login: "reviewer" },
-              },
-            ],
+            nodes: reviews.map(graphReviewFixture),
             pageInfo: { hasNextPage: false },
           },
         },
@@ -349,8 +399,22 @@ class FakeGh {
     this.calls.push({ method: "GET", endpoint });
     if (endpoint.endsWith("/reviews?per_page=100")) {
       return this.admin || !this.blockAfterAdminDisabled
-        ? [{ user: { login: "reviewer" }, submitted_at: "2026-07-23T00:00:00Z", state: "APPROVED" }]
-        : [{ user: { login: "reviewer" }, submitted_at: "2026-07-23T00:10:00Z", state: "CHANGES_REQUESTED" }];
+        ? [
+            restReviewFixture(
+              1,
+              "reviewer",
+              "2026-07-23T00:00:00Z",
+              "APPROVED",
+            ),
+          ]
+        : [
+            restReviewFixture(
+              2,
+              "reviewer",
+              "2026-07-23T00:10:00Z",
+              "CHANGES_REQUESTED",
+            ),
+          ];
     }
     if (endpoint.endsWith("/branches/main/protection")) {
       return protection(this.admin);
@@ -1294,13 +1358,316 @@ describe("owner-controlled merge root", () => {
     ).toBe(false);
   });
 
+  it("reconciles the complete REST and GraphQL review histories by stable identity", () => {
+    const historicalReviews = [
+      restReviewFixture(
+        1,
+        "approved",
+        "2026-07-23T00:00:00Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        2,
+        "approved",
+        "2026-07-23T00:01:00Z",
+        "APPROVED",
+      ),
+      restReviewFixture(
+        3,
+        "commented",
+        "2026-07-23T00:00:00Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        4,
+        "commented",
+        "2026-07-23T00:01:00Z",
+        "COMMENTED",
+      ),
+      restReviewFixture(
+        5,
+        "dismissed",
+        "2026-07-23T00:00:00Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        6,
+        "dismissed",
+        "2026-07-23T00:01:00Z",
+        "DISMISSED",
+      ),
+      restReviewFixture(
+        7,
+        "pending",
+        "2026-07-23T00:00:00Z",
+        "PENDING",
+      ),
+      restReviewFixture(
+        8,
+        "pending",
+        "2026-07-23T00:01:00Z",
+        "APPROVED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: historicalReviews,
+        threadResult: graphReviewResult([...historicalReviews].reverse()),
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: historicalReviews,
+        threadResult: graphReviewResult(historicalReviews.slice(1)),
+      }),
+    ).toThrow("REST and GraphQL full review inventories disagree");
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: historicalReviews,
+        threadResult: graphReviewResult([
+          ...historicalReviews,
+          restReviewFixture(
+            9,
+            "additional",
+            "2026-07-23T00:02:00Z",
+            "APPROVED",
+          ),
+        ]),
+      }),
+    ).toThrow("REST and GraphQL full review inventories disagree");
+
+    const stateMismatch = graphReviewResult(historicalReviews);
+    stateMismatch.data.repository.pullRequest.reviews.nodes[0]!.state =
+      "COMMENTED";
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: historicalReviews,
+        threadResult: stateMismatch,
+      }),
+    ).toThrow("REST and GraphQL full review inventories disagree");
+
+    const duplicateGraphIdentity = graphReviewResult(historicalReviews);
+    duplicateGraphIdentity.data.repository.pullRequest.reviews.nodes.push({
+      ...duplicateGraphIdentity.data.repository.pullRequest.reviews.nodes[0]!,
+    });
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: historicalReviews,
+        threadResult: duplicateGraphIdentity,
+      }),
+    ).toThrow("GraphQL review inventory contains duplicate review identities");
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: [...historicalReviews, historicalReviews[0]],
+        threadResult: graphReviewResult(historicalReviews),
+      }),
+    ).toThrow("REST review inventory contains duplicate review identities");
+
+    const botReview = restReviewFixture(
+      4_804_251_796,
+      "chatgpt-codex-connector[bot]",
+      "2026-07-29T05:17:50Z",
+      "COMMENTED",
+      {
+        authorId: "BOT_kgDOC98s_g",
+        authorType: "Bot",
+        nodeId: "PRR_kwDOS6w6-c8AAAABHlsQlA",
+      },
+    );
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: [botReview],
+        threadResult: graphReviewResult([botReview]),
+      }),
+    ).not.toThrow();
+
+    const botIdentityMismatch = graphReviewResult([botReview]);
+    botIdentityMismatch.data.repository.pullRequest.reviews.nodes[0]!.author.id =
+      "BOT_different";
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: [botReview],
+        threadResult: botIdentityMismatch,
+      }),
+    ).toThrow("REST and GraphQL full review inventories disagree");
+  });
+
+  it("uses only each reviewer's latest submitted state and fails closed on timestamp ties", () => {
+    const historicalReviews = [
+      restReviewFixture(
+        1,
+        "approved",
+        "2026-07-23T00:00:00Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        2,
+        "approved",
+        "2026-07-23T00:01:00Z",
+        "APPROVED",
+      ),
+      restReviewFixture(
+        3,
+        "pending",
+        "2026-07-23T00:00:00Z",
+        "PENDING",
+      ),
+      restReviewFixture(
+        4,
+        "pending",
+        "2026-07-23T00:01:00Z",
+        "APPROVED",
+      ),
+    ];
+    const laterBlock = [
+      ...historicalReviews,
+      restReviewFixture(
+        5,
+        "approved",
+        "2026-07-23T00:02:00Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        6,
+        "pending",
+        "2026-07-23T00:02:00Z",
+        "PENDING",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: laterBlock,
+        threadResult: graphReviewResult(laterBlock),
+      }),
+    ).toThrow("unresolved blocking reviews from approved, pending");
+
+    const equalTimestamp = [
+      restReviewFixture(
+        7,
+        "reviewer",
+        "2026-07-23T00:00:00Z",
+        "APPROVED",
+      ),
+      restReviewFixture(
+        8,
+        "reviewer",
+        "2026-07-23T00:00:00Z",
+        "COMMENTED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: equalTimestamp,
+        threadResult: graphReviewResult(equalTimestamp),
+      }),
+    ).toThrow("REST review inventory has ambiguous equal timestamps");
+
+    const subMillisecondHistory = [
+      restReviewFixture(
+        9,
+        "precise",
+        "2026-07-23T00:00:00.0001Z",
+        "CHANGES_REQUESTED",
+      ),
+      restReviewFixture(
+        10,
+        "precise",
+        "2026-07-23T00:00:00.0002Z",
+        "APPROVED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: subMillisecondHistory,
+        threadResult: graphReviewResult(subMillisecondHistory),
+      }),
+    ).not.toThrow();
+
+    const equivalentFractionalTimestamp = [
+      restReviewFixture(
+        11,
+        "fraction",
+        "2026-07-23T00:00:00.1Z",
+        "APPROVED",
+      ),
+      restReviewFixture(
+        12,
+        "fraction",
+        "2026-07-23T00:00:00.100Z",
+        "COMMENTED",
+      ),
+    ];
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: equivalentFractionalTimestamp,
+        threadResult: graphReviewResult(equivalentFractionalTimestamp),
+      }),
+    ).toThrow("REST review inventory has ambiguous equal timestamps");
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: Array.from({ length: 100 }, (_, index) => ({
+          ...restReviewFixture(
+            100 + index,
+            `reviewer-${index}`,
+            `2026-07-23T00:00:${String(index % 60).padStart(2, "0")}Z`,
+            "APPROVED",
+          ),
+        })),
+        threadResult: graphReviewResult(),
+      }),
+    ).toThrow("REST review inventory reached the 100-item safety boundary");
+  });
+
+  it("strictly validates GitHub review timestamp calendar and time ranges", () => {
+    for (const timestamp of [
+      "2024-02-29T23:59:59Z",
+      "2026-07-23T00:00:00.1Z",
+      "2026-07-23T00:00:00.123456789Z",
+    ]) {
+      const review = restReviewFixture(1, "reviewer", timestamp, "APPROVED");
+      expect(() =>
+        validatePullRequestReviewState({
+          reviews: [review],
+          threadResult: graphReviewResult([review]),
+        }),
+      ).not.toThrow();
+    }
+
+    for (const timestamp of [
+      "0000-01-01T00:00:00Z",
+      "2025-02-29T00:00:00Z",
+      "2026-02-30T00:00:00Z",
+      "2026-04-31T00:00:00Z",
+      "2026-00-01T00:00:00Z",
+      "2026-13-01T00:00:00Z",
+      "2026-01-00T00:00:00Z",
+      "2026-01-01T24:00:00Z",
+      "2026-01-01T00:60:00Z",
+      "2026-01-01T00:00:60Z",
+      "2026-01-01T00:00:00.Z",
+    ]) {
+      const review = restReviewFixture(1, "reviewer", timestamp, "APPROVED");
+      expect(() =>
+        validatePullRequestReviewState({
+          reviews: [review],
+          threadResult: graphReviewResult([review]),
+        }),
+      ).toThrow("REST review inventory contains a malformed review");
+    }
+  });
+
   it("fails closed on GraphQL errors, partial review shapes, pagination, and malformed nodes", () => {
     const reviews = [
-      {
-        user: { login: "reviewer" },
-        submitted_at: "2026-07-23T00:00:00Z",
-        state: "APPROVED",
-      },
+      restReviewFixture(
+        1,
+        "reviewer",
+        "2026-07-23T00:00:00Z",
+        "APPROVED",
+      ),
     ];
     expect(() =>
       validatePullRequestReviewState({
@@ -1382,6 +1749,26 @@ describe("owner-controlled merge root", () => {
       }),
     ).toThrow("unresolved pending or unbounded reviews");
 
+    const reviewPageBoundary = graphReviewResult();
+    reviewPageBoundary.data.repository.pullRequest.reviews.nodes = Array.from(
+      { length: 100 },
+      (_, index) =>
+        graphReviewFixture(
+          restReviewFixture(
+            100 + index,
+            `reviewer-${index}`,
+            `2026-07-23T00:00:${String(index % 60).padStart(2, "0")}Z`,
+            "APPROVED",
+          ),
+        ),
+    );
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews,
+        threadResult: reviewPageBoundary,
+      }),
+    ).toThrow("unresolved pending or unbounded reviews");
+
     const missingReviewPageFlag = graphReviewResult();
     Reflect.deleteProperty(
       missingReviewPageFlag.data.repository.pullRequest.reviews.pageInfo,
@@ -1402,7 +1789,7 @@ describe("owner-controlled merge root", () => {
         reviews,
         threadResult: malformedReview,
       }),
-    ).toThrow("unresolved pending or unbounded reviews");
+    ).toThrow("GraphQL review inventory contains a malformed review");
 
     expect(() =>
       validatePullRequestReviewState({
@@ -1410,6 +1797,47 @@ describe("owner-controlled merge root", () => {
         threadResult: graphReviewResult(),
       }),
     ).toThrow("malformed review");
+
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews: [{ ...reviews[0], id: Number.MAX_SAFE_INTEGER + 1 }],
+        threadResult: graphReviewResult(),
+      }),
+    ).toThrow("REST review inventory contains a malformed review");
+
+    const missingReviewIdentity = graphReviewResult();
+    Reflect.deleteProperty(
+      missingReviewIdentity.data.repository.pullRequest.reviews.nodes[0]!,
+      "fullDatabaseId",
+    );
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews,
+        threadResult: missingReviewIdentity,
+      }),
+    ).toThrow("GraphQL review inventory contains a malformed review");
+
+    const missingReviewAuthor = graphReviewResult();
+    Object.assign(
+      missingReviewAuthor.data.repository.pullRequest.reviews.nodes[0]!,
+      { author: null },
+    );
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews,
+        threadResult: missingReviewAuthor,
+      }),
+    ).toThrow("GraphQL review inventory contains a malformed review");
+
+    const malformedTimestamp = graphReviewResult();
+    malformedTimestamp.data.repository.pullRequest.reviews.nodes[0]!.submittedAt =
+      "not-a-timestamp";
+    expect(() =>
+      validatePullRequestReviewState({
+        reviews,
+        threadResult: malformedTimestamp,
+      }),
+    ).toThrow("GraphQL review inventory contains a malformed review");
   });
 
   it("requires explicit collaborator identities and boolean permission inventories", () => {
