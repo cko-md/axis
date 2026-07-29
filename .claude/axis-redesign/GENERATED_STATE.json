@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-29T14:43:45.167Z",
+  "derivedAt": "2026-07-29T15:17:56.821Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "caa860069aec9cb41a11edc5145d1c91c18b870e",
+    "head": "67493c04f02026ad8159586737d3dacbd78a10dd",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "67493c04",
+        "subject": "fix(governance): preserve active review decisions"
+      },
+      {
+        "sha": "1618e410",
+        "subject": "docs(state): bind review reconciliation gates"
+      },
       {
         "sha": "caa86006",
         "subject": "fix(governance): reconcile complete review history"
@@ -68,9 +76,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "4f7aa61bfbba55f8a5e3e5a66a69ff26b4936e9d48435ca65212ebfc0bb7b8f3",
+    "contentTreeHash": "371e4626ab2e1641ee05e0801b60e53636f47c31ebfedff6cf807c501d38b940",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "c91e61ed2105022798226a7f97e7ba077e57e54db53d866fa023bf64afd0a081"
+    "fingerprint": "c6432e0f4264f8a106a13aa612c0bf63926e72562c31eebd4f1ce683fcb3c2f0"
   },
   "mergedPrs": [
     {
@@ -381,10 +389,10 @@
     ]
   },
   "gates": {
-    "measured": false,
+    "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "43c55969e359ed2043b30c8af90d48b9124d23de",
-    "sourceContentTreeHash": "f37e1c054eea9370be975a6648d395c4b2bea6ba48b5bd1b1a967c342e94801a",
+    "sourceHead": "67493c04f02026ad8159586737d3dacbd78a10dd",
+    "sourceContentTreeHash": "371e4626ab2e1641ee05e0801b60e53636f47c31ebfedff6cf807c501d38b940",
     "typecheck": {
       "passed": true
     },
@@ -392,8 +400,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 1960,
-      "total": 1960,
+      "passed": 1965,
+      "total": 1965,
       "files": 228,
       "suites": 667
     },
@@ -409,7 +417,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-29T04:56:09.825Z",
-    "note": "carried forward; re-run with --gates to measure"
+    "measuredAt": "2026-07-29T15:17:56.716Z"
   }
 }
