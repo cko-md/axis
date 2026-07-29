@@ -6,20 +6,24 @@ Axis ships an optional **Electron desktop app** that wraps the deployed web app
 provisioning profiles, no Developer Mode on a device, no 7‑day profile expiry,
 no weekly rebuilds).
 
-There are two paths, gated by whether the artifacts are **code‑signed**.
+There are two paths, gated by whether the artifacts carry a production identity.
+macOS previews receive a local ad-hoc signature after their fuse wire is changed;
+that signature is required for Apple Silicon to launch the app, but conveys no
+developer identity and is not notarization.
 
-| | Unsigned preview | Signed release |
+| | Preview | Signed release |
 |---|---|---|
 | Purpose | Personal use / iterating | Distributable installers |
 | Cost | Free | Apple Dev Program ($99/yr) + Azure Trusted Signing |
 | Secrets | None | Apple + Azure (below) |
 | CI workflow | `.github/workflows/desktop-preview.yml` | `desktop-release.yml` (deferred — not in the repo yet) |
 | Trigger tag | `desktop-preview-v*` | `desktop-v*` |
+| Signature | macOS ad-hoc; Windows unsigned | Developer ID / Azure Trusted Signing |
 | Gatekeeper/SmartScreen | Warns; user bypasses manually | Clean install, no warnings |
 
 ---
 
-## 1. Unsigned preview (current, no secrets)
+## 1. Preview (current, no secrets)
 
 This is what's landed. Nothing to configure.
 
@@ -28,6 +32,14 @@ This is what's landed. Nothing to configure.
 npm ci && npm ci --prefix electron
 npm run desktop:dist -- --mac        # → dist-electron/AXIS-*.dmg (+ .app)
 ```
+The build flips all nine Electron 43 fuse bytes in one direct
+`@electron/fuses` 2.1.3 `afterPack` hook, verifies every architecture slice,
+then applies and verifies a teamless ad-hoc signature. Preview verification
+rejects Developer ID identities, signing teams, and notarization tickets. Its
+`stapler validate` check accepts only Apple's documented no-ticket response:
+exit status `65` with `does not have a ticket stapled to it.`; any other
+nonzero result is a verification failure.
+
 Open the `.app` once via **right‑click → Open** (then "Open" in the dialog), or
 clear the quarantine attribute:
 ```bash
@@ -41,9 +53,10 @@ the unsigned `.exe` triggers a SmartScreen "More info → Run anyway" once.
 `desktop:size` / `desktop:size:check` (installer size budget),
 `desktop:preview:validate`.
 
-**CI:** push a tag `desktop-preview-v0.1.0` → the *Unsigned Desktop Preview*
-workflow builds unsigned macOS + Windows artifacts and asserts they are unsigned.
-It does **not** run on normal pushes/PRs.
+**CI:** push a tag `desktop-preview-v0.1.0` → the *Desktop Preview* workflow
+builds an ad-hoc-signed macOS artifact plus unsigned Windows/Linux artifacts.
+It re-verifies every unpacked fuse wire and proves the macOS signature is valid
+ad-hoc rather than Developer ID. It does **not** run on normal pushes/PRs.
 
 ---
 
@@ -122,9 +135,15 @@ Interactive setup helpers: `desktop:apple-signing:configure`,
 ### Cutting a signed release
 
 1. Add signing secrets/variables above.
-2. Re‑land `desktop-release.yml` from `codex/electron-preview-release`.
+2. Re‑land `desktop-release.yml` from `codex/electron-preview-release` and keep
+   its required `desktop:verify:fuses` plus
+   `desktop:verify:signature -- --release` gates.
 3. `git tag desktop-v0.1.0 && git push origin desktop-v0.1.0` → the release
    workflow builds/signs/notarizes and uploads artifacts.
+
+The signed release remains an owner gate: it cannot be claimed complete until
+the Apple Developer ID/notarization and Azure signing secrets above exist and
+the release workflow verifies the resulting identities and notarization ticket.
 
 ---
 
