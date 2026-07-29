@@ -1,0 +1,55 @@
+import http from "node:http";
+import { describe, expect, it, vi } from "vitest";
+
+const sentry = vi.hoisted(() => ({ addBreadcrumb: vi.fn(), captureException: vi.fn() }));
+vi.mock("@sentry/nextjs", () => sentry);
+vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
+
+import { safeFetch } from "@/lib/security/safe-fetch";
+import { resolveOgImageUrl } from "@/lib/og-image";
+
+describe("OG image outbound boundary", () => {
+  it("blocks a direct mapped-IPv6 image URL before its server receives a request", async () => {
+    let hits = 0;
+    const server = http.createServer((_req, res) => { hits += 1; res.end("not-an-image"); });
+    await new Promise<void>((resolve) => server.listen(0, "::", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("IPv6 test server did not bind");
+    try {
+      await expect(resolveOgImageUrl(`http://[::ffff:127.0.0.1]:${address.port}/pixel.png?secret=never`)).resolves.toBeNull();
+      expect(hits).toBe(0);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("validates a discovered HTML meta image as a second hop before returning it", async () => {
+    let hits = 0;
+    const server = http.createServer((_req, res) => { hits += 1; res.end("INTERNAL_CANARY"); });
+    await new Promise<void>((resolve) => server.listen(0, "::", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("IPv6 test server did not bind");
+    const page = "https://public.example/article";
+    const internalImage = `http://[::ffff:127.0.0.1]:${address.port}/image.png?token=never`;
+    const fetcher: typeof safeFetch = async (raw, options, dependencies) => raw.toString() === page
+      ? new Response(`<meta property=\"og:image\" content=\"${internalImage}\">`, {
+        headers: { "content-type": "text/html" },
+      })
+      : safeFetch(raw, options, dependencies);
+    try {
+      await expect(resolveOgImageUrl(page, fetcher)).resolves.toBeNull();
+      expect(hits).toBe(0);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it.each([
+    ["image/png", true], ["image/jpeg; charset=binary", true], ["image/svg+xml", false], ["text/html", false],
+  ])("uses an exact inert raster media-type policy for %s", async (contentType, allowed) => {
+    const result = await resolveOgImageUrl("https://public.example/unknown", async () => new Response("x", {
+      headers: { "content-type": contentType },
+    }));
+    expect(result === "https://public.example/unknown").toBe(allowed);
+  });
+});

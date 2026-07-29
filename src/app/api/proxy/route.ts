@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { isBlockedUrl } from '@/lib/security/ssrf';
+import { safeFetch, safeFetchHttpStatus } from '@/lib/security/safe-fetch';
+import { recordSafeFetchFailure } from '@/lib/security/safe-fetch-observability';
+
+// Remote HTML remains untrusted even after it has crossed the outbound
+// boundary. Keep the iframe at a unique origin; relaxing that sandbox would
+// collapse the containment boundary.
+const PROXY_HTML_CSP = "sandbox allow-scripts; default-src * data: blob:; img-src * data: blob:; style-src * 'unsafe-inline'; script-src 'unsafe-inline'";
+const proxyHtmlHeaders = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy': PROXY_HTML_CSP,
+  'X-Content-Type-Options': 'nosniff',
+} as const;
 
 // OAuth/login hosts must never be proxied: routing a credential page through an
 // embedded webview is the "man-in-the-middle" pattern Google explicitly forbids.
@@ -21,6 +33,12 @@ const NAV_INTERCEPT = `<script>(function(){
     }catch(err){}
   },true);
 })();</script>`;
+
+// SVG can execute script and load external resources. Proxy only inert raster
+// preview types; HTML remains separately sandboxed below.
+const SAFE_RASTER_TYPES = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp",
+]);
 
 /**
  * Tiny document served into the iframe when the upstream content cannot be
@@ -60,43 +78,41 @@ export async function GET(req: NextRequest) {
 
   const url = req.nextUrl.searchParams.get('url') ?? '';
   if (!url) return new NextResponse('Missing url', { status: 400 });
-  if (isBlockedUrl(url)) return new NextResponse('Forbidden', { status: 403 });
-
   let target: URL;
   try { target = new URL(url); } catch { return new NextResponse('Invalid URL', { status: 400 }); }
 
   try {
-    const upstream = await fetch(url, {
+    const upstream = await safeFetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Cache-Control': 'no-cache',
       },
-      signal: AbortSignal.timeout(12000),
-      redirect: 'follow',
+      timeoutMs: 12000,
+      maxBodyBytes: 5_000_000,
     });
-
-    if (isBlockedUrl(upstream.url)) {
-      return new NextResponse('Redirected to a forbidden URL', { status: 403 });
-    }
 
     const ct = upstream.headers.get('content-type') ?? 'text/html';
 
     if (!ct.includes('text/html')) {
       // Images render fine inside the iframe; pass them through untouched.
-      if (ct.startsWith('image/')) {
+      if (SAFE_RASTER_TYPES.has(ct.split(";", 1)[0].trim().toLowerCase())) {
         const buf = await upstream.arrayBuffer();
         return new NextResponse(buf, {
           status: upstream.status,
-          headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=120' },
+          headers: {
+            'Content-Type': ct,
+            'Cache-Control': 'private, max-age=120',
+            'X-Content-Type-Options': 'nosniff',
+          },
         });
       }
       // PDFs and other binary content can't render usefully in the sandboxed
       // iframe — hand off to reader view.
       const label = ct.includes('pdf') ? 'PDF document' : 'Unsupported content type';
       return new NextResponse(readerFallbackDoc(url, label), {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+        headers: proxyHtmlHeaders,
       });
     }
 
@@ -104,12 +120,14 @@ export async function GET(req: NextRequest) {
     // reader mode immediately rather than wait for the client-side timeout.
     if (willBlockEmbedding(upstream.headers)) {
       return new NextResponse(readerFallbackDoc(url, 'This site blocks embedding'), {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+        headers: proxyHtmlHeaders,
       });
     }
 
     let html = await upstream.text();
-    const base = `${target.protocol}//${target.host}`;
+    // Relative resources must resolve against the final URL that safeFetch
+    // validated after every redirect, including its final path segment.
+    const base = (upstream.url || target.href).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
     // Inject base tag if not present
     if (!/<base\b/i.test(html)) {
@@ -123,19 +141,15 @@ export async function GET(req: NextRequest) {
       : html + NAV_INTERCEPT;
 
     return new NextResponse(html, {
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store',
-        // Deliberately omit X-Frame-Options and CSP frame-ancestors
-        // so our own iframe can embed this response
-      },
+      headers: proxyHtmlHeaders,
     });
-  } catch (err) {
+  } catch (error) {
     // Fetch failed (timeout, DNS, TLS, upstream refusal). Hand off to reader
     // mode so the user still gets a readable fallback when possible.
-    const msg = err instanceof Error ? err.message : 'Fetch failed';
-    return new NextResponse(readerFallbackDoc(url, `Could not load page: ${msg}`), {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    const { code } = recordSafeFetchFailure("web_proxy", target.href, error);
+    return new NextResponse(readerFallbackDoc(url, 'Could not load page safely'), {
+      status: safeFetchHttpStatus(error),
+      headers: { ...proxyHtmlHeaders, 'X-Axis-Proxy-Error': code },
     });
   }
 }
