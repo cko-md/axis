@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
 import http from "node:http";
 import { networkInterfaces } from "node:os";
+import { resolve as resolvePath } from "node:path";
 import {
   isBlockedAddress,
   SafeFetchError,
@@ -10,6 +12,40 @@ import {
 } from "./safe-fetch";
 
 const hasIpv6Interface = Object.values(networkInterfaces()).flat().some((address) => address?.family === "IPv6");
+
+async function runSetupFailureChild() {
+  return new Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>(
+    (resolve, reject) => {
+      const child = spawn(process.execPath, [
+        resolvePath(process.cwd(), "node_modules/vitest/vitest.mjs"),
+        "run",
+        "--config",
+        "src/lib/security/safe-fetch-process-child.config.ts",
+        "--maxWorkers=1",
+        "--no-file-parallelism",
+      ], {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+      child.once("error", reject);
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error("safe-fetch process regression child timed out"));
+      }, 5_000);
+      child.once("close", (code, signal) => {
+        clearTimeout(timer);
+        resolve({ code, signal, stdout, stderr });
+      });
+    },
+  );
+}
 
 describe("safeFetch", () => {
   it("refuses a DNS-resolved loopback target before the transport is invoked", async () => {
@@ -476,6 +512,38 @@ describe("safeFetch", () => {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
+
+  it("normalizes invalid direct and safeFetch headers as typed transport failures", async () => {
+    await expect(pinnedSafeFetchTransport(new URL("http://localhost:9/direct-invalid-header"), {
+      headers: { accept: "invalid\nvalue" },
+      timeoutMs: 100,
+      maxBodyBytes: 32,
+      address: { address: "127.0.0.1", family: 4 },
+    })).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+
+    await expect(safeFetch("http://public.example/safe-fetch-invalid-header", {
+      headers: { accept: "invalid\nvalue" },
+    }, {
+      resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+    })).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+  });
+
+  it("normalizes a setup failure after ClientRequest construction", async () => {
+    await expect(pinnedSafeFetchTransport(new URL("http://localhost:9/invalid-setup-option"), {
+      headers: undefined,
+      timeoutMs: -1,
+      maxBodyBytes: 32,
+      address: { address: "127.0.0.1", family: 4 },
+    })).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+  });
+
+  it("contains setup failures after ClientRequest construction without a late process crash", async () => {
+    const result = await runSetupFailureChild();
+    expect(result).toMatchObject({ code: 0, signal: null });
+    expect(result.stdout).toContain("SAFE_FETCH_PROCESS_CHILD_OK");
+    expect(result.stderr).not.toContain("uncaughtException");
+    expect(result.stderr).not.toContain("Unhandled 'error' event");
+  }, 10_000);
 
   it("aborts an active production socket, closes the peer, and never later resolves", async () => {
     let peerClosed = false;
