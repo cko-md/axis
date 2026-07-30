@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toast";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { ModuleInteractiveHero, type HeroStatTone } from "@/components/ui/axis/ModuleInteractiveHero";
 import { useBriefing } from "@/lib/hooks/useBriefing";
+import { parseFeedResponse } from "@/lib/feeds/feed-response";
 
 type Story = {
   id: string;
@@ -254,7 +255,8 @@ export function BriefingModule() {
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data) => {
-        const items: Story[] = (data.items ?? []).map(
+        const feed = parseFeedResponse<{ id: string; title: string; url: string; source: string; date: string; body: string; image?: string | null }>(data);
+        const items: Story[] = feed.items.map(
           (item: { id: string; title: string; url: string; source: string; date: string; body: string; image?: string | null }, i: number) => ({
             id: `feed-${item.id ?? i}`,
             cat: item.source ?? "Feed",
@@ -269,6 +271,8 @@ export function BriefingModule() {
           }),
         );
         setFeedItems(items);
+        if (feed.allFailed) setFeedLoadError("All feed sources failed to refresh. Curated stories remain available.");
+        else if (feed.partial) setFeedLoadError("Some feed sources could not be refreshed; showing available and cached stories.");
 
         // For items the feed gave no image, scrape the article's og:image in the
         // background and patch it in. Failures are silent (gradient stays).

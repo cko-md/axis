@@ -24,6 +24,7 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { useAtelierPrefs } from "@/lib/hooks/useAtelierPrefs";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { activateOnEnterSpace } from "@/lib/a11y";
+import { parseFeedResponse, type FeedResponse } from "@/lib/feeds/feed-response";
 
 type LangKey = "fr" | "es" | "yo";
 
@@ -234,6 +235,7 @@ export function AtelierModule() {
   // — an empty array alone can't tell those apart, which left a failed feed
   // rendering as a silent blank instead of an honest message.
   const [langFeedsLoaded, setLangFeedsLoaded] = useState(false);
+  const [langFeedsError, setLangFeedsError] = useState<string | null>(null);
   const [trendItems, setTrendItems] = useState<RssItem[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(true);
   const [trendsRefreshing, setTrendsRefreshing] = useState(false);
@@ -332,33 +334,31 @@ export function AtelierModule() {
   // ── Pinned-resources "auto-refresh" feeds, keyed per language, and the
   // Men's-Style trends card — both backed by the same generic, auth-checked,
   // SSRF-guarded RSS proxy BriefingModule/LiteratureModule already use.
-  const loadFeed = useCallback(async (feedUrls: string[]): Promise<RssItem[]> => {
+  const loadFeed = useCallback(async (feedUrls: string[]): Promise<FeedResponse<RssItem>> => {
     try {
       const res = await fetch("/api/feeds/cached", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedUrls }),
       });
-      if (!res.ok) return [];
-      const json = await res.json();
-      return Array.isArray(json.items) ? (json.items as RssItem[]) : [];
+      if (!res.ok) throw new Error("Feed request failed");
+      return parseFeedResponse<RssItem>(await res.json());
     } catch {
-      return [];
+      return { items: [], sources: [], partial: true, allFailed: true };
     }
   }, []);
 
-  const loadFeedOrFail = useCallback(async (feedUrls: string[]): Promise<{ items: RssItem[]; ok: boolean }> => {
+  const loadFeedOrFail = useCallback(async (feedUrls: string[]): Promise<FeedResponse<RssItem>> => {
     try {
       const res = await fetch("/api/feeds/cached", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedUrls }),
       });
-      if (!res.ok) return { items: [], ok: false };
-      const json = await res.json();
-      return { items: Array.isArray(json.items) ? (json.items as RssItem[]) : [], ok: true };
+      if (!res.ok) throw new Error("Feed request failed");
+      return parseFeedResponse<RssItem>(await res.json());
     } catch {
-      return { items: [], ok: false };
+      return { items: [], sources: [], partial: true, allFailed: true };
     }
   }, []);
 
@@ -369,8 +369,11 @@ export function AtelierModule() {
       const results = await Promise.all(keys.map((k) => loadFeed(LANG_FEEDS[k])));
       if (cancelled) return;
       const next = {} as Record<LangKey, RssItem[]>;
-      keys.forEach((k, i) => { next[k] = results[i]; });
+      keys.forEach((k, i) => { next[k] = results[i].items; });
       setLangFeedItems(next);
+      if (results.some((result) => result.allFailed)) setLangFeedsError("One or more language feed groups could not be refreshed.");
+      else if (results.some((result) => result.partial)) setLangFeedsError("Some language feeds are stale; showing available stories.");
+      else setLangFeedsError(null);
       setLangFeedsLoaded(true);
     };
     loadAllLangFeeds();
@@ -382,9 +385,9 @@ export function AtelierModule() {
   // and the manual "Refresh" button both call this; the button sets a visible
   // refreshing state while in flight.
   const loadTrends = useCallback(async () => {
-    const { items, ok } = await loadFeedOrFail(MENS_STYLE_FEEDS);
+    const { items, partial, allFailed } = await loadFeedOrFail(MENS_STYLE_FEEDS);
     setTrendItems(items.slice(0, 4));
-    setTrendsError(ok || items.length > 0 ? null : "Style feeds could not be refreshed.");
+    setTrendsError(allFailed ? "All style feeds failed to refresh." : partial ? "Some style feeds are stale; showing available stories." : null);
     setTrendsLoading(false);
   }, [loadFeedOrFail]);
 
@@ -530,7 +533,12 @@ export function AtelierModule() {
               ))}
               {langFeedsLoaded && langFeedForCurrent.length === 0 && (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", padding: "6px 0" }}>
-                  No live stories right now — this feed source may be unavailable.
+                  {langFeedsError ? "Feed refresh failed — no live stories are available right now." : "No live stories right now."}
+                </div>
+              )}
+              {langFeedsError && langFeedForCurrent.length > 0 && (
+                <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", padding: "6px 0" }}>
+                  {langFeedsError}
                 </div>
               )}
               <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 12 }}>

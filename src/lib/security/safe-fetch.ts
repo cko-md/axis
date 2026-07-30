@@ -2,6 +2,8 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import { isIP } from "node:net";
+import { type Transform } from "node:stream";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 /** Codes are deliberately URL- and hostname-free: callers may safely expose them. */
 export type SafeFetchErrorCode =
@@ -156,7 +158,7 @@ const IPV6_NON_GLOBAL_CIDRS: readonly Ipv6Cidr[] = [
   { bits: 10, words: [0xfe80, 0, 0, 0, 0, 0, 0, 0] },
 ];
 
-// IANA IPv6 Global Unicast Address Assignments, snapshot 2025-10-09:
+// IANA IPv6 Global Unicast Address Assignments, snapshot 2025-10-10:
 // https://www.iana.org/assignments/ipv6-unicast-address-assignments/
 // Fail closed for the rest of 2000::/3 because IANA marks it reserved for
 // future allocation. Broader entries below subsume their later child entries.
@@ -359,10 +361,36 @@ async function within<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortS
 
 const defaultResolve = (hostname: string) => dnsLookup(hostname, { all: true, verbatim: true });
 
+function responseDecoder(contentEncoding: string | string[] | undefined): Transform | undefined {
+  if (Array.isArray(contentEncoding)) throw new SafeFetchError("SAFE_FETCH_TRANSPORT_FAILED");
+  const encoding = contentEncoding?.trim().toLowerCase();
+  if (!encoding || encoding === "identity") return undefined;
+  // A stacked encoding needs a verified reverse decoder chain. Fail closed
+  // until that chain is deliberately implemented rather than misrepresenting
+  // encoded bytes as decoded Fetch-compatible content.
+  if (encoding.includes(",")) throw new SafeFetchError("SAFE_FETCH_TRANSPORT_FAILED");
+  if (encoding === "gzip") return createGunzip();
+  if (encoding === "deflate") return createInflate();
+  if (encoding === "br") return createBrotliDecompress();
+  throw new SafeFetchError("SAFE_FETCH_TRANSPORT_FAILED");
+}
+
+function responseHeadersWithoutEncoding(headers: http.IncomingHttpHeaders) {
+  const normalized = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (typeof value === "string") normalized.set(name, value);
+    else if (Array.isArray(value)) normalized.set(name, value.join(", "));
+  }
+  normalized.delete("content-encoding");
+  normalized.delete("content-length");
+  return normalized;
+}
+
 export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((resolve, reject) => {
   let settled = false;
   let request: http.ClientRequest | undefined;
   let upstreamResponse: http.IncomingMessage | undefined;
+  let decoder: Transform | undefined;
   const control: { deadlineTimer?: ReturnType<typeof setTimeout> } = {};
   const abortRequest = () => fail(new SafeFetchError("SAFE_FETCH_ABORTED"), true);
   const cleanup = () => {
@@ -388,6 +416,7 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
     settled = true;
     cleanup();
     if (closePeer) {
+      decoder?.destroy(safeError);
       upstreamResponse?.destroy(safeError);
       request?.destroy(safeError);
     }
@@ -422,34 +451,51 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
         return;
       }
       const chunks: Buffer[] = [];
-      let received = 0;
-      upstream.on("data", (chunk: Buffer) => {
-        received += chunk.length;
-        if (received > input.maxBodyBytes) {
-          fail(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"), true);
-          return;
-        }
-        chunks.push(chunk);
-      });
-      upstream.on("error", (error) => fail(error));
-      upstream.on("end", () => {
+      let wireBytes = 0;
+      let decodedBytes = 0;
+      const status = upstream.statusCode ?? 502;
+      const finish = () => {
         // The Fetch standard forbids bodies for these statuses. More
-        // importantly, constructing a Response with a Buffer for one throws;
-        // construction must happen before the promise settles so it can be
-        // returned as a bounded, typed transport failure.
-        const status = upstream.statusCode ?? 502;
+        // importantly, constructing a Response with a Buffer for one throws.
         const body = status === 204 || status === 205 || status === 304 ? null : Buffer.concat(chunks);
         try {
           const response = responseWithUrl(new Response(body, {
             status,
             statusText: upstream.statusMessage,
-            headers: upstream.headers as HeadersInit,
+            headers: responseHeadersWithoutEncoding(upstream.headers),
           }), url);
           succeed(response);
         } catch (error) {
           fail(error, true);
         }
-      });
+      };
+      const onWireData = (chunk: Buffer) => {
+        wireBytes += chunk.length;
+        if (wireBytes > input.maxBodyBytes) {
+          fail(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"), true);
+          return;
+        }
+      };
+      const onDecodedData = (chunk: Buffer) => {
+        decodedBytes += chunk.length;
+        if (decodedBytes > input.maxBodyBytes) {
+          fail(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"), true);
+          return;
+        }
+        chunks.push(chunk);
+      };
+      upstream.on("error", (error) => fail(error));
+      upstream.on("data", onWireData);
+      decoder = responseDecoder(upstream.headers["content-encoding"]);
+      if (decoder) {
+        decoder.on("data", onDecodedData);
+        decoder.on("error", (error: Error) => fail(error, true));
+        decoder.on("end", finish);
+        upstream.pipe(decoder);
+      } else {
+        upstream.on("data", onDecodedData);
+        upstream.on("end", finish);
+      }
     } catch (error) {
       fail(error, true);
     }
@@ -462,6 +508,9 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
     const headers = {
       ...Object.fromEntries(new Headers(input.headers).entries()),
       host: url.host,
+      // Ask upstream for a directly usable representation. We still decode
+      // recognized encodings below because intermediaries may ignore this.
+      "accept-encoding": "identity",
     };
     request = client.request({
       protocol: url.protocol,
