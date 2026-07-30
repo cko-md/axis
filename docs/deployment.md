@@ -62,6 +62,13 @@ CLI/environment value without recorded, successful complete-gate evidence under
 the proposed setting. All normal Vitest commands, including `npm run test` and
 `npm run state:derive:gates`, must use the configured cap.
 
+After `npm run state:derive:gates` writes the two generated state artifacts,
+commit those artifacts before running `npm run state:check`. The check reads
+the committed target and therefore correctly rejects a not-yet-committed state
+refresh. Do not run plain `npm run state:derive` between the measured run and
+that commit: it observes the uncommitted generated artifacts and records dirty
+provenance, invalidating the measured refresh.
+
 The SHA-256 state fingerprint is deterministic consistency evidence, not a
 cryptographic signature or an independent attestation: candidate authors can
 recompute it. The base-controlled `release-governance` job in
