@@ -68,7 +68,18 @@ group by o.tablename
 having count(*) filter (where coalesce(p.qual,'')||coalesce(p.with_check,'') ilike '%auth.uid%')=0;
 ```
 
-Supabase security advisors (`get_advisors type=security`): only `auth_leaked_password_protection` (WARN) — Supabase's built-in HaveIBeenPwned check requires the Pro plan. **Implemented at the application layer instead** (no Pro, no schema needed): `src/lib/auth/passwordCheck.ts` runs the HIBP Pwned-Passwords **k-anonymity** range check (only a 5-char SHA-1 prefix leaves the server; `Add-Padding: true`; fails open on API/network error). Enforced server-side on password change (`/api/auth/account`) and client-side pre-check on signup (`/login`). The pure `rangeContainsSuffix` parser requires `count > 0` so padding entries can't false-positive; unit-tested in `passwordCheck.test.ts`. The Supabase advisor WARN can be ignored (or the toggle enabled if you later upgrade to Pro — the app-layer check is harmless alongside it).
+Supabase security advisor `auth_leaked_password_protection` remains an
+owner-accepted **P2** because the provider control requires the unavailable Pro
+plan. `src/lib/auth/passwordCheck.ts` is useful defense in depth for the honest
+UI/account flows: it performs a padded HIBP k-anonymity range lookup and its
+parser rejects zero-count padding entries. It is not equivalent to provider
+enforcement. Signup calls HIBP from the browser, direct Supabase signup/password
+update paths can bypass the application check, and HIBP network/API failures
+currently fail open. Do not mark the advisor DONE or ignored. The no-Pro
+closure is passkey-first operation with verified magic-link bootstrap/recovery,
+disabled public password signup/direct password recovery, a tested owner
+lockout/recovery ceremony, safe degraded telemetry, and privacy disclosure for
+any retained HIBP request.
 
 ---
 
@@ -126,7 +137,11 @@ Run before promoting `main` to production:
 4. **Sentry (post-preview)**: confirm the happy paths create **no** new Sentry issue; confirm intentional error paths emit tagged events with **no** PII (no tokens, email/note bodies, health/financial data, contact PII, or raw provider payloads).
 5. **Manual workflow smoke** (the daily loop): Console capture → Dispatch route → Agenda task → Schedule block → Notes reference; plus one beta module (Objectives/Fund) and one lab module render check.
 6. **Cross-theme spot check**: dark / dim / slate / silver-light on Command, Mail, Notes, Fund, Control Room.
-7. Promote only after the above pass and the change is human-approved. Production deploy = merge to `main` (Vercel promotes automatically).
+7. Promote only after the above pass and the change is human-approved. AXIS
+   production uses two protected merges: the source merge to `main` is
+   intentionally skipped by the canonical-state gate; derive and commit the two
+   generated state artifacts from updated `main`, then merge that protected
+   state refresh to create the production build.
 
 ---
 
@@ -136,7 +151,9 @@ Run before promoting `main` to production:
 - RLS: verified clean (§1). Migrations: drift documented (§2), needs reconciliation before treating the repo as a from-scratch source of truth.
 - **PROD-4 (e2e smoke) — DONE for the public surface.** `tests/e2e/smoke.spec.ts` (Playwright `public` project) covers home, legal, 404, and every production nav route + the legacy `/console`,`/signals` resolving without an error boundary pre-auth — **10 public tests verified passing locally** against a dev server + Chromium (`npm run test:e2e`). Authenticated smoke (`authenticated.spec.ts`, incl. the DISP-3 `/console→/command` & `/signals→/dispatch` redirect assertions) runs under `AXIS_E2E_AUTH=1` (`npm run test:e2e:auth`) and needs a seeded test login — **not run this session** (no test credentials here); run it in CI/with creds before treating the authed paths as gated.
 - **AI-1..4 — DONE** (typed registry `src/lib/ai/actions.ts` + `callAiAction`, all call sites migrated/fixed, `privacy.test.ts` logging guard). See handoff.
-- Leaked-password protection (§1): **DONE at the app layer** (HIBP k-anonymity, no Pro/schema); Supabase advisor WARN is expected and can be ignored.
+- Leaked-password protection (§1): provider WARN remains an owner-accepted P2;
+  the HIBP application check is bypassable, fail-open defense in depth pending
+  the passkey/magic-link no-Pro cutover.
 - Remaining open Phase-8: migration-drift reconciliation (§2, human decision). PROD-2 typed client is now **fully wired** (§3). Market/quotes shared caching is an optional FUND perf follow-on, not a maturity blocker.
 
 ---

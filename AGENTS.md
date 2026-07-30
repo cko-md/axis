@@ -131,7 +131,16 @@ For every issue, the agent must:
 15. **Automate post-preview Sentry review.** After the Vercel preview is ready, query Sentry for new errors/regressions in the preview window/release/environment using the available CLI/API/connector. If Sentry credentials or tooling are unavailable, block production merge unless the PR clearly records the missing automation, the exact Sentry query/check to run, and the human validation owner.
 16. **Provide a manual test checklist** (happy path, error path, refresh/persistence, RLS where relevant, related-module regression).
 
-**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Agents should push branches and open PRs after local checks. Merge only after the Vercel preview, automated Supabase/Tembo validation, automated post-preview Sentry review, and manual workflow checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
+**Production deploy:** AXIS production is intentionally a two-merge operation.
+The source PR merge to `main` creates a Vercel production attempt that the
+canonical-state gate skips. From the updated protected `main`, derive and
+commit only the two generated state artifacts; the following protected
+state-refresh merge creates the production build. Agents should push branches
+and open PRs after local checks. Merge only after the Vercel preview, automated
+Supabase/Tembo validation, automated post-preview Sentry review, and manual
+workflow checks pass — that is the production-readiness gate. Run
+`npm run build` locally before merging anything that changes runtime behavior.
+See `docs/deployment.md` for the exact state-refresh and recovery procedure.
 
 End the session with the response format in §12.
 
