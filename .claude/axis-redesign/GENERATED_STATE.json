@@ -1,17 +1,64 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-30T15:07:11.671Z",
+  "derivedAt": "2026-07-30T22:58:00.057Z",
   "git": {
-    "branch": "codex/redesign-00-production-state-refresh-v2",
-    "head": "5e0bb86663ba7926bae38657a10cf94ba7e86ed3",
-    "mainHead": "5e0bb86663ba7926bae38657a10cf94ba7e86ed3",
+    "branch": "codex/redesign-01-safe-fetch-v2",
+    "head": "e1d1350a556c5041a415d3f625680394729e4880",
+    "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
+    "aheadOfMain": [
+      {
+        "sha": "e1d1350a",
+        "subject": "fix(security): redact Sentry query and fragment attributes"
+      },
+      {
+        "sha": "03bd65e6",
+        "subject": "fix(security): disable replay and scrub navigation trails"
+      },
+      {
+        "sha": "68273a66",
+        "subject": "fix(security): scrub Sentry trace and replay targets"
+      },
+      {
+        "sha": "98700100",
+        "subject": "fix(security): scrub safe fetch batch telemetry"
+      },
+      {
+        "sha": "3a388aa4",
+        "subject": "fix(security): harden safe fetch failure handling"
+      },
+      {
+        "sha": "9914992d",
+        "subject": "fix(security): contain safe fetch setup failures"
+      },
+      {
+        "sha": "38e15f28",
+        "subject": "fix(security): bound safe fetch transport failures"
+      },
+      {
+        "sha": "4fd910a7",
+        "subject": "security: complete IANA address classification"
+      },
+      {
+        "sha": "b2abc585",
+        "subject": "security: repair safe fetch IPv6 pinning"
+      },
+      {
+        "sha": "873747a5",
+        "subject": "security: recover DNS-pinned safe fetch boundary"
+      }
+    ],
+    "contentTreeHash": "3787a4fcd50b98af1846eaa1f2a24846757562cd960ea8762eaf25f5340a375e",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "8127410da93320bdb28d174190826c817c1535f35509987dbb51c7a33df501e8"
+    "fingerprint": "0c21012aa0a299cae0d99b6a195d1b574a43a3bfb355592530c0b6e9e86841d0"
   },
   "mergedPrs": [
+    {
+      "pr": 282,
+      "sha": "acafb3ae",
+      "subject": "docs(state): refresh canonical production evidence",
+      "committedAt": "2026-07-30T18:18:27-04:00"
+    },
     {
       "pr": 267,
       "sha": "5e0bb866",
@@ -155,12 +202,6 @@
       "sha": "ad2dce63",
       "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter",
       "committedAt": "2026-07-20T12:45:26-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "5572d3ee",
-      "subject": "feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard",
-      "committedAt": "2026-07-20T11:42:53-04:00"
     }
   ],
   "waves": [
@@ -322,8 +363,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "c2105adaa725e504dd5519237c688aeab0ad6b11",
-    "sourceContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
+    "sourceHead": "e1d1350a556c5041a415d3f625680394729e4880",
+    "sourceContentTreeHash": "3787a4fcd50b98af1846eaa1f2a24846757562cd960ea8762eaf25f5340a375e",
     "typecheck": {
       "passed": true
     },
@@ -331,23 +372,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2106,
-      "total": 2106,
-      "files": 239,
-      "suites": 694
+      "passed": 2241,
+      "total": 2241,
+      "files": 253,
+      "suites": 722
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4304,
+      "used": 4069,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-30T07:15:49.355Z"
+    "measuredAt": "2026-07-30T22:57:59.855Z"
   }
 }
