@@ -30,8 +30,9 @@ function isMissingSession(error: unknown) {
 }
 
 function identityResponse(user: unknown, error: unknown, operation: string) {
-  if (!user || isMissingSession(error)) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  if (isMissingSession(error)) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   if (error) return unavailable(operation);
+  if (!user) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   return null;
 }
 
@@ -60,23 +61,25 @@ export async function PATCH(request: Request) {
   try {
     const contentType = request.headers.get("content-type")?.split(";", 1)[0];
     const origin = request.headers.get("origin");
-    if (contentType !== "application/json" || (origin !== null && origin !== new URL(request.url).origin)) {
+    if (contentType !== "application/json" || origin !== new URL(request.url).origin) {
       return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
     }
-    const contentLength = Number(request.headers.get("content-length") ?? "0");
-    if (!Number.isSafeInteger(contentLength) || contentLength > 10_000) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    const identityFailure = identityResponse(user, authError, "write_identity");
-    if (identityFailure) return identityFailure;
-    if (!user) return unavailable("write_identity_unexpected");
     let body: unknown;
-    try { body = await request.json(); } catch { return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 }); }
+    try {
+      const text = await request.text();
+      if (new TextEncoder().encode(text).byteLength > 10_000) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
+      body = JSON.parse(text) as unknown;
+    } catch { return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 }); }
     if (typeof body !== "object" || body === null || Array.isArray(body)) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
     const record = body as Record<string, unknown>;
     if (Object.keys(record).length !== PROFILE_KEYS.length || !PROFILE_KEYS.every((key) => typeof record[key] === "string" && record[key].length <= MAX_PROFILE_FIELD_LENGTH)) {
       return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
     }
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const identityFailure = identityResponse(user, authError, "write_identity");
+    if (identityFailure) return identityFailure;
+    if (!user) return unavailable("write_identity_unexpected");
     const profile = record as Record<(typeof PROFILE_KEYS)[number], string>;
     const { error } = await supabase.from("profiles").upsert({
       id: user.id, display_name: profile.name.trim(), role_title: profile.role.trim(), bio: profile.bio.trim(),

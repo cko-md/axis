@@ -63,6 +63,7 @@ export function ProfileSection({ onSignOut, onProfileName, onAccountState }: Pro
   }, [onAccountState]);
 
   useEffect(() => {
+    mountedRef.current = true;
     let active = true;
     let hydrationFrame: number | null = null;
     const controller = new AbortController();

@@ -29,7 +29,7 @@ describe("/api/auth/profile", () => {
   it("normalizes missing refresh sessions to signed out but captures genuine auth failures", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: { code: "invalid_refresh_token", status: 401 } });
     expect((await GET()).status).toBe(401); expect(mocks.capture).not.toHaveBeenCalled();
-    mocks.getUser.mockResolvedValue({ data: { user: { id: "owner" } }, error: { message: "auth service unavailable", status: 503 } });
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: { message: "auth service unavailable", status: 503 } });
     expect((await GET()).status).toBe(500); expect(mocks.capture).toHaveBeenCalled();
   });
 
@@ -58,5 +58,13 @@ describe("/api/auth/profile", () => {
       expect((await PATCH(new NextRequest("http://axis.test/api/auth/profile", { method: "PATCH", body: JSON.stringify(body) }))).status).toBe(400);
     }
     expect(q.upsert).not.toHaveBeenCalled();
+  });
+
+  it("requires exact same-origin JSON and enforces actual body bytes before auth", async () => {
+    for (const request of [
+      new NextRequest("http://axis.test/api/auth/profile", { method: "PATCH", body: "{}" }),
+      new NextRequest("http://axis.test/api/auth/profile", { method: "PATCH", headers: { "Content-Type": "application/json", Origin: "http://evil.test" }, body: "{}" }),
+      new NextRequest("http://axis.test/api/auth/profile", { method: "PATCH", headers: { "Content-Type": "application/json", Origin: "http://axis.test" }, body: JSON.stringify({ name: "x".repeat(10001), role: "", bio: "", photo: "" }) }),
+    ]) expect((await PATCH(request)).status).toBe(400);
   });
 });
