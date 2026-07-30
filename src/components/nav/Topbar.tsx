@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { useEffect, useState } from "react";
 import { formatClock } from "@/lib/format";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -7,6 +8,7 @@ import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import type {
   AccountState,
   ProfileSaveState,
+  ProfileUploadState,
 } from "@/components/layout/ShellProfileContext";
 
 type Props = {
@@ -16,6 +18,7 @@ type Props = {
   onOpenPalette: () => void;
   accountState: AccountState;
   profileSaveState: ProfileSaveState;
+  profileUploadState: ProfileUploadState;
   hasPendingProfileChanges: boolean;
 };
 
@@ -26,6 +29,7 @@ export function Topbar({
   onOpenPalette,
   accountState,
   profileSaveState,
+  profileUploadState,
   hasPendingProfileChanges,
 }: Props) {
   const [clock, setClock] = useState("");
@@ -39,40 +43,79 @@ export function Topbar({
     return () => clearInterval(id);
   }, []);
 
-  const syncState = accountState === "ready" ? "signed_in" : accountState === "signed-out" ? "signed_out" : accountState;
-
-  const syncLabel =
-    profileSaveState === "session-expired"
-      ? "Profile not saved · Sign in"
-      : profileSaveState === "error"
-        ? "Profile save failed"
-        : profileSaveState === "pending" || profileSaveState === "saving"
-          ? "Saving profile…"
-          : hasPendingProfileChanges
-            ? "Profile changes pending"
-            : syncState === "signed_in"
-      ? "Synced · Supabase"
-      : syncState === "signed_out"
-        ? "Local · Not signed in"
-        : syncState === "error"
-          ? "Sync unavailable"
-          : "Checking sync…";
-  const syncTitle =
-    profileSaveState === "session-expired"
-      ? "Profile changes are retained locally; sign in to save them"
-      : profileSaveState === "error"
-        ? "Profile changes were not saved"
-        : profileSaveState === "pending" || profileSaveState === "saving"
-          ? "Profile changes are waiting to be saved"
-          : hasPendingProfileChanges
-            ? "Profile changes are retained but not yet saved"
-            : syncState === "signed_in"
-      ? "Synced to Supabase"
-      : syncState === "signed_out"
-        ? "Local only — sign in to sync"
-        : syncState === "error"
-          ? "Could not verify Supabase sync status"
-          : "Checking Supabase sync status";
+  const syncState =
+    accountState === "ready"
+      ? "signed_in"
+      : accountState === "signed-out"
+        ? "signed_out"
+        : accountState;
+  const requiresMfa =
+    accountState === "mfa-required" ||
+    profileSaveState === "mfa-required" ||
+    profileUploadState === "mfa-required";
+  const syncLabel = (() => {
+    if (profileUploadState === "uploading") {
+      return "Uploading profile photo…";
+    }
+    if (profileUploadState === "error") {
+      return "Profile photo upload failed";
+    }
+    if (requiresMfa) return "Profile not saved · Verify identity";
+    if (profileSaveState === "session-expired") {
+      return "Profile not saved · Sign in";
+    }
+    if (profileSaveState === "error") return "Profile save failed";
+    if (profileSaveState === "pending" || profileSaveState === "saving") {
+      return "Saving profile…";
+    }
+    if (hasPendingProfileChanges) return "Profile changes pending";
+    if (syncState === "signed_in") return "Synced · Supabase";
+    if (syncState === "signed_out") return "Local · Not signed in";
+    if (syncState === "error") return "Sync unavailable";
+    return "Checking sync…";
+  })();
+  const syncTitle = (() => {
+    if (profileUploadState === "uploading") {
+      return "Profile photo upload is in progress";
+    }
+    if (profileUploadState === "error") {
+      return "Profile photo was not uploaded";
+    }
+    if (requiresMfa) {
+      return "Complete two-factor authentication to save profile changes";
+    }
+    if (profileSaveState === "session-expired") {
+      return "Profile changes are retained locally; sign in to save them";
+    }
+    if (profileSaveState === "error") {
+      return "Profile changes were not saved";
+    }
+    if (profileSaveState === "pending" || profileSaveState === "saving") {
+      return "Profile changes are waiting to be saved";
+    }
+    if (hasPendingProfileChanges) {
+      return "Profile changes are retained but not yet saved";
+    }
+    if (syncState === "signed_in") return "Synced to Supabase";
+    if (syncState === "signed_out") return "Local only — sign in to sync";
+    if (syncState === "error") {
+      return "Could not verify Supabase sync status";
+    }
+    return "Checking Supabase sync status";
+  })();
+  const syncIndicator = (
+    <>
+      <span
+        className="dotpulse"
+        style={
+          syncState === "signed_in"
+            ? undefined
+            : { background: "var(--ink-faint)", boxShadow: "none" }
+        }
+      />
+      {syncLabel}
+    </>
+  );
 
   return (
     <header className="topbar">
@@ -80,17 +123,21 @@ export function Topbar({
         <b>{section}</b> &nbsp;/&nbsp; {page}
       </div>
       <div className="clock">{clock}</div>
-      <div className="sync" title={syncTitle} role="status">
-        <span
-          className="dotpulse"
-          style={
-            syncState === "signed_in"
-              ? undefined
-              : { background: "var(--ink-faint)", boxShadow: "none" }
-          }
-        />
-        {syncLabel}
-      </div>
+      {requiresMfa ? (
+        <Link
+          href="/login?mfa=required"
+          prefetch={false}
+          className="sync"
+          title={syncTitle}
+          role="status"
+        >
+          {syncIndicator}
+        </Link>
+      ) : (
+        <div className="sync" title={syncTitle} role="status">
+          {syncIndicator}
+        </div>
+      )}
       <button
         type="button"
         className="search"

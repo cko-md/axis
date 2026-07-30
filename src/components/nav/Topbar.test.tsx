@@ -6,6 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountState } from "@/components/layout/ShellProfileContext";
 
 vi.mock("@/lib/format", () => ({ formatClock: () => "12:00" }));
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    href,
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) => <a href={href}>{children}</a>,
+}));
 vi.mock("@/components/theme/ThemeProvider", () => ({
   useTheme: () => ({ openInterfaceStudio: vi.fn() }),
 }));
@@ -41,6 +50,7 @@ describe("Topbar shell profile state", () => {
   it.each([
     ["loading", "Checking sync…"],
     ["ready", "Synced · Supabase"],
+    ["mfa-required", "Profile not saved · Verify identity"],
     ["signed-out", "Local · Not signed in"],
     ["error", "Sync unavailable"],
   ] satisfies Array<[AccountState, string]>)(
@@ -53,7 +63,43 @@ describe("Topbar shell profile state", () => {
             page="Command"
             accountState={accountState}
             profileSaveState="idle"
+            profileUploadState="idle"
             hasPendingProfileChanges={false}
+            onOpenSearch={vi.fn()}
+            onOpenPalette={vi.fn()}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain(expectedLabel);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      if (accountState === "mfa-required") {
+        expect(
+          container.querySelector('a[href="/login?mfa=required"]'),
+        ).not.toBeNull();
+      }
+    },
+  );
+
+  it.each([
+    ["pending", false, "Saving profile…"],
+    ["saving", true, "Saving profile…"],
+    ["error", true, "Profile save failed"],
+    ["session-expired", true, "Profile not saved · Sign in"],
+    ["mfa-required", true, "Profile not saved · Verify identity"],
+    ["idle", true, "Profile changes pending"],
+  ] as const)(
+    "surfaces %s profile persistence state outside the sidebar",
+    (profileSaveState, hasPendingProfileChanges, expectedLabel) => {
+      act(() => {
+        root?.render(
+          <Topbar
+            section="Daily"
+            page="Command"
+            accountState="ready"
+            profileSaveState={profileSaveState}
+            profileUploadState="idle"
+            hasPendingProfileChanges={hasPendingProfileChanges}
             onOpenSearch={vi.fn()}
             onOpenPalette={vi.fn()}
           />,
@@ -66,22 +112,21 @@ describe("Topbar shell profile state", () => {
   );
 
   it.each([
-    ["pending", false, "Saving profile…"],
-    ["saving", true, "Saving profile…"],
-    ["error", true, "Profile save failed"],
-    ["session-expired", true, "Profile not saved · Sign in"],
-    ["idle", true, "Profile changes pending"],
+    ["uploading", "Uploading profile photo…"],
+    ["error", "Profile photo upload failed"],
+    ["mfa-required", "Profile not saved · Verify identity"],
   ] as const)(
-    "surfaces %s profile persistence state outside the sidebar",
-    (profileSaveState, hasPendingProfileChanges, expectedLabel) => {
+    "surfaces %s root-owned avatar state",
+    (profileUploadState, expectedLabel) => {
       act(() => {
         root?.render(
           <Topbar
             section="Daily"
             page="Command"
             accountState="ready"
-            profileSaveState={profileSaveState}
-            hasPendingProfileChanges={hasPendingProfileChanges}
+            profileSaveState="idle"
+            profileUploadState={profileUploadState}
+            hasPendingProfileChanges={true}
             onOpenSearch={vi.fn()}
             onOpenPalette={vi.fn()}
           />,

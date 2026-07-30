@@ -10,14 +10,19 @@ import {
 } from "@/components/layout/ShellProfileContext";
 
 const mocks = vi.hoisted(() => ({
+  capture: vi.fn(),
   toast: vi.fn(),
   fetch: vi.fn(),
   profileName: vi.fn(),
   schedule: vi.fn(),
   retry: vi.fn(),
+  upload: vi.fn(),
   crop: vi.fn(),
 }));
 
+vi.mock("@sentry/nextjs", () => ({
+  captureException: mocks.capture,
+}));
 vi.mock("next/image", () => ({ default: () => null }));
 vi.mock("next/link", () => ({
   default: ({
@@ -74,6 +79,7 @@ import { ProfileSection } from "./ProfileSection";
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const profile = {
+  subject: `ps1_${"a".repeat(64)}`,
   display_name: "Name",
   role_title: "Role",
   bio: null,
@@ -94,9 +100,11 @@ function contextValue(
       photo: "",
     },
     saveState: "idle",
+    uploadState: "idle",
     hasPendingChanges: false,
     scheduleProfileSave: mocks.schedule,
     retryProfileSave: mocks.retry,
+    uploadProfilePhoto: mocks.upload,
     ...overrides,
   };
 }
@@ -216,11 +224,30 @@ describe("ProfileSection", () => {
     ).not.toBeNull();
   });
 
-  it("hands a completed avatar upload to the persistent owner after consumer unmount", async () => {
-    let resolveUpload!: (value: unknown) => void;
-    mocks.fetch.mockImplementationOnce(
+  it("keeps MFA feedback actionable", async () => {
+    await renderProfile(
+      contextValue({
+        state: "mfa-required",
+        saveState: "idle",
+        hasPendingChanges: true,
+      }),
+    );
+
+    expect(container.textContent).toContain(
+      "Two-factor authentication required",
+    );
+    expect(
+      container.querySelector<HTMLAnchorElement>(
+        'a[href="/login?mfa=required"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("hands a crop to the persistent owner with the initiating subject after unmount", async () => {
+    let resolveUpload!: () => void;
+    mocks.upload.mockImplementationOnce(
       () =>
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveUpload = resolve;
         }),
     );
@@ -242,24 +269,54 @@ describe("ProfileSection", () => {
     );
     act(() => savePhoto?.click());
     await act(flush);
-    expect(mocks.fetch).toHaveBeenCalledWith(
-      "/api/profile/avatar",
-      expect.objectContaining({ method: "POST" }),
+    expect(mocks.upload).toHaveBeenCalledWith(
+      expect.any(Blob),
+      profile.subject,
     );
 
     act(() => root?.render(<div>Different route</div>));
-    resolveUpload({
-      status: 200,
-      ok: true,
-      json: vi.fn().mockResolvedValue({ url: "https://cdn.test/avatar.jpg" }),
-    });
+    resolveUpload();
     await act(flush);
 
-    expect(mocks.schedule).toHaveBeenCalledWith({
-      name: "Name",
-      role: "Role",
-      bio: "",
-      photo: "https://cdn.test/avatar.jpg",
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it("captures crop failures once with fixed client-only metadata", async () => {
+    mocks.crop.mockRejectedValueOnce(
+      new Error("private canvas processing detail"),
+    );
+    await renderProfile();
+
+    const fileInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!fileInput) throw new Error("Missing avatar file input");
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [new File(["image"], "avatar.jpg", { type: "image/jpeg" })],
     });
+    act(() => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
+    act(() =>
+      container.querySelector<HTMLButtonElement>("#complete-crop")?.click(),
+    );
+    const savePhoto = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Save Photo",
+    );
+    act(() => savePhoto?.click());
+    await act(flush);
+
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Profile avatar crop failed" }),
+      {
+        tags: {
+          area: "navigation",
+          operation: "profile_avatar_crop",
+        },
+      },
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "private canvas processing detail",
+    );
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
 });

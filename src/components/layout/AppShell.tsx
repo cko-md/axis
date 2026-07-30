@@ -75,6 +75,7 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
   const {
     state: accountState,
     saveState: profileSaveState,
+    uploadState: profileUploadState,
     hasPendingChanges: hasPendingProfileChanges,
   } = useShellProfile();
   const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
@@ -167,6 +168,7 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
             page={page}
             accountState={accountState}
             profileSaveState={profileSaveState}
+            profileUploadState={profileUploadState}
             hasPendingProfileChanges={hasPendingProfileChanges}
             onOpenSearch={() => {
               setPaletteOpen(false);

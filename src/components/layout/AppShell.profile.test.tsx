@@ -7,6 +7,7 @@ import {
   ShellProfileContext,
   type AccountState,
   type ProfileSaveState,
+  type ProfileUploadState,
   type ShellProfileContextValue,
 } from "./ShellProfileContext";
 
@@ -25,14 +26,16 @@ vi.mock("@/components/nav/Topbar", () => ({
   Topbar: ({
     accountState,
     profileSaveState,
+    profileUploadState,
     hasPendingProfileChanges,
   }: {
     accountState: AccountState;
     profileSaveState: ProfileSaveState;
+    profileUploadState: ProfileUploadState;
     hasPendingProfileChanges: boolean;
   }) => (
     <div>
-      {`topbar:${accountState}:${profileSaveState}:${hasPendingProfileChanges}`}
+      {`topbar:${accountState}:${profileSaveState}:${profileUploadState}:${hasPendingProfileChanges}`}
     </div>
   ),
 }));
@@ -65,6 +68,7 @@ import { AppShell } from "./AppShell";
 const profileValue: ShellProfileContextValue = {
   state: "ready",
   profile: {
+    subject: `ps1_${"a".repeat(64)}`,
     display_name: "Name",
     role_title: "Role",
     bio: null,
@@ -78,9 +82,11 @@ const profileValue: ShellProfileContextValue = {
     photo: "",
   },
   saveState: "pending",
+  uploadState: "idle",
   hasPendingChanges: true,
   scheduleProfileSave: vi.fn(),
   retryProfileSave: vi.fn(),
+  uploadProfilePhoto: vi.fn(),
 };
 
 let container: HTMLDivElement;
@@ -122,6 +128,6 @@ describe("AppShell profile ownership", () => {
     });
 
     expect(container.textContent).toContain("sidebar:collapsed");
-    expect(container.textContent).toContain("topbar:ready:pending:true");
+    expect(container.textContent).toContain("topbar:ready:pending:idle:true");
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
@@ -26,8 +27,10 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     profile,
     draft,
     saveState,
+    uploadState,
     scheduleProfileSave,
     retryProfileSave,
+    uploadProfilePhoto,
   } = useShellProfile();
   const [profileOpen, setProfileOpen] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -40,6 +43,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const [cropPoint, setCropPoint] = useState<Point>({ x: 0, y: 0 });
   const [cropZoom, setCropZoom] = useState(1);
   const [cropArea, setCropArea] = useState<Area | null>(null);
+  const [cropSubject, setCropSubject] = useState<string | null>(null);
   const [cropSaving, setCropSaving] = useState(false);
 
   useEffect(() => {
@@ -61,10 +65,14 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   }, [accountState, onProfileName, profile]);
 
   const saveStateLabel =
+    uploadState === "uploading" ? "Uploading photo…" :
+    uploadState === "mfa-required" || accountState === "mfa-required" ? "Two-factor authentication required" :
+    uploadState === "error" ? "Photo upload failed" :
     saveState === "pending" ? "Changes pending…" :
     saveState === "saving" ? "Saving…" :
     saveState === "saved" ? "Saved" :
     saveState === "session-expired" ? "Session expired — changes not saved" :
+    saveState === "mfa-required" ? "Two-factor authentication required" :
     saveState === "error" ? "Save failed — changes kept" :
     "";
   const displayName =
@@ -85,18 +93,15 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     scheduleProfileSave(nextDraft);
   };
 
-  const handlePhotoFile = async (file: File | Blob, revokeUrl?: string) => {
+  const handlePhotoFile = async (
+    file: File | Blob,
+    expectedSubject: string,
+    revokeUrl?: string,
+  ) => {
     const preview = URL.createObjectURL(file);
     setPhotoPreview(preview);
     try {
-      const form = new FormData();
-      form.append("file", file, "avatar.jpg");
-      const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
-      const json = await res.json() as { url?: string; error?: string };
-      if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
-      updateDraft("photo", json.url);
-    } catch {
-      toast("Photo upload failed", "error", "Profile");
+      await uploadProfilePhoto(file, expectedSubject);
     } finally {
       URL.revokeObjectURL(preview);
       if (revokeUrl) URL.revokeObjectURL(revokeUrl);
@@ -106,29 +111,42 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
 
   const openCropForFile = (file: File) => {
     if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
+    if (!profile?.subject) {
+      toast("Sign in before uploading a profile photo.", "error", "Profile");
+      return;
+    }
     setCropPoint({ x: 0, y: 0 });
     setCropZoom(1);
     setCropArea(null);
+    setCropSubject(profile.subject);
     setCropSrc(URL.createObjectURL(file));
   };
 
   const cancelCrop = () => {
     if (cropSrc) URL.revokeObjectURL(cropSrc);
     setCropSrc(null);
+    setCropSubject(null);
   };
 
   const confirmCrop = async () => {
-    if (!cropSrc || !cropArea) return;
+    if (!cropSrc || !cropArea || !cropSubject) return;
     setCropSaving(true);
     try {
       const blob = await getCroppedImageBlob(cropSrc, cropArea);
-      await handlePhotoFile(blob, cropSrc);
+      await handlePhotoFile(blob, cropSubject, cropSrc);
     } catch {
+      Sentry.captureException(new Error("Profile avatar crop failed"), {
+        tags: {
+          area: "navigation",
+          operation: "profile_avatar_crop",
+        },
+      });
       toast("Could not crop photo", "error", "Profile");
     } finally {
       if (mountedRef.current) {
         setCropSaving(false);
         setCropSrc(null);
+        setCropSubject(null);
       }
     }
   };
@@ -159,6 +177,18 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
               </svg>
             </button>
           </div>
+        ) : accountState === "mfa-required" ? (
+          <Link
+            href="/login?mfa=required"
+            prefetch={false}
+            className="profile"
+          >
+            <div className="avatar">2×</div>
+            <div className="pmeta">
+              <div className="pn">Verify identity</div>
+              <div className="pr">Complete two-factor authentication</div>
+            </div>
+          </Link>
         ) : accountState === "signed-out" ? (
           <Link href="/login" prefetch={false} className="profile">
             <div className="avatar">→</div>
@@ -229,7 +259,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
                 fontSize: 10,
                 letterSpacing: ".1em",
                 textTransform: "uppercase",
-                color: saveState === "error" || saveState === "session-expired" ? "var(--clay-2)" : saveState === "saved" ? "var(--gold)" : "var(--ink-faint)",
+                color: saveState === "error" || saveState === "session-expired" || saveState === "mfa-required" || uploadState === "error" || uploadState === "mfa-required" || accountState === "mfa-required" ? "var(--clay-2)" : saveState === "saved" ? "var(--gold)" : "var(--ink-faint)",
                 transition: "color .2s",
                 minHeight: 14,
               }}
@@ -265,6 +295,10 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
               >
                 Retry save
               </button>
+            ) : saveState === "mfa-required" || uploadState === "mfa-required" || accountState === "mfa-required" ? (
+              <Link href="/login?mfa=required" prefetch={false} style={{ fontSize: 11, color: "var(--accent)" }}>
+                Verify to save
+              </Link>
             ) : saveState === "session-expired" ? (
               <Link href="/login" prefetch={false} style={{ fontSize: 11, color: "var(--accent)" }}>
                 Sign in to save

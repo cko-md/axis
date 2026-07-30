@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { isProfileSubject } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME_TO_EXT: Record<string, string> = {
@@ -15,8 +17,20 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
 
   const form = await req.formData();
-  const file = form.get("file") as File | null;
-  if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
+  const file = form.get("file");
+  const expectedSubject = form.get("subject");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: "No file" }, { status: 400 });
+  }
+  if (!isProfileSubject(expectedSubject)) {
+    return NextResponse.json({ error: "INVALID_PROFILE_SUBJECT" }, { status: 400 });
+  }
+  if (expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json(
+      { error: "PROFILE_SUBJECT_CHANGED" },
+      { status: 409 },
+    );
+  }
 
   if (file.size > MAX_AVATAR_BYTES) {
     return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 });
@@ -41,5 +55,5 @@ export async function POST(req: Request) {
 
   // bust the CDN cache by appending a timestamp
   const url = `${publicUrl}?t=${Date.now()}`;
-  return NextResponse.json({ url });
+  return NextResponse.json({ url, subject: expectedSubject });
 }

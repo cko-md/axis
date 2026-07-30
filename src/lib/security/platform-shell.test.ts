@@ -49,7 +49,9 @@ describe("platform shell production headers", () => {
     expect(profileSection).not.toMatch(
       /fetch\("\/api\/auth\/profile",\s*\{\s*signal/,
     );
+    expect(profileSection).not.toContain('fetch("/api/profile/avatar"');
     expect(shellProfileContext).toContain('fetch("/api/auth/profile"');
+    expect(shellProfileContext).toContain('fetch("/api/profile/avatar"');
     expect(shellProfileContext).toContain("new AbortController()");
     expect(shellProfileContext).toContain("controller.abort()");
     expect(rootLayout).toMatch(
@@ -57,6 +59,8 @@ describe("platform shell production headers", () => {
     );
     expect(appShell).not.toContain("<ShellProfileProvider>");
     expect(shellProfileContext).toContain("scheduleProfileSave");
+    expect(shellProfileContext).toContain("uploadProfilePhoto");
+    expect(shellProfileContext).toContain("subjectDraftsRef");
     expect(shellProfileContext).toContain("hasPendingChanges");
     expect(appShell).toContain("<Sidebar collapsed={sidebarMode === \"icons\"} />");
   });
