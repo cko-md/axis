@@ -4,7 +4,7 @@ const sentry = vi.hoisted(() => ({ addBreadcrumb: vi.fn(), captureException: vi.
 vi.mock("@sentry/nextjs", () => sentry);
 
 import { SafeFetchError } from "./safe-fetch";
-import { recordSafeFetchFailure } from "./safe-fetch-observability";
+import { recordSafeFetchFailure, recordSafeFetchFailures } from "./safe-fetch-observability";
 
 describe("safe-fetch observability", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -55,5 +55,18 @@ describe("safe-fetch observability", () => {
   it("keeps policy refusals as breadcrumbs only", () => {
     recordSafeFetchFailure("reader_extract", "http://127.0.0.1/canary?private=must-not-leak", new SafeFetchError("SAFE_FETCH_BLOCKED_ADDRESS"));
     expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it("coalesces a batch into one searchable event while returning one code per source", () => {
+    const results = recordSafeFetchFailures("cached_feed", Array.from({ length: 6 }, (_, index) => ({
+      rawTarget: `https://feed-${index}.example/private?token=must-not-leak`,
+      error: new SafeFetchError("SAFE_FETCH_TIMEOUT"),
+    })));
+    expect(results).toHaveLength(6);
+    expect(results.every((result) => result.code === "SAFE_FETCH_TIMEOUT")).toBe(true);
+    expect(sentry.captureException).toHaveBeenCalledTimes(1);
+    expect(sentry.addBreadcrumb).toHaveBeenCalledTimes(6);
+    expect(JSON.stringify(sentry.captureException.mock.calls)).not.toContain("feed-0.example");
+    expect(JSON.stringify(sentry.captureException.mock.calls)).not.toContain("must-not-leak");
   });
 });

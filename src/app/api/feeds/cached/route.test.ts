@@ -34,4 +34,22 @@ describe("cached feed route", () => {
     });
     expect(JSON.stringify(mocks.addBreadcrumb.mock.calls)).not.toContain("body=never");
   });
+
+  it("coalesces six operational failures into one safe Sentry event while retaining each source code", async () => {
+    mocks.createClient.mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }) },
+      from: vi.fn(() => ({ select: vi.fn(() => ({ in: vi.fn().mockResolvedValue({ data: [] }) })) })),
+    });
+    mocks.fetchAndParse.mockRejectedValue(new SafeFetchError("SAFE_FETCH_DNS_FAILED"));
+    const feedUrls = Array.from({ length: 6 }, (_, index) => `https://feed-${index}.example/private?body=must-not-leak`);
+
+    const response = await POST(new Request("http://axis.test/api/feeds/cached", { method: "POST", body: JSON.stringify({ feedUrls }) }) as never);
+    const body = await response.json();
+
+    expect(body.sources).toHaveLength(6);
+    expect(body.sources.every((source: { state: string; code: string }) => source.state === "failed" && source.code === "SAFE_FETCH_DNS_FAILED")).toBe(true);
+    expect(mocks.captureException).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("feed-0.example");
+    expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("must-not-leak");
+  });
 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAndParse, type RssItem } from "@/lib/feeds/rss";
-import { recordSafeFetchFailure } from "@/lib/security/safe-fetch-observability";
+import { recordSafeFetchFailures } from "@/lib/security/safe-fetch-observability";
 
 const CACHE_FRESH_HOURS = 20;
 
@@ -60,13 +60,17 @@ export async function POST(req: NextRequest) {
 
   if (live.length > 0) {
     const settled = await Promise.allSettled(live.map((url) => fetchAndParse(url)));
+    const failureCodes = recordSafeFetchFailures("cached_feed", settled.flatMap((result, index) =>
+      result.status === "rejected" ? [{ rawTarget: live[index], error: result.reason }] : [],
+    ));
+    let failureIndex = 0;
     settled.forEach((r, i) => {
       if (r.status === "fulfilled") {
         collected.push(...r.value);
         sources.push({ host: sourceHost(live[i]), state: "live" });
       } else {
         const stale = cachedByUrl.get(live[i]);
-        const { code } = recordSafeFetchFailure("cached_feed", live[i], r.reason);
+        const { code } = failureCodes[failureIndex++] ?? { code: "SAFE_FETCH_ROUTE_FAILED" };
         if (stale) {
           collected.push(...(stale.items ?? []));
           sources.push({ host: sourceHost(live[i]), state: "stale", code });
