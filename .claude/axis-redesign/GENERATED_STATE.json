@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-30T01:15:23.677Z",
+  "derivedAt": "2026-07-30T01:21:32.384Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "9f7c95b3fe00d606061ca8cc43f9e2d912a196b1",
+    "head": "129795d8a9aa052a0ecd304feeaa9170d5254a52",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "129795d8",
+        "subject": "docs(agents): reconcile delegated write failures"
+      },
+      {
+        "sha": "bd2a9eac",
+        "subject": "docs(state): bind deterministic governance gates"
+      },
       {
         "sha": "9f7c95b3",
         "subject": "docs(governance): preserve measured state ordering"
@@ -212,9 +220,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "aebcd50ac39842dfadfe69fe1cff5ac3773ac4fc77cf6e5e4d9c26e1cd2945a5",
+    "contentTreeHash": "ee6a4fe33a1a39ec49bb506201b5623e8b5afbec07d9a5c82d394e572c1ba155",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "ce30713c94827087f68ff32de9d178d6bd435c1a5034841c49c9ec38933b2301"
+    "fingerprint": "e99659868c953229250e9512770ea112bb3d375e3d01818978625a2fbfdbca15"
   },
   "mergedPrs": [
     {
@@ -527,8 +535,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "9f7c95b3fe00d606061ca8cc43f9e2d912a196b1",
-    "sourceContentTreeHash": "aebcd50ac39842dfadfe69fe1cff5ac3773ac4fc77cf6e5e4d9c26e1cd2945a5",
+    "sourceHead": "129795d8a9aa052a0ecd304feeaa9170d5254a52",
+    "sourceContentTreeHash": "ee6a4fe33a1a39ec49bb506201b5623e8b5afbec07d9a5c82d394e572c1ba155",
     "typecheck": {
       "passed": true
     },
@@ -553,6 +561,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-30T01:15:23.569Z"
+    "measuredAt": "2026-07-30T01:21:32.249Z"
   }
 }
