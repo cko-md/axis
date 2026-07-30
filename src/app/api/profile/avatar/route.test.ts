@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { StorageClient } from "@supabase/storage-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -302,8 +303,11 @@ describe("/api/profile/avatar authentication and storage", () => {
     );
   });
 
-  it("accepts the local Supabase loopback HTTP public URL", async () => {
-    const localOrigin = "http://127.0.0.1:54321";
+  it.each([
+    "http://localhost:54321",
+    "http://127.0.0.1:54321",
+  ])("accepts the local Supabase loopback URL at %s", async (localOrigin) => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const localPublicUrl =
       `${localOrigin}/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`;
     mocks.getPublicEnv.mockReturnValue({
@@ -318,11 +322,32 @@ describe("/api/profile/avatar authentication and storage", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      url: expect.stringMatching(
-        /^http:\/\/127\.0\.0\.1:54321\/storage\/v1\/object\/public\/avatars\/owner\/avatar\.jpg\?t=\d+$/,
-      ),
+      url: `${localPublicUrl}?t=1700000000000`,
       subject: OWNER_SUBJECT,
     });
+  });
+
+  it("accepts the configured Supabase custom base path", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const configuredUrl = `${SUPABASE_ORIGIN}/gateway`;
+    const publicUrl =
+      `${configuredUrl}/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`;
+    mocks.getPublicEnv.mockReturnValue({
+      NEXT_PUBLIC_SUPABASE_URL: configuredUrl,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-key",
+    });
+    mocks.getPublicUrl.mockReturnValue({
+      data: { publicUrl },
+    });
+
+    const response = await POST(request(OWNER_SUBJECT));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      url: `${publicUrl}?t=1700000000000`,
+      subject: OWNER_SUBJECT,
+    });
+    expect(mocks.upload).toHaveBeenCalledTimes(1);
   });
 
   it("preserves existing public URL query parameters when adding the cache nonce", async () => {
@@ -340,6 +365,29 @@ describe("/api/profile/avatar authentication and storage", () => {
       url: `${AVATAR_PUBLIC_URL}?download=profile.jpg&t=1700000000000`,
       subject: OWNER_SUBJECT,
     });
+    expect(mocks.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces and collapses duplicate cache nonces while preserving other query parameters", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    mocks.getPublicUrl.mockReturnValue({
+      data: {
+        publicUrl:
+          `${AVATAR_PUBLIC_URL}?t=old&download=profile.jpg&t=stale`,
+      },
+    });
+
+    const response = await POST(request(OWNER_SUBJECT));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      url: `${AVATAR_PUBLIC_URL}?t=1700000000000&download=profile.jpg`,
+      subject: OWNER_SUBJECT,
+    });
+    expect(new URL(body.url).searchParams.getAll("t")).toEqual([
+      "1700000000000",
+    ]);
     expect(mocks.upload).toHaveBeenCalledTimes(1);
   });
 
@@ -389,22 +437,70 @@ describe("/api/profile/avatar authentication and storage", () => {
   });
 
   it.each([
-    ["malformed", "not a URL"],
-    [
-      "unsafe protocol",
-      `javascript:alert(1)/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`,
-    ],
-    [
-      "foreign origin",
-      `https://attacker.test/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`,
-    ],
-    [
-      "wrong storage path",
-      `${SUPABASE_ORIGIN}/storage/v1/object/sign/avatars/${OWNER_ID}/avatar.jpg`,
-    ],
+    {
+      label: "malformed",
+      publicUrl: "not a URL",
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "unsafe protocol",
+      publicUrl:
+        `javascript:alert(1)/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "foreign origin",
+      publicUrl:
+        `https://attacker.test/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "credential-bearing URL",
+      publicUrl:
+        `https://user:password@project.supabase.co/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "fragment",
+      publicUrl: `${AVATAR_PUBLIC_URL}#private-fragment`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "encoded owner",
+      publicUrl:
+        `${SUPABASE_ORIGIN}/storage/v1/object/public/avatars/%6Fwner/avatar.jpg`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "foreign owner",
+      publicUrl:
+        `${SUPABASE_ORIGIN}/storage/v1/object/public/avatars/other/avatar.jpg`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "wrong storage path",
+      publicUrl:
+        `${SUPABASE_ORIGIN}/storage/v1/object/sign/avatars/${OWNER_ID}/avatar.jpg`,
+      configuredUrl: SUPABASE_ORIGIN,
+    },
+    {
+      label: "configured base-path mismatch",
+      publicUrl: AVATAR_PUBLIC_URL,
+      configuredUrl: `${SUPABASE_ORIGIN}/gateway`,
+    },
+    {
+      label: "non-loopback HTTP",
+      publicUrl:
+        `http://project.supabase.co/storage/v1/object/public/avatars/${OWNER_ID}/avatar.jpg`,
+      configuredUrl: "http://project.supabase.co",
+    },
   ])(
-    "rejects a %s public URL safely before upload",
-    async (_label, publicUrl) => {
+    "rejects a $label safely before upload",
+    async ({ publicUrl, configuredUrl }) => {
+      mocks.getPublicEnv.mockReturnValue({
+        NEXT_PUBLIC_SUPABASE_URL: configuredUrl,
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-key",
+      });
       mocks.getPublicUrl.mockReturnValue({
         data: { publicUrl },
       });
@@ -430,6 +526,47 @@ describe("/api/profile/avatar authentication and storage", () => {
       );
     },
   );
+
+  it("fails closed before upload for storage-js 2.108.1 percent-encoded IPv6 brackets", async () => {
+    const configuredUrl = "http://[::1]:54321";
+    const storage = new StorageClient(`${configuredUrl}/storage/v1`);
+    const {
+      data: { publicUrl },
+    } = storage
+      .from("avatars")
+      .getPublicUrl(`${OWNER_ID}/avatar.jpg`);
+    expect(publicUrl).toBe(
+      "http://%5B::1%5D:54321/storage/v1/object/public/avatars/owner/avatar.jpg",
+    );
+    expect(() => new URL(publicUrl)).toThrow(TypeError);
+    mocks.getPublicEnv.mockReturnValue({
+      NEXT_PUBLIC_SUPABASE_URL: configuredUrl,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-key",
+    });
+    mocks.getPublicUrl.mockReturnValue({
+      data: { publicUrl },
+    });
+
+    const response = await POST(request(OWNER_SUBJECT));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "PROFILE_AVATAR_UNAVAILABLE",
+    });
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Profile avatar operation failed",
+      }),
+      expect.objectContaining({
+        operation: "read_avatar_url",
+        code: "PROFILE_AVATAR_UNAVAILABLE",
+      }),
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      publicUrl,
+    );
+  });
 
   it("maps storage failures to fixed metadata without raw provider leakage", async () => {
     mocks.upload.mockResolvedValue({
