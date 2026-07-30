@@ -53,14 +53,14 @@ uncommitted generated files and records dirty provenance. `npm run state:check`
 reads the committed target, so it is expected to reject the not-yet-committed
 refresh.
 
-The full Vitest suite is centrally capped at two workers in `vitest.config.ts`.
-This cap is part of the local gate's stability contract for 8 GiB hosts. It is
-measured for the complete `typecheck → lint → test` path run by
-`npm run state:derive:gates`, whose memory profile is not equivalent to a
-standalone Vitest run. Do not remove it or override it with a higher
-CLI/environment value without recorded, successful complete-gate evidence under
-the proposed setting. All normal Vitest commands, including `npm run test` and
-`npm run state:derive:gates`, must use the configured cap.
+On an 8 GiB local host, run the complete measured gate as
+`VITEST_MAX_WORKERS=2 npm run state:derive:gates`. The combined
+`typecheck → lint → test` path has a different memory profile from a standalone
+Vitest run; the explicit operator bound prevents resource-pressure timeouts
+without weakening or lengthening any test. Do not encode this local resource
+setting in `vitest.config.ts`: that file is frozen against protected main by
+the trusted candidate validator and changing it requires the documented
+owner break-glass procedure.
 
 The SHA-256 state fingerprint is deterministic consistency evidence, not a
 cryptographic signature or an independent attestation: candidate authors can
