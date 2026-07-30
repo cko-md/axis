@@ -59,6 +59,11 @@ AXIS is a personal operating system: one private Next.js 15 (App Router) dashboa
 - **Do not change database schema without a migration and an RLS review.** See §8.
 - **Do not assume Tembo's role.** Inspect configuration and document whether it is primary Postgres, analytics Postgres, a queue/cache, or unused. Do not route data to it on assumption.
 - **Preserve existing behavior** unless the issue explicitly requires changing it. Reuse existing functions/components; delegate to them rather than reimplementing.
+- **Reconcile delegated writes after any agent/tool failure.** A model-capacity,
+  timeout, or transport error can be reported after filesystem or git side
+  effects already succeeded. Inspect `git status` and recent history before
+  retrying or reimplementing the change; never create a duplicate fix on the
+  assumption that an errored delegation was side-effect free.
 
 ### 2a. System Redesign Override (owner-authorized)
 
