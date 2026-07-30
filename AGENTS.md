@@ -59,6 +59,11 @@ AXIS is a personal operating system: one private Next.js 15 (App Router) dashboa
 - **Do not change database schema without a migration and an RLS review.** See §8.
 - **Do not assume Tembo's role.** Inspect configuration and document whether it is primary Postgres, analytics Postgres, a queue/cache, or unused. Do not route data to it on assumption.
 - **Preserve existing behavior** unless the issue explicitly requires changing it. Reuse existing functions/components; delegate to them rather than reimplementing.
+- **Reconcile delegated writes after any agent/tool failure.** A model-capacity,
+  timeout, or transport error can be reported after filesystem or git side
+  effects already succeeded. Inspect `git status` and recent history before
+  retrying or reimplementing the change; never create a duplicate fix on the
+  assumption that an errored delegation was side-effect free.
 
 ### 2a. System Redesign Override (owner-authorized)
 
@@ -126,7 +131,16 @@ For every issue, the agent must:
 15. **Automate post-preview Sentry review.** After the Vercel preview is ready, query Sentry for new errors/regressions in the preview window/release/environment using the available CLI/API/connector. If Sentry credentials or tooling are unavailable, block production merge unless the PR clearly records the missing automation, the exact Sentry query/check to run, and the human validation owner.
 16. **Provide a manual test checklist** (happy path, error path, refresh/persistence, RLS where relevant, related-module regression).
 
-**Production deploy:** merging the PR into `main` triggers the Vercel **production** deployment (Vercel promotes `main` automatically; only successful builds are promoted). Agents should push branches and open PRs after local checks. Merge only after the Vercel preview, automated Supabase/Tembo validation, automated post-preview Sentry review, and manual workflow checks pass — that is the production-readiness gate. Run `npm run build` locally before merging anything that changes runtime behavior.
+**Production deploy:** AXIS production is intentionally a two-merge operation.
+The source PR merge to `main` creates a Vercel production attempt that the
+canonical-state gate skips. From the updated protected `main`, derive and
+commit only the two generated state artifacts; the following protected
+state-refresh merge creates the production build. Agents should push branches
+and open PRs after local checks. Merge only after the Vercel preview, automated
+Supabase/Tembo validation, automated post-preview Sentry review, and manual
+workflow checks pass — that is the production-readiness gate. Run
+`npm run build` locally before merging anything that changes runtime behavior.
+See `docs/deployment.md` for the exact state-refresh and recovery procedure.
 
 End the session with the response format in §12.
 
@@ -318,6 +332,7 @@ Discovered from repository inspection (`docs/audits/axis-platform-audit.md`). Tr
 - **Sentry / env misconfiguration** — env vars read ad hoc across routes; missing keys should degrade gracefully, not crash.
 - **Vercel preview differences from local dev** — env parity, cron config, and provider keys differ; validate on the preview, not only locally.
 - **Provider errors silently swallowed in UI** — the core anti-pattern this file exists to eliminate.
+- **Route-remounted shell auth reads and writes** — AppShell/root navigation components must not start unabortable browser `Supabase.auth.getUser()` calls on mount. Use an abortable same-origin, server-authenticated read; only real unmount/`AbortError` cancellation may be silent. Own debounced/queued shell writes above conditional or route-remounted consumers, bind every persistent draft/job/upload and response to a stable non-PII authenticated subject, quarantine or visibly discard dirty state on subject change, update the shared authoritative context after successful same-subject writes, and test collapse, navigation before debounce, same-subject reauthentication, account switching, and stale active responses. After every awaited boundary — including delayed response-body parsing — revalidate mount status, subject, epoch/generation, and exact active controller/request identity before mutating state, versions, commits, or toasts. A Playwright retry that turns a browser-console failure green is still adverse evidence, not a pass.
 
 ---
 

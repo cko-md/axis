@@ -1,5 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { createClient } from "@/lib/supabase/server";
+
+const ROUTE = "/api/auth/settings";
+
+function settingsFailure(operation: string, code: string) {
+  captureRouteError(new Error("Auth settings operation failed"), {
+    route: ROUTE,
+    operation,
+    area: "auth",
+    status: 500,
+    code,
+  });
+  return NextResponse.json({ error: "AUTH_SETTINGS_UNAVAILABLE" }, { status: 500 });
+}
 
 // ── GET /api/auth/settings ─────────────────────────────────────────────────────
 // Returns the current user's auth settings + MFA factors.
@@ -17,9 +31,16 @@ export async function GET() {
         "passkey_enabled, biometric_prompted, twofa_enabled, twofa_method, recovery_email, remember_me",
       )
       .eq("user_id", user.id)
-      .single(),
+      .maybeSingle(),
     supabase.auth.mfa.listFactors(),
   ]);
+
+  if (settingsResult.error) {
+    return settingsFailure("read_settings", "AUTH_SETTINGS_READ_FAILED");
+  }
+  if (factorsResult.error) {
+    return settingsFailure("list_mfa_factors", "MFA_FACTORS_READ_FAILED");
+  }
 
   const defaults = {
     passkey_enabled: false,
@@ -30,8 +51,7 @@ export async function GET() {
     remember_me: false,
   };
 
-  const settings =
-    settingsResult.error || !settingsResult.data ? defaults : settingsResult.data;
+  const settings = settingsResult.data ?? defaults;
 
   const mfaFactors = (factorsResult.data?.all ?? []).map(
     (f: { id: string; factor_type: string; status: string }) => ({
@@ -125,8 +145,7 @@ export async function POST(req: NextRequest) {
   );
 
   if (error) {
-    console.error("[auth/settings] upsert error:", error.message);
-    return NextResponse.json({ error: "Failed to save settings" }, { status: 500 });
+    return settingsFailure("save_settings", "AUTH_SETTINGS_SAVE_FAILED");
   }
 
   return NextResponse.json({ ok: true });

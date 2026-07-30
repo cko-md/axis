@@ -148,4 +148,26 @@ describe("middleware authenticator assurance", () => {
       "http://127.0.0.1:3200/login?redirect=%2Fcommand",
     );
   });
+
+  it("guards nested profile routes without matching near-collision prefixes", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
+
+    const nested = await middleware(
+      new NextRequest("https://axis.test/api/auth/profile/export"),
+    );
+    const nearCollision = await middleware(
+      new NextRequest("https://axis.test/api/auth/profile-evil"),
+    );
+
+    expect(nested.status).toBe(401);
+    await expect(nested.json()).resolves.toEqual({
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+    });
+    expect(nearCollision.status).toBe(200);
+    expect(nearCollision.headers.get("x-middleware-next")).toBe("1");
+  });
 });

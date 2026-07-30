@@ -1,6 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import {
+  createAuthenticatedE2ECredential,
+  writeAuthenticatedE2EEnvironment,
+} from "./authenticated-e2e-credentials.mjs";
 
 function localSupabaseEnv() {
   const cli = process.env.SUPABASE_CLI_PATH ?? "supabase";
@@ -59,7 +63,10 @@ if (!anonKey || !serviceRoleKey) {
 }
 
 const email = process.env.E2E_USER_EMAIL ?? "axis-ci-auth@example.test";
-const password = process.env.E2E_USER_PASSWORD ?? "Axis-local-only-9a!";
+// A CI run needs a credential only long enough to establish its isolated local
+// Supabase session. Generate it per run and mask it before it enters GITHUB_ENV
+// so GitHub never prints it in later step environment diagnostics.
+const password = process.env.E2E_USER_PASSWORD ?? createAuthenticatedE2ECredential();
 const admin = createClient(url, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -82,19 +89,22 @@ if (createError) {
 }
 
 const appUrl = "http://127.0.0.1:3000";
-appendFileSync(
+writeAuthenticatedE2EEnvironment({
   outputPath,
-  [
-    `NEXT_PUBLIC_SUPABASE_URL=${url}`,
-    `NEXT_PUBLIC_SUPABASE_ANON_KEY=${anonKey}`,
-    `SUPABASE_SERVICE_ROLE_KEY=${serviceRoleKey}`,
-    `NEXT_PUBLIC_APP_URL=${appUrl}`,
-    `E2E_USER_EMAIL=${email}`,
-    `E2E_USER_PASSWORD=${password}`,
-    "AXIS_E2E_AUTH=1",
-    "",
-  ].join("\n"),
-  { encoding: "utf8", mode: 0o600 },
-);
+  values: {
+    url,
+    anonKey,
+    serviceRoleKey,
+    appUrl,
+    email,
+  },
+  credential: password,
+  isGitHubActions: process.env.GITHUB_ACTIONS === "true",
+  emit: (line) => console.log(line),
+  append: (path, contents) => appendFileSync(path, contents, {
+    encoding: "utf8",
+    mode: 0o600,
+  }),
+});
 
 console.log("Prepared one confirmed user in local Supabase for authenticated E2E.");

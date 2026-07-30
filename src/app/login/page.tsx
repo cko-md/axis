@@ -32,7 +32,14 @@ function LoginForm() {
   const [rememberMe, setRememberMe] = useState(true);
   const [agreed, setAgreed] = useState(false);
   const [mfaState, setMfaState] = useState<MFAState | null>(null);
+  const [clientReady, setClientReady] = useState(false);
   const mfaBootstrapStarted = useRef(false);
+
+  // This is intentionally set in a passive effect: it only becomes true after
+  // React has hydrated the form and attached its event handlers.
+  useEffect(() => {
+    setClientReady(true);
+  }, []);
 
   // Consent applies to account creation only — clear it whenever we leave signup.
   useEffect(() => {
@@ -280,7 +287,11 @@ function LoginForm() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center p-6">
+    <div
+      className="relative flex min-h-screen items-center justify-center p-6"
+      data-testid="login-form"
+      data-client-ready={clientReady ? 'true' : 'false'}
+    >
       <Bg />
       <div className="card relative z-10 w-full max-w-md tick">
         {/* Header */}

@@ -13,6 +13,7 @@ import {
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
+import { ShellProfileProvider } from "@/components/layout/ShellProfileContext";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
 import { WebViewer } from "@/components/ui/WebViewer";
 import BiometricGate from "@/components/auth/BiometricGate";
@@ -106,8 +107,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <WebViewerProvider>
           <ThemeProvider>
             <ToastProvider>
-              {children}
-              <BiometricGate />
+              <ShellProfileProvider>
+                {children}
+                <BiometricGate />
+              </ShellProfileProvider>
             </ToastProvider>
           </ThemeProvider>
           <WebViewer />

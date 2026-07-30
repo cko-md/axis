@@ -2,13 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
-import * as Sentry from "@sentry/nextjs";
-import { createClient } from "@/lib/supabase/client";
+import {
+  MAX_PROFILE_FIELD_LENGTH,
+  useShellProfile,
+  type ProfileDraft,
+} from "@/components/layout/ShellProfileContext";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { getCroppedImageBlob } from "./cropImage";
 
 type Props = {
   onSignOut: () => void;
@@ -16,202 +18,119 @@ type Props = {
   onProfileName?: (name: string) => void;
 };
 
-type ProfileForm = { name: string; role: string; bio: string; photo: string };
-type SaveState = "idle" | "saving" | "saved" | "error";
-type AccountState = "loading" | "signed-out" | "ready" | "error";
-
-const AUTOSAVE_DEBOUNCE_MS = 600;
-
-function captureProfileLookupFailure(operation: "identity" | "profile") {
-  Sentry.captureException(new Error("Profile account lookup failed"), {
-    tags: {
-      area: "navigation",
-      operation: `load_${operation}`,
-    },
-  });
-}
-
 export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const { toast } = useToast();
-  const supabase = useMemo(() => createClient(), []);
-
-  const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
-  const [accountState, setAccountState] = useState<AccountState>("loading");
+  const {
+    state: accountState,
+    profile,
+    draft,
+    saveState,
+    uploadState,
+    scheduleProfileSave,
+    retryProfileSave,
+    processAndUploadProfilePhoto,
+    cancelProfilePhotoProcessing,
+  } = useShellProfile();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState<ProfileForm>({ name: "", role: "", bio: "", photo: "" });
-  const [saveState, setSaveState] = useState<SaveState>("idle");
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const draftRef = useRef(draft);
+  const mountedRef = useRef(false);
 
   // Crop step — selecting a file opens this instead of uploading immediately.
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [cropPoint, setCropPoint] = useState<Point>({ x: 0, y: 0 });
   const [cropZoom, setCropZoom] = useState(1);
   const [cropArea, setCropArea] = useState<Area | null>(null);
+  const [cropSubject, setCropSubject] = useState<string | null>(null);
   const [cropSaving, setCropSaving] = useState(false);
 
-  // Auto-save plumbing. We persist the actual upsert behind a debounce so rapid
-  // keystrokes collapse into one write. `loadedRef` guards against the initial
-  // hydration of the form (from the DB) triggering a needless save.
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadedRef = useRef(false);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
-    let active = true;
-    let hydrationFrame: number | null = null;
-
-    void (async () => {
-      try {
-        const { data: { user }, error: identityError } = await supabase.auth.getUser();
-        if (!active) return;
-        if (identityError) {
-          captureProfileLookupFailure("identity");
-          setAccountState("error");
-          toast("Could not verify the current account", "error", "Profile");
-          return;
-        }
-        if (!user) {
-          setProfile(null);
-          setAccountState("signed-out");
-          return;
-        }
-
-        const { data, error: profileError } = await supabase
-          .from("profiles")
-          .select("display_name, role_title, bio, avatar_url")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (!active) return;
-        if (profileError) {
-          captureProfileLookupFailure("profile");
-          toast("Profile details are temporarily unavailable", "error", "Profile");
-        }
-
-        const name = data?.display_name || user.email?.split("@")[0] || "Account";
-        const role = data?.role_title || user.email || "";
-        setProfile({ name, role });
-        setAccountState("ready");
-        onProfileName?.(name);
-        setProfileForm({
-          name,
-          role,
-          bio: data?.bio ?? "",
-          photo: data?.avatar_url ?? "",
-        });
-        // Mark loaded on the next frame so form hydration does not schedule a
-        // needless profile write.
-        loadedRef.current = false;
-        hydrationFrame = requestAnimationFrame(() => {
-          if (active) loadedRef.current = true;
-        });
-      } catch {
-        if (!active) return;
-        captureProfileLookupFailure("identity");
-        setAccountState("error");
-        toast("Could not verify the current account", "error", "Profile");
-      }
-    })();
-
+    mountedRef.current = true;
     return () => {
-      active = false;
-      if (hydrationFrame !== null) cancelAnimationFrame(hydrationFrame);
+      mountedRef.current = false;
     };
-  }, [supabase, onProfileName, toast]);
-
-  const persistProfile = useCallback(async (form: ProfileForm) => {
-    setSaveState("saving");
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setSaveState("idle"); return; }
-      const { error } = await supabase.from("profiles").upsert({
-        id: user.id,
-        display_name: form.name.trim(),
-        role_title: form.role.trim(),
-        bio: form.bio.trim(),
-        avatar_url: form.photo.trim(),
-        updated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      const savedName = form.name.trim() || "Account";
-      setProfile({ name: savedName, role: form.role.trim() });
-      onProfileName?.(savedName);
-      setSaveState("saved");
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-      savedTimerRef.current = setTimeout(() => setSaveState("idle"), 2000);
-    } catch {
-      setSaveState("error");
-      toast("Could not save profile", "error", "Profile");
-    }
-  }, [supabase, onProfileName, toast]);
-
-  // Debounced auto-save: any change to the form (after initial load) schedules
-  // an upsert ~600ms later. The modal being open is not required — edits flush
-  // even if the user closes it mid-debounce because the timer outlives the modal.
-  useEffect(() => {
-    if (!loadedRef.current) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      void persistProfile(profileForm);
-    }, AUTOSAVE_DEBOUNCE_MS);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [profileForm, persistProfile]);
-
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
   }, []);
 
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    if (accountState !== "ready" || !profile) return;
+    const name =
+      profile.display_name || profile.email?.split("@")[0] || "Account";
+    onProfileName?.(name);
+  }, [accountState, onProfileName, profile]);
+
   const saveStateLabel =
+    uploadState === "processing" ? "Processing photo…" :
+    uploadState === "uploading" ? "Uploading photo…" :
+    uploadState === "mfa-required" || accountState === "mfa-required" ? "Two-factor authentication required" :
+    uploadState === "error" ? "Photo upload failed" :
+    saveState === "pending" ? "Changes pending…" :
     saveState === "saving" ? "Saving…" :
     saveState === "saved" ? "Saved" :
-    saveState === "error" ? "Retry pending…" :
+    saveState === "session-expired" ? "Session expired — changes not saved" :
+    saveState === "mfa-required" ? "Two-factor authentication required" :
+    saveState === "error" ? "Save failed — changes kept" :
     "";
+  const displayName =
+    draft.name.trim() ||
+    profile?.display_name ||
+    profile?.email?.split("@")[0] ||
+    "Account";
+  const displayRole =
+    draft.role.trim() || profile?.role_title || profile?.email || "";
+  const displayPhoto = draft.photo;
 
-  const handlePhotoFile = async (file: File | Blob, revokeUrl?: string) => {
-    const preview = URL.createObjectURL(file);
-    setProfileForm((p) => ({ ...p, photo: preview }));
-    try {
-      const form = new FormData();
-      form.append("file", file, "avatar.jpg");
-      const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
-      const json = await res.json() as { url?: string; error?: string };
-      if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
-      setProfileForm((p) => ({ ...p, photo: json.url! }));
-    } catch {
-      toast("Photo upload failed", "error", "Profile");
-      setProfileForm((p) => ({ ...p, photo: "" }));
-    } finally {
-      URL.revokeObjectURL(preview);
-      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
-    }
+  const updateDraft = <Key extends keyof ProfileDraft>(
+    key: Key,
+    value: ProfileDraft[Key],
+  ) => {
+    const nextDraft = { ...draftRef.current, [key]: value };
+    draftRef.current = nextDraft;
+    scheduleProfileSave(nextDraft);
   };
 
   const openCropForFile = (file: File) => {
     if (!file.type.startsWith("image/")) { toast("Select an image file", "warn", "Profile"); return; }
+    if (!profile?.subject) {
+      toast("Sign in before uploading a profile photo.", "error", "Profile");
+      return;
+    }
     setCropPoint({ x: 0, y: 0 });
     setCropZoom(1);
     setCropArea(null);
+    setCropSubject(profile.subject);
     setCropSrc(URL.createObjectURL(file));
   };
 
   const cancelCrop = () => {
+    if (cropSubject) {
+      cancelProfilePhotoProcessing(cropSubject);
+    }
     if (cropSrc) URL.revokeObjectURL(cropSrc);
     setCropSrc(null);
+    setCropSubject(null);
   };
 
   const confirmCrop = async () => {
-    if (!cropSrc || !cropArea) return;
+    if (!cropSrc || !cropArea || !cropSubject) return;
+    const processingSrc = cropSrc;
     setCropSaving(true);
     try {
-      const blob = await getCroppedImageBlob(cropSrc, cropArea);
-      await handlePhotoFile(blob, cropSrc);
-    } catch {
-      toast("Could not crop photo", "error", "Profile");
+      await processAndUploadProfilePhoto(
+        processingSrc,
+        cropArea,
+        cropSubject,
+      );
     } finally {
-      setCropSaving(false);
-      setCropSrc(null);
+      URL.revokeObjectURL(processingSrc);
+      if (mountedRef.current) {
+        setCropSaving(false);
+        setCropSrc(null);
+        setCropSubject(null);
+      }
     }
   };
 
@@ -220,14 +139,14 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
       <div className="sidefoot">
         {accountState === "ready" && profile ? (
           <div className="profile" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => setProfileOpen(true)} title="Edit profile">
-            {profileForm.photo ? (
-              <Image src={profileForm.photo} alt={profile.name} width={32} height={32} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} unoptimized={profileForm.photo.startsWith("blob:")} />
+            {displayPhoto ? (
+              <Image src={displayPhoto} alt={displayName} width={32} height={32} className="avatar" style={{ objectFit: "cover", borderRadius: "50%" }} unoptimized={displayPhoto.startsWith("blob:")} />
             ) : (
-              <div className="avatar">{profile.name[0]?.toUpperCase() ?? "A"}</div>
+              <div className="avatar">{displayName[0]?.toUpperCase() ?? "A"}</div>
             )}
             <div className="pmeta">
-              <div className="pn">{profile.name}</div>
-              <div className="pr">{profile.role}</div>
+              <div className="pn">{displayName}</div>
+              <div className="pr">{displayRole}</div>
             </div>
             <button
               type="button"
@@ -241,6 +160,18 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
               </svg>
             </button>
           </div>
+        ) : accountState === "mfa-required" ? (
+          <Link
+            href="/login?mfa=required"
+            prefetch={false}
+            className="profile"
+          >
+            <div className="avatar">2×</div>
+            <div className="pmeta">
+              <div className="pn">Verify identity</div>
+              <div className="pr">Complete two-factor authentication</div>
+            </div>
+          </Link>
         ) : accountState === "signed-out" ? (
           <Link href="/login" prefetch={false} className="profile">
             <div className="avatar">→</div>
@@ -302,7 +233,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
               </button>
             </div>
           ) : (
-          <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, width: "100%" }}>
             <span
               role="status"
               aria-live="polite"
@@ -311,7 +242,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
                 fontSize: 10,
                 letterSpacing: ".1em",
                 textTransform: "uppercase",
-                color: saveState === "error" ? "var(--clay-2)" : saveState === "saved" ? "var(--gold)" : "var(--ink-faint)",
+                color: saveState === "error" || saveState === "session-expired" || saveState === "mfa-required" || uploadState === "error" || uploadState === "mfa-required" || accountState === "mfa-required" ? "var(--clay-2)" : saveState === "saved" ? "var(--gold)" : "var(--ink-faint)",
                 transition: "color .2s",
                 minHeight: 14,
               }}
@@ -339,6 +270,23 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
                 "Changes save automatically"
               )}
             </span>
+            {saveState === "error" ? (
+              <button
+                type="button"
+                onClick={retryProfileSave}
+                style={{ background: "none", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "5px 10px", fontSize: 11, color: "var(--ink)", cursor: "pointer" }}
+              >
+                Retry save
+              </button>
+            ) : saveState === "mfa-required" || uploadState === "mfa-required" || accountState === "mfa-required" ? (
+              <Link href="/login?mfa=required" prefetch={false} style={{ fontSize: 11, color: "var(--accent)" }}>
+                Verify to save
+              </Link>
+            ) : saveState === "session-expired" ? (
+              <Link href="/login" prefetch={false} style={{ fontSize: 11, color: "var(--accent)" }}>
+                Sign in to save
+              </Link>
+            ) : null}
           </div>
           )
         }
@@ -397,9 +345,9 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
             onClick={() => photoInputRef.current?.click()}
             title="Click to change photo"
           >
-            {profileForm.photo ? (
+            {displayPhoto ? (
               <Image
-                src={profileForm.photo}
+                src={displayPhoto}
                 alt="Avatar"
                 fill
                 sizes="72px"
@@ -408,7 +356,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
                 onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
             ) : (
-              profileForm.name?.[0]?.toUpperCase() ?? "?"
+              displayName[0]?.toUpperCase() ?? "?"
             )}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -419,10 +367,10 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
             >
               Upload Photo
             </button>
-            {profileForm.photo && (
+            {draft.photo && (
               <button
                 type="button"
-                onClick={() => setProfileForm((p) => ({ ...p, photo: "" }))}
+                onClick={() => updateDraft("photo", "")}
                 style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--ink-faint)", cursor: "pointer", textAlign: "left" }}
               >
                 Remove
@@ -445,11 +393,15 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
             </label>
             <input
               id={`profile-${field}`}
-              value={profileForm[field]}
-              onChange={(e) => setProfileForm((p) => ({ ...p, [field]: e.target.value }))}
+              value={draft[field]}
+              maxLength={MAX_PROFILE_FIELD_LENGTH}
+              onChange={(e) => updateDraft(field, e.target.value)}
               placeholder={field === "name" ? "Your name" : "Resident Physician, Neurosurgery"}
               className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
             />
+            <div aria-live="polite" style={{ marginTop: 4, textAlign: "right", fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)" }}>
+              {draft[field].length}/{MAX_PROFILE_FIELD_LENGTH}
+            </div>
           </div>
         ))}
         <div style={{ marginBottom: 14 }}>
@@ -458,12 +410,16 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           </label>
           <textarea
             id="profile-bio"
-            value={profileForm.bio}
-            onChange={(e) => setProfileForm((p) => ({ ...p, bio: e.target.value }))}
+            value={draft.bio}
+            maxLength={MAX_PROFILE_FIELD_LENGTH}
+            onChange={(e) => updateDraft("bio", e.target.value)}
             placeholder="A short bio or description…"
             rows={3}
             style={{ width: "100%", padding: "8px 12px", borderRadius: "var(--r)", border: "1px solid var(--line)", background: "var(--surface-2)", color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 13, resize: "vertical", outline: "none" }}
           />
+          <div aria-live="polite" style={{ marginTop: 4, textAlign: "right", fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)" }}>
+            {draft.bio.length}/{MAX_PROFILE_FIELD_LENGTH}
+          </div>
         </div>
         <div>
           <label htmlFor="profile-photo" style={{ display: "block", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 5 }}>
@@ -471,11 +427,15 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           </label>
           <input
             id="profile-photo"
-            value={profileForm.photo.startsWith("data:") ? "" : profileForm.photo}
-            onChange={(e) => setProfileForm((p) => ({ ...p, photo: e.target.value }))}
+            value={draft.photo.startsWith("data:") ? "" : draft.photo}
+            maxLength={MAX_PROFILE_FIELD_LENGTH}
+            onChange={(e) => updateDraft("photo", e.target.value)}
             placeholder="https://…"
             className="w-full rounded border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
           />
+          <div aria-live="polite" style={{ marginTop: 4, textAlign: "right", fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)" }}>
+            {draft.photo.length}/{MAX_PROFILE_FIELD_LENGTH}
+          </div>
         </div>
         </>
         )}

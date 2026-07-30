@@ -6,6 +6,15 @@
 - Authority: owner-authorized System Redesign Override (`AGENTS.md` §2a)
 - Source brief: `pasted-text-1.txt` SHA-256 `ab7dccf6d91c88941273b4975dee00ba1c89c8295f3587cd7e2cf66593057cd9`
 
+> **Envoy governance update (2026-07-23).** The Envoy portions of this
+> historical Phase 15 plan were superseded by
+> [ADR 0007](adr/0007-envoy-owner-reversal-and-fresh-design.md). The
+> 2026-07-19 removal remains historical fact, but the prior "do not re-attempt"
+> posture is reversed for a **fresh** design only. Do not treat former
+> Meridian/Cairn/Vesper/Solace artifacts or implementation claims below as
+> current work. The new, entirely unbuilt E0–E6 program is tracked in the
+> [Envoy acceptance matrix](envoy-acceptance-matrix.md).
+
 ## Program outcome
 
 Ship two production systems, not prototypes:
@@ -173,10 +182,7 @@ hatch-pet generation and deterministic QA pass.
 | 15.1 | Integrate canonical approval retry and current `main`; harden preferences and transition races | Merge evidence, focused regression tests, full gates |
 | 15.2 | VECTOR registry/runtime/lobby, IndexedDB, sync APIs/schema/RLS, safe per-game offline install | Applied migration, RLS matrix, runtime/persistence/offline tests, browser evidence |
 | 15.3 | Second Sense complete vertical slice | Play log, saves/sync/offline/daily/scoring evidence |
-| 15.4 | Envoy core refactor, truthful status HUD, deep links, mode parity, quick picker, Envoy Lab shell | State/parity/deep-link/error/a11y/browser tests |
-| 15.5 | Starter Envoy concepts and validated hatch-pet packages | Prompts, contact sheets, QA media, `pet.json`, spritesheets, visual review |
-| 15.6 | Generation schema, private Storage, RLS/RPCs, quotas, control-plane APIs | Applied migration, grant/RLS/concurrency tests, capability contract |
-| 15.7 | Vendored hatch-pet worker, OpenAI provider, Render deployment, live generation | Container/CI, healthy heartbeat, live job, private package, logs/Sentry |
+| 15.4–15.7 | Retired Envoy plan | Superseded by ADR 0007; no completion credit transfers to the fresh E0–E6 program |
 | 15.8 | Brickrise | Complete run and full game evidence |
 | 15.9 | Time to Fly | Five levels and deterministic physics evidence |
 | 15.10 | Paper Glider | 3D sustained-play and disposal evidence |
@@ -187,9 +193,9 @@ hatch-pet generation and deterministic QA pass.
 | 15.15 | Neon Rift | Complete FPS mission and GPU/disposal evidence |
 | 15.16 | Cross-game controller, achievements, offline, accessibility, performance, security, production convergence | Full requirement audit, previews, Sentry, draft PR |
 
-Game order remains binding. Envoy waves may occur between games because Envoy
-Arena depends on the shared Envoy registry, but no later game starts before the
-previous game is complete.
+Game order remains binding. Envoy Arena remains blocked until at least eight
+validated, selectable original identities exist; the fresh Envoy sequence and
+its evidence live in the Envoy acceptance matrix.
 
 ## Rollback and forward-fix posture
 

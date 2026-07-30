@@ -12,6 +12,14 @@ afterEach(() => {
 });
 
 describe("Playwright authenticated project wiring", () => {
+  it("keeps the public suite at Playwright's default worker concurrency", async () => {
+    delete process.env.AXIS_E2E_AUTH;
+    vi.resetModules();
+
+    const { default: config } = await import("../../../playwright.config");
+    expect(config.workers).toBeUndefined();
+  });
+
   it("runs auth setup when CI has credentials but no pre-existing state file", async () => {
     process.env.AXIS_E2E_AUTH = "1";
     delete process.env.E2E_AUTH_STATE;
@@ -25,6 +33,14 @@ describe("Playwright authenticated project wiring", () => {
     expect(authenticated).toMatchObject({
       dependencies: ["auth-setup"],
     });
+  });
+
+  it("serializes only the authenticated suite's shared local Auth session", async () => {
+    process.env.AXIS_E2E_AUTH = "1";
+    vi.resetModules();
+
+    const { default: config } = await import("../../../playwright.config");
+    expect(config.workers).toBe(1);
   });
 
   it("skips auth setup only when an explicit storage-state path is supplied", async () => {

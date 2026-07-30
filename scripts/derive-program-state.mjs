@@ -30,8 +30,23 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
+import {
+  GENERATED_STATE_ARTIFACTS,
+  gitTreeContentHash,
+  stateEvidenceFingerprint,
+} from "./state-tree-integrity.mjs";
+import { validateStateSnapshotProvenance } from "./state-provenance.mjs";
 
 const REPO = process.cwd();
 const args = new Set(process.argv.slice(2));
@@ -42,9 +57,30 @@ const GENERATED_JSON = ".claude/axis-redesign/GENERATED_STATE.json";
 const CANONICAL_DOC = "docs/CURRENT_STATE.md";
 const BEGIN = "<!-- BEGIN GENERATED: derive-program-state -->";
 const END = "<!-- END GENERATED: derive-program-state -->";
-
+const SHA_40 = /^[a-f0-9]{40}$/;
 function git(...gitArgs) {
   return execFileSync("git", gitArgs, { cwd: REPO, encoding: "utf8" }).trim();
+}
+
+function resolveCheckTargetRef() {
+  // A pull-request workflow often checks GitHub's synthetic merge commit. The
+  // generated-state commit is on the PR head (the merge commit's second
+  // parent), not on that synthetic commit. Checking the PR head applies the
+  // same committed-tree fingerprint contract locally and in PR CI. Callers
+  // that use a different CI topology may provide the exact head through this explicit
+  // override.
+  if (process.env.AXIS_STATE_TARGET_REF) return process.env.AXIS_STATE_TARGET_REF;
+
+  if (process.env.GITHUB_EVENT_NAME === "pull_request") {
+    try {
+      git("rev-parse", "--verify", "HEAD^2");
+      return "HEAD^2";
+    } catch {
+      // A non-merge checkout of a pull request is already the PR head.
+    }
+  }
+
+  return "HEAD";
 }
 
 /**
@@ -55,7 +91,7 @@ function git(...gitArgs) {
  * the environment where the drift check matters most.
  */
 function resolveMainRef() {
-  for (const candidate of ["main", "origin/main", "refs/remotes/origin/main"]) {
+  for (const candidate of ["origin/main", "refs/remotes/origin/main", "main"]) {
     try {
       execFileSync("git", ["rev-parse", "--verify", "--quiet", candidate], {
         cwd: REPO,
@@ -66,9 +102,10 @@ function resolveMainRef() {
       // Try the next candidate.
     }
   }
-  // Detached or shallow with no mainline available: fall back to HEAD so the
-  // script degrades to "nothing is known to be merged" instead of crashing.
-  return "HEAD";
+  throw new Error(
+    "Canonical state derivation requires a reviewed main ref. "
+    + "Fetch origin/main (full history for state derivation) before running this command.",
+  );
 }
 
 const MAIN_REF = resolveMainRef();
@@ -78,6 +115,20 @@ function readJson(relativePath) {
   if (!existsSync(full)) return null;
   try {
     return JSON.parse(readFileSync(full, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function readJsonAtRef(relativePath, ref) {
+  try {
+    return JSON.parse(
+      execFileSync("git", ["show", `${ref}:${relativePath}`], {
+        cwd: REPO,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    );
   } catch {
     return null;
   }
@@ -95,15 +146,19 @@ function readJson(relativePath) {
  * "waves merged to main" table. That is exactly the quiet omission this script
  * exists to prevent, so `pr` is now null rather than a reason to skip.
  */
-function deriveMergedPrs(limit = 60) {
-  const log = git("log", `-${limit}`, "--format=%h%x1f%s%x1f%cI", MAIN_REF);
+function deriveMergedPrs() {
+  // `%h` is object-database dependent: the same commit may render at a
+  // different abbreviation length in a shallow CI checkout than it does in a
+  // developer clone. Keep complete object IDs in the derivation, then render a
+  // fixed prefix below so the committed state block is clone-independent.
+  const log = git("log", "--format=%H%x1f%s%x1f%cI", MAIN_REF);
   const prs = [];
   for (const line of log.split("\n").filter(Boolean)) {
     const [sha, subject, committedAt] = line.split("\x1f");
     const match = subject.match(/\(#(\d+)\)\s*$/);
     prs.push({
       pr: match ? Number(match[1]) : null,
-      sha,
+      sha: sha.slice(0, 8),
       subject: subject.replace(/\s*\(#\d+\)\s*$/, ""),
       committedAt,
     });
@@ -155,18 +210,23 @@ function deriveWaves(prs) {
   );
 }
 
-function deriveMigrations() {
-  const dir = path.join(REPO, "supabase/migrations");
-  if (!existsSync(dir)) return { count: 0, latest: null };
-  const files = execFileSync("ls", [dir], { encoding: "utf8" })
+function deriveMigrations(ref) {
+  let listing;
+  try {
+    listing = git("ls-tree", "-r", "--name-only", ref, "--", "supabase/migrations");
+  } catch {
+    return { count: 0, latest: null };
+  }
+  const files = listing
     .split("\n")
+    .map((name) => path.basename(name))
     .filter((name) => name.endsWith(".sql"))
     .sort();
   return { count: files.length, latest: files.at(-1) ?? null };
 }
 
-function deriveDefects() {
-  const ledger = readJson(".claude/axis-redesign/DEFECT_LEDGER.json");
+function deriveDefects(ref) {
+  const ledger = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", ref);
   if (!ledger) return { total: 0, open: 0, openIds: [] };
   const entries = Array.isArray(ledger.defects)
     ? ledger.defects
@@ -181,85 +241,481 @@ function deriveDefects() {
   };
 }
 
+const CLOSED_DEFECT_STATUSES = new Set(["fixed", "closed"]);
+const MAIN_VERIFICATION_COMMIT_FIELD = "mainVerificationCommit";
+const DEFECT_STATUSES = new Set(["open", "fixed", "closed"]);
+const SEVERITY_RANK = new Map([["low", 1], ["medium", 2], ["high", 3], ["critical", 4]]);
+const OPEN_EVIDENCE_FIELDS = ["verificationPaths", "closureAfterMainCommit"];
+// A still-open finding may refine its diagnosis and remediation, but its
+// identity and the evidence boundary which governs a later closure are fixed
+// once it enters the ledger.  This prevents a two-PR bypass that edits the
+// affected scope immediately before marking a finding fixed.
+const OPEN_CORE_EVIDENCE_FIELDS = ["id", "source", "summary", "reproduction", "affected"];
+const CLOSED_CONTENT_FIELDS = [
+  "id", "severity", "source", "summary", "affected", "root_cause",
+  "reproduction", "fix", "regression_test", "verification",
+  MAIN_VERIFICATION_COMMIT_FIELD, "mainVerificationPaths",
+];
+
+function defectEntries(ledger) {
+  return Array.isArray(ledger?.defects)
+    ? ledger.defects
+    : Array.isArray(ledger?.entries)
+      ? ledger.entries
+      : [];
+}
+
+function hasSupportedDefectEntries(ledger) {
+  return Array.isArray(ledger?.defects) || Array.isArray(ledger?.entries);
+}
+
+function validVerificationPaths(paths) {
+  return Array.isArray(paths)
+    && paths.length > 0
+    && paths.every((entry) => typeof entry === "string" && /^[A-Za-z0-9._@/\[\]-]+$/.test(entry));
+}
+
+function isCurrentMainThreshold(value) {
+  return value === git("rev-parse", MAIN_REF);
+}
+
+function hasOpenCoreEvidence(entry) {
+  return ["source", "summary", "reproduction"].every(
+    (field) => typeof entry?.[field] === "string" && entry[field].trim() !== "",
+  ) && Array.isArray(entry?.affected) && entry.affected.length > 0
+    && entry.affected.every((value) => typeof value === "string" && value.trim() !== "");
+}
+
+function canonicalValue(value) {
+  return JSON.stringify(value);
+}
+
+function findDefectLedgerContinuityProblems(ref) {
+  const baseline = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", MAIN_REF);
+  const candidate = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", ref);
+  if (!baseline || !candidate || !hasSupportedDefectEntries(baseline) || !hasSupportedDefectEntries(candidate)) {
+    return ["defect ledger must exist with a defects or entries array in both canonical main and checked ref"];
+  }
+  const baselineEntries = defectEntries(baseline);
+  const candidateEntries = defectEntries(candidate);
+  const byId = new Map();
+  const problems = [];
+  for (const entry of candidateEntries) {
+    if (typeof entry?.id !== "string" || entry.id.trim() === "") {
+      problems.push("defect ledger contains an entry without a stable id");
+    } else if (byId.has(entry.id)) {
+      problems.push(`defect ledger contains duplicate id ${entry.id}`);
+    } else {
+      byId.set(entry.id, entry);
+    }
+    if (!DEFECT_STATUSES.has(entry?.status)) {
+      problems.push(`defect ${entry?.id ?? "unknown"} has invalid status`);
+    }
+    if (!SEVERITY_RANK.has(entry?.severity)) {
+      problems.push(`defect ${entry?.id ?? "unknown"} has an invalid severity`);
+    }
+  }
+  for (const base of baselineEntries) {
+    const current = byId.get(base?.id);
+    if (!current) {
+      problems.push(`defect ${base?.id ?? "unknown"} was deleted from the canonical ledger`);
+      continue;
+    }
+    if (!SEVERITY_RANK.has(base?.severity) || !SEVERITY_RANK.has(current?.severity)) {
+      problems.push(`defect ${base.id} has an invalid severity`);
+    } else if (SEVERITY_RANK.get(current.severity) < SEVERITY_RANK.get(base.severity)) {
+      problems.push(`defect ${base.id} cannot downgrade severity`);
+    }
+    if (CLOSED_DEFECT_STATUSES.has(base?.status) && CLOSED_DEFECT_STATUSES.has(current?.status)) {
+      for (const field of CLOSED_CONTENT_FIELDS) {
+        // Phase-zero bootstraps legacy closed rows that predate machine-bound
+        // provenance.  Introducing an absent provenance field is additive;
+        // once main carries it, every subsequent rewrite requires reopening.
+        const additiveLegacyProvenance =
+          (field === MAIN_VERIFICATION_COMMIT_FIELD || field === "mainVerificationPaths")
+          && base?.[field] === undefined;
+        if (!additiveLegacyProvenance && canonicalValue(base?.[field]) !== canonicalValue(current?.[field])) {
+          problems.push(`closed defect ${base.id} rewrites immutable ${field}; reopen it before changing closed evidence`);
+        }
+      }
+    }
+    if (!CLOSED_DEFECT_STATUSES.has(base?.status) && CLOSED_DEFECT_STATUSES.has(current?.status)) {
+      const paths = base?.verificationPaths;
+      const after = base?.closureAfterMainCommit;
+      if (!validVerificationPaths(paths) || typeof after !== "string" || !SHA_40.test(after)) {
+        problems.push(`defect ${base.id} closing transition requires immutable open-state verificationPaths and closureAfterMainCommit`);
+      } else {
+        const sha = current?.[MAIN_VERIFICATION_COMMIT_FIELD];
+        try {
+          if (typeof sha !== "string" || !SHA_40.test(sha)) throw new Error("invalid SHA");
+          execFileSync("git", ["merge-base", "--is-ancestor", sha, MAIN_REF], { cwd: REPO, stdio: "ignore" });
+          execFileSync("git", ["merge-base", "--is-ancestor", sha, ref], { cwd: REPO, stdio: "ignore" });
+          if (sha === after) throw new Error("not descendant");
+          execFileSync("git", ["merge-base", "--is-ancestor", after, sha], { cwd: REPO, stdio: "ignore" });
+          const changed = git("diff-tree", "--no-commit-id", "--name-only", "-r", sha).split("\n");
+          if (!paths.some((path) => changed.includes(path))) throw new Error("path mismatch");
+        } catch {
+          problems.push(`defect ${base.id} closing transition lacks a canonical-main verification commit touching mainVerificationPaths`);
+        }
+      }
+    }
+    if (base?.status === "open") {
+      for (const field of [...OPEN_EVIDENCE_FIELDS, ...OPEN_CORE_EVIDENCE_FIELDS]) {
+        if (canonicalValue(base?.[field]) !== canonicalValue(current?.[field])) {
+          problems.push(`open defect ${base.id} rewrites immutable ${field}`);
+        }
+      }
+    }
+    if (CLOSED_DEFECT_STATUSES.has(base?.status) && current?.status === "open") {
+      if (!validVerificationPaths(current.verificationPaths) || !isCurrentMainThreshold(current.closureAfterMainCommit) || !hasOpenCoreEvidence(current)) {
+        problems.push(`reopened defect ${base.id} requires complete open evidence, verificationPaths, and closureAfterMainCommit bound to current canonical main`);
+      }
+    }
+  }
+  const baselineIds = new Set(baselineEntries.map((entry) => entry?.id));
+  for (const entry of candidateEntries) {
+    if (baselineEntries.length > 0 && !baselineIds.has(entry?.id) && CLOSED_DEFECT_STATUSES.has(entry?.status)) {
+      problems.push(`new defect ${entry.id} cannot be introduced already ${entry.status}`);
+    }
+    if (!baselineIds.has(entry?.id) && entry?.status === "open") {
+      if (!validVerificationPaths(entry.verificationPaths) || !isCurrentMainThreshold(entry.closureAfterMainCommit) || !hasOpenCoreEvidence(entry)) {
+        problems.push(`new open defect ${entry.id} requires complete open evidence, verificationPaths, and closureAfterMainCommit bound to current canonical main`);
+      }
+    }
+  }
+  return problems;
+}
+
 /**
- * Gate figures require actually running the gates, so they are opt-in. When not
- * run, the previous values are carried forward and explicitly marked stale
- * rather than silently presented as current — an unmeasured number claiming to
- * be current is exactly the failure this script exists to prevent.
+ * A defect is not closed by narrative alone. The ledger must bind that claim to
+ * the full, lowercase SHA of the commit whose verification ran from canonical
+ * main. Requiring it to be an ancestor of both main and the checked candidate
+ * prevents a branch-local (or free-form "pending commit") assertion from
+ * making the canonical state report a clean defect count.
  */
-function deriveGates(previous) {
+function findInvalidClosedDefectProvenance(ref) {
+  const ledger = readJsonAtRef(".claude/axis-redesign/DEFECT_LEDGER.json", ref);
+  if (!ledger) return [];
+  const entries = Array.isArray(ledger.defects)
+    ? ledger.defects
+    : Array.isArray(ledger.entries)
+      ? ledger.entries
+      : [];
+  const invalid = [];
+  for (const [index, entry] of entries.entries()) {
+    if (!CLOSED_DEFECT_STATUSES.has(entry?.status)) continue;
+    const id = entry?.id ?? entry?.defect_id ?? `index ${index}`;
+    const verificationCommit = entry?.[MAIN_VERIFICATION_COMMIT_FIELD];
+    const verificationPaths = entry?.mainVerificationPaths;
+    if (typeof verificationCommit !== "string" || !SHA_40.test(verificationCommit)) {
+      invalid.push(
+        `defect ${id} is ${entry.status} but lacks a valid ${MAIN_VERIFICATION_COMMIT_FIELD} (must be a lowercase full 40-character SHA; free-form or pending provenance is rejected)`,
+      );
+      continue;
+    }
+    if (!validVerificationPaths(verificationPaths)) {
+      invalid.push(
+        `defect ${id} is ${entry.status} but lacks non-empty exact mainVerificationPaths bound to the canonical-main verification commit`,
+      );
+      continue;
+    }
+    try {
+      git("rev-parse", "--verify", `${verificationCommit}^{commit}`);
+      execFileSync(
+        "git",
+        ["merge-base", "--is-ancestor", verificationCommit, MAIN_REF],
+        { cwd: REPO, stdio: "ignore" },
+      );
+      const changed = git("diff-tree", "--no-commit-id", "--name-only", "-r", verificationCommit).split("\n");
+      if (!verificationPaths.some((verificationPath) => changed.includes(verificationPath))) {
+        throw new Error("verification path not touched");
+      }
+      execFileSync(
+        "git",
+        ["merge-base", "--is-ancestor", verificationCommit, ref],
+        { cwd: REPO, stdio: "ignore" },
+      );
+    } catch {
+      invalid.push(
+        `defect ${id} is ${entry.status} but ${MAIN_VERIFICATION_COMMIT_FIELD} ${verificationCommit} is not a resolvable canonical-main ancestor of checked ref ${git("rev-parse", ref).slice(0, 8)}`,
+      );
+    }
+  }
+  return invalid;
+}
+
+const LOCAL_GATE_CONTRACT =
+  "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget";
+const BUILD_GENERATED_SCOPES = [
+  "public/vector-assets/manifests",
+  "public/vector-assets/offline",
+];
+
+function commandOutput(command, commandArgs) {
+  try {
+    return execFileSync(command, commandArgs, {
+      cwd: REPO,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const label = [command, ...commandArgs].join(" ");
+    throw new Error(
+      `Local state gate failed: ${label} (exit ${error?.status ?? "unknown"})`,
+      { cause: error },
+    );
+  }
+}
+
+function statusRecords() {
+  return execFileSync(
+    "git",
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: REPO, encoding: "utf8" },
+  )
+    .split("\0")
+    .filter(Boolean);
+}
+
+function isGeneratedStateRecord(record) {
+  return [...GENERATED_STATE_ARTIFACTS].some(
+    (relativePath) => record.slice(3) === relativePath,
+  );
+}
+
+function assertExactCommittedInputs() {
+  const changes = statusRecords().filter((record) => !isGeneratedStateRecord(record));
+  if (changes.length > 0) {
+    throw new Error(
+      "Local state gates require an exact committed tree. Commit or remove every "
+      + `non-state change first (${changes.length} path(s) differ).`,
+    );
+  }
+}
+
+function snapshotPath(fullPath) {
+  if (!existsSync(fullPath)) return null;
+  const stat = lstatSync(fullPath);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Local state gate refuses a symlink in build output scope: ${fullPath}`);
+  }
+  if (stat.isDirectory()) {
+    return {
+      type: "directory",
+      mode: stat.mode,
+      children: readdirSync(fullPath)
+        .sort()
+        .map((name) => [name, snapshotPath(path.join(fullPath, name))]),
+    };
+  }
+  if (!stat.isFile()) {
+    throw new Error(`Local state gate found an unsupported build output entry: ${fullPath}`);
+  }
+  return { type: "file", mode: stat.mode, contents: readFileSync(fullPath) };
+}
+
+function restorePath(fullPath, snapshot) {
+  rmSync(fullPath, { recursive: true, force: true });
+  if (snapshot === null) return;
+  if (snapshot.type === "directory") {
+    mkdirSync(fullPath, { recursive: true });
+    chmodSync(fullPath, snapshot.mode);
+    for (const [name, child] of snapshot.children) {
+      restorePath(path.join(fullPath, name), child);
+    }
+    return;
+  }
+  mkdirSync(path.dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, snapshot.contents);
+  chmodSync(fullPath, snapshot.mode);
+}
+
+function snapshotBuildArtifacts() {
+  return BUILD_GENERATED_SCOPES.map((relativePath) => ({
+    relativePath,
+    snapshot: snapshotPath(path.join(REPO, relativePath)),
+  }));
+}
+
+function restoreBuildArtifacts(snapshots) {
+  for (const { relativePath, snapshot } of snapshots) {
+    restorePath(path.join(REPO, relativePath), snapshot);
+  }
+}
+
+/**
+ * Gate figures require actually running the gates, so they are opt-in. A normal
+ * derive preserves a measured pass only when it is bound to the identical
+ * content tree; otherwise prior figures are explicitly marked stale.
+ */
+function deriveGates(previous, contentTreeHash) {
   if (!WITH_GATES) {
     const carried = previous?.gates ?? null;
+    if (
+      carried?.measured === true
+      && previous?.git?.contentTreeHash === contentTreeHash
+      && carried.sourceContentTreeHash === contentTreeHash
+    ) {
+      return carried;
+    }
     return carried
       ? { ...carried, measured: false, note: "carried forward; re-run with --gates to measure" }
       : { measured: false, note: "never measured; run with --gates" };
   }
 
-  const gates = { measured: true, measuredAt: new Date().toISOString() };
+  assertExactCommittedInputs();
+  const measuredHead = git("rev-parse", "HEAD");
+  const gates = {
+    measured: false,
+    contract: LOCAL_GATE_CONTRACT,
+    sourceHead: measuredHead,
+    sourceContentTreeHash: contentTreeHash,
+  };
 
+  commandOutput("npx", ["tsc", "--noEmit"]);
+  gates.typecheck = { passed: true };
+  commandOutput("npm", ["run", "lint"]);
+  gates.lint = { passed: true };
+
+  const out = commandOutput("npx", ["vitest", "run", "--reporter=json"]);
+  const jsonStart = out.indexOf("{");
+  if (jsonStart === -1) {
+    throw new Error("Local state gate failed: Vitest did not emit JSON results.");
+  }
+  const parsed = JSON.parse(out.slice(jsonStart));
+  if (
+    parsed.success !== true
+    || parsed.numFailedTests !== 0
+    || parsed.numPassedTests !== parsed.numTotalTests
+  ) {
+    throw new Error("Local state gate failed: Vitest reported a failing or incomplete suite.");
+  }
+  // testResults is one entry per FILE. numTotalTestSuites counts describe
+  // blocks (478 vs 193 here), so keep both figures distinct.
+  gates.tests = {
+    passed: parsed.numPassedTests,
+    total: parsed.numTotalTests,
+    files: Array.isArray(parsed.testResults) ? parsed.testResults.length : undefined,
+    suites: parsed.numTotalTestSuites,
+  };
+
+  rmSync(path.join(REPO, ".next"), { recursive: true, force: true });
+  const buildArtifactSnapshots = snapshotBuildArtifacts();
   try {
-    const out = execFileSync("npx", ["vitest", "run", "--reporter=json"], {
-      cwd: REPO,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const parsed = JSON.parse(out.slice(out.indexOf("{")));
-    // testResults is one entry per FILE. numTotalTestSuites counts describe
-    // blocks (478 vs 193 here) and reporting it as a file count would put a
-    // wrong number in the canonical doc — the exact failure this script exists
-    // to prevent.
-    gates.tests = {
-      passed: parsed.numPassedTests,
-      total: parsed.numTotalTests,
-      files: Array.isArray(parsed.testResults) ? parsed.testResults.length : undefined,
-      suites: parsed.numTotalTestSuites,
+    commandOutput("npm", ["run", "build"]);
+    if (!existsSync(path.join(REPO, ".next", "BUILD_ID"))) {
+      throw new Error(
+        "Local state gate failed: the production build exited zero without a fresh .next/BUILD_ID.",
+      );
+    }
+    gates.build = { passed: true, cleanOutput: true };
+
+    const bundle = commandOutput(process.execPath, ["scripts/check-bundle-budget.mjs"]);
+    const measurements = [
+      ...bundle.matchAll(/(\d+)\s*KB\s*\/\s*(\d+)\s*KB/g),
+    ];
+    if (measurements.length < 2) {
+      throw new Error(
+        "Local state gate failed: bundle budget emitted incomplete shared/game measurements.",
+      );
+    }
+    gates.bundleKb = {
+      used: Number(measurements[0][1]),
+      budget: Number(measurements[0][2]),
     };
-  } catch (error) {
-    gates.tests = { error: String(error.message ?? error).slice(0, 200) };
+    gates.routeIsolatedBundleKb = {
+      used: Number(measurements[1][1]),
+      budget: Number(measurements[1][2]),
+    };
+  } finally {
+    restoreBuildArtifacts(buildArtifactSnapshots);
   }
 
-  try {
-    const bundle = execFileSync("node", ["scripts/check-bundle-budget.mjs"], { cwd: REPO, encoding: "utf8" });
-    const match = bundle.match(/(\d+)\s*KB\s*\/\s*(\d+)\s*KB/);
-    if (match) gates.bundleKb = { used: Number(match[1]), budget: Number(match[2]) };
-  } catch {
-    gates.bundleKb = null;
+  assertExactCommittedInputs();
+  if (git("rev-parse", "HEAD") !== measuredHead) {
+    throw new Error("Local state gate failed: HEAD changed during measurement.");
   }
 
+  gates.measured = true;
+  gates.measuredAt = new Date().toISOString();
   return gates;
 }
 
-function deriveState(previous) {
+function gatesForCheck(previous) {
+  // Gate measurements are evidence produced by --gates, not facts that a fast
+  // --check can reproduce. The committed GENERATED_STATE snapshot is their
+  // source of truth: check renders that snapshot verbatim. A normal write keeps
+  // it only for identical content, otherwise deriveGates() marks it stale.
+  return previous?.gates ?? { measured: false, note: "never measured; run with --gates" };
+}
+
+function deriveState(previous, ref = "HEAD") {
   const prs = deriveMergedPrs();
-  const head = git("rev-parse", "HEAD");
-  const branch = git("rev-parse", "--abbrev-ref", "HEAD");
-  const mainHead = git("rev-parse", MAIN_REF);
-  const workingTreeClean = git("status", "--porcelain") === "";
+  const contentTreeHash = gitTreeContentHash({ cwd: REPO, ref });
+  const gates = CHECK_ONLY
+    ? gatesForCheck(previous)
+    : deriveGates(previous, contentTreeHash);
+  const observedMainContentTreeHash = gitTreeContentHash({ cwd: REPO, ref: MAIN_REF });
+  const observedProvenance = {
+    branch: ref === "HEAD" ? git("rev-parse", "--abbrev-ref", "HEAD") : "checked target",
+    head: git("rev-parse", ref),
+    mainHead: git("rev-parse", MAIN_REF),
+    workingTreeClean: git("status", "--porcelain") === "",
+    aheadOfMain: [],
+  };
 
   // Commits on this branch that main does not have. This is precisely the
   // information a resuming agent needs and the thing prose always gets wrong.
-  let aheadOfMain = [];
-  if (branch !== "main") {
-    const ahead = git("log", `${MAIN_REF}..HEAD`, "--format=%h%x1f%s");
-    aheadOfMain = ahead
+  if (observedProvenance.branch !== "main") {
+    const ahead = git("log", `${MAIN_REF}..${ref}`, "--format=%H%x1f%s");
+    observedProvenance.aheadOfMain = ahead
       .split("\n")
       .filter(Boolean)
       .map((line) => {
         const [sha, subject] = line.split("\x1f");
-        return { sha, subject };
+        return { sha: sha.slice(0, 8), subject };
       });
   }
+
+  // Source commit/branch names are topology-sensitive provenance. During a
+  // check, preserve the committed snapshot's provenance and bind it into the
+  // fingerprint. Equivalent squash/merge content remains valid, while changing
+  // either the rendered provenance or its JSON snapshot changes the expected
+  // fingerprint.
+  const persistedGit = previous?.git;
+  const provenance = CHECK_ONLY && persistedGit
+    ? {
+        branch: persistedGit.branch,
+        head: persistedGit.head,
+        mainHead: persistedGit.mainHead,
+        workingTreeClean: persistedGit.workingTreeClean,
+        aheadOfMain: Array.isArray(persistedGit.aheadOfMain) ? persistedGit.aheadOfMain : [],
+      }
+    : observedProvenance;
+  const sourceMainContentTreeHash = CHECK_ONLY && persistedGit?.sourceMainContentTreeHash
+    ? persistedGit.sourceMainContentTreeHash
+    : observedMainContentTreeHash;
+  const fingerprint = stateEvidenceFingerprint(contentTreeHash, {
+    gates,
+    provenance,
+    sourceMainContentTreeHash,
+  });
 
   return {
     $schema: "derived — do not hand-edit; run scripts/derive-program-state.mjs",
     derivedAt: new Date().toISOString(),
-    git: { branch, head, mainHead, workingTreeClean, aheadOfMain },
+    git: {
+      ...provenance,
+      contentTreeHash,
+      sourceMainContentTreeHash,
+      fingerprint,
+    },
     mergedPrs: prs.slice(0, 25),
     waves: deriveWaves(prs),
-    migrations: deriveMigrations(),
-    defects: deriveDefects(),
-    gates: deriveGates(previous),
+    migrations: deriveMigrations(ref),
+    defects: deriveDefects(ref),
+    gates,
   };
 }
 
@@ -269,20 +725,28 @@ function renderMarkdown(state) {
   const lines = [];
   lines.push(BEGIN);
   lines.push("");
-  lines.push(`_Derived from the repository at ${state.derivedAt}. Do not hand-edit this block._`);
+  lines.push("_Deterministically derived from committed repository content. Do not hand-edit this block._");
   lines.push("");
-  lines.push("## Where the code actually is");
+  lines.push("## Repository state identity");
+  lines.push("");
+  lines.push(`- **State fingerprint:** \`${state.git.fingerprint}\` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)`);
+  lines.push(`- **Content tree:** \`${state.git.contentTreeHash}\``);
+  lines.push(`- **Source-main tree at derivation:** \`${state.git.sourceMainContentTreeHash}\``);
+  lines.push("- **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.");
+  lines.push("- An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.");
+  lines.push("");
+  lines.push("## Source snapshot provenance");
+  lines.push("");
+  lines.push("_Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._");
   lines.push("");
   lines.push(`- **Branch:** \`${state.git.branch}\``);
   lines.push(`- **HEAD:** \`${state.git.head.slice(0, 8)}\``);
   lines.push(`- **main:** \`${state.git.mainHead.slice(0, 8)}\``);
-  lines.push(`- **Working tree:** ${state.git.workingTreeClean ? "clean" : "has uncommitted changes"}`);
+  lines.push(`- **Working tree:** ${state.git.workingTreeClean ? "clean" : "had uncommitted changes"}`);
 
   if (state.git.aheadOfMain.length > 0) {
     lines.push("");
-    lines.push(`### Not yet on main (${state.git.aheadOfMain.length} commit(s))`);
-    lines.push("");
-    lines.push("These exist only on this branch. Do not assume main contains them.");
+    lines.push(`### Ahead of source main at derivation (${state.git.aheadOfMain.length} commit(s))`);
     lines.push("");
     for (const commit of state.git.aheadOfMain) {
       lines.push(`- \`${commit.sha}\` ${commit.subject}`);
@@ -319,6 +783,8 @@ function renderMarkdown(state) {
   lines.push("");
   lines.push("## Gates");
   lines.push("");
+  lines.push(`_Local source evidence is persisted in \`${GENERATED_JSON}\` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. \`--gates\` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._`);
+  lines.push("");
   if (state.gates.measured) {
     if (state.gates.tests?.total) {
       lines.push(`- **Tests:** ${state.gates.tests.passed}/${state.gates.tests.total} across ${state.gates.tests.files} files`);
@@ -326,6 +792,11 @@ function renderMarkdown(state) {
     if (state.gates.bundleKb) {
       lines.push(`- **Bundle:** ${state.gates.bundleKb.used} KB / ${state.gates.bundleKb.budget} KB`);
     }
+    if (state.gates.routeIsolatedBundleKb) {
+      lines.push(`- **Route-isolated game bundle:** ${state.gates.routeIsolatedBundleKb.used} KB / ${state.gates.routeIsolatedBundleKb.budget} KB`);
+    }
+    lines.push(`- **Measured source:** \`${state.gates.sourceHead?.slice(0, 8) ?? "unknown"}\``);
+    lines.push(`- **Measured content tree:** \`${state.gates.sourceContentTreeHash ?? "unknown"}\``);
     lines.push(`- **Measured at:** ${state.gates.measuredAt}`);
   } else {
     lines.push(`- _${state.gates.note}_`);
@@ -348,6 +819,18 @@ The block below is generated from the repository by
 \`scripts/derive-program-state.mjs\`. It is the authority on what is merged, what
 is only on a branch, and what the gates last measured. Where any other document
 disagrees with it, this file wins and the other document is stale.
+
+Commit SHA, branch name, and merge topology are displayed as source provenance,
+but they are not stable currency identifiers through a protected squash or
+merge. State currency uses the displayed SHA-256 fingerprint of the committed
+tree plus fingerprint-bound provenance and gate evidence. Only
+\`${GENERATED_JSON}\` and this Markdown file are excluded to avoid an impossible
+self-reference; authored policy such as \`PROGRAM_STATE.json\` remains in the
+hash. The generated Markdown block is compared byte-for-byte with a
+deterministic re-render. Narrative outside the generated markers is deliberately
+not integrity-bound and is not release authority. "Equivalent" is intentionally
+narrow: a merge that introduces a new numeric wave or otherwise changes a
+rendered fact must be followed by a protected state refresh.
 
 Narrative context that cannot be derived — intent, owner decisions, what to do
 next and why — lives in the sections *after* the generated block and is written
@@ -406,8 +889,10 @@ const PENDING_MERGE_PATTERN = /\(?\s*PR pending owner merge\s*\)?|pending owner 
  * git shows it merged. That exact discrepancy is what sent the previous session
  * to redo shipped work.
  */
-function findStaleWaveStatuses(state) {
-  const programState = readJson(".claude/axis-redesign/PROGRAM_STATE.json");
+function findStaleWaveStatuses(state, ref = null) {
+  const programState = ref
+    ? readJsonAtRef(".claude/axis-redesign/PROGRAM_STATE.json", ref)
+    : readJson(".claude/axis-redesign/PROGRAM_STATE.json");
   if (!programState || !Array.isArray(programState.waves)) return [];
 
   const byWave = new Map(state.waves.map((wave) => [wave.wave, wave]));
@@ -430,49 +915,24 @@ function findStaleWaveStatuses(state) {
   return stale;
 }
 
-/**
- * Rewrites only the false "pending merge" claim, leaving the rest of the human
- * status prose intact. Narrow on purpose: this file carries a lot of authored
- * narrative that must survive.
- */
-function correctWaveStatuses(state) {
-  const relativePath = ".claude/axis-redesign/PROGRAM_STATE.json";
-  const stale = findStaleWaveStatuses(state);
-  if (stale.length === 0) return [];
+function generatedBlock(text) {
+  const start = text.indexOf(BEGIN);
+  const finish = text.indexOf(END);
+  if (start === -1 || finish === -1 || finish < start) return null;
+  return text.slice(start, finish + END.length);
+}
 
-  const full = path.join(REPO, relativePath);
-  const programState = JSON.parse(readFileSync(full, "utf8"));
-  const staleById = new Map(stale.map((item) => [item.id, item]));
-  const corrected = [];
-
-  for (const entry of programState.waves) {
-    const match = staleById.get(entry?.id);
-    if (!match) continue;
-    // A composite id ("16.0+16.1") usually lands in ONE PR, so dedupe by PR
-    // rather than repeating the same merge fact per sub-wave.
-    const byPr = new Map(match.merged.map((wave) => [wave.mergedPr, wave]));
-    const mergeFact = [...byPr.values()]
-      .map((wave) => `merged to main via ${prLabel(wave.mergedPr)} (${wave.sha})`)
-      .join("; ");
-    // Remove the false claim, tidy what it leaves behind, then append the fact.
-    const remainder = entry.status
-      .replace(PENDING_MERGE_PATTERN, "")
-      .replace(/\(\s*\)/g, "")
-      .replace(/\s{2,}/g, " ")
-      .replace(/[;,\s]+$/, "")
-      .trim();
-    const next = remainder ? `${remainder}; ${mergeFact}` : mergeFact;
-    corrected.push({ id: entry.id, from: entry.status, to: next });
-    entry.status = next;
+function firstGeneratedDifference(actual, expected) {
+  const actualLines = actual.split("\n");
+  const expectedLines = expected.split("\n");
+  const count = Math.max(actualLines.length, expectedLines.length);
+  for (let index = 0; index < count; index += 1) {
+    if (actualLines[index] === expectedLines[index]) continue;
+    const wanted = expectedLines[index] ?? "<no line>";
+    const found = actualLines[index] ?? "<no line>";
+    return `line ${index + 1}: expected ${JSON.stringify(wanted)}, found ${JSON.stringify(found)}`;
   }
-
-  programState.revision_reviewed = state.git.head;
-  programState.derived_state_note =
-    `Wave merge status is verified by scripts/derive-program-state.mjs against git. `
-    + `See ${CANONICAL_DOC} for the authoritative derived view.`;
-
-  writeFileSync(full, `${JSON.stringify(programState, null, 2)}\n`);
-  return corrected;
+  return "unknown difference";
 }
 
 /**
@@ -480,11 +940,49 @@ function correctWaveStatuses(state) {
  * narrow: it only flags claims that are provably false, so it stays trustworthy
  * and does not train anyone to ignore it.
  */
-function detectDrift(state) {
+function detectDrift(state, checkTarget, previous) {
   const problems = [];
   const mergedWaves = new Set(state.waves.map((wave) => wave.wave));
 
-  for (const stale of findStaleWaveStatuses(state)) {
+  if (!previous) {
+    problems.push(`${GENERATED_JSON} is missing or invalid. Run: npm run state:derive`);
+  } else {
+    const checkedOutBranch = checkTarget === "HEAD"
+      ? git("rev-parse", "--abbrev-ref", "HEAD")
+      : null;
+    const allowEquivalentProtectedMerge = checkedOutBranch === "main";
+    const protectedSnapshot = readJsonAtRef(GENERATED_JSON, MAIN_REF);
+    const allowAlignedGateSourceHeadCarry =
+      previous?.gates?.measured === true
+      && previous?.gates?.sourceContentTreeHash === state.git.contentTreeHash
+      && previous?.git?.contentTreeHash === state.git.contentTreeHash
+      && state.git.contentTreeHash === gitTreeContentHash({ cwd: REPO, ref: MAIN_REF })
+      && JSON.stringify(previous.gates) === JSON.stringify(protectedSnapshot?.gates);
+    const expectedBranch = process.env.GITHUB_HEAD_REF
+      || (checkTarget === "HEAD" && checkedOutBranch !== "HEAD"
+        ? checkedOutBranch
+        : undefined);
+    problems.push(...validateStateSnapshotProvenance({
+      git,
+      contentTreeHash: (ref) => gitTreeContentHash({ cwd: REPO, ref }),
+      persistedGit: previous.git,
+      checkTarget,
+      protectedMainRef: MAIN_REF,
+      expectedBranch,
+      expectedContentTreeHash: state.git.contentTreeHash,
+      expectedSourceMainContentTreeHash: gitTreeContentHash({ cwd: REPO, ref: MAIN_REF }),
+      expectedGateSourceHead: previous.gates?.sourceHead,
+      expectedGateSourceContentTreeHash: previous.gates?.sourceContentTreeHash,
+      requireMeasuredGateBinding: previous.gates?.measured === true,
+      allowEquivalentProtectedMerge,
+      allowAlignedGateSourceHeadCarry,
+    }));
+  }
+
+  problems.push(...findInvalidClosedDefectProvenance(checkTarget));
+  problems.push(...findDefectLedgerContinuityProblems(checkTarget));
+
+  for (const stale of findStaleWaveStatuses(state, checkTarget)) {
     problems.push(
       `PROGRAM_STATE.json describes wave "${stale.id}" as "${stale.status}", but ${stale.mergedAs} is merged.`,
     );
@@ -506,36 +1004,16 @@ function detectDrift(state) {
     problems.push(`${CANONICAL_DOC} is missing. Run: npm run state:derive`);
   } else {
     const text = readFileSync(canonical, "utf8");
-    for (const wave of state.waves) {
-      if (!text.includes(`| ${wave.wave} |`)) {
-        problems.push(
-          `${CANONICAL_DOC} does not list merged Wave ${wave.wave} (${prLabel(wave.mergedPr)}). Run: npm run state:derive`,
-        );
-      }
+    const generated = generatedBlock(text);
+    if (!generated) {
+      problems.push(`${CANONICAL_DOC} is missing generated-state markers. Run: npm run state:derive`);
+      return problems;
     }
-    // Deliberately NOT an equality check. Every commit moves HEAD, so requiring
-    // an exact match would fail on literally every pull request and train
-    // everyone to ignore this job — which is how the docs rotted in the first
-    // place. What actually matters is whether the recorded commit still belongs
-    // to this history; a doc one commit behind is fine, a doc pointing at a
-    // commit that no longer exists here is genuinely stale.
-    const headMatch = text.match(/\*\*HEAD:\*\*\s*`([0-9a-f]+)`/);
-    if (headMatch && !state.git.head.startsWith(headMatch[1])) {
-      let isAncestor = false;
-      try {
-        execFileSync("git", ["merge-base", "--is-ancestor", headMatch[1], state.git.head], {
-          cwd: REPO,
-          stdio: "ignore",
-        });
-        isAncestor = true;
-      } catch {
-        isAncestor = false;
-      }
-      if (!isAncestor) {
-        problems.push(
-          `${CANONICAL_DOC} records HEAD ${headMatch[1]}, which is not an ancestor of ${state.git.head.slice(0, 8)}. Run: npm run state:derive`,
-        );
-      }
+    const expected = renderMarkdown(state);
+    if (generated !== expected) {
+      problems.push(
+        `${CANONICAL_DOC} generated block differs from the deterministic state for ${git("rev-parse", checkTarget).slice(0, 8)} (${firstGeneratedDifference(generated, expected)}). Run: npm run state:derive`,
+      );
     }
   }
 
@@ -544,11 +1022,14 @@ function detectDrift(state) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-const previous = readJson(GENERATED_JSON);
-const state = deriveState(previous);
+const checkTarget = CHECK_ONLY ? resolveCheckTargetRef() : "HEAD";
+const previous = CHECK_ONLY
+  ? readJsonAtRef(GENERATED_JSON, checkTarget)
+  : readJson(GENERATED_JSON);
+const state = deriveState(previous, checkTarget);
 
 if (CHECK_ONLY) {
-  const problems = detectDrift(state);
+  const problems = detectDrift(state, checkTarget, previous);
   if (problems.length > 0) {
     console.error("Checkpoint documentation contradicts the repository:\n");
     for (const problem of problems) console.error(`  ✗ ${problem}`);
@@ -561,11 +1042,6 @@ if (CHECK_ONLY) {
 
 writeFileSync(path.join(REPO, GENERATED_JSON), `${JSON.stringify(state, null, 2)}\n`);
 writeCanonicalDoc(state);
-
-const corrected = correctWaveStatuses(state);
-for (const item of corrected) {
-  console.log(`✓ Corrected wave ${item.id}: no longer claims pending merge`);
-}
 
 console.log(`✓ Wrote ${GENERATED_JSON}`);
 console.log(`✓ Wrote ${CANONICAL_DOC}`);

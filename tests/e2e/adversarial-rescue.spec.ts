@@ -4,6 +4,9 @@ import { expect, test } from "@playwright/test";
 
 test("login page exposes terms gate before signup", async ({ page }) => {
   await page.goto("/login", { waitUntil: "domcontentloaded" });
+  await expect(page.getByTestId("login-form")).toHaveAttribute("data-client-ready", "true", {
+    timeout: 25_000,
+  });
   await page.getByRole("button", { name: "Need an account? Sign up" }).click();
   const submit = page.getByRole("button", { name: "Create account", exact: true });
   await expect(submit).toBeDisabled();

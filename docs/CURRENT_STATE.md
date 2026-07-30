@@ -19,19 +19,110 @@ npm run state:check           # fail if any checkpoint doc contradicts reality
 
 <!-- BEGIN GENERATED: derive-program-state -->
 
-_Derived from the repository at 2026-07-21T22:56:13.800Z. Do not hand-edit this block._
+_Deterministically derived from committed repository content. Do not hand-edit this block._
 
-## Where the code actually is
+## Repository state identity
 
-- **Branch:** `main`
-- **HEAD:** `b2a7faf1`
-- **main:** `b2a7faf1`
+- **State fingerprint:** `9ab29f1e23a7417f35a51e2712b0a148475c75eb81dc4f7a3f4d888a25ed83df` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
+- **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
+- **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
+- An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
+
+## Source snapshot provenance
+
+_Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
+
+- **Branch:** `codex/redesign-00-governance-bootstrap`
+- **HEAD:** `c2105ada`
+- **main:** `44be089b`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (70 commit(s))
+
+- `c2105ada` fix(governance): require explicit ruleset reviewers
+- `0c084667` docs(state): bind remediated candidate gates
+- `b610e41f` test(profile): cover avatar URL edge cases
+- `52c5a002` fix(profile): validate avatar URL before upload
+- `1d781953` fix(auth): enforce profile async authority
+- `93a86a3a` fix(auth): bind profile persistence to account subject
+- `2580802f` fix(auth): persist profile saves across navigation
+- `df53d5a2` fix(auth): centralize shell profile lifecycle
+- `0d448cc2` fix(auth): validate profile writes before auth
+- `4bd42206` fix(auth): guard shell profile boundary
+- `744274b4` fix(auth): harden shell profile lifecycle
+- `4add3816` fix(auth): abort shell profile reads on navigation
+- `2df286ec` docs(state): bind corrected production truth
+- `629523d3` docs(production): align promotion and password risk
+- `6eb5560c` docs(state): bind external worker gate
+- `69c2df74` docs(governance): keep local worker bound external
+- `aebb47b7` docs(state): bind reconciled governance gates
+- `129795d8` docs(agents): reconcile delegated write failures
+- `bd2a9eac` docs(state): bind deterministic governance gates
+- `9f7c95b3` docs(governance): preserve measured state ordering
+- `095b88ef` docs(state): clarify measured refresh ordering
+- `a9281c50` fix(test): lower combined gate worker cap
+- `1900ec5d` fix(test): bound Vitest gate workers
+- `25abfcaf` fix(governance): accept ruleset-derived protection omission
+- `613d1373` docs(state): bind biometric auth gates
+- `c77ee11d` fix(auth): fail closed on settings lookup errors
+- `8b30b101` fix(auth): avoid navigation auth fetch console error
+- `60d94f44` docs(state): bind workflow completion gates
+- `433f76d8` docs(governance): record workflow completion contract
+- `b6663169` fix(governance): use workflow run updated timestamp
+- `5f1eac79` docs(state): bind multiprocess fixture gates
+- `5331da14` test(governance): budget multiprocess fixtures
+- `3e2c9194` docs(state): bind search focus lifecycle gates
+- `f57c86a5` fix(search): harden focus restoration lifecycle
+- `310274fa` fix(search): preserve focus across rapid reopen
+- `460bb50a` docs(state): bind one-shot fixture gates
+- `ea543c18` docs(governance): record one-shot fixture discipline
+- `c837f585` test(governance): initialize mutation fixtures once
+- `e4a8557c` docs(state): bind post-squash governance gates
+- `b090ff3b` docs(governance): persist exact-candidate discipline
+- `0c062f76` fix(governance): preserve proven post-squash state
+- `02ac210f` docs(state): bind authenticated gate determinism
+- `372cc16f` test(e2e): serialize authenticated local auth gate
+- `fecbad4e` docs(state): bind hosted fixture target gates
+- `441249e9` test(state): isolate hosted fixture targets
+- `1be99423` test(state): isolate fixture branch provenance
+- `b18e99ee` docs(state): bind trusted branch provenance gates
+- `dcf2c824` fix(governance): bind trusted branch provenance
+- `14f5fd9e` docs(state): bind governance repair gates
+- `4830c22d` fix(governance): preserve verified equivalent merge state
+- `be13f70c` test(governance): cover provenance helper in state fixtures
+- `eebb30d5` fix(governance): fail closed on focused gates and forged provenance
+- `3c1c975d` docs(state): bind measured review-decision gates
+- `67493c04` fix(governance): preserve active review decisions
+- `1618e410` docs(state): bind review reconciliation gates
+- `caa86006` fix(governance): reconcile complete review history
+- `04039373` docs(state): bind bootstrap repair gates
+- `43c55969` fix(governance): bind bootstrap to protected migration tree
+- `7eab26ae` docs(state): bind reviewed Phase 0 evidence
+- `b1e23278` fix(governance): close production evidence bypasses
+- `d6be9261` docs(state): bind Phase 0 governance evidence
+- `63064c3d` fix(security): patch Next PostCSS override
+- `919a61d6` feat(governance): add fail-closed owner merge controls
+- `9634a6c5` test(ci): enforce full public browser gate
+- `08bd4d7c` docs(state): refresh deterministic bootstrap evidence
+- `65466993` fix(state): make provenance SHA rendering deterministic
+- `9bd49715` docs(state): refresh bootstrap gate evidence
+- `ec709532` fix(release): freeze css build configuration
+- `732f393e` docs(state): record governance bootstrap gates
+- `2a6f9c18` harden(release): bootstrap trusted production controls
 
 ## Waves merged to main
 
 | Wave | PR | Commit | Subject |
 | --- | --- | --- | --- |
+| 4.4 | local merge | `2a0d940d` | feat(fund): multi-currency minor-unit table + FX conversion with provenance (wave 4.4) |
+| 4.5 | local merge | `6dd8f5e1` | feat(fund): tax-lot / cost-basis / corporate-actions domain (wave 4.5) |
+| 4.6 | local merge | `0fc3e503` | feat(fund): populate provenance from write paths + Activity freshness badge (wave 4.6) |
+| 4.7 | local merge | `cb886e1a` | feat(fund): wire holdings reconciliation to real data + surface in UI (wave 4.7) |
+| 6.2 | local merge | `7487cf28` | fix(state): repair PROGRAM_STATE.json (missing/trailing comma from wave 6.2 insert) |
+| 11.2 | local merge | `7c033898` | ci(perf): enforce performance budgets on the CI build (wave 11.2) |
+| 12.1 | local merge | `b7053214` | test: JSON-artifact guard + authenticated Operate e2e smoke (Phase 12.1) |
+| 15.2 | local merge | `64dec9cd` | docs(axis): record Wave 15.2 convergence reconciliation + execution log |
 | 15.3 | #251 | `294dae37` | feat(vector): ship Second Sense, the first complete VECTOR title (Wave 15.3) |
 | 15.4 | #254 | `e122413a` | feat(envoys): Wave 15.4 Envoy core — headroom recovery, identity domain, truthful HUD, Envoy Lab |
 | 15.5 | #255 | `2ba9fd8f` | feat(envoys): Wave 15.5 starter hatch-pet packages — validated original art, derived status, hatch UX |
@@ -46,18 +137,24 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Database
 
-- **Tracked migrations:** 90
-- **Latest:** `20260721144434_drop_legacy_connection_tables.sql`
+- **Tracked migrations:** 91
+- **Latest:** `20260722064615_user_settings_kv.sql`
 
 ## Defects
 
-- **Total logged:** 43
-- **Open:** 0
+- **Total logged:** 50
+- **Open:** 8 (AUTH-006, FIN-003, FIN-004, MUTATION-001, INTEGRATION-002, SSRF-001, AUTH-007, RATE-001)
 
 ## Gates
 
-- _carried forward; re-run with --gates to measure_
-- Last known tests: 1820/1820 (STALE)
+_Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
+
+- **Tests:** 2106/2106 across 239 files
+- **Bundle:** 4304 KB / 4400 KB
+- **Route-isolated game bundle:** 1964 KB / 3000 KB
+- **Measured source:** `c2105ada`
+- **Measured content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
+- **Measured at:** 2026-07-30T07:15:49.355Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -65,6 +162,38 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
+
+### 2026-07-29 adversarial remediation continuation
+
+Phase 0 governance is the active release candidate shown in the generated block
+above. Independent adversarial review reports no open P0/P1 in the candidate.
+The control plane now fails closed on defect deletion or staged false closure,
+expired hosted evidence, migration-history rewrites, unbound production
+database targets, and malformed or recombined migration/RLS/Tembo receipts.
+The runtime dependency audit is clean; development-tool advisories remain a
+recorded non-runtime residual.
+
+The safe outbound-read lane is preserved as a separately reviewed local commit
+in its isolated worktree. It closes the mapped/private-address exploit, pins
+connections to validated DNS answers, bounds redirects/body/time, removes raw
+target identifiers from telemetry, and makes RSS/proxy/reader partial failures
+explicit. It remains intentionally unpushed until Phase 0 lands, after which it
+must be rebased onto canonical main and repeat hosted gates before promotion.
+
+The dependency order is:
+
+1. push Phase 0 and collect fresh exact-head CI, Vercel preview, Sentry,
+   migration/Tembo, and manual evidence;
+2. merge only through the locked owner-merge control, verify production, and
+   re-derive state from canonical main;
+3. rebase and promote safe fetch through the same protected review/gate cycle;
+4. then compose provider identity, financial truth/order intent, cancellable
+   mutation, generic-mutation containment, and fail-closed auth/rate limits.
+
+The eight open defects in the generated block are active stop-lines, not
+historical backlog. A defect closes only after its fix is on canonical main and
+a later reviewed state change binds the closure to the predeclared verification
+paths.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 
@@ -260,4 +389,3 @@ isolated worktree above but not yet merged — rebase onto current main first
 — see `wave_order_revision` in PROGRAM_STATE.json. Brickrise and Paper Glider
 artwork both remain externally gated on the design lane (Codex); registry
 status stays `planned` for both until art lands.
-

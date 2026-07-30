@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import React, {
   Suspense,
   type ReactNode,
   useEffect,
@@ -11,6 +11,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
 import { AxisAtmosphere } from "@/components/ui/axis/AxisAtmosphere";
 import {
@@ -71,6 +72,12 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
   const [isNight, setIsNight] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const autoCollapsedRef = useRef(false);
+  const {
+    state: accountState,
+    saveState: profileSaveState,
+    uploadState: profileUploadState,
+    hasPendingChanges: hasPendingProfileChanges,
+  } = useShellProfile();
   const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
 
   useEffect(() => {
@@ -159,6 +166,10 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
           <Topbar
             section={section}
             page={page}
+            accountState={accountState}
+            profileSaveState={profileSaveState}
+            profileUploadState={profileUploadState}
+            hasPendingProfileChanges={hasPendingProfileChanges}
             onOpenSearch={() => {
               setPaletteOpen(false);
               setSearchOpen(true);
