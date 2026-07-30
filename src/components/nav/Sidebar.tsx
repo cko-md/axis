@@ -25,7 +25,7 @@ import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_NAV } from "@/lib/store/nav";
 import type { NavGroup, NavItem } from "@/lib/store/nav";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
-import { ProfileSection, profileInitials, type AccountState } from "@/components/nav/ProfileSection";
+import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection";
 import { UrlModules } from "@/components/nav/UrlModules";
 import { Icon } from "@/components/ui/Icon";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
@@ -431,10 +431,9 @@ function SortableNavGroup({
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
 type Props = {
   collapsed: boolean;
-  onAccountState?: (state: AccountState) => void;
 };
 
-export function Sidebar({ collapsed, onAccountState }: Props) {
+export function Sidebar({ collapsed }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const { hrefWithWorkspace } = useWorkspace();
@@ -694,7 +693,7 @@ export function Sidebar({ collapsed, onAccountState }: Props) {
 
       {/* Profile section (sidefoot + modal) */}
       {!collapsed && (
-        <ProfileSection onSignOut={signOut} onProfileName={setProfileName} onAccountState={onAccountState} />
+        <ProfileSection onSignOut={signOut} onProfileName={setProfileName} />
       )}
     </aside>
   );

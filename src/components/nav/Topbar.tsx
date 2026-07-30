@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { formatClock } from "@/lib/format";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
-import type { AccountState } from "@/components/nav/ProfileSection";
+import type { AccountState } from "@/components/layout/ShellProfileContext";
 
 type Props = {
   section: string;

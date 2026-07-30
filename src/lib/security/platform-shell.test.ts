@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 
 const nextConfig = readFileSync("next.config.ts", "utf8");
 const rootLayout = readFileSync("src/app/layout.tsx", "utf8");
+const appShell = readFileSync("src/components/layout/AppShell.tsx", "utf8");
+const shellProfileContext = readFileSync(
+  "src/components/layout/ShellProfileContext.tsx",
+  "utf8",
+);
 const profileSection = readFileSync("src/components/nav/ProfileSection.tsx", "utf8");
 const topbar = readFileSync("src/components/nav/Topbar.tsx", "utf8");
 const sidebar = readFileSync("src/components/nav/Sidebar.tsx", "utf8");
@@ -28,23 +33,25 @@ describe("platform shell production headers", () => {
   });
 
   it("does not prefetch login before the current account is resolved", () => {
-    expect(profileSection).toContain(
-      'useState<AccountState>("loading")',
-    );
+    expect(shellProfileContext).toContain('state: "loading"');
     expect(profileSection).toContain(
       '<Link href="/login" prefetch={false}',
     );
   });
 
-  it("uses abortable same-origin identity reads in route-remounted shell components", () => {
+  it("owns one abortable same-origin identity read above collapsible shell consumers", () => {
     for (const component of [profileSection, topbar]) {
       expect(component).not.toContain("auth.getUser");
     }
-    for (const component of [profileSection]) {
-      expect(component).toContain('fetch("/api/auth/profile"');
-      expect(component).toContain("new AbortController()");
-      expect(component).toContain("controller.abort()");
-    }
+    expect(topbar).not.toContain('fetch("/api/auth/profile"');
+    expect(profileSection).not.toMatch(
+      /fetch\("\/api\/auth\/profile",\s*\{\s*signal/,
+    );
+    expect(shellProfileContext).toContain('fetch("/api/auth/profile"');
+    expect(shellProfileContext).toContain("new AbortController()");
+    expect(shellProfileContext).toContain("controller.abort()");
+    expect(appShell).toContain("<ShellProfileProvider>");
+    expect(appShell).toContain("<Sidebar collapsed={sidebarMode === \"icons\"} />");
   });
 
   it("does not fan out authenticated middleware checks from persistent sidebar links", () => {

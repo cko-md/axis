@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import React, {
   Suspense,
   type ReactNode,
   useEffect,
@@ -11,7 +11,10 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
-import type { AccountState } from "@/components/nav/ProfileSection";
+import {
+  ShellProfileProvider,
+  useShellProfile,
+} from "@/components/layout/ShellProfileContext";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
 import { AxisAtmosphere } from "@/components/ui/axis/AxisAtmosphere";
 import {
@@ -56,9 +59,11 @@ const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
 export function AppShell({ section, page, children, suppressPresence = false }: Props) {
   return (
     <WorkspaceProvider>
-      <AppShellContent section={section} page={page} suppressPresence={suppressPresence}>
-        {children}
-      </AppShellContent>
+      <ShellProfileProvider>
+        <AppShellContent section={section} page={page} suppressPresence={suppressPresence}>
+          {children}
+        </AppShellContent>
+      </ShellProfileProvider>
     </WorkspaceProvider>
   );
 }
@@ -71,8 +76,8 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
   const [searchOpen, setSearchOpen] = useState(false);
   const [isNight, setIsNight] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const [accountState, setAccountState] = useState<AccountState>("loading");
   const autoCollapsedRef = useRef(false);
+  const { state: accountState } = useShellProfile();
   const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
 
   useEffect(() => {
@@ -156,7 +161,7 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
       <AxisAtmosphere includeStars={isNight && !reduceMotion} />
       <div className="grain" aria-hidden />
       <div className={`app-shell mode-${sidebarMode}`}>
-        <Sidebar collapsed={sidebarMode === "icons"} onAccountState={setAccountState} />
+        <Sidebar collapsed={sidebarMode === "icons"} />
         <div className="main-scroll">
           <Topbar
             section={section}
