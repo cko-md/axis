@@ -1530,6 +1530,7 @@ export function validateOwnerMergeCollaborators(collaborators, owner) {
 export function validateOwnerMergeProtection(
   protection,
   expectedAdminState = true,
+  { allowOmittedBypassPullRequestAllowances = false } = {},
 ) {
   if (protection?.lock_branch?.enabled !== true) {
     fail("main must remain locked throughout the owner merge");
@@ -1545,19 +1546,37 @@ export function validateOwnerMergeProtection(
   if (!protection?.required_pull_request_reviews) {
     fail("main must require pull-request review governance");
   }
-  const bypass =
-    protection.required_pull_request_reviews.bypass_pull_request_allowances;
-  assertObject(bypass, "main pull-request bypass allowances");
-  assertOnlyKeys(
-    bypass,
-    ["users", "teams", "apps"],
-    "main pull-request bypass allowances",
+  const reviews = assertObject(
+    protection.required_pull_request_reviews,
+    "main pull-request review governance",
   );
-  for (const kind of ["users", "teams", "apps"]) {
-    if (!Array.isArray(bypass[kind]) || bypass[kind].length !== 0) {
-      fail(
-        "main pull-request bypass allowance users/teams/apps must be explicit empty arrays",
-      );
+  const bypassField = "bypass_pull_request_allowances";
+  const hasOwnBypass = Object.hasOwn(reviews, bypassField);
+  if (!hasOwnBypass) {
+    // GitHub can omit this empty field when personal-repository branch
+    // protection is derived from a no-bypass ruleset. Do not generalize that
+    // transport quirk: callers must separately prove the canonical ruleset's
+    // empty bypass_actors contract before opting in.
+    if (
+      !allowOmittedBypassPullRequestAllowances ||
+      bypassField in reviews
+    ) {
+      fail("main pull-request bypass allowances must be an object");
+    }
+  } else {
+    const bypass = reviews[bypassField];
+    assertObject(bypass, "main pull-request bypass allowances");
+    assertOnlyKeys(
+      bypass,
+      ["users", "teams", "apps"],
+      "main pull-request bypass allowances",
+    );
+    for (const kind of ["users", "teams", "apps"]) {
+      if (!Array.isArray(bypass[kind]) || bypass[kind].length !== 0) {
+        fail(
+          "main pull-request bypass allowance users/teams/apps must be explicit empty arrays",
+        );
+      }
     }
   }
   if (protection?.required_conversation_resolution?.enabled !== true) {
@@ -2484,13 +2503,18 @@ export async function collectOwnerMergeSnapshot({
     "commit-status inventory",
   );
 
-  const protection = gh.get(`${gh.repoPath}/branches/main/protection`);
-  validateOwnerMergeProtection(protection, expectedAdminState);
   const ruleset = validateOwnerMergeRuleset({
     ruleset: gh.get(`${gh.repoPath}/rulesets/${rulesetId}`),
     rulesetId,
     owner,
     name,
+  });
+  const protection = gh.get(`${gh.repoPath}/branches/main/protection`);
+  validateOwnerMergeProtection(protection, expectedAdminState, {
+    // The ruleset read directly above rejects every non-empty bypass actor.
+    // Only that independently validated zero-bypass contract permits GitHub's
+    // ruleset-derived omission of the otherwise-required empty object.
+    allowOmittedBypassPullRequestAllowances: true,
   });
   const effectiveRules = validateOwnerMergeEffectiveRules({
     rules: gh.get(`${gh.repoPath}/rules/branches/main?per_page=100`),
@@ -2878,7 +2902,12 @@ async function restoreAdminEnforcement({
     try {
       gh.post(`${gh.repoPath}/branches/main/protection/enforce_admins`);
       const restored = gh.get(`${gh.repoPath}/branches/main/protection`);
-      validateOwnerMergeProtection(restored, true);
+      // The initial canonical ruleset snapshot was already validated before
+      // mutation, so these raw rereads may tolerate only GitHub's omitted
+      // ruleset-derived empty allowance object.
+      validateOwnerMergeProtection(restored, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      });
       if (
         canonicalJson(normalizeProtection(restored)) !==
         canonicalJson(originalProtection)
@@ -3052,7 +3081,12 @@ export async function executeProtectedOwnerMerge({
       fail("post-merge SHA/tree/method/owner verification failed");
     }
     const finalProtection = gh.get(`${gh.repoPath}/branches/main/protection`);
-    validateOwnerMergeProtection(finalProtection, true);
+    // The initial canonical ruleset snapshot was already validated before
+    // mutation, so this raw reread may tolerate only GitHub's omitted
+    // ruleset-derived empty allowance object.
+    validateOwnerMergeProtection(finalProtection, true, {
+      allowOmittedBypassPullRequestAllowances: true,
+    });
     if (
       canonicalJson(normalizeProtection(finalProtection)) !==
       canonicalJson(originalProtection)

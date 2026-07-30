@@ -440,6 +440,7 @@ class FakeGh {
   rulesetDriftAfterAdminDisabled = false;
   postMergeRulesetDrift = false;
   postMergeEffectiveRulesDrift = false;
+  omitBypassPullRequestAllowances = false;
   onPut?: () => void;
   calls: Array<{ method: string; endpoint: string; body?: unknown }> = [];
 
@@ -465,7 +466,14 @@ class FakeGh {
           ];
     }
     if (endpoint.endsWith("/branches/main/protection")) {
-      return protection(this.admin);
+      const result = protection(this.admin);
+      if (this.omitBypassPullRequestAllowances) {
+        Reflect.deleteProperty(
+          result.required_pull_request_reviews,
+          "bypass_pull_request_allowances",
+        );
+      }
+      return result;
     }
     if (endpoint.endsWith("/rulesets/70")) {
       const result = ruleset();
@@ -1543,6 +1551,34 @@ describe("owner-controlled merge root", () => {
     ).toBe(false);
   });
 
+  it("accepts GitHub's ruleset-derived omitted bypass object on restore and final rereads only after the initial ruleset snapshot", async () => {
+    const gh = new FakeGh();
+    gh.omitBypassPullRequestAllowances = true;
+    const initial = snapshot();
+    Reflect.deleteProperty(
+      initial.protection.required_pull_request_reviews,
+      "bypass_pull_request_allowances",
+    );
+    const adminOff = snapshot(false);
+    Reflect.deleteProperty(
+      adminOff.protection.required_pull_request_reviews,
+      "bypass_pull_request_allowances",
+    );
+
+    await expect(
+      executeProtectedOwnerMerge({
+        gh,
+        initialSnapshot: initial,
+        reread: async () => verifiedSnapshot(initial),
+        adminOffReread: async () => verifiedSnapshot(adminOff),
+        recordCriticalVerification: criticalRecordSink([]),
+        expectedHeadSha: HEAD,
+        owner: "cko-md",
+        prNumber: 300,
+      }),
+    ).resolves.toMatchObject({ mergedSha: MERGED });
+  });
+
   it("reconciles the complete REST and GraphQL review histories by stable identity", () => {
     const historicalReviews = [
       restReviewFixture(
@@ -2359,12 +2395,54 @@ describe("owner-controlled merge root", () => {
       "require pull-request review governance",
     );
 
+    const omittedAllowance = protection();
+    Reflect.deleteProperty(
+      omittedAllowance.required_pull_request_reviews,
+      "bypass_pull_request_allowances",
+    );
+    expect(() => validateOwnerMergeProtection(omittedAllowance)).toThrow(
+      "main pull-request bypass allowances must be an object",
+    );
+    expect(() =>
+      validateOwnerMergeProtection(omittedAllowance, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
+    ).not.toThrow();
+
+    const inheritedAllowance = Object.create(protection());
+    delete inheritedAllowance.required_pull_request_reviews
+      .bypass_pull_request_allowances;
+    Object.setPrototypeOf(
+      inheritedAllowance.required_pull_request_reviews,
+      { bypass_pull_request_allowances: { users: [], teams: [], apps: [] } },
+    );
+    expect(() =>
+      validateOwnerMergeProtection(inheritedAllowance, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
+    ).toThrow("main pull-request bypass allowances must be an object");
+
+    const nullAllowance = protection();
+    Object.assign(
+      nullAllowance.required_pull_request_reviews,
+      { bypass_pull_request_allowances: null },
+    );
+    expect(() =>
+      validateOwnerMergeProtection(nullAllowance, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
+    ).toThrow("main pull-request bypass allowances must be an object");
+
     const appBypass = protection();
     Object.assign(
       appBypass.required_pull_request_reviews.bypass_pull_request_allowances,
       { apps: [{ slug: "unexpected-app" }] },
     );
-    expect(() => validateOwnerMergeProtection(appBypass)).toThrow(
+    expect(() =>
+      validateOwnerMergeProtection(appBypass, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
+    ).toThrow(
       "must be explicit empty arrays",
     );
 
@@ -2374,7 +2452,11 @@ describe("owner-controlled merge root", () => {
         .bypass_pull_request_allowances,
       "teams",
     );
-    expect(() => validateOwnerMergeProtection(missingTeamArray)).toThrow(
+    expect(() =>
+      validateOwnerMergeProtection(missingTeamArray, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
+    ).toThrow(
       "must be explicit empty arrays",
     );
 
@@ -2384,7 +2466,11 @@ describe("owner-controlled merge root", () => {
         .bypass_pull_request_allowances,
       { users: null },
     );
-    expect(() => validateOwnerMergeProtection(nonArrayAllowance)).toThrow(
+    expect(() =>
+      validateOwnerMergeProtection(nonArrayAllowance, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
+    ).toThrow(
       "must be explicit empty arrays",
     );
 
@@ -2395,7 +2481,9 @@ describe("owner-controlled merge root", () => {
       { repositories: [] },
     );
     expect(() =>
-      validateOwnerMergeProtection(unexpectedAllowanceKind),
+      validateOwnerMergeProtection(unexpectedAllowanceKind, true, {
+        allowOmittedBypassPullRequestAllowances: true,
+      }),
     ).toThrow("contains unexpected keys");
   });
 

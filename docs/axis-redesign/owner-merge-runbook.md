@@ -29,6 +29,24 @@ admin enforcement in `finally`. If any identity, principal, SHA,
 workflow/run/attempt/job, App binding, preview, SBOM, review thread, evidence
 hash, or protection field is wrong, it fails closed.
 
+### Ruleset-derived branch-protection allowance omission
+
+GitHub can omit `required_pull_request_reviews.bypass_pull_request_allowances`
+from a personal repository's branch-protection response when that protection is
+derived from a repository ruleset. The omitted value is **not** a general
+allowance exception. The direct protection validator remains strict by default:
+when present, the object must contain exactly `users`, `teams`, and `apps`, and
+each must be an empty array; `null`, a missing member, a non-empty array, or an
+unexpected key fails closed.
+
+The collector reads and validates the pinned canonical ruleset first. Only
+after that ruleset has independently proved `bypass_actors: []` may its
+protection read opt in to accepting a truly absent allowance property. The same
+narrow opt-in is used for raw protection restoration and final rereads because
+the initial canonical ruleset snapshot remains bound to the transaction. Never
+enable the opt-in before the zero-bypass ruleset validation, and never use it to
+accept a present malformed allowance object.
+
 ## Bootstrap is not self-authorizing
 
 The first PR contains the executor itself, so neither that candidate nor a
