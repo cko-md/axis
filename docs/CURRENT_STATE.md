@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `f52c06ab851bb7344372f56fc17ea458ccd4014e4171f7b4ced6c2097cd5b6c0` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `5cb3ea29f743166b6311982b465ff276f3ee549ed442c4a57a3c28db4c37164c`
+- **State fingerprint:** `9ab29f1e23a7417f35a51e2712b0a148475c75eb81dc4f7a3f4d888a25ed83df` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-00-governance-bootstrap`
-- **HEAD:** `b610e41f`
+- **HEAD:** `c2105ada`
 - **main:** `44be089b`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (68 commit(s))
+### Ahead of source main at derivation (70 commit(s))
 
+- `c2105ada` fix(governance): require explicit ruleset reviewers
+- `0c084667` docs(state): bind remediated candidate gates
 - `b610e41f` test(profile): cover avatar URL edge cases
 - `52c5a002` fix(profile): validate avatar URL before upload
 - `1d781953` fix(auth): enforce profile async authority
@@ -150,9 +152,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 2106/2106 across 239 files
 - **Bundle:** 4304 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `b610e41f`
-- **Measured content tree:** `5cb3ea29f743166b6311982b465ff276f3ee549ed442c4a57a3c28db4c37164c`
-- **Measured at:** 2026-07-30T04:21:38.784Z
+- **Measured source:** `c2105ada`
+- **Measured content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
+- **Measured at:** 2026-07-30T07:15:49.355Z
 
 <!-- END GENERATED: derive-program-state -->
 
