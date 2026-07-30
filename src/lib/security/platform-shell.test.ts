@@ -60,6 +60,10 @@ describe("platform shell production headers", () => {
     expect(appShell).not.toContain("<ShellProfileProvider>");
     expect(shellProfileContext).toContain("scheduleProfileSave");
     expect(shellProfileContext).toContain("uploadProfilePhoto");
+    expect(shellProfileContext).toContain("processAndUploadProfilePhoto");
+    expect(shellProfileContext).toContain("isSaveOperationCurrent");
+    expect(shellProfileContext).toContain("isAvatarOperationCurrent");
+    expect(shellProfileContext).toContain("isLookupOperationCurrent");
     expect(shellProfileContext).toContain("subjectDraftsRef");
     expect(shellProfileContext).toContain("hasPendingChanges");
     expect(appShell).toContain("<Sidebar collapsed={sidebarMode === \"icons\"} />");

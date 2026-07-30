@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   pathname: "/command",
   toast: vi.fn(),
+  crop: vi.fn(),
 }));
 
 vi.mock("@sentry/nextjs", () => ({
@@ -19,6 +20,9 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/ui/Toast", () => ({
   useToast: () => ({ toast: mocks.toast }),
+}));
+vi.mock("@/components/nav/cropImage", () => ({
+  getCroppedImageBlob: mocks.crop,
 }));
 
 import {
@@ -53,6 +57,24 @@ const response = (status: number, body?: unknown) => ({
   ok: status >= 200 && status < 300,
   json: vi.fn().mockResolvedValue(body),
 });
+
+function delayedResponse(status: number) {
+  let resolveBody!: (body: unknown) => void;
+  let rejectBody!: (error: unknown) => void;
+  const body = new Promise<unknown>((resolve, reject) => {
+    resolveBody = resolve;
+    rejectBody = reject;
+  });
+  return {
+    response: {
+      status,
+      ok: status >= 200 && status < 300,
+      json: vi.fn(() => body),
+    },
+    resolveBody,
+    rejectBody,
+  };
+}
 
 const flush = async () => {
   await Promise.resolve();
@@ -153,6 +175,10 @@ beforeEach(() => {
   mocks.capture.mockReset();
   mocks.fetch.mockReset();
   mocks.toast.mockReset();
+  mocks.crop.mockReset();
+  mocks.crop.mockResolvedValue(
+    new Blob(["image"], { type: "image/jpeg" }),
+  );
   mocks.pathname = "/command";
   observed = null;
   vi.stubGlobal("fetch", mocks.fetch);
@@ -261,18 +287,22 @@ describe("ShellProfileProvider identity and persistence", () => {
         name: "Second A",
       }),
     );
-    await advance(300);
+    await advance(600);
     act(() =>
       current().scheduleProfileSave({
         ...current().draft,
         name: "Latest A",
       }),
     );
-    await advance(600);
 
     expect(patchRequests()).toHaveLength(1);
     resolveFirst(response(200, { ok: true, subject: SUBJECT_A }));
     await act(flush);
+    expect(patchRequests()).toHaveLength(1);
+
+    await advance(599);
+    expect(patchRequests()).toHaveLength(1);
+    await advance(1);
     expect(patchRequests()).toHaveLength(2);
 
     const first = JSON.parse(
@@ -405,6 +435,79 @@ describe("ShellProfileProvider identity and persistence", () => {
     });
     expect(JSON.stringify(body)).not.toContain("Draft A");
   });
+
+  it.each([
+    [
+      "200 success",
+      200,
+      { ok: true, subject: SUBJECT_A },
+      false,
+    ],
+    [
+      "403 MFA",
+      403,
+      { error: "MFA_REQUIRED" },
+      false,
+    ],
+    [
+      "409 conflict",
+      409,
+      { error: "PROFILE_SUBJECT_CHANGED" },
+      false,
+    ],
+    [
+      "503 server failure",
+      503,
+      { error: "PROFILE_ACCOUNT_UNAVAILABLE" },
+      false,
+    ],
+    ["malformed 200", 200, null, true],
+  ])(
+    "ignores delayed A %s bodies after B is current with the same draft generation",
+    async (_label, status, body, rejectBody) => {
+      const delayed = delayedResponse(status);
+      mocks.fetch
+        .mockResolvedValueOnce(response(200, profile()))
+        .mockResolvedValueOnce(delayed.response)
+        .mockResolvedValueOnce(
+          response(200, profile(SUBJECT_B, "Name B")),
+        );
+      await renderProvider();
+
+      clickEdit();
+      await advance(600);
+      expect(delayed.response.json).toHaveBeenCalledTimes(1);
+
+      mocks.pathname = "/notes";
+      await renderProvider({ consumer: false });
+      act(() =>
+        current().scheduleProfileSave({
+          ...current().draft,
+          name: "Draft B",
+        }),
+      );
+      expect(current().profile?.subject).toBe(SUBJECT_B);
+      expect(current().draft.name).toBe("Draft B");
+      const toastCount = mocks.toast.mock.calls.length;
+
+      if (rejectBody) {
+        delayed.rejectBody(new SyntaxError("private malformed A body"));
+      } else {
+        delayed.resolveBody(body);
+      }
+      await act(flush);
+
+      expect(current().state).toBe("ready");
+      expect(current().profile?.subject).toBe(SUBJECT_B);
+      expect(current().profile?.display_name).toBe("Name B");
+      expect(current().draft.name).toBe("Draft B");
+      expect(current().saveState).toBe("pending");
+      expect(mocks.toast).toHaveBeenCalledTimes(toastCount);
+      expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+        "private malformed A body",
+      );
+    },
+  );
 });
 
 describe("ShellProfileProvider failures and MFA", () => {
@@ -514,6 +617,42 @@ describe("ShellProfileProvider failures and MFA", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["success", 200, profile()],
+    ["MFA", 403, { error: "MFA_REQUIRED" }],
+  ])(
+    "ignores a delayed A lookup %s body after a B lookup becomes authoritative",
+    async (_label, status, body) => {
+      const delayed = delayedResponse(status);
+      mocks.fetch
+        .mockResolvedValueOnce(response(200, profile()))
+        .mockResolvedValueOnce(delayed.response)
+        .mockResolvedValueOnce(
+          response(200, profile(SUBJECT_B, "Name B")),
+        );
+      await renderProvider();
+
+      mocks.pathname = "/notes";
+      await renderProvider({ consumer: false });
+      expect(delayed.response.json).toHaveBeenCalledTimes(1);
+
+      mocks.pathname = "/fund";
+      await renderProvider({ consumer: false });
+      expect(current().profile?.subject).toBe(SUBJECT_B);
+      const toastCount = mocks.toast.mock.calls.length;
+
+      delayed.resolveBody(body);
+      await act(flush);
+
+      expect(current().state).toBe("ready");
+      expect(current().profile?.subject).toBe(SUBJECT_B);
+      expect(current().profile?.display_name).toBe("Name B");
+      expect(current().draft.name).toBe("Name B");
+      expect(current().saveState).toBe("idle");
+      expect(mocks.toast).toHaveBeenCalledTimes(toastCount);
+    },
+  );
+
   it("retains a dirty draft and exposes actionable MFA state from PATCH", async () => {
     mocks.fetch
       .mockResolvedValueOnce(response(200, profile()))
@@ -560,6 +699,80 @@ describe("ShellProfileProvider failures and MFA", () => {
 });
 
 describe("ShellProfileProvider avatar ownership", () => {
+  it.each([
+    [
+      "200 success",
+      200,
+      { url: "https://cdn.test/avatar-a.jpg", subject: SUBJECT_A },
+      false,
+    ],
+    ["403 MFA", 403, { error: "MFA_REQUIRED" }, false],
+    [
+      "409 conflict",
+      409,
+      { error: "PROFILE_SUBJECT_CHANGED" },
+      false,
+    ],
+    [
+      "503 server failure",
+      503,
+      { error: "PROFILE_AVATAR_UNAVAILABLE" },
+      false,
+    ],
+    ["malformed 200", 200, null, true],
+  ])(
+    "ignores delayed A avatar %s bodies after B becomes authoritative",
+    async (_label, status, body, rejectBody) => {
+      const delayed = delayedResponse(status);
+      mocks.fetch
+        .mockResolvedValueOnce(response(200, profile()))
+        .mockResolvedValueOnce(delayed.response)
+        .mockResolvedValueOnce(
+          response(200, profile(SUBJECT_B, "Name B")),
+        );
+      await renderProvider();
+
+      let uploadPromise!: Promise<void>;
+      act(() => {
+        uploadPromise = current().uploadProfilePhoto(
+          new Blob(["image"], { type: "image/jpeg" }),
+          SUBJECT_A,
+        );
+      });
+      await act(flush);
+      expect(delayed.response.json).toHaveBeenCalledTimes(1);
+
+      mocks.pathname = "/notes";
+      await renderProvider({ consumer: false });
+      act(() =>
+        current().scheduleProfileSave({
+          ...current().draft,
+          name: "Draft B",
+        }),
+      );
+      const toastCount = mocks.toast.mock.calls.length;
+
+      if (rejectBody) {
+        delayed.rejectBody(new SyntaxError("private malformed avatar body"));
+      } else {
+        delayed.resolveBody(body);
+      }
+      await act(async () => uploadPromise);
+
+      expect(current().state).toBe("ready");
+      expect(current().profile?.subject).toBe(SUBJECT_B);
+      expect(current().profile?.display_name).toBe("Name B");
+      expect(current().draft.name).toBe("Draft B");
+      expect(current().draft.photo).toBe("");
+      expect(current().saveState).toBe("pending");
+      expect(current().uploadState).toBe("idle");
+      expect(mocks.toast).toHaveBeenCalledTimes(toastCount);
+      expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+        "private malformed avatar body",
+      );
+    },
+  );
+
   it("tracks upload pending state in the root and warns before full-page exit", async () => {
     let resolveUpload!: (value: ReturnType<typeof response>) => void;
     mocks.fetch
@@ -744,5 +957,185 @@ describe("ShellProfileProvider avatar ownership", () => {
       "Profile",
     );
     expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("clears avatar MFA state after a successful authenticated lookup", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile()))
+      .mockResolvedValueOnce(
+        response(403, { error: "MFA_REQUIRED" }),
+      )
+      .mockResolvedValueOnce(response(200, profile()));
+    await renderProvider();
+
+    await act(async () => {
+      await current().uploadProfilePhoto(
+        new Blob(["image"], { type: "image/jpeg" }),
+        SUBJECT_A,
+      );
+    });
+    expect(current().state).toBe("mfa-required");
+    expect(current().uploadState).toBe("mfa-required");
+
+    mocks.pathname = "/login";
+    await renderProvider({ consumer: false });
+
+    expect(current().state).toBe("ready");
+    expect(current().uploadState).toBe("idle");
+  });
+
+  it("owns crop processing pending state through consumer unmount and upload scheduling", async () => {
+    let resolveCrop!: (blob: Blob) => void;
+    mocks.crop.mockImplementationOnce(
+      () =>
+        new Promise<Blob>((resolve) => {
+          resolveCrop = resolve;
+        }),
+    );
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile()))
+      .mockResolvedValueOnce(
+        response(200, {
+          url: "https://cdn.test/cropped-a.jpg",
+          subject: SUBJECT_A,
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(200, { ok: true, subject: SUBJECT_A }),
+      );
+    await renderProvider();
+
+    let processingPromise!: Promise<void>;
+    act(() => {
+      processingPromise = current().processAndUploadProfilePhoto(
+        "blob:crop-a",
+        { x: 0, y: 0, width: 10, height: 10 },
+        SUBJECT_A,
+      );
+    });
+    await act(flush);
+    expect(current().uploadState).toBe("processing");
+    expect(current().hasPendingChanges).toBe(true);
+    const event = new Event("beforeunload", {
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+
+    await renderProvider({ consumer: false });
+    resolveCrop(new Blob(["image"], { type: "image/jpeg" }));
+    await act(async () => processingPromise);
+    expect(current().draft.photo).toBe(
+      "https://cdn.test/cropped-a.jpg",
+    );
+    await advance(600);
+    const body = JSON.parse(
+      String((patchRequests()[0]?.[1] as RequestInit).body),
+    );
+    expect(body).toMatchObject({
+      subject: SUBJECT_A,
+      photo: "https://cdn.test/cropped-a.jpg",
+    });
+  });
+
+  it("ignores stale A crop completion and cancellation while B processing is active", async () => {
+    let resolveCropA!: (blob: Blob) => void;
+    let resolveCropB!: (blob: Blob) => void;
+    mocks.crop
+      .mockImplementationOnce(
+        () =>
+          new Promise<Blob>((resolve) => {
+            resolveCropA = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Blob>((resolve) => {
+            resolveCropB = resolve;
+          }),
+      );
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile()))
+      .mockResolvedValueOnce(
+        response(200, profile(SUBJECT_B, "Name B")),
+      )
+      .mockResolvedValueOnce(
+        response(200, {
+          url: "https://cdn.test/cropped-b.jpg",
+          subject: SUBJECT_B,
+        }),
+      );
+    await renderProvider();
+
+    let cropPromiseA!: Promise<void>;
+    act(() => {
+      cropPromiseA = current().processAndUploadProfilePhoto(
+        "blob:crop-a",
+        { x: 0, y: 0, width: 10, height: 10 },
+        SUBJECT_A,
+      );
+    });
+    await act(flush);
+
+    mocks.pathname = "/notes";
+    await renderProvider({ consumer: false });
+    let cropPromiseB!: Promise<void>;
+    act(() => {
+      cropPromiseB = current().processAndUploadProfilePhoto(
+        "blob:crop-b",
+        { x: 0, y: 0, width: 12, height: 12 },
+        SUBJECT_B,
+      );
+    });
+    await act(flush);
+    act(() => current().cancelProfilePhotoProcessing(SUBJECT_A));
+    expect(current().uploadState).toBe("processing");
+    expect(current().hasPendingChanges).toBe(true);
+
+    resolveCropA(new Blob(["a"], { type: "image/jpeg" }));
+    await act(async () => cropPromiseA);
+    expect(current().uploadState).toBe("processing");
+    expect(current().draft.photo).toBe("");
+
+    resolveCropB(new Blob(["b"], { type: "image/jpeg" }));
+    await act(async () => cropPromiseB);
+    expect(current().profile?.subject).toBe(SUBJECT_B);
+    expect(current().draft.photo).toBe(
+      "https://cdn.test/cropped-b.jpg",
+    );
+  });
+
+  it("captures root-owned crop failures once without private detail", async () => {
+    mocks.crop.mockRejectedValueOnce(
+      new Error("private canvas processing detail"),
+    );
+    mocks.fetch.mockResolvedValueOnce(response(200, profile()));
+    await renderProvider();
+
+    await act(async () => {
+      await current().processAndUploadProfilePhoto(
+        "blob:crop-a",
+        { x: 0, y: 0, width: 10, height: 10 },
+        SUBJECT_A,
+      );
+    });
+
+    expect(current().uploadState).toBe("error");
+    expect(current().hasPendingChanges).toBe(false);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Profile client operation failed",
+      }),
+      {
+        tags: {
+          area: "navigation",
+          operation: "profile_avatar_crop",
+        },
+      },
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "private canvas processing detail",
+    );
   });
 });

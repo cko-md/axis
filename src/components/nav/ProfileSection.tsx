@@ -1,6 +1,5 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
@@ -12,7 +11,6 @@ import {
 } from "@/components/layout/ShellProfileContext";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { getCroppedImageBlob } from "./cropImage";
 
 type Props = {
   onSignOut: () => void;
@@ -30,10 +28,10 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     uploadState,
     scheduleProfileSave,
     retryProfileSave,
-    uploadProfilePhoto,
+    processAndUploadProfilePhoto,
+    cancelProfilePhotoProcessing,
   } = useShellProfile();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
   const mountedRef = useRef(false);
@@ -65,6 +63,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   }, [accountState, onProfileName, profile]);
 
   const saveStateLabel =
+    uploadState === "processing" ? "Processing photo…" :
     uploadState === "uploading" ? "Uploading photo…" :
     uploadState === "mfa-required" || accountState === "mfa-required" ? "Two-factor authentication required" :
     uploadState === "error" ? "Photo upload failed" :
@@ -82,7 +81,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     "Account";
   const displayRole =
     draft.role.trim() || profile?.role_title || profile?.email || "";
-  const displayPhoto = photoPreview || draft.photo;
+  const displayPhoto = draft.photo;
 
   const updateDraft = <Key extends keyof ProfileDraft>(
     key: Key,
@@ -91,22 +90,6 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     const nextDraft = { ...draftRef.current, [key]: value };
     draftRef.current = nextDraft;
     scheduleProfileSave(nextDraft);
-  };
-
-  const handlePhotoFile = async (
-    file: File | Blob,
-    expectedSubject: string,
-    revokeUrl?: string,
-  ) => {
-    const preview = URL.createObjectURL(file);
-    setPhotoPreview(preview);
-    try {
-      await uploadProfilePhoto(file, expectedSubject);
-    } finally {
-      URL.revokeObjectURL(preview);
-      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
-      if (mountedRef.current) setPhotoPreview(null);
-    }
   };
 
   const openCropForFile = (file: File) => {
@@ -123,6 +106,9 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   };
 
   const cancelCrop = () => {
+    if (cropSubject) {
+      cancelProfilePhotoProcessing(cropSubject);
+    }
     if (cropSrc) URL.revokeObjectURL(cropSrc);
     setCropSrc(null);
     setCropSubject(null);
@@ -130,19 +116,16 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
 
   const confirmCrop = async () => {
     if (!cropSrc || !cropArea || !cropSubject) return;
+    const processingSrc = cropSrc;
     setCropSaving(true);
     try {
-      const blob = await getCroppedImageBlob(cropSrc, cropArea);
-      await handlePhotoFile(blob, cropSubject, cropSrc);
-    } catch {
-      Sentry.captureException(new Error("Profile avatar crop failed"), {
-        tags: {
-          area: "navigation",
-          operation: "profile_avatar_crop",
-        },
-      });
-      toast("Could not crop photo", "error", "Profile");
+      await processAndUploadProfilePhoto(
+        processingSrc,
+        cropArea,
+        cropSubject,
+      );
     } finally {
+      URL.revokeObjectURL(processingSrc);
       if (mountedRef.current) {
         setCropSaving(false);
         setCropSrc(null);

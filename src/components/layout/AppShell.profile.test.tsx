@@ -87,6 +87,8 @@ const profileValue: ShellProfileContextValue = {
   scheduleProfileSave: vi.fn(),
   retryProfileSave: vi.fn(),
   uploadProfilePhoto: vi.fn(),
+  processAndUploadProfilePhoto: vi.fn(),
+  cancelProfilePhotoProcessing: vi.fn(),
 };
 
 let container: HTMLDivElement;

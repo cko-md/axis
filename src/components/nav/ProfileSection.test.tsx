@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   schedule: vi.fn(),
   retry: vi.fn(),
   upload: vi.fn(),
+  process: vi.fn(),
+  cancelProcessing: vi.fn(),
   crop: vi.fn(),
 }));
 
@@ -105,6 +107,8 @@ function contextValue(
     scheduleProfileSave: mocks.schedule,
     retryProfileSave: mocks.retry,
     uploadProfilePhoto: mocks.upload,
+    processAndUploadProfilePhoto: mocks.process,
+    cancelProfilePhotoProcessing: mocks.cancelProcessing,
     ...overrides,
   };
 }
@@ -244,11 +248,11 @@ describe("ProfileSection", () => {
   });
 
   it("hands a crop to the persistent owner with the initiating subject after unmount", async () => {
-    let resolveUpload!: () => void;
-    mocks.upload.mockImplementationOnce(
+    let resolveProcessing!: () => void;
+    mocks.process.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
-          resolveUpload = resolve;
+          resolveProcessing = resolve;
         }),
     );
     await renderProfile();
@@ -269,54 +273,17 @@ describe("ProfileSection", () => {
     );
     act(() => savePhoto?.click());
     await act(flush);
-    expect(mocks.upload).toHaveBeenCalledWith(
-      expect.any(Blob),
+    expect(mocks.process).toHaveBeenCalledWith(
+      "blob:avatar",
+      { x: 0, y: 0, width: 10, height: 10 },
       profile.subject,
     );
 
     act(() => root?.render(<div>Different route</div>));
-    resolveUpload();
+    resolveProcessing();
     await act(flush);
 
     expect(mocks.fetch).not.toHaveBeenCalled();
-  });
-
-  it("captures crop failures once with fixed client-only metadata", async () => {
-    mocks.crop.mockRejectedValueOnce(
-      new Error("private canvas processing detail"),
-    );
-    await renderProfile();
-
-    const fileInput =
-      container.querySelector<HTMLInputElement>('input[type="file"]');
-    if (!fileInput) throw new Error("Missing avatar file input");
-    Object.defineProperty(fileInput, "files", {
-      configurable: true,
-      value: [new File(["image"], "avatar.jpg", { type: "image/jpeg" })],
-    });
-    act(() => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
-    act(() =>
-      container.querySelector<HTMLButtonElement>("#complete-crop")?.click(),
-    );
-    const savePhoto = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Save Photo",
-    );
-    act(() => savePhoto?.click());
-    await act(flush);
-
-    expect(mocks.capture).toHaveBeenCalledTimes(1);
-    expect(mocks.capture).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Profile avatar crop failed" }),
-      {
-        tags: {
-          area: "navigation",
-          operation: "profile_avatar_crop",
-        },
-      },
-    );
-    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
-      "private canvas processing detail",
-    );
     expect(mocks.upload).not.toHaveBeenCalled();
   });
 });

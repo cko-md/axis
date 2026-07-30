@@ -112,6 +112,7 @@ describe("Topbar shell profile state", () => {
   );
 
   it.each([
+    ["processing", "Processing profile photo…"],
     ["uploading", "Uploading profile photo…"],
     ["error", "Profile photo upload failed"],
     ["mfa-required", "Profile not saved · Verify identity"],

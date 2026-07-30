@@ -12,8 +12,10 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
+import type { Area } from "react-easy-crop";
 import { useToast } from "@/components/ui/Toast";
 import { isProfileSubject } from "@/lib/auth/profileSubject";
+import { getCroppedImageBlob } from "@/components/nav/cropImage";
 
 export const MAX_PROFILE_FIELD_LENGTH = 2_000;
 const MAX_PROFILE_EMAIL_LENGTH = 320;
@@ -35,6 +37,7 @@ export type ProfileSaveState =
   | "mfa-required";
 export type ProfileUploadState =
   | "idle"
+  | "processing"
   | "uploading"
   | "error"
   | "mfa-required";
@@ -68,6 +71,12 @@ export type ShellProfileContextValue = {
     file: File | Blob,
     expectedSubject: string,
   ) => Promise<void>;
+  processAndUploadProfilePhoto: (
+    imageSrc: string,
+    crop: Area,
+    expectedSubject: string,
+  ) => Promise<void>;
+  cancelProfilePhotoProcessing: (expectedSubject: string) => void;
 };
 
 type SaveJob = {
@@ -84,6 +93,26 @@ type SubjectDraftRecord = {
 };
 
 type BlockedReason = "signed-out" | "mfa-required" | "subject-changed" | null;
+
+type ActiveSaveOperation = {
+  controller: AbortController;
+  job: SaveJob;
+  identity: symbol;
+};
+
+type ActiveAvatarOperation = {
+  controller: AbortController;
+  subject: string;
+  generation: number;
+  identity: symbol;
+};
+
+type ActiveLookupOperation = {
+  controller: AbortController;
+  generation: number;
+  subjectAtStart: string | null;
+  identity: symbol;
+};
 
 const PROFILE_KEYS = [
   "subject",
@@ -170,12 +199,33 @@ function isAvatarUploadSuccess(
   );
 }
 
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException && error.name === "AbortError"
+  ) || (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
 async function responseRequiresMfa(response: Response) {
   if (response.status !== 403) return false;
   try {
     return isMfaRequiredPayload(await response.json());
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     return false;
+  }
+}
+
+async function consumeResponseBody(response: Response) {
+  try {
+    return await response.json() as unknown;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
   }
 }
 
@@ -218,7 +268,8 @@ function captureProfileClientFailure(
     | "profile_save_network"
     | "profile_save_response"
     | "profile_avatar_upload_network"
-    | "profile_avatar_upload_response",
+    | "profile_avatar_upload_response"
+    | "profile_avatar_crop",
 ) {
   Sentry.captureException(new Error("Profile client operation failed"), {
     tags: {
@@ -259,17 +310,11 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveEpochRef = useRef(0);
   const drainingEpochRef = useRef<number | null>(null);
-  const activeSaveRef = useRef<{
-    controller: AbortController;
-    job: SaveJob;
-  } | null>(null);
+  const activeSaveRef = useRef<ActiveSaveOperation | null>(null);
   const queuedSaveRef = useRef<SaveJob | null>(null);
   const uploadGenerationRef = useRef(0);
-  const activeUploadRef = useRef<{
-    controller: AbortController;
-    subject: string;
-    generation: number;
-  } | null>(null);
+  const activeAvatarRef = useRef<ActiveAvatarOperation | null>(null);
+  const activeLookupRef = useRef<ActiveLookupOperation | null>(null);
 
   const syncPendingState = useCallback(() => {
     setHasPendingChanges(
@@ -317,14 +362,63 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     activeSaveRef.current?.controller.abort();
     activeSaveRef.current = null;
     uploadGenerationRef.current += 1;
-    activeUploadRef.current?.controller.abort();
-    activeUploadRef.current = null;
+    activeAvatarRef.current?.controller.abort();
+    activeAvatarRef.current = null;
     uploadPendingRef.current = false;
     if (updateUi) {
       syncPendingState();
       setUploadState("idle");
     }
   }, [syncPendingState]);
+
+  const isSaveOperationCurrent = useCallback(
+    (operation: ActiveSaveOperation) => {
+      const activeOperation = activeSaveRef.current;
+      return (
+        mountedRef.current &&
+        !operation.controller.signal.aborted &&
+        activeOperation === operation &&
+        activeOperation.controller === operation.controller &&
+        activeOperation.identity === operation.identity &&
+        subjectRef.current === operation.job.subject &&
+        saveEpochRef.current === operation.job.epoch &&
+        generationRef.current === operation.job.generation
+      );
+    },
+    [],
+  );
+
+  const isAvatarOperationCurrent = useCallback(
+    (operation: ActiveAvatarOperation) => {
+      const activeOperation = activeAvatarRef.current;
+      return (
+        mountedRef.current &&
+        !operation.controller.signal.aborted &&
+        activeOperation === operation &&
+        activeOperation.controller === operation.controller &&
+        activeOperation.identity === operation.identity &&
+        subjectRef.current === operation.subject &&
+        uploadGenerationRef.current === operation.generation
+      );
+    },
+    [],
+  );
+
+  const isLookupOperationCurrent = useCallback(
+    (operation: ActiveLookupOperation) => {
+      const activeOperation = activeLookupRef.current;
+      return (
+        mountedRef.current &&
+        !operation.controller.signal.aborted &&
+        activeOperation === operation &&
+        activeOperation.controller === operation.controller &&
+        activeOperation.identity === operation.identity &&
+        lookupGenerationRef.current === operation.generation &&
+        subjectRef.current === operation.subjectAtStart
+      );
+    },
+    [],
+  );
 
   const captureCurrentSaveFailure = useCallback(
     (
@@ -352,6 +446,12 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       setDraft(nextDraft);
       dirtyRef.current = true;
       generationRef.current += 1;
+      if (
+        queuedSaveRef.current?.subject === subject &&
+        queuedSaveRef.current.generation < generationRef.current
+      ) {
+        queuedSaveRef.current = null;
+      }
       lastCapturedSaveFailureRef.current = null;
       subjectDraftsRef.current.set(subject, {
         draft: nextDraft,
@@ -422,7 +522,12 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         }
 
         const controller = new AbortController();
-        activeSaveRef.current = { controller, job };
+        const operation: ActiveSaveOperation = {
+          controller,
+          job,
+          identity: Symbol("profile-save"),
+        };
+        activeSaveRef.current = operation;
         if (job.generation === generationRef.current) {
           setSaveState("saving");
         }
@@ -437,11 +542,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
             }),
             signal: controller.signal,
           });
-          const isCurrentSubject =
-            mountedRef.current &&
-            saveEpochRef.current === epoch &&
-            job.subject === subjectRef.current;
-          if (!isCurrentSubject) continue;
+          if (!isSaveOperationCurrent(operation)) continue;
 
           if (response.status === 401) {
             blockedReasonRef.current = "signed-out";
@@ -462,25 +563,35 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          if (await responseRequiresMfa(response)) {
-            blockedReasonRef.current = "mfa-required";
-            queuedSaveRef.current = {
-              ...job,
-              draft: draftRef.current,
-              generation: generationRef.current,
-            };
-            setState("mfa-required");
-            setSaveState("mfa-required");
-            setDraftPending(true);
-            toast(
-              "Complete two-factor authentication to save profile changes.",
-              "error",
-              "Profile",
-            );
-            return;
+          let bodyWasConsumed = false;
+          if (response.status === 403) {
+            const requiresMfa = await responseRequiresMfa(response);
+            if (!isSaveOperationCurrent(operation)) continue;
+            bodyWasConsumed = true;
+            if (requiresMfa) {
+              blockedReasonRef.current = "mfa-required";
+              queuedSaveRef.current = {
+                ...job,
+                draft: draftRef.current,
+                generation: generationRef.current,
+              };
+              setState("mfa-required");
+              setSaveState("mfa-required");
+              setDraftPending(true);
+              toast(
+                "Complete two-factor authentication to save profile changes.",
+                "error",
+                "Profile",
+              );
+              return;
+            }
           }
 
           if (response.status === 409) {
+            if (!bodyWasConsumed) {
+              await consumeResponseBody(response);
+              if (!isSaveOperationCurrent(operation)) continue;
+            }
             blockedReasonRef.current = "subject-changed";
             setCommittedProfile(null);
             setState("loading");
@@ -497,35 +608,31 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           }
 
           if (!response.ok) {
-            if (job.generation === generationRef.current) {
-              setSaveState("error");
-              setDraftPending(true);
-              toast(
-                "Profile changes were not saved",
-                "error",
-                "Profile",
-              );
+            if (!bodyWasConsumed) {
+              await consumeResponseBody(response);
+              if (!isSaveOperationCurrent(operation)) continue;
             }
+            setSaveState("error");
+            setDraftPending(true);
+            toast(
+              "Profile changes were not saved",
+              "error",
+              "Profile",
+            );
             continue;
           }
 
-          let result: unknown;
-          try {
-            result = await response.json();
-          } catch {
-            result = null;
-          }
+          const result = await consumeResponseBody(response);
+          if (!isSaveOperationCurrent(operation)) continue;
           if (!isProfileWriteSuccess(result, job.subject)) {
             captureCurrentSaveFailure(job, "profile_save_response");
-            if (job.generation === generationRef.current) {
-              setSaveState("error");
-              setDraftPending(true);
-              toast(
-                "Profile changes were not saved",
-                "error",
-                "Profile",
-              );
-            }
+            setSaveState("error");
+            setDraftPending(true);
+            toast(
+              "Profile changes were not saved",
+              "error",
+              "Profile",
+            );
             continue;
           }
 
@@ -533,8 +640,6 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
             job.subject,
             (committedVersionsRef.current.get(job.subject) ?? 0) + 1,
           );
-          if (job.generation !== generationRef.current) continue;
-
           const committed = draftToProfile(
             job.subject,
             job.draft,
@@ -565,13 +670,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
             }
           }, 2_000);
         } catch (error) {
-          if (
-            !mountedRef.current ||
-            controller.signal.aborted ||
-            saveEpochRef.current !== epoch ||
-            job.subject !== subjectRef.current ||
-            (error instanceof DOMException && error.name === "AbortError")
-          ) {
+          if (!isSaveOperationCurrent(operation) || isAbortError(error)) {
             continue;
           }
           captureCurrentSaveFailure(job, "profile_save_network");
@@ -585,7 +684,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
             );
           }
         } finally {
-          if (activeSaveRef.current?.controller === controller) {
+          if (activeSaveRef.current === operation) {
             activeSaveRef.current = null;
           }
         }
@@ -597,6 +696,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [
     captureCurrentSaveFailure,
+    isSaveOperationCurrent,
     setCommittedProfile,
     setDraftPending,
     storeCurrentSubjectDraft,
@@ -656,12 +756,15 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     void drainSaveQueue();
   }, [drainSaveQueue, toast]);
 
-  const uploadProfilePhoto = useCallback(
-    async (file: File | Blob, expectedSubject: string) => {
+  const beginAvatarOperation = useCallback(
+    (
+      expectedSubject: string,
+      initialState: "processing" | "uploading",
+    ) => {
       const subject = subjectRef.current;
       if (!subject) {
         toast("Sign in before uploading a profile photo.", "error", "Profile");
-        return;
+        return null;
       }
       if (subject !== expectedSubject) {
         toast(
@@ -669,7 +772,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           "error",
           "Profile",
         );
-        return;
+        return null;
       }
       if (blockedReasonRef.current === "mfa-required") {
         setUploadState("mfa-required");
@@ -678,31 +781,46 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           "error",
           "Profile",
         );
-        return;
+        return null;
+      }
+      if (blockedReasonRef.current) {
+        toast(
+          "Sign in again before uploading a profile photo.",
+          "error",
+          "Profile",
+        );
+        return null;
       }
 
       const generation = ++uploadGenerationRef.current;
       const controller = new AbortController();
-      activeUploadRef.current?.controller.abort();
-      activeUploadRef.current = { controller, subject, generation };
-      setUploadState("uploading");
+      activeAvatarRef.current?.controller.abort();
+      const operation: ActiveAvatarOperation = {
+        controller,
+        subject,
+        generation,
+        identity: Symbol("profile-avatar-operation"),
+      };
+      activeAvatarRef.current = operation;
+      setUploadState(initialState);
       setUploadPending(true);
+      return operation;
+    },
+    [setUploadPending, toast],
+  );
 
+  const performAvatarUpload = useCallback(
+    async (operation: ActiveAvatarOperation, file: File | Blob) => {
       try {
         const form = new FormData();
         form.append("file", file, "avatar.jpg");
-        form.append("subject", subject);
+        form.append("subject", operation.subject);
         const response = await fetch("/api/profile/avatar", {
           method: "POST",
           body: form,
-          signal: controller.signal,
+          signal: operation.controller.signal,
         });
-        const isCurrentUpload =
-          mountedRef.current &&
-          subjectRef.current === subject &&
-          uploadGenerationRef.current === generation &&
-          activeUploadRef.current?.controller === controller;
-        if (!isCurrentUpload) return;
+        if (!isAvatarOperationCurrent(operation)) return;
 
         if (response.status === 401) {
           blockedReasonRef.current = "signed-out";
@@ -717,19 +835,29 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (await responseRequiresMfa(response)) {
-          blockedReasonRef.current = "mfa-required";
-          setState("mfa-required");
-          setUploadState("mfa-required");
-          toast(
-            "Complete two-factor authentication to upload a profile photo.",
-            "error",
-            "Profile",
-          );
-          return;
+        let bodyWasConsumed = false;
+        if (response.status === 403) {
+          const requiresMfa = await responseRequiresMfa(response);
+          if (!isAvatarOperationCurrent(operation)) return;
+          bodyWasConsumed = true;
+          if (requiresMfa) {
+            blockedReasonRef.current = "mfa-required";
+            setState("mfa-required");
+            setUploadState("mfa-required");
+            toast(
+              "Complete two-factor authentication to upload a profile photo.",
+              "error",
+              "Profile",
+            );
+            return;
+          }
         }
 
         if (response.status === 409) {
+          if (!bodyWasConsumed) {
+            await consumeResponseBody(response);
+            if (!isAvatarOperationCurrent(operation)) return;
+          }
           blockedReasonRef.current = "subject-changed";
           setCommittedProfile(null);
           setState("loading");
@@ -744,20 +872,22 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         }
 
         if (!response.ok) {
+          if (!bodyWasConsumed) {
+            await consumeResponseBody(response);
+            if (!isAvatarOperationCurrent(operation)) return;
+          }
           setUploadState("error");
           toast("Photo upload failed", "error", "Profile");
           return;
         }
 
-        let result: unknown;
-        try {
-          result = await response.json();
-        } catch {
-          result = null;
-        }
-        if (!isAvatarUploadSuccess(result, subject)) {
-          if (lastCapturedUploadFailureRef.current !== generation) {
-            lastCapturedUploadFailureRef.current = generation;
+        const result = await consumeResponseBody(response);
+        if (!isAvatarOperationCurrent(operation)) return;
+        if (!isAvatarUploadSuccess(result, operation.subject)) {
+          if (
+            lastCapturedUploadFailureRef.current !== operation.generation
+          ) {
+            lastCapturedUploadFailureRef.current = operation.generation;
             captureProfileClientFailure("profile_avatar_upload_response");
           }
           setUploadState("error");
@@ -765,35 +895,32 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        scheduleForSubject(subject, {
+        scheduleForSubject(operation.subject, {
           ...draftRef.current,
           photo: result.url,
         });
         setUploadState("idle");
       } catch (error) {
-        if (
-          !mountedRef.current ||
-          controller.signal.aborted ||
-          subjectRef.current !== subject ||
-          uploadGenerationRef.current !== generation ||
-          (error instanceof DOMException && error.name === "AbortError")
-        ) {
+        if (!isAvatarOperationCurrent(operation) || isAbortError(error)) {
           return;
         }
-        if (lastCapturedUploadFailureRef.current !== generation) {
-          lastCapturedUploadFailureRef.current = generation;
+        if (
+          lastCapturedUploadFailureRef.current !== operation.generation
+        ) {
+          lastCapturedUploadFailureRef.current = operation.generation;
           captureProfileClientFailure("profile_avatar_upload_network");
         }
         setUploadState("error");
         toast("Photo upload failed", "error", "Profile");
       } finally {
-        if (activeUploadRef.current?.controller === controller) {
-          activeUploadRef.current = null;
+        if (isAvatarOperationCurrent(operation)) {
+          activeAvatarRef.current = null;
           setUploadPending(false);
         }
       }
     },
     [
+      isAvatarOperationCurrent,
       scheduleForSubject,
       setCommittedProfile,
       setUploadPending,
@@ -801,11 +928,85 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const uploadProfilePhoto = useCallback(
+    async (file: File | Blob, expectedSubject: string) => {
+      const operation = beginAvatarOperation(
+        expectedSubject,
+        "uploading",
+      );
+      if (!operation) return;
+      await performAvatarUpload(operation, file);
+    },
+    [beginAvatarOperation, performAvatarUpload],
+  );
+
+  const processAndUploadProfilePhoto = useCallback(
+    async (
+      imageSrc: string,
+      crop: Area,
+      expectedSubject: string,
+    ) => {
+      const operation = beginAvatarOperation(
+        expectedSubject,
+        "processing",
+      );
+      if (!operation) return;
+      try {
+        const blob = await getCroppedImageBlob(imageSrc, crop);
+        if (!isAvatarOperationCurrent(operation)) return;
+        setUploadState("uploading");
+        await performAvatarUpload(operation, blob);
+        if (!isAvatarOperationCurrent(operation)) return;
+      } catch (error) {
+        if (!isAvatarOperationCurrent(operation) || isAbortError(error)) {
+          return;
+        }
+        if (
+          lastCapturedUploadFailureRef.current !== operation.generation
+        ) {
+          lastCapturedUploadFailureRef.current = operation.generation;
+          captureProfileClientFailure("profile_avatar_crop");
+        }
+        setUploadState("error");
+        toast("Could not crop photo", "error", "Profile");
+      } finally {
+        if (isAvatarOperationCurrent(operation)) {
+          activeAvatarRef.current = null;
+          setUploadPending(false);
+        }
+      }
+    },
+    [
+      beginAvatarOperation,
+      isAvatarOperationCurrent,
+      performAvatarUpload,
+      setUploadPending,
+      toast,
+    ],
+  );
+
+  const cancelProfilePhotoProcessing = useCallback(
+    (expectedSubject: string) => {
+      const operation = activeAvatarRef.current;
+      if (!operation || operation.subject !== expectedSubject) return;
+      uploadGenerationRef.current += 1;
+      operation.controller.abort();
+      activeAvatarRef.current = null;
+      if (subjectRef.current === expectedSubject) {
+        setUploadState("idle");
+        setUploadPending(false);
+      }
+    },
+    [setUploadPending],
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       lookupGenerationRef.current += 1;
+      activeLookupRef.current?.controller.abort();
+      activeLookupRef.current = null;
       cancelSubjectWork(false);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
@@ -815,6 +1016,14 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     const requestGeneration = ++lookupGenerationRef.current;
     const committedVersionsAtStart = new Map(committedVersionsRef.current);
     const controller = new AbortController();
+    const operation: ActiveLookupOperation = {
+      controller,
+      generation: requestGeneration,
+      subjectAtStart: subjectRef.current,
+      identity: Symbol("shell-profile-lookup"),
+    };
+    activeLookupRef.current?.controller.abort();
+    activeLookupRef.current = operation;
     if (!profileRef.current) setState("loading");
 
     void (async () => {
@@ -822,12 +1031,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         const response = await fetch("/api/auth/profile", {
           signal: controller.signal,
         });
-        if (
-          !mountedRef.current ||
-          requestGeneration !== lookupGenerationRef.current
-        ) {
-          return;
-        }
+        if (!isLookupOperationCurrent(operation)) return;
 
         if (response.status === 401) {
           lookupFailureCapturedRef.current = false;
@@ -843,33 +1047,38 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (await responseRequiresMfa(response)) {
-          lookupFailureCapturedRef.current = false;
-          blockedReasonRef.current = subjectRef.current
-            ? "mfa-required"
-            : null;
-          setState("mfa-required");
-          if (dirtyRef.current) {
-            setSaveState("mfa-required");
-            setDraftPending(true);
+        let bodyWasConsumed = false;
+        if (response.status === 403) {
+          const requiresMfa = await responseRequiresMfa(response);
+          if (!isLookupOperationCurrent(operation)) return;
+          bodyWasConsumed = true;
+          if (requiresMfa) {
+            lookupFailureCapturedRef.current = false;
+            blockedReasonRef.current = subjectRef.current
+              ? "mfa-required"
+              : null;
+            setState("mfa-required");
+            if (dirtyRef.current) {
+              setSaveState("mfa-required");
+              setDraftPending(true);
+            }
+            return;
           }
-          return;
         }
 
         if (!response.ok) {
+          if (!bodyWasConsumed) {
+            await consumeResponseBody(response);
+            if (!isLookupOperationCurrent(operation)) return;
+          }
           setState("error");
           return;
         }
 
-        const nextProfile: unknown = await response.json();
+        const nextProfile = await consumeResponseBody(response);
+        if (!isLookupOperationCurrent(operation)) return;
         if (!isShellProfile(nextProfile)) {
           throw new Error("Invalid shell profile");
-        }
-        if (
-          !mountedRef.current ||
-          requestGeneration !== lookupGenerationRef.current
-        ) {
-          return;
         }
         lookupFailureCapturedRef.current = false;
 
@@ -903,6 +1112,9 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         subjectRef.current = nextProfile.subject;
         blockedReasonRef.current = null;
         setState("ready");
+        setUploadState((current) =>
+          current === "mfa-required" ? "idle" : current,
+        );
 
         if (subjectChanged || previousSubject === null) {
           setCommittedProfile(nextProfile);
@@ -953,12 +1165,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           setDraftPending(dirtyRef.current);
         }
       } catch (error) {
-        if (
-          !mountedRef.current ||
-          controller.signal.aborted ||
-          requestGeneration !== lookupGenerationRef.current ||
-          (error instanceof DOMException && error.name === "AbortError")
-        ) {
+        if (!isLookupOperationCurrent(operation) || isAbortError(error)) {
           return;
         }
         if (!lookupFailureCapturedRef.current) {
@@ -969,9 +1176,15 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (activeLookupRef.current === operation) {
+        activeLookupRef.current = null;
+      }
+    };
   }, [
     cancelSubjectWork,
+    isLookupOperationCurrent,
     lookupNonce,
     pathname,
     setCommittedProfile,
@@ -1001,10 +1214,14 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       scheduleProfileSave,
       retryProfileSave,
       uploadProfilePhoto,
+      processAndUploadProfilePhoto,
+      cancelProfilePhotoProcessing,
     }),
     [
       draft,
+      cancelProfilePhotoProcessing,
       hasPendingChanges,
+      processAndUploadProfilePhoto,
       profile,
       retryProfileSave,
       saveState,

@@ -54,6 +54,9 @@ export function Topbar({
     profileSaveState === "mfa-required" ||
     profileUploadState === "mfa-required";
   const syncLabel = (() => {
+    if (profileUploadState === "processing") {
+      return "Processing profile photo…";
+    }
     if (profileUploadState === "uploading") {
       return "Uploading profile photo…";
     }
@@ -75,6 +78,9 @@ export function Topbar({
     return "Checking sync…";
   })();
   const syncTitle = (() => {
+    if (profileUploadState === "processing") {
+      return "Profile photo processing is in progress";
+    }
     if (profileUploadState === "uploading") {
       return "Profile photo upload is in progress";
     }
