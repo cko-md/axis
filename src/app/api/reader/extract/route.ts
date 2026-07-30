@@ -1,7 +1,7 @@
-import * as Sentry from "@sentry/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { SafeFetchError, safeFetch, safeFetchHttpStatus } from "@/lib/security/safe-fetch";
+import { safeFetch, safeFetchHttpStatus } from "@/lib/security/safe-fetch";
+import { recordSafeFetchFailure } from "@/lib/security/safe-fetch-observability";
 import { extractReadableArticle } from "@/lib/web-reader";
 
 // jsdom requires the Node.js runtime (not edge) and must not be bundled — see
@@ -63,14 +63,7 @@ export async function GET(req: NextRequest) {
       { headers: { "Cache-Control": "private, max-age=300" } },
     );
   } catch (error) {
-    const code = error instanceof SafeFetchError ? error.code : "READER_FETCH_FAILED";
-    if (error instanceof SafeFetchError) {
-      // A refused target is an expected policy outcome, not an application
-      // exception. Keep only a safe diagnostic breadcrumb.
-      Sentry.addBreadcrumb({ category: "safe-fetch", level: "info", data: { operation: "reader_extract", code } });
-    } else {
-      Sentry.captureException(new Error(code), { tags: { area: "webviewer", operation: "reader_extract", code } });
-    }
+    const { code } = recordSafeFetchFailure("reader_extract", url, error);
     return NextResponse.json(
       { error: "Reader view could not load this page.", code },
       { status: safeFetchHttpStatus(error) },

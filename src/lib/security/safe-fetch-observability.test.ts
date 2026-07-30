@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sentry = vi.hoisted(() => ({ addBreadcrumb: vi.fn(), captureException: vi.fn() }));
 vi.mock("@sentry/nextjs", () => sentry);
@@ -7,6 +7,8 @@ import { SafeFetchError } from "./safe-fetch";
 import { recordSafeFetchFailure } from "./safe-fetch-observability";
 
 describe("safe-fetch observability", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("omits raw host, IP, path, and query canaries", () => {
     recordSafeFetchFailure(
       "og_image_meta",
@@ -38,5 +40,20 @@ describe("safe-fetch observability", () => {
     expect(serialized).not.toContain("www.youtube.com");
     expect(serialized).not.toContain("signature");
     expect(serialized).not.toContain("must-not-leak");
+  });
+
+  it.each(["SAFE_FETCH_DNS_FAILED", "SAFE_FETCH_TIMEOUT", "SAFE_FETCH_TRANSPORT_FAILED"] as const)("creates a sanitized searchable event for %s", (code) => {
+    recordSafeFetchFailure("reader_extract", "https://www.youtube.com/watch?private=must-not-leak", new SafeFetchError(code));
+    const event = sentry.captureException.mock.calls.at(-1);
+    expect(event?.[0]).toMatchObject({ message: code });
+    expect(event?.[1]).toMatchObject({ tags: { area: "safe-fetch", operation: "reader_extract", code, provider: "youtube" } });
+    expect(JSON.stringify(event)).not.toContain("www.youtube.com");
+    expect(JSON.stringify(event)).not.toContain("private");
+    expect(JSON.stringify(event)).not.toContain("must-not-leak");
+  });
+
+  it("keeps policy refusals as breadcrumbs only", () => {
+    recordSafeFetchFailure("reader_extract", "http://127.0.0.1/canary?private=must-not-leak", new SafeFetchError("SAFE_FETCH_BLOCKED_ADDRESS"));
+    expect(sentry.captureException).not.toHaveBeenCalled();
   });
 });

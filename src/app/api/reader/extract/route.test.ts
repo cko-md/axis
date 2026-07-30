@@ -33,8 +33,25 @@ describe("reader safe-fetch status mapping", () => {
 
     expect(response.status).toBe(status);
     expect(await response.json()).toMatchObject({ code });
-    expect(mocks.captureException).not.toHaveBeenCalled();
+    if (code === "SAFE_FETCH_TIMEOUT") {
+      expect(mocks.captureException).toHaveBeenCalledWith(expect.objectContaining({ message: code }), expect.objectContaining({
+        tags: expect.objectContaining({ area: "safe-fetch", operation: "reader_extract", code }),
+      }));
+    } else {
+      expect(mocks.captureException).not.toHaveBeenCalled();
+    }
     expect(JSON.stringify(mocks.addBreadcrumb.mock.calls)).not.toContain("public.example");
     expect(JSON.stringify(mocks.addBreadcrumb.mock.calls)).not.toContain("token");
+  });
+
+  it("uses the shared helper to emit a sanitized timeout event", async () => {
+    mocks.safeFetch.mockRejectedValue(new SafeFetchError("SAFE_FETCH_TIMEOUT"));
+    await GET(new NextRequest("http://axis.test/api/reader/extract?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fprivate%3Dmust-not-leak"));
+
+    expect(mocks.captureException).toHaveBeenCalledWith(expect.objectContaining({ message: "SAFE_FETCH_TIMEOUT" }), expect.objectContaining({
+      tags: expect.objectContaining({ area: "safe-fetch", operation: "reader_extract", code: "SAFE_FETCH_TIMEOUT", provider: "youtube" }),
+    }));
+    expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("www.youtube.com");
+    expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("must-not-leak");
   });
 });

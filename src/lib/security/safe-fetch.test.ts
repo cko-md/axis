@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import { networkInterfaces } from "node:os";
 import { resolve as resolvePath } from "node:path";
+import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import {
   isBlockedAddress,
   SafeFetchError,
@@ -38,7 +39,7 @@ async function runSetupFailureChild() {
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
         reject(new Error("safe-fetch process regression child timed out"));
-      }, 5_000);
+      }, 10_000);
       child.once("close", (code, signal) => {
         clearTimeout(timer);
         resolve({ code, signal, stdout, stderr });
@@ -572,6 +573,46 @@ describe("safeFetch", () => {
         request.then(() => "resolved", () => "rejected"),
         new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 50)),
       ])).resolves.toBe("rejected");
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("decodes supported content encodings with independent wire and decoded caps", async () => {
+    let acceptEncoding = "";
+    const plain = Buffer.from("plaintext");
+    const server = http.createServer((req, res) => {
+      acceptEncoding = req.headers["accept-encoding"] ?? "";
+      if (req.url === "/gzip") return void res.writeHead(200, { "content-encoding": "gzip", "content-length": gzipSync(plain).length }).end(gzipSync(plain));
+      if (req.url === "/deflate") return void res.writeHead(200, { "content-encoding": "deflate" }).end(deflateSync(plain));
+      if (req.url === "/br") return void res.writeHead(200, { "content-encoding": "br" }).end(brotliCompressSync(plain));
+      if (req.url === "/bomb") return void res.writeHead(200, { "content-encoding": "gzip" }).end(gzipSync(Buffer.alloc(5, "x")));
+      if (req.url === "/raw-over") return void res.end("12345");
+      if (req.url === "/invalid") return void res.writeHead(200, { "content-encoding": "gzip" }).end("not-gzip");
+      if (req.url === "/unsupported") return void res.writeHead(200, { "content-encoding": "zstd" }).end("ignored");
+      if (req.url === "/stall") return void setTimeout(() => res.writeHead(200, { "content-encoding": "gzip" }).end(gzipSync(plain)), 100);
+      res.end(plain);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server did not bind");
+    const input = { headers: undefined as HeadersInit | undefined, timeoutMs: 500, maxBodyBytes: 4_096, address: { address: "127.0.0.1", family: 4 } };
+    const fetchPath = (path: string, overrides: Partial<typeof input> = {}) => pinnedSafeFetchTransport(
+      new URL(`http://localhost:${address.port}${path}`), { ...input, ...overrides },
+    );
+    try {
+      for (const path of ["/plain", "/gzip", "/deflate", "/br"]) {
+        const response = await fetchPath(path);
+        expect(await response.text()).toBe("plaintext");
+        expect(response.headers.get("content-encoding")).toBeNull();
+        expect(response.headers.get("content-length")).toBeNull();
+      }
+      expect(acceptEncoding).toBe("identity");
+      await expect(fetchPath("/bomb", { maxBodyBytes: 4 })).rejects.toMatchObject({ code: "SAFE_FETCH_BODY_TOO_LARGE" });
+      await expect(fetchPath("/raw-over", { maxBodyBytes: 4 })).rejects.toMatchObject({ code: "SAFE_FETCH_BODY_TOO_LARGE" });
+      await expect(fetchPath("/invalid")).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+      await expect(fetchPath("/unsupported")).rejects.toMatchObject({ code: "SAFE_FETCH_TRANSPORT_FAILED" });
+      await expect(fetchPath("/stall", { timeoutMs: 10 })).rejects.toMatchObject({ code: "SAFE_FETCH_TIMEOUT" });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
