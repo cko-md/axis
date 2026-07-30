@@ -46,6 +46,13 @@ squash merge). If the hash changed or no measured evidence exists, run
 `npm run state:derive:gates`; Vercel skips production until that measured
 snapshot is committed through the protected refresh.
 
+The full Vitest suite is centrally capped at four workers in `vitest.config.ts`.
+This cap is part of the local gate's stability contract for 8 GiB hosts: do not
+remove it or override it with a higher CLI/environment value without recorded,
+successful full-suite evidence under the proposed setting. All normal Vitest
+commands, including `npm run test` and `npm run state:derive:gates`, must use
+the configured cap.
+
 The SHA-256 state fingerprint is deterministic consistency evidence, not a
 cryptographic signature or an independent attestation: candidate authors can
 recompute it. The base-controlled `release-governance` job in
