@@ -58,6 +58,13 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
+    const contentType = request.headers.get("content-type")?.split(";", 1)[0];
+    const origin = request.headers.get("origin");
+    if (contentType !== "application/json" || (origin !== null && origin !== new URL(request.url).origin)) {
+      return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
+    }
+    const contentLength = Number(request.headers.get("content-length") ?? "0");
+    if (!Number.isSafeInteger(contentLength) || contentLength > 10_000) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     const identityFailure = identityResponse(user, authError, "write_identity");

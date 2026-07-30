@@ -189,6 +189,7 @@ export async function middleware(request: NextRequest) {
       "/api/auth/passkey/list",
       "/api/auth/passkey/delete",
       "/api/auth/settings",
+      "/api/auth/profile",
       "/api/auth/mfa",
       "/api/auth/account",
       "/api/calendar",
