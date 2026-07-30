@@ -129,7 +129,7 @@ describe("scrubSentryEvent", () => {
   });
 
   it("removes request targets and nested URL-bearing data from every event surface", () => {
-    const canary = "https://private.example/internal/path?token=must-not-leak#fragment";
+    const canary = "https://private.example/internal/path?token=must-not-leak#fragment-secret";
     const event = scrubSentryEvent({
       request: {
         url: canary,
@@ -155,7 +155,7 @@ describe("scrubSentryEvent", () => {
   });
 
   it("scrubs transaction and native HTTP span payloads before their envelopes are serialized", () => {
-    const canary = "https://private.example/internal/path?token=must-not-leak#fragment";
+    const canary = "https://private.example/internal/path?token=must-not-leak#fragment-secret";
     const transaction = scrubSentryTransaction({
       type: "transaction",
       transaction: "GET /api/feeds/cached",
@@ -165,7 +165,8 @@ describe("scrubSentryEvent", () => {
       spans: [{
         trace_id: "0".repeat(32), span_id: "1".repeat(16), start_timestamp: 1,
         data: {
-          "http.url": canary, "url.full": canary, "url.query": "token=must-not-leak", "http.target": "/internal/path?token=must-not-leak",
+          "http.url": canary, "url.full": canary, "url.query": "token=must-not-leak", "http.query": "token=must-not-leak", "http.fragment": "fragment-secret",
+          "http.search": "?token=must-not-leak", "http.search_params": "token=must-not-leak", "http.hash": "#fragment-secret", "http.target": "/internal/path?token=must-not-leak",
           "net.peer.ip": "203.0.113.77", "net.peer.name": "private.example", "net.peer.host": "private.example", "server.address": "203.0.113.88",
           "network.peer.address": "203.0.113.99", "network.peer.port": 8443,
           "http.route": "/api/feeds/cached", operation: "cached_feed", code: "SAFE_FETCH_TIMEOUT", provider: "youtube",
@@ -176,7 +177,8 @@ describe("scrubSentryEvent", () => {
 
     expect(transaction.transaction).toBe("GET /api/feeds/cached");
     expect(transaction.spans?.[0]?.data).toMatchObject({
-      "http.url": "[REDACTED]", "url.full": "[REDACTED]", "url.query": "[REDACTED]", "http.target": "[REDACTED]",
+      "http.url": "[REDACTED]", "url.full": "[REDACTED]", "url.query": "[REDACTED]", "http.query": "[REDACTED]", "http.fragment": "[REDACTED]",
+      "http.search": "[REDACTED]", "http.search_params": "[REDACTED]", "http.hash": "[REDACTED]", "http.target": "[REDACTED]",
       "net.peer.ip": "[REDACTED]", "net.peer.name": "[REDACTED]", "net.peer.host": "[REDACTED]", "server.address": "[REDACTED]",
       "network.peer.address": "[REDACTED]", "network.peer.port": "[REDACTED]",
       "http.route": "/api/feeds/cached", operation: "cached_feed", code: "SAFE_FETCH_TIMEOUT", provider: "youtube",
@@ -186,7 +188,7 @@ describe("scrubSentryEvent", () => {
     expect(serialized).not.toContain("private.example");
     expect(serialized).not.toContain("internal/path");
     expect(serialized).not.toContain("must-not-leak");
-    expect(serialized).not.toContain("fragment");
+    expect(serialized).not.toContain("fragment-secret");
     expect(serialized).not.toContain("203.0.113.");
     expect(serialized).not.toContain("8443");
   });
