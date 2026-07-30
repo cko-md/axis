@@ -96,8 +96,11 @@ owner exception:
    `axis-main-production-gate`; it is active, no-bypass, main-only, has no
    `update` rule, and contains exactly five rules.
 4. Its pull-request rule must use zero approving reviews with stale-review
-   dismissal on, code-owner and last-push approval off; its strict status-check
-   rule must set `do_not_enforce_on_create=false` and contain exactly the five
+   dismissal on, code-owner and last-push approval off, and the GitHub beta
+   user-owned-repository field `required_reviewers: []` explicitly present.
+   This contract is not portable to an organization repository without a fresh
+   API/schema review: missing, `null`, malformed, or non-empty reviewers fail
+   closed. Its strict status-check rule must set `do_not_enforce_on_create=false` and contain exactly the five
    App-15368 contexts (`docs-currency`, `verify`, `e2e-smoke`,
    `e2e-authenticated`, `runtime-dependency-audit`) plus
    `Vercel Deployments – CKO's projects` from App 8329.

@@ -1284,6 +1284,7 @@ export function validateOwnerMergeRuleset({ ruleset, rulesetId, owner, name }) {
       "require_code_owner_review",
       "require_last_push_approval",
       "required_approving_review_count",
+      "required_reviewers",
       "required_review_thread_resolution",
     ],
     "repository ruleset pull_request parameters",
@@ -1292,6 +1293,11 @@ export function validateOwnerMergeRuleset({ ruleset, rulesetId, owner, name }) {
     pullParameters.allowed_merge_methods,
     ["squash"],
     "repository ruleset allowed_merge_methods",
+  );
+  assertExactArray(
+    pullParameters.required_reviewers,
+    [],
+    "repository ruleset pull_request required_reviewers",
   );
   if (
     pullParameters.required_approving_review_count !== 0 ||
@@ -1366,6 +1372,7 @@ export function validateOwnerMergeRuleset({ ruleset, rulesetId, owner, name }) {
         requireCodeOwnerReview: false,
         requireLastPushApproval: false,
         requiredApprovingReviewCount: 0,
+        requiredReviewers: [],
         requiredReviewThreadResolution: true,
       },
       requiredStatusChecks: {

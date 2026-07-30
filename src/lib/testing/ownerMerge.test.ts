@@ -136,6 +136,7 @@ function ruleset() {
           require_code_owner_review: false,
           require_last_push_approval: false,
           required_approving_review_count: 0,
+          required_reviewers: [],
           required_review_thread_resolution: true,
         },
       },
@@ -183,6 +184,26 @@ function rulesetStatusChecks(
     throw new Error("test ruleset has malformed required status checks");
   }
   return checks;
+}
+
+function rulesetPullRequestParameters(
+  value: ReturnType<typeof ruleset>,
+): Record<string, unknown> {
+  const pullRequest = value.rules.find((rule) => rule.type === "pull_request");
+  if (!pullRequest || !("parameters" in pullRequest) || !pullRequest.parameters) {
+    throw new Error("test ruleset lacks pull_request parameters");
+  }
+  return pullRequest.parameters as Record<string, unknown>;
+}
+
+function effectiveRulesPullRequestParameters(
+  value: ReturnType<typeof effectiveRules>,
+): Record<string, unknown> {
+  const pullRequest = value.find((rule) => rule.type === "pull_request");
+  if (!pullRequest || !("parameters" in pullRequest) || !pullRequest.parameters) {
+    throw new Error("test effective rules lack pull_request parameters");
+  }
+  return pullRequest.parameters as Record<string, unknown>;
 }
 
 function normalizedRuleset() {
@@ -2569,6 +2590,43 @@ describe("owner-controlled merge root", () => {
     expect(() =>
       validateOwnerMergeRuleset({ ruleset: missingCheck, rulesetId: 70, owner: "cko-md", name: "axis" }),
     ).toThrow("unexpected required status-check count");
+
+    for (const [label, value] of [
+      ["omitted", undefined],
+      ["null", null],
+      ["object", {}],
+      ["string", "reviewer"],
+      ["nonempty", ["reviewer"]],
+      ["malformed", [1]],
+    ] as const) {
+      const malformedReviewers = ruleset();
+      const parameters = rulesetPullRequestParameters(malformedReviewers);
+      if (label === "omitted") {
+        delete parameters.required_reviewers;
+      } else {
+        parameters.required_reviewers = value;
+      }
+      expect(() =>
+        validateOwnerMergeRuleset({
+          ruleset: malformedReviewers,
+          rulesetId: 70,
+          owner: "cko-md",
+          name: "axis",
+        }),
+      ).toThrow("required_reviewers");
+    }
+
+    const explicitEmptyReviewers = ruleset();
+    rulesetPullRequestParameters(explicitEmptyReviewers).required_reviewers = [];
+    expect(() =>
+      validateOwnerMergeRuleset({
+        ruleset: explicitEmptyReviewers,
+        rulesetId: 70,
+        owner: "cko-md",
+        name: "axis",
+      }),
+    ).not.toThrow();
+    expect(normalizedRuleset().rules.pullRequest.requiredReviewers).toEqual([]);
   });
 
   it("keeps the committed ruleset creation payload aligned with the exact validator contract", () => {
@@ -2600,6 +2658,11 @@ describe("owner-controlled merge root", () => {
         (rule: { type: string }) => rule.type === "pull_request",
       ).parameters.dismiss_stale_reviews_on_push,
     ).toBe(true);
+    expect(
+      payload.rules.find(
+        (rule: { type: string }) => rule.type === "pull_request",
+      ).parameters.required_reviewers,
+    ).toEqual([]);
   });
 
   it("requires the effective main rules to be exactly the five pinned-source rules with no pagination ambiguity", () => {
@@ -2661,6 +2724,42 @@ describe("owner-controlled merge root", () => {
         name: "axis",
       }),
     ).toThrow("exact trusted App-bound set");
+
+    for (const [label, value] of [
+      ["omitted", undefined],
+      ["null", null],
+      ["object", {}],
+      ["string", "reviewer"],
+      ["nonempty", ["reviewer"]],
+      ["malformed", [1]],
+    ] as const) {
+      const malformedReviewers = effectiveRules();
+      const parameters = effectiveRulesPullRequestParameters(malformedReviewers);
+      if (label === "omitted") {
+        delete parameters.required_reviewers;
+      } else {
+        parameters.required_reviewers = value;
+      }
+      expect(() =>
+        validateOwnerMergeEffectiveRules({
+          rules: malformedReviewers,
+          rulesetId: 70,
+          owner: "cko-md",
+          name: "axis",
+        }),
+      ).toThrow("required_reviewers");
+    }
+
+    const explicitEmptyReviewers = effectiveRules();
+    effectiveRulesPullRequestParameters(explicitEmptyReviewers).required_reviewers = [];
+    expect(() =>
+      validateOwnerMergeEffectiveRules({
+        rules: explicitEmptyReviewers,
+        rulesetId: 70,
+        owner: "cko-md",
+        name: "axis",
+      }),
+    ).not.toThrow();
 
     expect(() =>
       validateOwnerMergeEffectiveRules({
