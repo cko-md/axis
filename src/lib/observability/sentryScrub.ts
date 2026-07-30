@@ -1,9 +1,14 @@
-import type { Event } from "@sentry/nextjs";
+import type { Breadcrumb, Event } from "@sentry/nextjs";
+import type { SpanJSON, TransactionEvent } from "@sentry/core";
 
 type SentryRequest = NonNullable<Event["request"]>;
 
 const SECRET_KEY_RE = /(?:authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|client[-_]?secret|body|html|messageText|messageHtml|mailBody|emailBody|rawEmail|challenge|credential|clientDataJSON|attestationObject|authenticatorData|signature|userHandle|rawId)/i;
-const TARGET_KEY_RE = /(?:url|uri|href|feed(?:s|Urls?)?|target|referer|referrer)/i;
+const TARGET_KEY_SEGMENTS = new Set([
+  "url", "uri", "href", "feed", "feeds", "feedurl", "feedurls", "target",
+  "referer", "referrer", "peer", "host", "address", "ip", "port",
+]);
+const REPLAY_PATH_KEY_SEGMENTS = new Set(["message", "previous", "current", "from", "to", "path", "pathname", "location"]);
 const WEBAUTHN_ROUTE_RE = /\/api\/(?:auth\/passkey\/|approvals\/[^/?]+\/step-up(?:[/?]|$))/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const REDACTED = "[REDACTED]";
@@ -14,6 +19,32 @@ function redactString(value: string): string {
     .replace(EMAIL_RE, "[REDACTED_EMAIL]");
 }
 
+function isTargetBearingKey(key: string): boolean {
+  // Split dot/dash/underscore keys and camelCase attributes without treating
+  // unrelated words such as security, feedback, or transport as sensitive.
+  const segments = key.replace(/([a-z0-9])([A-Z])/g, "$1.$2").split(/[._-]/).map((segment) => segment.toLowerCase());
+  return segments.some((segment) => TARGET_KEY_SEGMENTS.has(segment));
+}
+
+function scrubTraceText(value: string): string {
+  if (/(?:https?|wss?):\/\//i.test(value) || /[?#]/.test(value)) return REDACTED;
+  return redactString(value);
+}
+
+function scrubReplayValue(value: unknown, depth = 0): unknown {
+  if (depth > 6) return "[REDACTED_DEPTH]";
+  if (typeof value === "string") return redactString(value);
+  if (typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map((item) => scrubReplayValue(item, depth + 1));
+  const result: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (SECRET_KEY_RE.test(key) || isTargetBearingKey(key)) result[key] = REDACTED;
+    else if (REPLAY_PATH_KEY_SEGMENTS.has(key.toLowerCase()) && typeof nested === "string") result[key] = scrubTraceText(nested);
+    else result[key] = scrubReplayValue(nested, depth + 1);
+  }
+  return result;
+}
+
 function scrubValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[REDACTED_DEPTH]";
   if (typeof value === "string") return redactString(value);
@@ -22,7 +53,7 @@ function scrubValue(value: unknown, depth = 0): unknown {
 
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = SECRET_KEY_RE.test(key) || TARGET_KEY_RE.test(key) ? REDACTED : scrubValue(nested, depth + 1);
+    result[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubValue(nested, depth + 1);
   }
   return result;
 }
@@ -35,7 +66,7 @@ function scrubRequest(event: Event): void {
   if (request.headers) {
     const safeHeaders: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(request.headers)) {
-      safeHeaders[key] = SECRET_KEY_RE.test(key) || TARGET_KEY_RE.test(key) ? REDACTED : scrubValue(value);
+      safeHeaders[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubValue(value);
     }
     request.headers = safeHeaders as SentryRequest["headers"];
   }
@@ -71,5 +102,51 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     }));
   }
 
+  return event;
+}
+
+/** Scrubs transaction payloads, which bypass Sentry's beforeSend hook. */
+export function scrubSentryTransaction<T extends TransactionEvent>(event: T): T {
+  scrubSentryEvent(event);
+  const source = event.transaction_info?.source;
+  if (event.transaction && (source !== "route" || /(?:https?|wss?):\/\//i.test(event.transaction) || /[?#]/.test(event.transaction))) {
+    event.transaction = REDACTED;
+  } else if (event.transaction) {
+    event.transaction = scrubTraceText(event.transaction);
+  }
+  if (event.spans) event.spans = event.spans.map((span) => scrubSentrySpan(span));
+  return event;
+}
+
+/** Scrubs native HTTP span attributes such as http.url and url.full. */
+export function scrubSentrySpan<T extends SpanJSON>(span: T): T {
+  span.data = scrubValue(span.data) as SpanJSON["data"];
+  if (span.description) span.description = scrubTraceText(span.description);
+  if (span.links) span.links = scrubValue(span.links) as SpanJSON["links"];
+  return span;
+}
+
+/** Scrubs breadcrumbs at capture time so trace-only envelopes cannot retain targets. */
+export function scrubSentryBreadcrumb<T extends Breadcrumb>(breadcrumb: T): T {
+  if (breadcrumb.data) breadcrumb.data = scrubValue(breadcrumb.data) as Breadcrumb["data"];
+  if (breadcrumb.message) breadcrumb.message = scrubTraceText(breadcrumb.message);
+  return breadcrumb;
+}
+
+/**
+ * Scrubs Replay's custom performance/breadcrumb frames before they enter the
+ * recording buffer. Replay resource.fetch/resource.xhr descriptions bypass
+ * normal event hooks, so this closes that separate serialization path.
+ */
+export function scrubReplayRecordingEvent<T extends { data?: { tag?: string; payload?: unknown } }>(event: T): T {
+  const payload = event.data?.payload;
+  if (!payload || typeof payload !== "object") return event;
+  const frame = payload as Record<string, unknown>;
+  if (typeof frame.description === "string") frame.description = scrubTraceText(frame.description);
+  if (typeof frame.message === "string") frame.message = scrubTraceText(frame.message);
+  if ("data" in frame) frame.data = scrubReplayValue(frame.data);
+  // Breadcrumb and navigation payloads may carry a URL in message, url, or
+  // nested data. The generic pass is segment-aware and preserves safe labels.
+  event.data!.payload = scrubReplayValue(frame);
   return event;
 }
