@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Event } from "@sentry/nextjs";
 import { createEnvelope, serializeEnvelope, type TransactionEvent } from "@sentry/core";
 
-import { scrubReplayRecordingEvent, scrubSentryBreadcrumb, scrubSentryEvent, scrubSentrySpan, scrubSentryTransaction } from "./sentryScrub";
+import { scrubSentryBreadcrumb, scrubSentryEvent, scrubSentrySpan, scrubSentryTransaction } from "./sentryScrub";
 
-function envelopeText(item: unknown) {
-  const serialized = serializeEnvelope(createEnvelope({}, [[{ type: "transaction" }, item] as never]));
+function envelopeText(item: unknown, type: "event" | "transaction" = "event") {
+  const serialized = serializeEnvelope(createEnvelope({}, [[{ type }, item] as never]));
   return typeof serialized === "string" ? serialized : new TextDecoder().decode(serialized);
 }
 
@@ -199,74 +199,51 @@ describe("scrubSentryEvent", () => {
       description: `GET ${canary}`,
     });
     const breadcrumb = scrubSentryBreadcrumb({ category: "http", message: canary, data: { url: canary, operation: "reader_extract", code: "SAFE_FETCH_TIMEOUT" } });
-    const replayBreadcrumb = scrubSentryBreadcrumb({
+    const networkBreadcrumb = scrubSentryBreadcrumb({
       category: "fetch",
       data: { url: canary, headers: { authorization: "Bearer must-not-leak", cookie: "session=must-not-leak", referer: canary } },
     });
-    const serialized = `${envelopeText(span)}${JSON.stringify(breadcrumb)}${JSON.stringify(replayBreadcrumb)}`;
+    const serialized = `${envelopeText(span)}${JSON.stringify(breadcrumb)}${JSON.stringify(networkBreadcrumb)}`;
     expect(span.data).toMatchObject({ "http.url": "[REDACTED]", nested: { href: "[REDACTED]" }, provider: "youtube", operation: "reader_extract", security: "safe", feedback: "safe", transport: "direct" });
     expect(breadcrumb.data).toMatchObject({ url: "[REDACTED]", operation: "reader_extract", code: "SAFE_FETCH_TIMEOUT" });
     expect(breadcrumb.message).toBe("[REDACTED]");
-    expect(replayBreadcrumb.data).toMatchObject({ url: "[REDACTED]", headers: { authorization: "[REDACTED]", cookie: "[REDACTED]", referer: "[REDACTED]" } });
+    expect(networkBreadcrumb.data).toMatchObject({ url: "[REDACTED]", headers: { authorization: "[REDACTED]", cookie: "[REDACTED]", referer: "[REDACTED]" } });
     expect(serialized).not.toContain("private.example");
     expect(serialized).not.toContain("must-not-leak");
   });
 
-  it("scrubs Replay resource frames before their network target can serialize", () => {
-    const canary = "https://private.example/internal/path?token=must-not-leak#fragment";
-    const frame = scrubReplayRecordingEvent({
-      type: 5,
-      timestamp: 1,
+  it("removes path-only navigation breadcrumb canaries from error and transaction envelopes", () => {
+    const canary = "/internal/path?token=must-not-leak#fragment";
+    const breadcrumb = {
+      category: "navigation",
+      message: `Navigated to ${canary}`,
       data: {
-        tag: "performanceSpan",
-        payload: {
-          op: "resource.fetch",
-          description: `GET ${canary}`,
-          startTimestamp: 1,
-          endTimestamp: 2,
-          data: {
-            url: canary,
-            "url.full": canary,
-            "url.query": "token=must-not-leak",
-            "net.peer.ip": "203.0.113.77",
-            "network.peer.port": 8443,
-            headers: { authorization: "Bearer must-not-leak", cookie: "session=must-not-leak", referer: canary },
-            operation: "reader_extract", code: "SAFE_FETCH_TIMEOUT", provider: "youtube", transport: "direct",
-          },
-        },
+        previous: canary,
+        current: canary,
+        path: canary,
+        description: `GET ${canary}`,
+        operation: "cached_feed",
+        code: "SAFE_FETCH_TIMEOUT",
+        provider: "youtube",
+        transport: "direct",
       },
-    });
-    const serialized = JSON.stringify(frame);
-    expect(serialized).not.toContain("private.example");
+    };
+    const error = scrubSentryEvent({ type: "error", breadcrumbs: [breadcrumb] } as unknown as Event);
+    const transaction = scrubSentryTransaction({
+      type: "transaction",
+      transaction: "GET /api/feeds/cached",
+      transaction_info: { source: "route" },
+      breadcrumbs: [breadcrumb],
+    } as unknown as TransactionEvent);
+    const serialized = `${envelopeText(error)}${envelopeText(transaction, "transaction")}`;
+
     expect(serialized).not.toContain("internal/path");
     expect(serialized).not.toContain("must-not-leak");
-    expect(serialized).not.toContain("203.0.113.");
-    expect(serialized).not.toContain("8443");
-    expect(serialized).toContain("reader_extract");
+    expect(serialized).not.toContain("fragment");
+    expect(serialized).toContain("cached_feed");
     expect(serialized).toContain("SAFE_FETCH_TIMEOUT");
     expect(serialized).toContain("youtube");
     expect(serialized).toContain("direct");
   });
 
-  it("scrubs path-only Replay breadcrumb and navigation-history fields", () => {
-    const pathCanary = "/internal?token=must-not-leak#fragment";
-    const frame = scrubReplayRecordingEvent({
-      type: 5,
-      timestamp: 1,
-      data: {
-        tag: "breadcrumb",
-        payload: {
-          category: "navigation",
-          message: pathCanary,
-          data: { previous: pathCanary, current: pathCanary, operation: "cached_feed", transport: "direct" },
-        },
-      },
-    });
-    const serialized = JSON.stringify(frame);
-    expect(serialized).not.toContain("internal");
-    expect(serialized).not.toContain("must-not-leak");
-    expect(serialized).not.toContain("fragment");
-    expect(serialized).toContain("cached_feed");
-    expect(serialized).toContain("direct");
-  });
 });

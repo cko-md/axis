@@ -8,7 +8,9 @@ const TARGET_KEY_SEGMENTS = new Set([
   "url", "uri", "href", "feed", "feeds", "feedurl", "feedurls", "target",
   "referer", "referrer", "peer", "host", "address", "ip", "port",
 ]);
-const REPLAY_PATH_KEY_SEGMENTS = new Set(["message", "previous", "current", "from", "to", "path", "pathname", "location"]);
+const BREADCRUMB_TEXT_KEY_SEGMENTS = new Set([
+  "message", "description", "previous", "current", "from", "to", "path", "pathname", "location",
+]);
 const WEBAUTHN_ROUTE_RE = /\/api\/(?:auth\/passkey\/|approvals\/[^/?]+\/step-up(?:[/?]|$))/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const REDACTED = "[REDACTED]";
@@ -27,20 +29,21 @@ function isTargetBearingKey(key: string): boolean {
 }
 
 function scrubTraceText(value: string): string {
-  if (/(?:https?|wss?):\/\//i.test(value) || /[?#]/.test(value)) return REDACTED;
+  if (/(?:https?|wss?):\/\//i.test(value) || /[?#]/.test(value) || /(?:^|\s)\/\S*/.test(value)) return REDACTED;
   return redactString(value);
 }
 
-function scrubReplayValue(value: unknown, depth = 0): unknown {
+function scrubBreadcrumbValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[REDACTED_DEPTH]";
   if (typeof value === "string") return redactString(value);
   if (typeof value !== "object" || value === null) return value;
-  if (Array.isArray(value)) return value.map((item) => scrubReplayValue(item, depth + 1));
+  if (Array.isArray(value)) return value.map((item) => scrubBreadcrumbValue(item, depth + 1));
+
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
     if (SECRET_KEY_RE.test(key) || isTargetBearingKey(key)) result[key] = REDACTED;
-    else if (REPLAY_PATH_KEY_SEGMENTS.has(key.toLowerCase()) && typeof nested === "string") result[key] = scrubTraceText(nested);
-    else result[key] = scrubReplayValue(nested, depth + 1);
+    else if (BREADCRUMB_TEXT_KEY_SEGMENTS.has(key.toLowerCase()) && typeof nested === "string") result[key] = scrubTraceText(nested);
+    else result[key] = scrubBreadcrumbValue(nested, depth + 1);
   }
   return result;
 }
@@ -85,7 +88,7 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
   event.extra = scrubValue(event.extra) as Event["extra"];
   event.contexts = scrubValue(event.contexts) as Event["contexts"];
   event.tags = scrubValue(event.tags) as Event["tags"];
-  event.breadcrumbs = scrubValue(event.breadcrumbs) as Event["breadcrumbs"];
+  event.breadcrumbs = scrubBreadcrumbValue(event.breadcrumbs) as Event["breadcrumbs"];
 
   if (event.user) {
     event.user.email = undefined;
@@ -109,10 +112,10 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
 export function scrubSentryTransaction<T extends TransactionEvent>(event: T): T {
   scrubSentryEvent(event);
   const source = event.transaction_info?.source;
+  // Sentry's route source is normalized by the SDK/framework; preserve it as
+  // the safe route label. Every other transaction name may be raw input.
   if (event.transaction && (source !== "route" || /(?:https?|wss?):\/\//i.test(event.transaction) || /[?#]/.test(event.transaction))) {
     event.transaction = REDACTED;
-  } else if (event.transaction) {
-    event.transaction = scrubTraceText(event.transaction);
   }
   if (event.spans) event.spans = event.spans.map((span) => scrubSentrySpan(span));
   return event;
@@ -128,25 +131,7 @@ export function scrubSentrySpan<T extends SpanJSON>(span: T): T {
 
 /** Scrubs breadcrumbs at capture time so trace-only envelopes cannot retain targets. */
 export function scrubSentryBreadcrumb<T extends Breadcrumb>(breadcrumb: T): T {
-  if (breadcrumb.data) breadcrumb.data = scrubValue(breadcrumb.data) as Breadcrumb["data"];
+  if (breadcrumb.data) breadcrumb.data = scrubBreadcrumbValue(breadcrumb.data) as Breadcrumb["data"];
   if (breadcrumb.message) breadcrumb.message = scrubTraceText(breadcrumb.message);
   return breadcrumb;
-}
-
-/**
- * Scrubs Replay's custom performance/breadcrumb frames before they enter the
- * recording buffer. Replay resource.fetch/resource.xhr descriptions bypass
- * normal event hooks, so this closes that separate serialization path.
- */
-export function scrubReplayRecordingEvent<T extends { data?: { tag?: string; payload?: unknown } }>(event: T): T {
-  const payload = event.data?.payload;
-  if (!payload || typeof payload !== "object") return event;
-  const frame = payload as Record<string, unknown>;
-  if (typeof frame.description === "string") frame.description = scrubTraceText(frame.description);
-  if (typeof frame.message === "string") frame.message = scrubTraceText(frame.message);
-  if ("data" in frame) frame.data = scrubReplayValue(frame.data);
-  // Breadcrumb and navigation payloads may carry a URL in message, url, or
-  // nested data. The generic pass is segment-aware and preserves safe labels.
-  event.data!.payload = scrubReplayValue(frame);
-  return event;
 }
