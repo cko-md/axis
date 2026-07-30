@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { scrubSentryBreadcrumb, scrubSentryEvent, scrubSentrySpan, scrubSentryTransaction } from "@/lib/observability/sentryScrub";
+import { scrubSentryBreadcrumb, scrubSentryEventStrict, scrubSentrySpan, scrubSentryTransaction } from "@/lib/observability/sentryScrub";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -14,7 +14,7 @@ Sentry.init({
 
   // Disable in dev unless DSN is explicitly set
   enabled: process.env.NODE_ENV === "production" || !!process.env.NEXT_PUBLIC_SENTRY_DSN,
-  beforeSend: scrubSentryEvent,
+  beforeSend: scrubSentryEventStrict,
   beforeSendTransaction: scrubSentryTransaction,
   beforeSendSpan: scrubSentrySpan,
   beforeBreadcrumb: scrubSentryBreadcrumb,

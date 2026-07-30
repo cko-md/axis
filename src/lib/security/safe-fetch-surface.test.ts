@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
@@ -44,5 +44,16 @@ describe("untrusted outbound fetch surfaces", () => {
     expect(source).not.toMatch(/pinnedUrl\.hostname = pinnedAddress/);
     expect(source).toMatch(/servername: url\.hostname/);
     expect(source).toMatch(/redirects <= maxRedirects/);
+  });
+
+  it("keeps every runtime route off the deprecated ssrf compatibility preflight", async () => {
+    const apiRoot = path.join(root, "src/app/api");
+    const files = await readdir(apiRoot, { recursive: true });
+    const routeFiles = files.filter((file) => file.endsWith("route.ts"));
+    for (const file of routeFiles) {
+      const source = await readFile(path.join(apiRoot, file), "utf8");
+      expect(source).not.toMatch(/from\s+["'][^"']*security\/ssrf["']/);
+      expect(source).not.toMatch(/import\(\s*["'][^"']*security\/ssrf["']\s*\)/);
+    }
   });
 });

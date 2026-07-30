@@ -17,7 +17,8 @@ const proxyHtmlHeaders = {
 // OAuth/login hosts must never be proxied: routing a credential page through an
 // embedded webview is the "man-in-the-middle" pattern Google explicitly forbids.
 // These open in a real browser tab instead (handled client-side in WebViewer).
-// (OAuth host list + private-IP/metadata blocking lives in @/lib/security/ssrf)
+// safeFetch owns OAuth, hostname, DNS, and pinned-address enforcement. The
+// deprecated ssrf compatibility preflight is never an outbound authorization.
 
 const NAV_INTERCEPT = `<script>(function(){
   document.addEventListener('click',function(e){
