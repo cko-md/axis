@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAndParse, type RssItem } from "@/lib/feeds/rss";
-import { recordSafeFetchFailure } from "@/lib/security/safe-fetch-observability";
+import { recordSafeFetchFailures } from "@/lib/security/safe-fetch-observability";
 
 type FeedSource = { host: string; state: "live" | "failed"; code?: string };
 
@@ -29,9 +29,13 @@ export async function POST(req: NextRequest) {
 
   const urls = feedUrls.slice(0, 6);
   const settled = await Promise.allSettled(urls.map((url) => fetchAndParse(url)));
+  const failureCodes = recordSafeFetchFailures("briefing_feed", settled.flatMap((result, index) =>
+    result.status === "rejected" ? [{ rawTarget: urls[index], error: result.reason }] : [],
+  ));
+  let failureIndex = 0;
   const sources: FeedSource[] = settled.map((result, index) => {
     if (result.status === "fulfilled") return { host: sourceHost(urls[index]), state: "live" };
-    const { code } = recordSafeFetchFailure("briefing_feed", urls[index], result.reason);
+    const { code } = failureCodes[failureIndex++] ?? { code: "SAFE_FETCH_ROUTE_FAILED" };
     return { host: sourceHost(urls[index]), state: "failed", code };
   });
 

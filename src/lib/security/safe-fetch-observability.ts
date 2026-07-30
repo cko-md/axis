@@ -13,6 +13,14 @@ const EVENT_WORTHY_CODES = new Set([
  * classified provider hosts may contribute a coarse provider label.
  */
 export function recordSafeFetchFailure(operation: string, rawTarget: string | URL, error: unknown) {
+  return recordSafeFetchFailures(operation, [{ rawTarget, error }])[0] ?? { code: "SAFE_FETCH_ROUTE_FAILED" };
+}
+
+type SafeFetchFailure = { rawTarget: string | URL; error: unknown };
+
+type SafeFetchFailureData = { code: string; provider?: "youtube" };
+
+function classifySafeFetchFailure(rawTarget: string | URL, error: unknown): SafeFetchFailureData {
   let provider: "youtube" | undefined;
   try {
     const host = new URL(rawTarget).hostname.toLowerCase().replace(/\.+$/, "");
@@ -22,11 +30,25 @@ export function recordSafeFetchFailure(operation: string, rawTarget: string | UR
   }
 
   const code = error instanceof SafeFetchError ? error.code : "SAFE_FETCH_ROUTE_FAILED";
-  const data = { operation, code, ...(provider ? { provider } : {}) };
-  const isSafeFetchError = error instanceof SafeFetchError;
-  Sentry.addBreadcrumb({ category: "safe-fetch", level: isSafeFetchError ? "info" : "error", data });
-  if (!isSafeFetchError || EVENT_WORTHY_CODES.has(code)) {
-    Sentry.captureException(new Error(code), { tags: { area: "safe-fetch", ...data } });
+  return { code, ...(provider ? { provider } : {}) };
+}
+
+/**
+ * Records all failures as safe breadcrumbs, but emits at most one searchable
+ * event for a batch route invocation. Callers keep one normalized code per
+ * failed source without creating six near-identical Sentry issues.
+ */
+export function recordSafeFetchFailures(operation: string, failures: readonly SafeFetchFailure[]) {
+  const classified = failures.map(({ rawTarget, error }) => ({
+    error,
+    data: classifySafeFetchFailure(rawTarget, error),
+  }));
+  for (const { error, data } of classified) {
+    Sentry.addBreadcrumb({ category: "safe-fetch", level: error instanceof SafeFetchError ? "info" : "error", data: { operation, ...data } });
   }
-  return { code };
+  const searchable = classified.find(({ error, data }) => !(error instanceof SafeFetchError) || EVENT_WORTHY_CODES.has(data.code));
+  if (searchable) {
+    Sentry.captureException(new Error(searchable.data.code), { tags: { area: "safe-fetch", operation, ...searchable.data } });
+  }
+  return classified.map(({ data }) => data);
 }

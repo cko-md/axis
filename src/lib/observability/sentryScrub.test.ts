@@ -53,20 +53,13 @@ describe("scrubSentryEvent", () => {
     const scrubbed = scrubSentryEvent(event);
 
     expect(scrubbed.message).toBe("Failed for [REDACTED_EMAIL]");
-    expect(scrubbed.request?.url).toBe("https://axis.local/mail?email=[REDACTED_EMAIL]");
+    expect(scrubbed.request?.url).toBe("[REDACTED]");
     expect(scrubbed.request?.headers?.Authorization).toBe("[REDACTED]");
     expect(scrubbed.request?.headers?.Cookie).toBe("[REDACTED]");
     expect(scrubbed.request?.headers?.["x-request-id"]).toBe("req_123");
     expect(scrubbed.request?.cookies).toBeUndefined();
-    expect(scrubbed.request?.data).toMatchObject({
-      subject: "Quarterly update",
-      mailBody: "[REDACTED]",
-      nested: {
-        accessToken: "[REDACTED]",
-        sender: "[REDACTED_EMAIL]",
-      },
-    });
-    expect(scrubbed.request?.query_string).toEqual({ account: "[REDACTED_EMAIL]" });
+    expect(scrubbed.request?.data).toBeUndefined();
+    expect(scrubbed.request?.query_string).toBeUndefined();
     expect(scrubbed.user).toMatchObject({
       id: "user_123",
       username: "[REDACTED_EMAIL]",
@@ -127,5 +120,31 @@ describe("scrubSentryEvent", () => {
     };
 
     expect(scrubSentryEvent(event).request?.data).toBe("[REDACTED]");
+  });
+
+  it("removes request targets and nested URL-bearing data from every event surface", () => {
+    const canary = "https://private.example/internal/path?token=must-not-leak#fragment";
+    const event = scrubSentryEvent({
+      request: {
+        url: canary,
+        headers: { Referer: canary, Cookie: "session=must-not-leak" },
+        query_string: { url: canary },
+        data: { feedUrls: [canary] },
+      },
+      tags: { operation: "cached_feed", code: "SAFE_FETCH_TIMEOUT", provider: "youtube", feedUrl: canary },
+      extra: { nested: { uri: canary, href: canary, feedUrls: [canary] } },
+      contexts: { upstream: { targetUrl: canary } },
+      breadcrumbs: [{ category: "safe-fetch", data: { url: canary, href: canary, feed: canary } }],
+    } as Event);
+
+    expect(event.tags).toMatchObject({ operation: "cached_feed", code: "SAFE_FETCH_TIMEOUT", provider: "youtube", feedUrl: "[REDACTED]" });
+    expect(event.extra).toMatchObject({ nested: { uri: "[REDACTED]", href: "[REDACTED]", feedUrls: "[REDACTED]" } });
+    expect(event.contexts).toMatchObject({ upstream: { targetUrl: "[REDACTED]" } });
+    expect(event.breadcrumbs?.[0]?.data).toMatchObject({ url: "[REDACTED]", href: "[REDACTED]", feed: "[REDACTED]" });
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain("private.example");
+    expect(serialized).not.toContain("internal/path");
+    expect(serialized).not.toContain("must-not-leak");
+    expect(serialized).not.toContain("fragment");
   });
 });

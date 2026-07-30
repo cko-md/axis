@@ -3,12 +3,15 @@ import type { Event } from "@sentry/nextjs";
 type SentryRequest = NonNullable<Event["request"]>;
 
 const SECRET_KEY_RE = /(?:authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|client[-_]?secret|body|html|messageText|messageHtml|mailBody|emailBody|rawEmail|challenge|credential|clientDataJSON|attestationObject|authenticatorData|signature|userHandle|rawId)/i;
+const TARGET_KEY_RE = /(?:url|uri|href|feed(?:s|Urls?)?|target|referer|referrer)/i;
 const WEBAUTHN_ROUTE_RE = /\/api\/(?:auth\/passkey\/|approvals\/[^/?]+\/step-up(?:[/?]|$))/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const REDACTED = "[REDACTED]";
 
 function redactString(value: string): string {
-  return value.replace(EMAIL_RE, "[REDACTED_EMAIL]");
+  return value
+    .replace(/(?:https?|wss?):\/\/[^\s"'<>()]+/gi, "[REDACTED_URL]")
+    .replace(EMAIL_RE, "[REDACTED_EMAIL]");
 }
 
 function scrubValue(value: unknown, depth = 0): unknown {
@@ -19,7 +22,7 @@ function scrubValue(value: unknown, depth = 0): unknown {
 
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = SECRET_KEY_RE.test(key) ? REDACTED : scrubValue(nested, depth + 1);
+    result[key] = SECRET_KEY_RE.test(key) || TARGET_KEY_RE.test(key) ? REDACTED : scrubValue(nested, depth + 1);
   }
   return result;
 }
@@ -27,23 +30,22 @@ function scrubValue(value: unknown, depth = 0): unknown {
 function scrubRequest(event: Event): void {
   const request = event.request;
   if (!request) return;
-  const isWebAuthnRoute = typeof request.url === "string"
-    && WEBAUTHN_ROUTE_RE.test(request.url);
+  const isWebAuthnRoute = typeof request.url === "string" && WEBAUTHN_ROUTE_RE.test(request.url);
 
   if (request.headers) {
     const safeHeaders: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(request.headers)) {
-      safeHeaders[key] = SECRET_KEY_RE.test(key) ? REDACTED : scrubValue(value);
+      safeHeaders[key] = SECRET_KEY_RE.test(key) || TARGET_KEY_RE.test(key) ? REDACTED : scrubValue(value);
     }
     request.headers = safeHeaders as SentryRequest["headers"];
   }
 
   request.cookies = undefined;
-  request.data = (
-    isWebAuthnRoute ? REDACTED : scrubValue(request.data)
-  ) as SentryRequest["data"];
-  request.query_string = scrubValue(request.query_string) as SentryRequest["query_string"];
-  if (request.url) request.url = redactString(request.url);
+  // Event transactions already carry the normalized route. Never preserve a
+  // raw request payload, query string, fragment, or dynamic path here.
+  request.data = isWebAuthnRoute ? REDACTED : undefined;
+  request.query_string = undefined;
+  if (request.url) request.url = REDACTED;
 }
 
 export function scrubSentryEvent<T extends Event>(event: T): T {
@@ -52,6 +54,7 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
   event.extra = scrubValue(event.extra) as Event["extra"];
   event.contexts = scrubValue(event.contexts) as Event["contexts"];
   event.tags = scrubValue(event.tags) as Event["tags"];
+  event.breadcrumbs = scrubValue(event.breadcrumbs) as Event["breadcrumbs"];
 
   if (event.user) {
     event.user.email = undefined;
