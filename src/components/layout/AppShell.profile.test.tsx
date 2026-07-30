@@ -3,13 +3,13 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountState } from "./ShellProfileContext";
+import {
+  ShellProfileContext,
+  type AccountState,
+  type ProfileSaveState,
+  type ShellProfileContextValue,
+} from "./ShellProfileContext";
 
-const mocks = vi.hoisted(() => ({
-  fetch: vi.fn(),
-}));
-
-vi.mock("@sentry/nextjs", () => ({ captureException: vi.fn() }));
 vi.mock("next/dynamic", () => ({
   default: () => function DynamicStub() {
     return null;
@@ -22,8 +22,18 @@ vi.mock("@/components/nav/Sidebar", () => ({
   ),
 }));
 vi.mock("@/components/nav/Topbar", () => ({
-  Topbar: ({ accountState }: { accountState: AccountState }) => (
-    <div>{`topbar:${accountState}`}</div>
+  Topbar: ({
+    accountState,
+    profileSaveState,
+    hasPendingProfileChanges,
+  }: {
+    accountState: AccountState;
+    profileSaveState: ProfileSaveState;
+    hasPendingProfileChanges: boolean;
+  }) => (
+    <div>
+      {`topbar:${accountState}:${profileSaveState}:${hasPendingProfileChanges}`}
+    </div>
   ),
 }));
 vi.mock("@/components/spotify/SpotifyProvider", () => ({
@@ -52,17 +62,31 @@ import { AppShell } from "./AppShell";
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-const flush = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+const profileValue: ShellProfileContextValue = {
+  state: "ready",
+  profile: {
+    display_name: "Name",
+    role_title: "Role",
+    bio: null,
+    avatar_url: null,
+    email: null,
+  },
+  draft: {
+    name: "Pending Name",
+    role: "Role",
+    bio: "",
+    photo: "",
+  },
+  saveState: "pending",
+  hasPendingChanges: true,
+  scheduleProfileSave: vi.fn(),
+  retryProfileSave: vi.fn(),
 };
 
 let container: HTMLDivElement;
 let root: Root | null;
 
 beforeEach(() => {
-  mocks.fetch.mockReset();
-  vi.stubGlobal("fetch", mocks.fetch);
   vi.stubGlobal("matchMedia", vi.fn());
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
@@ -86,34 +110,18 @@ afterEach(() => {
 });
 
 describe("AppShell profile ownership", () => {
-  it("keeps provider state available to Topbar while the Sidebar is collapsed", async () => {
-    mocks.fetch.mockResolvedValueOnce({
-      status: 200,
-      ok: true,
-      json: vi.fn().mockResolvedValue({
-        display_name: "Name",
-        role_title: "Role",
-        bio: null,
-        avatar_url: null,
-        email: null,
-      }),
-    });
-
+  it("passes root-owned profile state to Topbar while the Sidebar is collapsed", () => {
     act(() => {
       root?.render(
-        <AppShell section="Daily" page="Command">
-          <div>Content</div>
-        </AppShell>,
+        <ShellProfileContext.Provider value={profileValue}>
+          <AppShell section="Daily" page="Command">
+            <div>Content</div>
+          </AppShell>
+        </ShellProfileContext.Provider>,
       );
     });
-    await act(flush);
 
     expect(container.textContent).toContain("sidebar:collapsed");
-    expect(container.textContent).toContain("topbar:ready");
-    expect(mocks.fetch).toHaveBeenCalledTimes(1);
-    expect(mocks.fetch).toHaveBeenCalledWith(
-      "/api/auth/profile",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
+    expect(container.textContent).toContain("topbar:ready:pending:true");
   });
 });

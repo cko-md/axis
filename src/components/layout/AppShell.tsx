@@ -11,10 +11,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { Topbar } from "@/components/nav/Topbar";
-import {
-  ShellProfileProvider,
-  useShellProfile,
-} from "@/components/layout/ShellProfileContext";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
 import { SpotifyProvider } from "@/components/spotify/SpotifyProvider";
 import { AxisAtmosphere } from "@/components/ui/axis/AxisAtmosphere";
 import {
@@ -59,11 +56,9 @@ const NEXT_MODE: Record<SidebarMode, SidebarMode> = {
 export function AppShell({ section, page, children, suppressPresence = false }: Props) {
   return (
     <WorkspaceProvider>
-      <ShellProfileProvider>
-        <AppShellContent section={section} page={page} suppressPresence={suppressPresence}>
-          {children}
-        </AppShellContent>
-      </ShellProfileProvider>
+      <AppShellContent section={section} page={page} suppressPresence={suppressPresence}>
+        {children}
+      </AppShellContent>
     </WorkspaceProvider>
   );
 }
@@ -77,7 +72,11 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
   const [isNight, setIsNight] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const autoCollapsedRef = useRef(false);
-  const { state: accountState } = useShellProfile();
+  const {
+    state: accountState,
+    saveState: profileSaveState,
+    hasPendingChanges: hasPendingProfileChanges,
+  } = useShellProfile();
   const navStatus = ALL_NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
 
   useEffect(() => {
@@ -167,6 +166,8 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
             section={section}
             page={page}
             accountState={accountState}
+            profileSaveState={profileSaveState}
+            hasPendingProfileChanges={hasPendingProfileChanges}
             onOpenSearch={() => {
               setPaletteOpen(false);
               setSearchOpen(true);

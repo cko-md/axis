@@ -33,13 +33,15 @@ describe("platform shell production headers", () => {
   });
 
   it("does not prefetch login before the current account is resolved", () => {
-    expect(shellProfileContext).toContain('state: "loading"');
+    expect(shellProfileContext).toContain(
+      'useState<AccountState>("loading")',
+    );
     expect(profileSection).toContain(
       '<Link href="/login" prefetch={false}',
     );
   });
 
-  it("owns one abortable same-origin identity read above collapsible shell consumers", () => {
+  it("owns one abortable same-origin identity read above route-remounted shell consumers", () => {
     for (const component of [profileSection, topbar]) {
       expect(component).not.toContain("auth.getUser");
     }
@@ -50,7 +52,12 @@ describe("platform shell production headers", () => {
     expect(shellProfileContext).toContain('fetch("/api/auth/profile"');
     expect(shellProfileContext).toContain("new AbortController()");
     expect(shellProfileContext).toContain("controller.abort()");
-    expect(appShell).toContain("<ShellProfileProvider>");
+    expect(rootLayout).toMatch(
+      /<ToastProvider>\s*<ShellProfileProvider>/,
+    );
+    expect(appShell).not.toContain("<ShellProfileProvider>");
+    expect(shellProfileContext).toContain("scheduleProfileSave");
+    expect(shellProfileContext).toContain("hasPendingChanges");
     expect(appShell).toContain("<Sidebar collapsed={sidebarMode === \"icons\"} />");
   });
 

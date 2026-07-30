@@ -52,6 +52,36 @@ describe("Topbar shell profile state", () => {
             section="Daily"
             page="Command"
             accountState={accountState}
+            profileSaveState="idle"
+            hasPendingProfileChanges={false}
+            onOpenSearch={vi.fn()}
+            onOpenPalette={vi.fn()}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain(expectedLabel);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["pending", false, "Saving profile…"],
+    ["saving", true, "Saving profile…"],
+    ["error", true, "Profile save failed"],
+    ["session-expired", true, "Profile not saved · Sign in"],
+    ["idle", true, "Profile changes pending"],
+  ] as const)(
+    "surfaces %s profile persistence state outside the sidebar",
+    (profileSaveState, hasPendingProfileChanges, expectedLabel) => {
+      act(() => {
+        root?.render(
+          <Topbar
+            section="Daily"
+            page="Command"
+            accountState="ready"
+            profileSaveState={profileSaveState}
+            hasPendingProfileChanges={hasPendingProfileChanges}
             onOpenSearch={vi.fn()}
             onOpenPalette={vi.fn()}
           />,

@@ -14,6 +14,8 @@ type ProfilePayload = {
 
 const PROFILE_KEYS = ["name", "role", "bio", "photo"] as const;
 const MAX_PROFILE_FIELD_LENGTH = 2_000;
+const MAX_PROFILE_EMAIL_LENGTH = 320;
+const MAX_PROFILE_BODY_BYTES = 10_000;
 
 function unavailable(operation: string) {
   captureRouteError(new Error("Profile account operation failed"), {
@@ -36,6 +38,51 @@ function identityResponse(user: unknown, error: unknown, operation: string) {
   return null;
 }
 
+function boundedNullableString(value: unknown, maxLength: number) {
+  return typeof value === "string" && value.length <= maxLength ? value : null;
+}
+
+async function readBoundedJson(request: Request): Promise<unknown> {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (
+      !Number.isSafeInteger(parsedLength) ||
+      parsedLength < 0 ||
+      parsedLength > MAX_PROFILE_BODY_BYTES
+    ) {
+      throw new Error("Invalid profile body length");
+    }
+  }
+  if (!request.body) throw new Error("Missing profile body");
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (byteLength + value.byteLength > MAX_PROFILE_BODY_BYTES) {
+        await reader.cancel();
+        throw new Error("Profile body too large");
+      }
+      chunks.push(value);
+      byteLength += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown;
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -48,8 +95,11 @@ export async function GET() {
       .eq("id", user.id).maybeSingle();
     if (error) return unavailable("read_profile");
     const payload: ProfilePayload = {
-      display_name: data?.display_name ?? null, role_title: data?.role_title ?? null,
-      bio: data?.bio ?? null, avatar_url: data?.avatar_url ?? null, email: user.email ?? null,
+      display_name: boundedNullableString(data?.display_name, MAX_PROFILE_FIELD_LENGTH),
+      role_title: boundedNullableString(data?.role_title, MAX_PROFILE_FIELD_LENGTH),
+      bio: boundedNullableString(data?.bio, MAX_PROFILE_FIELD_LENGTH),
+      avatar_url: boundedNullableString(data?.avatar_url, MAX_PROFILE_FIELD_LENGTH),
+      email: boundedNullableString(user.email, MAX_PROFILE_EMAIL_LENGTH),
     };
     return NextResponse.json(payload);
   } catch {
@@ -66,9 +116,7 @@ export async function PATCH(request: Request) {
     }
     let body: unknown;
     try {
-      const text = await request.text();
-      if (new TextEncoder().encode(text).byteLength > 10_000) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
-      body = JSON.parse(text) as unknown;
+      body = await readBoundedJson(request);
     } catch { return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 }); }
     if (typeof body !== "object" || body === null || Array.isArray(body)) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
     const record = body as Record<string, unknown>;

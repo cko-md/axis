@@ -4,7 +4,10 @@ import React, { useEffect, useState } from "react";
 import { formatClock } from "@/lib/format";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
-import type { AccountState } from "@/components/layout/ShellProfileContext";
+import type {
+  AccountState,
+  ProfileSaveState,
+} from "@/components/layout/ShellProfileContext";
 
 type Props = {
   section: string;
@@ -12,9 +15,19 @@ type Props = {
   onOpenSearch: () => void;
   onOpenPalette: () => void;
   accountState: AccountState;
+  profileSaveState: ProfileSaveState;
+  hasPendingProfileChanges: boolean;
 };
 
-export function Topbar({ section, page, onOpenSearch, onOpenPalette, accountState }: Props) {
+export function Topbar({
+  section,
+  page,
+  onOpenSearch,
+  onOpenPalette,
+  accountState,
+  profileSaveState,
+  hasPendingProfileChanges,
+}: Props) {
   const [clock, setClock] = useState("");
   const { openInterfaceStudio } = useTheme();
   const { open: openBrowser } = useWebViewer();
@@ -29,7 +42,15 @@ export function Topbar({ section, page, onOpenSearch, onOpenPalette, accountStat
   const syncState = accountState === "ready" ? "signed_in" : accountState === "signed-out" ? "signed_out" : accountState;
 
   const syncLabel =
-    syncState === "signed_in"
+    profileSaveState === "session-expired"
+      ? "Profile not saved · Sign in"
+      : profileSaveState === "error"
+        ? "Profile save failed"
+        : profileSaveState === "pending" || profileSaveState === "saving"
+          ? "Saving profile…"
+          : hasPendingProfileChanges
+            ? "Profile changes pending"
+            : syncState === "signed_in"
       ? "Synced · Supabase"
       : syncState === "signed_out"
         ? "Local · Not signed in"
@@ -37,7 +58,15 @@ export function Topbar({ section, page, onOpenSearch, onOpenPalette, accountStat
           ? "Sync unavailable"
           : "Checking sync…";
   const syncTitle =
-    syncState === "signed_in"
+    profileSaveState === "session-expired"
+      ? "Profile changes are retained locally; sign in to save them"
+      : profileSaveState === "error"
+        ? "Profile changes were not saved"
+        : profileSaveState === "pending" || profileSaveState === "saving"
+          ? "Profile changes are waiting to be saved"
+          : hasPendingProfileChanges
+            ? "Profile changes are retained but not yet saved"
+            : syncState === "signed_in"
       ? "Synced to Supabase"
       : syncState === "signed_out"
         ? "Local only — sign in to sync"

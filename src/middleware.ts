@@ -23,6 +23,11 @@ import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
 // this page public does not widen access to anything behind it.
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/terms", "/privacy", "/oauth-done"];
 
+function matchesPathPrefix(pathname: string, prefix: string) {
+  const normalized = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  return pathname === normalized || pathname.startsWith(`${normalized}/`);
+}
+
 // request.nextUrl.clone() inherits Next's NextURL bug where 127.0.0.1/[::1]
 // get silently rewritten to the literal string "localhost" at parse time (see
 // the long comment in getAppOrigin.ts) — so a plain `.clone()` redirect issued
@@ -56,7 +61,7 @@ export async function middleware(request: NextRequest) {
     "/api/plaid/webhook",             // Inbound from Plaid — self-authenticates via signed JWT
     "/api/webhooks/make",             // Inbound from Make — self-authenticates via shared secret + HMAC
   ];
-  if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) {
+  if (PUBLIC_API_PREFIXES.some((p) => matchesPathPrefix(pathname, p))) {
     return NextResponse.next({ request });
   }
 
@@ -200,7 +205,7 @@ export async function middleware(request: NextRequest) {
       "/api/vector",
       // Note: /api/cron uses CRON_SECRET bearer auth, not user session
     ];
-    if (!user && GUARDED_PREFIXES.some((p) => pathname.startsWith(p))) {
+    if (!user && GUARDED_PREFIXES.some((p) => matchesPathPrefix(pathname, p))) {
       return NextResponse.json({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 });
     }
     return supabaseResponse;
