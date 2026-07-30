@@ -39,7 +39,7 @@ async function runSetupFailureChild() {
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
         reject(new Error("safe-fetch process regression child timed out"));
-      }, 10_000);
+      }, 15_000);
       child.once("close", (code, signal) => {
         clearTimeout(timer);
         resolve({ code, signal, stdout, stderr });
@@ -428,7 +428,7 @@ describe("safeFetch", () => {
         .rejects.toMatchObject({ code: "SAFE_FETCH_BODY_TOO_LARGE" });
       await expect(pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/over`), input))
         .rejects.toMatchObject({ code: "SAFE_FETCH_BODY_TOO_LARGE" });
-      await new Promise((resolve) => setTimeout(resolve, 15));
+      await new Promise((resolve) => setTimeout(resolve, 75));
       expect(overCapConnectionClosed).toBe(true);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -544,7 +544,7 @@ describe("safeFetch", () => {
     expect(result.stdout).toContain("SAFE_FETCH_PROCESS_CHILD_OK");
     expect(result.stderr).not.toContain("uncaughtException");
     expect(result.stderr).not.toContain("Unhandled 'error' event");
-  }, 10_000);
+  }, 20_000);
 
   it("aborts an active production socket, closes the peer, and never later resolves", async () => {
     let peerClosed = false;

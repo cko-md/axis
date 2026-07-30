@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { scrubSentryEvent } from "@/lib/observability/sentryScrub";
+import { scrubReplayRecordingEvent, scrubSentryBreadcrumb, scrubSentryEvent, scrubSentrySpan, scrubSentryTransaction } from "@/lib/observability/sentryScrub";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -14,12 +14,23 @@ Sentry.init({
     Sentry.replayIntegration({
       maskAllText: true,
       blockAllMedia: true,
+      // Replays must not serialize outbound network targets, credentials, or
+      // request/response bodies. Trace hooks cover event envelopes separately.
+      networkDetailAllowUrls: [],
+      networkDetailDenyUrls: [/.*/],
+      networkCaptureBodies: false,
+      networkRequestHeaders: [],
+      networkResponseHeaders: [],
+      beforeAddRecordingEvent: scrubReplayRecordingEvent,
     }),
   ],
 
   // Disable in dev unless DSN is explicitly set
   enabled: process.env.NODE_ENV === "production" || !!process.env.NEXT_PUBLIC_SENTRY_DSN,
   beforeSend: scrubSentryEvent,
+  beforeSendTransaction: scrubSentryTransaction,
+  beforeSendSpan: scrubSentrySpan,
+  beforeBreadcrumb: scrubSentryBreadcrumb,
   sendDefaultPii: false,
   debug: false,
 });
