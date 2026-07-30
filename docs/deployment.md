@@ -46,6 +46,13 @@ squash merge). If the hash changed or no measured evidence exists, run
 `npm run state:derive:gates`; Vercel skips production until that measured
 snapshot is committed through the protected refresh.
 
+After `npm run state:derive:gates` writes the two generated artifacts, commit
+them before running `npm run state:check`. Do not run plain `npm run
+state:derive` between the measured run and that commit: it observes the
+uncommitted generated files and records dirty provenance. `npm run state:check`
+reads the committed target, so it is expected to reject the not-yet-committed
+refresh.
+
 The full Vitest suite is centrally capped at two workers in `vitest.config.ts`.
 This cap is part of the local gate's stability contract for 8 GiB hosts. It is
 measured for the complete `typecheck → lint → test` path run by
