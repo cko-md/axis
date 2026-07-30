@@ -5,6 +5,7 @@ import path from "node:path";
 describe("Sentry runtime scrub hooks", () => {
   it.each(["sentry.server.config.ts", "sentry.edge.config.ts", "instrumentation-client.ts"])("wires transaction, span, and breadcrumb scrubbing in %s", async (file) => {
     const source = await readFile(path.join(process.cwd(), file), "utf8");
+    expect(source).toMatch(/beforeSend:\s*scrubSentryEventStrict/);
     expect(source).toMatch(/beforeSendTransaction:\s*scrubSentryTransaction/);
     expect(source).toMatch(/beforeSendSpan:\s*scrubSentrySpan/);
     expect(source).toMatch(/beforeBreadcrumb:\s*scrubSentryBreadcrumb/);

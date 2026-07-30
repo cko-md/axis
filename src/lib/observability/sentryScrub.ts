@@ -16,7 +16,11 @@ const WEBAUTHN_ROUTE_RE = /\/api\/(?:auth\/passkey\/|approvals\/[^/?]+\/step-up(
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const REDACTED = "[REDACTED]";
 
-function redactString(value: string): string {
+function redactLegacyString(value: string): string {
+  return value.replace(EMAIL_RE, "[REDACTED_EMAIL]");
+}
+
+function redactStrictString(value: string): string {
   return value
     .replace(/(?:https?|wss?):\/\/[^\s"'<>()]+/gi, "[REDACTED_URL]")
     .replace(EMAIL_RE, "[REDACTED_EMAIL]");
@@ -31,12 +35,12 @@ function isTargetBearingKey(key: string): boolean {
 
 function scrubTraceText(value: string): string {
   if (/(?:https?|wss?):\/\//i.test(value) || /[?#]/.test(value) || /(?:^|\s)\/\S*/.test(value)) return REDACTED;
-  return redactString(value);
+  return redactStrictString(value);
 }
 
 function scrubBreadcrumbValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[REDACTED_DEPTH]";
-  if (typeof value === "string") return redactString(value);
+  if (typeof value === "string") return redactStrictString(value);
   if (typeof value !== "object" || value === null) return value;
   if (Array.isArray(value)) return value.map((item) => scrubBreadcrumbValue(item, depth + 1));
 
@@ -49,20 +53,33 @@ function scrubBreadcrumbValue(value: unknown, depth = 0): unknown {
   return result;
 }
 
-function scrubValue(value: unknown, depth = 0): unknown {
+function scrubLegacyValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[REDACTED_DEPTH]";
-  if (typeof value === "string") return redactString(value);
+  if (typeof value === "string") return redactLegacyString(value);
   if (typeof value !== "object" || value === null) return value;
-  if (Array.isArray(value)) return value.map((item) => scrubValue(item, depth + 1));
+  if (Array.isArray(value)) return value.map((item) => scrubLegacyValue(item, depth + 1));
 
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubValue(nested, depth + 1);
+    result[key] = SECRET_KEY_RE.test(key) ? REDACTED : scrubLegacyValue(nested, depth + 1);
   }
   return result;
 }
 
-function scrubRequest(event: Event): void {
+function scrubStrictValue(value: unknown, depth = 0): unknown {
+  if (depth > 6) return "[REDACTED_DEPTH]";
+  if (typeof value === "string") return redactStrictString(value);
+  if (typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map((item) => scrubStrictValue(item, depth + 1));
+
+  const result: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    result[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubStrictValue(nested, depth + 1);
+  }
+  return result;
+}
+
+function scrubLegacyRequest(event: Event): void {
   const request = event.request;
   if (!request) return;
   const isWebAuthnRoute = typeof request.url === "string" && WEBAUTHN_ROUTE_RE.test(request.url);
@@ -70,48 +87,83 @@ function scrubRequest(event: Event): void {
   if (request.headers) {
     const safeHeaders: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(request.headers)) {
-      safeHeaders[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubValue(value);
+      safeHeaders[key] = SECRET_KEY_RE.test(key) ? REDACTED : scrubLegacyValue(value);
     }
     request.headers = safeHeaders as SentryRequest["headers"];
   }
 
   request.cookies = undefined;
-  // Event transactions already carry the normalized route. Never preserve a
-  // raw request payload, query string, fragment, or dynamic path here.
-  request.data = isWebAuthnRoute ? REDACTED : undefined;
-  request.query_string = undefined;
-  if (request.url) request.url = REDACTED;
+  request.data = (isWebAuthnRoute ? REDACTED : scrubLegacyValue(request.data)) as SentryRequest["data"];
+  request.query_string = scrubLegacyValue(request.query_string) as SentryRequest["query_string"];
+  if (request.url) request.url = redactLegacyString(request.url);
 }
 
+/**
+ * Legacy public contract retained for protected callers: recursively redact
+ * secrets while retaining sanitized request diagnostics. Sentry transports
+ * must use scrubSentryEventStrict instead.
+ */
 export function scrubSentryEvent<T extends Event>(event: T): T {
-  scrubRequest(event);
+  scrubLegacyRequest(event);
 
-  event.extra = scrubValue(event.extra) as Event["extra"];
-  event.contexts = scrubValue(event.contexts) as Event["contexts"];
-  event.tags = scrubValue(event.tags) as Event["tags"];
-  event.breadcrumbs = scrubBreadcrumbValue(event.breadcrumbs) as Event["breadcrumbs"];
+  event.extra = scrubLegacyValue(event.extra) as Event["extra"];
+  event.contexts = scrubLegacyValue(event.contexts) as Event["contexts"];
+  event.tags = scrubLegacyValue(event.tags) as Event["tags"];
 
   if (event.user) {
     event.user.email = undefined;
     event.user.ip_address = undefined;
-    event.user.username = event.user.username ? redactString(event.user.username) : undefined;
+    event.user.username = event.user.username ? redactLegacyString(event.user.username) : undefined;
   }
 
-  if (event.message) event.message = redactString(event.message);
+  if (event.message) event.message = redactLegacyString(event.message);
 
   if (event.exception?.values) {
     event.exception.values = event.exception.values.map((exception) => ({
       ...exception,
-      value: typeof exception.value === "string" ? redactString(exception.value) : exception.value,
+      value: typeof exception.value === "string" ? redactLegacyString(exception.value) : exception.value,
     }));
   }
 
   return event;
 }
 
+/** Strict production transport hook: removes targets and request payloads. */
+export function scrubSentryEventStrict<T extends Event>(event: T): T {
+  scrubSentryEvent(event);
+  const request = event.request;
+  if (request) {
+    if (request.headers) {
+      const safeHeaders: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(request.headers)) {
+        safeHeaders[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubStrictValue(value);
+      }
+      request.headers = safeHeaders as SentryRequest["headers"];
+    }
+    request.cookies = undefined;
+    request.data = typeof request.url === "string" && WEBAUTHN_ROUTE_RE.test(request.url) ? REDACTED : undefined;
+    request.query_string = undefined;
+    request.url = REDACTED;
+  }
+
+  event.extra = scrubStrictValue(event.extra) as Event["extra"];
+  event.contexts = scrubStrictValue(event.contexts) as Event["contexts"];
+  event.tags = scrubStrictValue(event.tags) as Event["tags"];
+  event.breadcrumbs = scrubBreadcrumbValue(event.breadcrumbs) as Event["breadcrumbs"];
+  if (event.user?.username) event.user.username = scrubTraceText(event.user.username);
+  if (event.message) event.message = scrubTraceText(event.message);
+  if (event.exception?.values) {
+    event.exception.values = event.exception.values.map((exception) => ({
+      ...exception,
+      value: typeof exception.value === "string" ? scrubTraceText(exception.value) : exception.value,
+    }));
+  }
+  return event;
+}
+
 /** Scrubs transaction payloads, which bypass Sentry's beforeSend hook. */
 export function scrubSentryTransaction<T extends TransactionEvent>(event: T): T {
-  scrubSentryEvent(event);
+  scrubSentryEventStrict(event);
   const source = event.transaction_info?.source;
   // Sentry's route source is normalized by the SDK/framework; preserve it as
   // the safe route label. Every other transaction name may be raw input.
@@ -124,9 +176,9 @@ export function scrubSentryTransaction<T extends TransactionEvent>(event: T): T 
 
 /** Scrubs native HTTP span attributes such as http.url and url.full. */
 export function scrubSentrySpan<T extends SpanJSON>(span: T): T {
-  span.data = scrubValue(span.data) as SpanJSON["data"];
+  span.data = scrubStrictValue(span.data) as SpanJSON["data"];
   if (span.description) span.description = scrubTraceText(span.description);
-  if (span.links) span.links = scrubValue(span.links) as SpanJSON["links"];
+  if (span.links) span.links = scrubStrictValue(span.links) as SpanJSON["links"];
   return span;
 }
 
