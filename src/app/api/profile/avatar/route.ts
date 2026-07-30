@@ -3,12 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isProfileSubject } from "@/lib/auth/profileSubject";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { getPublicEnv } from "@/lib/env";
 
 const ROUTE = "/api/profile/avatar";
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_AVATAR_REQUEST_BYTES =
   MAX_AVATAR_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
+const MAX_PROFILE_URL_LENGTH = 2_000;
 const ALLOWED_MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -66,6 +68,52 @@ function multipartBoundary(contentType: string | null) {
   return boundary && MULTIPART_BOUNDARY_PATTERN.test(boundary)
     ? boundary
     : null;
+}
+
+function isLoopbackHostname(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]"
+  );
+}
+
+function cacheBustedAvatarUrl(
+  publicUrl: unknown,
+  path: string,
+  timestamp: number,
+) {
+  if (typeof publicUrl !== "string") return null;
+
+  try {
+    const configuredUrl = new URL(
+      getPublicEnv().NEXT_PUBLIC_SUPABASE_URL,
+    );
+    const parsedUrl = new URL(publicUrl);
+    const safeProtocol =
+      parsedUrl.protocol === "https:" ||
+      (parsedUrl.protocol === "http:" &&
+        isLoopbackHostname(parsedUrl.hostname));
+    const configuredBasePath = configuredUrl.pathname.replace(/\/+$/, "");
+    const expectedPath =
+      `${configuredBasePath}/storage/v1/object/public/avatars/${path}`;
+    if (
+      !safeProtocol ||
+      parsedUrl.origin !== configuredUrl.origin ||
+      parsedUrl.username ||
+      parsedUrl.password ||
+      parsedUrl.hash ||
+      parsedUrl.pathname !== expectedPath
+    ) {
+      return null;
+    }
+
+    parsedUrl.searchParams.set("t", String(timestamp));
+    const finalUrl = parsedUrl.toString();
+    return finalUrl.length <= MAX_PROFILE_URL_LENGTH ? finalUrl : null;
+  } catch {
+    return null;
+  }
 }
 
 async function boundedMultipartRequest(request: Request) {
@@ -234,27 +282,25 @@ export async function POST(request: Request) {
     }
 
     const path = `${user.id}/avatar.${extension}`;
+    const avatars = supabase.storage.from("avatars");
+    const {
+      data: { publicUrl },
+    } = avatars.getPublicUrl(path);
+    const url = cacheBustedAvatarUrl(publicUrl, path, Date.now());
+    if (!url) return unavailable("read_avatar_url");
+
     let uploadError: unknown;
     try {
-      const result = await supabase.storage
-        .from("avatars")
-        .upload(path, file, {
-          upsert: true,
-          contentType: file.type,
-        });
+      const result = await avatars.upload(path, file, {
+        upsert: true,
+        contentType: file.type,
+      });
       uploadError = result.error;
     } catch {
       return unavailable("upload_avatar");
     }
     if (uploadError) return unavailable("upload_avatar");
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("avatars").getPublicUrl(path);
-    if (typeof publicUrl !== "string" || publicUrl.length > 2_000) {
-      return unavailable("read_avatar_url");
-    }
-    const url = `${publicUrl}?t=${Date.now()}`;
     return NextResponse.json({ url, subject: expectedSubject });
   } catch {
     return unavailable("unexpected");
