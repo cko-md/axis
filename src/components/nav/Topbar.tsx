@@ -1,23 +1,21 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
 import { useEffect, useState } from "react";
 import { formatClock } from "@/lib/format";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
+import type { AccountState } from "@/components/nav/ProfileSection";
 
 type Props = {
   section: string;
   page: string;
   onOpenSearch: () => void;
   onOpenPalette: () => void;
+  accountState: AccountState;
 };
 
-export function Topbar({ section, page, onOpenSearch, onOpenPalette }: Props) {
+export function Topbar({ section, page, onOpenSearch, onOpenPalette, accountState }: Props) {
   const [clock, setClock] = useState("");
-  const [syncState, setSyncState] = useState<
-    "loading" | "signed_in" | "signed_out" | "error"
-  >("loading");
   const { openInterfaceStudio } = useTheme();
   const { open: openBrowser } = useWebViewer();
 
@@ -28,38 +26,7 @@ export function Topbar({ section, page, onOpenSearch, onOpenPalette }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    const controller = new AbortController();
-    void fetch("/api/auth/profile", { signal: controller.signal })
-      .then((response) => {
-        if (!active) return;
-        if (response.status === 401) { setSyncState("signed_out"); return; }
-        if (!response.ok) {
-          Sentry.captureException(new Error("Topbar auth sync status failed"), {
-            tags: {
-              area: "topbar",
-              operation: "auth_status",
-              status: String(response.status),
-            },
-          });
-          setSyncState("error");
-          return;
-        }
-        setSyncState("signed_in");
-      })
-      .catch((error) => {
-        if (!active || controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
-        Sentry.captureException(new Error("Topbar auth sync status network failure"), {
-          tags: { area: "topbar", operation: "auth_status_network" },
-        });
-        setSyncState("error");
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, []);
+  const syncState = accountState === "ready" ? "signed_in" : accountState === "signed-out" ? "signed_out" : accountState;
 
   const syncLabel =
     syncState === "signed_in"

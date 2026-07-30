@@ -22,12 +22,26 @@ function unavailable(operation: string) {
   return NextResponse.json({ error: "PROFILE_ACCOUNT_UNAVAILABLE" }, { status: 500 });
 }
 
+function isMissingSession(error: unknown) {
+  if (typeof error !== "object" || error === null) return false;
+  const value = error as { code?: unknown; message?: unknown; status?: unknown };
+  return value.status === 401 || value.code === "refresh_token_not_found" || value.code === "invalid_refresh_token"
+    || value.message === "Auth session missing!";
+}
+
+function identityResponse(user: unknown, error: unknown, operation: string) {
+  if (!user || isMissingSession(error)) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  if (error) return unavailable(operation);
+  return null;
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError) return unavailable("read_identity");
-    if (!user) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+    const identityFailure = identityResponse(user, authError, "read_identity");
+    if (identityFailure) return identityFailure;
+    if (!user) return unavailable("read_identity_unexpected");
     const { data, error } = await supabase.from("profiles")
       .select("display_name, role_title, bio, avatar_url")
       .eq("id", user.id).maybeSingle();
@@ -46,14 +60,17 @@ export async function PATCH(request: Request) {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError) return unavailable("write_identity");
-    if (!user) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
-    let body: Record<string, unknown>;
+    const identityFailure = identityResponse(user, authError, "write_identity");
+    if (identityFailure) return identityFailure;
+    if (!user) return unavailable("write_identity_unexpected");
+    let body: unknown;
     try { body = await request.json(); } catch { return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 }); }
-    if (Object.keys(body).length !== PROFILE_KEYS.length || !PROFILE_KEYS.every((key) => typeof body[key] === "string" && body[key].length <= MAX_PROFILE_FIELD_LENGTH)) {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
+    const record = body as Record<string, unknown>;
+    if (Object.keys(record).length !== PROFILE_KEYS.length || !PROFILE_KEYS.every((key) => typeof record[key] === "string" && record[key].length <= MAX_PROFILE_FIELD_LENGTH)) {
       return NextResponse.json({ error: "INVALID_PROFILE" }, { status: 400 });
     }
-    const profile = body as Record<(typeof PROFILE_KEYS)[number], string>;
+    const profile = record as Record<(typeof PROFILE_KEYS)[number], string>;
     const { error } = await supabase.from("profiles").upsert({
       id: user.id, display_name: profile.name.trim(), role_title: profile.role.trim(), bio: profile.bio.trim(),
       avatar_url: profile.photo.trim(), updated_at: new Date().toISOString(),

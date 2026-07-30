@@ -26,6 +26,19 @@ describe("/api/auth/profile", () => {
     expect((await GET()).status).toBe(401);
   });
 
+  it("normalizes missing refresh sessions to signed out but captures genuine auth failures", async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: { code: "invalid_refresh_token", status: 401 } });
+    expect((await GET()).status).toBe(401); expect(mocks.capture).not.toHaveBeenCalled();
+    mocks.getUser.mockResolvedValue({ data: { user: { id: "owner" } }, error: { message: "auth service unavailable", status: 503 } });
+    expect((await GET()).status).toBe(500); expect(mocks.capture).toHaveBeenCalled();
+  });
+
+  it("captures thrown identity reads without returning raw errors", async () => {
+    mocks.getUser.mockRejectedValue(new Error("private auth transport detail"));
+    const response = await GET(); expect(response.status).toBe(500); expect(await response.json()).toEqual({ error: "PROFILE_ACCOUNT_UNAVAILABLE" });
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("private auth transport detail");
+  });
+
   it("returns only the bounded profile shape and supports accounts without email", async () => {
     mocks.from.mockReturnValue(query());
     expect(await (await GET()).json()).toEqual({ display_name: null, role_title: null, bio: null, avatar_url: null, email: null });
@@ -39,9 +52,9 @@ describe("/api/auth/profile", () => {
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("private database detail");
   });
 
-  it("rejects malformed, extra, and oversized PATCH bodies without writing", async () => {
+  it("rejects null, arrays, malformed, extra, and oversized PATCH bodies without writing", async () => {
     const q = query(); mocks.from.mockReturnValue(q);
-    for (const body of [{}, { name: "n", role: "r", bio: "b", photo: "p", extra: true }, { name: "x".repeat(2001), role: "r", bio: "b", photo: "p" }]) {
+    for (const body of [null, [], {}, { name: "n", role: "r", bio: "b", photo: "p", extra: true }, { name: "x".repeat(2001), role: "r", bio: "b", photo: "p" }]) {
       expect((await PATCH(new NextRequest("http://axis.test/api/auth/profile", { method: "PATCH", body: JSON.stringify(body) }))).status).toBe(400);
     }
     expect(q.upsert).not.toHaveBeenCalled();

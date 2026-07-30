@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import * as Sentry from "@sentry/nextjs";
 import { Modal } from "@/components/ui/Modal";
@@ -13,11 +13,12 @@ type Props = {
   onSignOut: () => void;
   /** Called whenever the resolved profile name changes (used by Sidebar for the wordmark). */
   onProfileName?: (name: string) => void;
+  onAccountState?: (state: AccountState) => void;
 };
 
 type ProfileForm = { name: string; role: string; bio: string; photo: string };
 type SaveState = "idle" | "saving" | "saved" | "error";
-type AccountState = "loading" | "signed-out" | "ready" | "error";
+export type AccountState = "loading" | "signed-out" | "ready" | "error";
 
 const AUTOSAVE_DEBOUNCE_MS = 600;
 
@@ -30,7 +31,7 @@ function captureProfileLookupFailure(operation: "identity" | "profile") {
   });
 }
 
-export function ProfileSection({ onSignOut, onProfileName }: Props) {
+export function ProfileSection({ onSignOut, onProfileName, onAccountState }: Props) {
   const { toast } = useToast();
 
   const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
@@ -53,6 +54,13 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedRef = useRef(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const saveControllerRef = useRef<AbortController | null>(null);
+  const saveGenerationRef = useRef(0);
+  const setResolvedAccountState = useCallback((state: AccountState) => {
+    setAccountState(state);
+    onAccountState?.(state);
+  }, [onAccountState]);
 
   useEffect(() => {
     let active = true;
@@ -65,7 +73,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         if (!active) return;
         if (response.status === 401) {
           setProfile(null);
-          setAccountState("signed-out");
+          setResolvedAccountState("signed-out");
           return;
         }
         if (!response.ok) throw new Error("Profile request failed");
@@ -78,7 +86,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         const name = profileData.display_name || profileData.email?.split("@")[0] || "Account";
         const role = profileData.role_title || profileData.email || "";
         setProfile({ name, role });
-        setAccountState("ready");
+        setResolvedAccountState("ready");
         onProfileName?.(name);
         setProfileForm({
           name,
@@ -95,7 +103,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
       } catch (error) {
         if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
         captureProfileLookupFailure("identity");
-        setAccountState("error");
+        setResolvedAccountState("error");
         toast("Could not verify the current account", "error", "Profile");
       }
     })();
@@ -105,13 +113,18 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
       controller.abort();
       if (hydrationFrame !== null) cancelAnimationFrame(hydrationFrame);
     };
-  }, [onProfileName, toast]);
+  }, [onProfileName, setResolvedAccountState, toast]);
 
   const persistProfile = useCallback(async (form: ProfileForm) => {
+    saveControllerRef.current?.abort();
+    const controller = new AbortController();
+    saveControllerRef.current = controller;
+    const generation = ++saveGenerationRef.current;
     setSaveState("saving");
     try {
-      const response = await fetch("/api/auth/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-      if (response.status === 401) { setSaveState("idle"); return; }
+      const response = await fetch("/api/auth/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form), signal: controller.signal });
+      if (!mountedRef.current || generation !== saveGenerationRef.current) return;
+      if (response.status === 401) { setSaveState("error"); toast("Your session expired. Sign in again to save profile changes.", "error", "Profile"); return; }
       if (!response.ok) throw new Error("Profile save failed");
       const savedName = form.name.trim() || "Account";
       setProfile({ name: savedName, role: form.role.trim() });
@@ -119,7 +132,8 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
       setSaveState("saved");
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setSaveState("idle"), 2000);
-    } catch {
+    } catch (error) {
+      if (!mountedRef.current || generation !== saveGenerationRef.current || controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
       setSaveState("error");
       toast("Could not save profile", "error", "Profile");
     }
@@ -140,6 +154,9 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   }, [profileForm, persistProfile]);
 
   useEffect(() => () => {
+    mountedRef.current = false;
+    saveGenerationRef.current += 1;
+    saveControllerRef.current?.abort();
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
   }, []);

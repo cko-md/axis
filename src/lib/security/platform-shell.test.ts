@@ -39,6 +39,8 @@ describe("platform shell production headers", () => {
   it("uses abortable same-origin identity reads in route-remounted shell components", () => {
     for (const component of [profileSection, topbar]) {
       expect(component).not.toContain("auth.getUser");
+    }
+    for (const component of [profileSection]) {
       expect(component).toContain('fetch("/api/auth/profile"');
       expect(component).toContain("new AbortController()");
       expect(component).toContain("controller.abort()");
