@@ -332,6 +332,7 @@ Discovered from repository inspection (`docs/audits/axis-platform-audit.md`). Tr
 - **Sentry / env misconfiguration** — env vars read ad hoc across routes; missing keys should degrade gracefully, not crash.
 - **Vercel preview differences from local dev** — env parity, cron config, and provider keys differ; validate on the preview, not only locally.
 - **Provider errors silently swallowed in UI** — the core anti-pattern this file exists to eliminate.
+- **Route-remounted shell auth reads** — AppShell/root navigation components must not start unabortable browser `Supabase.auth.getUser()` calls on mount. Use an abortable same-origin, server-authenticated read; only real unmount/`AbortError` cancellation may be silent. A Playwright retry that turns a browser-console failure green is still adverse evidence, not a pass.
 
 ---
 

@@ -2,10 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import * as Sentry from "@sentry/nextjs";
-import { createClient } from "@/lib/supabase/client";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { getCroppedImageBlob } from "./cropImage";
@@ -33,7 +32,6 @@ function captureProfileLookupFailure(operation: "identity" | "profile") {
 
 export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const { toast } = useToast();
-  const supabase = useMemo(() => createClient(), []);
 
   const [profile, setProfile] = useState<{ name: string; role: string } | null>(null);
   const [accountState, setAccountState] = useState<AccountState>("loading");
@@ -59,44 +57,34 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   useEffect(() => {
     let active = true;
     let hydrationFrame: number | null = null;
+    const controller = new AbortController();
 
     void (async () => {
       try {
-        const { data: { user }, error: identityError } = await supabase.auth.getUser();
+        const response = await fetch("/api/auth/profile", { signal: controller.signal });
         if (!active) return;
-        if (identityError) {
-          captureProfileLookupFailure("identity");
-          setAccountState("error");
-          toast("Could not verify the current account", "error", "Profile");
-          return;
-        }
-        if (!user) {
+        if (response.status === 401) {
           setProfile(null);
           setAccountState("signed-out");
           return;
         }
+        if (!response.ok) throw new Error("Profile request failed");
+        const data: unknown = await response.json();
+        if (typeof data !== "object" || data === null || !["display_name", "role_title", "bio", "avatar_url", "email"].every((key) => {
+          const value = (data as Record<string, unknown>)[key]; return value === null || typeof value === "string";
+        })) throw new Error("Profile response was invalid");
+        const profileData = data as { display_name: string | null; role_title: string | null; bio: string | null; avatar_url: string | null; email: string | null };
 
-        const { data, error: profileError } = await supabase
-          .from("profiles")
-          .select("display_name, role_title, bio, avatar_url")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (!active) return;
-        if (profileError) {
-          captureProfileLookupFailure("profile");
-          toast("Profile details are temporarily unavailable", "error", "Profile");
-        }
-
-        const name = data?.display_name || user.email?.split("@")[0] || "Account";
-        const role = data?.role_title || user.email || "";
+        const name = profileData.display_name || profileData.email?.split("@")[0] || "Account";
+        const role = profileData.role_title || profileData.email || "";
         setProfile({ name, role });
         setAccountState("ready");
         onProfileName?.(name);
         setProfileForm({
           name,
           role,
-          bio: data?.bio ?? "",
-          photo: data?.avatar_url ?? "",
+          bio: typeof profileData.bio === "string" ? profileData.bio : "",
+          photo: typeof profileData.avatar_url === "string" ? profileData.avatar_url : "",
         });
         // Mark loaded on the next frame so form hydration does not schedule a
         // needless profile write.
@@ -104,8 +92,8 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         hydrationFrame = requestAnimationFrame(() => {
           if (active) loadedRef.current = true;
         });
-      } catch {
-        if (!active) return;
+      } catch (error) {
+        if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
         captureProfileLookupFailure("identity");
         setAccountState("error");
         toast("Could not verify the current account", "error", "Profile");
@@ -114,24 +102,17 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
 
     return () => {
       active = false;
+      controller.abort();
       if (hydrationFrame !== null) cancelAnimationFrame(hydrationFrame);
     };
-  }, [supabase, onProfileName, toast]);
+  }, [onProfileName, toast]);
 
   const persistProfile = useCallback(async (form: ProfileForm) => {
     setSaveState("saving");
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setSaveState("idle"); return; }
-      const { error } = await supabase.from("profiles").upsert({
-        id: user.id,
-        display_name: form.name.trim(),
-        role_title: form.role.trim(),
-        bio: form.bio.trim(),
-        avatar_url: form.photo.trim(),
-        updated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
+      const response = await fetch("/api/auth/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      if (response.status === 401) { setSaveState("idle"); return; }
+      if (!response.ok) throw new Error("Profile save failed");
       const savedName = form.name.trim() || "Account";
       setProfile({ name: savedName, role: form.role.trim() });
       onProfileName?.(savedName);
@@ -142,7 +123,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
       setSaveState("error");
       toast("Could not save profile", "error", "Profile");
     }
-  }, [supabase, onProfileName, toast]);
+  }, [onProfileName, toast]);
 
   // Debounced auto-save: any change to the form (after initial load) schedules
   // an upsert ~600ms later. The modal being open is not required — edits flush

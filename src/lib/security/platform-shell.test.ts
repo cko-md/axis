@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const nextConfig = readFileSync("next.config.ts", "utf8");
 const rootLayout = readFileSync("src/app/layout.tsx", "utf8");
 const profileSection = readFileSync("src/components/nav/ProfileSection.tsx", "utf8");
+const topbar = readFileSync("src/components/nav/Topbar.tsx", "utf8");
 const sidebar = readFileSync("src/components/nav/Sidebar.tsx", "utf8");
 
 describe("platform shell production headers", () => {
@@ -33,6 +34,15 @@ describe("platform shell production headers", () => {
     expect(profileSection).toContain(
       '<Link href="/login" prefetch={false}',
     );
+  });
+
+  it("uses abortable same-origin identity reads in route-remounted shell components", () => {
+    for (const component of [profileSection, topbar]) {
+      expect(component).not.toContain("auth.getUser");
+      expect(component).toContain('fetch("/api/auth/profile"');
+      expect(component).toContain("new AbortController()");
+      expect(component).toContain("controller.abort()");
+    }
   });
 
   it("does not fan out authenticated middleware checks from persistent sidebar links", () => {

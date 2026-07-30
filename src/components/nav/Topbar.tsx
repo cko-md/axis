@@ -1,10 +1,9 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { formatClock } from "@/lib/format";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { createClient } from "@/lib/supabase/client";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 
 type Props = {
@@ -20,7 +19,6 @@ export function Topbar({ section, page, onOpenSearch, onOpenPalette }: Props) {
     "loading" | "signed_in" | "signed_out" | "error"
   >("loading");
   const { openInterfaceStudio } = useTheme();
-  const supabase = useMemo(() => createClient(), []);
   const { open: openBrowser } = useWebViewer();
 
   useEffect(() => {
@@ -32,25 +30,26 @@ export function Topbar({ section, page, onOpenSearch, onOpenPalette }: Props) {
 
   useEffect(() => {
     let active = true;
-    void supabase.auth
-      .getUser()
-      .then(({ data: { user }, error }) => {
+    const controller = new AbortController();
+    void fetch("/api/auth/profile", { signal: controller.signal })
+      .then((response) => {
         if (!active) return;
-        if (error) {
+        if (response.status === 401) { setSyncState("signed_out"); return; }
+        if (!response.ok) {
           Sentry.captureException(new Error("Topbar auth sync status failed"), {
             tags: {
               area: "topbar",
               operation: "auth_status",
-              status: error.status ? String(error.status) : "unknown",
+              status: String(response.status),
             },
           });
           setSyncState("error");
           return;
         }
-        setSyncState(user ? "signed_in" : "signed_out");
+        setSyncState("signed_in");
       })
-      .catch(() => {
-        if (!active) return;
+      .catch((error) => {
+        if (!active || controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         Sentry.captureException(new Error("Topbar auth sync status network failure"), {
           tags: { area: "topbar", operation: "auth_status_network" },
         });
@@ -58,8 +57,9 @@ export function Topbar({ section, page, onOpenSearch, onOpenPalette }: Props) {
       });
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [supabase]);
+  }, []);
 
   const syncLabel =
     syncState === "signed_in"
