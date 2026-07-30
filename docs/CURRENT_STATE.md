@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `e99659868c953229250e9512770ea112bb3d375e3d01818978625a2fbfdbca15` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `ee6a4fe33a1a39ec49bb506201b5623e8b5afbec07d9a5c82d394e572c1ba155`
+- **State fingerprint:** `5fc889b8aa002727a767e0361fdd03ef072d1f75270f46c61f0032ab6232cf50` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `030e6fd3ff6097c853eeecd3db38a139b2b979804fa1d497acf8b1529ec9ac52`
 - **Source-main tree at derivation:** `f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-00-governance-bootstrap`
-- **HEAD:** `129795d8`
+- **HEAD:** `69c2df74`
 - **main:** `44be089b`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (53 commit(s))
+### Ahead of source main at derivation (55 commit(s))
 
+- `69c2df74` docs(governance): keep local worker bound external
+- `aebb47b7` docs(state): bind reconciled governance gates
 - `129795d8` docs(agents): reconcile delegated write failures
 - `bd2a9eac` docs(state): bind deterministic governance gates
 - `9f7c95b3` docs(governance): preserve measured state ordering
@@ -135,9 +137,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 2003/2003 across 233 files
 - **Bundle:** 4288 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `129795d8`
-- **Measured content tree:** `ee6a4fe33a1a39ec49bb506201b5623e8b5afbec07d9a5c82d394e572c1ba155`
-- **Measured at:** 2026-07-30T01:21:32.249Z
+- **Measured source:** `69c2df74`
+- **Measured content tree:** `030e6fd3ff6097c853eeecd3db38a139b2b979804fa1d497acf8b1529ec9ac52`
+- **Measured at:** 2026-07-30T01:29:43.446Z
 
 <!-- END GENERATED: derive-program-state -->
 

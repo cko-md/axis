@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-30T01:21:32.384Z",
+  "derivedAt": "2026-07-30T01:29:43.595Z",
   "git": {
     "branch": "codex/redesign-00-governance-bootstrap",
-    "head": "129795d8a9aa052a0ecd304feeaa9170d5254a52",
+    "head": "69c2df74bf091d6b149503ca066b35900f801947",
     "mainHead": "44be089b0c42427baa86dd9874ee16161a9252c6",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "69c2df74",
+        "subject": "docs(governance): keep local worker bound external"
+      },
+      {
+        "sha": "aebb47b7",
+        "subject": "docs(state): bind reconciled governance gates"
+      },
       {
         "sha": "129795d8",
         "subject": "docs(agents): reconcile delegated write failures"
@@ -220,9 +228,9 @@
         "subject": "harden(release): bootstrap trusted production controls"
       }
     ],
-    "contentTreeHash": "ee6a4fe33a1a39ec49bb506201b5623e8b5afbec07d9a5c82d394e572c1ba155",
+    "contentTreeHash": "030e6fd3ff6097c853eeecd3db38a139b2b979804fa1d497acf8b1529ec9ac52",
     "sourceMainContentTreeHash": "f8d84fb78236a14df8458aeaa5fdc1cccce5b7641f1d4b56d3a2a8419fed6a54",
-    "fingerprint": "e99659868c953229250e9512770ea112bb3d375e3d01818978625a2fbfdbca15"
+    "fingerprint": "5fc889b8aa002727a767e0361fdd03ef072d1f75270f46c61f0032ab6232cf50"
   },
   "mergedPrs": [
     {
@@ -535,8 +543,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "129795d8a9aa052a0ecd304feeaa9170d5254a52",
-    "sourceContentTreeHash": "ee6a4fe33a1a39ec49bb506201b5623e8b5afbec07d9a5c82d394e572c1ba155",
+    "sourceHead": "69c2df74bf091d6b149503ca066b35900f801947",
+    "sourceContentTreeHash": "030e6fd3ff6097c853eeecd3db38a139b2b979804fa1d497acf8b1529ec9ac52",
     "typecheck": {
       "passed": true
     },
@@ -561,6 +569,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-30T01:21:32.249Z"
+    "measuredAt": "2026-07-30T01:29:43.446Z"
   }
 }
