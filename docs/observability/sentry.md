@@ -8,20 +8,27 @@ Sentry project is `kevin-ogonuwe/javascript-nextjs` in the US region.
 - Local development is quiet unless `NEXT_PUBLIC_SENTRY_DSN` is explicitly set.
 - Preview and production use `NEXT_PUBLIC_SENTRY_DSN` when configured in Vercel.
 - Source maps upload during Vercel builds when `SENTRY_AUTH_TOKEN` is present.
-- Browser replay masks all text and blocks all media.
+- Browser Replay is disabled (`replaysSessionSampleRate: 0` and
+  `replaysOnErrorSampleRate: 0`) and no Replay integration is installed.
 - Sentry traffic is tunneled through `/monitoring`.
 
 ## Scrubbing
 
-All client, server, and edge events run through `scrubSentryEvent` before send.
-Browser replay also masks all text and blocks all media. The scrubber removes
-or redacts:
+All client, server, and edge events run through `scrubSentryEventStrict` before
+send. Transactions, spans, and breadcrumbs use their corresponding strict
+scrubbers because those telemetry channels do not all pass through
+`beforeSend`. Browser Replay remains disabled. The strict scrubbers remove or
+redact:
 
 - cookies and auth headers
 - token, secret, password, and API-key fields
+- request URLs, query strings, fragments, peer addresses, and ports
 - request bodies and mail body/html/text fields
 - email addresses in strings
 - user email and IP fields
+
+`scrubSentryEvent` remains only as a legacy compatibility sanitizer for
+protected callers and tests; it is not wired to a Sentry transport.
 
 Do not attach OAuth payloads, access tokens, raw email bodies, or private user
 content to Sentry events. Provider failures should use safe tags such as
