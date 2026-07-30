@@ -7,6 +7,7 @@ const SECRET_KEY_RE = /(?:authorization|cookie|set-cookie|token|secret|password|
 const TARGET_KEY_SEGMENTS = new Set([
   "url", "uri", "href", "feed", "feeds", "feedurl", "feedurls", "target",
   "referer", "referrer", "peer", "host", "address", "ip", "port",
+  "query", "querystring", "search", "searchparams", "fragment", "hash",
 ]);
 const BREADCRUMB_TEXT_KEY_SEGMENTS = new Set([
   "message", "description", "previous", "current", "from", "to", "path", "pathname", "location",
