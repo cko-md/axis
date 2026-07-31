@@ -105,6 +105,36 @@ describe("strict Sentry closed-world transport", () => {
     expect(JSON.stringify(unknown)).not.toContain("must-not-leak");
   });
 
+  it("keeps exact Make management and normalized entity tuples actionable", () => {
+    const makeTuples = [
+      { operation: "resolve_team", code: "not_found" },
+      ...(["start_scenario", "stop_scenario"] as const).flatMap((operation) => [
+        { operation, code: "network" },
+        { operation, code: "provider_error" },
+        { operation, code: "auth_expired", status: 401 },
+        { operation, code: "rate_limited", status: 429 },
+        { operation, code: "not_found", status: 404 },
+        { operation, code: "invalid_request", status: 400 },
+        { operation, code: "unknown", status: 418 },
+      ]),
+    ] as const;
+    for (const tuple of makeTuples) {
+      const output = scrubSentryEventStrict({ tags: { area: "integrations", provider: "make", ...tuple, private_target: canary } } as Event);
+      expect(output.tags).toMatchObject({ area: "integrations", provider: "make", ...tuple });
+      expect(JSON.stringify(output)).not.toContain("must-not-leak");
+    }
+    for (const tuple of [
+      { area: "workspace", operation: "resolve", code: "UNAVAILABLE" },
+      { area: "workspace", operation: "search", code: "UNAVAILABLE" },
+      { area: "workspace", operation: "references", code: "REFERENCES_UNAVAILABLE" },
+      { area: "workspace", operation: "usage", code: "USAGE_UNAVAILABLE" },
+    ] as const) {
+      const output = scrubSentryEventStrict({ tags: { ...tuple, private_target: canary } } as Event);
+      expect(output.tags).toMatchObject(tuple);
+      expect(JSON.stringify(output)).not.toContain("must-not-leak");
+    }
+  });
+
   it("allows every manifest route and rejects route-shaped adversarial variants", () => {
     for (const route of AXIS_ROUTE_MANIFEST) {
       const tx = scrubSentryTransaction({ type: "transaction", transaction: `GET ${route}`, transaction_info: { source: "route" } } as TransactionEvent);
@@ -319,5 +349,36 @@ describe("strict Sentry closed-world transport", () => {
       expect(hasSentryPrototypePollution()).toBe(true);
       expect(guardedSentryEvent({ message: "SAFE_FETCH_TIMEOUT" } as Event)).toBeNull();
     } finally { delete arrayPrototype.toJSON; }
+  });
+
+  it("fails closed when hostile descriptors install serialization hooks during event or breadcrumb scrubbing", () => {
+    const objectPrototype = Object.prototype as Record<string, unknown>;
+    const hostileEvent = new Proxy({ tags: safeData() }, {
+      getOwnPropertyDescriptor(target, key) {
+        if (key === "tags") objectPrototype.toJSON = () => canary;
+        return Object.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    try {
+      expect(guardedSentryEvent(hostileEvent as Event)).toBeNull();
+    } finally {
+      delete objectPrototype.toJSON;
+    }
+
+    const hostileBreadcrumb = new Proxy({ category: "safe-fetch", data: safeData() }, {
+      getOwnPropertyDescriptor(target, key) {
+        if (key === "data") objectPrototype.toJSON = () => canary;
+        return Object.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    try {
+      expect(guardedSentryBreadcrumb(hostileBreadcrumb)).toBeNull();
+    } finally {
+      delete objectPrototype.toJSON;
+    }
+  });
+
+  it("always drops transactions even when prototypes are clean", () => {
+    expect(guardedSentryTransaction({ type: "transaction", transaction: "/api/feeds/cached" } as TransactionEvent)).toBeNull();
   });
 });

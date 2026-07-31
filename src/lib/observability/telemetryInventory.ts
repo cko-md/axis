@@ -72,46 +72,156 @@ function isTelemetryProducer(node: ts.CallExpression): boolean {
     && new Set(["captureException", "captureMessage", "addBreadcrumb"]).has(expression.name.text);
 }
 
-function variableInitializers(source: ts.SourceFile): Map<string, ts.Expression> {
-  const initializers = new Map<string, ts.Expression>();
+type InitializerResolver = (name: string, use: ts.Node) => ts.Expression | undefined;
+
+type LexicalBinding = {
+  declaration: ts.Node;
+  initializer?: ts.Expression;
+  scope: ts.Node;
+  depth: number;
+};
+
+function blockScope(node: ts.Node): ts.Node {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (
+      ts.isBlock(current)
+      || ts.isSourceFile(current)
+      || ts.isCaseBlock(current)
+      || ts.isForStatement(current)
+      || ts.isForInStatement(current)
+      || ts.isForOfStatement(current)
+      || ts.isFunctionLike(current)
+    ) return current;
+    current = current.parent;
+  }
+  return node.getSourceFile();
+}
+
+function functionScope(node: ts.Node): ts.Node {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isFunctionLike(current) || ts.isSourceFile(current)) return current;
+    current = current.parent;
+  }
+  return node.getSourceFile();
+}
+
+function contains(scope: ts.Node, node: ts.Node): boolean {
+  return scope.pos <= node.pos && node.end <= scope.end;
+}
+
+function scopeDepth(scope: ts.Node): number {
+  let depth = 0;
+  for (let current: ts.Node | undefined = scope.parent; current; current = current.parent) depth += 1;
+  return depth;
+}
+
+function lexicalInitializerResolver(source: ts.SourceFile): InitializerResolver {
+  const bindings = new Map<string, LexicalBinding[]>();
+  const add = (
+    name: ts.BindingName,
+    declaration: ts.Node,
+    scope: ts.Node,
+    initializer?: ts.Expression,
+  ): void => {
+    if (ts.isIdentifier(name)) {
+      const entries = bindings.get(name.text) ?? [];
+      entries.push({ declaration, initializer, scope, depth: scopeDepth(scope) });
+      bindings.set(name.text, entries);
+      return;
+    }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) add(element.name, declaration, scope);
+    }
+  };
   const visit = (node: ts.Node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      initializers.set(node.name.text, node.initializer);
+    if (ts.isVariableDeclaration(node) && !ts.isCatchClause(node.parent)) {
+      const declarationList = node.parent;
+      const scope = (declarationList.flags & ts.NodeFlags.BlockScoped) !== 0
+        ? blockScope(node)
+        : functionScope(node);
+      add(
+        node.name,
+        node,
+        scope,
+        ts.isIdentifier(node.name) ? node.initializer : undefined,
+      );
+    } else if (ts.isParameter(node) && ts.isFunctionLike(node.parent)) {
+      add(node.name, node, node.parent);
+    } else if (ts.isCatchClause(node) && node.variableDeclaration) {
+      add(node.variableDeclaration.name, node.variableDeclaration, node);
+    } else if (ts.isImportClause(node) && node.name) {
+      add(node.name, node, source);
+    } else if (ts.isNamespaceImport(node) || ts.isImportSpecifier(node)) {
+      add(node.name, node, source);
+    } else if (ts.isFunctionDeclaration(node) && node.name) {
+      add(node.name, node, blockScope(node));
+      add(node.name, node, node);
+    } else if (ts.isFunctionExpression(node) && node.name) {
+      add(node.name, node, node);
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      add(node.name, node, blockScope(node));
+      add(node.name, node, node);
+    } else if (ts.isClassExpression(node) && node.name) {
+      add(node.name, node, node);
+    } else if (ts.isEnumDeclaration(node)) {
+      add(node.name, node, blockScope(node));
+    } else if (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name)) {
+      add(node.name, node, blockScope(node));
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return initializers;
+  return (name, use) => {
+    const candidates = (bindings.get(name) ?? [])
+      .filter(({ scope }) => contains(scope, use))
+      .sort((a, b) => b.depth - a.depth || b.declaration.pos - a.declaration.pos);
+    const nearest = candidates[0];
+    if (!nearest) return undefined;
+    // All declarations at the nearest scope represent either the same binding
+    // (`var`/parameter redeclarations) or an invalid duplicate. Conservatively
+    // treat either case as an unresolved shadow barrier.
+    if (candidates.some((candidate, index) => index > 0 && candidate.depth === nearest.depth)) {
+      return undefined;
+    }
+    // Bindings are visible for shadowing throughout their scope. Their
+    // initializer is only statically usable after the declaration completes;
+    // before that point, TDZ/hoisting must not expose an outer binding.
+    return nearest.initializer && nearest.declaration.end <= use.pos
+      ? nearest.initializer
+      : undefined;
+  };
 }
 
 function staticStrings(
   expression: ts.Expression,
   source: ts.SourceFile,
-  variables: ReadonlyMap<string, ts.Expression>,
+  resolveInitializer: InitializerResolver,
   seen = new Set<ts.Node>(),
 ): string[] {
   if (seen.has(expression)) return [];
   seen.add(expression);
   if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [expression.text];
   if (ts.isConditionalExpression(expression)) {
-    return [...staticStrings(expression.whenTrue, source, variables, seen), ...staticStrings(expression.whenFalse, source, variables, seen)];
+    return [...staticStrings(expression.whenTrue, source, resolveInitializer, seen), ...staticStrings(expression.whenFalse, source, resolveInitializer, seen)];
   }
   if (ts.isIdentifier(expression)) {
-    const initializer = variables.get(expression.text);
-    return initializer ? staticStrings(initializer, source, variables, seen) : [];
+    const initializer = resolveInitializer(expression.text, expression);
+    return initializer ? staticStrings(initializer, source, resolveInitializer, seen) : [];
   }
   if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isSatisfiesExpression(expression)) {
-    return staticStrings(expression.expression, source, variables, seen);
+    return staticStrings(expression.expression, source, resolveInitializer, seen);
   }
   if (ts.isElementAccessExpression(expression) || ts.isPropertyAccessExpression(expression)) {
     const target = expression.expression;
     if (ts.isIdentifier(target)) {
-      let initializer = variables.get(target.text);
+      let initializer = resolveInitializer(target.text, target);
       while (initializer && (ts.isAsExpression(initializer) || ts.isTypeAssertionExpression(initializer) || ts.isSatisfiesExpression(initializer) || ts.isParenthesizedExpression(initializer))) initializer = initializer.expression;
       if (initializer && ts.isObjectLiteralExpression(initializer)) {
         const values: string[] = [];
         for (const property of initializer.properties) {
-          if (ts.isPropertyAssignment(property)) values.push(...staticStrings(property.initializer, source, variables, seen));
+          if (ts.isPropertyAssignment(property)) values.push(...staticStrings(property.initializer, source, resolveInitializer, seen));
         }
         return values;
       }
@@ -127,7 +237,7 @@ function staticStrings(
  */
 export function collectTelemetryInventory(file: string, sourceText: string): TelemetryInventory {
   const source = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
-  const variables = variableInitializers(source);
+  const resolveInitializer = lexicalInitializerResolver(source);
   const dynamic: string[] = [];
   const knownValues: Array<{ field: keyof typeof VOCABULARY_FIELDS; value: string }> = [];
   const visitedExpressions = new Set<ts.Node>();
@@ -141,7 +251,7 @@ export function collectTelemetryInventory(file: string, sourceText: string): Tel
       return;
     }
     if (ts.isIdentifier(expression)) {
-      const initializer = variables.get(expression.text);
+      const initializer = resolveInitializer(expression.text, expression);
       if (initializer) inspectExpression(initializer, nextAncestry);
       return;
     }
@@ -158,9 +268,9 @@ export function collectTelemetryInventory(file: string, sourceText: string): Tel
       if (ts.isShorthandPropertyAssignment(property)) {
         if (METADATA_FIELDS.has(property.name.text)) {
           dynamic.push(`${file}|${property.name.text}|shorthand:${property.name.text}`);
-          const initializer = variables.get(property.name.text);
+          const initializer = resolveInitializer(property.name.text, property.name);
           if (initializer && property.name.text in VOCABULARY_FIELDS) {
-            for (const value of staticStrings(initializer, source, variables)) {
+            for (const value of staticStrings(initializer, source, resolveInitializer)) {
               knownValues.push({ field: property.name.text as keyof typeof VOCABULARY_FIELDS, value });
             }
           }
@@ -168,7 +278,7 @@ export function collectTelemetryInventory(file: string, sourceText: string): Tel
         // `{ tags }` and `{ data }` are also common Sentry option forms.
         // Follow their local constant initializer so nested metadata cannot
         // evade the review baseline merely by using shorthand syntax.
-        const initializer = variables.get(property.name.text);
+        const initializer = resolveInitializer(property.name.text, property.name);
         if (initializer) inspectExpression(initializer, nextAncestry);
         continue;
       }
@@ -181,7 +291,7 @@ export function collectTelemetryInventory(file: string, sourceText: string): Tel
         const literal = ts.isStringLiteral(property.initializer) || ts.isNumericLiteral(property.initializer);
         if (!literal) dynamic.push(`${file}|${key}|${expressionShape(property.initializer, source)}`);
         if (key in VOCABULARY_FIELDS) {
-          for (const value of staticStrings(property.initializer, source, variables)) {
+          for (const value of staticStrings(property.initializer, source, resolveInitializer)) {
             knownValues.push({ field: key as keyof typeof VOCABULARY_FIELDS, value });
           }
         }

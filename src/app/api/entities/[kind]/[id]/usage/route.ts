@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       operation: "resolve",
       area: "workspace",
       status: 503,
-      code: resolved.error.providerCode ?? resolved.error.code,
+      code: resolved.error.code,
       tags: { entity_kind: ref.kind },
     });
     return NextResponse.json({ error: "ENTITY_UNAVAILABLE" }, { status: 503 });
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
         operation: "record",
         area: "workspace",
         status: 500,
-        code: error.code,
+        code: "USAGE_UNAVAILABLE",
         tags: { entity_kind: ref.kind, usage_action: body.data.action },
       });
     }

@@ -96,7 +96,12 @@ describe("GET /api/entities/[kind]/[id]", () => {
     });
     expect(mocks.capture).toHaveBeenCalledWith(
       expect.any(Error),
-      expect.objectContaining({ operation: "reference_resolution" }),
+      expect.objectContaining({
+        area: "workspace",
+        operation: "reference_resolution",
+        code: "UNAVAILABLE",
+      }),
     );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("DB_UNAVAILABLE");
   });
 });
