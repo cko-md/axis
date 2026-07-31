@@ -41,7 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         operation: "usage",
         area: "workspace",
         status: 503,
-        code: typeof usageError.code === "string" ? usageError.code : "USAGE_UNAVAILABLE",
+        code: "USAGE_UNAVAILABLE",
       });
     } else {
       for (const row of usageRows ?? []) {
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       operation: "search",
       area: "workspace",
       status: 503,
-      code: failure.providerCode ?? failure.code,
+      code: failure.code,
       tags: { entity_kind: failure.kind },
     });
   }

@@ -43,8 +43,10 @@ describe("telemetry vocabulary provenance", () => {
   it("pins release and installed SDK versions", () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as { version: string };
     const sentryPackage = JSON.parse(readFileSync(resolve(process.cwd(), "node_modules/@sentry/nextjs/package.json"), "utf8")) as { version: string };
+    const sentryCorePackage = JSON.parse(readFileSync(resolve(process.cwd(), "node_modules/@sentry/core/package.json"), "utf8")) as { version: string };
     expect(packageJson.version).toBe("0.1.0");
     expect(sentryPackage.version).toBe("10.59.0");
+    expect(sentryCorePackage.version).toBe("10.59.0");
   });
 
   it("contains no duplicate reviewed identifiers", () => {
@@ -109,5 +111,134 @@ describe("telemetry vocabulary provenance", () => {
     expect(changed.dynamic).not.toEqual(original.dynamic);
     expect(original.dynamic).toEqual(["mutation.ts|operation|shorthand:operation"]);
     expect(changed.dynamic).toEqual(["mutation.ts|operation|property:source.operation"]);
+  });
+
+  it("resolves same-name locals in their lexical scope and pins the first call independently", () => {
+    const source = `
+      function first() {
+        const operation = "SECRET_UNREGISTERED";
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      function second() {
+        const operation = "list";
+        Sentry.captureException(error, { tags: { operation } });
+      }
+    `;
+    const changedSource = source.replace("SECRET_UNREGISTERED", "CHANGED_UNREGISTERED");
+    const original = collectTelemetryInventory("lexical.ts", source);
+    const changed = collectTelemetryInventory("lexical.ts", changedSource);
+    expect(original.dynamic).toEqual([
+      "lexical.ts|operation|shorthand:operation",
+      "lexical.ts|operation|shorthand:operation",
+    ]);
+    expect(new Set(original.knownValues.map(({ value }) => value))).toEqual(
+      new Set(["SECRET_UNREGISTERED", "list"]),
+    );
+    expect(new Set(changed.knownValues.map(({ value }) => value))).toEqual(
+      new Set(["CHANGED_UNREGISTERED", "list"]),
+    );
+    expect(original.knownValues).toHaveLength(2);
+    expect(changed.knownValues).toHaveLength(2);
+    expect(changed.knownValues).not.toEqual(original.knownValues);
+  });
+
+  it("treats for-of and for-in bindings without initializers as shadow barriers", () => {
+    const inventory = collectTelemetryInventory("loops.ts", `
+      const operation = "root";
+      for (const operation of ["loop"]) {
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      for (const operation in { loop: true }) {
+        Sentry.captureException(error, { tags: { operation } });
+      }
+    `);
+    expect(inventory.dynamic).toEqual([
+      "loops.ts|operation|shorthand:operation",
+      "loops.ts|operation|shorthand:operation",
+    ]);
+    expect(inventory.knownValues).toEqual([]);
+  });
+
+  it("does not fall through parameters, catch bindings, or destructuring to an outer constant", () => {
+    const inventory = collectTelemetryInventory("bindings.ts", `
+      const operation = "root";
+      function fromParameter(operation: string) {
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      try {
+        throw new Error();
+      } catch (operation) {
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      function fromDestructuring(input: { operation: string }) {
+        const { operation } = input;
+        Sentry.captureException(error, { tags: { operation } });
+      }
+    `);
+    expect(inventory.dynamic).toHaveLength(3);
+    expect(inventory.knownValues).toEqual([]);
+  });
+
+  it("honors block, var, ordinary-for, declaration-order, sibling, and nested scopes", () => {
+    const inventory = collectTelemetryInventory("scope-matrix.ts", `
+      const operation = "root";
+      {
+        Sentry.captureException(error, { tags: { operation } });
+        let operation = "block";
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      function withVar() {
+        Sentry.captureException(error, { tags: { operation } });
+        {
+          var operation = "local";
+        }
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      for (let operation = "loop"; condition; ) {
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      {
+        const operation = "sibling";
+        {
+          const operation = "nested";
+          Sentry.captureException(error, { tags: { operation } });
+        }
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      {
+        Sentry.captureException(error, { tags: { operation } });
+      }
+    `);
+    expect(inventory.dynamic).toHaveLength(8);
+    expect(new Set(inventory.knownValues.map(({ value }) => value))).toEqual(
+      new Set(["block", "local", "loop", "nested", "root", "sibling"]),
+    );
+    expect(inventory.knownValues).toHaveLength(6);
+  });
+
+  it("treats import, function, class, and destructured declarations as unresolved shadow barriers", () => {
+    const imported = collectTelemetryInventory("import.ts", `
+      import { operation } from "./provider";
+      Sentry.captureException(error, { tags: { operation } });
+    `);
+    const declared = collectTelemetryInventory("declarations.ts", `
+      const operation = "root";
+      {
+        function operation() {}
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      {
+        class operation {}
+        Sentry.captureException(error, { tags: { operation } });
+      }
+      {
+        const [operation] = values;
+        Sentry.captureException(error, { tags: { operation } });
+      }
+    `);
+    expect(imported.dynamic).toHaveLength(1);
+    expect(imported.knownValues).toEqual([]);
+    expect(declared.dynamic).toHaveLength(3);
+    expect(declared.knownValues).toEqual([]);
   });
 });

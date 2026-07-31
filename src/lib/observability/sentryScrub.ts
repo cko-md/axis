@@ -5,6 +5,16 @@ import { AXIS_TELEMETRY_SETS } from "./telemetryVocabulary";
 
 type SentryRequest = NonNullable<Event["request"]>;
 
+// Capture the only mutable intrinsics used by the strict boundary before
+// application code can replace them. The prototype objects themselves are
+// retained so ambient `toJSON` installation is detectable without invocation.
+const AXIS_OBJECT_PROTOTYPE = Object.prototype;
+const AXIS_ARRAY_PROTOTYPE = Array.prototype;
+const AXIS_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
+const AXIS_OBJECT_CREATE = Object.create;
+const AXIS_SET_PROTOTYPE_OF = Object.setPrototypeOf;
+const AXIS_ARRAY_IS_ARRAY = Array.isArray;
+
 const SECRET_KEY_RE = /(?:authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|client[-_]?secret|body|html|messageText|messageHtml|mailBody|emailBody|rawEmail|challenge|credential|clientDataJSON|attestationObject|authenticatorData|signature|userHandle|rawId)/i;
 const WEBAUTHN_ROUTE_RE = /\/api\/(?:auth\/passkey\/|approvals\/[^/?]+\/step-up(?:[/?]|$))/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -94,12 +104,12 @@ const OUTCOMES = new Set(["ok", "error", "slow"]);
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 type PlainObject = Record<string, unknown>;
 
-function record(): PlainObject { return Object.create(null) as PlainObject; }
-function list<T>(): T[] { const output: T[] = []; Object.setPrototypeOf(output, null); return output; }
+function record(): PlainObject { return AXIS_OBJECT_CREATE(null) as PlainObject; }
+function list<T>(): T[] { const output: T[] = []; AXIS_SET_PROTOTYPE_OF(output, null); return output; }
 function append<T>(output: T[], value: T): void { output[output.length] = value; }
 function ownData(input: unknown, key: string): unknown {
   if ((typeof input !== "object" || input === null) && typeof input !== "function") return undefined;
-  try { const descriptor = Object.getOwnPropertyDescriptor(input, key); return descriptor && "value" in descriptor ? descriptor.value : undefined; } catch { return undefined; }
+  try { const descriptor = AXIS_GET_OWN_PROPERTY_DESCRIPTOR(input, key); return descriptor && "value" in descriptor ? descriptor.value : undefined; } catch { return undefined; }
 }
 function object(value: unknown): object | undefined { return typeof value === "object" && value !== null ? value : undefined; }
 function valid(value: unknown, set: ReadonlySet<string>): value is string { return typeof value === "string" && set.has(value); }
@@ -118,7 +128,7 @@ function guarded<T>(value: unknown, stack: WeakSet<object>, depth: number, build
   const input = object(value); if (!input || depth > MAX_DEPTH || stack.has(input)) return undefined;
   stack.add(input); try { return build(input); } catch { return undefined; } finally { stack.delete(input); }
 }
-function arrayLength(value: object, maximum: number): number { try { if (!Array.isArray(value)) return 0; const length = ownData(value, "length"); return typeof length === "number" && Number.isSafeInteger(length) && length >= 0 ? Math.min(length, maximum) : 0; } catch { return 0; } }
+function arrayLength(value: object, maximum: number): number { try { if (!AXIS_ARRAY_IS_ARRAY(value)) return 0; const length = ownData(value, "length"); return typeof length === "number" && Number.isSafeInteger(length) && length >= 0 ? Math.min(length, maximum) : 0; } catch { return 0; } }
 
 function metadata(value: unknown, stack: WeakSet<object>, depth: number, allowRoute: boolean): PlainObject | undefined {
   return guarded(value, stack, depth, (input) => {
@@ -197,8 +207,8 @@ export function scrubSentryBreadcrumb<T extends Breadcrumb>(input: T): T { retur
 /** Detects ambient serialization hooks without calling attacker-controlled code. */
 export function hasSentryPrototypePollution(): boolean {
   try {
-    return Object.getOwnPropertyDescriptor(Object.prototype, "toJSON") !== undefined
-      || Object.getOwnPropertyDescriptor(Array.prototype, "toJSON") !== undefined;
+    return AXIS_GET_OWN_PROPERTY_DESCRIPTOR(AXIS_OBJECT_PROTOTYPE, "toJSON") !== undefined
+      || AXIS_GET_OWN_PROPERTY_DESCRIPTOR(AXIS_ARRAY_PROTOTYPE, "toJSON") !== undefined;
   } catch {
     return true;
   }
@@ -213,7 +223,19 @@ function minimalSpan(): SpanJSON {
 }
 
 /** Hook adapters fail closed under global serialization-hook pollution. */
-export function guardedSentryEvent<T extends Event>(input: T): T | null { return hasSentryPrototypePollution() ? null : scrubSentryEventStrict(input); }
-export function guardedSentryTransaction<T extends TransactionEvent>(input: T): T | null { return hasSentryPrototypePollution() ? null : scrubSentryTransaction(input); }
-export function guardedSentryBreadcrumb<T extends Breadcrumb>(input: T): T | null { return hasSentryPrototypePollution() ? null : scrubSentryBreadcrumb(input); }
+export function guardedSentryEvent<T extends Event>(input: T): T | null {
+  if (hasSentryPrototypePollution()) return null;
+  const output = scrubSentryEventStrict(input);
+  return hasSentryPrototypePollution() ? null : output;
+}
+/** AXIS is error-only: transactions are never transport-eligible. */
+export function guardedSentryTransaction<T extends TransactionEvent>(input: T): T | null {
+  void input;
+  return null;
+}
+export function guardedSentryBreadcrumb<T extends Breadcrumb>(input: T): T | null {
+  if (hasSentryPrototypePollution()) return null;
+  const output = scrubSentryBreadcrumb(input);
+  return hasSentryPrototypePollution() ? null : output;
+}
 export function guardedSentrySpan<T extends SpanJSON>(input: T): T { return (hasSentryPrototypePollution() ? minimalSpan() : scrubSentrySpan(input)) as T; }
