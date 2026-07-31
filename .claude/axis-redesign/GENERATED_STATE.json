@@ -1,12 +1,32 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T05:49:39.648Z",
+  "derivedAt": "2026-07-31T08:04:03.768Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "219778ff569880233619073e7249a918e9b87216",
+    "head": "91b4e1e1b2b35cbc59e11319e940ead04cd71c03",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "91b4e1e1",
+        "subject": "test: close escaped Sentry registration audit gap"
+      },
+      {
+        "sha": "49a1eb41",
+        "subject": "test: optimize recursive Sentry configuration audit"
+      },
+      {
+        "sha": "4e703c76",
+        "subject": "test: stabilize authoritative gate concurrency"
+      },
+      {
+        "sha": "fcb9be84",
+        "subject": "fix(security): close terminal telemetry boundaries"
+      },
+      {
+        "sha": "b1d3fd66",
+        "subject": "docs(state): record closed telemetry gates"
+      },
       {
         "sha": "219778ff",
         "subject": "fix(security): enforce closed-world Sentry telemetry"
@@ -88,9 +108,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "2fbb3c80512379a4af68c107bf49fa325d7a080df79c91ff10652795c5150d01",
+    "contentTreeHash": "35e4e96d4d16706b155c7a4342679c637764a3a0011ac2f57a5cbab3ae21156a",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "9ec6d3b77276ce5e21871ff8443034b5746d02fe622aa073ed0937caccfead54"
+    "fingerprint": "58b64bf3a96af5d68750f5ccd9c84fc58d7cc65622a024578ea877680a76b71c"
   },
   "mergedPrs": [
     {
@@ -403,8 +423,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "219778ff569880233619073e7249a918e9b87216",
-    "sourceContentTreeHash": "2fbb3c80512379a4af68c107bf49fa325d7a080df79c91ff10652795c5150d01",
+    "sourceHead": "91b4e1e1b2b35cbc59e11319e940ead04cd71c03",
+    "sourceContentTreeHash": "35e4e96d4d16706b155c7a4342679c637764a3a0011ac2f57a5cbab3ae21156a",
     "typecheck": {
       "passed": true
     },
@@ -412,23 +432,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2298,
-      "total": 2298,
-      "files": 258,
-      "suites": 732
+      "passed": 2344,
+      "total": 2344,
+      "files": 259,
+      "suites": 734
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4104,
+      "used": 4098,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-31T05:49:39.513Z"
+    "measuredAt": "2026-07-31T08:04:03.640Z"
   }
 }
