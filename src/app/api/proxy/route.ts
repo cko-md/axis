@@ -6,7 +6,7 @@ import { recordSafeFetchFailure } from '@/lib/security/safe-fetch-observability'
 // Remote HTML remains untrusted even after it has crossed the outbound
 // boundary. Keep the iframe at a unique origin; relaxing that sandbox would
 // collapse the containment boundary.
-const PROXY_HTML_CSP = "sandbox allow-scripts; default-src * data: blob:; img-src * data: blob:; style-src * 'unsafe-inline'; script-src 'unsafe-inline'";
+const PROXY_HTML_CSP = "sandbox allow-scripts allow-forms; default-src * data: blob:; img-src * data: blob:; style-src * 'unsafe-inline'; script-src 'unsafe-inline'";
 const proxyHtmlHeaders = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'no-store',

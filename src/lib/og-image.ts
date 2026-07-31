@@ -57,6 +57,9 @@ export async function resolveOgImageUrl(
         headers: { ...OG_IMAGE_BROWSER_HEADERS, Accept: "image/avif,image/webp,image/*,*/*;q=0.8" },
         timeoutMs: OG_IMAGE_TIMEOUT_MS,
         maxBodyBytes: OG_IMAGE_MAX_BYTES,
+        // We only need the already policy-checked response metadata here. Do
+        // not buffer an arbitrary remote image merely to validate its MIME.
+        responseBodyMode: "discard",
       });
       return imageResponse.ok && isSafeRaster(imageResponse.headers.get("content-type"))
         ? imageResponse.url || imageUrl.href
@@ -91,6 +94,10 @@ function extractMetaImage(html: string): string | null {
 }
 
 function decodeEntities(s: string): string {
-  return s.replace(/&amp;/gi, "&").replace(/&#38;/g, "&").replace(/&quot;/gi, '"')
-    .replace(/&#34;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
+  // Decode only entities present in the original source. Chained replace calls
+  // would turn &amp;#38; into a second-stage entity, changing an untrusted URL.
+  const entities: Record<string, string> = {
+    amp: "&", "#38": "&", quot: '"', "#34": '"', "#39": "'", lt: "<", gt: ">",
+  };
+  return s.replace(/&(amp|#38|quot|#34|#39|lt|gt);/gi, (entity) => entities[entity.slice(1, -1).toLowerCase()] ?? entity);
 }

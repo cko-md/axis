@@ -43,5 +43,8 @@ describe("web proxy route", () => {
     expect(response.status).toBe(200);
     expect(html).toContain('<base href="https://cdn.example/final/path/">');
     expect(html).not.toContain('<base href="https://public.example/original">');
+    const csp = response.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("sandbox allow-scripts allow-forms");
+    expect(csp).not.toContain("allow-same-origin");
   });
 });

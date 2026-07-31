@@ -22,7 +22,9 @@ function redactLegacyString(value: string): string {
 
 function redactStrictString(value: string): string {
   return value
-    .replace(/(?:https?|wss?):\/\/[^\s"'<>()]+/gi, "[REDACTED_URL]")
+    // URL grammar permits parentheses. Redact through the first whitespace or
+    // quote/angle delimiter rather than leaving a secret query/fragment suffix.
+    .replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, "[REDACTED_URL]")
     .replace(EMAIL_RE, "[REDACTED_EMAIL]");
 }
 
@@ -34,13 +36,21 @@ function isTargetBearingKey(key: string): boolean {
 }
 
 function scrubTraceText(value: string): string {
-  if (/(?:https?|wss?):\/\//i.test(value) || /[?#]/.test(value) || /(?:^|\s)\/\S*/.test(value)) return REDACTED;
+  if (/(?:https?|wss?):\/\//i.test(value) || /[?#]/.test(value) || /(?:^|[\s([{'":=])\/\S*/.test(value)) return REDACTED;
   return redactStrictString(value);
+}
+
+function scrubNormalizedRouteLabel(value: string): string {
+  // `http.route` is an SDK/framework-normalized route template, not generic
+  // trace text. Keep only a conservative route-template grammar; never make a
+  // general exception for slash-prefixed values on arbitrary telemetry keys.
+  const isNormalizedTemplate = /^\/[A-Za-z0-9._/\[\]{}()\-]*$/.test(value) && !value.startsWith("//");
+  return isNormalizedTemplate ? value : REDACTED;
 }
 
 function scrubBreadcrumbValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[REDACTED_DEPTH]";
-  if (typeof value === "string") return redactStrictString(value);
+  if (typeof value === "string") return scrubTraceText(value);
   if (typeof value !== "object" || value === null) return value;
   if (Array.isArray(value)) return value.map((item) => scrubBreadcrumbValue(item, depth + 1));
 
@@ -68,13 +78,15 @@ function scrubLegacyValue(value: unknown, depth = 0): unknown {
 
 function scrubStrictValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[REDACTED_DEPTH]";
-  if (typeof value === "string") return redactStrictString(value);
+  if (typeof value === "string") return scrubTraceText(value);
   if (typeof value !== "object" || value === null) return value;
   if (Array.isArray(value)) return value.map((item) => scrubStrictValue(item, depth + 1));
 
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = SECRET_KEY_RE.test(key) || isTargetBearingKey(key) ? REDACTED : scrubStrictValue(nested, depth + 1);
+    if (SECRET_KEY_RE.test(key) || isTargetBearingKey(key)) result[key] = REDACTED;
+    else if (key === "http.route" && typeof nested === "string") result[key] = scrubNormalizedRouteLabel(nested);
+    else result[key] = scrubStrictValue(nested, depth + 1);
   }
   return result;
 }
@@ -153,11 +165,12 @@ export function scrubSentryEventStrict<T extends Event>(event: T): T {
   if (event.user?.username) event.user.username = scrubTraceText(event.user.username);
   if (event.message) event.message = scrubTraceText(event.message);
   if (event.exception?.values) {
-    event.exception.values = event.exception.values.map((exception) => ({
-      ...exception,
-      value: typeof exception.value === "string" ? scrubTraceText(exception.value) : exception.value,
-    }));
+    // Exception type/value are not the only SDK-controlled string surfaces.
+    // Mechanism data and frame fields can carry raw targets too, so recurse
+    // over the whole standard exception object on the strict production path.
+    event.exception.values = event.exception.values.map((exception) => scrubStrictValue(exception) as typeof exception);
   }
+  if (event.fingerprint) event.fingerprint = scrubStrictValue(event.fingerprint) as Event["fingerprint"];
   return event;
 }
 
