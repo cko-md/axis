@@ -67,6 +67,7 @@ describe("Sentry tunnel access policy", () => {
     expect(wrappingTargets).toEqual(expect.arrayContaining([
       "api-route",
       "page",
+      "route-handler",
       "server-component",
     ]));
     expect(wrappingTargets).not.toContain("middleware");
