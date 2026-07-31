@@ -180,6 +180,30 @@ describe("middleware access policy", () => {
     expect(deniedResponse.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
+  it("carries rotated Supabase cookies on MFA denial and login redirects", async () => {
+    mocks.createServerClient.mockImplementation((_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-project-auth-token", value: "rotated", options: { path: "/" } }]);
+      return {
+        auth: {
+          getUser: mocks.getUser,
+          mfa: { getAuthenticatorAssuranceLevel: mocks.getAuthenticatorAssuranceLevel },
+        },
+      };
+    });
+    mocks.getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: "aal1", nextLevel: "aal2" },
+      error: null,
+    });
+    const mfaDeniedResponse = await middleware(request("/api/future"));
+    expect(mfaDeniedResponse.status).toBe(403);
+    expect(mfaDeniedResponse.headers.get("set-cookie")).toContain("sb-project-auth-token=rotated");
+
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    const redirectResponse = await middleware(request("/command"));
+    expect(redirectResponse.status).toBe(307);
+    expect(redirectResponse.headers.get("set-cookie")).toContain("sb-project-auth-token=rotated");
+  });
+
   it("preserves remembered-device MFA and bootstrap routes without login loops", async () => {
     process.env.MFA_TRUST_SECRET = "test-secret";
     mocks.getAuthenticatorAssuranceLevel.mockResolvedValue({
