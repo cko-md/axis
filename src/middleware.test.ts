@@ -149,7 +149,7 @@ describe("middleware authenticator assurance", () => {
     );
   });
 
-  it("guards nested profile routes without matching near-collision prefixes", async () => {
+  it("defaults nested and near-collision profile APIs to authenticated", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: null },
       error: null,
@@ -167,7 +167,10 @@ describe("middleware authenticator assurance", () => {
       error: "UNAUTHORIZED",
       message: "Sign in required.",
     });
-    expect(nearCollision.status).toBe(200);
-    expect(nearCollision.headers.get("x-middleware-next")).toBe("1");
+    expect(nearCollision.status).toBe(401);
+    await expect(nearCollision.json()).resolves.toEqual({
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+    });
   });
 });
