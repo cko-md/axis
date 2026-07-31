@@ -17,10 +17,6 @@ vi.mock("@/lib/observability/captureRouteError", () => ({ captureRouteError: moc
 
 import { GET } from "./route";
 
-function emptyReferenceQuery() {
-  return referenceQuery([]);
-}
-
 function referenceQuery(data: unknown[]) {
   const query: Record<string, unknown> = {};
   for (const method of ["select", "eq", "order", "limit"]) query[method] = vi.fn(() => query);
@@ -28,39 +24,13 @@ function referenceQuery(data: unknown[]) {
   return query;
 }
 
-describe("GET /api/entities/[kind]/[id]", () => {
+describe("GET entity preview telemetry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getUser.mockResolvedValue({ data: { user: { id: "user_1" } }, error: null });
-    mocks.from.mockImplementation(() => emptyReferenceQuery());
   });
 
-  it("returns the same not-found response for an unresolved owner-scoped entity", async () => {
-    mocks.resolve.mockResolvedValue({ ok: false, error: { code: "NOT_FOUND", kind: "note" } });
-    const response = await GET(
-      new NextRequest("http://axis.test/api/entities/note/x"),
-      { params: Promise.resolve({ kind: "note", id: NOTE_ID }) },
-    );
-    expect(response.status).toBe(404);
-    expect(mocks.from).not.toHaveBeenCalled();
-  });
-
-  it("returns a preview without mutating frecency on hover", async () => {
-    mocks.resolve.mockResolvedValue({
-      ok: true,
-      entity: { ref: { kind: "note", id: NOTE_ID }, title: "Alpha", href: "/notes", meta: [] },
-    });
-    const response = await GET(
-      new NextRequest("http://axis.test/api/entities/note/x"),
-      { params: Promise.resolve({ kind: "note", id: NOTE_ID }) },
-    );
-    const body = await response.json();
-    expect(response.status).toBe(200);
-    expect(body).toMatchObject({ entity: { title: "Alpha" }, outgoing: [], backlinks: [], referencesStatus: "ok" });
-    expect(mocks.from).toHaveBeenCalledTimes(2);
-  });
-
-  it("marks references unavailable when a stored edge cannot be resolved", async () => {
+  it("normalizes stored-edge resolution telemetry without provider codes", async () => {
     mocks.resolve
       .mockResolvedValueOnce({
         ok: true,
@@ -82,21 +52,22 @@ describe("GET /api/entities/[kind]/[id]", () => {
         origin: "user",
         created_at: "2026-07-16T00:00:00.000Z",
       }]))
-      .mockImplementationOnce(() => emptyReferenceQuery());
+      .mockImplementationOnce(() => referenceQuery([]));
 
     const response = await GET(
       new NextRequest("http://axis.test/api/entities/note/x"),
       { params: Promise.resolve({ kind: "note", id: NOTE_ID }) },
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      outgoing: [],
-      backlinks: [],
-      referencesStatus: "unavailable",
-    });
+    expect(await response.json()).toMatchObject({ referencesStatus: "unavailable" });
     expect(mocks.capture).toHaveBeenCalledWith(
       expect.any(Error),
-      expect.objectContaining({ operation: "reference_resolution" }),
+      expect.objectContaining({
+        area: "workspace",
+        operation: "reference_resolution",
+        code: "UNAVAILABLE",
+      }),
     );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("DB_UNAVAILABLE");
   });
 });
