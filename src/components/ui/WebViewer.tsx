@@ -8,6 +8,9 @@ import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
 
 const FAVS_KEY = "axis-wv-favorites";
 const FAVS_SETTING_KEY = "webviewer.favorites";
+// Keep forms available for ordinary pages while the missing allow-same-origin
+// retains the iframe's unique opaque origin and parent containment boundary.
+export const WEB_VIEWER_SANDBOX = "allow-scripts allow-forms allow-popups";
 type Fav = { url: string; title: string };
 function isFavArray(v: unknown): v is Fav[] {
   return Array.isArray(v) && v.every(
@@ -538,7 +541,7 @@ export function WebViewer() {
             src={activeUrl ? `/api/proxy?url=${encodeURIComponent(activeUrl)}` : undefined}
             title={activeTab?.title ?? "Browser"}
             className="wv-frame"
-            sandbox="allow-scripts allow-forms allow-popups"
+            sandbox={WEB_VIEWER_SANDBOX}
             onLoad={() => {
               if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
               setLoadState("ok");

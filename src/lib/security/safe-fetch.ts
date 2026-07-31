@@ -31,6 +31,12 @@ export type SafeFetchOptions = {
   maxRedirects?: number;
   maxBodyBytes?: number;
   signal?: AbortSignal;
+  /**
+   * Validate response status and headers, then immediately close the upstream
+   * body. This is intentionally narrow: it is for metadata validation only
+   * and must never become the default for callers that consume a body.
+   */
+  responseBodyMode?: "buffer" | "discard";
   /** Exact hosts permitted for every hop (for provider-derived secondary URLs). */
   allowedHosts?: readonly string[];
 };
@@ -42,6 +48,7 @@ type Transport = (url: URL, input: {
   maxBodyBytes: number;
   address: ResolvedAddress;
   signal?: AbortSignal;
+  discardBody?: boolean;
 }) => Promise<Response>;
 
 /** Test seams only; production always resolves and pins each requested hop. */
@@ -299,7 +306,7 @@ function parseUrl(raw: string | URL, allowedHosts?: readonly string[]) {
   return url;
 }
 
-async function resolvePublicAddress(url: URL, resolve: NonNullable<SafeFetchDependencies["resolve"]>) {
+async function resolvePublicAddresses(url: URL, resolve: NonNullable<SafeFetchDependencies["resolve"]>) {
   const hostname = bareHost(url.hostname);
   const literalFamily = isIP(hostname);
   let answers: ResolvedAddress[];
@@ -314,7 +321,9 @@ async function resolvePublicAddress(url: URL, resolve: NonNullable<SafeFetchDepe
   if (answers.some((answer) => isBlockedAddress(answer.address))) {
     throw new SafeFetchError("SAFE_FETCH_BLOCKED_ADDRESS");
   }
-  return answers[0];
+  // Retain the whole validated answer set. A later transport failure may use
+  // another answer, but every candidate was checked as one atomic DNS result.
+  return answers.map((answer) => ({ address: answer.address, family: isIP(answer.address) }));
 }
 
 function responseWithUrl(response: Response, url: URL) {
@@ -386,6 +395,32 @@ function responseHeadersWithoutEncoding(headers: http.IncomingHttpHeaders) {
   return normalized;
 }
 
+export function pinnedSafeFetchRequestOptions(
+  url: URL,
+  input: Pick<Parameters<Transport>[1], "headers" | "address">,
+): http.RequestOptions & { servername?: string } {
+  const tlsIdentity = bareHost(url.hostname);
+  const options: http.RequestOptions & { servername?: string } = {
+    protocol: url.protocol,
+    hostname: input.address.address,
+    family: input.address.family,
+    port: url.port || undefined,
+    path: `${url.pathname}${url.search}`,
+    method: "GET",
+    headers: {
+      ...Object.fromEntries(new Headers(input.headers).entries()),
+      host: url.host,
+      // Ask upstream for a directly usable representation. We still decode
+      // recognized encodings below because intermediaries may ignore this.
+      "accept-encoding": "identity",
+    },
+  };
+  // Node requires an unbracketed TLS identity. IP literals are certificate
+  // identities, not virtual-host names, and must never emit an SNI extension.
+  if (url.protocol === "https:" && !isIP(tlsIdentity)) options.servername = tlsIdentity;
+  return options;
+}
+
 export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((resolve, reject) => {
   let settled = false;
   let request: http.ClientRequest | undefined;
@@ -432,7 +467,6 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
   // Dial the validated IP directly instead of asking Node's HTTP agent to look
   // it up again. Retain the original Host/SNI identity so virtual hosts and
   // HTTPS certificate validation behave like the validated URL.
-  const pinnedAddress = input.address.address;
   // Do not rewrite URL.hostname here. In particular, assigning a raw IPv6
   // literal to URL.hostname produces a malformed authority on supported Node
   // versions. Explicit request options also make the no-second-lookup
@@ -445,9 +479,27 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
     }
     upstreamResponse = upstream;
     try {
+      upstream.on("error", (error) => fail(error));
       const contentLength = Number(upstream.headers["content-length"] ?? "0");
       if (Number.isFinite(contentLength) && contentLength > input.maxBodyBytes) {
         fail(new SafeFetchError("SAFE_FETCH_BODY_TOO_LARGE"), true);
+        return;
+      }
+      if (input.discardBody) {
+        const status = upstream.statusCode ?? 502;
+        try {
+          // Metadata callers must never accumulate or drain an arbitrary body.
+          // Resolve first, then close the peer; the permanent error listeners
+          // above keep a late close/error from escaping as an unhandled event.
+          succeed(responseWithUrl(new Response(null, {
+            status,
+            statusText: upstream.statusMessage,
+            headers: responseHeadersWithoutEncoding(upstream.headers),
+          }), url));
+          upstream.destroy();
+        } catch (error) {
+          fail(error, true);
+        }
         return;
       }
       const chunks: Buffer[] = [];
@@ -484,7 +536,6 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
         }
         chunks.push(chunk);
       };
-      upstream.on("error", (error) => fail(error));
       upstream.on("data", onWireData);
       decoder = responseDecoder(upstream.headers["content-encoding"]);
       if (decoder) {
@@ -505,23 +556,7 @@ export const pinnedSafeFetchTransport: Transport = (url, input) => new Promise((
     // Header normalization is deliberately inside the setup boundary: invalid
     // caller-provided HeadersInit must reject with the safe transport code,
     // never escape the Promise executor as a raw TypeError.
-    const headers = {
-      ...Object.fromEntries(new Headers(input.headers).entries()),
-      host: url.host,
-      // Ask upstream for a directly usable representation. We still decode
-      // recognized encodings below because intermediaries may ignore this.
-      "accept-encoding": "identity",
-    };
-    request = client.request({
-      protocol: url.protocol,
-      hostname: pinnedAddress,
-      family: input.address.family,
-      port: url.port || undefined,
-      path: `${url.pathname}${url.search}`,
-      method: "GET",
-      headers,
-      servername: url.hostname,
-    }, handleResponse);
+    request = client.request(pinnedSafeFetchRequestOptions(url, input), handleResponse);
     // Install this before every other fallible ClientRequest operation.
     // In particular, setTimeout(-1) throws after request construction while a
     // connection error may still arrive on a later turn.
@@ -555,7 +590,9 @@ export async function safeFetch(raw: string | URL, options: SafeFetchOptions = {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || !Number.isSafeInteger(maxRedirects) || maxRedirects < 0
+  const discardBody = options.responseBodyMode === "discard";
+  if ((options.responseBodyMode !== undefined && options.responseBodyMode !== "buffer" && options.responseBodyMode !== "discard")
+    || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || !Number.isSafeInteger(maxRedirects) || maxRedirects < 0
     || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1) throw new SafeFetchError("SAFE_FETCH_INVALID_URL");
 
   let url = parseUrl(raw, options.allowedHosts);
@@ -570,14 +607,31 @@ export async function safeFetch(raw: string | URL, options: SafeFetchOptions = {
   for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new SafeFetchError("SAFE_FETCH_TIMEOUT");
-    const address = await within(resolvePublicAddress(url, resolve), remaining, options.signal);
-    let response: Response;
-    try {
-      response = await transport(url, { headers, timeoutMs: remaining, maxBodyBytes, address, signal: options.signal });
-    } catch (error) {
-      if (error instanceof SafeFetchError) throw error;
-      throw new SafeFetchError(options.signal?.aborted ? "SAFE_FETCH_ABORTED" : "SAFE_FETCH_TRANSPORT_FAILED");
+    const addresses = await within(resolvePublicAddresses(url, resolve), remaining, options.signal);
+    let response: Response | undefined;
+    let lastTransportFailure: SafeFetchError | undefined;
+    for (const address of addresses) {
+      if (options.signal?.aborted) throw new SafeFetchError("SAFE_FETCH_ABORTED");
+      const attemptRemaining = deadline - Date.now();
+      if (attemptRemaining <= 0) throw new SafeFetchError("SAFE_FETCH_TIMEOUT");
+      try {
+        response = await within(
+          transport(url, { headers, timeoutMs: attemptRemaining, maxBodyBytes, address, signal: options.signal, discardBody }),
+          attemptRemaining,
+          options.signal,
+        );
+        break;
+      } catch (error) {
+        const safeError = error instanceof SafeFetchError
+          ? error
+          : new SafeFetchError(options.signal?.aborted ? "SAFE_FETCH_ABORTED" : "SAFE_FETCH_TRANSPORT_FAILED");
+        // A fully validated alternative address is a transport resilience
+        // option only. Policy outcomes are terminal and never retried.
+        if (safeError.code !== "SAFE_FETCH_TRANSPORT_FAILED") throw safeError;
+        lastTransportFailure = safeError;
+      }
     }
+    if (!response) throw lastTransportFailure ?? new SafeFetchError("SAFE_FETCH_TRANSPORT_FAILED");
     responseWithUrl(response, url);
     const advertisedLength = Number(response.headers.get("content-length") ?? "0");
     if (Number.isFinite(advertisedLength) && advertisedLength > maxBodyBytes) {

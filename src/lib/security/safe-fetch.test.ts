@@ -6,6 +6,7 @@ import { resolve as resolvePath } from "node:path";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import {
   isBlockedAddress,
+  pinnedSafeFetchRequestOptions,
   SafeFetchError,
   pinnedSafeFetchTransport,
   safeFetch,
@@ -278,6 +279,69 @@ describe("safeFetch", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
+  it("uses a later fully validated DNS answer only after a transport failure", async () => {
+    const resolve = vi.fn(async () => [
+      { address: "93.184.216.34", family: 4 },
+      { address: "1.1.1.1", family: 4 },
+    ]);
+    const transport = vi.fn(async (_url: URL, input: { address: { address: string } }) => {
+      if (input.address.address === "93.184.216.34") throw new Error("connection reset");
+      return new Response("fallback-ok");
+    });
+
+    const response = await safeFetch("https://public.example/fallback", {}, { resolve, transport });
+
+    expect(await response.text()).toBe("fallback-ok");
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(transport.mock.calls.map((call) => call[1].address.address)).toEqual(["93.184.216.34", "1.1.1.1"]);
+  });
+
+  it.each([
+    "SAFE_FETCH_ABORTED",
+    "SAFE_FETCH_TIMEOUT",
+    "SAFE_FETCH_BODY_TOO_LARGE",
+    "SAFE_FETCH_BLOCKED_ADDRESS",
+    "SAFE_FETCH_INVALID_REDIRECT",
+  ] as const)("never retries the next DNS answer after policy failure %s", async (code) => {
+    const transport = vi.fn(async () => { throw new SafeFetchError(code); });
+    await expect(safeFetch("https://public.example/policy", {}, {
+      resolve: async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "1.1.1.1", family: 4 },
+      ],
+      transport,
+    })).rejects.toMatchObject({ code });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not begin an alternate-address attempt when the caller aborts after a transport failure", async () => {
+    const controller = new AbortController();
+    const transport = vi.fn(async () => {
+      controller.abort();
+      throw new Error("connection reset");
+    });
+    await expect(safeFetch("https://public.example/abort-between-addresses", { signal: controller.signal }, {
+      resolve: async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "1.1.1.1", family: 4 },
+      ],
+      transport,
+    })).rejects.toMatchObject({ code: "SAFE_FETCH_ABORTED" });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not use another DNS answer after a redirect policy failure", async () => {
+    const transport = vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://" } }));
+    await expect(safeFetch("https://public.example/redirect", {}, {
+      resolve: async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "1.1.1.1", family: 4 },
+      ],
+      transport,
+    })).rejects.toMatchObject({ code: "SAFE_FETCH_INVALID_REDIRECT" });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
   it("normalizes a trailing dot before host policy and never invokes transport", async () => {
     const transport = vi.fn();
     await expect(safeFetch("https://accounts.google.com./authorize", {}, {
@@ -397,6 +461,68 @@ describe("safeFetch", () => {
       if (server.listening) {
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       }
+    }
+  });
+
+  it("uses an unbracketed TLS identity for DNS names and omits SNI for IP literals", () => {
+    const dnsOptions = pinnedSafeFetchRequestOptions(new URL("https://Example.COM:8443/path?q=1"), {
+      headers: undefined,
+      address: { address: "93.184.216.34", family: 4 },
+    });
+    const ipv4Options = pinnedSafeFetchRequestOptions(new URL("https://1.1.1.1/"), {
+      headers: undefined,
+      address: { address: "1.1.1.1", family: 4 },
+    });
+    const ipv6Options = pinnedSafeFetchRequestOptions(new URL("https://[2606:4700:4700::1111]/"), {
+      headers: undefined,
+      address: { address: "2606:4700:4700::1111", family: 6 },
+    });
+
+    expect(dnsOptions).toMatchObject({ hostname: "93.184.216.34", servername: "example.com" });
+    expect(dnsOptions.headers).toMatchObject({ host: "example.com:8443" });
+    expect(ipv4Options).toMatchObject({ hostname: "1.1.1.1" });
+    expect(ipv6Options).toMatchObject({ hostname: "2606:4700:4700::1111" });
+    expect(ipv4Options).not.toHaveProperty("servername");
+    expect(ipv6Options).not.toHaveProperty("servername");
+  });
+
+  it("discards metadata-only bodies, closes the peer, and remains settled after the close", async () => {
+    let writes = 0;
+    let closed!: () => void;
+    const peerClosed = new Promise<void>((resolve) => { closed = resolve; });
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "image/png", "content-length": "1048576" });
+      const interval = setInterval(() => {
+        writes += 1;
+        res.write(Buffer.alloc(1024));
+      }, 2);
+      res.once("close", () => {
+        clearInterval(interval);
+        closed();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server did not bind");
+    try {
+      const response = await pinnedSafeFetchTransport(new URL(`http://localhost:${address.port}/metadata`), {
+        headers: undefined,
+        timeoutMs: 500,
+        maxBodyBytes: 2 * 1024 * 1024,
+        address: { address: "127.0.0.1", family: 4 },
+        discardBody: true,
+      });
+      expect(response.body).toBeNull();
+      expect(await response.text()).toBe("");
+      await peerClosed;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      expect(writes).toBeLessThan(8);
+      await expect(Promise.race([
+        response.text().then(() => "settled"),
+        new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 50)),
+      ])).resolves.toBe("settled");
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
 

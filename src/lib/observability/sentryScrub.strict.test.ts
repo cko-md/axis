@@ -152,6 +152,164 @@ describe("strict Sentry transport scrubbing", () => {
     expect(serialized).not.toContain("must-not-leak");
   });
 
+  it("redacts a complete parenthesized URL in generic strings, breadcrumbs, and spans", () => {
+    const canary = "https://private.example/a(path)/detail?token=must-not-leak#fragment-secret";
+    const event = scrubSentryEventStrict({
+      extra: { diagnostic: `fetch failed for ${canary} after retry` },
+      breadcrumbs: [{ category: "safe-fetch", data: { diagnostic: `upstream=${canary}` } }],
+    } as Event);
+    const span = scrubSentrySpan({
+      trace_id: "0".repeat(32),
+      span_id: "1".repeat(16),
+      start_timestamp: 1,
+      data: { diagnostic: `GET ${canary}` } as never,
+      description: `GET ${canary}`,
+    });
+    const serialized = `${envelopeText(event)}${envelopeText(span)}`;
+
+    for (const fragment of ["private.example", "a(path)", "token=must-not-leak", "fragment-secret"]) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expect(serialized).toContain("[REDACTED]");
+    expect(span.description).toBe("[REDACTED]");
+  });
+
+  it("scrubs nested exception metadata and fingerprints without leaking URL suffixes", () => {
+    const canary = "https://private.example/a(path)?token=must-not-leak#fragment-secret";
+    const event = scrubSentryEventStrict({
+      exception: {
+        values: [{
+          type: canary,
+          value: `fetch failed: ${canary}.`,
+          mechanism: { type: "generic", data: { diagnostic: `upstream ${canary}.` } },
+          stacktrace: {
+            frames: [{
+              filename: canary,
+              abs_path: `${canary}.`,
+              function: `load(${canary}).`,
+            }],
+          },
+        }],
+      },
+      fingerprint: ["safe-fetch", canary, `retry:${canary}.`],
+    } as unknown as Event);
+    const serialized = envelopeText(event);
+
+    for (const fragment of ["private.example", "a(path)", "token=must-not-leak", "fragment-secret"]) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expect(event.exception?.values?.[0]).toMatchObject({
+      type: "[REDACTED]",
+      value: "[REDACTED]",
+      mechanism: { type: "generic", data: { diagnostic: "[REDACTED]" } },
+      stacktrace: {
+        frames: [{
+          filename: "[REDACTED]",
+          abs_path: "[REDACTED]",
+          function: "[REDACTED]",
+        }],
+      },
+    });
+    expect(event.fingerprint).toEqual(["safe-fetch", "[REDACTED]", "[REDACTED]"]);
+  });
+
+  it("scrubs path-only targets in every standard exception field and fingerprint", () => {
+    const canary = "/internal/path?token=must-not-leak#fragment-secret";
+    const event = scrubSentryEventStrict({
+      exception: {
+        values: [{
+          type: `FetchFailure ${canary}`,
+          value: `fetch failed: ${canary}`,
+          mechanism: { type: "generic", data: { diagnostic: `upstream=${canary}` } },
+          stacktrace: {
+            frames: [{
+              filename: canary,
+              abs_path: `https://axis.test${canary}`,
+              function: `load(${canary})`,
+            }],
+          },
+        }],
+      },
+      fingerprint: ["safe-fetch", canary, `retry:${canary}`],
+    } as unknown as Event);
+    const serialized = envelopeText(event);
+
+    for (const fragment of ["internal/path", "token=must-not-leak", "fragment-secret"]) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expect(event.exception?.values?.[0]).toMatchObject({
+      type: "[REDACTED]",
+      value: "[REDACTED]",
+      mechanism: { type: "generic", data: { diagnostic: "[REDACTED]" } },
+      stacktrace: { frames: [{ filename: "[REDACTED]", abs_path: "[REDACTED]", function: "[REDACTED]" }] },
+    });
+    expect(event.fingerprint).toEqual(["safe-fetch", "[REDACTED]", "[REDACTED]"]);
+  });
+
+  it("scrubs path-only targets across every strict event, breadcrumb, and span string surface", () => {
+    const canary = "/internal/path?token=must-not-leak#fragment-secret";
+    const event = scrubSentryEventStrict({
+      extra: { diagnostic: `extra=${canary}` },
+      contexts: { operation: { diagnostic: `context=${canary}` } },
+      tags: { diagnostic: `tag=${canary}`, operation: "cached_feed" },
+      breadcrumbs: [{ category: "safe-fetch", data: { diagnostic: `breadcrumb=${canary}` } }],
+      exception: {
+        values: [{
+          type: `FetchFailure ${canary}`,
+          value: canary,
+          mechanism: { type: "generic", data: { diagnostic: canary } },
+          stacktrace: { frames: [{ filename: canary, abs_path: canary, function: `load(${canary})` }] },
+        }],
+      },
+      fingerprint: ["safe-fetch", canary],
+    } as unknown as Event);
+    const span = scrubSentrySpan({
+      trace_id: "0".repeat(32),
+      span_id: "1".repeat(16),
+      start_timestamp: 1,
+      data: { diagnostic: `span=${canary}`, operation: "cached_feed" } as never,
+      links: [{
+        trace_id: "2".repeat(32),
+        span_id: "3".repeat(16),
+        attributes: { diagnostic: `link=${canary}` },
+      }],
+    });
+    const serialized = `${envelopeText(event)}${envelopeText(span)}`;
+
+    for (const fragment of ["internal/path", "token=must-not-leak", "fragment-secret"]) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expect(event.extra).toEqual({ diagnostic: "[REDACTED]" });
+    expect(event.contexts).toEqual({ operation: { diagnostic: "[REDACTED]" } });
+    expect(event.tags).toMatchObject({ diagnostic: "[REDACTED]", operation: "cached_feed" });
+    expect(event.breadcrumbs?.[0]?.data).toEqual({ diagnostic: "[REDACTED]" });
+    expect(event.fingerprint).toEqual(["safe-fetch", "[REDACTED]"]);
+    expect(span.data).toMatchObject({ diagnostic: "[REDACTED]", operation: "cached_feed" });
+    expect(span.links?.[0]?.attributes).toEqual({ diagnostic: "[REDACTED]" });
+  });
+
+  it("preserves only conservative SDK-normalized http.route templates", () => {
+    const scrubRoute = (route: string) => scrubSentrySpan({
+      trace_id: "0".repeat(32),
+      span_id: "1".repeat(16),
+      start_timestamp: 1,
+      data: { "http.route": route } as never,
+    }).data?.["http.route"];
+
+    expect(scrubRoute("/api/feeds/cached")).toBe("/api/feeds/cached");
+    for (const unsafeRoute of [
+      "/api/feeds/cached?token=must-not-leak",
+      "/api/feeds/cached#fragment-secret",
+      "https://private.example/internal",
+      "/api/%2Finternal",
+      "/api\\internal",
+      "/api feeds/cached",
+      "//private.example/internal",
+    ]) {
+      expect(scrubRoute(unsafeRoute)).toBe("[REDACTED]");
+    }
+  });
+
   it("removes path-only navigation breadcrumb canaries from error and transaction envelopes", () => {
     const canary = "/internal/path?token=must-not-leak#fragment";
     const breadcrumb = {

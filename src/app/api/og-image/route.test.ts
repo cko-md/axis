@@ -52,4 +52,25 @@ describe("OG image outbound boundary", () => {
     }));
     expect(result === "https://public.example/unknown").toBe(allowed);
   });
+
+  it("decodes metadata entities once and validates the second-hop MIME without buffering its body", async () => {
+    const page = "https://public.example/article";
+    const encodedImage = "https://cdn.example/image.png?value=&amp;#38;canary";
+    const seen: Array<{ url: string; bodyMode?: string }> = [];
+    const result = await resolveOgImageUrl(page, async (raw, options) => {
+      seen.push({ url: String(raw), bodyMode: options?.responseBodyMode });
+      if (String(raw) === page) {
+        return new Response(`<meta property="og:image" content="${encodedImage}">`, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(null, { headers: { "content-type": "image/png" } });
+    });
+
+    expect(result).toBe("https://cdn.example/image.png?value=&#38;canary");
+    expect(seen).toEqual([
+      { url: page, bodyMode: undefined },
+      { url: "https://cdn.example/image.png?value=&#38;canary", bodyMode: "discard" },
+    ]);
+  });
 });
