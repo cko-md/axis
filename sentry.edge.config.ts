@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { scrubSentryBreadcrumb, scrubSentryEventStrict, scrubSentrySpan, scrubSentryTransaction } from "@/lib/observability/sentryScrub";
+import { guardedSentryBreadcrumb, guardedSentryEvent, guardedSentrySpan, guardedSentryTransaction } from "@/lib/observability/sentryScrub";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -7,12 +7,13 @@ Sentry.init({
   release: process.env.VERCEL_GIT_COMMIT_SHA,
 
   tracesSampleRate: 0.2,
+  traceLifecycle: "static",
 
   enabled: process.env.NODE_ENV === "production" || !!process.env.NEXT_PUBLIC_SENTRY_DSN,
-  beforeSend: scrubSentryEventStrict,
-  beforeSendTransaction: scrubSentryTransaction,
-  beforeSendSpan: scrubSentrySpan,
-  beforeBreadcrumb: scrubSentryBreadcrumb,
+  beforeSend: guardedSentryEvent,
+  beforeSendTransaction: guardedSentryTransaction,
+  beforeSendSpan: guardedSentrySpan,
+  beforeBreadcrumb: guardedSentryBreadcrumb,
   sendDefaultPii: false,
   debug: false,
 });

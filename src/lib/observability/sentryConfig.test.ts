@@ -5,10 +5,11 @@ import path from "node:path";
 describe("Sentry runtime scrub hooks", () => {
   it.each(["sentry.server.config.ts", "sentry.edge.config.ts", "instrumentation-client.ts"])("wires transaction, span, and breadcrumb scrubbing in %s", async (file) => {
     const source = await readFile(path.join(process.cwd(), file), "utf8");
-    expect(source).toMatch(/beforeSend:\s*scrubSentryEventStrict/);
-    expect(source).toMatch(/beforeSendTransaction:\s*scrubSentryTransaction/);
-    expect(source).toMatch(/beforeSendSpan:\s*scrubSentrySpan/);
-    expect(source).toMatch(/beforeBreadcrumb:\s*scrubSentryBreadcrumb/);
+    expect(source).toMatch(/beforeSend:\s*guardedSentryEvent/);
+    expect(source).toMatch(/beforeSendTransaction:\s*guardedSentryTransaction/);
+    expect(source).toMatch(/beforeSendSpan:\s*guardedSentrySpan/);
+    expect(source).toMatch(/beforeBreadcrumb:\s*guardedSentryBreadcrumb/);
+    expect(source).toMatch(/traceLifecycle:\s*["']static["']/);
   });
 
   it("keeps Replay fully disabled until every rrweb event type is scrubbed", async () => {

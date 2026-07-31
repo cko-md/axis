@@ -314,6 +314,9 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
+  // Preserve a provider diagnostic without allowing the user-facing "auto"
+  // preference to become an unreviewed telemetry identifier.
+  const telemetryProvider = providerPref === "auto" ? "ai" : providerPref;
 
   const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const hasGemini = !!getGeminiApiKey();
@@ -760,7 +763,7 @@ export async function POST(req: NextRequest) {
         route: "ai",
         operation: "generate",
         area: "ai",
-        provider: providerPref,
+        provider: telemetryProvider,
         status: rateLimited ? 429 : 502,
         code: rateLimited ? "PROVIDER_RATE_LIMITED" : "PROVIDER_ERROR",
         tags: {
