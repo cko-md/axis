@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T03:04:18.129Z",
+  "derivedAt": "2026-07-31T05:49:39.648Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "0fce944068c388a4cd259307a8f05b89903911e4",
+    "head": "219778ff569880233619073e7249a918e9b87216",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "219778ff",
+        "subject": "fix(security): enforce closed-world Sentry telemetry"
+      },
+      {
+        "sha": "dacbfe7b",
+        "subject": "docs(state): record Phase 1 repaired production gates"
+      },
       {
         "sha": "0fce9440",
         "subject": "test(security): align pinned transport surface guard"
@@ -80,9 +88,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "32e4631b5fa03497336718901977eb85094920d50cc36493164ed60d98d5d8bd",
+    "contentTreeHash": "2fbb3c80512379a4af68c107bf49fa325d7a080df79c91ff10652795c5150d01",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "d55d880146fbbba4c04656f9df6e1e369ac2e562866a08f5fa4d77cda601ed23"
+    "fingerprint": "9ec6d3b77276ce5e21871ff8443034b5746d02fe622aa073ed0937caccfead54"
   },
   "mergedPrs": [
     {
@@ -395,8 +403,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "0fce944068c388a4cd259307a8f05b89903911e4",
-    "sourceContentTreeHash": "32e4631b5fa03497336718901977eb85094920d50cc36493164ed60d98d5d8bd",
+    "sourceHead": "219778ff569880233619073e7249a918e9b87216",
+    "sourceContentTreeHash": "2fbb3c80512379a4af68c107bf49fa325d7a080df79c91ff10652795c5150d01",
     "typecheck": {
       "passed": true
     },
@@ -404,23 +412,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2279,
-      "total": 2279,
-      "files": 256,
-      "suites": 728
+      "passed": 2298,
+      "total": 2298,
+      "files": 258,
+      "suites": 732
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4071,
+      "used": 4104,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-31T03:04:18.048Z"
+    "measuredAt": "2026-07-31T05:49:39.513Z"
   }
 }
