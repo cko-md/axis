@@ -39,10 +39,11 @@ describe("untrusted outbound fetch surfaces", () => {
 
   it("pins each connection to its checked DNS address without rewriting IPv6 URL hostnames", async () => {
     const source = await readFile(path.join(root, "src/lib/security/safe-fetch.ts"), "utf8");
-    expect(source).toMatch(/hostname: pinnedAddress/);
+    expect(source).toMatch(/hostname: input\.address\.address/);
     expect(source).toMatch(/family: input\.address\.family/);
     expect(source).not.toMatch(/pinnedUrl\.hostname = pinnedAddress/);
-    expect(source).toMatch(/servername: url\.hostname/);
+    expect(source).toMatch(/const tlsIdentity = bareHost\(url\.hostname\)/);
+    expect(source).toMatch(/options\.servername = tlsIdentity/);
     expect(source).toMatch(/redirects <= maxRedirects/);
   });
 
