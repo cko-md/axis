@@ -156,7 +156,17 @@ describe("middleware access policy", () => {
     nextResponse(await middleware(request("/monitoring")));
     nextResponse(await middleware(request("/monitoring/")));
     expect((await middleware(request("/monitoring/extra"))).status).toBe(503);
+    expect((await middleware(request("/monitoring-lookalike"))).status).toBe(503);
     expect(mocks.getUser).not.toHaveBeenCalled();
+
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    const descendantResponse = await middleware(request("/monitoring/extra"));
+    const lookalikeResponse = await middleware(request("/monitoring-lookalike"));
+    expect(descendantResponse.status).toBe(307);
+    expect(lookalikeResponse.status).toBe(307);
+    expect(new URL(descendantResponse.headers.get("location")!).pathname).toBe("/login");
+    expect(new URL(lookalikeResponse.headers.get("location")!).pathname).toBe("/login");
   });
 
   it("preserves Supabase cookie mutations on denial and unavailable responses", async () => {

@@ -40,9 +40,10 @@ const SERVICE_AUTH_API = new Set([
   "/api/cron/intelligence-sweep",
 ]);
 // Sentry's configured tunnelRoute is injected as a build-time rewrite, so it
-// has no handwritten route module to inventory. It authenticates to Sentry at
-// the destination; allowing the exact ingress keeps client error reporting
-// available during an auth outage without opening a path prefix.
+// has no handwritten route module to inventory. The exact ingress paths bypass
+// session refresh so client error reporting remains available during an auth
+// outage. Sentry middleware auto-instrumentation is disabled in next.config.ts:
+// its installed wrapper would otherwise bypass AXIS middleware for descendants.
 const TELEMETRY_INGRESS_PATHS = new Set(["/monitoring", "/monitoring/"]);
 const MFA_BOOTSTRAP_API = new Set([
   "/api/auth/mfa/challenge",
@@ -62,5 +63,7 @@ export function classifyAccess(pathname: string): AccessClass {
 }
 
 export function requiresSupabaseAuth(access: AccessClass): boolean {
-  return access !== "service-auth" && access !== "telemetry-ingest" && access !== "static-public-page";
+  return access !== "service-auth"
+    && access !== "telemetry-ingest"
+    && access !== "static-public-page";
 }
