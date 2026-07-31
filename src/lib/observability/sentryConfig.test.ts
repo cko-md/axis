@@ -7,11 +7,42 @@ import { filterAxisErrorOnlyIntegrations } from "./sentryErrorOnlyConfig";
 const CONFIGS = ["sentry.server.config.ts", "sentry.edge.config.ts", "instrumentation-client.ts"] as const;
 
 type ProductionSource = { file: string; text: string };
+type RegistrationKind = "init" | "beforeEnvelope" | "addIntegration";
 
 function canContainSentryRegistration(text: string): boolean {
   return text.includes("Sentry")
     || text.includes("beforeEnvelope")
-    || text.includes("addIntegration");
+    || text.includes("addIntegration")
+    || text.includes("\\");
+}
+
+function classifySentryRegistrations(file: string, text: string): RegistrationKind[] {
+  const matches: RegistrationKind[] = [];
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const { expression, name } = node.expression;
+      if (ts.isIdentifier(expression) && expression.text === "Sentry" && name.text === "init") {
+        matches.push("init");
+      }
+      if (name.text === "addIntegration") matches.push("addIntegration");
+      if (
+        name.text === "on"
+        && node.arguments.length > 0
+        && ts.isStringLiteral(node.arguments[0])
+        && node.arguments[0].text === "beforeEnvelope"
+      ) matches.push("beforeEnvelope");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return matches;
 }
 
 async function productionTypeScriptSources(): Promise<ProductionSource[]> {
@@ -86,11 +117,15 @@ describe("Sentry error-only runtime configuration", () => {
   });
 
   it.each([
-    ["Sentry.init({});"],
-    ['client.on("beforeEnvelope", finalize);'],
-    ["client.addIntegration(integration);"],
-  ])("retains the recursive audit candidate shape %s", (source) => {
+    ["Sentry.init({});", "init"],
+    ['client.on("beforeEnvelope", finalize);', "beforeEnvelope"],
+    ["client.addIntegration(integration);", "addIntegration"],
+    [String.raw`S\u0065ntry.init({});`, "init"],
+    [String.raw`client.on("before\u0045nvelope", finalize);`, "beforeEnvelope"],
+    [String.raw`client.add\u0049ntegration(integration);`, "addIntegration"],
+  ] as const)("retains and classifies the recursive audit candidate shape %s", (source, kind) => {
     expect(canContainSentryRegistration(source)).toBe(true);
+    expect(classifySentryRegistrations("fixture.ts", source)).toContain(kind);
   });
 
   it("has no later dynamic integration or terminal-finalizer registration outside startup configs", async () => {
@@ -100,30 +135,12 @@ describe("Sentry error-only runtime configuration", () => {
     const sources = await productionTypeScriptSources();
     const candidates = sources.filter(({ text }) => canContainSentryRegistration(text));
     for (const { file, text } of candidates) {
-      const source = ts.createSourceFile(
-        file,
-        text,
-        ts.ScriptTarget.Latest,
-        true,
-        file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-      );
-      const visit = (node: ts.Node): void => {
-        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-          const { expression, name } = node.expression;
-          if (ts.isIdentifier(expression) && expression.text === "Sentry" && name.text === "init") {
-            initFiles.push(path.relative(process.cwd(), file));
-          }
-          if (name.text === "addIntegration") addIntegrationFiles.push(path.relative(process.cwd(), file));
-          if (
-            name.text === "on"
-            && node.arguments.length > 0
-            && ts.isStringLiteral(node.arguments[0])
-            && node.arguments[0].text === "beforeEnvelope"
-          ) beforeEnvelopeFiles.push(path.relative(process.cwd(), file));
-        }
-        ts.forEachChild(node, visit);
-      };
-      visit(source);
+      const relativeFile = path.relative(process.cwd(), file);
+      for (const kind of classifySentryRegistrations(file, text)) {
+        if (kind === "init") initFiles.push(relativeFile);
+        else if (kind === "beforeEnvelope") beforeEnvelopeFiles.push(relativeFile);
+        else addIntegrationFiles.push(relativeFile);
+      }
     }
     expect(initFiles.sort()).toEqual([...CONFIGS].sort());
     expect(beforeEnvelopeFiles.sort()).toEqual([...CONFIGS].sort());
