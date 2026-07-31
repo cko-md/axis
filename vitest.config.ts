@@ -4,11 +4,6 @@ import path from "path";
 export default defineConfig({
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
-    // Several suites intentionally exercise CPU-heavy game generation and
-    // Git-backed release fixtures. Vitest's host-sized default oversubscribes
-    // 8-core runners and causes unrelated timeout failures under full load;
-    // three workers is the highest cap with a clean authoritative full-suite run.
-    maxWorkers: 3,
     setupFiles: ["./vitest.setup.ts"],
   },
   resolve: {
