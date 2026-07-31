@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T08:04:03.768Z",
+  "derivedAt": "2026-07-31T08:22:51.574Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "91b4e1e1b2b35cbc59e11319e940ead04cd71c03",
+    "head": "c52791184671fcc270e8cf24c273efa645b70cee",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "c5279118",
+        "subject": "test: preserve protected release contracts"
+      },
+      {
+        "sha": "324b8570",
+        "subject": "docs(state): record terminal telemetry gate closure"
+      },
       {
         "sha": "91b4e1e1",
         "subject": "test: close escaped Sentry registration audit gap"
@@ -108,9 +116,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "35e4e96d4d16706b155c7a4342679c637764a3a0011ac2f57a5cbab3ae21156a",
+    "contentTreeHash": "de7b5a6673b30f89b9676d80dc49af93df0092f389fb76fbdf59cf393b122717",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "58b64bf3a96af5d68750f5ccd9c84fc58d7cc65622a024578ea877680a76b71c"
+    "fingerprint": "7219aab1f20c6d0e36a7a54796a421b8ebf0fd047d87e363fc9679e2d5866fe6"
   },
   "mergedPrs": [
     {
@@ -423,8 +431,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "91b4e1e1b2b35cbc59e11319e940ead04cd71c03",
-    "sourceContentTreeHash": "35e4e96d4d16706b155c7a4342679c637764a3a0011ac2f57a5cbab3ae21156a",
+    "sourceHead": "c52791184671fcc270e8cf24c273efa645b70cee",
+    "sourceContentTreeHash": "de7b5a6673b30f89b9676d80dc49af93df0092f389fb76fbdf59cf393b122717",
     "typecheck": {
       "passed": true
     },
@@ -432,10 +440,10 @@
       "passed": true
     },
     "tests": {
-      "passed": 2344,
-      "total": 2344,
-      "files": 259,
-      "suites": 734
+      "passed": 2346,
+      "total": 2346,
+      "files": 263,
+      "suites": 742
     },
     "build": {
       "passed": true,
@@ -449,6 +457,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-31T08:04:03.640Z"
+    "measuredAt": "2026-07-31T08:22:51.451Z"
   }
 }
