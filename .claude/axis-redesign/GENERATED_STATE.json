@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T00:02:08.516Z",
+  "derivedAt": "2026-07-31T02:54:17.500Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "69142b64baf2b25ad06a992486df42cf58815572",
+    "head": "c106cc3b279a9ce663470bac7463d372b6669014",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
-    "workingTreeClean": true,
+    "workingTreeClean": false,
     "aheadOfMain": [
+      {
+        "sha": "c106cc3b",
+        "subject": "fix(security): close safe-fetch review gaps"
+      },
+      {
+        "sha": "6260d352",
+        "subject": "docs(state): rebind Phase 1 governed repair"
+      },
       {
         "sha": "69142b64",
         "subject": "docs(observability): document strict Sentry privacy hooks"
@@ -60,9 +68,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "f0dd6d3be55d9baca56853f576e90b99e729b42acb488bd8eda6db8e1497b2d1",
+    "contentTreeHash": "af75e5ee467425ab7eca1495ed385718a99192fce55bf69e4ce82f6083cd2dcc",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "904608d86805a80527d15b8dd564ff46d30631ba15169162c8d487e52789ee34"
+    "fingerprint": "b0e162009c4d68822b97f9aae1859c453a29335fbab3ee92145017674efd41ba"
   },
   "mergedPrs": [
     {
@@ -373,7 +381,7 @@
     ]
   },
   "gates": {
-    "measured": true,
+    "measured": false,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
     "sourceHead": "69142b64baf2b25ad06a992486df42cf58815572",
     "sourceContentTreeHash": "f0dd6d3be55d9baca56853f576e90b99e729b42acb488bd8eda6db8e1497b2d1",
@@ -401,6 +409,7 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-31T00:02:08.305Z"
+    "measuredAt": "2026-07-31T00:02:08.305Z",
+    "note": "carried forward; re-run with --gates to measure"
   }
 }
