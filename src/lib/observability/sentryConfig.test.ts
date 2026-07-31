@@ -6,10 +6,18 @@ import { filterAxisErrorOnlyIntegrations } from "./sentryErrorOnlyConfig";
 
 const CONFIGS = ["sentry.server.config.ts", "sentry.edge.config.ts", "instrumentation-client.ts"] as const;
 
-async function productionTypeScriptFiles(): Promise<string[]> {
+type ProductionSource = { file: string; text: string };
+
+function canContainSentryRegistration(text: string): boolean {
+  return text.includes("Sentry")
+    || text.includes("beforeEnvelope")
+    || text.includes("addIntegration");
+}
+
+async function productionTypeScriptSources(): Promise<ProductionSource[]> {
   const files = CONFIGS.map((file) => path.join(process.cwd(), file));
   const walk = async (directory: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    await Promise.all((await readdir(directory, { withFileTypes: true })).map(async (entry) => {
       const target = path.join(directory, entry.name);
       if (entry.isDirectory()) await walk(target);
       else if (
@@ -17,10 +25,13 @@ async function productionTypeScriptFiles(): Promise<string[]> {
         && /\.(?:ts|tsx)$/.test(entry.name)
         && !/\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)
       ) files.push(target);
-    }
+    }));
   };
   await walk(path.join(process.cwd(), "src"));
-  return files.sort();
+  return Promise.all(files.sort().map(async (file) => ({
+    file,
+    text: await readFile(file, "utf8"),
+  })));
 }
 
 describe("Sentry error-only runtime configuration", () => {
@@ -74,14 +85,24 @@ describe("Sentry error-only runtime configuration", () => {
     expect(source).toContain('route:"/api/mail/message/[id]/action" operation:archive');
   });
 
+  it.each([
+    ["Sentry.init({});"],
+    ['client.on("beforeEnvelope", finalize);'],
+    ["client.addIntegration(integration);"],
+  ])("retains the recursive audit candidate shape %s", (source) => {
+    expect(canContainSentryRegistration(source)).toBe(true);
+  });
+
   it("has no later dynamic integration or terminal-finalizer registration outside startup configs", async () => {
     const initFiles: string[] = [];
     const beforeEnvelopeFiles: string[] = [];
     const addIntegrationFiles: string[] = [];
-    for (const file of await productionTypeScriptFiles()) {
+    const sources = await productionTypeScriptSources();
+    const candidates = sources.filter(({ text }) => canContainSentryRegistration(text));
+    for (const { file, text } of candidates) {
       const source = ts.createSourceFile(
         file,
-        await readFile(file, "utf8"),
+        text,
         ts.ScriptTarget.Latest,
         true,
         file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
