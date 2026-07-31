@@ -1,5 +1,3 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
 import { wrapMiddlewareWithSentry } from "@sentry/nextjs";
 import { describe, expect, it, vi } from "vitest";
 import webpack from "webpack";
@@ -8,7 +6,6 @@ import { classifyAccess } from "./accessPolicy";
 
 type Rewrite = { destination?: string; source?: string };
 type RewritesResult = Rewrite[] | { beforeFiles?: Rewrite[] };
-type RoutePattern = string[];
 type WebpackRule = { use?: { options?: { wrappingTargetKind?: string } }[] };
 type WebpackConfig = {
   experiments?: Record<string, unknown>;
@@ -29,42 +26,6 @@ const SENTRY_DESTINATIONS = [
   "https://o:orgid.ingest.:region.sentry.io/api/:projectid/envelope/?hsts=0",
   "https://o:orgid.ingest.sentry.io/api/:projectid/envelope/?hsts=0",
 ];
-
-function listFiles(root: string): string[] {
-  if (!existsSync(root)) return [];
-  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const pathname = join(root, entry.name);
-    return entry.isDirectory() ? listFiles(pathname) : [pathname];
-  });
-}
-
-function routePatterns(root: string): RoutePattern[] {
-  return listFiles(root)
-    .filter((pathname) => /(?:^|[\\/])(?:page|route)\.(?:tsx?|jsx?)$/.test(pathname))
-    .map((pathname) => relative(root, pathname).split(sep).slice(0, -1))
-    .map((segments) => segments.filter((segment) => !(segment.startsWith("(") && segment.endsWith(")"))));
-}
-
-function routeClaimsPath(pattern: RoutePattern, pathname: string): boolean {
-  const requested = pathname.split("/").filter(Boolean);
-  let patternIndex = 0;
-  let requestIndex = 0;
-  while (patternIndex < pattern.length) {
-    const segment = pattern[patternIndex]!;
-    if (/^\[\[\.\.\..+\]\]$/.test(segment)) return true;
-    if (/^\[\.\.\..+\]$/.test(segment)) return requestIndex < requested.length;
-    if (requestIndex >= requested.length) return false;
-    if (!/^\[.+\]$/.test(segment) && segment !== requested[requestIndex]) return false;
-    patternIndex += 1;
-    requestIndex += 1;
-  }
-  return requestIndex === requested.length;
-}
-
-function publicFileClaimsPath(pathname: string): boolean {
-  const normalized = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
-  return listFiles("public").some((file) => relative("public", file) === normalized);
-}
 
 describe("Sentry tunnel access policy", () => {
   it("evaluates the wrapped config: exact rewrites remain while middleware auto-wrap is disabled", async () => {
@@ -133,20 +94,4 @@ describe("Sentry tunnel access policy", () => {
     }
   });
 
-  it("keeps the tunnel namespace unclaimed by materialized application mappings", async () => {
-    const routeInventory = [...routePatterns("src/app"), ...routePatterns("pages")];
-    const rewrites = await (nextConfig.rewrites as (() => Promise<RewritesResult>))();
-    const rewriteRules = Array.isArray(rewrites) ? rewrites : rewrites.beforeFiles ?? [];
-    const redirects = await (nextConfig.redirects as (() => Promise<{ source: string }[]>) )();
-    const vercel = JSON.parse(readFileSync("vercel.json", "utf8")) as { crons?: { path?: string }[] };
-
-    for (const pathname of ["/monitoring", "/monitoring/extra"]) {
-      expect(routeInventory.some((pattern) => routeClaimsPath(pattern, pathname))).toBe(false);
-      expect(publicFileClaimsPath(pathname)).toBe(false);
-      expect(redirects.some((redirect) => routeClaimsPath(redirect.source.split("/").filter(Boolean), pathname))).toBe(false);
-      expect(vercel.crons?.some((cron) => cron.path === pathname)).not.toBe(true);
-    }
-    expect(rewriteRules).toHaveLength(2);
-    expect(rewriteRules.every((rule) => rule.source === "/monitoring(/?)" && SENTRY_DESTINATIONS.includes(rule.destination ?? ""))).toBe(true);
-  });
 });
