@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T02:57:20.829Z",
+  "derivedAt": "2026-07-31T03:04:18.129Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "1122772e7e75ed6f5467b5e3abd4e2ca158d6e4a",
+    "head": "0fce944068c388a4cd259307a8f05b89903911e4",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "0fce9440",
+        "subject": "test(security): align pinned transport surface guard"
+      },
+      {
+        "sha": "bfcb0415",
+        "subject": "docs(state): finalize Phase 1 review repairs"
+      },
       {
         "sha": "1122772e",
         "subject": "docs(state): rebind Phase 1 review repairs"
@@ -72,9 +80,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "af75e5ee467425ab7eca1495ed385718a99192fce55bf69e4ce82f6083cd2dcc",
+    "contentTreeHash": "32e4631b5fa03497336718901977eb85094920d50cc36493164ed60d98d5d8bd",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "e47f06cddb1c77cbf202e89b24cb5dda42bba6e04636c435d64a0a73dad72329"
+    "fingerprint": "d55d880146fbbba4c04656f9df6e1e369ac2e562866a08f5fa4d77cda601ed23"
   },
   "mergedPrs": [
     {
@@ -385,10 +393,10 @@
     ]
   },
   "gates": {
-    "measured": false,
+    "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "69142b64baf2b25ad06a992486df42cf58815572",
-    "sourceContentTreeHash": "f0dd6d3be55d9baca56853f576e90b99e729b42acb488bd8eda6db8e1497b2d1",
+    "sourceHead": "0fce944068c388a4cd259307a8f05b89903911e4",
+    "sourceContentTreeHash": "32e4631b5fa03497336718901977eb85094920d50cc36493164ed60d98d5d8bd",
     "typecheck": {
       "passed": true
     },
@@ -396,10 +404,10 @@
       "passed": true
     },
     "tests": {
-      "passed": 2262,
-      "total": 2262,
-      "files": 255,
-      "suites": 726
+      "passed": 2279,
+      "total": 2279,
+      "files": 256,
+      "suites": 728
     },
     "build": {
       "passed": true,
@@ -413,7 +421,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-31T00:02:08.305Z",
-    "note": "carried forward; re-run with --gates to measure"
+    "measuredAt": "2026-07-31T03:04:18.048Z"
   }
 }
