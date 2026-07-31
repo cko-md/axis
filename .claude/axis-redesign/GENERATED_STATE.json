@@ -1,12 +1,24 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-30T22:58:00.057Z",
+  "derivedAt": "2026-07-31T00:02:08.516Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "e1d1350a556c5041a415d3f625680394729e4880",
+    "head": "69142b64baf2b25ad06a992486df42cf58815572",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "69142b64",
+        "subject": "docs(observability): document strict Sentry privacy hooks"
+      },
+      {
+        "sha": "b1a5c82b",
+        "subject": "fix(release): preserve protected security test contracts"
+      },
+      {
+        "sha": "a478d8bb",
+        "subject": "docs(state): derive Phase 1 candidate state"
+      },
       {
         "sha": "e1d1350a",
         "subject": "fix(security): redact Sentry query and fragment attributes"
@@ -48,9 +60,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "3787a4fcd50b98af1846eaa1f2a24846757562cd960ea8762eaf25f5340a375e",
+    "contentTreeHash": "f0dd6d3be55d9baca56853f576e90b99e729b42acb488bd8eda6db8e1497b2d1",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "0c21012aa0a299cae0d99b6a195d1b574a43a3bfb355592530c0b6e9e86841d0"
+    "fingerprint": "904608d86805a80527d15b8dd564ff46d30631ba15169162c8d487e52789ee34"
   },
   "mergedPrs": [
     {
@@ -363,8 +375,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "e1d1350a556c5041a415d3f625680394729e4880",
-    "sourceContentTreeHash": "3787a4fcd50b98af1846eaa1f2a24846757562cd960ea8762eaf25f5340a375e",
+    "sourceHead": "69142b64baf2b25ad06a992486df42cf58815572",
+    "sourceContentTreeHash": "f0dd6d3be55d9baca56853f576e90b99e729b42acb488bd8eda6db8e1497b2d1",
     "typecheck": {
       "passed": true
     },
@@ -372,23 +384,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2241,
-      "total": 2241,
-      "files": 253,
-      "suites": 722
+      "passed": 2262,
+      "total": 2262,
+      "files": 255,
+      "suites": 726
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4069,
+      "used": 4071,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-30T22:57:59.855Z"
+    "measuredAt": "2026-07-31T00:02:08.305Z"
   }
 }
