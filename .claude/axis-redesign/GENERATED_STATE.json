@@ -1,12 +1,16 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T02:54:17.500Z",
+  "derivedAt": "2026-07-31T02:57:20.829Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "c106cc3b279a9ce663470bac7463d372b6669014",
+    "head": "1122772e7e75ed6f5467b5e3abd4e2ca158d6e4a",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
-    "workingTreeClean": false,
+    "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "1122772e",
+        "subject": "docs(state): rebind Phase 1 review repairs"
+      },
       {
         "sha": "c106cc3b",
         "subject": "fix(security): close safe-fetch review gaps"
@@ -70,7 +74,7 @@
     ],
     "contentTreeHash": "af75e5ee467425ab7eca1495ed385718a99192fce55bf69e4ce82f6083cd2dcc",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "b0e162009c4d68822b97f9aae1859c453a29335fbab3ee92145017674efd41ba"
+    "fingerprint": "e47f06cddb1c77cbf202e89b24cb5dda42bba6e04636c435d64a0a73dad72329"
   },
   "mergedPrs": [
     {

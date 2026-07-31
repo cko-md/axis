@@ -23,7 +23,7 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `b0e162009c4d68822b97f9aae1859c453a29335fbab3ee92145017674efd41ba` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `e47f06cddb1c77cbf202e89b24cb5dda42bba6e04636c435d64a0a73dad72329` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `af75e5ee467425ab7eca1495ed385718a99192fce55bf69e4ce82f6083cd2dcc`
 - **Source-main tree at derivation:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
@@ -34,12 +34,13 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-01-safe-fetch-v2`
-- **HEAD:** `c106cc3b`
+- **HEAD:** `1122772e`
 - **main:** `acafb3ae`
-- **Working tree:** had uncommitted changes
+- **Working tree:** clean
 
-### Ahead of source main at derivation (15 commit(s))
+### Ahead of source main at derivation (16 commit(s))
 
+- `1122772e` docs(state): rebind Phase 1 review repairs
 - `c106cc3b` fix(security): close safe-fetch review gaps
 - `6260d352` docs(state): rebind Phase 1 governed repair
 - `69142b64` docs(observability): document strict Sentry privacy hooks
