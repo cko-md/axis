@@ -1,22 +1,23 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T12:55:05.710Z",
+  "derivedAt": "2026-08-05T13:24:27.850Z",
   "git": {
-    "branch": "codex/redesign-00-runtime-dependency-break-glass",
-    "head": "0b708b9b34b13cccb5908897808298a02aa4610f",
-    "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
+    "branch": "codex/redesign-00-post-breakglass-state",
+    "head": "0a3565030ec620ce5a5c6110fb14a8e72a62f70c",
+    "mainHead": "0a3565030ec620ce5a5c6110fb14a8e72a62f70c",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "0b708b9b",
-        "subject": "fix(security): refresh vulnerable runtime transitive dependencies"
-      }
-    ],
+    "aheadOfMain": [],
     "contentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
-    "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "04ca5422d52943b3e94c70947a98bd01c28ec6cd7b8f3f1e66ed49cbd7a9af6f"
+    "sourceMainContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
+    "fingerprint": "23bc2c1f44ead742776f5d5b252149c1984e2ef98e3b1ab2fb967316c8c9952e"
   },
   "mergedPrs": [
+    {
+      "pr": 291,
+      "sha": "0a356503",
+      "subject": "fix(security): refresh protected runtime dependencies",
+      "committedAt": "2026-08-05T09:23:04-04:00"
+    },
     {
       "pr": 282,
       "sha": "acafb3ae",
@@ -160,12 +161,6 @@
       "sha": "9c245bad",
       "subject": "docs(axis): re-derive CURRENT_STATE after rebasing 16.3 onto the Paper Glider shell",
       "committedAt": "2026-07-20T12:47:37-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "ad2dce63",
-      "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter",
-      "committedAt": "2026-07-20T12:45:26-04:00"
     }
   ],
   "waves": [
