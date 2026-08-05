@@ -176,13 +176,133 @@ describe("middleware access policy", () => {
       "/api/cron/daily/extra",
       "/api/auth/profile-evil",
       "/api/mail/message/opaque.jpg",
-      "/api/spotify/callback",
     ]) {
       expect((await middleware(request(pathname))).status).toBe(401);
     }
     const protectedPage = await middleware(request("/fund/position/AAPL.png"));
     expect(protectedPage.status).toBe(307);
     expect(new URL(protectedPage.headers.get("location")!).pathname).toBe("/login");
+  });
+
+  it("terminates signed-out Spotify callbacks at the public feedback handshake", async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    const response = await middleware(request("/api/spotify/callback?code=opaque&state=opaque"));
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get("location")!);
+    expect(location.pathname).toBe("/oauth-done");
+    expect(Object.fromEntries(location.searchParams)).toEqual({
+      provider: "spotify",
+      status: "error",
+      reason: "session_expired",
+    });
+
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { name: "AuthSessionMissingError", status: 400 },
+    });
+    const staleResponse = await middleware(
+      request("/api/spotify/callback?code=opaque&state=opaque", { "sb-project-auth-token": "stale" }),
+    );
+    expect(staleResponse.status).toBe(307);
+    expect(staleResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("terminates every Spotify callback auth-boundary failure with safe public feedback", async () => {
+    const feedbackReason = (response: Response) => {
+      expect(response.status).toBe(307);
+      const location = new URL(response.headers.get("location")!);
+      expect(location.pathname).toBe("/oauth-done");
+      expect(location.searchParams.has("code")).toBe(false);
+      expect(location.searchParams.has("state")).toBe(false);
+      return location.searchParams.get("reason");
+    };
+
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    expect(feedbackReason(await middleware(request("/api/spotify/callback?code=opaque&state=opaque"))))
+      .toBe("auth_unavailable");
+
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://twkcvyhmlguipchfetge.supabase.co";
+    mocks.getUser.mockRejectedValueOnce(new Error("network down"));
+    expect(feedbackReason(await middleware(request("/api/spotify/callback?code=opaque&state=opaque"))))
+      .toBe("auth_unavailable");
+
+    mocks.getAuthenticatorAssuranceLevel.mockResolvedValueOnce({ data: null, error: new Error("unavailable") });
+    expect(feedbackReason(await middleware(request("/api/spotify/callback?code=opaque&state=opaque"))))
+      .toBe("assurance_unavailable");
+
+    mocks.getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: "aal1", nextLevel: "aal2" },
+      error: null,
+    });
+    expect(feedbackReason(await middleware(request("/api/spotify/callback?code=opaque&state=opaque"))))
+      .toBe("mfa_required");
+
+    expect(mocks.captureRouteError).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps Spotify callback descendants and lookalikes on ordinary default-deny responses", async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    for (const pathname of [
+      "/api/spotify/callback/extra?code=opaque&state=opaque",
+      "/api/spotify/callback-evil?code=opaque&state=opaque",
+    ]) {
+      const response = await middleware(request(pathname));
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({ error: "UNAUTHORIZED" });
+      expect(response.headers.get("location")).toBeNull();
+    }
+  });
+
+  it("refreshes existing root sessions without making the landing page auth-dependent", async () => {
+    mocks.createServerClient.mockImplementation((_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-project-auth-token", value: "rotated", options: { path: "/" } }]);
+      return {
+        auth: {
+          getUser: mocks.getUser,
+          mfa: { getAuthenticatorAssuranceLevel: mocks.getAuthenticatorAssuranceLevel },
+        },
+      };
+    });
+    const refreshed = await middleware(request("/", { "sb-project-auth-token": "expired" }));
+    nextResponse(refreshed);
+    expect(refreshed.headers.get("set-cookie")).toContain("sb-project-auth-token=rotated");
+    expect(mocks.getUser).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    nextResponse(await middleware(request("/")));
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    nextResponse(await middleware(request("/", { "sb-project-auth-token": "expired" })));
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+    expect(mocks.captureRouteError).not.toHaveBeenCalled();
+  });
+
+  it("keeps root public while preserving stale-cookie cleanup and refresh output", async () => {
+    mocks.getUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { code: "invalid_refresh_token" },
+    });
+    const stale = await middleware(request("/", { "sb-project-auth-token": "stale" }));
+    nextResponse(stale);
+    expect(stale.headers.get("set-cookie")).toContain("Max-Age=0");
+
+    mocks.createServerClient.mockImplementation((_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-project-auth-token", value: "rotated", options: { path: "/" } }]);
+      return {
+        auth: {
+          getUser: mocks.getUser,
+          mfa: { getAuthenticatorAssuranceLevel: mocks.getAuthenticatorAssuranceLevel },
+        },
+      };
+    });
+    mocks.getUser.mockResolvedValueOnce({ data: { user: null }, error: { code: "unexpected" } });
+    const backendFailure = await middleware(request("/", { "sb-project-auth-token": "expired" }));
+    nextResponse(backendFailure);
+    expect(backendFailure.headers.get("set-cookie")).toContain("sb-project-auth-token=rotated");
+    // HomePage owns observation for this optional public probe; middleware
+    // neither turns the landing page into a 503 nor double-reports the failure.
+    expect(mocks.captureRouteError).not.toHaveBeenCalled();
   });
 
   it("bypasses Supabase only for exact self-authenticated service endpoints", async () => {

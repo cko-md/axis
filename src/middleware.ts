@@ -67,6 +67,12 @@ function clearBrokenAuthCookies(request: NextRequest, response: NextResponse) {
     });
 }
 
+function hasSupabaseAuthCookie(request: NextRequest): boolean {
+  return request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"));
+}
+
 function authErrorCode(error: unknown): string {
   if (!error || typeof error !== "object") return "";
   const code = (error as AuthError).code;
@@ -75,6 +81,19 @@ function authErrorCode(error: unknown): string {
 
 function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+function isSpotifyCallback(pathname: string): boolean {
+  return pathname === "/api/spotify/callback";
+}
+
+function spotifyAuthFeedback(request: NextRequest, reason: string): NextResponse {
+  const search = new URLSearchParams({
+    provider: "spotify",
+    status: "error",
+    reason,
+  });
+  return redirectWithinApp(request, "/oauth-done", search);
 }
 
 function isRefreshTokenAbsence(error: unknown): boolean {
@@ -88,7 +107,10 @@ function isSessionMissing(error: unknown): boolean {
   return candidate.name === "AuthSessionMissingError" && candidate.status === 400;
 }
 
-function unavailable(code: "AUTH_CONFIGURATION_UNAVAILABLE" | "AUTH_BACKEND_UNAVAILABLE") {
+function unavailable(
+  request: NextRequest,
+  code: "AUTH_CONFIGURATION_UNAVAILABLE" | "AUTH_BACKEND_UNAVAILABLE",
+) {
   captureRouteError(new Error("Authentication infrastructure unavailable"), {
     route: "middleware",
     operation: "authenticate_request",
@@ -96,6 +118,9 @@ function unavailable(code: "AUTH_CONFIGURATION_UNAVAILABLE" | "AUTH_BACKEND_UNAV
     status: 503,
     code,
   });
+  if (isSpotifyCallback(request.nextUrl.pathname)) {
+    return spotifyAuthFeedback(request, "auth_unavailable");
+  }
   return NextResponse.json(
     {
       error: code,
@@ -139,14 +164,21 @@ export async function middleware(request: NextRequest) {
   }
 
   const access = classifyAccess(pathname);
-  if (!requiresSupabaseAuth(access)) return NextResponse.next({ request });
+  // The landing page is public during missing configuration and outages, but
+  // an existing auth cookie still needs middleware's response-capable refresh
+  // path. Server Components cannot persist rotated Supabase cookies.
+  const optionalRootSession = pathname === "/" && hasSupabaseAuthCookie(request);
+  if (!requiresSupabaseAuth(access) && !optionalRootSession) {
+    return NextResponse.next({ request });
+  }
 
   let supabaseResponse = NextResponse.next({ request });
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
   if (!supabaseUrl || !supabaseAnonKey || !isAllowedSupabaseUrl(supabaseUrl)) {
-    return unavailable("AUTH_CONFIGURATION_UNAVAILABLE");
+    if (optionalRootSession) return NextResponse.next({ request });
+    return unavailable(request, "AUTH_CONFIGURATION_UNAVAILABLE");
   }
 
   let supabase;
@@ -166,7 +198,8 @@ export async function middleware(request: NextRequest) {
       },
     });
   } catch {
-    return unavailable("AUTH_CONFIGURATION_UNAVAILABLE");
+    if (optionalRootSession) return NextResponse.next({ request });
+    return unavailable(request, "AUTH_CONFIGURATION_UNAVAILABLE");
   }
 
   let user = null;
@@ -176,8 +209,10 @@ export async function middleware(request: NextRequest) {
     if (error) {
       if (isRefreshTokenAbsence(error) || isSessionMissing(error)) {
         clearBrokenAuthCookies(request, supabaseResponse);
+      } else if (optionalRootSession) {
+        return supabaseResponse;
       } else {
-        return carryCookies(supabaseResponse, unavailable("AUTH_BACKEND_UNAVAILABLE"));
+        return carryCookies(supabaseResponse, unavailable(request, "AUTH_BACKEND_UNAVAILABLE"));
       }
     } else {
       user = data.user;
@@ -185,13 +220,20 @@ export async function middleware(request: NextRequest) {
   } catch (error) {
     if (isRefreshTokenAbsence(error) || isSessionMissing(error)) {
       clearBrokenAuthCookies(request, supabaseResponse);
+    } else if (optionalRootSession) {
+      return supabaseResponse;
     } else {
-      return carryCookies(supabaseResponse, unavailable("AUTH_BACKEND_UNAVAILABLE"));
+      return carryCookies(supabaseResponse, unavailable(request, "AUTH_BACKEND_UNAVAILABLE"));
     }
   }
 
   if (!user) {
-    if (access === "keyless-public" || access === "public-page") return supabaseResponse;
+    if (optionalRootSession || access === "keyless-public" || access === "public-page") {
+      return supabaseResponse;
+    }
+    if (isSpotifyCallback(pathname)) {
+      return carryCookies(supabaseResponse, spotifyAuthFeedback(request, "session_expired"));
+    }
     if (isApiPath(pathname)) {
       return carryCookies(
         supabaseResponse,
@@ -218,6 +260,9 @@ export async function middleware(request: NextRequest) {
 
   if (assurance === "unavailable") {
     observeAssuranceUnavailable();
+    if (isSpotifyCallback(pathname)) {
+      return carryCookies(supabaseResponse, spotifyAuthFeedback(request, "assurance_unavailable"));
+    }
     if (isApiPath(pathname)) {
       return carryCookies(supabaseResponse, assuranceUnavailable());
     }
@@ -232,6 +277,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (assurance === "mfa_required" && access !== "mfa-bootstrap") {
+    if (isSpotifyCallback(pathname)) {
+      return carryCookies(supabaseResponse, spotifyAuthFeedback(request, "mfa_required"));
+    }
     if (isApiPath(pathname)) {
       return carryCookies(
         supabaseResponse,

@@ -29,6 +29,7 @@ import {
   type ReactNode,
 } from "react";
 import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import { describeSpotifyConnectFailure } from "@/lib/spotify/connectFailure";
 
 export type NowPlaying = {
   track: string | null;
@@ -91,25 +92,6 @@ const EMPTY_NOW: NowPlaying = {
   shuffle: false,
   repeat: "off",
 };
-
-/** Maps a callback `reason` to something a person can act on. */
-export function describeSpotifyConnectFailure(reason?: string): string {
-  switch (reason) {
-    case "denied":
-      return "Spotify authorization was declined.";
-    case "not_configured":
-      return "Spotify is not configured on the server. SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set.";
-    case "state_missing":
-    case "state_mismatch":
-      return "The Spotify sign-in could not be verified. Try connecting again in a single window.";
-    case "token_exchange_failed":
-      return "Spotify rejected the sign-in. The redirect URI registered in the Spotify dashboard may not match this site.";
-    case "missing_code":
-      return "Spotify did not return an authorization code.";
-    default:
-      return "Spotify could not be connected.";
-  }
-}
 
 const SpotifyContext = createContext<SpotifyState | null>(null);
 
