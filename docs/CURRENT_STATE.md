@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `23bc2c1f44ead742776f5d5b252149c1984e2ef98e3b1ab2fb967316c8c9952e` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
+- **State fingerprint:** `be1478c7010d46b304d1fb60de7ae0912b13fd3f9971f2684c7f3df208996d72` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `dc97f9e206ed866f90d4a2ed550fda9e1d9a65c2d9fe9c32686007812036c4ae`
 - **Source-main tree at derivation:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,34 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-00-post-breakglass-state`
-- **HEAD:** `0a356503`
-- **main:** `0a356503`
+- **Branch:** `codex/redesign-01-safe-fetch-final`
+- **HEAD:** `ca564f6d`
+- **main:** `e5ed2c81`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (21 commit(s))
+
+- `ca564f6d` fix(security): pin safe fetch transport policy
+- `f94fa18f` test: preserve protected release contracts
+- `7d9ddbaf` test: close escaped Sentry registration audit gap
+- `160625a4` test: optimize recursive Sentry configuration audit
+- `531812eb` test: stabilize authoritative gate concurrency
+- `7d75f14a` fix(security): close terminal telemetry boundaries
+- `d84f05c6` fix(security): enforce closed-world Sentry telemetry
+- `ca4b1308` test(security): align pinned transport surface guard
+- `11b8fc75` fix(security): close safe-fetch review gaps
+- `11e20990` docs(observability): document strict Sentry privacy hooks
+- `3d33644c` fix(release): preserve protected security test contracts
+- `02ac9852` fix(security): redact Sentry query and fragment attributes
+- `1df59f65` fix(security): disable replay and scrub navigation trails
+- `9af67ebc` fix(security): scrub Sentry trace and replay targets
+- `dd42eaaf` fix(security): scrub safe fetch batch telemetry
+- `38420da8` fix(security): harden safe fetch failure handling
+- `a857256c` fix(security): contain safe fetch setup failures
+- `0936e99a` fix(security): bound safe fetch transport failures
+- `6fdd8f42` security: complete IANA address classification
+- `71fc98ce` security: repair safe fetch IPv6 pinning
+- `040a2b35` security: recover DNS-pinned safe fetch boundary
 
 ## Waves merged to main
 
@@ -76,12 +100,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2106/2106 across 239 files
-- **Bundle:** 4304 KB / 4400 KB
+- **Tests:** 2346/2346 across 263 files
+- **Bundle:** 4098 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `0b708b9b`
-- **Measured content tree:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
-- **Measured at:** 2026-08-05T12:55:05.593Z
+- **Measured source:** `ca564f6d`
+- **Measured content tree:** `dc97f9e206ed866f90d4a2ed550fda9e1d9a65c2d9fe9c32686007812036c4ae`
+- **Measured at:** 2026-08-05T18:09:35.663Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -90,44 +114,26 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
 
-### 2026-07-29 adversarial remediation continuation
+### 2026-08-05 adversarial remediation continuation
 
-Phase 0 governance source merged through protected PR #267 as
-`5e0bb86663ba7926bae38657a10cf94ba7e86ed3`. Independent adversarial review
-reported no open P0/P1 in that source candidate. Its first Vercel production
-attempt correctly skipped because AXIS requires the documented second,
-generated-only canonical-state merge. This state-refresh branch is that second
-merge; it preserves the protected measured gate evidence byte-for-byte while
-aligning source-main provenance. Production is not verified until the refresh
-passes protected hosted checks, merges, builds Ready, and completes post-deploy
-runtime/Sentry verification.
+Merge, SHA, defect, and measured local-gate facts live only in the generated
+block above. Hosted production runtime and Sentry verification remain external
+evidence and must be bound to the exact deployed head before any production
+claim.
 
-The merged control plane fails closed on defect deletion or staged false
-closure, expired hosted evidence, migration-history rewrites, unbound
-production database targets, and malformed or recombined
-migration/RLS/Tembo receipts. The runtime dependency audit is clean;
-development-tool advisories remain a recorded non-runtime residual.
+The next live source lane is the separately reviewed DNS-pinned safe outbound
+fetch repair. Its open PR is now restacked onto current canonical main and its
+exact-source measured state has been regenerated. Complete exact-head hosted
+CI, preview, browser, Sentry, and independent review gates, then promote it
+through the owner-controlled merge authority. After that source merge,
+complete the required generated-only state refresh before closing `SSRF-001`.
 
-The safe outbound-read lane is preserved as a separately reviewed local commit
-in its isolated worktree. It closes the mapped/private-address exploit, pins
-connections to validated DNS answers, bounds redirects/body/time, removes raw
-target identifiers from telemetry, and makes RSS/proxy/reader partial failures
-explicit. It remains intentionally unpushed until Phase 0 lands, after which it
-must be rebased onto canonical main and repeat hosted gates before promotion.
-
-The dependency order is:
-
-1. merge this generated-only state refresh through the locked owner-merge
-   control and verify the exact production deployment;
-2. rebase and promote safe fetch through the same protected review/gate cycle;
-3. follow immediately with the separate fail-closed API access-policy wave;
-4. then compose provider identity, financial truth/order intent, cancellable
-   mutation, generic-mutation containment, and distributed auth/rate limits.
-
-The eight open defects in the generated block are active stop-lines, not
-historical backlog. A defect closes only after its fix is on canonical main and
-a later reviewed state change binds the closure to the predeclared verification
-paths.
+The fail-closed API access-policy lane follows separately under its one-use
+protected-test authorization requirements. Then continue provider identity,
+financial truth/order intent, cancellable mutation, generic-mutation
+containment, and distributed auth/rate limits. Open defects above remain
+stop-lines and close only after the fix is on canonical main and a later
+reviewed state change binds closure to the predeclared verification paths.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 
