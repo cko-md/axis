@@ -23,6 +23,7 @@ describe("access policy", () => {
       "/api/cron/daily/extra",
       "/api/auth/profile-evil",
       "/api/mail/message/opaque.jpg",
+      "/api/spotify/callback",
       "/fund/position/AAPL.png",
       "/terms-and-conditions",
       "/login/extra",

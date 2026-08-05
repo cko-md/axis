@@ -21,7 +21,14 @@ afterEach(() => {
 });
 
 describe("public Supabase environment validation", () => {
-  it.each([undefined, "", "   ", "ftp://project.supabase.co", "http://localhost:54321"])(
+  it.each([
+    undefined,
+    "",
+    "   ",
+    "ftp://project.supabase.co",
+    "https://project.supabase.co",
+    "http://localhost:54321",
+  ])(
     "rejects an unavailable or invalid URL: %s",
     async (url) => {
       setEnv("NEXT_PUBLIC_SUPABASE_URL", url);
@@ -32,18 +39,18 @@ describe("public Supabase environment validation", () => {
   );
 
   it.each([undefined, "", "   "])("rejects a blank anon key: %s", async (key) => {
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://twkcvyhmlguipchfetge.supabase.co";
     setEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", key);
     const { getPublicEnv } = await loadEnv();
     expect(() => getPublicEnv()).toThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
   });
 
   it("accepts the configured HTTPS URL and a nonblank key", async () => {
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://twkcvyhmlguipchfetge.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     const { getPublicEnv } = await loadEnv();
     expect(getPublicEnv()).toMatchObject({
-      NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+      NEXT_PUBLIC_SUPABASE_URL: "https://twkcvyhmlguipchfetge.supabase.co",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
     });
   });

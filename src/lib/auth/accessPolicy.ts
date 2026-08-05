@@ -29,7 +29,6 @@ const AUTH_AWARE_PUBLIC_PAGES = new Set([
 const KEYLESS_PUBLIC_API = new Set([
   "/api/auth/forgot-password",
   "/api/auth/passkey/authenticate",
-  "/api/spotify/callback",
 ]);
 const SERVICE_AUTH_API = new Set([
   "/api/plaid/webhook",

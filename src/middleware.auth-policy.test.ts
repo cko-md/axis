@@ -17,7 +17,7 @@ vi.mock("@/lib/observability/captureRouteError", () => ({
   captureRouteError: mocks.captureRouteError,
 }));
 
-import { middleware } from "./middleware";
+import { config, middleware } from "./middleware";
 
 const originalUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const originalKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -42,7 +42,7 @@ function nextResponse(response: Response) {
 describe("middleware access policy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://twkcvyhmlguipchfetge.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     delete process.env.MFA_TRUST_SECRET;
     mocks.createServerClient.mockImplementation(() => ({
@@ -85,7 +85,7 @@ describe("middleware access policy", () => {
     expect((await middleware(request("/login"))).status).toBe(503);
     expect(mocks.captureRouteError).toHaveBeenCalledTimes(1);
 
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://twkcvyhmlguipchfetge.supabase.co";
     mocks.createServerClient.mockImplementationOnce(() => {
       throw new Error("client construction failed");
     });
@@ -95,11 +95,28 @@ describe("middleware access policy", () => {
 
   it("keeps only the exact public assets reachable when auth configuration is unavailable", async () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    for (const pathname of ["/terms", "/manifest.json", "/icon-512.png", "/sw.js", "/vector-assets/runtime.wasm"]) {
+    for (const pathname of [
+      "/terms",
+      "/favicon.ico",
+      "/manifest.json",
+      "/icon-512.png",
+      "/sw.js",
+      "/vector-assets/runtime.wasm",
+      "/_next/image",
+      "/_next/static/chunks/app.js",
+    ]) {
       nextResponse(await middleware(request(pathname)));
     }
-    expect((await middleware(request("/art/cover.svg"))).status).toBe(503);
-    expect((await middleware(request("/icon-512.png/extra"))).status).toBe(503);
+    for (const pathname of [
+      "/art/cover.svg",
+      "/favicon.icoevil",
+      "/icon-512.png/extra",
+      "/_next/image-evil",
+      "/_next/static-evil/chunk.js",
+    ]) {
+      expect((await middleware(request(pathname))).status).toBe(503);
+    }
+    expect(config.matcher).toEqual(["/:path*"]);
     expect(mocks.getUser).not.toHaveBeenCalled();
   });
 
@@ -130,6 +147,7 @@ describe("middleware access policy", () => {
       "/api/cron/daily/extra",
       "/api/auth/profile-evil",
       "/api/mail/message/opaque.jpg",
+      "/api/spotify/callback",
     ]) {
       expect((await middleware(request(pathname))).status).toBe(401);
     }
@@ -159,7 +177,7 @@ describe("middleware access policy", () => {
     expect((await middleware(request("/monitoring-lookalike"))).status).toBe(503);
     expect(mocks.getUser).not.toHaveBeenCalled();
 
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://twkcvyhmlguipchfetge.supabase.co";
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
     const descendantResponse = await middleware(request("/monitoring/extra"));
     const lookalikeResponse = await middleware(request("/monitoring-lookalike"));

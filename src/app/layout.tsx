@@ -14,6 +14,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ShellProfileProvider } from "@/components/layout/ShellProfileContext";
+import { RootProviderBoundary } from "@/components/layout/RootProviderBoundary";
 import { WebViewerProvider } from "@/lib/hooks/useWebViewer";
 import { WebViewer } from "@/components/ui/WebViewer";
 import BiometricGate from "@/components/auth/BiometricGate";
@@ -104,17 +105,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="theme-color" content="#0a0b0e" />
       </head>
       <body className={`${archivo.variable} ${archivoNarrow.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${playfair.variable} ${spaceGrotesk.variable} ${inter.variable} ${ibmPlexSans.variable} ${bebasNeue.variable}`}>
-        <WebViewerProvider>
-          <ThemeProvider>
-            <ToastProvider>
-              <ShellProfileProvider>
-                {children}
-                <BiometricGate />
-              </ShellProfileProvider>
-            </ToastProvider>
-          </ThemeProvider>
-          <WebViewer />
-        </WebViewerProvider>
+        <RootProviderBoundary staticPublic={children}>
+          <WebViewerProvider>
+            <ThemeProvider>
+              <ToastProvider>
+                <ShellProfileProvider>
+                  {children}
+                  <BiometricGate />
+                </ShellProfileProvider>
+              </ToastProvider>
+            </ThemeProvider>
+            <WebViewer />
+          </WebViewerProvider>
+        </RootProviderBoundary>
         {process.env.VERCEL === "1" ? <SpeedInsights /> : null}
       </body>
     </html>

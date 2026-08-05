@@ -1,13 +1,26 @@
+export const AXIS_SUPABASE_PRODUCTION_ORIGIN =
+  "https://twkcvyhmlguipchfetge.supabase.co";
+export const AXIS_SUPABASE_LOCAL_ORIGIN = "http://127.0.0.1:54321";
+
 /**
- * Supabase accepts HTTPS origins and the exact IP loopback HTTP endpoint used
- * by the local stack. Reject every other scheme/host before client creation.
+ * Pin authentication traffic to AXIS's production project or the documented
+ * local stack. Origin-only form prevents credentials, paths, query strings,
+ * fragments, or alternate ports from changing the authority or request base.
  */
 export function isAllowedSupabaseUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
-    if (!parsed.hostname) return false;
-    if (parsed.protocol === "https:") return true;
-    return parsed.protocol === "http:" && parsed.hostname === "127.0.0.1";
+    if (
+      parsed.username
+      || parsed.password
+      || parsed.pathname !== "/"
+      || parsed.search
+      || parsed.hash
+    ) {
+      return false;
+    }
+    return parsed.origin === AXIS_SUPABASE_PRODUCTION_ORIGIN
+      || parsed.origin === AXIS_SUPABASE_LOCAL_ORIGIN;
   } catch {
     return false;
   }

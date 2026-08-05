@@ -11,7 +11,10 @@ const requiredPublicEnvSchema = z.object({
     .string()
     .trim()
     .url()
-    .refine(isAllowedSupabaseUrl, "Supabase URL must use HTTPS or exact loopback HTTP"),
+    .refine(
+      isAllowedSupabaseUrl,
+      "Supabase URL must match the exact AXIS production or documented local origin",
+    ),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1),
 });
 

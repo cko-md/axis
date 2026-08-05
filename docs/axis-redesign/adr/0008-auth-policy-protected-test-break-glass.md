@@ -12,6 +12,32 @@
 - Base Next config SHA-256: `6d122d8e56fdf59dc003cd9199b7bf8875b23df81be1234efda626afb9d27134`
 - Candidate Next config SHA-256: `c0eac320cdaa253bbdcffc21305f23dd7f9c40daa0fbb07a4fbb1ec7ff7f6d6f`
 
+## Follow-on protected fixture transition
+
+- Authorization date: 2026-08-05
+- Authorization phrase: `I APPROVE THE EXACT AUTH-007 PROTECTED TEST FIXTURE TRANSITION`
+- Base protected-test blob: `9fa52aab7a27f42744dedfae74f68b756d6365f2`
+- Candidate protected-test blob: `0780d40e6f7bfa600d0214c1316e05bde8a7f0ec`
+- Base protected-test SHA-256: `f93f723194c23387739d34591bce447d1a0725bde67a0d1b28266f5bcd598548`
+- Candidate protected-test SHA-256: `a36203bd6b7456552ba580c77979bce5336484fc623d8f7784d72130547bdf4a`
+
+The AUTH-007 implementation now pins the configured Supabase URL to the exact
+hosted project origin and the local CLI origin. The protected middleware test's
+generic `https://example.supabase.co` fixture is therefore no longer a valid
+configuration and fails before exercising the protected middleware assertions.
+The approved follow-on transition changes only that fixture value to
+`https://twkcvyhmlguipchfetge.supabase.co`. It does not change a test title,
+assertion, branch, mock result, matcher, middleware exception, or runtime file.
+
+The one-use external executor requirements below apply independently to this
+follow-on transition. The executor must verify the follow-on base and candidate
+hashes, the exact one-line fixture-only diff, the unchanged candidate Next
+config hash, and the exact AUTH-007 source commit before running the focused
+test set once. Its acceptance expires after 24 hours or one acceptance attempt,
+whichever occurs first. This fixture authorization is not merge authorization;
+the exact post-dry-run candidate still requires the protected owner-merge
+workflow and its separately valid authorization.
+
 ## Context
 
 `src/middleware.test.ts` was a protected, byte-frozen test during the AUTH-007

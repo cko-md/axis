@@ -16,6 +16,7 @@ import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
 // stay protected; "/api/vector" remains authenticated by default through
 // classifyAccess rather than being treated as a static asset prefix.
 const PUBLIC_STATIC_FILES = new Set([
+  "/favicon.ico",
   "/manifest.json",
   "/apple-touch-icon.png",
   "/icon-192.png",
@@ -24,6 +25,13 @@ const PUBLIC_STATIC_FILES = new Set([
   "/offline.html",
   "/workbox-f52fd911.js",
 ]);
+
+function isFrameworkPublicPath(pathname: string): boolean {
+  return pathname === "/_next/image"
+    || pathname.startsWith("/_next/image/")
+    || pathname === "/_next/static"
+    || pathname.startsWith("/_next/static/");
+}
 
 type AuthError = {
   code?: unknown;
@@ -125,7 +133,11 @@ export async function middleware(request: NextRequest) {
 
   // Offline executable/art manifests are public, immutable inputs. They must
   // bypass session refresh so install verification never receives Set-Cookie.
-  if (isPublicVectorArtifactPath(pathname) || PUBLIC_STATIC_FILES.has(pathname)) {
+  if (
+    isFrameworkPublicPath(pathname)
+    || isPublicVectorArtifactPath(pathname)
+    || PUBLIC_STATIC_FILES.has(pathname)
+  ) {
     return NextResponse.next({ request });
   }
 
@@ -246,5 +258,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Match every path. Exact framework/static exceptions are enforced above so
+  // prefix lookalikes cannot bypass the authenticated default at matcher time.
+  matcher: ["/:path*"],
 };

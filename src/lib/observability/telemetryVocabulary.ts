@@ -17,6 +17,7 @@ export const AXIS_TELEMETRY_VOCABULARY = {
   operations: [
     ...AXIS_TELEMETRY_VOCABULARY_BASE.operations,
     "authenticate_request",
+    "resolve_optional_session",
   ],
   codes: [
     ...AXIS_TELEMETRY_VOCABULARY_BASE.codes,
