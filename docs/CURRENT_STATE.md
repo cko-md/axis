@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `04ca5422d52943b3e94c70947a98bd01c28ec6cd7b8f3f1e66ed49cbd7a9af6f` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `23bc2c1f44ead742776f5d5b252149c1984e2ef98e3b1ab2fb967316c8c9952e` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
-- **Source-main tree at derivation:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
+- **Source-main tree at derivation:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,14 +33,10 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-00-runtime-dependency-break-glass`
-- **HEAD:** `0b708b9b`
-- **main:** `acafb3ae`
+- **Branch:** `codex/redesign-00-post-breakglass-state`
+- **HEAD:** `0a356503`
+- **main:** `0a356503`
 - **Working tree:** clean
-
-### Ahead of source main at derivation (1 commit(s))
-
-- `0b708b9b` fix(security): refresh vulnerable runtime transitive dependencies
 
 ## Waves merged to main
 
