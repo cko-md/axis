@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T18:09:35.822Z",
+  "derivedAt": "2026-08-05T18:48:43.315Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-final",
-    "head": "ca564f6de3b788494805fdb4cddbf62ac31f7e42",
+    "head": "9cf7539ea9b1d6e3c883f52ab939d5e647a19db6",
     "mainHead": "e5ed2c81aa9b70eabd386a133c73ac04fe9a6ace",
-    "workingTreeClean": true,
+    "workingTreeClean": false,
     "aheadOfMain": [
+      {
+        "sha": "9cf7539e",
+        "subject": "fix(security): harden safe-fetch consumers"
+      },
+      {
+        "sha": "3f019ce7",
+        "subject": "docs(state): bind restacked safe fetch candidate gates"
+      },
       {
         "sha": "ca564f6d",
         "subject": "fix(security): pin safe fetch transport policy"
@@ -92,9 +100,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "dc97f9e206ed866f90d4a2ed550fda9e1d9a65c2d9fe9c32686007812036c4ae",
+    "contentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
     "sourceMainContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
-    "fingerprint": "be1478c7010d46b304d1fb60de7ae0912b13fd3f9971f2684c7f3df208996d72"
+    "fingerprint": "9b5cc3204452900717bfff82edbe9cb321e1906c043018dfa9dd4f4bbc420567"
   },
   "mergedPrs": [
     {
@@ -407,8 +415,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "ca564f6de3b788494805fdb4cddbf62ac31f7e42",
-    "sourceContentTreeHash": "dc97f9e206ed866f90d4a2ed550fda9e1d9a65c2d9fe9c32686007812036c4ae",
+    "sourceHead": "9cf7539ea9b1d6e3c883f52ab939d5e647a19db6",
+    "sourceContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
     "typecheck": {
       "passed": true
     },
@@ -416,8 +424,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 2346,
-      "total": 2346,
+      "passed": 2349,
+      "total": 2349,
       "files": 263,
       "suites": 742
     },
@@ -433,6 +441,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T18:09:35.663Z"
+    "measuredAt": "2026-08-05T18:48:43.218Z"
   }
 }
