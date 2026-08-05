@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T21:23:56.087Z",
+  "derivedAt": "2026-08-05T21:43:20.220Z",
   "git": {
     "branch": "codex/redesign-01-auth-policy-final",
-    "head": "b8c5d51d1491f1776df526317c8019318017a028",
+    "head": "3c7634debf6ef3391b836be7faf8926e457d1297",
     "mainHead": "2527b1f63d28c9515a971bbf1088b3aba5cbfb88",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "3c7634de",
+        "subject": "fix(auth): preserve OAuth failure recovery"
+      },
+      {
+        "sha": "d03d7b3e",
+        "subject": "docs(state): rebind AUTH-007 review fixes"
+      },
       {
         "sha": "b8c5d51d",
         "subject": "fix(auth): recover stale sessions and assurance UX"
@@ -44,9 +52,9 @@
         "subject": "fix(auth): fail closed at middleware boundary"
       }
     ],
-    "contentTreeHash": "03045e8a00d9d36457cc3820781b5a3c0938d36f342e294e07947b95e95df46a",
+    "contentTreeHash": "3f828f1d25f8871a7abcdef9fce48e2b833bf37e7a5e1f4c1d646553a179787d",
     "sourceMainContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
-    "fingerprint": "6cb92d4c09795aaebab641eb85d9312d2399691c756dab80c9cbe9f7a5e65c6f"
+    "fingerprint": "854905aa9b24d225e5f427245be9aee7eb6610588366497043783ffb0b829c59"
   },
   "mergedPrs": [
     {
@@ -359,8 +367,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "b8c5d51d1491f1776df526317c8019318017a028",
-    "sourceContentTreeHash": "03045e8a00d9d36457cc3820781b5a3c0938d36f342e294e07947b95e95df46a",
+    "sourceHead": "3c7634debf6ef3391b836be7faf8926e457d1297",
+    "sourceContentTreeHash": "3f828f1d25f8871a7abcdef9fce48e2b833bf37e7a5e1f4c1d646553a179787d",
     "typecheck": {
       "passed": true
     },
@@ -368,23 +376,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2398,
-      "total": 2398,
-      "files": 270,
-      "suites": 756
+      "passed": 2410,
+      "total": 2410,
+      "files": 272,
+      "suites": 760
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4102,
+      "used": 4104,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T21:23:56.002Z"
+    "measuredAt": "2026-08-05T21:43:20.132Z"
   }
 }
