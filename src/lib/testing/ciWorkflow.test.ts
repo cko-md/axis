@@ -8,6 +8,15 @@ const workflow = readFileSync(
 );
 
 describe("authenticated CI database contract", () => {
+  it("uses the exact allowlisted local Supabase origin for secret-free builds", () => {
+    expect(workflow).not.toContain("https://placeholder.supabase.co");
+    expect(
+      workflow.match(
+        /NEXT_PUBLIC_SUPABASE_URL: http:\/\/127\.0\.0\.1:54321/g,
+      ),
+    ).toHaveLength(3);
+  });
+
   it("executes multi-statement SQL through psql instead of one prepared query", () => {
     expect(workflow).not.toContain(
       "supabase db query --local --file scripts/sql/bootstrap-local-e2e-role-grants.sql",
