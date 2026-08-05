@@ -6,9 +6,27 @@ vi.mock("@sentry/nextjs", () => sentry);
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 
 import { safeFetch } from "@/lib/security/safe-fetch";
-import { resolveOgImageUrl } from "@/lib/og-image";
+import { resolveOgImage, resolveOgImageUrl } from "@/lib/og-image";
 
 describe("OG image outbound boundary", () => {
+  it("returns a direct raster's validated bytes after exactly one guarded fetch", async () => {
+    const target = "https://public.example/image.png";
+    const expected = new Uint8Array([137, 80, 78, 71]);
+    const fetcher = vi.fn(async () => new Response(expected, {
+      headers: { "content-type": "image/png; charset=binary" },
+    }));
+
+    const resolved = await resolveOgImage(target, fetcher as typeof safeFetch);
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledWith(target, expect.objectContaining({
+      maxBodyBytes: 8 * 1024 * 1024,
+    }));
+    expect(resolved?.url).toBe(target);
+    expect(resolved?.buffered?.contentType).toBe("image/png");
+    expect(new Uint8Array(resolved?.buffered?.body ?? new ArrayBuffer(0))).toEqual(expected);
+  });
+
   it("blocks a direct mapped-IPv6 image URL before its server receives a request", async () => {
     let hits = 0;
     const server = http.createServer((_req, res) => { hits += 1; res.end("not-an-image"); });

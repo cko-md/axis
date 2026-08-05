@@ -7,7 +7,7 @@ import {
   OG_IMAGE_BROWSER_HEADERS,
   OG_IMAGE_MAX_BYTES,
   OG_IMAGE_TIMEOUT_MS,
-  resolveOgImageUrl,
+  resolveOgImage,
 } from "@/lib/og-image";
 
 /**
@@ -45,11 +45,11 @@ export async function GET(req: NextRequest) {
       ? NextResponse.json({ image: null }, { status: 400 })
       : new NextResponse("Missing url", { status: 400 });
   }
-  const resolved = await resolveOgImageUrl(raw);
+  const resolved = await resolveOgImage(raw);
 
   if (wantsJson) {
     return NextResponse.json(
-      { image: resolved },
+      { image: resolved?.url ?? null },
       { headers: { "Cache-Control": "public, max-age=3600" } },
     );
   }
@@ -59,7 +59,18 @@ export async function GET(req: NextRequest) {
     return new NextResponse("No image", { status: 404 });
   }
 
-  return streamImage(resolved);
+  if (resolved.buffered) {
+    return new NextResponse(resolved.buffered.body, {
+      status: 200,
+      headers: {
+        "Content-Type": resolved.buffered.contentType,
+        "Cache-Control": "public, max-age=86400, s-maxage=86400, immutable",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
+  return streamImage(resolved.url);
 }
 
 /** Fetch the image bytes and stream them back with the upstream content-type. */

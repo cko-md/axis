@@ -46,15 +46,18 @@ export async function POST(req: NextRequest) {
   const cachedByUrl = new Map((cachedRows ?? []).map((r) => [(r as unknown as CacheRow).feed_url, r as unknown as CacheRow]));
   const collected: RssItem[] = [];
   const live: string[] = [];
-  const sources: FeedSource[] = [];
+  const liveIndices: number[] = [];
+  const sources: FeedSource[] = new Array(urls.length);
 
-  for (const url of urls) {
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index];
     const cached = cachedByUrl.get(url);
     if (cached && cached.fetched_at > freshCutoff) {
       collected.push(...(cached.items ?? []));
-      sources.push({ host: sourceHost(url), state: "cached" });
+      sources[index] = { host: sourceHost(url), state: "cached" };
     } else {
       live.push(url);
+      liveIndices.push(index);
     }
   }
 
@@ -65,17 +68,18 @@ export async function POST(req: NextRequest) {
     ));
     let failureIndex = 0;
     settled.forEach((r, i) => {
+      const sourceIndex = liveIndices[i];
       if (r.status === "fulfilled") {
         collected.push(...r.value);
-        sources.push({ host: sourceHost(live[i]), state: "live" });
+        sources[sourceIndex] = { host: sourceHost(live[i]), state: "live" };
       } else {
         const stale = cachedByUrl.get(live[i]);
         const { code } = failureCodes[failureIndex++] ?? { code: "SAFE_FETCH_ROUTE_FAILED" };
         if (stale) {
           collected.push(...(stale.items ?? []));
-          sources.push({ host: sourceHost(live[i]), state: "stale", code });
+          sources[sourceIndex] = { host: sourceHost(live[i]), state: "stale", code };
         } else {
-          sources.push({ host: sourceHost(live[i]), state: "failed", code });
+          sources[sourceIndex] = { host: sourceHost(live[i]), state: "failed", code };
         }
       }
     });

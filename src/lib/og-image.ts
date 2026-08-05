@@ -23,11 +23,19 @@ export function isSafeRaster(value: string | null) {
   return SAFE_RASTER_TYPES.has(mimeType(value));
 }
 
+export type ResolvedOgImage = {
+  url: string;
+  buffered?: {
+    body: ArrayBuffer;
+    contentType: string;
+  };
+};
+
 /** Resolves an article or direct image URL through the shared outbound boundary. */
-export async function resolveOgImageUrl(
+export async function resolveOgImage(
   raw: string,
   fetcher: typeof safeFetch = safeFetch,
-): Promise<string | null> {
+): Promise<ResolvedOgImage | null> {
   let target: URL;
   try {
     target = new URL(raw);
@@ -42,8 +50,16 @@ export async function resolveOgImageUrl(
       maxBodyBytes: OG_IMAGE_MAX_BYTES,
     });
     if (!res.ok) return null;
-    if (isSafeRaster(res.headers.get("content-type"))) return res.url || target.href;
-    if (!(res.headers.get("content-type") ?? "").includes("html")) return null;
+    const contentType = res.headers.get("content-type");
+    if (isSafeRaster(contentType)) {
+      const body = await res.arrayBuffer();
+      if (body.byteLength > OG_IMAGE_MAX_BYTES) return null;
+      return {
+        url: res.url || target.href,
+        buffered: { body, contentType: mimeType(contentType) },
+      };
+    }
+    if (!(contentType ?? "").includes("html")) return null;
 
     const found = extractMetaImage((await res.text()).slice(0, 256 * 1024));
     if (!found) return null;
@@ -62,7 +78,7 @@ export async function resolveOgImageUrl(
         responseBodyMode: "discard",
       });
       return imageResponse.ok && isSafeRaster(imageResponse.headers.get("content-type"))
-        ? imageResponse.url || imageUrl.href
+        ? { url: imageResponse.url || imageUrl.href }
         : null;
     } catch (error) {
       recordSafeFetchFailure("og_image_meta", imageUrl?.href ?? target.href, error);
@@ -72,6 +88,14 @@ export async function resolveOgImageUrl(
     recordSafeFetchFailure("og_image_resolve", target.href, error);
     return null;
   }
+}
+
+/** URL-only compatibility wrapper for metadata callers and existing consumers. */
+export async function resolveOgImageUrl(
+  raw: string,
+  fetcher: typeof safeFetch = safeFetch,
+): Promise<string | null> {
+  return (await resolveOgImage(raw, fetcher))?.url ?? null;
 }
 
 function extractMetaImage(html: string): string | null {
