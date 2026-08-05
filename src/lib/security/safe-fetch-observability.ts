@@ -46,7 +46,7 @@ export function recordSafeFetchFailures(operation: string, failures: readonly Sa
   for (const { error, data } of classified) {
     Sentry.addBreadcrumb({ category: "safe-fetch", level: error instanceof SafeFetchError ? "info" : "error", data: { operation, ...data } });
   }
-  const searchable = classified.find(({ error, data }) => !(error instanceof SafeFetchError) || EVENT_WORTHY_CODES.has(data.code));
+  const searchable = classified.find(({ data }) => EVENT_WORTHY_CODES.has(data.code));
   if (searchable) {
     Sentry.captureException(new Error(searchable.data.code), { tags: { area: "safe-fetch", operation, ...searchable.data } });
   }

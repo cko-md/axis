@@ -57,6 +57,18 @@ describe("safe-fetch observability", () => {
     expect(sentry.captureException).not.toHaveBeenCalled();
   });
 
+  it("keeps upstream HTTP and other route failures as breadcrumbs only", () => {
+    const results = recordSafeFetchFailures("cached_feed", [
+      { rawTarget: "https://feed.example/rss?token=must-not-leak", error: new Error("HTTP 503") },
+      { rawTarget: "https://other.example/atom", error: new SafeFetchError("SAFE_FETCH_BLOCKED_HOST") },
+    ]);
+    expect(results.map((result) => result.code)).toEqual(["SAFE_FETCH_ROUTE_FAILED", "SAFE_FETCH_BLOCKED_HOST"]);
+    expect(sentry.addBreadcrumb).toHaveBeenCalledTimes(2);
+    expect(sentry.captureException).not.toHaveBeenCalled();
+    expect(JSON.stringify(sentry.addBreadcrumb.mock.calls)).not.toContain("must-not-leak");
+    expect(JSON.stringify(sentry.addBreadcrumb.mock.calls)).not.toContain("HTTP 503");
+  });
+
   it("coalesces a batch into one searchable event while returning one code per source", () => {
     const results = recordSafeFetchFailures("cached_feed", Array.from({ length: 6 }, (_, index) => ({
       rawTarget: `https://feed-${index}.example/private?token=must-not-leak`,
