@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `ac0228c4b68060d5f67978f66ad55815880c0885af14c9a1ad585dff29a0cdff` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
+- **State fingerprint:** `ef5cfa31e81d6375be5809a69a52c8411057d376795900e32e1d6a8fbc0eef2a` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `04cabfdba5f8175abf85e5a759f32a374cdda655432d67c172d5ca741d25cabb`
 - **Source-main tree at derivation:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,20 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-01-post-safe-fetch-state`
-- **HEAD:** `24d3480f`
-- **main:** `24d3480f`
+- **Branch:** `codex/redesign-01-auth-policy-final`
+- **HEAD:** `33e17577`
+- **main:** `2527b1f6`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (7 commit(s))
+
+- `33e17577` fix(auth): close default-deny policy gaps
+- `5d6a87e9` fix(auth): register middleware telemetry contract
+- `aecfa48d` test(auth): retain route handler Sentry coverage
+- `4ab5e04f` test(auth): remove incomplete tunnel inventory
+- `3bdd4289` fix(auth): prevent Sentry tunnel prefix bypass
+- `c26e868a` test(auth): cover cookie carry on denial redirects
+- `1c72e122` fix(auth): fail closed at middleware boundary
 
 ## Waves merged to main
 
@@ -76,12 +86,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2349/2349 across 263 files
-- **Bundle:** 4098 KB / 4400 KB
+- **Tests:** 2397/2397 across 270 files
+- **Bundle:** 4102 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `cfe2fe17`
-- **Measured content tree:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
-- **Measured at:** 2026-08-05T18:52:41.417Z
+- **Measured source:** `33e17577`
+- **Measured content tree:** `04cabfdba5f8175abf85e5a759f32a374cdda655432d67c172d5ca741d25cabb`
+- **Measured at:** 2026-08-05T21:03:06.725Z
 
 <!-- END GENERATED: derive-program-state -->
 

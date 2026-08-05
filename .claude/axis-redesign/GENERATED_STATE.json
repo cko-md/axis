@@ -1,17 +1,52 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T19:21:32.527Z",
+  "derivedAt": "2026-08-05T21:03:06.817Z",
   "git": {
-    "branch": "codex/redesign-01-post-safe-fetch-state",
-    "head": "24d3480ffa54fe6dcdec0fdd874f5af8269c2e49",
-    "mainHead": "24d3480ffa54fe6dcdec0fdd874f5af8269c2e49",
+    "branch": "codex/redesign-01-auth-policy-final",
+    "head": "33e17577875cf7cb45ff2453cdb8feb1bd886154",
+    "mainHead": "2527b1f63d28c9515a971bbf1088b3aba5cbfb88",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
+    "aheadOfMain": [
+      {
+        "sha": "33e17577",
+        "subject": "fix(auth): close default-deny policy gaps"
+      },
+      {
+        "sha": "5d6a87e9",
+        "subject": "fix(auth): register middleware telemetry contract"
+      },
+      {
+        "sha": "aecfa48d",
+        "subject": "test(auth): retain route handler Sentry coverage"
+      },
+      {
+        "sha": "4ab5e04f",
+        "subject": "test(auth): remove incomplete tunnel inventory"
+      },
+      {
+        "sha": "3bdd4289",
+        "subject": "fix(auth): prevent Sentry tunnel prefix bypass"
+      },
+      {
+        "sha": "c26e868a",
+        "subject": "test(auth): cover cookie carry on denial redirects"
+      },
+      {
+        "sha": "1c72e122",
+        "subject": "fix(auth): fail closed at middleware boundary"
+      }
+    ],
+    "contentTreeHash": "04cabfdba5f8175abf85e5a759f32a374cdda655432d67c172d5ca741d25cabb",
     "sourceMainContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
-    "fingerprint": "ac0228c4b68060d5f67978f66ad55815880c0885af14c9a1ad585dff29a0cdff"
+    "fingerprint": "ef5cfa31e81d6375be5809a69a52c8411057d376795900e32e1d6a8fbc0eef2a"
   },
   "mergedPrs": [
+    {
+      "pr": 294,
+      "sha": "2527b1f6",
+      "subject": "docs(state): refresh after safe-fetch promotion",
+      "committedAt": "2026-08-05T16:49:35-04:00"
+    },
     {
       "pr": 293,
       "sha": "24d3480f",
@@ -155,12 +190,6 @@
       "sha": "7ca4af33",
       "subject": "test(desktop): scope IPC source-scan handlerBody to one handler, not a fixed window (DESKTOP-004)",
       "committedAt": "2026-07-21T01:55:59-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "890a7a07",
-      "subject": "docs(axis): re-derive state after the 16.3 review remediation",
-      "committedAt": "2026-07-21T00:31:32-04:00"
     }
   ],
   "waves": [
@@ -322,8 +351,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "cfe2fe17a42da4c64730a2a25425027b9604476d",
-    "sourceContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
+    "sourceHead": "33e17577875cf7cb45ff2453cdb8feb1bd886154",
+    "sourceContentTreeHash": "04cabfdba5f8175abf85e5a759f32a374cdda655432d67c172d5ca741d25cabb",
     "typecheck": {
       "passed": true
     },
@@ -331,23 +360,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2349,
-      "total": 2349,
-      "files": 263,
-      "suites": 742
+      "passed": 2397,
+      "total": 2397,
+      "files": 270,
+      "suites": 756
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4098,
+      "used": 4102,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T18:52:41.417Z"
+    "measuredAt": "2026-08-05T21:03:06.725Z"
   }
 }
