@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-31T08:22:51.574Z",
+  "derivedAt": "2026-08-05T12:48:26.462Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-v2",
-    "head": "c52791184671fcc270e8cf24c273efa645b70cee",
+    "head": "91d31a0d3c1837b35fad856932887b6e17843642",
     "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "91d31a0d",
+        "subject": "fix(security): refresh vulnerable runtime transitive dependencies"
+      },
+      {
+        "sha": "28f5a3a4",
+        "subject": "docs(state): bind protected release repair gates"
+      },
       {
         "sha": "c5279118",
         "subject": "test: preserve protected release contracts"
@@ -116,9 +124,9 @@
         "subject": "security: recover DNS-pinned safe fetch boundary"
       }
     ],
-    "contentTreeHash": "de7b5a6673b30f89b9676d80dc49af93df0092f389fb76fbdf59cf393b122717",
+    "contentTreeHash": "d17b9a37f083b0a5d705c9cb0f3a524d3d40324eb7fdf2d9327f183c2b7c86f7",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "7219aab1f20c6d0e36a7a54796a421b8ebf0fd047d87e363fc9679e2d5866fe6"
+    "fingerprint": "400f5788fb608ed1ae7ee44b3db045b94658aead1885fe0c188c2f22e1288d3c"
   },
   "mergedPrs": [
     {
@@ -431,8 +439,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "c52791184671fcc270e8cf24c273efa645b70cee",
-    "sourceContentTreeHash": "de7b5a6673b30f89b9676d80dc49af93df0092f389fb76fbdf59cf393b122717",
+    "sourceHead": "91d31a0d3c1837b35fad856932887b6e17843642",
+    "sourceContentTreeHash": "d17b9a37f083b0a5d705c9cb0f3a524d3d40324eb7fdf2d9327f183c2b7c86f7",
     "typecheck": {
       "passed": true
     },
@@ -450,13 +458,13 @@
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4098,
+      "used": 4099,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-31T08:22:51.451Z"
+    "measuredAt": "2026-08-05T12:48:26.375Z"
   }
 }
