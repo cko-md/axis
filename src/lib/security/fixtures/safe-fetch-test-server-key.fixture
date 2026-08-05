@@ -1,0 +1,7 @@
+# Synthetic test-only key for the matching safe-fetch.invalid fixture certificate.
+# It is intentionally public and must never be reused outside this test fixture.
+-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIFKqBrqg5mxs9zr+Rj28LXmUOo73mA/N3SIb/5YVDmR/oAoGCCqGSM49
+AwEHoUQDQgAESHyBghLfOZw/1+Fvt1wDCR6P06QQ/mYSFrKVtX5SceaMo6G4G/b2
+m+JPsnL1VDP1m2T5THg9/ksEsZeAXbHaFw==
+-----END EC PRIVATE KEY-----

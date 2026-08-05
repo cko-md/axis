@@ -16,8 +16,31 @@ import {
 const hasIpv6Interface = Object.values(networkInterfaces()).flat().some((address) => address?.family === "IPv6");
 
 async function runSetupFailureChild() {
-  return new Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>(
-    (resolve, reject) => {
+  let proxyHits = 0;
+  const hostileProxy = http.createServer((_request, response) => {
+    proxyHits += 1;
+    response.writeHead(502);
+    response.end("HOSTILE_PROXY_USED");
+  });
+  hostileProxy.on("connect", (_request, socket) => {
+    proxyHits += 1;
+    socket.destroy();
+  });
+  await new Promise<void>((resolve, reject) => {
+    hostileProxy.once("error", reject);
+    hostileProxy.listen(0, "127.0.0.1", resolve);
+  });
+  const proxyAddress = hostileProxy.address();
+  if (!proxyAddress || typeof proxyAddress === "string") throw new Error("hostile proxy did not bind");
+  const proxyUrl = `http://127.0.0.1:${proxyAddress.port}`;
+
+  try {
+    const childResult = await new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      stdout: string;
+      stderr: string;
+    }>((resolve, reject) => {
       const child = spawn(process.execPath, [
         resolvePath(process.cwd(), "node_modules/vitest/vitest.mjs"),
         "run",
@@ -27,7 +50,18 @@ async function runSetupFailureChild() {
         "--no-file-parallelism",
       ], {
         cwd: process.cwd(),
-        env: process.env,
+        env: {
+          ...process.env,
+          HTTP_PROXY: proxyUrl,
+          HTTPS_PROXY: proxyUrl,
+          NO_PROXY: "",
+          NODE_USE_ENV_PROXY: "1",
+          NODE_TLS_REJECT_UNAUTHORIZED: "0",
+          NODE_EXTRA_CA_CERTS: resolvePath(
+            process.cwd(),
+            "src/lib/security/fixtures/safe-fetch-test-ca.fixture",
+          ),
+        },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "";
@@ -45,8 +79,13 @@ async function runSetupFailureChild() {
         clearTimeout(timer);
         resolve({ code, signal, stdout, stderr });
       });
-    },
-  );
+    });
+    return { ...childResult, proxyHits };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      hostileProxy.close((error) => error ? reject(error) : resolve());
+    });
+  }
 }
 
 describe("safeFetch", () => {
@@ -478,10 +517,19 @@ describe("safeFetch", () => {
       address: { address: "2606:4700:4700::1111", family: 6 },
     });
 
-    expect(dnsOptions).toMatchObject({ hostname: "93.184.216.34", servername: "example.com" });
+    expect(dnsOptions).toMatchObject({
+      hostname: "93.184.216.34",
+      servername: "example.com",
+      agent: false,
+      rejectUnauthorized: true,
+    });
     expect(dnsOptions.headers).toMatchObject({ host: "example.com:8443" });
-    expect(ipv4Options).toMatchObject({ hostname: "1.1.1.1" });
-    expect(ipv6Options).toMatchObject({ hostname: "2606:4700:4700::1111" });
+    expect(ipv4Options).toMatchObject({ hostname: "1.1.1.1", agent: false, rejectUnauthorized: true });
+    expect(ipv6Options).toMatchObject({
+      hostname: "2606:4700:4700::1111",
+      agent: false,
+      rejectUnauthorized: true,
+    });
     expect(ipv4Options).not.toHaveProperty("servername");
     expect(ipv6Options).not.toHaveProperty("servername");
   });
@@ -668,6 +716,9 @@ describe("safeFetch", () => {
     const result = await runSetupFailureChild();
     expect(result).toMatchObject({ code: 0, signal: null });
     expect(result.stdout).toContain("SAFE_FETCH_PROCESS_CHILD_OK");
+    expect(result.stdout).toContain("SAFE_FETCH_HOSTILE_ENV_OK");
+    expect(result.stdout).toContain("SAFE_FETCH_WRONG_SAN_REJECTED");
+    expect(result.proxyHits).toBe(0);
     expect(result.stderr).not.toContain("uncaughtException");
     expect(result.stderr).not.toContain("Unhandled 'error' event");
   }, 20_000);

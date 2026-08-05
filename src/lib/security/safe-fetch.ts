@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import http from "node:http";
-import https from "node:https";
+import https, { type RequestOptions as HttpsRequestOptions } from "node:https";
 import { isIP } from "node:net";
 import { type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
@@ -398,12 +398,16 @@ function responseHeadersWithoutEncoding(headers: http.IncomingHttpHeaders) {
 export function pinnedSafeFetchRequestOptions(
   url: URL,
   input: Pick<Parameters<Transport>[1], "headers" | "address">,
-): http.RequestOptions & { servername?: string } {
+): http.RequestOptions & Pick<HttpsRequestOptions, "servername" | "rejectUnauthorized"> {
   const tlsIdentity = bareHost(url.hostname);
-  const options: http.RequestOptions & { servername?: string } = {
+  const options: http.RequestOptions & Pick<HttpsRequestOptions, "servername" | "rejectUnauthorized"> = {
     protocol: url.protocol,
     hostname: input.address.address,
     family: input.address.family,
+    // Never inherit Node's mutable global agents. Node 24 can replace them
+    // with EnvHttpProxyAgent when NODE_USE_ENV_PROXY=1, which would route the
+    // request to a proxy instead of the DNS-vetted, pinned address above.
+    agent: false,
     port: url.port || undefined,
     path: `${url.pathname}${url.search}`,
     method: "GET",
@@ -417,7 +421,13 @@ export function pinnedSafeFetchRequestOptions(
   };
   // Node requires an unbracketed TLS identity. IP literals are certificate
   // identities, not virtual-host names, and must never emit an SNI extension.
-  if (url.protocol === "https:" && !isIP(tlsIdentity)) options.servername = tlsIdentity;
+  if (url.protocol === "https:") {
+    // Fix certificate validation at the request boundary. Otherwise the
+    // process-wide NODE_TLS_REJECT_UNAUTHORIZED=0 escape hatch overrides the
+    // security invariant this transport is responsible for enforcing.
+    options.rejectUnauthorized = true;
+    if (!isIP(tlsIdentity)) options.servername = tlsIdentity;
+  }
   return options;
 }
 
