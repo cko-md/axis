@@ -1,12 +1,16 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T18:48:43.315Z",
+  "derivedAt": "2026-08-05T18:52:41.532Z",
   "git": {
     "branch": "codex/redesign-01-safe-fetch-final",
-    "head": "9cf7539ea9b1d6e3c883f52ab939d5e647a19db6",
+    "head": "cfe2fe17a42da4c64730a2a25425027b9604476d",
     "mainHead": "e5ed2c81aa9b70eabd386a133c73ac04fe9a6ace",
-    "workingTreeClean": false,
+    "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "cfe2fe17",
+        "subject": "docs(state): refresh safe-fetch promotion evidence"
+      },
       {
         "sha": "9cf7539e",
         "subject": "fix(security): harden safe-fetch consumers"
@@ -102,7 +106,7 @@
     ],
     "contentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
     "sourceMainContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
-    "fingerprint": "9b5cc3204452900717bfff82edbe9cb321e1906c043018dfa9dd4f4bbc420567"
+    "fingerprint": "aa21950333464334e1626f5a71da597791c71ccc9b3d20c214d9a14fa4848212"
   },
   "mergedPrs": [
     {
@@ -415,7 +419,7 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "9cf7539ea9b1d6e3c883f52ab939d5e647a19db6",
+    "sourceHead": "cfe2fe17a42da4c64730a2a25425027b9604476d",
     "sourceContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
     "typecheck": {
       "passed": true
@@ -441,6 +445,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T18:48:43.218Z"
+    "measuredAt": "2026-08-05T18:52:41.417Z"
   }
 }

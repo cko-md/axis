@@ -23,7 +23,7 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `9b5cc3204452900717bfff82edbe9cb321e1906c043018dfa9dd4f4bbc420567` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `aa21950333464334e1626f5a71da597791c71ccc9b3d20c214d9a14fa4848212` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
 - **Source-main tree at derivation:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
@@ -34,12 +34,13 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-01-safe-fetch-final`
-- **HEAD:** `9cf7539e`
+- **HEAD:** `cfe2fe17`
 - **main:** `e5ed2c81`
-- **Working tree:** had uncommitted changes
+- **Working tree:** clean
 
-### Ahead of source main at derivation (23 commit(s))
+### Ahead of source main at derivation (24 commit(s))
 
+- `cfe2fe17` docs(state): refresh safe-fetch promotion evidence
 - `9cf7539e` fix(security): harden safe-fetch consumers
 - `3f019ce7` docs(state): bind restacked safe fetch candidate gates
 - `ca564f6d` fix(security): pin safe fetch transport policy
@@ -105,9 +106,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 2349/2349 across 263 files
 - **Bundle:** 4098 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `9cf7539e`
+- **Measured source:** `cfe2fe17`
 - **Measured content tree:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
-- **Measured at:** 2026-08-05T18:48:43.218Z
+- **Measured at:** 2026-08-05T18:52:41.417Z
 
 <!-- END GENERATED: derive-program-state -->
 
