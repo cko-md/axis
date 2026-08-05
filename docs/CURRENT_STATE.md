@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `aa21950333464334e1626f5a71da597791c71ccc9b3d20c214d9a14fa4848212` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `ac0228c4b68060d5f67978f66ad55815880c0885af14c9a1ad585dff29a0cdff` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
-- **Source-main tree at derivation:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
+- **Source-main tree at derivation:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,37 +33,10 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-01-safe-fetch-final`
-- **HEAD:** `cfe2fe17`
-- **main:** `e5ed2c81`
+- **Branch:** `codex/redesign-01-post-safe-fetch-state`
+- **HEAD:** `24d3480f`
+- **main:** `24d3480f`
 - **Working tree:** clean
-
-### Ahead of source main at derivation (24 commit(s))
-
-- `cfe2fe17` docs(state): refresh safe-fetch promotion evidence
-- `9cf7539e` fix(security): harden safe-fetch consumers
-- `3f019ce7` docs(state): bind restacked safe fetch candidate gates
-- `ca564f6d` fix(security): pin safe fetch transport policy
-- `f94fa18f` test: preserve protected release contracts
-- `7d9ddbaf` test: close escaped Sentry registration audit gap
-- `160625a4` test: optimize recursive Sentry configuration audit
-- `531812eb` test: stabilize authoritative gate concurrency
-- `7d75f14a` fix(security): close terminal telemetry boundaries
-- `d84f05c6` fix(security): enforce closed-world Sentry telemetry
-- `ca4b1308` test(security): align pinned transport surface guard
-- `11b8fc75` fix(security): close safe-fetch review gaps
-- `11e20990` docs(observability): document strict Sentry privacy hooks
-- `3d33644c` fix(release): preserve protected security test contracts
-- `02ac9852` fix(security): redact Sentry query and fragment attributes
-- `1df59f65` fix(security): disable replay and scrub navigation trails
-- `9af67ebc` fix(security): scrub Sentry trace and replay targets
-- `dd42eaaf` fix(security): scrub safe fetch batch telemetry
-- `38420da8` fix(security): harden safe fetch failure handling
-- `a857256c` fix(security): contain safe fetch setup failures
-- `0936e99a` fix(security): bound safe fetch transport failures
-- `6fdd8f42` security: complete IANA address classification
-- `71fc98ce` security: repair safe fetch IPv6 pinning
-- `040a2b35` security: recover DNS-pinned safe fetch boundary
 
 ## Waves merged to main
 
@@ -124,12 +97,11 @@ block above. Hosted production runtime and Sentry verification remain external
 evidence and must be bound to the exact deployed head before any production
 claim.
 
-The next live source lane is the separately reviewed DNS-pinned safe outbound
-fetch repair. Its open PR is now restacked onto current canonical main and its
-exact-source measured state has been regenerated. Complete exact-head hosted
-CI, preview, browser, Sentry, and independent review gates, then promote it
-through the owner-controlled merge authority. After that source merge,
-complete the required generated-only state refresh before closing `SSRF-001`.
+Complete the protected generated-state refresh and exact production/Sentry
+verification for the DNS-pinned safe outbound-fetch lane before closing
+`SSRF-001`. Preserve the source lane's measured gate evidence across the
+equivalent-tree refresh; production must remain skipped until canonical state
+is aligned.
 
 The fail-closed API access-policy lane follows separately under its one-use
 protected-test authorization requirements. Then continue provider identity,

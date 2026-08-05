@@ -1,114 +1,23 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T18:52:41.532Z",
+  "derivedAt": "2026-08-05T19:21:32.527Z",
   "git": {
-    "branch": "codex/redesign-01-safe-fetch-final",
-    "head": "cfe2fe17a42da4c64730a2a25425027b9604476d",
-    "mainHead": "e5ed2c81aa9b70eabd386a133c73ac04fe9a6ace",
+    "branch": "codex/redesign-01-post-safe-fetch-state",
+    "head": "24d3480ffa54fe6dcdec0fdd874f5af8269c2e49",
+    "mainHead": "24d3480ffa54fe6dcdec0fdd874f5af8269c2e49",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "cfe2fe17",
-        "subject": "docs(state): refresh safe-fetch promotion evidence"
-      },
-      {
-        "sha": "9cf7539e",
-        "subject": "fix(security): harden safe-fetch consumers"
-      },
-      {
-        "sha": "3f019ce7",
-        "subject": "docs(state): bind restacked safe fetch candidate gates"
-      },
-      {
-        "sha": "ca564f6d",
-        "subject": "fix(security): pin safe fetch transport policy"
-      },
-      {
-        "sha": "f94fa18f",
-        "subject": "test: preserve protected release contracts"
-      },
-      {
-        "sha": "7d9ddbaf",
-        "subject": "test: close escaped Sentry registration audit gap"
-      },
-      {
-        "sha": "160625a4",
-        "subject": "test: optimize recursive Sentry configuration audit"
-      },
-      {
-        "sha": "531812eb",
-        "subject": "test: stabilize authoritative gate concurrency"
-      },
-      {
-        "sha": "7d75f14a",
-        "subject": "fix(security): close terminal telemetry boundaries"
-      },
-      {
-        "sha": "d84f05c6",
-        "subject": "fix(security): enforce closed-world Sentry telemetry"
-      },
-      {
-        "sha": "ca4b1308",
-        "subject": "test(security): align pinned transport surface guard"
-      },
-      {
-        "sha": "11b8fc75",
-        "subject": "fix(security): close safe-fetch review gaps"
-      },
-      {
-        "sha": "11e20990",
-        "subject": "docs(observability): document strict Sentry privacy hooks"
-      },
-      {
-        "sha": "3d33644c",
-        "subject": "fix(release): preserve protected security test contracts"
-      },
-      {
-        "sha": "02ac9852",
-        "subject": "fix(security): redact Sentry query and fragment attributes"
-      },
-      {
-        "sha": "1df59f65",
-        "subject": "fix(security): disable replay and scrub navigation trails"
-      },
-      {
-        "sha": "9af67ebc",
-        "subject": "fix(security): scrub Sentry trace and replay targets"
-      },
-      {
-        "sha": "dd42eaaf",
-        "subject": "fix(security): scrub safe fetch batch telemetry"
-      },
-      {
-        "sha": "38420da8",
-        "subject": "fix(security): harden safe fetch failure handling"
-      },
-      {
-        "sha": "a857256c",
-        "subject": "fix(security): contain safe fetch setup failures"
-      },
-      {
-        "sha": "0936e99a",
-        "subject": "fix(security): bound safe fetch transport failures"
-      },
-      {
-        "sha": "6fdd8f42",
-        "subject": "security: complete IANA address classification"
-      },
-      {
-        "sha": "71fc98ce",
-        "subject": "security: repair safe fetch IPv6 pinning"
-      },
-      {
-        "sha": "040a2b35",
-        "subject": "security: recover DNS-pinned safe fetch boundary"
-      }
-    ],
+    "aheadOfMain": [],
     "contentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
-    "sourceMainContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
-    "fingerprint": "aa21950333464334e1626f5a71da597791c71ccc9b3d20c214d9a14fa4848212"
+    "sourceMainContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
+    "fingerprint": "ac0228c4b68060d5f67978f66ad55815880c0885af14c9a1ad585dff29a0cdff"
   },
   "mergedPrs": [
+    {
+      "pr": 293,
+      "sha": "24d3480f",
+      "subject": "fix(security): restore DNS-pinned safe-fetch boundary",
+      "committedAt": "2026-08-05T15:17:30-04:00"
+    },
     {
       "pr": 292,
       "sha": "e5ed2c81",
@@ -252,12 +161,6 @@
       "sha": "890a7a07",
       "subject": "docs(axis): re-derive state after the 16.3 review remediation",
       "committedAt": "2026-07-21T00:31:32-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "203484b7",
-      "subject": "fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race",
-      "committedAt": "2026-07-21T00:31:25-04:00"
     }
   ],
   "waves": [
