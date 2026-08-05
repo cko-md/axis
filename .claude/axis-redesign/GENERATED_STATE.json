@@ -1,17 +1,28 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-30T15:07:11.671Z",
+  "derivedAt": "2026-08-05T12:55:05.710Z",
   "git": {
-    "branch": "codex/redesign-00-production-state-refresh-v2",
-    "head": "5e0bb86663ba7926bae38657a10cf94ba7e86ed3",
-    "mainHead": "5e0bb86663ba7926bae38657a10cf94ba7e86ed3",
+    "branch": "codex/redesign-00-runtime-dependency-break-glass",
+    "head": "0b708b9b34b13cccb5908897808298a02aa4610f",
+    "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
+    "aheadOfMain": [
+      {
+        "sha": "0b708b9b",
+        "subject": "fix(security): refresh vulnerable runtime transitive dependencies"
+      }
+    ],
+    "contentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "8127410da93320bdb28d174190826c817c1535f35509987dbb51c7a33df501e8"
+    "fingerprint": "04ca5422d52943b3e94c70947a98bd01c28ec6cd7b8f3f1e66ed49cbd7a9af6f"
   },
   "mergedPrs": [
+    {
+      "pr": 282,
+      "sha": "acafb3ae",
+      "subject": "docs(state): refresh canonical production evidence",
+      "committedAt": "2026-07-30T18:18:27-04:00"
+    },
     {
       "pr": 267,
       "sha": "5e0bb866",
@@ -155,12 +166,6 @@
       "sha": "ad2dce63",
       "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter",
       "committedAt": "2026-07-20T12:45:26-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "5572d3ee",
-      "subject": "feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard",
-      "committedAt": "2026-07-20T11:42:53-04:00"
     }
   ],
   "waves": [
@@ -322,8 +327,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "c2105adaa725e504dd5519237c688aeab0ad6b11",
-    "sourceContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
+    "sourceHead": "0b708b9b34b13cccb5908897808298a02aa4610f",
+    "sourceContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
     "typecheck": {
       "passed": true
     },
@@ -348,6 +353,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-30T07:15:49.355Z"
+    "measuredAt": "2026-08-05T12:55:05.593Z"
   }
 }

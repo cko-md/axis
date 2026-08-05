@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `8127410da93320bdb28d174190826c817c1535f35509987dbb51c7a33df501e8` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
+- **State fingerprint:** `04ca5422d52943b3e94c70947a98bd01c28ec6cd7b8f3f1e66ed49cbd7a9af6f` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
 - **Source-main tree at derivation:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-00-production-state-refresh-v2`
-- **HEAD:** `5e0bb866`
-- **main:** `5e0bb866`
+- **Branch:** `codex/redesign-00-runtime-dependency-break-glass`
+- **HEAD:** `0b708b9b`
+- **main:** `acafb3ae`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (1 commit(s))
+
+- `0b708b9b` fix(security): refresh vulnerable runtime transitive dependencies
 
 ## Waves merged to main
 
@@ -79,9 +83,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 2106/2106 across 239 files
 - **Bundle:** 4304 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `c2105ada`
-- **Measured content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
-- **Measured at:** 2026-07-30T07:15:49.355Z
+- **Measured source:** `0b708b9b`
+- **Measured content tree:** `b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587`
+- **Measured at:** 2026-08-05T12:55:05.593Z
 
 <!-- END GENERATED: derive-program-state -->
 

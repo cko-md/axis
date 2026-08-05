@@ -114,7 +114,8 @@
     "unrs-resolver@1.12.2": true
   },
   "overrides": {
-    "fast-uri": "3.1.4",
+    "brace-expansion@5.0.8": "5.0.9",
+    "fast-uri": "3.1.5",
     "js-yaml": "4.3.0",
     "minimatch@3.1.5": {
       "brace-expansion": "1.1.16"
@@ -126,6 +127,7 @@
       "brace-expansion": "2.1.2"
     },
     "minimatch@10.2.5": "10.2.6",
+    "undici@7.28.0": "7.29.0",
     "postcss": "8.5.24",
     "next": {
       "sharp": "0.35.0"
