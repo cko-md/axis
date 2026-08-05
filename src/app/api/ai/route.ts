@@ -16,8 +16,8 @@ import {
   type AiResponseMetadata,
 } from "@/lib/ai/response";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { heuristicCapture, type CaptureResult } from "@/lib/ai/capture";
 
-type CaptureResult = { label: string; action: string; priority: "hi" | "med" | "lo" };
 type TriageResult = { title: string; priority: "hi" | "med" | "lo"; category: string; effort: string };
 type TriagePersonResult = { name: string; role: string; note: string; tag: "mentor" | "collaborator" | "friend" };
 type RouteResult = {
@@ -100,16 +100,6 @@ function heuristicLiteratureRelevance(articleTitle: string, summary: string, top
 export const runtime = "nodejs";
 
 // ── Heuristic fallbacks (no API key) ─────────────────────────────────────────
-
-function heuristicCapture(text: string): CaptureResult {
-  const lower = text.toLowerCase();
-  let priority: "hi" | "med" | "lo" = "med";
-  if (/urgent|asap|critical|sign now/.test(lower)) priority = "hi";
-  if (/fyi|low|whenever|someday/.test(lower)) priority = "lo";
-  const label = priority === "hi" ? "Urgent" : priority === "lo" ? "Reference" : "Action";
-  const action = `Add to ${priority === "lo" ? "reference" : "agenda"}`;
-  return { label, action, priority };
-}
 
 function heuristicTriage(title: string, body?: string): TriageResult {
   const lower = `${title} ${body ?? ""}`.toLowerCase();
@@ -324,6 +314,9 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle();
   const providerPref = (profile?.ai_provider as AIProviderPref) ?? "gemini";
+  // Preserve a provider diagnostic without allowing the user-facing "auto"
+  // preference to become an unreviewed telemetry identifier.
+  const telemetryProvider = providerPref === "auto" ? "ai" : providerPref;
 
   const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   const hasGemini = !!getGeminiApiKey();
@@ -770,7 +763,7 @@ export async function POST(req: NextRequest) {
         route: "ai",
         operation: "generate",
         area: "ai",
-        provider: providerPref,
+        provider: telemetryProvider,
         status: rateLimited ? 429 : 502,
         code: rateLimited ? "PROVIDER_RATE_LIMITED" : "PROVIDER_ERROR",
         tags: {

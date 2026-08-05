@@ -27,6 +27,7 @@ import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { StatusCallout } from "@/components/ui/StatusCallout";
 import { pullSetting, pushSetting } from "@/lib/settings/localMirror";
+import { parseFeedResponse } from "@/lib/feeds/feed-response";
 
 const TABS = [
   { id: "fit-health", label: "Health" },
@@ -547,21 +548,24 @@ function BriefingList({ feedUrls, emptyLabel, artlink, columns }: { feedUrls: st
   const { open: openInApp } = useWebViewer();
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(false);
+    setError(null);
     try {
       const res = await fetch("/api/feeds/cached", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedUrls }),
       });
-      const data = (await res.json()) as { items?: FeedItem[] };
-      setItems(data.items ?? []);
+      if (!res.ok) throw new Error("Feed request failed");
+      const feed = parseFeedResponse<FeedItem>(await res.json());
+      setItems(feed.items);
+      if (feed.allFailed) setError("All feed sources failed to refresh.");
+      else if (feed.partial) setError("Some feed sources could not be refreshed; showing available stories.");
     } catch {
-      setError(true);
+      setError("Feeds could not be refreshed.");
     } finally {
       setLoading(false);
     }
@@ -580,8 +584,10 @@ function BriefingList({ feedUrls, emptyLabel, artlink, columns }: { feedUrls: st
       {loading && !items.length && (
         <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>Loading…</div>
       )}
-      {!loading && error && !items.length && (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>{emptyLabel}</div>
+      {!loading && error && (
+        <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>
+          {error}{!items.length ? ` ${emptyLabel}` : ""}
+        </div>
       )}
       {!loading && !error && !items.length && (
         <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>{emptyLabel}</div>

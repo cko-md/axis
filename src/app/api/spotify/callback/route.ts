@@ -8,13 +8,24 @@ import { captureRouteError } from "@/lib/observability/captureRouteError";
 // made a user-denied consent, a dropped state cookie, a misconfigured client,
 // and a rejected token exchange indistinguishable from each other — both in the
 // UI and in logs. Each branch now carries a distinct reason and is reported.
-function fail(req: NextRequest, reason: string, error: Error, status: number) {
+const SPOTIFY_FAILURE_CODES = {
+  denied: "SPOTIFY_DENIED",
+  missing_code: "SPOTIFY_MISSING_CODE",
+  state_missing: "SPOTIFY_STATE_MISSING",
+  state_mismatch: "SPOTIFY_STATE_MISMATCH",
+  not_configured: "SPOTIFY_NOT_CONFIGURED",
+  token_exchange_failed: "SPOTIFY_TOKEN_EXCHANGE_FAILED",
+} as const;
+type SpotifyFailureReason = keyof typeof SPOTIFY_FAILURE_CODES;
+
+function fail(req: NextRequest, reason: SpotifyFailureReason, error: Error, status: number) {
   captureRouteError(error, {
     route: "/api/spotify/callback",
     operation: "complete_oauth",
     area: "integrations",
+    provider: "spotify",
     status,
-    code: `SPOTIFY_${reason.toUpperCase()}`,
+    code: SPOTIFY_FAILURE_CODES[reason],
   });
   return NextResponse.redirect(
     buildAppUrl(req, `/oauth-done?provider=spotify&status=error&reason=${reason}`),

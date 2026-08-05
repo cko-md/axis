@@ -1,17 +1,140 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-07-30T15:07:11.671Z",
+  "derivedAt": "2026-08-05T12:48:26.462Z",
   "git": {
-    "branch": "codex/redesign-00-production-state-refresh-v2",
-    "head": "5e0bb86663ba7926bae38657a10cf94ba7e86ed3",
-    "mainHead": "5e0bb86663ba7926bae38657a10cf94ba7e86ed3",
+    "branch": "codex/redesign-01-safe-fetch-v2",
+    "head": "91d31a0d3c1837b35fad856932887b6e17843642",
+    "mainHead": "acafb3aedcac77242cdbc4829661e037b2782a37",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
+    "aheadOfMain": [
+      {
+        "sha": "91d31a0d",
+        "subject": "fix(security): refresh vulnerable runtime transitive dependencies"
+      },
+      {
+        "sha": "28f5a3a4",
+        "subject": "docs(state): bind protected release repair gates"
+      },
+      {
+        "sha": "c5279118",
+        "subject": "test: preserve protected release contracts"
+      },
+      {
+        "sha": "324b8570",
+        "subject": "docs(state): record terminal telemetry gate closure"
+      },
+      {
+        "sha": "91b4e1e1",
+        "subject": "test: close escaped Sentry registration audit gap"
+      },
+      {
+        "sha": "49a1eb41",
+        "subject": "test: optimize recursive Sentry configuration audit"
+      },
+      {
+        "sha": "4e703c76",
+        "subject": "test: stabilize authoritative gate concurrency"
+      },
+      {
+        "sha": "fcb9be84",
+        "subject": "fix(security): close terminal telemetry boundaries"
+      },
+      {
+        "sha": "b1d3fd66",
+        "subject": "docs(state): record closed telemetry gates"
+      },
+      {
+        "sha": "219778ff",
+        "subject": "fix(security): enforce closed-world Sentry telemetry"
+      },
+      {
+        "sha": "dacbfe7b",
+        "subject": "docs(state): record Phase 1 repaired production gates"
+      },
+      {
+        "sha": "0fce9440",
+        "subject": "test(security): align pinned transport surface guard"
+      },
+      {
+        "sha": "bfcb0415",
+        "subject": "docs(state): finalize Phase 1 review repairs"
+      },
+      {
+        "sha": "1122772e",
+        "subject": "docs(state): rebind Phase 1 review repairs"
+      },
+      {
+        "sha": "c106cc3b",
+        "subject": "fix(security): close safe-fetch review gaps"
+      },
+      {
+        "sha": "6260d352",
+        "subject": "docs(state): rebind Phase 1 governed repair"
+      },
+      {
+        "sha": "69142b64",
+        "subject": "docs(observability): document strict Sentry privacy hooks"
+      },
+      {
+        "sha": "b1a5c82b",
+        "subject": "fix(release): preserve protected security test contracts"
+      },
+      {
+        "sha": "a478d8bb",
+        "subject": "docs(state): derive Phase 1 candidate state"
+      },
+      {
+        "sha": "e1d1350a",
+        "subject": "fix(security): redact Sentry query and fragment attributes"
+      },
+      {
+        "sha": "03bd65e6",
+        "subject": "fix(security): disable replay and scrub navigation trails"
+      },
+      {
+        "sha": "68273a66",
+        "subject": "fix(security): scrub Sentry trace and replay targets"
+      },
+      {
+        "sha": "98700100",
+        "subject": "fix(security): scrub safe fetch batch telemetry"
+      },
+      {
+        "sha": "3a388aa4",
+        "subject": "fix(security): harden safe fetch failure handling"
+      },
+      {
+        "sha": "9914992d",
+        "subject": "fix(security): contain safe fetch setup failures"
+      },
+      {
+        "sha": "38e15f28",
+        "subject": "fix(security): bound safe fetch transport failures"
+      },
+      {
+        "sha": "4fd910a7",
+        "subject": "security: complete IANA address classification"
+      },
+      {
+        "sha": "b2abc585",
+        "subject": "security: repair safe fetch IPv6 pinning"
+      },
+      {
+        "sha": "873747a5",
+        "subject": "security: recover DNS-pinned safe fetch boundary"
+      }
+    ],
+    "contentTreeHash": "d17b9a37f083b0a5d705c9cb0f3a524d3d40324eb7fdf2d9327f183c2b7c86f7",
     "sourceMainContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
-    "fingerprint": "8127410da93320bdb28d174190826c817c1535f35509987dbb51c7a33df501e8"
+    "fingerprint": "400f5788fb608ed1ae7ee44b3db045b94658aead1885fe0c188c2f22e1288d3c"
   },
   "mergedPrs": [
+    {
+      "pr": 282,
+      "sha": "acafb3ae",
+      "subject": "docs(state): refresh canonical production evidence",
+      "committedAt": "2026-07-30T18:18:27-04:00"
+    },
     {
       "pr": 267,
       "sha": "5e0bb866",
@@ -155,12 +278,6 @@
       "sha": "ad2dce63",
       "subject": "feat(desktop): Electron reliability fixes + Archive Bay 16.3 native-recomp adapter",
       "committedAt": "2026-07-20T12:45:26-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "5572d3ee",
-      "subject": "feat(vector): Wave 15.10 Paper Glider shell — Three scene, input, completability guard",
-      "committedAt": "2026-07-20T11:42:53-04:00"
     }
   ],
   "waves": [
@@ -322,8 +439,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "c2105adaa725e504dd5519237c688aeab0ad6b11",
-    "sourceContentTreeHash": "c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f",
+    "sourceHead": "91d31a0d3c1837b35fad856932887b6e17843642",
+    "sourceContentTreeHash": "d17b9a37f083b0a5d705c9cb0f3a524d3d40324eb7fdf2d9327f183c2b7c86f7",
     "typecheck": {
       "passed": true
     },
@@ -331,23 +448,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2106,
-      "total": 2106,
-      "files": 239,
-      "suites": 694
+      "passed": 2346,
+      "total": 2346,
+      "files": 263,
+      "suites": 742
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4304,
+      "used": 4099,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-07-30T07:15:49.355Z"
+    "measuredAt": "2026-08-05T12:48:26.375Z"
   }
 }

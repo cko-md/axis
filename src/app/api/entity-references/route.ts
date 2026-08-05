@@ -26,7 +26,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         operation: "resolve",
         area: "workspace",
         status: 503,
-        code: unavailable.error.providerCode ?? unavailable.error.code,
+        code: unavailable.error.code,
       });
       return NextResponse.json({ error: "ENTITY_UNAVAILABLE" }, { status: 503 });
     }
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         operation: "create",
         area: "workspace",
         status: 500,
-        code: error.code,
+        code: "REFERENCES_UNAVAILABLE",
         tags: { source_kind: parsed.data.source.kind, target_kind: parsed.data.target.kind },
       });
     }

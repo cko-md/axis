@@ -1,7 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { DEFAULT_LOCATION } from "@/lib/geo/default-location";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
 import { createClient } from "@/lib/supabase/server";
@@ -24,7 +23,7 @@ import {
 } from "@/lib/widgets/batch";
 import type { WidgetCacheRow } from "@/lib/widgets/cache";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
-import type { WidgetDataSource } from "@/lib/widgets/types";
+import { invokeWidgetEndpoint } from "@/lib/widgets/internal";
 
 const route = "/api/widgets/batch";
 
@@ -43,22 +42,25 @@ type FetchWidgetResult = {
   error?: BatchWidgetError;
 };
 
-function endpointFor(source: WidgetDataSource) {
-  return source.endpoint;
-}
-
-function queryForWidget(req: Request, source: WidgetDataSource, location: z.infer<typeof batchSchema>["location"]) {
-  const url = new URL(endpointFor(source) ?? "/", req.url);
-  if (source.requiresLocation) {
-    url.searchParams.set("lat", String(location?.lat ?? DEFAULT_LOCATION.lat));
-    url.searchParams.set("lon", String(location?.lon ?? DEFAULT_LOCATION.lon));
-    url.searchParams.set("name", location?.name ?? DEFAULT_LOCATION.name);
+async function withWidgetTimeout<T>(operation: Promise<T>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error("Widget provider timed out");
+          error.name = "TimeoutError";
+          reject(error);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return url;
 }
 
 async function fetchWidget(
-  req: Request,
   id: string,
   location: z.infer<typeof batchSchema>["location"],
   fetchedAt: string,
@@ -71,7 +73,7 @@ async function fetchWidget(
     };
   }
 
-  const endpoint = endpointFor(definition.source);
+  const endpoint = definition.source.endpoint;
   if (!endpoint) {
     return {
       id,
@@ -87,11 +89,10 @@ async function fetchWidget(
   }
 
   try {
-    const url = queryForWidget(req, definition.source, location);
-    const res = await fetch(url, {
-      headers: { cookie: req.headers.get("cookie") ?? "" },
-      signal: AbortSignal.timeout(widgetProviderTimeoutMs(definition.source.provider)),
-    });
+    const res = await withWidgetTimeout(
+      invokeWidgetEndpoint(definition.source, location),
+      widgetProviderTimeoutMs(definition.source.provider),
+    );
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       const code = widgetEndpointErrorCode(res.status);
@@ -187,7 +188,7 @@ export async function POST(req: Request) {
 
   const fetchedAt = new Date().toISOString();
   const widgetIds = dedupeWidgetIds(parsed.data.widgetIds);
-  const results = await Promise.all(widgetIds.map((id) => fetchWidget(req, id, parsed.data.location, fetchedAt)));
+  const results = await Promise.all(widgetIds.map((id) => fetchWidget(id, parsed.data.location, fetchedAt)));
   const widgets: Record<string, BatchWidget> = {};
   const errors: Record<string, BatchWidgetError> = {};
   const freshWidgetIds = new Set<string>();

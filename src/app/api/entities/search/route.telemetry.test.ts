@@ -1,0 +1,108 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+
+const NOTE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const mocks = vi.hoisted(() => ({
+  getUser: vi.fn(),
+  search: vi.fn(),
+  capture: vi.fn(),
+  usageResult: { data: [] as unknown[], error: null as null | { code?: string } },
+}));
+
+function usageQuery() {
+  const query: Record<string, unknown> = {};
+  query.select = vi.fn(() => query);
+  query.eq = vi.fn(() => query);
+  query.in = vi.fn(() => query);
+  query.then = (resolve: (value: unknown) => unknown) => Promise.resolve(mocks.usageResult).then(resolve);
+  return query;
+}
+
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => ({
+    auth: { getUser: mocks.getUser },
+    from: vi.fn(() => usageQuery()),
+  }),
+}));
+vi.mock("@/lib/entities/server", () => ({ searchEntityCandidates: mocks.search }));
+vi.mock("@/lib/observability/captureRouteError", () => ({ captureRouteError: mocks.capture }));
+
+import { GET } from "./route";
+
+describe("GET entity search telemetry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user: { id: "user_1" } }, error: null });
+    mocks.usageResult = { data: [], error: null };
+  });
+
+  it("exposes source failure while excluding private query and provider code", async () => {
+    mocks.search.mockResolvedValue({
+      candidates: [],
+      unavailable: [{
+        code: "UNAVAILABLE",
+        kind: "note",
+        operation: "search",
+        message: "unavailable",
+        providerCode: "57014",
+      }],
+    });
+    const privateQuery = "private research phrase";
+    const response = await GET(
+      new NextRequest(
+        `http://axis.test/api/entities/search?q=${encodeURIComponent(privateQuery)}&types=note`,
+      ),
+    );
+    const body = await response.json();
+
+    expect(body.partial).toBe(true);
+    expect(body.sources).toEqual([
+      { kind: "note", status: "unavailable", count: 0, code: "SOURCE_UNAVAILABLE" },
+      { kind: "usage", status: "ok", count: 0 },
+    ]);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        area: "workspace",
+        operation: "search",
+        code: "UNAVAILABLE",
+      }),
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(privateQuery);
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("57014");
+  });
+
+  it("exposes normalized usage-source failure without the raw database code", async () => {
+    mocks.search.mockResolvedValue({
+      candidates: [{
+        ref: { kind: "note", id: NOTE_ID },
+        title: "Alpha",
+        href: "/notes",
+        updatedAt: new Date().toISOString(),
+        meta: [],
+      }],
+      unavailable: [],
+    });
+    mocks.usageResult = { data: [], error: { code: "57014" } };
+    const response = await GET(
+      new NextRequest("http://axis.test/api/entities/search?q=alpha&types=note"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.partial).toBe(true);
+    expect(body.sources).toEqual([
+      { kind: "note", status: "ok", count: 1 },
+      { kind: "usage", status: "unavailable", count: 0, code: "USAGE_UNAVAILABLE" },
+    ]);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        area: "workspace",
+        operation: "usage",
+        code: "USAGE_UNAVAILABLE",
+      }),
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("57014");
+  });
+});

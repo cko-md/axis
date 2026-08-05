@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `8127410da93320bdb28d174190826c817c1535f35509987dbb51c7a33df501e8` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
+- **State fingerprint:** `400f5788fb608ed1ae7ee44b3db045b94658aead1885fe0c188c2f22e1288d3c` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `d17b9a37f083b0a5d705c9cb0f3a524d3d40324eb7fdf2d9327f183c2b7c86f7`
 - **Source-main tree at derivation:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,42 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-00-production-state-refresh-v2`
-- **HEAD:** `5e0bb866`
-- **main:** `5e0bb866`
+- **Branch:** `codex/redesign-01-safe-fetch-v2`
+- **HEAD:** `91d31a0d`
+- **main:** `acafb3ae`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (29 commit(s))
+
+- `91d31a0d` fix(security): refresh vulnerable runtime transitive dependencies
+- `28f5a3a4` docs(state): bind protected release repair gates
+- `c5279118` test: preserve protected release contracts
+- `324b8570` docs(state): record terminal telemetry gate closure
+- `91b4e1e1` test: close escaped Sentry registration audit gap
+- `49a1eb41` test: optimize recursive Sentry configuration audit
+- `4e703c76` test: stabilize authoritative gate concurrency
+- `fcb9be84` fix(security): close terminal telemetry boundaries
+- `b1d3fd66` docs(state): record closed telemetry gates
+- `219778ff` fix(security): enforce closed-world Sentry telemetry
+- `dacbfe7b` docs(state): record Phase 1 repaired production gates
+- `0fce9440` test(security): align pinned transport surface guard
+- `bfcb0415` docs(state): finalize Phase 1 review repairs
+- `1122772e` docs(state): rebind Phase 1 review repairs
+- `c106cc3b` fix(security): close safe-fetch review gaps
+- `6260d352` docs(state): rebind Phase 1 governed repair
+- `69142b64` docs(observability): document strict Sentry privacy hooks
+- `b1a5c82b` fix(release): preserve protected security test contracts
+- `a478d8bb` docs(state): derive Phase 1 candidate state
+- `e1d1350a` fix(security): redact Sentry query and fragment attributes
+- `03bd65e6` fix(security): disable replay and scrub navigation trails
+- `68273a66` fix(security): scrub Sentry trace and replay targets
+- `98700100` fix(security): scrub safe fetch batch telemetry
+- `3a388aa4` fix(security): harden safe fetch failure handling
+- `9914992d` fix(security): contain safe fetch setup failures
+- `38e15f28` fix(security): bound safe fetch transport failures
+- `4fd910a7` security: complete IANA address classification
+- `b2abc585` security: repair safe fetch IPv6 pinning
+- `873747a5` security: recover DNS-pinned safe fetch boundary
 
 ## Waves merged to main
 
@@ -76,12 +108,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2106/2106 across 239 files
-- **Bundle:** 4304 KB / 4400 KB
+- **Tests:** 2346/2346 across 263 files
+- **Bundle:** 4099 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `c2105ada`
-- **Measured content tree:** `c73f88ce97d7ac37ff21015c9fdcf9884e1b1ab602dd7e9b40da9c1bce2ac85f`
-- **Measured at:** 2026-07-30T07:15:49.355Z
+- **Measured source:** `91d31a0d`
+- **Measured content tree:** `d17b9a37f083b0a5d705c9cb0f3a524d3d40324eb7fdf2d9327f183c2b7c86f7`
+- **Measured at:** 2026-08-05T12:48:26.375Z
 
 <!-- END GENERATED: derive-program-state -->
 

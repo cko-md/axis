@@ -3,6 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { aiGenerate, type AIProviderPref } from "@/lib/ai/router";
 import { createClient } from "@/lib/supabase/server";
 import { optionalEnv } from "@/lib/env";
+import { safeFetch } from "@/lib/security/safe-fetch";
+import { recordSafeFetchFailure } from "@/lib/security/safe-fetch-observability";
 
 export const runtime = "nodejs";
 
@@ -84,7 +86,24 @@ function pickTrack(tracks: CaptionTrack[]): CaptionTrack | null {
 async function fetchTranscript(baseUrl: string): Promise<string> {
   // Ask for the json3 format — easier and more robust than the legacy XML.
   const url = baseUrl.includes("fmt=") ? baseUrl : `${baseUrl}&fmt=json3`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  let captionUrl: URL;
+  try {
+    captionUrl = new URL(url);
+  } catch {
+    throw new Error("invalid caption URL");
+  }
+  // The base URL comes from untrusted watch-page HTML. The shared safe-fetch
+  // boundary prevents SSRF; this narrow allowlist also prevents a compromised
+  // page from turning caption retrieval into a general outbound fetcher.
+  if (captionUrl.protocol !== "https:" || captionUrl.hostname !== "www.youtube.com") {
+    throw new Error("unexpected caption host");
+  }
+  const res = await safeFetch(captionUrl, {
+    headers: { "User-Agent": UA },
+    timeoutMs: 8_000,
+    maxBodyBytes: 2 * 1024 * 1024,
+    allowedHosts: ["www.youtube.com"],
+  });
   if (!res.ok) throw new Error(`caption fetch ${res.status}`);
   const text = await res.text();
 
@@ -124,14 +143,17 @@ export async function POST(req: NextRequest) {
   // ── 1. Fetch the watch page + player response ───────────────────────────────
   let player: unknown | null = null;
   try {
-    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en`, {
+    const pageRes = await safeFetch(`https://www.youtube.com/watch?v=${videoId}&hl=en`, {
       headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" },
+      timeoutMs: 8_000,
+      maxBodyBytes: 2 * 1024 * 1024,
+      allowedHosts: ["www.youtube.com"],
     });
     if (pageRes.ok) {
       player = parsePlayerResponse(await pageRes.text());
     }
-  } catch {
-    /* network error handled below */
+  } catch (error) {
+    recordSafeFetchFailure("youtube_watch_page", "https://www.youtube.com", error);
   }
 
   if (!player) {
@@ -153,7 +175,8 @@ export async function POST(req: NextRequest) {
   let transcript = "";
   try {
     transcript = await fetchTranscript(track.baseUrl);
-  } catch {
+  } catch (error) {
+    recordSafeFetchFailure("youtube_caption", track.baseUrl, error);
     return NextResponse.json(
       { error: "Found captions but could not download them. Try again later." },
       { status: 502 },
