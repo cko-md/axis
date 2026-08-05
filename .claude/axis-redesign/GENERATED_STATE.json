@@ -1,12 +1,24 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T21:43:20.220Z",
+  "derivedAt": "2026-08-05T22:02:35.606Z",
   "git": {
     "branch": "codex/redesign-01-auth-policy-final",
-    "head": "3c7634debf6ef3391b836be7faf8926e457d1297",
+    "head": "56a014bbcb2094003455d68e21dbebe3c0dd3f9e",
     "mainHead": "2527b1f63d28c9515a971bbf1088b3aba5cbfb88",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "56a014bb",
+        "subject": "test(ci): enumerate Supabase build origins"
+      },
+      {
+        "sha": "0a440da5",
+        "subject": "fix(ci): use allowlisted Supabase build origin"
+      },
+      {
+        "sha": "ffabd659",
+        "subject": "docs(state): bind AUTH-007 OAuth recovery gates"
+      },
       {
         "sha": "3c7634de",
         "subject": "fix(auth): preserve OAuth failure recovery"
@@ -52,9 +64,9 @@
         "subject": "fix(auth): fail closed at middleware boundary"
       }
     ],
-    "contentTreeHash": "3f828f1d25f8871a7abcdef9fce48e2b833bf37e7a5e1f4c1d646553a179787d",
+    "contentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
     "sourceMainContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
-    "fingerprint": "854905aa9b24d225e5f427245be9aee7eb6610588366497043783ffb0b829c59"
+    "fingerprint": "1069cb0e1dab2c622fa685f6550eb236ec9a17987f74a0ba65eaca1f7cae4590"
   },
   "mergedPrs": [
     {
@@ -367,8 +379,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "3c7634debf6ef3391b836be7faf8926e457d1297",
-    "sourceContentTreeHash": "3f828f1d25f8871a7abcdef9fce48e2b833bf37e7a5e1f4c1d646553a179787d",
+    "sourceHead": "56a014bbcb2094003455d68e21dbebe3c0dd3f9e",
+    "sourceContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
     "typecheck": {
       "passed": true
     },
@@ -376,8 +388,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 2410,
-      "total": 2410,
+      "passed": 2411,
+      "total": 2411,
       "files": 272,
       "suites": 760
     },
@@ -393,6 +405,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T21:43:20.132Z"
+    "measuredAt": "2026-08-05T22:02:35.525Z"
   }
 }
