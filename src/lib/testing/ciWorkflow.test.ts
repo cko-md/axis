@@ -9,12 +9,15 @@ const workflow = readFileSync(
 
 describe("authenticated CI database contract", () => {
   it("uses the exact allowlisted local Supabase origin for secret-free builds", () => {
-    expect(workflow).not.toContain("https://placeholder.supabase.co");
-    expect(
-      workflow.match(
-        /NEXT_PUBLIC_SUPABASE_URL: http:\/\/127\.0\.0\.1:54321/g,
-      ),
-    ).toHaveLength(3);
+    const configuredOrigins = [
+      ...workflow.matchAll(/^\s*NEXT_PUBLIC_SUPABASE_URL:\s*(\S+)\s*$/gm),
+    ].map((match) => match[1]);
+
+    expect(configuredOrigins).toEqual([
+      "http://127.0.0.1:54321",
+      "http://127.0.0.1:54321",
+      "http://127.0.0.1:54321",
+    ]);
   });
 
   it("executes multi-statement SQL through psql instead of one prepared query", () => {
