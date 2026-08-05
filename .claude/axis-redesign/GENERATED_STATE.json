@@ -1,17 +1,120 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T13:24:27.850Z",
+  "derivedAt": "2026-08-05T18:52:41.532Z",
   "git": {
-    "branch": "codex/redesign-00-post-breakglass-state",
-    "head": "0a3565030ec620ce5a5c6110fb14a8e72a62f70c",
-    "mainHead": "0a3565030ec620ce5a5c6110fb14a8e72a62f70c",
+    "branch": "codex/redesign-01-safe-fetch-final",
+    "head": "cfe2fe17a42da4c64730a2a25425027b9604476d",
+    "mainHead": "e5ed2c81aa9b70eabd386a133c73ac04fe9a6ace",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
+    "aheadOfMain": [
+      {
+        "sha": "cfe2fe17",
+        "subject": "docs(state): refresh safe-fetch promotion evidence"
+      },
+      {
+        "sha": "9cf7539e",
+        "subject": "fix(security): harden safe-fetch consumers"
+      },
+      {
+        "sha": "3f019ce7",
+        "subject": "docs(state): bind restacked safe fetch candidate gates"
+      },
+      {
+        "sha": "ca564f6d",
+        "subject": "fix(security): pin safe fetch transport policy"
+      },
+      {
+        "sha": "f94fa18f",
+        "subject": "test: preserve protected release contracts"
+      },
+      {
+        "sha": "7d9ddbaf",
+        "subject": "test: close escaped Sentry registration audit gap"
+      },
+      {
+        "sha": "160625a4",
+        "subject": "test: optimize recursive Sentry configuration audit"
+      },
+      {
+        "sha": "531812eb",
+        "subject": "test: stabilize authoritative gate concurrency"
+      },
+      {
+        "sha": "7d75f14a",
+        "subject": "fix(security): close terminal telemetry boundaries"
+      },
+      {
+        "sha": "d84f05c6",
+        "subject": "fix(security): enforce closed-world Sentry telemetry"
+      },
+      {
+        "sha": "ca4b1308",
+        "subject": "test(security): align pinned transport surface guard"
+      },
+      {
+        "sha": "11b8fc75",
+        "subject": "fix(security): close safe-fetch review gaps"
+      },
+      {
+        "sha": "11e20990",
+        "subject": "docs(observability): document strict Sentry privacy hooks"
+      },
+      {
+        "sha": "3d33644c",
+        "subject": "fix(release): preserve protected security test contracts"
+      },
+      {
+        "sha": "02ac9852",
+        "subject": "fix(security): redact Sentry query and fragment attributes"
+      },
+      {
+        "sha": "1df59f65",
+        "subject": "fix(security): disable replay and scrub navigation trails"
+      },
+      {
+        "sha": "9af67ebc",
+        "subject": "fix(security): scrub Sentry trace and replay targets"
+      },
+      {
+        "sha": "dd42eaaf",
+        "subject": "fix(security): scrub safe fetch batch telemetry"
+      },
+      {
+        "sha": "38420da8",
+        "subject": "fix(security): harden safe fetch failure handling"
+      },
+      {
+        "sha": "a857256c",
+        "subject": "fix(security): contain safe fetch setup failures"
+      },
+      {
+        "sha": "0936e99a",
+        "subject": "fix(security): bound safe fetch transport failures"
+      },
+      {
+        "sha": "6fdd8f42",
+        "subject": "security: complete IANA address classification"
+      },
+      {
+        "sha": "71fc98ce",
+        "subject": "security: repair safe fetch IPv6 pinning"
+      },
+      {
+        "sha": "040a2b35",
+        "subject": "security: recover DNS-pinned safe fetch boundary"
+      }
+    ],
+    "contentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
     "sourceMainContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
-    "fingerprint": "23bc2c1f44ead742776f5d5b252149c1984e2ef98e3b1ab2fb967316c8c9952e"
+    "fingerprint": "aa21950333464334e1626f5a71da597791c71ccc9b3d20c214d9a14fa4848212"
   },
   "mergedPrs": [
+    {
+      "pr": 292,
+      "sha": "e5ed2c81",
+      "subject": "docs(state): refresh after runtime dependency break-glass merge",
+      "committedAt": "2026-08-05T13:57:14-04:00"
+    },
     {
       "pr": 291,
       "sha": "0a356503",
@@ -155,12 +258,6 @@
       "sha": "203484b7",
       "subject": "fix(desktop): stop Archive Bay read handlers leaking the state.json path; fix manual update-check feedback race",
       "committedAt": "2026-07-21T00:31:25-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "9c245bad",
-      "subject": "docs(axis): re-derive CURRENT_STATE after rebasing 16.3 onto the Paper Glider shell",
-      "committedAt": "2026-07-20T12:47:37-04:00"
     }
   ],
   "waves": [
@@ -322,8 +419,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "0b708b9b34b13cccb5908897808298a02aa4610f",
-    "sourceContentTreeHash": "b6aa25ab94bb573a42e332b8f7bc9fcae82cdb081de30bf5aa56fc14b3b26587",
+    "sourceHead": "cfe2fe17a42da4c64730a2a25425027b9604476d",
+    "sourceContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
     "typecheck": {
       "passed": true
     },
@@ -331,23 +428,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2106,
-      "total": 2106,
-      "files": 239,
-      "suites": 694
+      "passed": 2349,
+      "total": 2349,
+      "files": 263,
+      "suites": 742
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4304,
+      "used": 4098,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T12:55:05.593Z"
+    "measuredAt": "2026-08-05T18:52:41.417Z"
   }
 }

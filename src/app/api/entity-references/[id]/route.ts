@@ -25,7 +25,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext): Prom
       operation: "lookup",
       area: "workspace",
       status: 500,
-      code: readError.code,
+      code: "REFERENCES_UNAVAILABLE",
     });
     return NextResponse.json({ error: "REFERENCE_UNAVAILABLE" }, { status: 500 });
   }
@@ -40,7 +40,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext): Prom
       operation: "delete",
       area: "workspace",
       status: 500,
-      code: error.code,
+      code: "REFERENCES_UNAVAILABLE",
     });
     return NextResponse.json({ error: "REFERENCE_DELETE_FAILED" }, { status: 500 });
   }

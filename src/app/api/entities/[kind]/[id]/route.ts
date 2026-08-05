@@ -55,7 +55,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       operation: "resolve",
       area: "workspace",
       status: 503,
-      code: resolved.error.providerCode ?? resolved.error.code,
+      code: resolved.error.code,
       tags: { entity_kind: ref.kind },
     });
     return NextResponse.json({ error: "ENTITY_UNAVAILABLE" }, { status: 503 });
@@ -87,7 +87,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       operation: "references",
       area: "workspace",
       status: 503,
-      code: outgoingResult.error?.code ?? backlinkResult.error?.code ?? "REFERENCES_UNAVAILABLE",
+      code: "REFERENCES_UNAVAILABLE",
       tags: { entity_kind: ref.kind },
     });
   }
@@ -107,7 +107,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
         const related = await resolveEntity(supabase, user.id, relatedRef);
         return related.ok
           ? { item: { ...reference, entity: related.entity, direction }, code: null }
-          : { item: null, code: related.error.providerCode ?? related.error.code };
+          : { item: null, code: related.error.code };
       }),
     );
     const items: ResolvedEntityReference[] = [];
@@ -143,7 +143,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       operation: "reference_resolution",
       area: "workspace",
       status: 503,
-      code: unexpectedResolutionCode,
+      code: "UNAVAILABLE",
       tags: { entity_kind: ref.kind },
     });
   }
