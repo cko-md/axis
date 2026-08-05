@@ -120,17 +120,46 @@ describe("middleware access policy", () => {
     expect(mocks.getUser).not.toHaveBeenCalled();
   });
 
-  it("fails closed for backend failures, but recognizes only exact cookie-less session absence", async () => {
+  it("clears exact missing-session cookies without treating stale sessions as backend outages", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError", status: 400 } });
     nextResponse(await middleware(request("/api/auth/forgot-password")));
     expect((await middleware(request("/api/future"))).status).toBe(401);
 
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError", status: 400 } });
-    expect((await middleware(request("/api/future", { "sb-project-auth-token": "present" }))).status).toBe(503);
+    const stalePublicResponse = await middleware(
+      request("/api/auth/forgot-password", { "sb-project-auth-token": "present" }),
+    );
+    nextResponse(stalePublicResponse);
+    expect(stalePublicResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+    const staleProtectedResponse = await middleware(
+      request("/api/future", { "sb-project-auth-token": "present" }),
+    );
+    expect(staleProtectedResponse.status).toBe(401);
+    expect(staleProtectedResponse.headers.get("set-cookie")).toContain("Max-Age=0");
 
     mocks.getUser.mockRejectedValue(new Error("network down"));
     expect((await middleware(request("/api/future"))).status).toBe(503);
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError", status: 500 } });
+    expect((await middleware(request("/api/future"))).status).toBe(503);
     expect(mocks.captureRouteError).toHaveBeenCalledTimes(2);
+  });
+
+  it("redirects browser assurance outages to login while APIs retain structured 503s", async () => {
+    mocks.getAuthenticatorAssuranceLevel.mockResolvedValue({ data: null, error: new Error("unavailable") });
+
+    const pageResponse = await middleware(request("/command?view=week"));
+    expect(pageResponse.status).toBe(307);
+    const location = new URL(pageResponse.headers.get("location")!);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("authError")).toBe("assurance_unavailable");
+    expect(location.searchParams.get("redirect")).toBe("/command?view=week");
+
+    const apiResponse = await middleware(request("/api/future"));
+    expect(apiResponse.status).toBe(503);
+    await expect(apiResponse.json()).resolves.toMatchObject({ error: "AUTH_ASSURANCE_UNAVAILABLE" });
+
+    nextResponse(await middleware(request("/login")));
+    expect(mocks.captureRouteError).toHaveBeenCalledTimes(3);
   });
 
   it("does not redirect the trailing-slash login canonical form into a loop", async () => {

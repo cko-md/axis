@@ -67,12 +67,6 @@ function clearBrokenAuthCookies(request: NextRequest, response: NextResponse) {
     });
 }
 
-function hasAuthCookie(request: NextRequest): boolean {
-  return request.cookies
-    .getAll()
-    .some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"));
-}
-
 function authErrorCode(error: unknown): string {
   if (!error || typeof error !== "object") return "";
   const code = (error as AuthError).code;
@@ -88,8 +82,8 @@ function isRefreshTokenAbsence(error: unknown): boolean {
   return code === "refresh_token_not_found" || code === "invalid_refresh_token";
 }
 
-function isCookieLessSessionMissing(error: unknown, request: NextRequest): boolean {
-  if (!error || typeof error !== "object" || hasAuthCookie(request)) return false;
+function isSessionMissing(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
   const candidate = error as AuthError;
   return candidate.name === "AuthSessionMissingError" && candidate.status === 400;
 }
@@ -111,7 +105,7 @@ function unavailable(code: "AUTH_CONFIGURATION_UNAVAILABLE" | "AUTH_BACKEND_UNAV
   );
 }
 
-function assuranceUnavailable() {
+function observeAssuranceUnavailable() {
   captureRouteError(new Error("Authenticator assurance unavailable"), {
     route: "middleware",
     operation: "check_authenticator_assurance",
@@ -119,6 +113,9 @@ function assuranceUnavailable() {
     status: 503,
     code: "AUTH_ASSURANCE_UNAVAILABLE",
   });
+}
+
+function assuranceUnavailable() {
   return NextResponse.json(
     {
       error: "AUTH_ASSURANCE_UNAVAILABLE",
@@ -177,16 +174,16 @@ export async function middleware(request: NextRequest) {
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-      if (isRefreshTokenAbsence(error)) {
+      if (isRefreshTokenAbsence(error) || isSessionMissing(error)) {
         clearBrokenAuthCookies(request, supabaseResponse);
-      } else if (!isCookieLessSessionMissing(error, request)) {
+      } else {
         return carryCookies(supabaseResponse, unavailable("AUTH_BACKEND_UNAVAILABLE"));
       }
     } else {
       user = data.user;
     }
   } catch (error) {
-    if (isRefreshTokenAbsence(error)) {
+    if (isRefreshTokenAbsence(error) || isSessionMissing(error)) {
       clearBrokenAuthCookies(request, supabaseResponse);
     } else {
       return carryCookies(supabaseResponse, unavailable("AUTH_BACKEND_UNAVAILABLE"));
@@ -220,7 +217,18 @@ export async function middleware(request: NextRequest) {
   }
 
   if (assurance === "unavailable") {
-    return carryCookies(supabaseResponse, assuranceUnavailable());
+    observeAssuranceUnavailable();
+    if (isApiPath(pathname)) {
+      return carryCookies(supabaseResponse, assuranceUnavailable());
+    }
+    if (access === "authenticated") {
+      const search = new URLSearchParams({
+        authError: "assurance_unavailable",
+        redirect: `${pathname}${request.nextUrl.search}`,
+      });
+      return carryCookies(supabaseResponse, redirectWithinApp(request, "/login", search));
+    }
+    return supabaseResponse;
   }
 
   if (assurance === "mfa_required" && access !== "mfa-bootstrap") {
