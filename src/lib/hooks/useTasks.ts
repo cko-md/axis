@@ -49,6 +49,7 @@ type SupabaseLikeError = {
 
 type TaskLoadOperation = {
   controller: AbortController;
+  dataRevision: number;
   generation: number;
   identity: symbol;
 };
@@ -88,6 +89,7 @@ export function useTasks() {
   const mountedRef = useRef(false);
   const pageActiveRef = useRef(true);
   const ownershipEpochRef = useRef(0);
+  const taskDataRevisionRef = useRef(0);
   const loadGenerationRef = useRef(0);
   const activeLoadRef = useRef<TaskLoadOperation | null>(null);
   const loadedOwnerRef = useRef<string | null>(null);
@@ -145,11 +147,19 @@ export function useTasks() {
   const refresh = useCallback(async () => {
     const operation: TaskLoadOperation = {
       controller: new AbortController(),
+      dataRevision: taskDataRevisionRef.current,
       generation: ++loadGenerationRef.current,
       identity: Symbol("task-load"),
     };
     activeLoadRef.current?.controller.abort();
     activeLoadRef.current = operation;
+
+    const settleChangedDataRevision = () => {
+      if (operation.dataRevision === taskDataRevisionRef.current) return false;
+      setLoading(false);
+      activeLoadRef.current = null;
+      return true;
+    };
 
     const commitSignedOut = () => {
       ownershipEpochRef.current += 1;
@@ -201,6 +211,7 @@ export function useTasks() {
       if (loadedOwnerRef.current !== user.id) {
         ownershipEpochRef.current += 1;
         if (loadedOwnerRef.current !== null) setTasks([]);
+        operation.dataRevision = taskDataRevisionRef.current;
       }
       loadedOwnerRef.current = user.id;
       loadedOwnerAuthorityRef.current = "load";
@@ -217,6 +228,7 @@ export function useTasks() {
         await commitFailure(loadError, "Could not load tasks — check your connection and retry.");
         return;
       }
+      if (settleChangedDataRevision()) return;
       const now = Date.now();
       const normalized = data.map((t) => {
         if (t.status === "open" && t.deadline && new Date(t.deadline).getTime() < now) {
@@ -459,6 +471,7 @@ export function useTasks() {
       return null;
     }
     if (!error && data) {
+      taskDataRevisionRef.current += 1;
       setTasks((prev) => [...prev, data as Task]);
       clearError();
       return data as Task;
@@ -499,6 +512,7 @@ export function useTasks() {
       return null;
     }
     if (!error && data) {
+      taskDataRevisionRef.current += 1;
       setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
       clearError();
       return data as Task;
@@ -536,6 +550,7 @@ export function useTasks() {
       return false;
     }
     if (!error) {
+      taskDataRevisionRef.current += 1;
       setTasks((prev) => prev.filter((t) => t.id !== id));
       clearError();
       return true;

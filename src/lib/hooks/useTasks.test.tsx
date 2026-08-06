@@ -695,6 +695,225 @@ describe("useTasks load lifecycle", () => {
     },
   );
 
+  describe.each(["add", "update", "delete", "toggle"] as const)(
+    "%s versus an older same-owner snapshot",
+    (operation) => {
+      it("keeps a successful mutation committed when the older snapshot settles later", async () => {
+        const original = task("known");
+        const mutationTask = {
+          ...task(operation === "add" ? "new" : "known"),
+          title: operation === "update" ? "Changed" : original.title,
+          status: operation === "toggle" ? "done" as const : original.status,
+          completed_at: operation === "toggle" ? "2026-08-06T01:00:00.000Z" : null,
+        };
+        const initialLoad = loadBuilder(Promise.resolve({ data: [original], error: null }));
+        const stalePending = deferred<{ data: Task[] | null; error: unknown }>();
+        const staleLoad = loadBuilder(stalePending.promise);
+        const mutation = mutationBuilder(() => Promise.resolve({
+          data: operation === "delete" ? null : mutationTask,
+          error: null,
+        }));
+        mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+        mocks.from
+          .mockReturnValueOnce(initialLoad.builder)
+          .mockReturnValueOnce(staleLoad.builder)
+          .mockReturnValueOnce(mutation);
+
+        act(() => root?.render(<Probe />));
+        await act(flush);
+        let pendingRefresh!: Promise<void>;
+        act(() => { pendingRefresh = latest!.refresh(); });
+        await act(flush);
+
+        const invoke = () => {
+          if (operation === "add") {
+            return latest?.addTask({ title: "New", category: "personal" });
+          }
+          if (operation === "update") {
+            return latest?.updateTask("known", { title: "Changed" });
+          }
+          if (operation === "delete") return latest?.deleteTask("known");
+          return latest?.toggleDone("known");
+        };
+        let mutationResult: unknown;
+        await act(async () => { mutationResult = await invoke(); });
+
+        if (operation === "delete") {
+          expect(mutationResult).toBe(true);
+          expect(latest?.tasks).toEqual([]);
+        } else {
+          expect(mutationResult).toEqual(mutationTask);
+          expect(latest?.tasks).toContainEqual(mutationTask);
+        }
+        expect(latest?.error).toBeNull();
+
+        stalePending.resolve({ data: [original], error: null });
+        await act(async () => { await pendingRefresh; });
+
+        if (operation === "delete") {
+          expect(latest?.tasks).toEqual([]);
+        } else {
+          expect(latest?.tasks).toContainEqual(mutationTask);
+        }
+        expect(latest?.loading).toBe(false);
+        expect(latest?.error).toBeNull();
+        expect(mocks.from).toHaveBeenCalledTimes(3);
+        expect(mocks.capture).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it("applies a same-owner mutation that settles after its older load snapshot", async () => {
+    const original = task("known");
+    const created = task("new");
+    const initialLoad = loadBuilder(Promise.resolve({ data: [original], error: null }));
+    const stalePending = deferred<{ data: Task[] | null; error: unknown }>();
+    const staleLoad = loadBuilder(stalePending.promise);
+    const mutationPending = deferred<{ data: Task | null; error: unknown }>();
+    const mutation = mutationBuilder(() => mutationPending.promise);
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from
+      .mockReturnValueOnce(initialLoad.builder)
+      .mockReturnValueOnce(staleLoad.builder)
+      .mockReturnValueOnce(mutation);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    let pendingRefresh!: Promise<void>;
+    act(() => { pendingRefresh = latest!.refresh(); });
+    await act(flush);
+    let pendingAdd!: Promise<Task | null | undefined>;
+    act(() => {
+      pendingAdd = Promise.resolve(
+        latest?.addTask({ title: "New", category: "personal" }),
+      );
+    });
+    await act(flush);
+
+    stalePending.resolve({ data: [original], error: null });
+    await act(async () => { await pendingRefresh; });
+    expect(latest?.tasks).toEqual([original]);
+
+    mutationPending.resolve({ data: created, error: null });
+    let result: Task | null | undefined;
+    await act(async () => { result = await pendingAdd; });
+
+    expect(result).toEqual(created);
+    expect(latest?.tasks).toEqual([original, created]);
+    expect(latest?.error).toBeNull();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps concurrent same-owner mutation commits when their older snapshot settles last", async () => {
+    const original = task("known");
+    const firstCreated = task("first");
+    const secondCreated = task("second");
+    const initialLoad = loadBuilder(Promise.resolve({ data: [original], error: null }));
+    const stalePending = deferred<{ data: Task[] | null; error: unknown }>();
+    const staleLoad = loadBuilder(stalePending.promise);
+    const firstPending = deferred<{ data: Task | null; error: unknown }>();
+    const secondPending = deferred<{ data: Task | null; error: unknown }>();
+    const firstMutation = mutationBuilder(() => firstPending.promise);
+    const secondMutation = mutationBuilder(() => secondPending.promise);
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from
+      .mockReturnValueOnce(initialLoad.builder)
+      .mockReturnValueOnce(staleLoad.builder)
+      .mockReturnValueOnce(firstMutation)
+      .mockReturnValueOnce(secondMutation);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    let pendingRefresh!: Promise<void>;
+    act(() => { pendingRefresh = latest!.refresh(); });
+    await act(flush);
+    let firstAdd!: Promise<Task | null | undefined>;
+    let secondAdd!: Promise<Task | null | undefined>;
+    act(() => {
+      firstAdd = Promise.resolve(
+        latest?.addTask({ title: "First", category: "personal" }),
+      );
+      secondAdd = Promise.resolve(
+        latest?.addTask({ title: "Second", category: "personal" }),
+      );
+    });
+    await act(flush);
+
+    secondPending.resolve({ data: secondCreated, error: null });
+    firstPending.resolve({ data: firstCreated, error: null });
+    await act(async () => { await Promise.all([firstAdd, secondAdd]); });
+    expect(latest?.tasks.map((item) => item.id).sort()).toEqual([
+      "first",
+      "known",
+      "second",
+    ]);
+
+    stalePending.resolve({ data: [original], error: null });
+    await act(async () => { await pendingRefresh; });
+
+    expect(latest?.tasks.map((item) => item.id).sort()).toEqual([
+      "first",
+      "known",
+      "second",
+    ]);
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it.each(["returns-error", "throws"] as const)(
+    "keeps a current overlapping load failure observable after a mutation succeeds when the load %s",
+    async (outcome) => {
+      const original = task("known");
+      const created = task("new");
+      const initialLoad = loadBuilder(Promise.resolve({ data: [original], error: null }));
+      const loadPending = deferred<{ data: Task[] | null; error: unknown }>();
+      const overlappingLoad = loadBuilder(loadPending.promise);
+      const mutation = mutationBuilder(() => Promise.resolve({
+        data: created,
+        error: null,
+      }));
+      mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+      mocks.from
+        .mockReturnValueOnce(initialLoad.builder)
+        .mockReturnValueOnce(overlappingLoad.builder)
+        .mockReturnValueOnce(mutation);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      let pendingRefresh!: Promise<void>;
+      act(() => { pendingRefresh = latest!.refresh(); });
+      await act(flush);
+      let result: Task | null | undefined;
+      await act(async () => {
+        result = await latest?.addTask({ title: "New", category: "personal" });
+      });
+
+      expect(result).toEqual(created);
+      expect(latest?.tasks).toEqual([original, created]);
+      expect(latest?.error).toBeNull();
+
+      if (outcome === "returns-error") {
+        loadPending.resolve({
+          data: null,
+          error: { status: 503, message: "overlapping load failure" },
+        });
+      } else {
+        loadPending.reject({ status: 503, message: "thrown overlapping load failure" });
+      }
+      await act(async () => { await pendingRefresh; });
+      await act(flushFailureCommit);
+
+      expect(latest?.tasks).toEqual([original, created]);
+      expect(latest?.loading).toBe(false);
+      expect(latest?.error).toEqual({
+        operation: "load",
+        message: "Could not load tasks — check your connection and retry.",
+      });
+      expect(mocks.capture).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each(["resolves", "no-user", "missing-session", "throws-missing-session"] as const)(
     "keeps a null-owner pending A mutation neutral when a B refresh succeeds and A auth %s",
     async (outcome) => {
