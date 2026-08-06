@@ -1,12 +1,44 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T14:27:39.345Z",
+  "derivedAt": "2026-08-06T16:01:22.134Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "71e55aa499c9831402cad756e28a2d79c61dac6f",
+    "head": "8b8453850f68fc45dd768abb6acbcf60e7c90de3",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "8b845385",
+        "subject": "fix(tasks): fence stale load snapshots"
+      },
+      {
+        "sha": "4d7a3339",
+        "subject": "fix(tasks): preserve observable auth failures"
+      },
+      {
+        "sha": "06ec0687",
+        "subject": "fix(tasks): arbitrate concurrent owner claims"
+      },
+      {
+        "sha": "d10e8da4",
+        "subject": "fix(tasks): bind mutations to authenticated owner"
+      },
+      {
+        "sha": "5eff82a2",
+        "subject": "fix(tasks): fence mutation results by ownership epoch"
+      },
+      {
+        "sha": "a27d07bf",
+        "subject": "fix(tasks): retire loads on signed-out mutations"
+      },
+      {
+        "sha": "dc9da43c",
+        "subject": "fix(observability): close auth lifecycle review gaps"
+      },
+      {
+        "sha": "a58eaad5",
+        "subject": "docs(state): bind final lifecycle review gates"
+      },
       {
         "sha": "71e55aa4",
         "subject": "fix(observability): close lifecycle review gaps"
@@ -132,9 +164,9 @@
         "subject": "fix(observability): harden production lifecycle reporting"
       }
     ],
-    "contentTreeHash": "09d4e98a4c027171cc40a659e5370f61add3973b4b2a9eb13782f5daf2a1930f",
+    "contentTreeHash": "d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "26efdfdbf34e02909dce16feb37c12fcc8b9560c60e1f54aa6e14253c3c67923"
+    "fingerprint": "20d7754c5025148e4d97faf549e6bb99712544c34b3476706f934ccafdfdb18c"
   },
   "mergedPrs": [
     {
@@ -447,8 +479,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "71e55aa499c9831402cad756e28a2d79c61dac6f",
-    "sourceContentTreeHash": "09d4e98a4c027171cc40a659e5370f61add3973b4b2a9eb13782f5daf2a1930f",
+    "sourceHead": "8b8453850f68fc45dd768abb6acbcf60e7c90de3",
+    "sourceContentTreeHash": "d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786",
     "typecheck": {
       "passed": true
     },
@@ -456,23 +488,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2648,
-      "total": 2648,
-      "files": 288,
-      "suites": 793
+      "passed": 2749,
+      "total": 2749,
+      "files": 289,
+      "suites": 811
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4133,
+      "used": 4126,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-06T14:27:39.261Z"
+    "measuredAt": "2026-08-06T16:01:22.044Z"
   }
 }
