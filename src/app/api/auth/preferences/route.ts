@@ -45,13 +45,18 @@ function isMissingSession(error: unknown) {
   const value = error as {
     code?: unknown;
     message?: unknown;
+    name?: unknown;
     status?: unknown;
   };
+  const boundedMissingSessionStatus =
+    value.status === undefined || value.status === 400 || value.status === 401;
   return (
     value.status === 401 ||
-    value.code === "refresh_token_not_found" ||
-    value.code === "invalid_refresh_token" ||
-    value.message === "Auth session missing!"
+    (value.name === "AuthSessionMissingError" && value.status === 400) ||
+    (boundedMissingSessionStatus &&
+      (value.code === "refresh_token_not_found" ||
+        value.code === "invalid_refresh_token" ||
+        value.message === "Auth session missing!"))
   );
 }
 
@@ -252,12 +257,15 @@ async function readBoundedJson(request: Request): Promise<unknown> {
 }
 
 export async function GET(request: Request) {
+  if (request.signal.aborted) return aborted();
   try {
     const supabase = await createClient();
+    if (request.signal.aborted) return aborted();
     const {
       data: { user },
       error: authError,
     } = await getAuthenticatedUser(supabase);
+    if (request.signal.aborted) return aborted();
     const identityFailure = identityResponse(user, authError, "read");
     if (identityFailure) return identityFailure;
     if (!user) return unavailable("read");
@@ -289,6 +297,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  if (request.signal.aborted) return aborted();
   try {
     const contentType = request.headers.get("content-type")?.split(";", 1)[0];
     const origin = request.headers.get("origin");
@@ -303,8 +312,11 @@ export async function PUT(request: Request) {
     try {
       body = await readBoundedJson(request);
     } catch {
-      return response({ error: "INVALID_PREFERENCES" }, 400);
+      return request.signal.aborted
+        ? aborted()
+        : response({ error: "INVALID_PREFERENCES" }, 400);
     }
+    if (request.signal.aborted) return aborted();
     if (
       typeof body !== "object" ||
       body === null ||
@@ -326,10 +338,12 @@ export async function PUT(request: Request) {
     }
 
     const supabase = await createClient();
+    if (request.signal.aborted) return aborted();
     const {
       data: { user },
       error: authError,
     } = await getAuthenticatedUser(supabase);
+    if (request.signal.aborted) return aborted();
     const identityFailure = identityResponse(user, authError, "save");
     if (identityFailure) return identityFailure;
     if (!user) return unavailable("save");

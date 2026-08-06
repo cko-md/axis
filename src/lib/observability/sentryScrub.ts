@@ -98,9 +98,9 @@ const EVENT_LEVELS = new Set(["fatal", "error", "warning", "log", "info", "debug
 const ENVIRONMENTS = new Set(["production", "preview", "development", "test"]);
 const STATUSES = new Set(["ok", "deadline_exceeded", "unauthenticated", "permission_denied", "not_found", "resource_exhausted", "invalid_argument", "unimplemented", "unavailable", "internal_error", "unknown_error", "cancelled", "already_exists", "failed_precondition", "aborted", "out_of_range", "data_loss"]);
 const SPAN_OPS = new Set(["http.server", "http.client", "pageload", "navigation", "function.server_action", "ui.action.click"]);
-const BREADCRUMB_CATEGORIES = new Set(["safe-fetch", "provider.retry", "provider.failure", "provider.slow", "route.error", "widget.batch", "widget.partial", "tasks"]);
+const BREADCRUMB_CATEGORIES = new Set(["safe-fetch", "provider.retry", "provider.failure", "provider.fallback", "provider.slow", "route.error", "widget.batch", "widget.partial", "tasks"]);
 const BREADCRUMB_TYPES = new Set(["default", "error", "navigation", "http"]);
-const OUTCOMES = new Set(["ok", "error", "slow"]);
+const OUTCOMES = new Set(["ok", "error", "slow", "degraded"]);
 const FAILURE_STAGES = new Set(["request", "response-body", "response-status", "contract", "rls"]);
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 type PlainObject = Record<string, unknown>;
@@ -162,6 +162,7 @@ function metadata(value: unknown, stack: WeakSet<object>, depth: number, allowRo
     if (typeof retryable === "boolean") output.retryable = retryable;
     if (typeof partial === "boolean") output.partial = partial;
     if (typeof fallback === "boolean") output.fallback = fallback;
+    else if (fallback === "true") output.fallback = true;
     if (typeof sampled === "boolean") output.sampled = sampled;
     if (typeof segment === "boolean") output.is_segment = segment;
     if (typeof handled === "boolean") output.handled = handled;

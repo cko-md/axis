@@ -602,6 +602,20 @@ export function DebriefModule() {
     toast("Next action added to Tasks.", "success", "Debrief");
   };
 
+  const handleToggleTask = async (taskId: string) => {
+    const updated = await toggleDone(taskId);
+    if (!updated) {
+      toast("Could not update task — sign in again and retry.", "error", "Debrief");
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const deleted = await deleteTask(taskId);
+    if (!deleted) {
+      toast("Could not delete task — sign in again and retry.", "error", "Debrief");
+    }
+  };
+
   const generateDailySummary = async () => {
     const text = [
       `Completed tasks: ${completedToday.map((task) => task.title).join("; ") || "none"}`,
@@ -719,7 +733,13 @@ export function DebriefModule() {
     } else {
       // No live task to update (never scheduled, or the stored id is stale).
       // Clear any stale id, then create a fresh reminder task.
-      if (reminderTaskId) await deleteTask(reminderTaskId);
+      if (reminderTaskId) {
+        const deleted = await deleteTask(reminderTaskId);
+        if (!deleted) {
+          toast("Could not replace your reminder — it was left unchanged.", "error", "Debrief");
+          return;
+        }
+      }
       task = await addTask(taskPatch as Parameters<typeof addTask>[0]);
     }
 
@@ -788,7 +808,7 @@ export function DebriefModule() {
                 <p style={{ margin: 0, fontSize: 12, color: "var(--ink-faint)" }}>No missed tasks.</p>
               ) : missedToday.slice(0, 6).map((task) => (
                 <div key={task.id} className="task">
-                  <button type="button" className="check" aria-label={`Mark ${task.title} done`} onClick={() => toggleDone(task.id)} />
+                  <button type="button" className="check" aria-label={`Mark ${task.title} done`} onClick={() => void handleToggleTask(task.id)} />
                   <div className="task-main">
                     <div className="task-title">{task.title}</div>
                     <div className="task-meta">{task.deadline ?? "no deadline"} · {task.status}</div>
@@ -910,7 +930,7 @@ export function DebriefModule() {
                   aria-label={`Mark "${f.title}" complete`}
                   className="check"
                   disabled={!f.id}
-                  onClick={() => f.id && toggleDone(f.id)}
+                  onClick={() => f.id && void handleToggleTask(f.id)}
                   style={{ background: "none", padding: 0 }}
                 />
                 <div className="task-main">
@@ -920,7 +940,7 @@ export function DebriefModule() {
                 {f.id && (
                   <button
                     type="button"
-                    onClick={() => deleteTask(f.id as string)}
+                    onClick={() => void handleDeleteTask(f.id as string)}
                     title="Delete"
                     aria-label={`Delete "${f.title}"`}
                     style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-faint)", cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0 }}

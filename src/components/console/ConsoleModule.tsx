@@ -650,7 +650,11 @@ export function ConsoleModule() {
 
       // Save to tasks table if captMode is "task"
       if (captMode === "task") {
-        await addTask({ title: text, category: "personal", priority });
+        const task = await addTask({ title: text, category: "personal", priority });
+        if (!task) {
+          toast("Could not save task — sign in again and retry.", "error", "Capture");
+          return;
+        }
         toast(d ? `Task · ${d.label} · ${d.action}${sourceLabel ? ` · ${sourceLabel}` : ""}` : "Task saved", "success", "Capture");
         return;
       }
@@ -861,7 +865,15 @@ export function ConsoleModule() {
           ) : (
             topTasks.map((t) => (
               <div key={t.id} className={`task${t.status === "done" ? " done" : ""}`}>
-                <div className={`check${t.status === "done" ? " done" : ""}`} onClick={() => toggleDone(t.id)} />
+                <div
+                  className={`check${t.status === "done" ? " done" : ""}`}
+                  onClick={async () => {
+                    const updated = await toggleDone(t.id);
+                    if (!updated) {
+                      toast("Could not update task — sign in again and retry.", "error", "Console");
+                    }
+                  }}
+                />
                 <div className="task-main">
                   <div className="task-title">{t.title}</div>
                   <div className="task-meta">

@@ -27,6 +27,16 @@ const OTHER_ID = "other-owner";
 const OWNER_SUBJECT = `ps1_${createHash("sha256").update(OWNER_ID).digest("hex")}`;
 const ROUTE_URL = "http://axis.test/api/auth/preferences";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function query() {
   let mutation = false;
   const value: Record<string, ReturnType<typeof vi.fn>> = {};
@@ -116,6 +126,23 @@ describe("/api/auth/preferences GET", () => {
     );
   });
 
+  it.each([
+    { code: "invalid_refresh_token", status: 503 },
+    { message: "Auth session missing!", status: 503 },
+  ])("keeps a 503 missing-session-shaped GET failure actionable", async (authError) => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: authError });
+
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(500);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ operation: "read" }),
+    );
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
   it("tags preference route failures as direct Supabase transport", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: null },
@@ -127,6 +154,29 @@ describe("/api/auth/preferences GET", () => {
       expect.any(Error),
       expect.objectContaining({ transport: "direct" }),
     );
+  });
+
+  it("returns cancellation before classifying or capturing a delayed GET auth result", async () => {
+    const auth = deferred<{
+      data: { user: null };
+      error: { status: number; message: string };
+    }>();
+    const controller = new AbortController();
+    mocks.getUser.mockReturnValue(auth.promise);
+
+    const result = GET(getRequest(controller.signal));
+    await vi.waitFor(() => expect(mocks.getUser).toHaveBeenCalledTimes(1));
+    controller.abort();
+    auth.resolve({
+      data: { user: null },
+      error: { status: 503, message: "private delayed auth failure" },
+    });
+    const response = await result;
+
+    expect(response.status).toBe(499);
+    expect(await response.json()).toEqual({ error: "REQUEST_ABORTED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
   });
 
   it("normalizes thrown missing-session failures without querying or capturing", async () => {
@@ -184,18 +234,55 @@ describe("/api/auth/preferences GET", () => {
     );
   });
 
-  it("passes the request signal to the RLS query and does not capture cancellation", async () => {
+  it("rejects an entry-aborted request before auth or the RLS query", async () => {
     const controller = new AbortController();
     controller.abort();
     const response = await GET(getRequest(controller.signal));
 
     expect(response.status).toBe(499);
-    expect(mocks.abortSignals[0]?.aborted).toBe(true);
+    expect(mocks.getUser).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.abortSignals).toEqual([]);
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 });
 
 describe("/api/auth/preferences PUT", () => {
+  it("returns cancellation after an awaited body read without authenticating", async () => {
+    const controller = new AbortController();
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(next) {
+        streamController = next;
+      },
+    });
+    const request = new Request(ROUTE_URL, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://axis.test",
+      },
+      body: stream,
+      signal: controller.signal,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const result = PUT(request);
+    await Promise.resolve();
+    controller.abort();
+    streamController.enqueue(new TextEncoder().encode(JSON.stringify({
+      subject: OWNER_SUBJECT,
+      envelope: {},
+    })));
+    streamController.close();
+    const response = await result;
+
+    expect(response.status).toBe(499);
+    expect(mocks.getUser).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["null", "null"],
     ["array", "[]"],
@@ -288,6 +375,53 @@ describe("/api/auth/preferences PUT", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
+  it("keeps a 503 missing-session-shaped PUT failure actionable", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Auth session missing!", status: 503 },
+    });
+
+    const response = await PUT(putJson({
+      subject: OWNER_SUBJECT,
+      envelope: { theme: "light" },
+    }));
+
+    expect(response.status).toBe(500);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ operation: "save" }),
+    );
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("returns cancellation before classifying or capturing a delayed PUT auth result", async () => {
+    const auth = deferred<{
+      data: { user: null };
+      error: { status: number; message: string };
+    }>();
+    const controller = new AbortController();
+    mocks.getUser.mockReturnValue(auth.promise);
+    const request = putJson({ subject: OWNER_SUBJECT, envelope: {} });
+    const abortedRequest = new Request(request, { signal: controller.signal });
+
+    const result = PUT(abortedRequest);
+    await vi.waitFor(() => expect(mocks.getUser).toHaveBeenCalledTimes(1));
+    controller.abort();
+    auth.resolve({
+      data: { user: null },
+      error: { status: 503, message: "private delayed auth failure" },
+    });
+    const response = await result;
+
+    expect(response.status).toBe(499);
+    expect(await response.json()).toEqual({ error: "REQUEST_ABORTED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it("upserts only the server-derived owner and returns the exact subject", async () => {
     const q = query();
     mocks.from.mockReturnValue(q);
@@ -323,6 +457,8 @@ describe("/api/auth/preferences PUT", () => {
     );
 
     mocks.capture.mockClear();
+    mocks.getUser.mockClear();
+    mocks.from.mockClear();
     mocks.result.error = null;
     const controller = new AbortController();
     const request = putJson({ subject: OWNER_SUBJECT, envelope: {} });
@@ -330,6 +466,8 @@ describe("/api/auth/preferences PUT", () => {
     controller.abort();
     response = await PUT(abortedRequest);
     expect(response.status).toBe(499);
+    expect(mocks.getUser).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 });

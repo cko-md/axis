@@ -44,6 +44,18 @@ function loadBuilder(result: Promise<{ data: Task[] | null; error: unknown }>) {
   return { builder, signals };
 }
 
+function mutationBuilder(result: () => Promise<{ data: Task | null; error: unknown }>) {
+  const builder: Record<string, ReturnType<typeof vi.fn>> = {};
+  builder.insert = vi.fn(() => builder);
+  builder.update = vi.fn(() => builder);
+  builder.delete = vi.fn(() => builder);
+  builder.eq = vi.fn(() => builder);
+  builder.select = vi.fn(() => builder);
+  builder.single = vi.fn(() => result());
+  builder.then = vi.fn((resolve, reject) => result().then(resolve, reject));
+  return builder;
+}
+
 const user = { id: "task-owner" };
 const task = (id: string): Task => ({
   id,
@@ -183,6 +195,76 @@ describe("useTasks load lifecycle", () => {
     expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { status: 401, message: "session no longer available" },
+    { name: "AuthSessionMissingError", status: 400 },
+    { code: "invalid_refresh_token", status: 400 },
+    { message: "Auth session missing!", status: 400 },
+  ])("treats an exact expected auth transition as signed out without capture", async (authError) => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: authError });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+    expect(latest?.tasks).toEqual([]);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("treats a thrown exact missing session as signed out without capture", async () => {
+    mocks.getUser.mockRejectedValue({ message: "Auth session missing!" });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+    expect(latest?.tasks).toEqual([]);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thrown AuthSessionMissingError-shaped 500 load actionable", async () => {
+    mocks.getUser.mockRejectedValue({
+      name: "AuthSessionMissingError",
+      status: 500,
+      message: "upstream auth failure",
+    });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error?.message).toBe(
+      "Could not load tasks — check your connection and retry.",
+    );
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("keeps an AuthSessionMissingError-shaped 500 actionable", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthSessionMissingError",
+        status: 500,
+        message: "upstream auth failure",
+      },
+    });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error?.message).toBe(
+      "Could not load tasks — sign in again and retry.",
+    );
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
   it("keeps the identical current load failure visible and captures it once", async () => {
     const sameError = new TypeError("same live-looking failure");
     const load = loadBuilder(Promise.reject(sameError));
@@ -312,5 +394,184 @@ describe("useTasks load lifecycle", () => {
     expect(latest?.tasks.map((item) => item.id)).toEqual(["strict"]);
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.from).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), null, "Sign in to create tasks."],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), null, "Sign in to update tasks."],
+    ["delete", async () => latest?.deleteTask("known"), false, "Sign in to delete tasks."],
+    ["toggle", async () => latest?.toggleDone("known"), null, "Sign in to update tasks."],
+  ])("keeps %s fail-closed for a resolved missing session", async (_case, invoke, expected, message) => {
+    const load = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    mocks.getUser
+      .mockResolvedValueOnce({ data: { user }, error: null })
+      .mockResolvedValueOnce({
+        data: { user: null },
+        error: { status: 401, message: "session expired" },
+      });
+    mocks.from.mockReturnValue(load.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    mocks.from.mockClear();
+    mocks.capture.mockClear();
+
+    let result: unknown;
+    await act(async () => { result = await invoke(); });
+
+    expect(result).toBe(expected);
+    expect(latest?.tasks).toEqual([]);
+    expect(latest?.error?.message).toBe(message);
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), null, "Sign in to create tasks."],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), null, "Sign in to update tasks."],
+    ["delete", async () => latest?.deleteTask("known"), false, "Sign in to delete tasks."],
+    ["toggle", async () => latest?.toggleDone("known"), null, "Sign in to update tasks."],
+  ])("keeps %s fail-closed for a thrown exact missing session", async (_case, invoke, expected, message) => {
+    const load = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    mocks.getUser
+      .mockResolvedValueOnce({ data: { user }, error: null })
+      .mockRejectedValueOnce({ message: "Auth session missing!" });
+    mocks.from.mockReturnValue(load.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    mocks.from.mockClear();
+    mocks.capture.mockClear();
+
+    let result: unknown;
+    await act(async () => { result = await invoke(); });
+
+    expect(result).toBe(expected);
+    expect(latest?.tasks).toEqual([]);
+    expect(latest?.error?.message).toBe(message);
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), "add"],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), "update"],
+    ["delete", async () => latest?.deleteTask("known"), "delete"],
+    ["toggle", async () => latest?.toggleDone("known"), "update"],
+  ])("keeps a thrown %s AuthSessionMissingError-shaped 500 actionable", async (_case, invoke, operation) => {
+    const load = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    mocks.getUser
+      .mockResolvedValueOnce({ data: { user }, error: null })
+      .mockRejectedValueOnce({
+        name: "AuthSessionMissingError",
+        status: 500,
+        message: "upstream auth failure",
+      });
+    mocks.from.mockReturnValue(load.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    mocks.from.mockClear();
+    mocks.capture.mockClear();
+
+    await act(async () => { await invoke(); });
+
+    expect(latest?.error?.operation).toBe(operation);
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), null, "Sign in to create tasks."],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), null, "Sign in to update tasks."],
+    ["delete", async () => latest?.deleteTask("known"), false, "Sign in to delete tasks."],
+    ["toggle", async () => latest?.toggleDone("known"), null, "Sign in to update tasks."],
+  ])("keeps %s fail-closed when the post-auth mutation returns session expiry", async (_case, invoke, expected, message) => {
+    const load = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    const mutation = mutationBuilder(() => Promise.resolve({
+      data: null,
+      error: { status: 401, message: "session expired during mutation" },
+    }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from
+      .mockReturnValueOnce(load.builder)
+      .mockReturnValueOnce(mutation);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    mocks.from.mockClear();
+    mocks.capture.mockClear();
+
+    let result: unknown;
+    await act(async () => { result = await invoke(); });
+
+    expect(result).toBe(expected);
+    expect(latest?.tasks).toEqual([]);
+    expect(latest?.error?.message).toBe(message);
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), null, "Sign in to create tasks."],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), null, "Sign in to update tasks."],
+    ["delete", async () => latest?.deleteTask("known"), false, "Sign in to delete tasks."],
+    ["toggle", async () => latest?.toggleDone("known"), null, "Sign in to update tasks."],
+  ])("keeps %s fail-closed when the post-auth mutation throws exact session expiry", async (_case, invoke, expected, message) => {
+    const load = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    const mutation = mutationBuilder(() => Promise.reject({
+      message: "Auth session missing!",
+      status: 400,
+    }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from
+      .mockReturnValueOnce(load.builder)
+      .mockReturnValueOnce(mutation);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    mocks.from.mockClear();
+    mocks.capture.mockClear();
+
+    let result: unknown;
+    await act(async () => { result = await invoke(); });
+
+    expect(result).toBe(expected);
+    expect(latest?.tasks).toEqual([]);
+    expect(latest?.error?.message).toBe(message);
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), "add"],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), "update"],
+    ["delete", async () => latest?.deleteTask("known"), "delete"],
+    ["toggle", async () => latest?.toggleDone("known"), "update"],
+  ])("captures one actionable %s post-auth mutation 500", async (_case, invoke, operation) => {
+    const load = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    const mutation = mutationBuilder(() => Promise.resolve({
+      data: null,
+      error: {
+        name: "AuthSessionMissingError",
+        status: 500,
+        message: "upstream mutation auth failure",
+      },
+    }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from
+      .mockReturnValueOnce(load.builder)
+      .mockReturnValueOnce(mutation);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    mocks.from.mockClear();
+    mocks.capture.mockClear();
+
+    await act(async () => { await invoke(); });
+
+    expect(latest?.error?.operation).toBe(operation);
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 });

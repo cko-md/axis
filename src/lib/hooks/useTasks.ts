@@ -53,6 +53,24 @@ type TaskLoadOperation = {
   identity: symbol;
 };
 
+function isMissingTaskSession(error: unknown) {
+  if (typeof error !== "object" || error === null || Array.isArray(error)) {
+    return false;
+  }
+  const value = error as Record<string, unknown>;
+  const status = value.status;
+  const boundedMissingSessionStatus =
+    status === undefined || status === 400 || status === 401;
+  return (
+    status === 401 ||
+    (value.name === "AuthSessionMissingError" && status === 400) ||
+    (boundedMissingSessionStatus &&
+      (value.code === "refresh_token_not_found" ||
+        value.code === "invalid_refresh_token" ||
+        value.message === "Auth session missing!"))
+  );
+}
+
 export type TaskUpdate = Partial<Pick<
   Task,
   "title" | "priority" | "effort" | "deadline" | "category" | "status" | "sort_order" | "metadata" | "completed_at"
@@ -133,6 +151,15 @@ export function useTasks() {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (!isLoadCurrent(operation)) return;
       if (authError) {
+        if (isMissingTaskSession(authError)) {
+          loadedOwnerRef.current = null;
+          setUserId(null);
+          setTasks([]);
+          setError(null);
+          setLoading(false);
+          activeLoadRef.current = null;
+          return;
+        }
         await commitFailure(authError, "Could not load tasks — sign in again and retry.", true);
         return;
       }
@@ -140,6 +167,7 @@ export function useTasks() {
         loadedOwnerRef.current = null;
         setUserId(null);
         setTasks([]);
+        setError(null);
         setLoading(false);
         activeLoadRef.current = null;
         return;
@@ -174,6 +202,15 @@ export function useTasks() {
       setLoading(false);
       activeLoadRef.current = null;
     } catch (loadError) {
+      if (isMissingTaskSession(loadError) && isLoadCurrent(operation)) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setTasks([]);
+        setError(null);
+        setLoading(false);
+        activeLoadRef.current = null;
+        return;
+      }
       await commitFailure(loadError, "Could not load tasks — check your connection and retry.");
     }
   }, [clearError, isLoadCurrent, recordError, supabase]);
@@ -215,61 +252,154 @@ export function useTasks() {
 
   useRealtimeRefresh(supabase, "tasks", userId, refresh);
 
+  const settleMutationSignedOut = useCallback((
+    operation: "add" | "update" | "delete",
+    message: string,
+  ) => {
+    loadedOwnerRef.current = null;
+    setUserId(null);
+    setTasks([]);
+    setError({ operation, message });
+  }, []);
+
+  const authenticateMutation = useCallback(async (
+    operation: "add" | "update" | "delete",
+    signedOutMessage: string,
+    failureMessage: string,
+  ) => {
+    const settleSignedOut = () => {
+      settleMutationSignedOut(operation, signedOutMessage);
+      return null;
+    };
+    try {
+      const { data: { user }, error: authError } =
+        await supabase.auth.getUser();
+      if (authError) {
+        if (isMissingTaskSession(authError)) return settleSignedOut();
+        recordError(operation, authError, failureMessage);
+        return null;
+      }
+      if (!user) return settleSignedOut();
+      return user;
+    } catch (authError) {
+      if (isMissingTaskSession(authError)) return settleSignedOut();
+      recordError(operation, authError, failureMessage);
+      return null;
+    }
+  }, [recordError, settleMutationSignedOut, supabase]);
+
   const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError) {
-      recordError("add", authError, "Could not create task — sign in again and retry.");
+    const user = await authenticateMutation(
+      "add",
+      "Sign in to create tasks.",
+      "Could not create task — sign in again and retry.",
+    );
+    if (!user) return null;
+    let data: unknown;
+    let error: unknown;
+    try {
+      const result = await supabase
+        .from("tasks")
+        .insert({
+          user_id: user.id,
+          title: partial.title,
+          category: partial.category,
+          priority: partial.priority ?? "med",
+          effort: partial.effort ?? null,
+          deadline: partial.deadline ?? null,
+          metadata: (partial.metadata ?? {}) as Json,
+          status: "open",
+          sort_order: tasks.length,
+        })
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    } catch (mutationError) {
+      if (isMissingTaskSession(mutationError)) {
+        settleMutationSignedOut("add", "Sign in to create tasks.");
+        return null;
+      }
+      recordError("add", mutationError, "Could not create task — check your connection and retry.");
       return null;
     }
-    if (!user) {
-      setError({ operation: "add", message: "Sign in to create tasks." });
-      return null;
-    }
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert({
-        user_id: user.id,
-        title: partial.title,
-        category: partial.category,
-        priority: partial.priority ?? "med",
-        effort: partial.effort ?? null,
-        deadline: partial.deadline ?? null,
-        metadata: (partial.metadata ?? {}) as Json,
-        status: "open",
-        sort_order: tasks.length,
-      })
-      .select()
-      .single();
     if (!error && data) {
       setTasks((prev) => [...prev, data as Task]);
       clearError();
       return data as Task;
     }
+    if (isMissingTaskSession(error)) {
+      settleMutationSignedOut("add", "Sign in to create tasks.");
+      return null;
+    }
     recordError("add", error, "Could not create task — check your connection and retry.");
     return null;
-  }, [clearError, recordError, supabase, tasks.length]);
+  }, [authenticateMutation, clearError, recordError, settleMutationSignedOut, supabase, tasks.length]);
 
   const updateTask = useCallback(async (id: string, patch: TaskUpdate) => {
-    const { data, error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() } as TaskRowUpdate).eq("id", id).select().single();
+    const user = await authenticateMutation(
+      "update",
+      "Sign in to update tasks.",
+      "Could not update task — sign in again and retry.",
+    );
+    if (!user) return null;
+    let data: unknown;
+    let error: unknown;
+    try {
+      const result = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() } as TaskRowUpdate).eq("id", id).select().single();
+      data = result.data;
+      error = result.error;
+    } catch (mutationError) {
+      if (isMissingTaskSession(mutationError)) {
+        settleMutationSignedOut("update", "Sign in to update tasks.");
+        return null;
+      }
+      recordError("update", mutationError, "Could not update task — check your connection and retry.");
+      return null;
+    }
     if (!error && data) {
       setTasks((prev) => prev.map((t) => (t.id === id ? (data as Task) : t)));
       clearError();
       return data as Task;
     }
+    if (isMissingTaskSession(error)) {
+      settleMutationSignedOut("update", "Sign in to update tasks.");
+      return null;
+    }
     recordError("update", error, "Could not update task — check your connection and retry.");
     return null;
-  }, [clearError, recordError, supabase]);
+  }, [authenticateMutation, clearError, recordError, settleMutationSignedOut, supabase]);
 
   const deleteTask = useCallback(async (id: string) => {
-    const { error } = await supabase.from("tasks").delete().eq("id", id);
+    const user = await authenticateMutation(
+      "delete",
+      "Sign in to delete tasks.",
+      "Could not delete task — sign in again and retry.",
+    );
+    if (!user) return false;
+    let error: unknown;
+    try {
+      ({ error } = await supabase.from("tasks").delete().eq("id", id));
+    } catch (mutationError) {
+      if (isMissingTaskSession(mutationError)) {
+        settleMutationSignedOut("delete", "Sign in to delete tasks.");
+        return false;
+      }
+      recordError("delete", mutationError, "Could not delete task — check your connection and retry.");
+      return false;
+    }
     if (!error) {
       setTasks((prev) => prev.filter((t) => t.id !== id));
       clearError();
       return true;
     }
+    if (isMissingTaskSession(error)) {
+      settleMutationSignedOut("delete", "Sign in to delete tasks.");
+      return false;
+    }
     recordError("delete", error, "Could not delete task — check your connection and retry.");
     return false;
-  }, [clearError, recordError, supabase]);
+  }, [authenticateMutation, clearError, recordError, settleMutationSignedOut, supabase]);
 
   const toggleDone = useCallback(async (id: string) => {
     const t = tasks.find((x) => x.id === id);
