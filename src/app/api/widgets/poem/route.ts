@@ -141,6 +141,7 @@ export async function GET(req: NextRequest) {
         area: "console",
         provider: "poetrydb",
         operation: "poem_fetch",
+        transport: "direct",
         timeoutMs: 5_000,
         slowMs: 1_500,
         // A valid bundled public-domain poem is the completed workflow, not an
@@ -198,6 +199,7 @@ export async function GET(req: NextRequest) {
       area: "console",
       provider: "poetrydb",
       operation: "poem_fetch",
+      transport: "direct",
       code: failure.code,
       ...(failure.status !== undefined ? { status: failure.status } : {}),
       outcome: "degraded",
@@ -215,6 +217,7 @@ export async function GET(req: NextRequest) {
         area: "console",
         provider: "poetrydb",
         operation: "poem_fetch",
+        transport: "direct",
         code: failure.code,
         ...(failure.status !== undefined ? { status: String(failure.status) } : {}),
         outcome: "degraded",

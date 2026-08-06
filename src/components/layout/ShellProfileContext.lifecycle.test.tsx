@@ -323,4 +323,147 @@ describe("ShellProfileProvider lookup lifecycle", () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
+  it("retains an interrupted upload marker until a different restored subject is known", async () => {
+    let uploadSignal: AbortSignal | null | undefined;
+    let resolveUpload!: (value: ReturnType<typeof response>) => void;
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_A, "Owner A")))
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        uploadSignal = init.signal;
+        return new Promise((resolve) => {
+          resolveUpload = resolve;
+        });
+      })
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_B, "Owner B")));
+    await renderProvider();
+
+    let uploadPromise!: Promise<void>;
+    act(() => {
+      uploadPromise = current().uploadProfilePhoto(
+        new Blob(["image"], { type: "image/jpeg" }),
+        SUBJECT_A,
+      );
+    });
+    await act(flush);
+
+    act(() => window.dispatchEvent(persistedPageEvent("pagehide")));
+    expect(uploadSignal?.aborted).toBe(true);
+    act(() => window.dispatchEvent(persistedPageEvent("pageshow")));
+    await act(flush);
+
+    expect(current().profile?.subject).toBe(SUBJECT_B);
+    expect(current().uploadState).toBe("idle");
+    expect(current().hasPendingChanges).toBe(false);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "The profile photo upload stopped because the signed-in account changed.",
+      "error",
+      "Profile",
+    );
+
+    resolveUpload(response(200, {
+      url: "https://cdn.test/stale-avatar.jpg",
+      subject: SUBJECT_A,
+    }));
+    await act(async () => uploadPromise);
+
+    expect(current().profile?.subject).toBe(SUBJECT_B);
+    expect(current().draft.photo).not.toBe("https://cdn.test/stale-avatar.jpg");
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps the interrupted marker through a failed lookup and consumes it on retry", async () => {
+    let resolveUpload!: (value: ReturnType<typeof response>) => void;
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_A, "Owner A")))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveUpload = resolve;
+      }))
+      .mockRejectedValueOnce(new TypeError("temporary lookup failure"))
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_B, "Owner B")));
+    await renderProvider();
+
+    let uploadPromise!: Promise<void>;
+    act(() => {
+      uploadPromise = current().uploadProfilePhoto(
+        new Blob(["image"], { type: "image/jpeg" }),
+        SUBJECT_A,
+      );
+    });
+    await act(flush);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+
+    expect(current().state).toBe("error");
+    expect(mocks.toast).not.toHaveBeenCalled();
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+
+    expect(current().profile?.subject).toBe(SUBJECT_B);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "The profile photo upload stopped because the signed-in account changed.",
+      "error",
+      "Profile",
+    );
+
+    resolveUpload(response(200, {
+      url: "https://cdn.test/stale-avatar.jpg",
+      subject: SUBJECT_A,
+    }));
+    await act(async () => uploadPromise);
+    expect(current().draft.photo).not.toBe("https://cdn.test/stale-avatar.jpg");
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+  });
+
+  it("consumes an interrupted upload marker when authoritative lookup signs out", async () => {
+    let resolveUpload!: (value: ReturnType<typeof response>) => void;
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_A, "Owner A")))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveUpload = resolve;
+      }))
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_B, "Owner B")));
+    await renderProvider();
+
+    let uploadPromise!: Promise<void>;
+    act(() => {
+      uploadPromise = current().uploadProfilePhoto(
+        new Blob(["image"], { type: "image/jpeg" }),
+        SUBJECT_A,
+      );
+    });
+    await act(flush);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+
+    expect(current().state).toBe("signed-out");
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "The profile photo upload stopped because the session ended.",
+      "error",
+      "Profile",
+    );
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+    expect(current().profile?.subject).toBe(SUBJECT_B);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+
+    resolveUpload(response(200, {
+      url: "https://cdn.test/stale-avatar.jpg",
+      subject: SUBJECT_A,
+    }));
+    await act(async () => uploadPromise);
+    expect(current().draft.photo).not.toBe("https://cdn.test/stale-avatar.jpg");
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+  });
+
 });

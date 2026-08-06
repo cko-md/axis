@@ -74,6 +74,7 @@ describe("GET /api/widgets/poem", () => {
         area: "console",
         provider: "poetrydb",
         operation: "poem_fetch",
+        transport: "direct",
         code,
         ...(status !== undefined ? { status } : {}),
         outcome: "degraded",
@@ -87,7 +88,10 @@ describe("GET /api/widgets/poem", () => {
         "poetrydb poem_fetch degraded",
         expect.objectContaining({
           level: "info",
-          tags: expect.objectContaining({ code }),
+          tags: expect.objectContaining({ code, transport: "direct" }),
+          contexts: {
+            providerCall: expect.objectContaining({ transport: "direct" }),
+          },
         }),
       );
     } else {
@@ -95,7 +99,12 @@ describe("GET /api/widgets/poem", () => {
       expect(mocks.captureException).toHaveBeenCalledTimes(1);
       expect(mocks.captureException).toHaveBeenCalledWith(
         expect.objectContaining({ message: `poetrydb poem_fetch failed: ${code}` }),
-        expect.objectContaining({ tags: expect.objectContaining({ code }) }),
+        expect.objectContaining({
+          tags: expect.objectContaining({ code, transport: "direct" }),
+          contexts: {
+            providerCall: expect.objectContaining({ transport: "direct" }),
+          },
+        }),
       );
     }
     expect(JSON.stringify([

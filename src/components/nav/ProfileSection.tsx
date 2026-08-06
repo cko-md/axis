@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import {
   MAX_PROFILE_FIELD_LENGTH,
@@ -45,11 +45,42 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   const [cropArea, setCropArea] = useState<Area | null>(null);
   const [cropSubject, setCropSubject] = useState<string | null>(null);
   const [cropSaving, setCropSaving] = useState(false);
+  const cropSrcRef = useRef<string | null>(null);
+  const cropTokenRef = useRef<symbol | null>(null);
+  const processingCropTokensRef = useRef(new Set<symbol>());
+
+  const clearVisibleCrop = useCallback(() => {
+    cropSrcRef.current = null;
+    cropTokenRef.current = null;
+    setCropSrc(null);
+    setCropPoint({ x: 0, y: 0 });
+    setCropZoom(1);
+    setCropArea(null);
+    setCropSubject(null);
+    setCropSaving(false);
+  }, []);
+
+  const discardVisibleCrop = useCallback(() => {
+    const current = cropSrcRef.current;
+    const token = cropTokenRef.current;
+    const processing = token !== null && processingCropTokensRef.current.has(token);
+    clearVisibleCrop();
+    if (current && !processing) URL.revokeObjectURL(current);
+  }, [clearVisibleCrop]);
 
   useEffect(() => {
+    const processingCropTokens = processingCropTokensRef.current;
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      const current = cropSrcRef.current;
+      const token = cropTokenRef.current;
+      cropSrcRef.current = null;
+      cropTokenRef.current = null;
+      if (
+        current &&
+        (token === null || !processingCropTokens.has(token))
+      ) URL.revokeObjectURL(current);
     };
   }, []);
 
@@ -62,16 +93,44 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
   }, [accountState, onProfileName, profile]);
 
   useEffect(() => {
-    if (accountState === "ready" && profile) return;
+    if (accountState === "ready" && profile) {
+      if (cropSrc && cropSubject === profile.subject) {
+        setProfileOpen(true);
+        return;
+      }
+      if (cropSrc && cropSubject && cropSubject !== profile.subject) {
+        const token = cropTokenRef.current;
+        const processing =
+          cropSaving ||
+          (token !== null && processingCropTokensRef.current.has(token));
+        setProfileOpen(false);
+        discardVisibleCrop();
+        if (!processing) {
+          toast(
+            "The unfinished profile photo was discarded because the signed-in account changed.",
+            "error",
+            "Profile",
+          );
+        }
+      }
+      return;
+    }
     setProfileOpen(false);
-    setCropSaving(false);
-    setCropArea(null);
-    setCropSubject(null);
-    setCropSrc((current) => {
-      if (current) URL.revokeObjectURL(current);
-      return null;
-    });
-  }, [accountState, profile]);
+    if (accountState === "signed-out" && cropSrc) {
+      const token = cropTokenRef.current;
+      const processing =
+        cropSaving ||
+        (token !== null && processingCropTokensRef.current.has(token));
+      discardVisibleCrop();
+      if (!processing) {
+        toast(
+          "The unfinished profile photo was discarded because the session ended.",
+          "error",
+          "Profile",
+        );
+      }
+    }
+  }, [accountState, cropSaving, cropSrc, cropSubject, discardVisibleCrop, profile, toast]);
 
   const saveStateLabel =
     uploadState === "processing" ? "Processing photo…" :
@@ -113,21 +172,31 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     setCropZoom(1);
     setCropArea(null);
     setCropSubject(profile.subject);
-    setCropSrc(URL.createObjectURL(file));
+    const previous = cropSrcRef.current;
+    const previousToken = cropTokenRef.current;
+    if (
+      previous &&
+      (previousToken === null || !processingCropTokensRef.current.has(previousToken))
+    ) URL.revokeObjectURL(previous);
+    const next = URL.createObjectURL(file);
+    const token = Symbol("profile-crop");
+    cropSrcRef.current = next;
+    cropTokenRef.current = token;
+    setCropSrc(next);
   };
 
   const cancelCrop = () => {
     if (cropSubject) {
       cancelProfilePhotoProcessing(cropSubject);
     }
-    if (cropSrc) URL.revokeObjectURL(cropSrc);
-    setCropSrc(null);
-    setCropSubject(null);
+    discardVisibleCrop();
   };
 
   const confirmCrop = async () => {
-    if (!cropSrc || !cropArea || !cropSubject) return;
+    const token = cropTokenRef.current;
+    if (!cropSrc || !cropArea || !cropSubject || token === null) return;
     const processingSrc = cropSrc;
+    processingCropTokensRef.current.add(token);
     setCropSaving(true);
     try {
       await processAndUploadProfilePhoto(
@@ -136,11 +205,17 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
         cropSubject,
       );
     } finally {
+      processingCropTokensRef.current.delete(token);
       URL.revokeObjectURL(processingSrc);
-      if (mountedRef.current) {
-        setCropSaving(false);
-        setCropSrc(null);
-        setCropSubject(null);
+      if (cropTokenRef.current === token) {
+        cropSrcRef.current = null;
+        cropTokenRef.current = null;
+        if (mountedRef.current) {
+          setCropSaving(false);
+          setCropSrc(null);
+          setCropArea(null);
+          setCropSubject(null);
+        }
       }
     }
   };
@@ -220,7 +295,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           step in place when a new photo is selected, rather than stacking a
           second modal on top. */}
       <Modal
-        open={profileOpen && accountState === "ready" && profile !== null}
+        open={profileOpen && accountState === "ready" && profile !== null && (!cropSrc || cropSubject === profile.subject)}
         onClose={() => { if (cropSrc) cancelCrop(); setProfileOpen(false); }}
         title={cropSrc ? "Adjust Photo" : "Profile"}
         footer={

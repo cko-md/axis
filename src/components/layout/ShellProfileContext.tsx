@@ -315,6 +315,10 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const queuedSaveRef = useRef<SaveJob | null>(null);
   const uploadGenerationRef = useRef(0);
   const activeAvatarRef = useRef<ActiveAvatarOperation | null>(null);
+  const interruptedUploadRef = useRef<{
+    subject: string;
+    generation: number;
+  } | null>(null);
   const activeLookupRef = useRef<ActiveLookupOperation | null>(null);
 
   const syncPendingState = useCallback(() => {
@@ -797,6 +801,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       }
 
       const generation = ++uploadGenerationRef.current;
+      interruptedUploadRef.current = null;
       const controller = new AbortController();
       activeAvatarRef.current?.controller.abort();
       const operation: ActiveAvatarOperation = {
@@ -1031,10 +1036,19 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       }
 
       const uploadWasPending = uploadPendingRef.current;
+      const interruptedUpload = activeAvatarRef.current;
       uploadGenerationRef.current += 1;
       activeAvatarRef.current?.controller.abort();
       activeAvatarRef.current = null;
       if (uploadWasPending) {
+        const subject = interruptedUpload?.subject ?? subjectRef.current;
+        if (subject) {
+          interruptedUploadRef.current = {
+            subject,
+            generation:
+              interruptedUpload?.generation ?? uploadGenerationRef.current - 1,
+          };
+        }
         setUploadState("error");
         setUploadPending(false);
       }
@@ -1090,11 +1104,21 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
         if (response.status === 401) {
           lookupFailureCapturedRef.current = false;
+          const interruptedUpload = interruptedUploadRef.current;
+          interruptedUploadRef.current = null;
           blockedReasonRef.current = subjectRef.current
             ? "signed-out"
             : null;
           setCommittedProfile(null);
           setState("signed-out");
+          if (interruptedUpload) {
+            setUploadState("error");
+            toast(
+              "The profile photo upload stopped because the session ended.",
+              "error",
+              "Profile",
+            );
+          }
           if (dirtyRef.current) {
             setSaveState("session-expired");
             setDraftPending(true);
@@ -1145,9 +1169,12 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
         if (subjectChanged) {
           const previousDraftWasDirty = dirtyRef.current;
-          const previousUploadWasPending = uploadPendingRef.current;
+          const previousUploadWasPending =
+            uploadPendingRef.current ||
+            interruptedUploadRef.current?.subject === previousSubject;
           storeCurrentSubjectDraft();
           cancelSubjectWork();
+          interruptedUploadRef.current = null;
           if (previousDraftWasDirty) {
             toast(
               "Unsaved profile changes were set aside for the previous account.",
@@ -1165,6 +1192,9 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         }
 
         subjectRef.current = nextProfile.subject;
+        if (interruptedUploadRef.current?.subject === nextProfile.subject) {
+          interruptedUploadRef.current = null;
+        }
         blockedReasonRef.current = null;
         setState("ready");
         setUploadState((current) =>
