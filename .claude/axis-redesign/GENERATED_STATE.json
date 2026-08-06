@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T11:45:08.697Z",
+  "derivedAt": "2026-08-06T12:40:54.894Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "1477b097efdc48e36ef8d5f6b1d090e460fb64a1",
+    "head": "034c5601869e667be8f4e1ff14db767cc8a4c070",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "034c5601",
+        "subject": "fix(theme): retire preference failures before navigation"
+      },
+      {
+        "sha": "0195f3e8",
+        "subject": "docs(state): bind final lifecycle repair gates"
+      },
       {
         "sha": "1477b097",
         "subject": "fix(theme): bind edits after subject resolution"
@@ -108,9 +116,9 @@
         "subject": "fix(observability): harden production lifecycle reporting"
       }
     ],
-    "contentTreeHash": "d185e90046f0e17e9f3b76943612039b53b4a2a58b44c941e790a4ce9853275a",
+    "contentTreeHash": "73cc603ad7b75b1902453d3f44ba3955479339f33fefe6fd342263c068708f8b",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "cdc50a91bd7330e54095d45e5a1197962883cc6a5f866c61dc344a0cb74fad01"
+    "fingerprint": "0dd845eb42f90102749be750ac355ff68658f493108fc13542a005af45a36dab"
   },
   "mergedPrs": [
     {
@@ -423,8 +431,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "1477b097efdc48e36ef8d5f6b1d090e460fb64a1",
-    "sourceContentTreeHash": "d185e90046f0e17e9f3b76943612039b53b4a2a58b44c941e790a4ce9853275a",
+    "sourceHead": "034c5601869e667be8f4e1ff14db767cc8a4c070",
+    "sourceContentTreeHash": "73cc603ad7b75b1902453d3f44ba3955479339f33fefe6fd342263c068708f8b",
     "typecheck": {
       "passed": true
     },
@@ -432,23 +440,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2574,
-      "total": 2574,
-      "files": 285,
-      "suites": 787
+      "passed": 2583,
+      "total": 2583,
+      "files": 286,
+      "suites": 789
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4125,
+      "used": 4127,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-06T11:45:08.611Z"
+    "measuredAt": "2026-08-06T12:40:54.781Z"
   }
 }
