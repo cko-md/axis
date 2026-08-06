@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T05:33:17.090Z",
+  "derivedAt": "2026-08-06T06:11:16.269Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "2c3a1832a787a0c879875e46918532c6fb4dbf34",
+    "head": "a7cf58dd15c0d9391ff8826c3b2004f9924075cb",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "a7cf58dd",
+        "subject": "fix(observability): reset profile failure episode on restore"
+      },
+      {
+        "sha": "b950cd29",
+        "subject": "docs(state): bind repaired Sentry gates"
+      },
       {
         "sha": "2c3a1832",
         "subject": "clear derived profile identity during restore"
@@ -48,9 +56,9 @@
         "subject": "fix(observability): harden production lifecycle reporting"
       }
     ],
-    "contentTreeHash": "1d908063e3cd2771ebd75856a17675384ad9625653d9f26af872ef53df141b0d",
+    "contentTreeHash": "ce4541ccac20e3e903fd0b318d4517929180d0b7d335824e2636a9ddf9f3f2f8",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "ba0118e0a79e9638c8b10a6ac00aa4f20aaffccedbe79f68375d8a3abc7a6b35"
+    "fingerprint": "a3592a97f1c32a831709b10c0a5780deddb7b1d7625d159182a594688571932b"
   },
   "mergedPrs": [
     {
@@ -363,8 +371,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "2c3a1832a787a0c879875e46918532c6fb4dbf34",
-    "sourceContentTreeHash": "1d908063e3cd2771ebd75856a17675384ad9625653d9f26af872ef53df141b0d",
+    "sourceHead": "a7cf58dd15c0d9391ff8826c3b2004f9924075cb",
+    "sourceContentTreeHash": "ce4541ccac20e3e903fd0b318d4517929180d0b7d335824e2636a9ddf9f3f2f8",
     "typecheck": {
       "passed": true
     },
@@ -372,8 +380,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 2466,
-      "total": 2466,
+      "passed": 2468,
+      "total": 2468,
       "files": 279,
       "suites": 774
     },
@@ -389,6 +397,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-06T05:33:17.010Z"
+    "measuredAt": "2026-08-06T06:11:16.187Z"
   }
 }
