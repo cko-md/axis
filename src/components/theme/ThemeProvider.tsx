@@ -87,9 +87,35 @@ type PendingPreferenceFields = {
   settings?: DirtyPreferenceField<InterfaceSettings>;
 };
 
-type SubjectPendingPreferenceFields = PendingPreferenceFields & {
-  subject: string;
-};
+function newestPendingField<T>(
+  subjectBound: DirtyPreferenceField<T> | undefined,
+  ownershipless: DirtyPreferenceField<T> | undefined,
+): DirtyPreferenceField<T> | undefined {
+  if (!subjectBound) return ownershipless;
+  if (!ownershipless) return subjectBound;
+  return ownershipless.revision > subjectBound.revision
+    ? ownershipless
+    : subjectBound;
+}
+
+function mergePendingFields(
+  subjectBound: PendingPreferenceFields | null,
+  ownershipless: PendingPreferenceFields | null,
+): PendingPreferenceFields | null {
+  const theme = newestPendingField(
+    subjectBound?.theme,
+    ownershipless?.theme,
+  );
+  const settings = newestPendingField(
+    subjectBound?.settings,
+    ownershipless?.settings,
+  );
+  if (!theme && !settings) return null;
+  return {
+    ...(theme ? { theme } : {}),
+    ...(settings ? { settings } : {}),
+  };
+}
 
 type PreferenceFailureStage =
   | "request"
@@ -197,6 +223,51 @@ function isExactErrorResponse(value: unknown, error: string) {
   return Object.keys(record).length === 1 && record.error === error;
 }
 
+type ExpectedPreferenceAuthBoundary = "local" | "server-observed-unavailable";
+
+function classifyExpectedPreferenceAuthBoundary(
+  status: number,
+  value: unknown,
+): ExpectedPreferenceAuthBoundary | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (
+    status === 401 &&
+    ((keys.length === 1 && record.error === "UNAUTHENTICATED") ||
+      (keys.length === 2 &&
+        record.error === "UNAUTHORIZED" &&
+        record.message === "Sign in required."))
+  ) {
+    return "local";
+  }
+  if (
+    status === 403 &&
+    keys.length === 2 &&
+    record.error === "MFA_REQUIRED" &&
+    record.message === "Complete two-factor authentication to continue."
+  ) {
+    return "local";
+  }
+  if (status !== 503 || keys.length !== 2) return null;
+  if (
+    (record.error === "AUTH_CONFIGURATION_UNAVAILABLE" ||
+      record.error === "AUTH_BACKEND_UNAVAILABLE") &&
+    record.message === "Authentication infrastructure is temporarily unavailable."
+  ) {
+    return "server-observed-unavailable";
+  }
+  if (
+    record.error === "AUTH_ASSURANCE_UNAVAILABLE" &&
+    record.message === "Authentication assurance could not be verified."
+  ) {
+    return "server-observed-unavailable";
+  }
+  return null;
+}
+
 class PreferenceClientError extends Error {
   readonly safeStatus: number;
   readonly safeCode: "PROFILE_LOAD_FAILED" | "PROFILE_SAVE_FAILED";
@@ -294,7 +365,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const remoteSubjectRef = useRef<string | null>(null);
   const quarantinedSubjectRef = useRef<string | null>(null);
   const ownershiplessEditsRef = useRef<PendingPreferenceFields | null>(null);
-  const subjectEditsRef = useRef<SubjectPendingPreferenceFields | null>(null);
+  const subjectEditsBySubjectRef = useRef(new Map<string, PendingPreferenceFields>());
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
   const remoteSyncEnabledRef = useRef(false);
   const remoteWriteIntentRef = useRef(false);
@@ -342,11 +413,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       retireActiveLoad();
       retireActiveWrite();
       if (remoteSubjectRef.current) {
+        const subject = remoteSubjectRef.current;
         if (remoteWriteIntentRef.current) {
-          const existing = subjectEditsRef.current?.subject === remoteSubjectRef.current
-            ? subjectEditsRef.current
-            : { subject: remoteSubjectRef.current };
-          subjectEditsRef.current = {
+          const existing = subjectEditsBySubjectRef.current.get(subject) ?? {};
+          subjectEditsBySubjectRef.current.set(subject, {
             ...existing,
             ...(themeDirtyRef.current
               ? {
@@ -364,9 +434,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                   },
                 }
               : {}),
-          };
+          });
         }
-        quarantinedSubjectRef.current = remoteSubjectRef.current;
+        quarantinedSubjectRef.current = subject;
       }
       remoteSubjectRef.current = null;
       remoteEnvelopeRef.current = {};
@@ -382,6 +452,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    const subjectEditsBySubject = subjectEditsBySubjectRef.current;
     const stored = readStorage(THEME_KEY) as ThemeMode | null;
     if (isThemeMode(stored)) setThemeState(stored);
     const storedSettings = parseStoredSettings(readStorage(SETTINGS_KEY));
@@ -404,23 +475,81 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       );
     };
 
-    const commitLocalOnly = (operation: ActiveRemoteLoad) => {
+    const consolidatePendingLoadOwnership = (
+      operation: ActiveRemoteLoad,
+      subjectlessPolicy: "clear" | "preserve-subject-bound",
+    ) => {
       if (!isLoadCurrent(operation)) return;
+      const establishedSubject = operation.subject;
+      if (establishedSubject) {
+        const consolidated = mergePendingFields(
+          subjectEditsBySubjectRef.current.get(establishedSubject) ?? null,
+          operation.acceptsOwnershiplessEdits
+            ? ownershiplessEditsRef.current
+            : null,
+        );
+        if (consolidated) {
+          subjectEditsBySubjectRef.current.set(
+            establishedSubject,
+            consolidated,
+          );
+        } else {
+          subjectEditsBySubjectRef.current.delete(establishedSubject);
+        }
+        quarantinedSubjectRef.current = establishedSubject;
+        ownershiplessEditsRef.current = null;
+      } else if (subjectlessPolicy === "clear") {
+        quarantinedSubjectRef.current = null;
+        ownershiplessEditsRef.current = null;
+        subjectEditsBySubjectRef.current.clear();
+      } else {
+        ownershiplessEditsRef.current = null;
+      }
+      return true;
+    };
+
+    const retireTerminalLoad = (
+      operation: ActiveRemoteLoad,
+      persistence: "local" | "error",
+    ) => {
+      if (!consolidatePendingLoadOwnership(operation, "clear")) return;
       remoteSubjectRef.current = null;
-      quarantinedSubjectRef.current = null;
-      ownershiplessEditsRef.current = null;
-      subjectEditsRef.current = null;
       remoteEnvelopeRef.current = {};
       remoteSyncEnabledRef.current = false;
       remoteWriteIntentRef.current = false;
-      loadFailureReportedRef.current = false;
-      writeFailureSubjectRef.current = null;
+      if (persistence === "local") {
+        loadFailureReportedRef.current = false;
+        writeFailureSubjectRef.current = null;
+      }
       themeDirtyRef.current = false;
       settingsDirtyRef.current = false;
       setRemoteSyncEnabled(false);
       setRemoteReady(true);
-      setInterfacePersistence("local");
+      setInterfacePersistence(persistence);
       activeLoadRef.current = null;
+    };
+
+    const restartCurrentLoad = (operation: ActiveRemoteLoad) => {
+      if (
+        !consolidatePendingLoadOwnership(
+          operation,
+          "preserve-subject-bound",
+        )
+      ) {
+        return;
+      }
+      quarantineRemoteOwnership("loading");
+      runLoadRef.current?.();
+    };
+
+    const consolidateActiveLoadOwnership = () => {
+      const activeLoad = activeLoadRef.current;
+      if (activeLoad) {
+        consolidatePendingLoadOwnership(
+          activeLoad,
+          "preserve-subject-bound",
+        );
+      }
     };
 
     const readAuthoritativePreferences = async (operation: ActiveRemoteLoad) => {
@@ -448,11 +577,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           );
         }
         if (!isLoadCurrent(operation)) return null;
-        if (
-          response.status === 401 &&
-          isExactErrorResponse(payload, "UNAUTHENTICATED")
-        ) {
-          commitLocalOnly(operation);
+        const authBoundary = classifyExpectedPreferenceAuthBoundary(
+          response.status,
+          payload,
+        );
+        if (authBoundary === "local") {
+          retireTerminalLoad(operation, "local");
+          return null;
+        }
+        if (authBoundary === "server-observed-unavailable") {
+          loadFailureReportedRef.current = true;
+          retireTerminalLoad(operation, "error");
           return null;
         }
         if (
@@ -462,11 +597,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
         ) {
           if (response.status === 500) loadFailureReportedRef.current = true;
-          remoteSyncEnabledRef.current = false;
-          setRemoteSyncEnabled(false);
-          setRemoteReady(true);
-          setInterfacePersistence("error");
-          activeLoadRef.current = null;
+          retireTerminalLoad(operation, "error");
           return null;
         }
         throw new PreferenceClientError(
@@ -527,8 +658,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const confirmedIdentity = await readAuthoritativePreferences(operation);
         if (!isLoadCurrent(operation) || !confirmedIdentity) return;
         if (confirmedIdentity.subject !== initialSubject) {
-          quarantineRemoteOwnership("loading");
-          runLoadRef.current?.();
+          restartCurrentLoad(operation);
           return;
         }
         const confirmedSubject = confirmedIdentity.subject;
@@ -540,9 +670,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           throw new PreferenceClientError("load", "route", "contract", 502);
         }
         const subjectEdits =
-          subjectEditsRef.current?.subject === confirmedSubject
-            ? subjectEditsRef.current
-            : null;
+          subjectEditsBySubjectRef.current.get(confirmedSubject) ?? null;
         const ownershiplessEdits = operation.acceptsOwnershiplessEdits
           ? ownershiplessEditsRef.current
           : null;
@@ -552,14 +680,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const editedDuringRead =
           operation.editRevisionAtSubject !== editRevisionRef.current;
         if (editedDuringRead && !themeEdit && !settingsEdit) {
-          quarantineRemoteOwnership("loading");
-          runLoadRef.current?.();
+          restartCurrentLoad(operation);
           return;
         }
         remoteSubjectRef.current = confirmedSubject;
         quarantinedSubjectRef.current = confirmedSubject;
         remoteEnvelopeRef.current = remote.envelope;
-        subjectEditsRef.current = null;
+        subjectEditsBySubjectRef.current.delete(confirmedSubject);
         if (operation.acceptsOwnershiplessEdits) {
           ownershiplessEditsRef.current = null;
         }
@@ -591,11 +718,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           loadFailureReportedRef.current = true;
           capturePreferenceError("load", error);
         }
-        remoteSyncEnabledRef.current = false;
-        setRemoteSyncEnabled(false);
-        setRemoteReady(true);
-        setInterfacePersistence("error");
-        activeLoadRef.current = null;
+        retireTerminalLoad(operation, "error");
       }
     };
 
@@ -714,11 +837,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           }
           if (!isWriteCurrent(candidate)) return;
           if (!saveResponse.ok) {
-            if (
-              saveResponse.status === 401 &&
-              isExactErrorResponse(payload, "UNAUTHENTICATED")
-            ) {
+            const authBoundary = classifyExpectedPreferenceAuthBoundary(
+              saveResponse.status,
+              payload,
+            );
+            if (authBoundary === "local") {
               quarantineRemoteOwnership("local");
+              return;
+            }
+            if (authBoundary === "server-observed-unavailable") {
+              writeFailureSubjectRef.current = candidate.subject;
+              setInterfacePersistence("error");
+              settleAndContinue(false);
               return;
             }
             if (
@@ -791,20 +921,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     runLoadRef.current = runLoad;
 
     const beginAuthoritativeReload = () => {
+      consolidateActiveLoadOwnership();
       quarantineRemoteOwnership("loading");
       runLoad();
     };
     const retireForCrossDocumentNavigation = () => {
+      consolidateActiveLoadOwnership();
       pageActiveRef.current = false;
       retireActiveLoad();
       retireActiveWrite();
     };
     const handlePageHide = () => {
+      consolidateActiveLoadOwnership();
       pageActiveRef.current = false;
       quarantineRemoteOwnership("loading");
     };
     const handlePageShow = () => {
       if (document.visibilityState === "hidden") {
+        consolidateActiveLoadOwnership();
         pageActiveRef.current = false;
         quarantineRemoteOwnership("loading");
         return;
@@ -868,7 +1002,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       remoteSubjectRef.current = null;
       quarantinedSubjectRef.current = null;
       ownershiplessEditsRef.current = null;
-      subjectEditsRef.current = null;
+      subjectEditsBySubject.clear();
       remoteEnvelopeRef.current = {};
       remoteSyncEnabledRef.current = false;
       remoteWriteIntentRef.current = false;
@@ -985,13 +1119,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           ? activeLoad.subject ?? quarantinedSubjectRef.current
           : quarantinedSubjectRef.current;
       if (subject) {
-        const existing = subjectEditsRef.current?.subject === subject
-          ? subjectEditsRef.current
-          : { subject };
-        subjectEditsRef.current = {
+        const existing = subjectEditsBySubjectRef.current.get(subject) ?? {};
+        subjectEditsBySubjectRef.current.set(subject, {
           ...existing,
           theme: edit,
-        };
+        });
       } else {
         ownershiplessEditsRef.current = {
           ...ownershiplessEditsRef.current,
@@ -1024,13 +1156,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             ? activeLoad.subject ?? quarantinedSubjectRef.current
             : quarantinedSubjectRef.current;
         if (subject) {
-          const existing = subjectEditsRef.current?.subject === subject
-            ? subjectEditsRef.current
-            : { subject };
-          subjectEditsRef.current = {
+          const existing = subjectEditsBySubjectRef.current.get(subject) ?? {};
+          subjectEditsBySubjectRef.current.set(subject, {
             ...existing,
             settings: edit,
-          };
+          });
         } else {
           ownershiplessEditsRef.current = {
             ...ownershiplessEditsRef.current,

@@ -385,6 +385,1154 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 
+  it("treats the exact route 401 as an expected signed-out load transition", async () => {
+    mocks.fetch.mockResolvedValueOnce(response(401, {
+      error: "UNAUTHENTICATED",
+    }));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("treats the exact middleware 401 at S1 as an expected signed-out load transition", async () => {
+    mocks.fetch.mockResolvedValueOnce(response(401, {
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+    }));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("treats the exact middleware 401 at S2 as an expected signed-out transition without a blind write", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }));
+
+    await renderProvider();
+    expect(current().interfacePersistence).toBe("local");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+
+    act(() => current().setTheme("slate"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+  });
+
+  it.each([
+    [401, {
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+    }],
+    [403, {
+      error: "MFA_REQUIRED",
+      message: "Complete two-factor authentication to continue.",
+    }],
+  ])("binds an edit made after S1 across an exact S2 status %i and persists it only after A recovers", async (status, body) => {
+    const pendingRead = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(status, body))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead.mockImplementationOnce(() => pendingRead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("dim"));
+    pendingRead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("dim");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten).toEqual(expect.objectContaining({
+      subject: SUBJECT_A,
+      envelope: expect.objectContaining({ theme: "dim" }),
+    }));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("binds a pre-S1 ownershipless edit to A across an S2 denial and persists it after A recovers", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps the newest field revision when S2 denial consolidates ownershipless and A-bound edits", async () => {
+    const pendingS1 = deferred<unknown>();
+    const pendingRead = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead.mockImplementationOnce(() => pendingRead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+
+    act(() => current().setTheme("dim"));
+    pendingRead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("local");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("dim");
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("dim");
+  });
+
+  it.each([
+    [503, {
+      error: "AUTH_BACKEND_UNAVAILABLE",
+      message: "Authentication infrastructure is temporarily unavailable.",
+    }, 0],
+    [500, { error: "PREFERENCES_UNAVAILABLE" }, 0],
+    [499, { error: "REQUEST_ABORTED" }, 0],
+    [200, {
+      subject: SUBJECT_A,
+      envelope: {},
+      extra: "invalid-success-contract",
+    }, 1],
+  ])("binds a pre-S1 edit to A across terminal S2 status %i and persists it exactly once after A recovers", async (status, terminalBody, expectedCaptures) => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(response(status, terminalBody))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).toHaveBeenCalledTimes(expectedCaptures);
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it.each([
+    [503, {
+      error: "AUTH_ASSURANCE_UNAVAILABLE",
+      message: "Authentication assurance could not be verified.",
+    }, 0],
+    [500, { error: "PREFERENCES_UNAVAILABLE" }, 0],
+    [499, { error: "REQUEST_ABORTED" }, 0],
+    [200, {
+      subject: SUBJECT_A,
+      envelope: {},
+      extra: "invalid-success-contract",
+    }, 1],
+  ])("never transfers an A edit to B after terminal S2 status %i", async (status, terminalBody, expectedCaptures) => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(response(status, terminalBody))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).toHaveBeenCalledTimes(expectedCaptures);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).toHaveBeenCalledTimes(expectedCaptures);
+  });
+
+  it.each([
+    [401, {
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+    }],
+    [403, {
+      error: "MFA_REQUIRED",
+      message: "Complete two-factor authentication to continue.",
+    }],
+  ])("never transfers an after-S1 A edit to B after an exact S2 status %i", async (status, body) => {
+    const pendingRead = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(status, body))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }));
+    mocks.rlsRead.mockImplementationOnce(() => pendingRead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("dim"));
+    pendingRead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("local");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("never transfers a pre-S1 edit bound to A by an S2 denial onto B", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "dark" }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("local");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("dark");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("clears an ownershipless edit when S1 denies access", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "light" }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(response(401, { error: "UNAUTHENTICATED" }));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(mocks.from).not.toHaveBeenCalled();
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("preserves an A-bound draft across repeated subjectless auth reloads", async () => {
+    const initialS1 = deferred<unknown>();
+    const staleRecoveryOne = deferred<unknown>();
+    const staleRecoveryTwo = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockImplementationOnce(() => staleRecoveryOne.promise)
+      .mockImplementationOnce(() => staleRecoveryTwo.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("local");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+
+    staleRecoveryOne.resolve(response(401, { error: "UNAUTHENTICATED" }));
+    staleRecoveryTwo.resolve(response(500, {
+      error: "PREFERENCES_UNAVAILABLE",
+    }));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+    expect(writes()).toHaveLength(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("preserves an A-bound draft through pagehide and a hidden pageshow before visible recovery", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    const initialS1 = deferred<unknown>();
+    const staleRecovery = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockImplementationOnce(() => staleRecovery.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+
+    visibility.mockReturnValue("hidden");
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("loading");
+
+    visibility.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("slate");
+    expect(writes()).toHaveLength(1);
+    staleRecovery.resolve(response(401, { error: "UNAUTHENTICATED" }));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("preserves an A-bound draft when a cancelled beforeunload interrupts a subjectless recovery", async () => {
+    const initialS1 = deferred<unknown>();
+    const staleRecovery = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockImplementationOnce(() => staleRecovery.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+
+    const cancelNavigation = (event: Event) => event.preventDefault();
+    window.addEventListener("beforeunload", cancelNavigation);
+    const beforeUnload = new Event("beforeunload", { cancelable: true });
+    act(() => window.dispatchEvent(beforeUnload));
+    window.removeEventListener("beforeunload", cancelNavigation);
+    expect(beforeUnload.defaultPrevented).toBe(true);
+    act(() => vi.advanceTimersByTime(0));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("slate");
+    expect(writes()).toHaveLength(1);
+    staleRecovery.resolve(response(500, {
+      error: "PREFERENCES_UNAVAILABLE",
+    }));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("keeps A pending through a subjectless reload and a completed B sandwich until A returns", async () => {
+    const initialS1 = deferred<unknown>();
+    const staleRecovery = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockImplementationOnce(() => staleRecovery.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+    staleRecovery.resolve(response(401, { error: "UNAUTHENTICATED" }));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps A pending across a completed B sandwich and a later terminal B load", async () => {
+    const initialS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(response(500, {
+        error: "PREFERENCES_UNAVAILABLE",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).not.toHaveBeenCalled();
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+  });
+
+  it("keeps A pending when a post-S1 B lifecycle reload is replaced by A", async () => {
+    const initialS1 = deferred<unknown>();
+    const staleBRead = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockResolvedValueOnce(preferenceRow())
+      .mockImplementationOnce(() => staleBRead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(mocks.from).toHaveBeenCalledTimes(3);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+    staleBRead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps A isolated while a post-terminal B edit recovers and writes only as B", async () => {
+    const initialS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(response(500, {
+        error: "PREFERENCES_UNAVAILABLE",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("error");
+    act(() => current().setTheme("dim"));
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bBody = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(bBody.subject).toBe(SUBJECT_B);
+    expect(bBody.envelope.theme).toBe("dim");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(2);
+    const aBody = JSON.parse(String((writes()[1]?.[1] as RequestInit).body));
+    expect(aBody.subject).toBe(SUBJECT_A);
+    expect(aBody.envelope.theme).toBe("slate");
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps A isolated while an S2 mismatch restart stages and writes a B edit", async () => {
+    const initialS1 = deferred<unknown>();
+    const restartedB = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce(() => restartedB.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("loading");
+    act(() => current().setTheme("dim"));
+    restartedB.resolve(readResponse(SUBJECT_B));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bBody = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(bBody.subject).toBe(SUBJECT_B);
+    expect(bBody.envelope.theme).toBe("dim");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(2);
+    const aBody = JSON.parse(String((writes()[1]?.[1] as RequestInit).body));
+    expect(aBody.subject).toBe(SUBJECT_A);
+    expect(aBody.envelope.theme).toBe("slate");
+  });
+
+  it("keeps A isolated while a subjectless B lifecycle recovery stages and writes a B edit", async () => {
+    const initialS1 = deferred<unknown>();
+    const staleBRead = deferred<unknown>();
+    const restartedB = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockImplementationOnce(() => restartedB.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockResolvedValueOnce(preferenceRow())
+      .mockImplementationOnce(() => staleBRead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => current().setTheme("dim"));
+    restartedB.resolve(readResponse(SUBJECT_B));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bBody = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(bBody.subject).toBe(SUBJECT_B);
+    expect(bBody.envelope.theme).toBe("dim");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(2);
+    const aBody = JSON.parse(String((writes()[1]?.[1] as RequestInit).body));
+    expect(aBody.subject).toBe(SUBJECT_A);
+    expect(aBody.envelope.theme).toBe("slate");
+    staleBRead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(2);
+  });
+
+  it("isolates an edit made after B S1 from retained A and persists each only for its matching subject", async () => {
+    const initialS1 = deferred<unknown>();
+    const pendingBRead = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockImplementationOnce(() => pendingBRead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("local");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(mocks.from).toHaveBeenCalledTimes(2);
+    act(() => current().setTheme("dim"));
+    pendingBRead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bBody = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(bBody.subject).toBe(SUBJECT_B);
+    expect(bBody.envelope.theme).toBe("dim");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(2);
+    const aBody = JSON.parse(String((writes()[1]?.[1] as RequestInit).body));
+    expect(aBody.subject).toBe(SUBJECT_A);
+    expect(aBody.envelope.theme).toBe("slate");
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps subjectless lifecycle edits bound to last-authoritative B while retained A remains isolated", async () => {
+    const initialS1 = deferred<unknown>();
+    const staleSubjectlessOne = deferred<unknown>();
+    const staleSubjectlessTwo = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => initialS1.promise)
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockImplementationOnce(() => staleSubjectlessOne.promise)
+      .mockImplementationOnce(() => staleSubjectlessTwo.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    initialS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => current().setTheme("dim"));
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bBody = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(bBody.subject).toBe(SUBJECT_B);
+    expect(bBody.envelope.theme).toBe("dim");
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(2);
+    const aBody = JSON.parse(String((writes()[1]?.[1] as RequestInit).body));
+    expect(aBody.subject).toBe(SUBJECT_A);
+    expect(aBody.envelope.theme).toBe("slate");
+
+    staleSubjectlessOne.resolve(response(401, { error: "UNAUTHENTICATED" }));
+    staleSubjectlessTwo.resolve(response(500, {
+      error: "PREFERENCES_UNAVAILABLE",
+    }));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(2);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale S2 denial retire a newer generation", async () => {
+    const staleS2 = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce(() => staleS2.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }));
+
+    await renderProvider();
+    act(() => current().setTheme("dim"));
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    staleS2.resolve(response(401, {
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+    }));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale terminal S2 failure retire or rebind a newer generation", async () => {
+    const staleS2 = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce(() => staleS2.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "slate" }));
+
+    await renderProvider();
+    act(() => current().setTheme("dim"));
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("slate");
+
+    staleS2.resolve(response(500, { error: "PREFERENCES_UNAVAILABLE" }));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("slate");
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("quarantines an exact middleware 401 PUT and restores its subject-bound edit after a valid sandwich", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(401, {
+        error: "UNAUTHORIZED",
+        message: "Sign in required.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(writes()).toHaveLength(1);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    expect(writes()).toHaveLength(2);
+    const recoveredBody = JSON.parse(
+      String((writes()[1]?.[1] as RequestInit).body),
+    );
+    expect(recoveredBody).toEqual(expect.objectContaining({
+      subject: SUBJECT_A,
+      envelope: expect.objectContaining({ theme: "light" }),
+    }));
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("treats the exact middleware MFA boundary as a local access transition", async () => {
+    mocks.fetch.mockResolvedValueOnce(response(403, {
+      error: "MFA_REQUIRED",
+      message: "Complete two-factor authentication to continue.",
+    }));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("local");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "AUTH_CONFIGURATION_UNAVAILABLE",
+      "Authentication infrastructure is temporarily unavailable.",
+    ],
+    [
+      "AUTH_BACKEND_UNAVAILABLE",
+      "Authentication infrastructure is temporarily unavailable.",
+    ],
+    [
+      "AUTH_ASSURANCE_UNAVAILABLE",
+      "Authentication assurance could not be verified.",
+    ],
+  ])("does not duplicate the exact middleware-owned 503 %s", async (error, message) => {
+    mocks.fetch.mockResolvedValueOnce(response(503, { error, message }));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate an exact middleware-owned 503 from a preference PUT", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(503, {
+        error: "AUTH_BACKEND_UNAVAILABLE",
+        message: "Authentication infrastructure is temporarily unavailable.",
+      }));
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("still captures a noncanonical middleware-shaped 401", async () => {
+    mocks.fetch.mockResolvedValueOnce(response(401, {
+      error: "UNAUTHORIZED",
+      message: "Sign in required.",
+      detail: "unexpected-contract",
+    }));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(expect.any(Error), {
+      tags: expect.objectContaining({
+        status: 401,
+        code: "PROFILE_LOAD_FAILED",
+        transport: "route",
+        stage: "response-status",
+      }),
+    });
+  });
+
+  it.each([
+    [403, {
+      error: "MFA_REQUIRED",
+      message: "Complete two-factor authentication to continue",
+    }],
+    [503, {
+      error: "AUTH_CONFIGURATION_UNAVAILABLE",
+      message: "Authentication assurance could not be verified.",
+    }],
+    [503, {
+      error: "AUTH_ASSURANCE_UNAVAILABLE",
+      message: "Authentication assurance could not be verified.",
+      detail: "unexpected-contract",
+    }],
+  ])("captures a noncanonical middleware auth boundary at status %i", async (status, body) => {
+    mocks.fetch.mockResolvedValueOnce(response(status, body));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(expect.any(Error), {
+      tags: expect.objectContaining({
+        status,
+        code: "PROFILE_LOAD_FAILED",
+        transport: "route",
+        stage: "response-status",
+      }),
+    });
+  });
+
+  it("recovers from a middleware-owned 503 through a valid sandwich and persists the next edit", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(response(503, {
+        error: "AUTH_ASSURANCE_UNAVAILABLE",
+        message: "Authentication assurance could not be verified.",
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).not.toHaveBeenCalled();
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+
+    act(() => current().setTheme("light"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(writes()).toHaveLength(1);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it("captures unexpected save failures but suppresses only exact route errors", async () => {
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
@@ -817,6 +1965,110 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     act(() => vi.advanceTimersByTime(450));
     await act(flushMicrotasks);
     expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("binds a delayed pre-S1 edit to A before an S2 mismatch restarts on B", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(current().theme).toBe("light");
+    expect(reads()).toHaveLength(4);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("preserves an A-bound mismatch draft across B and persists it once when A later returns", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("light");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("consolidates an established A draft before an auth-event lifecycle restart on B", async () => {
+    const pendingS1 = deferred<unknown>();
+    const staleARead = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead.mockImplementationOnce(() => staleARead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("light");
+    expect(current().interfacePersistence).toBe("synced");
+    staleARead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
