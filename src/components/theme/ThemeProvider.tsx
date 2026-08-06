@@ -20,7 +20,6 @@ import {
 } from "@/lib/theme/interface-settings";
 import { getBrowserTimeZone } from "@/lib/dates";
 import { isProfileSubject } from "@/lib/auth/profileSubject";
-import { deferFailureCommit } from "@/lib/observability/deferFailureCommit";
 import {
   buildPreferenceEnvelope,
   parsePreferenceEnvelopeStrict,
@@ -91,6 +90,15 @@ type PendingPreferenceFields = {
 type SubjectPendingPreferenceFields = PendingPreferenceFields & {
   subject: string;
 };
+
+type PreferenceFailureStage =
+  | "request"
+  | "response-body"
+  | "response-status"
+  | "contract"
+  | "rls";
+
+type PreferenceFailureTransport = "direct" | "route";
 
 function readStorage(key: string): string | null {
   try {
@@ -189,41 +197,86 @@ function isExactErrorResponse(value: unknown, error: string) {
   return Object.keys(record).length === 1 && record.error === error;
 }
 
-class DirectPreferenceReadError extends Error {
-  readonly safeStatus: string;
-  readonly safeCode = "PROFILE_LOAD_FAILED";
+class PreferenceClientError extends Error {
+  readonly safeStatus: number;
+  readonly safeCode: "PROFILE_LOAD_FAILED" | "PROFILE_SAVE_FAILED";
+  readonly safeStage: PreferenceFailureStage;
+  readonly safeTransport: PreferenceFailureTransport;
 
+  constructor(
+    operation: "load" | "save",
+    transport: PreferenceFailureTransport,
+    stage: PreferenceFailureStage,
+    status: number,
+  ) {
+    const code = operation === "load"
+      ? "PROFILE_LOAD_FAILED"
+      : "PROFILE_SAVE_FAILED";
+    super(code);
+    this.name = "PreferenceClientError";
+    this.safeCode = code;
+    this.safeStage = stage;
+    this.safeStatus =
+      Number.isInteger(status) && status >= 100 && status <= 599
+        ? status
+        : stage === "request" || stage === "rls"
+          ? 503
+          : 502;
+    this.safeTransport = transport;
+  }
+}
+
+class DirectPreferenceReadError extends PreferenceClientError {
   constructor(error: unknown) {
-    super("Interface preference RLS read failed");
-    this.name = "DirectPreferenceReadError";
     const record = typeof error === "object" && error !== null
       ? error as Record<string, unknown>
       : {};
-    this.safeStatus =
+    const status =
       typeof record.status === "number" &&
       Number.isInteger(record.status) &&
       record.status >= 400 &&
       record.status <= 599
-        ? String(record.status)
-        : "unknown";
+        ? record.status
+        : 500;
+    super("load", "direct", "rls", status);
+    this.name = "DirectPreferenceReadError";
   }
 }
 
 function capturePreferenceError(operation: "load" | "save", error: unknown) {
-  const directRead = error instanceof DirectPreferenceReadError
-    ? {
-        status: error.safeStatus,
-        code: error.safeCode,
-        transport: "direct",
-      }
-    : {};
-  Sentry.captureException(error instanceof Error ? error : new Error(`Interface preference ${operation} failed`), {
+  const safeError = error instanceof PreferenceClientError
+    ? error
+    : new PreferenceClientError(operation, "route", "request", 503);
+  const directRead = {
+    status: safeError.safeStatus,
+    code: safeError.safeCode,
+    transport: safeError.safeTransport,
+    stage: safeError.safeStage,
+  };
+  Sentry.captureException(safeError, {
     tags: {
       area: "profile",
       provider: "supabase",
       operation,
       ...directRead,
     },
+  });
+}
+
+function deferPreferenceFailureCommit(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    let frame = 0;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", finish);
+      if (frame) window.cancelAnimationFrame(frame);
+      resolve();
+    };
+    signal.addEventListener("abort", finish, { once: true });
+    frame = window.requestAnimationFrame(finish);
   });
 }
 
@@ -245,6 +298,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
   const remoteSyncEnabledRef = useRef(false);
   const remoteWriteIntentRef = useRef(false);
+  const loadFailureReportedRef = useRef(false);
+  const writeFailureSubjectRef = useRef<string | null>(null);
   const themeDirtyRef = useRef(false);
   const settingsDirtyRef = useRef(false);
   const providerActiveRef = useRef(false);
@@ -358,6 +413,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       remoteEnvelopeRef.current = {};
       remoteSyncEnabledRef.current = false;
       remoteWriteIntentRef.current = false;
+      loadFailureReportedRef.current = false;
+      writeFailureSubjectRef.current = null;
       themeDirtyRef.current = false;
       settingsDirtyRef.current = false;
       setRemoteSyncEnabled(false);
@@ -367,14 +424,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
 
     const readAuthoritativePreferences = async (operation: ActiveRemoteLoad) => {
-      const response = await fetch(PREFERENCES_ROUTE, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: operation.controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(PREFERENCES_ROUTE, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: operation.controller.signal,
+        });
+      } catch {
+        throw new PreferenceClientError("load", "route", "request", 503);
+      }
       if (!isLoadCurrent(operation)) return null;
       if (!response.ok) {
-        const payload: unknown = await response.json();
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          throw new PreferenceClientError(
+            "load",
+            "route",
+            "response-body",
+            response.status >= 400 ? response.status : 502,
+          );
+        }
         if (!isLoadCurrent(operation)) return null;
         if (
           response.status === 401 &&
@@ -389,6 +461,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           (response.status === 500 &&
             isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
         ) {
+          if (response.status === 500) loadFailureReportedRef.current = true;
           remoteSyncEnabledRef.current = false;
           setRemoteSyncEnabled(false);
           setRemoteReady(true);
@@ -396,13 +469,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           activeLoadRef.current = null;
           return null;
         }
-        throw new Error("Interface preference load failed unexpectedly");
+        throw new PreferenceClientError(
+          "load",
+          "route",
+          "response-status",
+          response.status,
+        );
       }
 
-      const payload: unknown = await response.json();
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new PreferenceClientError("load", "route", "response-body", 502);
+      }
       if (!isLoadCurrent(operation)) return null;
       if (!isPreferenceReadResponse(payload)) {
-        throw new Error("Interface preference response was invalid");
+        throw new PreferenceClientError("load", "route", "contract", 502);
       }
       return payload;
     };
@@ -426,14 +509,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         // abortable readiness/error gate but its ownerless data is never used;
         // only the matching post-read server response (S2) supplies the row.
         quarantinedSubjectRef.current = initialSubject;
-        const { error } = await supabase
-          .from("user_preferences")
-          .select("interface_settings")
-          .abortSignal(operation.controller.signal)
-          .maybeSingle();
+        let directRead: { error: unknown };
+        try {
+          directRead = await supabase
+            .from("user_preferences")
+            .select("interface_settings")
+            .abortSignal(operation.controller.signal)
+            .maybeSingle();
+        } catch {
+          throw new PreferenceClientError("load", "direct", "rls", 503);
+        }
         if (!isLoadCurrent(operation)) return;
-        if (error) {
-          throw new DirectPreferenceReadError(error);
+        if (directRead.error) {
+          throw new DirectPreferenceReadError(directRead.error);
         }
 
         const confirmedIdentity = await readAuthoritativePreferences(operation);
@@ -449,7 +537,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           confirmedIdentity.envelope,
         );
         if (!remote) {
-          throw new Error("Interface preference envelope was invalid");
+          throw new PreferenceClientError("load", "route", "contract", 502);
         }
         const subjectEdits =
           subjectEditsRef.current?.subject === confirmedSubject
@@ -488,14 +576,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         settingsDirtyRef.current = Boolean(settingsEdit);
         remoteWriteIntentRef.current = Boolean(themeEdit || settingsEdit);
         remoteSyncEnabledRef.current = true;
+        loadFailureReportedRef.current = false;
+        if (writeFailureSubjectRef.current !== confirmedSubject) {
+          writeFailureSubjectRef.current = null;
+        }
         setRemoteSyncEnabled(true);
         setRemoteReady(true);
         setInterfacePersistence("synced");
         activeLoadRef.current = null;
       } catch (error) {
-        await deferFailureCommit();
+        await deferPreferenceFailureCommit(operation.controller.signal);
         if (!isLoadCurrent(operation)) return;
-        capturePreferenceError("load", error);
+        if (!loadFailureReportedRef.current) {
+          loadFailureReportedRef.current = true;
+          capturePreferenceError("load", error);
+        }
         remoteSyncEnabledRef.current = false;
         setRemoteSyncEnabled(false);
         setRemoteReady(true);
@@ -588,20 +683,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       const persistRemotePreferences = async () => {
         try {
-          const saveResponse = await fetch(PREFERENCES_ROUTE, {
-            method: "PUT",
-            headers: {
-              Accept: "application/json",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              subject: candidate.subject,
-              envelope: candidate.envelope,
-            }),
-            signal: candidate.controller.signal,
-          });
+          let saveResponse: Response;
+          try {
+            saveResponse = await fetch(PREFERENCES_ROUTE, {
+              method: "PUT",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                subject: candidate.subject,
+                envelope: candidate.envelope,
+              }),
+              signal: candidate.controller.signal,
+            });
+          } catch {
+            throw new PreferenceClientError("save", "route", "request", 503);
+          }
           if (!isWriteCurrent(candidate)) return;
-          const payload: unknown = await saveResponse.json();
+          let payload: unknown;
+          try {
+            payload = await saveResponse.json();
+          } catch {
+            throw new PreferenceClientError(
+              "save",
+              "route",
+              "response-body",
+              saveResponse.ok ? 502 : saveResponse.status,
+            );
+          }
           if (!isWriteCurrent(candidate)) return;
           if (!saveResponse.ok) {
             if (
@@ -625,20 +735,32 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
               (saveResponse.status === 500 &&
                 isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
             ) {
+              if (saveResponse.status === 500) {
+                writeFailureSubjectRef.current = candidate.subject;
+              }
               setInterfacePersistence("error");
               settleAndContinue(false);
               return;
             }
-            throw new Error("Interface preference save failed unexpectedly");
+            throw new PreferenceClientError(
+              "save",
+              "route",
+              "response-status",
+              saveResponse.status,
+            );
           }
           if (!isPreferenceWriteResponse(payload, candidate.subject)) {
-            throw new Error("Interface preference save response was invalid");
+            throw new PreferenceClientError("save", "route", "contract", 502);
           }
+          writeFailureSubjectRef.current = null;
           settleAndContinue(true);
         } catch (error) {
-          await deferFailureCommit();
+          await deferPreferenceFailureCommit(candidate.controller.signal);
           if (!isWriteCurrent(candidate)) return;
-          capturePreferenceError("save", error);
+          if (writeFailureSubjectRef.current !== candidate.subject) {
+            writeFailureSubjectRef.current = candidate.subject;
+            capturePreferenceError("save", error);
+          }
           setInterfacePersistence("error");
           settleAndContinue(false);
         }
@@ -672,6 +794,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       quarantineRemoteOwnership("loading");
       runLoad();
     };
+    const retireForCrossDocumentNavigation = () => {
+      pageActiveRef.current = false;
+      retireActiveLoad();
+      retireActiveWrite();
+    };
     const handlePageHide = () => {
       pageActiveRef.current = false;
       quarantineRemoteOwnership("loading");
@@ -691,7 +818,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "hidden") handlePageHide();
       else handlePageShow();
     };
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (
+        !activeLoadRef.current &&
+        !activeWriteRef.current &&
+        !queuedWriteRef.current &&
+        writeTimerRef.current === null
+      ) {
+        return;
+      }
+      retireForCrossDocumentNavigation();
+      // A dirty-state guard can cancel beforeunload. If the user stays, its
+      // timer resumes and this document must re-establish authority. If the
+      // user leaves, the document is destroyed before the recovery can run.
+      window.setTimeout(() => {
+        if (
+          event.defaultPrevented &&
+          providerActiveRef.current &&
+          document.visibilityState !== "hidden"
+        ) {
+          pageActiveRef.current = true;
+          beginAuthoritativeReload();
+        }
+      }, 0);
+    };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    // Cross-document navigation begins here in hosted Chromium. Retire only
+    // exact operations; pagehide remains responsible for draft quarantine.
+    window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("pageshow", handlePageShow);
 
@@ -720,8 +874,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       remoteWriteIntentRef.current = false;
       themeDirtyRef.current = false;
       settingsDirtyRef.current = false;
+      loadFailureReportedRef.current = false;
+      writeFailureSubjectRef.current = null;
       subscription.unsubscribe();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("pageshow", handlePageShow);
     };

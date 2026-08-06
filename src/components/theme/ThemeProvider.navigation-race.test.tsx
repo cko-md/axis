@@ -156,6 +156,55 @@ afterEach(() => {
 });
 
 describe("ThemeProvider route-bound preference lifecycle", () => {
+  it("retires the exact load before cross-document navigation rejects fetch", async () => {
+    const pending = deferred<unknown>();
+    let signal: AbortSignal | null | undefined;
+    mocks.fetch.mockImplementationOnce((_url: string, init: RequestInit) => {
+      signal = init.signal;
+      return pending.promise;
+    });
+
+    await renderProvider();
+    act(() => window.dispatchEvent(new Event("beforeunload")));
+    expect(signal?.aborted).toBe(true);
+    pending.reject(new Error("navigation interrupted preference load"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(current().interfacePersistence).toBe("loading");
+  });
+
+  it("recovers authoritatively when another guard cancels beforeunload", async () => {
+    const pending = deferred<unknown>();
+    let signal: AbortSignal | null | undefined;
+    mocks.fetch
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        signal = init.signal;
+        return pending.promise;
+      })
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A));
+
+    await renderProvider();
+    const cancelNavigation = (event: Event) => event.preventDefault();
+    window.addEventListener("beforeunload", cancelNavigation);
+    const beforeUnload = new Event("beforeunload", { cancelable: true });
+    act(() => window.dispatchEvent(beforeUnload));
+    window.removeEventListener("beforeunload", cancelNavigation);
+    expect(beforeUnload.defaultPrevented).toBe(true);
+    expect(signal?.aborted).toBe(true);
+    pending.reject(new Error("cancelled navigation preference load"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("synced");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(reads()).toHaveLength(3);
+  });
+
   it("drops a transition-null rejection when pagehide follows in the next task", async () => {
     const pending = deferred<unknown>();
     let signal: AbortSignal | null | undefined;
@@ -177,12 +226,12 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
-  it("reports a genuine live network failure once, one task later", async () => {
+  it("reports a genuine live network failure once, one animation frame later", async () => {
     mocks.fetch.mockRejectedValueOnce(new Error("live preference failure"));
 
     await renderProvider();
     expect(mocks.capture).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(0));
+    act(() => vi.advanceTimersByTime(20));
     await act(flushMicrotasks);
 
     expect(current().interfacePersistence).toBe("error");
@@ -194,9 +243,46 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
           area: "profile",
           provider: "supabase",
           operation: "load",
+          status: 503,
+          code: "PROFILE_LOAD_FAILED",
+          transport: "route",
+          stage: "request",
         },
       },
     );
+  });
+
+  it("deduplicates one failure episode and resets only after a complete sandwich", async () => {
+    mocks.fetch
+      .mockRejectedValueOnce(new Error("first live preference failure"))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockResolvedValueOnce({ data: null, error: { status: 503 } });
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
+    expect(mocks.capture.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      tags: expect.objectContaining({
+        code: "PROFILE_LOAD_FAILED",
+        transport: "direct",
+        stage: "rls",
+      }),
+    }));
   });
 
   it("rechecks exact ownership after a response-body rejection", async () => {
@@ -208,10 +294,59 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
 
     await renderProvider();
     act(() => window.dispatchEvent(new Event("pagehide")));
-    act(() => vi.advanceTimersByTime(0));
+    act(() => vi.advanceTimersByTime(20));
     await act(flushMicrotasks);
 
     expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("normalizes a current S2 body failure without retaining its payload", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: vi.fn().mockRejectedValue(new Error("private body detail")),
+      });
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(expect.any(Error), {
+      tags: expect.objectContaining({
+        status: 502,
+        code: "PROFILE_LOAD_FAILED",
+        transport: "route",
+        stage: "response-body",
+      }),
+    });
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "private body detail",
+    );
+  });
+
+  it("normalizes a rejected direct RLS promise as a current direct fault", async () => {
+    mocks.fetch.mockResolvedValueOnce(readResponse(SUBJECT_A));
+    mocks.rlsRead.mockRejectedValueOnce(new Error("private RLS rejection"));
+
+    await renderProvider();
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(expect.any(Error), {
+      tags: expect.objectContaining({
+        status: 503,
+        code: "PROFILE_LOAD_FAILED",
+        transport: "direct",
+        stage: "rls",
+      }),
+    });
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "private RLS rejection",
+    );
   });
 
   it("captures malformed successful contracts but does not duplicate route 5xx", async () => {
@@ -222,7 +357,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     }));
 
     await renderProvider();
-    act(() => vi.advanceTimersByTime(0));
+    act(() => vi.advanceTimersByTime(20));
     await act(flushMicrotasks);
     expect(mocks.capture).toHaveBeenCalledTimes(1);
     expect(current().interfacePersistence).toBe("error");
@@ -243,11 +378,11 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     });
     act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
     await act(flushMicrotasks);
-    act(() => vi.advanceTimersByTime(0));
+    act(() => vi.advanceTimersByTime(20));
     await act(flushMicrotasks);
 
     expect(current().interfacePersistence).toBe("error");
-    expect(mocks.capture).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 
   it("captures unexpected save failures but suppresses only exact route errors", async () => {
@@ -272,11 +407,75 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     act(() => current().setTheme("slate"));
     act(() => vi.advanceTimersByTime(450));
     await act(flushMicrotasks);
-    act(() => vi.advanceTimersByTime(0));
+    act(() => vi.advanceTimersByTime(20));
     await act(flushMicrotasks);
 
     expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("resets write-failure dedupe after a new subject completes the sandwich", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(502, { error: "UNEXPECTED_A_FAILURE" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(response(502, { error: "UNEXPECTED_B_FAILURE" }));
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
     expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+
+    act(() => current().setTheme("slate"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
+    expect(mocks.capture.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      tags: expect.objectContaining({
+        operation: "save",
+        code: "PROFILE_SAVE_FAILED",
+        transport: "route",
+        stage: "response-status",
+      }),
+    }));
+  });
+
+  it("retires an active write before full navigation rejects it", async () => {
+    const pendingWrite = deferred<unknown>();
+    let writeSignal: AbortSignal | null | undefined;
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        writeSignal = init.signal;
+        return pendingWrite.promise;
+      });
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writeSignal?.aborted).toBe(false);
+
+    act(() => window.dispatchEvent(new Event("beforeunload")));
+    expect(writeSignal?.aborted).toBe(true);
+    pendingWrite.reject(new Error("navigation interrupted preference write"));
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(20));
+    await act(flushMicrotasks);
+
+    expect(mocks.capture).not.toHaveBeenCalled();
   });
 
   it("discards A and ownershipless edits when B resolves with an empty envelope", async () => {
@@ -499,7 +698,11 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
   });
 
   it("captures a direct RLS read failure once and never performs a blind PUT", async () => {
-    mocks.fetch.mockResolvedValueOnce(readResponse(SUBJECT_A));
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
     mocks.rlsRead.mockResolvedValueOnce({
       data: null,
       error: {
@@ -511,7 +714,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
 
     await renderProvider();
     expect(mocks.capture).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(0));
+    act(() => vi.advanceTimersByTime(20));
     await act(flushMicrotasks);
 
     expect(current().interfacePersistence).toBe("error");
@@ -520,9 +723,10 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
       expect.any(Error),
       expect.objectContaining({
         tags: expect.objectContaining({
-          status: "503",
+          status: 503,
           code: "PROFILE_LOAD_FAILED",
           transport: "direct",
+          stage: "rls",
         }),
       }),
     );
@@ -533,6 +737,16 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     act(() => vi.advanceTimersByTime(450));
     await act(flushMicrotasks);
     expect(writes()).toHaveLength(0);
+
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+    expect(current().interfacePersistence).toBe("synced");
+    act(() => current().setTheme("dim"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+    expect(current().interfacePersistence).toBe("synced");
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 
   it("does not duplicate an exact route 500 from the S2 identity check", async () => {
