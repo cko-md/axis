@@ -13,6 +13,8 @@ type PoetryDbPoem = {
 const MAX_POEM_LINES = 1_000;
 const MAX_POEM_LINE_LENGTH = 5_000;
 const MAX_POEM_METADATA_LENGTH = 500;
+const MAX_POETRYDB_BODY_BYTES = 256 * 1_024;
+const MAX_POETRYDB_RESULTS = 25;
 
 class PoetryDbHttpError extends Error {
   constructor(readonly status: number) {
@@ -76,6 +78,44 @@ function requestedSeed(req: NextRequest): number {
   return Math.floor(Date.now() / 86_400_000);
 }
 
+async function readBoundedPoetryDbJson(response: Response): Promise<unknown> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (
+      !Number.isSafeInteger(parsedLength)
+      || parsedLength < 0
+      || parsedLength > MAX_POETRYDB_BODY_BYTES
+    ) {
+      throw new PoetryDbPayloadError();
+    }
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new PoetryDbPayloadError();
+
+  const decoder = new TextDecoder();
+  let text = "";
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > MAX_POETRYDB_BODY_BYTES) {
+        await reader.cancel();
+        throw new PoetryDbPayloadError();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (text.includes("\uFFFD")) throw new PoetryDbPayloadError();
+  return JSON.parse(text) as unknown;
+}
+
 // Mirrors /api/widgets/art: a seed (the client's local day number, or any
 // offset the "Next" button advances to) deterministically picks one entry
 // from the curated public-domain corpus. Same seed, same poem — no re-roll
@@ -107,7 +147,7 @@ export async function GET(req: NextRequest) {
     );
     if (!res.ok) throw new PoetryDbHttpError(res.status);
 
-    const json = (await res.json()) as unknown;
+    const json = await readBoundedPoetryDbJson(res);
     if (
       json
       && typeof json === "object"
@@ -115,10 +155,16 @@ export async function GET(req: NextRequest) {
       && "status" in json
       && typeof json.status === "number"
       && Number.isInteger(json.status)
+      && json.status >= 400
+      && json.status <= 599
     ) {
       throw new PoetryDbHttpError(json.status);
     }
-    if (!Array.isArray(json) || json.length === 0) throw new PoetryDbPayloadError();
+    if (
+      !Array.isArray(json)
+      || json.length === 0
+      || json.length > MAX_POETRYDB_RESULTS
+    ) throw new PoetryDbPayloadError();
 
     // Ambiguous titles can match more than one poem; the shortest fits the card.
     const poem = json.filter(isPoetryDbPoem).sort((a, b) => a.lines.length - b.lines.length)[0];
