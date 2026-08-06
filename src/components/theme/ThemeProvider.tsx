@@ -820,21 +820,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       remoteWriteIntentRef.current = true;
     } else {
       const activeLoad = activeLoadRef.current;
-      if (
-        !quarantinedSubjectRef.current ||
-        activeLoad?.acceptsOwnershiplessEdits
-      ) {
-        ownershiplessEditsRef.current = {
-          ...ownershiplessEditsRef.current,
-          theme: edit,
-        };
-      } else {
-        const subject = quarantinedSubjectRef.current;
+      const subject =
+        activeLoad &&
+        !activeLoad.controller.signal.aborted &&
+        activeLoad.generation === loadGenerationRef.current &&
+        activeLoad.ownershipGeneration === ownershipGenerationRef.current
+          ? activeLoad.subject ?? quarantinedSubjectRef.current
+          : quarantinedSubjectRef.current;
+      if (subject) {
         const existing = subjectEditsRef.current?.subject === subject
           ? subjectEditsRef.current
           : { subject };
         subjectEditsRef.current = {
           ...existing,
+          theme: edit,
+        };
+      } else {
+        ownershiplessEditsRef.current = {
+          ...ownershiplessEditsRef.current,
           theme: edit,
         };
       }
@@ -856,21 +859,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         remoteWriteIntentRef.current = true;
       } else {
         const activeLoad = activeLoadRef.current;
-        if (
-          !quarantinedSubjectRef.current ||
-          activeLoad?.acceptsOwnershiplessEdits
-        ) {
-          ownershiplessEditsRef.current = {
-            ...ownershiplessEditsRef.current,
-            settings: edit,
-          };
-        } else {
-          const subject = quarantinedSubjectRef.current;
+        const subject =
+          activeLoad &&
+          !activeLoad.controller.signal.aborted &&
+          activeLoad.generation === loadGenerationRef.current &&
+          activeLoad.ownershipGeneration === ownershipGenerationRef.current
+            ? activeLoad.subject ?? quarantinedSubjectRef.current
+            : quarantinedSubjectRef.current;
+        if (subject) {
           const existing = subjectEditsRef.current?.subject === subject
             ? subjectEditsRef.current
             : { subject };
           subjectEditsRef.current = {
             ...existing,
+            settings: edit,
+          };
+        } else {
+          ownershiplessEditsRef.current = {
+            ...ownershiplessEditsRef.current,
             settings: edit,
           };
         }

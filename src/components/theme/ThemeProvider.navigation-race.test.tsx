@@ -606,6 +606,35 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
+  it("does not promote an edit made after initial S1 when S2 changes to B", async () => {
+    const pendingARead = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, {
+        theme: "slate",
+        settings: SETTINGS_B,
+      }));
+    mocks.rlsRead.mockImplementationOnce(() => pendingARead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    pendingARead.resolve(preferenceRow({
+      theme: "dark",
+      settings: SETTINGS_A,
+    }));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
+    expect(current().interfacePersistence).toBe("synced");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it("drops a stale S2 response after a newer B epoch completes", async () => {
     const pendingS2 = deferred<unknown>();
     let staleSignal: AbortSignal | null | undefined;
