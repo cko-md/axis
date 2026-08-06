@@ -516,44 +516,218 @@ describe("useTasks load lifecycle", () => {
     );
   });
 
-  it("makes an A mutation neutral when a refresh establishes owner B", async () => {
+  describe.each([
+    ["add", async () => latest?.addTask({ title: "New", category: "personal" }), null, "add"],
+    ["update", async () => latest?.updateTask("known", { title: "Changed" }), null, "update"],
+    ["delete", async () => latest?.deleteTask("known"), false, "delete"],
+    ["toggle", async () => latest?.toggleDone("known"), null, "update"],
+  ] as const)("%s subject binding", (_operation, invoke, neutralResult, expectedErrorOperation) => {
+    it("does not write or append across owners when displayed owner A authenticates as B", async () => {
+      const ownerB = { id: "task-owner-b" };
+      const taskB = { ...task("owner-b"), user_id: ownerB.id };
+      const loadA = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+      const loadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user }, error: null })
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+      mocks.from
+        .mockReturnValueOnce(loadA.builder)
+        .mockReturnValueOnce(loadB.builder);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+
+      let result: unknown;
+      await act(async () => { result = await invoke(); });
+      await act(flush);
+
+      expect(result).toBe(neutralResult);
+      expect(mocks.from).toHaveBeenCalledTimes(2);
+      expect(latest?.tasks).toEqual([taskB]);
+      expect(latest?.error).toEqual({
+        operation: expectedErrorOperation,
+        message: "Account changed — tasks reloaded for the current account. Retry your action.",
+      });
+      expect(mocks.capture).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(["resolves", "rejects"] as const)(
+    "keeps a null-owner pending A mutation neutral when a B refresh succeeds and A auth %s",
+    async (outcome) => {
+      const ownerB = { id: "task-owner-b" };
+      const taskB = { ...task("owner-b"), user_id: ownerB.id };
+      const pendingAuth = deferred<{
+        data: { user: typeof user };
+        error: unknown;
+      }>();
+      const loadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user: null }, error: null })
+        .mockReturnValueOnce(pendingAuth.promise)
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+      mocks.from.mockReturnValueOnce(loadB.builder);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      let pendingAdd!: Promise<Task | null | undefined>;
+      act(() => {
+        pendingAdd = Promise.resolve(
+          latest?.addTask({ title: "Owner A pending", category: "personal" }),
+        );
+      });
+      await act(flush);
+
+      await act(async () => { await latest?.refresh(); });
+      expect(latest?.tasks).toEqual([taskB]);
+
+      if (outcome === "resolves") {
+        pendingAuth.resolve({ data: { user }, error: null });
+      } else {
+        pendingAuth.reject({ status: 500, message: "stale A auth failure" });
+      }
+      let result: Task | null | undefined;
+      await act(async () => { result = await pendingAdd; });
+
+      expect(result).toBeNull();
+      expect(mocks.from).toHaveBeenCalledTimes(1);
+      expect(latest?.tasks).toEqual([taskB]);
+      expect(latest?.error).toBeNull();
+      expect(mocks.capture).not.toHaveBeenCalled();
+    },
+  );
+
+  it("recovers owner B after a mismatch reload fails and is retried", async () => {
     const ownerB = { id: "task-owner-b" };
-    const pending = deferred<{ data: Task | null; error: unknown }>();
-    const loadA = loadBuilder(Promise.resolve({ data: [task("owner-a")], error: null }));
-    const mutationA = mutationBuilder(() => pending.promise);
     const taskB = { ...task("owner-b"), user_id: ownerB.id };
-    const loadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
+    const loadA = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    const failedLoadB = loadBuilder(Promise.resolve({
+      data: null,
+      error: { status: 503, message: "temporary owner B load failure" },
+    }));
+    const retriedLoadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
     mocks.getUser
       .mockResolvedValueOnce({ data: { user }, error: null })
-      .mockResolvedValueOnce({ data: { user }, error: null })
+      .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+      .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
       .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
     mocks.from
       .mockReturnValueOnce(loadA.builder)
-      .mockReturnValueOnce(mutationA)
-      .mockReturnValueOnce(loadB.builder);
+      .mockReturnValueOnce(failedLoadB.builder)
+      .mockReturnValueOnce(retriedLoadB.builder);
 
     act(() => root?.render(<Probe />));
     await act(flush);
-    let pendingAdd!: Promise<Task | null | undefined>;
+    let result: Task | null | undefined;
+    await act(async () => {
+      result = await latest?.addTask({ title: "Wrong owner", category: "personal" });
+    });
+    await act(flushFailureCommit);
+
+    expect(result).toBeNull();
+    expect(latest?.tasks).toEqual([]);
+    expect(latest?.error?.operation).toBe("load");
+    expect(mocks.from).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await latest?.refresh(); });
+
+    expect(mocks.from).toHaveBeenCalledTimes(3);
+    expect(latest?.tasks).toEqual([taskB]);
+    expect(latest?.error).toBeNull();
+  });
+
+  it("preserves concurrent initial same-owner mutations when both claim owner A", async () => {
+    const firstPending = deferred<{ data: Task | null; error: unknown }>();
+    const secondPending = deferred<{ data: Task | null; error: unknown }>();
+    const firstMutation = mutationBuilder(() => firstPending.promise);
+    const secondMutation = mutationBuilder(() => secondPending.promise);
+    mocks.getUser
+      .mockResolvedValueOnce({ data: { user: null }, error: null })
+      .mockResolvedValueOnce({ data: { user }, error: null })
+      .mockResolvedValueOnce({ data: { user }, error: null });
+    mocks.from
+      .mockReturnValueOnce(firstMutation)
+      .mockReturnValueOnce(secondMutation);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    let first!: Promise<Task | null | undefined>;
+    let second!: Promise<Task | null | undefined>;
     act(() => {
-      pendingAdd = Promise.resolve(
-        latest?.addTask({ title: "Owner A pending", category: "personal" }),
+      first = Promise.resolve(
+        latest?.addTask({ title: "First", category: "personal" }),
+      );
+      second = Promise.resolve(
+        latest?.addTask({ title: "Second", category: "personal" }),
       );
     });
     await act(flush);
 
-    await act(async () => { await latest?.refresh(); });
-    expect(latest?.tasks).toEqual([taskB]);
+    secondPending.resolve({ data: task("second"), error: null });
+    firstPending.resolve({ data: task("first"), error: null });
+    let firstResult: Task | null | undefined;
+    let secondResult: Task | null | undefined;
+    await act(async () => {
+      [firstResult, secondResult] = await Promise.all([first, second]);
+    });
 
-    pending.resolve({ data: task("owner-a-late"), error: null });
-    let result: Task | null | undefined;
-    await act(async () => { result = await pendingAdd; });
-
-    expect(result).toBeNull();
-    expect(latest?.tasks).toEqual([taskB]);
+    expect(firstResult?.id).toBe("first");
+    expect(secondResult?.id).toBe("second");
+    expect(latest?.tasks.map((item) => item.id).sort()).toEqual([
+      "first",
+      "second",
+    ]);
     expect(latest?.error).toBeNull();
     expect(mocks.capture).not.toHaveBeenCalled();
   });
+
+  it.each(["resolves", "rejects"] as const)(
+    "makes an A mutation neutral when a refresh establishes owner B and the A request %s",
+    async (outcome) => {
+      const ownerB = { id: "task-owner-b" };
+      const pending = deferred<{ data: Task | null; error: unknown }>();
+      const loadA = loadBuilder(Promise.resolve({ data: [task("owner-a")], error: null }));
+      const mutationA = mutationBuilder(() => pending.promise);
+      const taskB = { ...task("owner-b"), user_id: ownerB.id };
+      const loadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user }, error: null })
+        .mockResolvedValueOnce({ data: { user }, error: null })
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+      mocks.from
+        .mockReturnValueOnce(loadA.builder)
+        .mockReturnValueOnce(mutationA)
+        .mockReturnValueOnce(loadB.builder);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      let pendingAdd!: Promise<Task | null | undefined>;
+      act(() => {
+        pendingAdd = Promise.resolve(
+          latest?.addTask({ title: "Owner A pending", category: "personal" }),
+        );
+      });
+      await act(flush);
+
+      await act(async () => { await latest?.refresh(); });
+      expect(latest?.tasks).toEqual([taskB]);
+
+      if (outcome === "resolves") {
+        pending.resolve({ data: task("owner-a-late"), error: null });
+      } else {
+        pending.reject({ status: 500, message: "stale owner A write failure" });
+      }
+      let result: Task | null | undefined;
+      await act(async () => { result = await pendingAdd; });
+
+      expect(result).toBeNull();
+      expect(latest?.tasks).toEqual([taskB]);
+      expect(latest?.error).toBeNull();
+      expect(mocks.capture).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["resolves", "rejects"] as const)(
     "makes a pending mutation neutral when pagehide retires ownership and the request %s",
@@ -622,6 +796,53 @@ describe("useTasks load lifecycle", () => {
 
     expect(result).toBeNull();
     expect(latest?.tasks.map((item) => item.id)).toEqual(["restored"]);
+    expect(latest?.error).toBeNull();
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect retired account-change feedback after a BFCache restore", async () => {
+    const ownerB = { id: "task-owner-b" };
+    const taskB = { ...task("owner-b"), user_id: ownerB.id };
+    const pendingRecovery = deferred<{ data: Task[] | null; error: unknown }>();
+    const initial = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+    const recovery = loadBuilder(pendingRecovery.promise);
+    const restored = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
+    mocks.getUser
+      .mockResolvedValueOnce({ data: { user }, error: null })
+      .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+      .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+      .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+    mocks.from
+      .mockReturnValueOnce(initial.builder)
+      .mockReturnValueOnce(recovery.builder)
+      .mockReturnValueOnce(restored.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    let result: Task | null | undefined;
+    await act(async () => {
+      result = await latest?.addTask({ title: "Wrong owner", category: "personal" });
+    });
+
+    expect(result).toBeNull();
+    expect(latest?.error).toEqual({
+      operation: "add",
+      message: "Account changed — reloading tasks for the current account.",
+    });
+    expect(recovery.signals).toHaveLength(1);
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(persistedPageShow()));
+    await act(flush);
+
+    expect(recovery.signals[0].aborted).toBe(true);
+    expect(latest?.tasks).toEqual([taskB]);
+    expect(latest?.error).toBeNull();
+
+    pendingRecovery.resolve({ data: [taskB], error: null });
+    await act(flush);
+
+    expect(latest?.tasks).toEqual([taskB]);
     expect(latest?.error).toBeNull();
     expect(mocks.capture).not.toHaveBeenCalled();
   });

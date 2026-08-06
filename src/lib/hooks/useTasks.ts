@@ -91,6 +91,7 @@ export function useTasks() {
   const loadGenerationRef = useRef(0);
   const activeLoadRef = useRef<TaskLoadOperation | null>(null);
   const loadedOwnerRef = useRef<string | null>(null);
+  const accountChangeFeedbackRef = useRef<"add" | "update" | "delete" | null>(null);
 
   const recordError = useCallback((operation: TaskMutationError["operation"], rawError: unknown, message: string) => {
     const err = rawError as SupabaseLikeError | null;
@@ -126,11 +127,19 @@ export function useTasks() {
     );
   }, []);
 
-  const isMutationCurrent = useCallback((ownershipEpoch: number) => (
+  const isMutationEpochCurrent = useCallback((ownershipEpoch: number) => (
     mountedRef.current
     && pageActiveRef.current
     && ownershipEpochRef.current === ownershipEpoch
   ), []);
+
+  const isMutationCurrent = useCallback((
+    ownershipEpoch: number,
+    subject: string | null,
+  ) => (
+    isMutationEpochCurrent(ownershipEpoch)
+    && loadedOwnerRef.current === subject
+  ), [isMutationEpochCurrent]);
 
   const refresh = useCallback(async () => {
     const operation: TaskLoadOperation = {
@@ -144,6 +153,7 @@ export function useTasks() {
     const commitFailure = async (rawError: unknown, message: string, clearRows = false) => {
       await deferFailureCommit();
       if (!isLoadCurrent(operation)) return;
+      accountChangeFeedbackRef.current = null;
       recordError("load", rawError, message);
       if (clearRows) {
         ownershipEpochRef.current += 1;
@@ -161,6 +171,7 @@ export function useTasks() {
       if (authError) {
         if (isMissingTaskSession(authError)) {
           ownershipEpochRef.current += 1;
+          accountChangeFeedbackRef.current = null;
           loadedOwnerRef.current = null;
           setUserId(null);
           setTasks([]);
@@ -174,6 +185,7 @@ export function useTasks() {
       }
       if (!user) {
         ownershipEpochRef.current += 1;
+        accountChangeFeedbackRef.current = null;
         loadedOwnerRef.current = null;
         setUserId(null);
         setTasks([]);
@@ -209,12 +221,22 @@ export function useTasks() {
       });
       if (!isLoadCurrent(operation)) return;
       setTasks(normalized as Task[]);
-      clearError();
+      const accountChangeOperation = accountChangeFeedbackRef.current;
+      accountChangeFeedbackRef.current = null;
+      if (accountChangeOperation) {
+        setError({
+          operation: accountChangeOperation,
+          message: "Account changed — tasks reloaded for the current account. Retry your action.",
+        });
+      } else {
+        clearError();
+      }
       setLoading(false);
       activeLoadRef.current = null;
     } catch (loadError) {
       if (isMissingTaskSession(loadError) && isLoadCurrent(operation)) {
         ownershipEpochRef.current += 1;
+        accountChangeFeedbackRef.current = null;
         loadedOwnerRef.current = null;
         setUserId(null);
         setTasks([]);
@@ -236,6 +258,7 @@ export function useTasks() {
       loadGenerationRef.current += 1;
       activeLoadRef.current?.controller.abort();
       activeLoadRef.current = null;
+      accountChangeFeedbackRef.current = null;
     };
     const restore = (event: PageTransitionEvent) => {
       const wasInactive = !pageActiveRef.current;
@@ -273,6 +296,7 @@ export function useTasks() {
     loadGenerationRef.current += 1;
     activeLoadRef.current?.controller.abort();
     activeLoadRef.current = null;
+    accountChangeFeedbackRef.current = null;
     loadedOwnerRef.current = null;
     setUserId(null);
     setTasks([]);
@@ -282,6 +306,7 @@ export function useTasks() {
 
   const authenticateMutation = useCallback(async (
     ownershipEpoch: number,
+    subjectAtStart: string | null,
     operation: "add" | "update" | "delete",
     signedOutMessage: string,
     failureMessage: string,
@@ -293,26 +318,61 @@ export function useTasks() {
     try {
       const { data: { user }, error: authError } =
         await supabase.auth.getUser();
-      if (!isMutationCurrent(ownershipEpoch)) return null;
+      if (!isMutationEpochCurrent(ownershipEpoch)) return null;
       if (authError) {
+        if (loadedOwnerRef.current !== subjectAtStart) return null;
         if (isMissingTaskSession(authError)) return settleSignedOut();
         recordError(operation, authError, failureMessage);
         return null;
       }
-      if (!user) return settleSignedOut();
+      if (!user) {
+        if (loadedOwnerRef.current !== subjectAtStart) return null;
+        return settleSignedOut();
+      }
+      const currentOwner = loadedOwnerRef.current;
+      if (subjectAtStart === null) {
+        if (currentOwner === null) {
+          loadedOwnerRef.current = user.id;
+          setUserId(user.id);
+        } else if (currentOwner !== user.id) {
+          return null;
+        }
+      } else {
+        if (currentOwner !== subjectAtStart) return null;
+        if (user.id !== subjectAtStart) {
+          ownershipEpochRef.current += 1;
+          loadGenerationRef.current += 1;
+          activeLoadRef.current?.controller.abort();
+          activeLoadRef.current = null;
+          accountChangeFeedbackRef.current = operation;
+          loadedOwnerRef.current = null;
+          setUserId(null);
+          setTasks([]);
+          setLoading(true);
+          setError({
+            operation,
+            message: "Account changed — reloading tasks for the current account.",
+          });
+          void refresh();
+          return null;
+        }
+      }
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return null;
       return user;
     } catch (authError) {
-      if (!isMutationCurrent(ownershipEpoch)) return null;
+      if (!isMutationCurrent(ownershipEpoch, subjectAtStart)) return null;
       if (isMissingTaskSession(authError)) return settleSignedOut();
       recordError(operation, authError, failureMessage);
       return null;
     }
-  }, [isMutationCurrent, recordError, settleMutationSignedOut, supabase]);
+  }, [isMutationCurrent, isMutationEpochCurrent, recordError, refresh, settleMutationSignedOut, supabase]);
 
   const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
     const ownershipEpoch = ownershipEpochRef.current;
+    const subjectAtStart = loadedOwnerRef.current;
     const user = await authenticateMutation(
       ownershipEpoch,
+      subjectAtStart,
       "add",
       "Sign in to create tasks.",
       "Could not create task — sign in again and retry.",
@@ -336,11 +396,11 @@ export function useTasks() {
         })
         .select()
         .single();
-      if (!isMutationCurrent(ownershipEpoch)) return null;
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return null;
       data = result.data;
       error = result.error;
     } catch (mutationError) {
-      if (!isMutationCurrent(ownershipEpoch)) return null;
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return null;
       if (isMissingTaskSession(mutationError)) {
         settleMutationSignedOut("add", "Sign in to create tasks.");
         return null;
@@ -363,8 +423,10 @@ export function useTasks() {
 
   const updateTask = useCallback(async (id: string, patch: TaskUpdate) => {
     const ownershipEpoch = ownershipEpochRef.current;
+    const subjectAtStart = loadedOwnerRef.current;
     const user = await authenticateMutation(
       ownershipEpoch,
+      subjectAtStart,
       "update",
       "Sign in to update tasks.",
       "Could not update task — sign in again and retry.",
@@ -374,11 +436,11 @@ export function useTasks() {
     let error: unknown;
     try {
       const result = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() } as TaskRowUpdate).eq("id", id).select().single();
-      if (!isMutationCurrent(ownershipEpoch)) return null;
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return null;
       data = result.data;
       error = result.error;
     } catch (mutationError) {
-      if (!isMutationCurrent(ownershipEpoch)) return null;
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return null;
       if (isMissingTaskSession(mutationError)) {
         settleMutationSignedOut("update", "Sign in to update tasks.");
         return null;
@@ -401,8 +463,10 @@ export function useTasks() {
 
   const deleteTask = useCallback(async (id: string) => {
     const ownershipEpoch = ownershipEpochRef.current;
+    const subjectAtStart = loadedOwnerRef.current;
     const user = await authenticateMutation(
       ownershipEpoch,
+      subjectAtStart,
       "delete",
       "Sign in to delete tasks.",
       "Could not delete task — sign in again and retry.",
@@ -411,9 +475,9 @@ export function useTasks() {
     let error: unknown;
     try {
       ({ error } = await supabase.from("tasks").delete().eq("id", id));
-      if (!isMutationCurrent(ownershipEpoch)) return false;
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return false;
     } catch (mutationError) {
-      if (!isMutationCurrent(ownershipEpoch)) return false;
+      if (!isMutationCurrent(ownershipEpoch, user.id)) return false;
       if (isMissingTaskSession(mutationError)) {
         settleMutationSignedOut("delete", "Sign in to delete tasks.");
         return false;
@@ -436,7 +500,8 @@ export function useTasks() {
 
   const toggleDone = useCallback(async (id: string) => {
     const ownershipEpoch = ownershipEpochRef.current;
-    if (!isMutationCurrent(ownershipEpoch)) return null;
+    const subjectAtStart = loadedOwnerRef.current;
+    if (!isMutationCurrent(ownershipEpoch, subjectAtStart)) return null;
     const t = tasks.find((x) => x.id === id);
     if (!t) return null;
     const isDone = t.status === "done";
@@ -444,7 +509,7 @@ export function useTasks() {
       status: isDone ? "open" : "done",
       completed_at: isDone ? null : new Date().toISOString(),
     });
-    return isMutationCurrent(ownershipEpoch) ? updated : null;
+    return isMutationCurrent(ownershipEpoch, subjectAtStart) ? updated : null;
   }, [isMutationCurrent, tasks, updateTask]);
 
   return { tasks, loading, error, clearError, refresh, addTask, updateTask, deleteTask, toggleDone };
