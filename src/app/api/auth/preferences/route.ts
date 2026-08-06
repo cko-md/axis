@@ -18,6 +18,7 @@ function unavailable(operation: "read" | "save") {
     route: ROUTE,
     area: "profile",
     provider: "supabase",
+    transport: "direct",
     operation,
     status: 500,
     code: operation === "read" ? "PROFILE_LOAD_FAILED" : "PROFILE_SAVE_FAILED",

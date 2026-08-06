@@ -143,7 +143,7 @@ export default function BiometricGate() {
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [lookupNonce, toast]);
+  }, [lookupNonce]);
 
   useEffect(() => {
     if (!pendingFailure) return;

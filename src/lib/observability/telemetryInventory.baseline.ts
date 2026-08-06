@@ -275,6 +275,7 @@ export const AXIS_DYNAMIC_TELEMETRY_BASELINE: readonly string[] = [
   "src/app/api/widgets/weather/route.ts|fallback|expression:true",
   "src/components/agenda/AgendaModule.tsx|supabase_code|expression:error?.code ?? \"unknown\"",
   "src/components/auth/BiometricGate.tsx|status|ternary:pendingFailure.status === null ? 'network' : String(pendingFailure.status)",
+  "src/components/auth/BiometricPrompt.tsx|status|ternary:status === null ? 'network' : String(status)",
   "src/components/layout/Mascot.tsx|operation|shorthand:operation",
   "src/components/layout/Mascot.tsx|route|expression:routeFamily(pathname)",
   "src/components/layout/Mascot.tsx|status|ternary:status ? String(status) : \"unknown\"",

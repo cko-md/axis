@@ -359,14 +359,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [remoteReady, setRemoteReady] = useState(false);
   const [remoteSyncEnabled, setRemoteSyncEnabled] = useState(false);
   const [interfaceStudioOpen, setInterfaceStudioOpen] = useState(false);
+  const [hasOrphanedLocalEdits, setHasOrphanedLocalEdits] = useState(false);
   const [mounted, setMounted] = useState(false);
   const themeValueRef = useRef<ThemeMode>(theme);
   const settingsValueRef = useRef<InterfaceSettings>(interfaceSettings);
   const remoteSubjectRef = useRef<string | null>(null);
   const quarantinedSubjectRef = useRef<string | null>(null);
   const ownershiplessEditsRef = useRef<PendingPreferenceFields | null>(null);
+  const orphanedLocalEditsRef = useRef<PendingPreferenceFields | null>(null);
   const subjectEditsBySubjectRef = useRef(new Map<string, PendingPreferenceFields>());
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
+  const authoritativeThemeRef = useRef<ThemeMode>("dark");
+  const authoritativeSettingsRef = useRef<InterfaceSettings>(DEFAULT_INTERFACE_SETTINGS);
   const remoteSyncEnabledRef = useRef(false);
   const remoteWriteIntentRef = useRef(false);
   const loadFailureReportedRef = useRef(false);
@@ -503,6 +507,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         ownershiplessEditsRef.current = null;
         subjectEditsBySubjectRef.current.clear();
       } else {
+        orphanedLocalEditsRef.current = mergePendingFields(
+          orphanedLocalEditsRef.current,
+          ownershiplessEditsRef.current,
+        );
+        setHasOrphanedLocalEdits(orphanedLocalEditsRef.current !== null);
         ownershiplessEditsRef.current = null;
       }
       return true;
@@ -677,6 +686,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const themeEdit = subjectEdits?.theme ?? ownershiplessEdits?.theme;
         const settingsEdit =
           subjectEdits?.settings ?? ownershiplessEdits?.settings;
+        const currentOrphanedEdits = orphanedLocalEditsRef.current;
+        const orphanedCandidate = currentOrphanedEdits
+          ? {
+              ...(!subjectEdits?.theme && currentOrphanedEdits.theme
+                ? { theme: currentOrphanedEdits.theme }
+                : {}),
+              ...(!subjectEdits?.settings && currentOrphanedEdits.settings
+                ? { settings: currentOrphanedEdits.settings }
+                : {}),
+            }
+          : null;
+        const orphanedEdits =
+          orphanedCandidate &&
+          (orphanedCandidate.theme || orphanedCandidate.settings)
+            ? orphanedCandidate
+            : null;
+        orphanedLocalEditsRef.current = orphanedEdits;
+        setHasOrphanedLocalEdits(orphanedEdits !== null);
         const editedDuringRead =
           operation.editRevisionAtSubject !== editRevisionRef.current;
         if (editedDuringRead && !themeEdit && !settingsEdit) {
@@ -690,11 +717,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         if (operation.acceptsOwnershiplessEdits) {
           ownershiplessEditsRef.current = null;
         }
-        const nextTheme = themeEdit?.value ?? remote.theme ?? "dark";
+        const authoritativeTheme = remote.theme ?? "dark";
+        const authoritativeSettings =
+          remote.settings ?? DEFAULT_INTERFACE_SETTINGS;
+        authoritativeThemeRef.current = authoritativeTheme;
+        authoritativeSettingsRef.current = authoritativeSettings;
+        const nextTheme =
+          themeEdit?.value ?? orphanedEdits?.theme?.value ?? authoritativeTheme;
         const nextSettings =
           settingsEdit?.value ??
-          remote.settings ??
-          DEFAULT_INTERFACE_SETTINGS;
+          orphanedEdits?.settings?.value ??
+          authoritativeSettings;
         themeValueRef.current = nextTheme;
         settingsValueRef.current = nextSettings;
         setThemeState(nextTheme);
@@ -709,7 +742,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
         setRemoteSyncEnabled(true);
         setRemoteReady(true);
-        setInterfacePersistence("synced");
+        setInterfacePersistence(orphanedEdits ? "local" : "synced");
         activeLoadRef.current = null;
       } catch (error) {
         await deferPreferenceFailureCommit(operation.controller.signal);
@@ -798,7 +831,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
         if (saved && candidate.editRevision === editRevisionRef.current) {
           remoteWriteIntentRef.current = false;
-          setInterfacePersistence("synced");
+          setInterfacePersistence(
+            orphanedLocalEditsRef.current ? "local" : "synced",
+          );
         } else if (saved) {
           setInterfacePersistence("syncing");
         }
@@ -1050,10 +1085,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const subject = remoteSubjectRef.current;
     if (!subject) return;
     const ownershipGeneration = ownershipGenerationRef.current;
+    const orphanedEdits = orphanedLocalEditsRef.current;
     const envelope = buildPreferenceEnvelope(
       remoteEnvelopeRef.current,
-      theme,
-      interfaceSettings,
+      orphanedEdits?.theme && !themeDirtyRef.current
+        ? authoritativeThemeRef.current
+        : theme,
+      orphanedEdits?.settings && !settingsDirtyRef.current
+        ? authoritativeSettingsRef.current
+        : interfaceSettings,
       getBrowserTimeZone(),
     );
     queuedWriteRef.current = {
@@ -1096,6 +1136,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     remoteReady,
     remoteSyncEnabled,
     theme,
+    hasOrphanedLocalEdits,
   ]);
 
   const setTheme = useCallback((t: ThemeMode) => {
@@ -1107,6 +1148,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       revision: themeEditRevisionRef.current,
     };
     if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
+      if (orphanedLocalEditsRef.current?.theme) {
+        const { settings } = orphanedLocalEditsRef.current;
+        orphanedLocalEditsRef.current = settings ? { settings } : null;
+        setHasOrphanedLocalEdits(Boolean(settings));
+      }
       themeDirtyRef.current = true;
       remoteWriteIntentRef.current = true;
     } else {
@@ -1144,6 +1190,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         revision: settingsEditRevisionRef.current,
       };
       if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
+        if (orphanedLocalEditsRef.current?.settings) {
+          const { theme: orphanedTheme } = orphanedLocalEditsRef.current;
+          orphanedLocalEditsRef.current = orphanedTheme
+            ? { theme: orphanedTheme }
+            : null;
+          setHasOrphanedLocalEdits(Boolean(orphanedTheme));
+        }
         settingsDirtyRef.current = true;
         remoteWriteIntentRef.current = true;
       } else {
@@ -1174,6 +1227,39 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
   const openInterfaceStudio = useCallback(() => setInterfaceStudioOpen(true), []);
   const closeInterfaceStudio = useCallback(() => setInterfaceStudioOpen(false), []);
+  const applyOrphanedLocalEdits = useCallback(() => {
+    const orphaned = orphanedLocalEditsRef.current;
+    if (
+      !orphaned ||
+      !remoteSyncEnabledRef.current ||
+      !remoteSubjectRef.current
+    ) {
+      return;
+    }
+    if (orphaned.theme) themeDirtyRef.current = true;
+    if (orphaned.settings) settingsDirtyRef.current = true;
+    remoteWriteIntentRef.current = true;
+    orphanedLocalEditsRef.current = null;
+    setHasOrphanedLocalEdits(false);
+    setInterfacePersistence("syncing");
+  }, []);
+  const discardOrphanedLocalEdits = useCallback(() => {
+    const orphaned = orphanedLocalEditsRef.current;
+    if (!orphaned) return;
+    orphanedLocalEditsRef.current = null;
+    setHasOrphanedLocalEdits(false);
+    if (orphaned.theme) {
+      themeValueRef.current = authoritativeThemeRef.current;
+      setThemeState(authoritativeThemeRef.current);
+    }
+    if (orphaned.settings) {
+      settingsValueRef.current = authoritativeSettingsRef.current;
+      setInterfaceSettingsState(authoritativeSettingsRef.current);
+    }
+    setInterfacePersistence(
+      remoteSyncEnabledRef.current ? "synced" : "local",
+    );
+  }, []);
 
   return (
     <ThemeContext.Provider
@@ -1189,6 +1275,74 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      {interfacePersistence === "error" ? (
+        <div
+          role="alert"
+          data-testid="interface-persistence-error"
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: 20,
+            zIndex: 70,
+            maxWidth: 420,
+            padding: "12px 14px",
+            border: "1px solid var(--danger, #b94a48)",
+            borderRadius: 10,
+            background: "var(--surface, #181a20)",
+            color: "var(--ink, #f3f4f6)",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          <div>
+            Interface preferences could not sync. Your current local settings
+            remain available. Open Interface Studio and make another change to
+            retry.
+          </div>
+          <button
+            type="button"
+            onClick={openInterfaceStudio}
+            style={{ marginTop: 10 }}
+          >
+            Open Interface Studio
+          </button>
+        </div>
+      ) : null}
+      {hasOrphanedLocalEdits ? (
+        <div
+          role="alert"
+          data-testid="orphaned-interface-preferences"
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: interfacePersistence === "error" ? 104 : 20,
+            zIndex: 70,
+            maxWidth: 420,
+            padding: "12px 14px",
+            border: "1px solid var(--line, #4b5563)",
+            borderRadius: 10,
+            background: "var(--surface, #181a20)",
+            color: "var(--ink, #f3f4f6)",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          <div>
+            These interface changes are local only because account ownership
+            was not verified when they were made.
+          </div>
+          {remoteSyncEnabled ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button type="button" onClick={applyOrphanedLocalEdits}>
+                Apply to this account
+              </button>
+              <button type="button" onClick={discardOrphanedLocalEdits}>
+                Discard local changes
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </ThemeContext.Provider>
   );
 }

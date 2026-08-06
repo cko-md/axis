@@ -191,6 +191,74 @@ describe("useNotes load lifecycle", () => {
     expect(mocks.from).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { name: "AuthSessionMissingError", status: 400 },
+    { code: "refresh_token_not_found", status: 400 },
+    { code: "invalid_refresh_token", status: 400 },
+    { message: "Auth session missing!", status: 400 },
+  ])("treats an exact missing-session auth result as expected signed-out state", async (authError) => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: authError });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.saveError).toBeNull();
+    expect(latest?.notes).toEqual([]);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("treats a thrown AuthSessionMissingError as expected signed-out state", async () => {
+    mocks.getUser.mockRejectedValue({
+      name: "AuthSessionMissingError",
+      message: "Auth session missing!",
+    });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.saveError).toBeNull();
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("treats a bare auth status 401 as expected signed-out state", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { status: 401, message: "session no longer available" },
+    });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.saveError).toBeNull();
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("keeps an AuthSessionMissingError-shaped 500 actionable", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthSessionMissingError",
+        status: 500,
+        message: "upstream auth failure",
+      },
+    });
+
+    act(() => root?.render(<Probe />));
+    await act(flushFailureCommit);
+
+    expect(latest?.saveError).toBe(
+      "Could not load notes — sign in again and retry.",
+    );
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
   it("keeps the identical current data failure visible and captures it once", async () => {
     const load = loadBuilder(Promise.reject(new TypeError("same live-looking failure")));
     mocks.getUser.mockResolvedValue({ data: { user }, error: null });

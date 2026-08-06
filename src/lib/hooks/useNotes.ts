@@ -42,6 +42,24 @@ type NoteLoadOperation = {
   identity: symbol;
 };
 
+function isMissingNoteSession(error: unknown) {
+  if (typeof error !== "object" || error === null || Array.isArray(error)) {
+    return false;
+  }
+  const value = error as Record<string, unknown>;
+  const status = value.status;
+  const boundedMissingSessionStatus =
+    status === undefined || status === 400 || status === 401;
+  return (
+    status === 401 ||
+    (value.name === "AuthSessionMissingError" && status === 400) ||
+    (boundedMissingSessionStatus &&
+      (value.code === "refresh_token_not_found" ||
+        value.code === "invalid_refresh_token" ||
+        value.message === "Auth session missing!"))
+  );
+}
+
 // Fire-and-forget: refreshes the note's embedding for semantic search. Silently
 // no-ops if GEMINI_API_KEY isn't configured server-side — search degrades to
 // quick (non-semantic) results rather than failing the note save.
@@ -133,6 +151,15 @@ export function useNotes() {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (!isLoadCurrent(operation)) return;
       if (authError) {
+        if (isMissingNoteSession(authError)) {
+          loadedOwnerRef.current = null;
+          setUserId(null);
+          setNotes([]);
+          setSaveError(null);
+          setLoading(false);
+          activeLoadRef.current = null;
+          return;
+        }
         await commitFailure("load", authError, "Could not load notes — sign in again and retry.", true);
         return;
       }
@@ -140,6 +167,7 @@ export function useNotes() {
         loadedOwnerRef.current = null;
         setUserId(null);
         setNotes([]);
+        setSaveError(null);
         setLoading(false);
         activeLoadRef.current = null;
         return;
@@ -183,6 +211,15 @@ export function useNotes() {
       setLoading(false);
       activeLoadRef.current = null;
     } catch (loadError) {
+      if (isMissingNoteSession(loadError) && isLoadCurrent(operation)) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setNotes([]);
+        setSaveError(null);
+        setLoading(false);
+        activeLoadRef.current = null;
+        return;
+      }
       await commitFailure("load", loadError, "Could not load notes — check your connection and retry.");
     }
   }, [isLoadCurrent, recordError, supabase]);

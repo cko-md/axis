@@ -116,6 +116,19 @@ describe("/api/auth/preferences GET", () => {
     );
   });
 
+  it("tags preference route failures as direct Supabase transport", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { code: "backend_unavailable", status: 503 },
+    });
+
+    expect((await GET(getRequest())).status).toBe(500);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ transport: "direct" }),
+    );
+  });
+
   it("normalizes thrown missing-session failures without querying or capturing", async () => {
     mocks.getUser.mockRejectedValue({ message: "Auth session missing!" });
 

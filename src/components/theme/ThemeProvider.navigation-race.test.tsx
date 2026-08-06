@@ -947,6 +947,10 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
     await act(flushMicrotasks);
     expect(current().interfacePersistence).toBe("error");
+    expect(
+      document.querySelector('[data-testid="interface-persistence-error"]')
+        ?.textContent,
+    ).toContain("Interface preferences could not sync");
     expect(mocks.capture).not.toHaveBeenCalled();
 
     act(() => mocks.authCallback?.("SIGNED_IN"));
@@ -1448,6 +1452,16 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     expect(current().interfacePersistence).toBe("error");
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(writes()).toHaveLength(1);
+    expect(
+      document.querySelector('[data-testid="interface-persistence-error"]')
+        ?.textContent,
+    ).toContain("Interface preferences could not sync");
+    const openStudio = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Open Interface Studio",
+    );
+    expect(openStudio).toBeDefined();
+    act(() => openStudio?.click());
+    expect(current().interfaceStudioOpen).toBe(true);
   });
 
   it("still captures a noncanonical middleware-shaped 401", async () => {
@@ -1988,6 +2002,153 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     await act(flushMicrotasks);
     expect(writes()).toHaveLength(0);
     expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("keeps a pre-S1 lifecycle edit local until the verified account explicitly accepts it", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfacePersistence).toBe("local");
+    expect(writes()).toHaveLength(0);
+    expect(document.body.textContent).toContain(
+      "These interface changes are local only",
+    );
+
+    const apply = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Apply to this account",
+    );
+    expect(apply).toBeDefined();
+    act(() => apply?.click());
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.subject).toBe(SUBJECT_A);
+    expect(bodyWritten.envelope.theme).toBe("slate");
+    expect(current().interfacePersistence).toBe("synced");
+  });
+
+  it("does not transfer a pre-S1 lifecycle edit to B and restores B on explicit discard", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "light" }));
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfacePersistence).toBe("local");
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+
+    const discard = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Discard local changes",
+    );
+    expect(discard).toBeDefined();
+    act(() => discard?.click());
+
+    expect(current().theme).toBe("light");
+    expect(current().interfacePersistence).toBe("synced");
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("discards only orphaned fields without erasing a later A-bound settings draft", async () => {
+    const pendingInitialS1 = deferred<unknown>();
+    const pendingARead = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingInitialS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "dark",
+        settings: SETTINGS_A,
+      }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead.mockImplementationOnce(() => pendingARead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushMicrotasks);
+
+    act(() => current().setInterfaceSettings(SETTINGS_B));
+    pendingARead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
+    expect(current().interfacePersistence).toBe("local");
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.envelope.theme).toBe("dark");
+    expect(bodyWritten.envelope.settings).toEqual(SETTINGS_B);
+
+    const discard = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Discard local changes",
+    );
+    act(() => discard?.click());
+
+    expect(current().theme).toBe("dark");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
+    expect(current().interfacePersistence).toBe("synced");
+  });
+
+  it("prunes a fully shadowed orphan when a later A-bound edit owns the same field", async () => {
+    const pendingInitialS1 = deferred<unknown>();
+    const pendingARead = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingInitialS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead.mockImplementationOnce(() => pendingARead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("slate"));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushMicrotasks);
+
+    act(() => current().setTheme("dim"));
+    pendingARead.resolve(preferenceRow());
+    await act(flushMicrotasks);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("dim");
+    expect(current().interfacePersistence).toBe("synced");
+    expect(
+      document.querySelector('[data-testid="orphaned-interface-preferences"]'),
+    ).toBeNull();
+    expect(writes()).toHaveLength(1);
+    const bodyWritten = JSON.parse(
+      String((writes()[0]?.[1] as RequestInit).body),
+    );
+    expect(bodyWritten.envelope.theme).toBe("dim");
   });
 
   it("preserves an A-bound mismatch draft across B and persists it once when A later returns", async () => {
