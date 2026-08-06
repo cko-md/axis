@@ -62,6 +62,18 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     onProfileName?.(name);
   }, [accountState, onProfileName, profile]);
 
+  useEffect(() => {
+    if (accountState === "ready" && profile) return;
+    setProfileOpen(false);
+    setCropSaving(false);
+    setCropArea(null);
+    setCropSubject(null);
+    setCropSrc((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return null;
+    });
+  }, [accountState, profile]);
+
   const saveStateLabel =
     uploadState === "processing" ? "Processing photo…" :
     uploadState === "uploading" ? "Uploading photo…" :
@@ -209,7 +221,7 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
           step in place when a new photo is selected, rather than stacking a
           second modal on top. */}
       <Modal
-        open={profileOpen}
+        open={profileOpen && accountState === "ready" && profile !== null}
         onClose={() => { if (cropSrc) cancelCrop(); setProfileOpen(false); }}
         title={cropSrc ? "Adjust Photo" : "Profile"}
         footer={

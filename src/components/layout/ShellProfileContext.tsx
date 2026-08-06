@@ -1009,6 +1009,10 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     pageActiveRef.current = true;
     const handlePageHide = () => {
       pageActiveRef.current = false;
+      storeCurrentSubjectDraft();
+      setCommittedProfile(null);
+      setDraft(EMPTY_DRAFT);
+      setState("loading");
       lookupGenerationRef.current += 1;
       activeLookupRef.current?.controller.abort();
       activeLookupRef.current = null;
@@ -1054,7 +1058,13 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [cancelSubjectWork, setDraftPending, setUploadPending]);
+  }, [
+    cancelSubjectWork,
+    setCommittedProfile,
+    setDraftPending,
+    setUploadPending,
+    storeCurrentSubjectDraft,
+  ]);
 
   useEffect(() => {
     const requestGeneration = ++lookupGenerationRef.current;
@@ -1204,9 +1214,14 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           });
           setSaveState("idle");
           setDraftPending(false);
-        } else if (wasBlocked) {
-          setSaveState("error");
-          setDraftPending(dirtyRef.current);
+        } else {
+          if (dirtyRef.current) {
+            setDraft(draftRef.current);
+          }
+          if (wasBlocked) {
+            setSaveState("error");
+            setDraftPending(dirtyRef.current);
+          }
         }
       } catch (error) {
         if (!isLookupOperationCurrent(operation) || isAbortError(error)) {

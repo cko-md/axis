@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
 }));
 
+const SUBJECT_A = `ps1_${"a".repeat(64)}`;
+const SUBJECT_B = `ps1_${"b".repeat(64)}`;
+
 vi.mock("@sentry/nextjs", () => ({ captureException: mocks.capture }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/command" }));
 vi.mock("@/components/ui/Toast", () => ({
@@ -35,9 +38,12 @@ const flush = async () => {
   await Promise.resolve();
 };
 
-const profile = (): ShellProfile => ({
-  subject: `ps1_${"a".repeat(64)}`,
-  display_name: "Restored Owner",
+const profile = (
+  subject = SUBJECT_A,
+  displayName = "Restored Owner",
+): ShellProfile => ({
+  subject,
+  display_name: displayName,
   role_title: "Owner",
   bio: null,
   avatar_url: null,
@@ -49,6 +55,12 @@ const response = (status: number, body?: unknown) => ({
   ok: status >= 200 && status < 300,
   json: vi.fn().mockResolvedValue(body),
 });
+
+function persistedPageEvent(type: "pagehide" | "pageshow") {
+  const event = new Event(type) as PageTransitionEvent;
+  Object.defineProperty(event, "persisted", { value: true });
+  return event;
+}
 
 let root: Root | null;
 let observed: ShellProfileContextValue | null;
@@ -169,6 +181,42 @@ describe("ShellProfileProvider lookup lifecycle", () => {
     expect(current().profile?.display_name).toBe("Restored Owner");
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("quarantines the former subject until a BFCache lookup proves the restored owner", async () => {
+    let resolveRestored!: (value: ReturnType<typeof response>) => void;
+    mocks.fetch
+      .mockResolvedValueOnce(response(200, profile(SUBJECT_A, "Owner A")))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveRestored = resolve;
+      }));
+    await renderProvider();
+    act(() => current().scheduleProfileSave({
+      ...current().draft,
+      name: "Private Draft A",
+      bio: "Former-subject private draft",
+    }));
+
+    act(() => window.dispatchEvent(persistedPageEvent("pagehide")));
+    expect(current().state).toBe("loading");
+    expect(current().profile).toBeNull();
+    expect(current().draft).toEqual({ name: "", role: "", bio: "", photo: "" });
+
+    act(() => window.dispatchEvent(persistedPageEvent("pageshow")));
+    await act(flush);
+    expect(current().state).toBe("loading");
+    expect(current().profile).toBeNull();
+    expect(JSON.stringify(current().draft)).not.toContain("Private Draft A");
+    expect(JSON.stringify(current().draft)).not.toContain("Former-subject private draft");
+
+    resolveRestored(response(200, profile(SUBJECT_B, "Owner B")));
+    await act(flush);
+
+    expect(current().state).toBe("ready");
+    expect(current().profile?.subject).toBe(SUBJECT_B);
+    expect(current().draft.name).toBe("Owner B");
+    expect(JSON.stringify(current())).not.toContain("Private Draft A");
+    expect(JSON.stringify(current())).not.toContain("Former-subject private draft");
   });
 
   it("retires an in-flight save before an ordinary pageshow lookup", async () => {
