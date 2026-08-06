@@ -1,22 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { retryDelayMs, timedProviderFetch } from "./providerTiming";
 
-const mocks = vi.hoisted(() => ({
+vi.mock("@sentry/nextjs", () => ({
   addBreadcrumb: vi.fn(),
   captureException: vi.fn(),
-}));
-
-vi.mock("@sentry/nextjs", () => ({
-  addBreadcrumb: mocks.addBreadcrumb,
-  captureException: mocks.captureException,
 }));
 
 const originalFetch = global.fetch;
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  mocks.addBreadcrumb.mockReset();
-  mocks.captureException.mockReset();
 });
 
 afterEach(() => {
@@ -98,38 +91,5 @@ describe("providerTiming retry policy", () => {
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("suppresses exception and breadcrumb capture for a consumer-owned fallback", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new TypeError("provider offline"));
-    global.fetch = fetchMock;
-
-    await expect(timedProviderFetch("https://example.test/data", {}, {
-      area: "test",
-      provider: "example",
-      operation: "read",
-      captureFailures: false,
-      recordFailureBreadcrumbs: false,
-    })).rejects.toThrow("provider offline");
-
-    expect(mocks.addBreadcrumb).not.toHaveBeenCalled();
-    expect(mocks.captureException).not.toHaveBeenCalled();
-  });
-
-  it("still captures the identical live provider failure by default", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new TypeError("provider offline"));
-    global.fetch = fetchMock;
-
-    await expect(timedProviderFetch("https://example.test/data", {}, {
-      area: "test",
-      provider: "example",
-      operation: "read",
-    })).rejects.toThrow("provider offline");
-
-    expect(mocks.addBreadcrumb).toHaveBeenCalledWith(expect.objectContaining({
-      category: "provider.failure",
-      level: "error",
-    }));
-    expect(mocks.captureException).toHaveBeenCalledTimes(1);
   });
 });

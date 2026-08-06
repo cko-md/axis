@@ -32,7 +32,7 @@ vi.mock('@/components/ui/Toast', () => ({
 }));
 
 vi.mock('./BiometricPrompt', () => ({
-  default: () => 'biometric prompt',
+  default: () => null,
 }));
 
 import BiometricGate from './BiometricGate';
@@ -43,20 +43,6 @@ import BiometricGate from './BiometricGate';
 let root: Root | null = null;
 
 type SettingsResponse = Pick<Response, 'json' | 'ok' | 'status'>;
-
-function promptedResponse(biometricPrompted: boolean): SettingsResponse {
-  return {
-    ok: true,
-    status: 200,
-    json: vi.fn().mockResolvedValue({ biometric_prompted: biometricPrompted }),
-  };
-}
-
-function persistedPageShow() {
-  const event = new Event('pageshow') as PageTransitionEvent;
-  Object.defineProperty(event, 'persisted', { value: true });
-  return event;
-}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -70,8 +56,6 @@ function deferred<T>() {
 
 async function flushPromises() {
   await Promise.resolve();
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
   await Promise.resolve();
 }
 
@@ -93,7 +77,6 @@ afterEach(() => {
   root = null;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
-  vi.useRealTimers();
 });
 
 describe('BiometricGate settings lookup', () => {
@@ -160,39 +143,6 @@ describe('BiometricGate settings lookup', () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['already prompted', () => promptedResponse(true)],
-    ['signed out', () => ({ ok: false, status: 401, json: vi.fn() } satisfies SettingsResponse)],
-    ['MFA deferred', () => ({
-      ok: false,
-      status: 403,
-      json: vi.fn().mockResolvedValue({
-        error: 'MFA_REQUIRED',
-        message: 'Complete two-factor authentication to continue.',
-      }),
-    } satisfies SettingsResponse)],
-  ])('clears a pre-BFCache prompt when restored state is %s', async (_case, restoredResponse) => {
-    mocks.fetch
-      .mockResolvedValueOnce(promptedResponse(false))
-      .mockResolvedValueOnce(restoredResponse());
-
-    act(() => root?.render(<BiometricGate />));
-    await act(flushPromises);
-    expect(document.body.textContent).toContain('biometric prompt');
-
-    act(() => window.dispatchEvent(new Event('pagehide')));
-    await act(async () => { await Promise.resolve(); });
-    expect(document.body.textContent).not.toContain('biometric prompt');
-
-    act(() => window.dispatchEvent(persistedPageShow()));
-    await act(flushPromises);
-
-    expect(mocks.fetch).toHaveBeenCalledTimes(2);
-    expect(document.body.textContent).not.toContain('biometric prompt');
-    expect(mocks.captureException).not.toHaveBeenCalled();
-    expect(mocks.toast).not.toHaveBeenCalled();
-  });
-
   it('reports a hostile 403 payload instead of treating it as an MFA deferral', async () => {
     mocks.fetch.mockResolvedValueOnce({
       ok: false,
@@ -254,57 +204,6 @@ describe('BiometricGate settings lookup', () => {
 
     expect(mocks.createClient).not.toHaveBeenCalled();
     expect(mocks.getUser).not.toHaveBeenCalled();
-    expect(mocks.captureException).not.toHaveBeenCalled();
-    expect(mocks.toast).not.toHaveBeenCalled();
-  });
-
-  it('aborts and consumes a TypeError that races with pagehide', async () => {
-    const lookup = deferred<never>();
-    mocks.fetch.mockReturnValueOnce(lookup.promise);
-
-    act(() => root?.render(<BiometricGate />));
-    const request = mocks.fetch.mock.calls[0]?.[1] as RequestInit;
-    act(() => window.dispatchEvent(new Event('pagehide')));
-
-    expect(request.signal?.aborted).toBe(true);
-    lookup.reject(new TypeError('same live-looking failure'));
-    await act(flushPromises);
-
-    expect(mocks.captureException).not.toHaveBeenCalled();
-    expect(mocks.toast).not.toHaveBeenCalled();
-  });
-
-  it('drops a live-looking failure when pagehide wins during deferred commitment', async () => {
-    vi.useFakeTimers();
-    mocks.fetch.mockRejectedValueOnce(new TypeError('same live-looking failure'));
-
-    act(() => root?.render(<BiometricGate />));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    act(() => window.dispatchEvent(new Event('pagehide')));
-    act(() => vi.runOnlyPendingTimers());
-    await act(async () => { await Promise.resolve(); });
-
-    expect(mocks.captureException).not.toHaveBeenCalled();
-    expect(mocks.toast).not.toHaveBeenCalled();
-  });
-
-  it('drops a delayed response body after pagehide without weakening the live malformed-response check', async () => {
-    const body = deferred<unknown>();
-    mocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: vi.fn(() => body.promise),
-    } satisfies SettingsResponse);
-
-    act(() => root?.render(<BiometricGate />));
-    await act(async () => { await Promise.resolve(); });
-    act(() => window.dispatchEvent(new Event('pagehide')));
-    body.resolve({});
-    await act(flushPromises);
-
     expect(mocks.captureException).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
   });

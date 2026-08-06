@@ -1,7 +1,6 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import { deferFailureCommit } from "@/lib/observability/deferFailureCommit";
 import { usePathname } from "next/navigation";
 import React, {
   createContext,
@@ -1187,8 +1186,6 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         if (!isLookupOperationCurrent(operation) || isAbortError(error)) {
           return;
         }
-        await deferFailureCommit();
-        if (!isLookupOperationCurrent(operation)) return;
         if (!lookupFailureCapturedRef.current) {
           lookupFailureCapturedRef.current = true;
           captureShellProfileFailure();

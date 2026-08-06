@@ -5,7 +5,6 @@ import React, { useEffect, useState } from 'react';
 import BiometricPrompt from './BiometricPrompt';
 import { usePasskey } from '@/hooks/usePasskey';
 import { useToast } from '@/components/ui/Toast';
-import { deferFailureCommit } from '@/lib/observability/deferFailureCommit';
 
 function isMfaAssuranceDeferral(payload: unknown) {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
@@ -79,8 +78,6 @@ export default function BiometricGate() {
       } catch (error) {
         // Navigation aborts are expected and are not actionable after unmount.
         if (!isCurrent() || (error instanceof DOMException && error.name === 'AbortError')) return;
-        await deferFailureCommit();
-        if (!isCurrent()) return;
         Sentry.captureException(
           new Error('Biometric setup settings lookup failed'),
           {

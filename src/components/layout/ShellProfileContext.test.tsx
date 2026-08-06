@@ -688,63 +688,13 @@ describe("ShellProfileProvider failures and MFA", () => {
       .mockResolvedValueOnce(response(200, malformed))
       .mockResolvedValueOnce(response(200, malformed));
     await renderProvider();
-    await advance(0);
     expect(current().state).toBe("error");
 
     mocks.pathname = "/notes";
     await renderProvider({ consumer: false });
-    await advance(0);
 
     expect(current().state).toBe("error");
     expect(mocks.capture).toHaveBeenCalledTimes(1);
-  });
-
-  it("aborts and consumes a TypeError that races with pagehide", async () => {
-    let rejectLookup!: (reason: unknown) => void;
-    let lookupSignal: AbortSignal | null | undefined;
-    mocks.fetch.mockImplementationOnce((_url: string, init: RequestInit) => {
-      lookupSignal = init.signal;
-      return new Promise((_resolve, reject) => {
-        rejectLookup = reject;
-      });
-    });
-    await renderProvider();
-
-    act(() => window.dispatchEvent(new Event("pagehide")));
-    expect(lookupSignal?.aborted).toBe(true);
-    rejectLookup(new TypeError("same live-looking failure"));
-    await advance(0);
-
-    expect(mocks.capture).not.toHaveBeenCalled();
-    expect(mocks.toast).not.toHaveBeenCalled();
-  });
-
-  it("captures the same TypeError once while the lookup remains current", async () => {
-    mocks.fetch.mockRejectedValueOnce(new TypeError("same live-looking failure"));
-    await renderProvider();
-    expect(current().state).toBe("loading");
-
-    await advance(0);
-
-    expect(current().state).toBe("error");
-    expect(mocks.capture).toHaveBeenCalledTimes(1);
-    expect(mocks.capture).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Shell profile lookup failed" }),
-      { tags: { area: "navigation", operation: "shell_profile_lookup" } },
-    );
-  });
-
-  it("drops a live-looking failure when pagehide wins during deferred commitment", async () => {
-    mocks.fetch.mockRejectedValueOnce(new TypeError("same live-looking failure"));
-    await renderProvider();
-    expect(current().state).toBe("loading");
-
-    act(() => window.dispatchEvent(new Event("pagehide")));
-    await advance(0);
-
-    expect(current().state).toBe("loading");
-    expect(mocks.capture).not.toHaveBeenCalled();
-    expect(mocks.toast).not.toHaveBeenCalled();
   });
 });
 
