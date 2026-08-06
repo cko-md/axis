@@ -45,7 +45,7 @@ function fallbackFailure(error: unknown) {
   if (error instanceof PoetryDbPayloadError || error instanceof SyntaxError) {
     return { code: "INVALID_RESPONSE", expected: false } as const;
   }
-  if (error instanceof Error && error.name === "TimeoutError") {
+  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
     return { code: "PROVIDER_TIMEOUT", status: 504, expected: false } as const;
   }
   if (error instanceof TypeError) {
@@ -87,6 +87,11 @@ async function readBoundedPoetryDbJson(response: Response): Promise<unknown> {
       || parsedLength < 0
       || parsedLength > MAX_POETRYDB_BODY_BYTES
     ) {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // The route-owned normalized provider event below remains authoritative.
+      }
       throw new PoetryDbPayloadError();
     }
   }
@@ -145,7 +150,14 @@ export async function GET(req: NextRequest) {
         recordBreadcrumbs: false,
       },
     );
-    if (!res.ok) throw new PoetryDbHttpError(res.status);
+    if (!res.ok) {
+      try {
+        await res.body?.cancel();
+      } catch {
+        // Preserve the upstream status as the normalized failure classification.
+      }
+      throw new PoetryDbHttpError(res.status);
+    }
 
     const json = await readBoundedPoetryDbJson(res);
     if (

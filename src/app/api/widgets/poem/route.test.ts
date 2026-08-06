@@ -174,6 +174,46 @@ describe("GET /api/widgets/poem", () => {
     );
   });
 
+  it.each([
+    ["non-ok response", 503, undefined],
+    ["oversized declared body", 200, { "content-length": "262145" }],
+  ])("cancels the upstream body on %s before returning fallback", async (_case, status, headers) => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("private-body"));
+      },
+      cancel,
+    });
+    global.fetch = vi.fn().mockResolvedValue(new Response(body, { status, headers }));
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies an aborted response body read as a provider timeout", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new DOMException("private abort detail", "AbortError"));
+      },
+    });
+    global.fetch = vi.fn().mockResolvedValue(new Response(body));
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.captureException).toHaveBeenCalledTimes(1);
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "poetrydb poem_fetch failed: PROVIDER_TIMEOUT" }),
+      expect.objectContaining({
+        tags: expect.objectContaining({ code: "PROVIDER_TIMEOUT", status: "504" }),
+      }),
+    );
+    expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("private abort detail");
+  });
+
   it("keeps every bundled fallback structurally valid", () => {
     expect(FALLBACK_POEMS.length).toBeGreaterThan(0);
     for (const poem of FALLBACK_POEMS) {
