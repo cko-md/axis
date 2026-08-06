@@ -19,13 +19,11 @@ import {
   type InterfaceSettings,
 } from "@/lib/theme/interface-settings";
 import { getBrowserTimeZone } from "@/lib/dates";
-import type { Json } from "@/lib/supabase/database.types";
+import { isProfileSubject } from "@/lib/auth/profileSubject";
+import { deferFailureCommit } from "@/lib/observability/deferFailureCommit";
 import {
   buildPreferenceEnvelope,
-  createSerialExecutor,
-  fieldWasEditedSince,
-  parsePreferenceEnvelope,
-  preferenceAuthAction,
+  parsePreferenceEnvelopeStrict,
   type PreferenceEnvelope,
 } from "@/lib/theme/preferences";
 
@@ -45,6 +43,39 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 const THEME_KEY = "axis-theme";
 const SETTINGS_KEY = "axis-interface-settings";
+const PREFERENCES_ROUTE = "/api/auth/preferences";
+const UNSAFE_PREFERENCE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+type ActiveRemoteLoad = {
+  controller: AbortController;
+  generation: number;
+  ownershipGeneration: number;
+  identity: symbol;
+  subject: string | null;
+};
+
+type ActiveRemoteWrite = {
+  controller: AbortController;
+  generation: number;
+  ownershipGeneration: number;
+  identity: symbol;
+  subject: string;
+  envelope: PreferenceEnvelope;
+  editRevision: number;
+};
+
+type QueuedRemoteWrite = {
+  ownershipGeneration: number;
+  subject: string;
+  envelope: PreferenceEnvelope;
+  editRevision: number;
+};
+
+type PendingPreferenceDraft = {
+  subject: string;
+  theme: ThemeMode;
+  settings: InterfaceSettings;
+};
 
 function readStorage(key: string): string | null {
   try {
@@ -75,12 +106,80 @@ function parseStoredSettings(raw: string | null): InterfaceSettings | null {
   }
 }
 
+function isJsonValue(value: unknown, depth = 0): boolean {
+  if (depth > 12) return false;
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    return value.every((entry) => isJsonValue(entry, depth + 1));
+  }
+  if (typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).every(
+    ([key, entry]) =>
+      !UNSAFE_PREFERENCE_KEYS.has(key) &&
+      entry !== undefined &&
+      isJsonValue(entry, depth + 1),
+  );
+}
+
+function isPreferenceEnvelope(value: unknown): value is PreferenceEnvelope {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    isJsonValue(value)
+  );
+}
+
+function isPreferenceReadResponse(
+  value: unknown,
+): value is { subject: string; envelope: PreferenceEnvelope } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 2 &&
+    isProfileSubject(record.subject) &&
+    isPreferenceEnvelope(record.envelope)
+  );
+}
+
+function isPreferenceWriteResponse(
+  value: unknown,
+  subject: string,
+): value is { ok: true; subject: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 2 &&
+    record.ok === true &&
+    record.subject === subject
+  );
+}
+
+function isExactErrorResponse(value: unknown, error: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 1 && record.error === error;
+}
+
 function capturePreferenceError(operation: "load" | "save", error: unknown) {
   Sentry.captureException(error instanceof Error ? error : new Error(`Interface preference ${operation} failed`), {
     tags: {
-      feature: "interface-studio",
+      area: "profile",
+      provider: "supabase",
       operation,
-      storage: "user_preferences",
     },
   });
 }
@@ -94,16 +193,72 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [remoteSyncEnabled, setRemoteSyncEnabled] = useState(false);
   const [interfaceStudioOpen, setInterfaceStudioOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const themeEditEpochRef = useRef(0);
-  const settingsEditEpochRef = useRef(0);
-  const remoteUserIdRef = useRef<string | null>(null);
+  const themeValueRef = useRef<ThemeMode>(theme);
+  const settingsValueRef = useRef<InterfaceSettings>(interfaceSettings);
+  const remoteSubjectRef = useRef<string | null>(null);
+  const quarantinedSubjectRef = useRef<string | null>(null);
+  const pendingPreferenceDraftRef = useRef<PendingPreferenceDraft | null>(null);
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
-  // `undefined` = auth has never settled. Distinguishing "not resolved yet" from
-  // "resolved to signed-out" is what lets a repeat auth event be deduped without
-  // swallowing the very first one.
-  const settledForUserRef = useRef<string | null | undefined>(undefined);
-  const writeVersionRef = useRef(0);
-  const writeExecutorRef = useRef(createSerialExecutor());
+  const remoteSyncEnabledRef = useRef(false);
+  const remoteWriteIntentRef = useRef(false);
+  const providerActiveRef = useRef(false);
+  const pageActiveRef = useRef(true);
+  const ownershipGenerationRef = useRef(0);
+  const loadGenerationRef = useRef(0);
+  const writeGenerationRef = useRef(0);
+  const editRevisionRef = useRef(0);
+  const activeLoadRef = useRef<ActiveRemoteLoad | null>(null);
+  const activeWriteRef = useRef<ActiveRemoteWrite | null>(null);
+  const queuedWriteRef = useRef<QueuedRemoteWrite | null>(null);
+  const writeTimerRef = useRef<number | null>(null);
+  const runLoadRef = useRef<(() => void) | null>(null);
+  const startNextWriteRef = useRef<(() => void) | null>(null);
+  themeValueRef.current = theme;
+  settingsValueRef.current = interfaceSettings;
+
+  const retireActiveLoad = useCallback(() => {
+    loadGenerationRef.current += 1;
+    activeLoadRef.current?.controller.abort();
+    activeLoadRef.current = null;
+  }, []);
+
+  const retireActiveWrite = useCallback(() => {
+    writeGenerationRef.current += 1;
+    if (writeTimerRef.current !== null) {
+      window.clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = null;
+    }
+    queuedWriteRef.current = null;
+    activeWriteRef.current?.controller.abort();
+    activeWriteRef.current = null;
+  }, []);
+
+  const quarantineRemoteOwnership = useCallback(
+    (persistence: "loading" | "local" = "loading") => {
+      ownershipGenerationRef.current += 1;
+      retireActiveLoad();
+      retireActiveWrite();
+      if (remoteSubjectRef.current) {
+        if (remoteWriteIntentRef.current) {
+          pendingPreferenceDraftRef.current = {
+            subject: remoteSubjectRef.current,
+            theme: themeValueRef.current,
+            settings: settingsValueRef.current,
+          };
+        }
+        quarantinedSubjectRef.current = remoteSubjectRef.current;
+      }
+      remoteSubjectRef.current = null;
+      remoteEnvelopeRef.current = {};
+      remoteSyncEnabledRef.current = false;
+      remoteWriteIntentRef.current = false;
+      editRevisionRef.current = 0;
+      setRemoteSyncEnabled(false);
+      setRemoteReady(persistence === "local");
+      setInterfacePersistence(persistence);
+    },
+    [retireActiveLoad, retireActiveWrite],
+  );
 
   useEffect(() => {
     const stored = readStorage(THEME_KEY) as ThemeMode | null;
@@ -111,125 +266,332 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const storedSettings = parseStoredSettings(readStorage(SETTINGS_KEY));
     if (storedSettings) setInterfaceSettingsState(storedSettings);
     setMounted(true);
+    providerActiveRef.current = true;
+    pageActiveRef.current = document.visibilityState !== "hidden";
 
-    let cancelled = false;
-    // Supersedes an in-flight load when auth changes again mid-request, so a
-    // slow response for a previous account can never apply over a newer one.
-    let loadToken = 0;
+    const isLoadCurrent = (operation: ActiveRemoteLoad) => {
+      const active = activeLoadRef.current;
+      return (
+        providerActiveRef.current &&
+        pageActiveRef.current &&
+        !operation.controller.signal.aborted &&
+        active === operation &&
+        active.controller === operation.controller &&
+        active.identity === operation.identity &&
+        operation.generation === loadGenerationRef.current &&
+        operation.ownershipGeneration === ownershipGenerationRef.current
+      );
+    };
 
-    const markLocalOnly = () => {
-      remoteUserIdRef.current = null;
+    const commitLocalOnly = (operation: ActiveRemoteLoad) => {
+      if (!isLoadCurrent(operation)) return;
+      remoteSubjectRef.current = null;
+      quarantinedSubjectRef.current = null;
+      pendingPreferenceDraftRef.current = null;
       remoteEnvelopeRef.current = {};
-      setInterfacePersistence("local");
+      remoteSyncEnabledRef.current = false;
+      remoteWriteIntentRef.current = false;
+      editRevisionRef.current = 0;
       setRemoteSyncEnabled(false);
       setRemoteReady(true);
+      setInterfacePersistence("local");
+      activeLoadRef.current = null;
     };
 
-    const loadRemotePreferences = async () => {
-      const token = ++loadToken;
-      // Captured per invocation, not once per mount: each load must compare
-      // against its own start so an edit made while THIS request was in flight
-      // is preserved, while edits from before it are not treated as newer.
-      const themeEpochAtLoad = themeEditEpochRef.current;
-      const settingsEpochAtLoad = settingsEditEpochRef.current;
+    const loadRemotePreferences = async (operation: ActiveRemoteLoad) => {
+      try {
+        const response = await fetch(PREFERENCES_ROUTE, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: operation.controller.signal,
+        });
+        if (!isLoadCurrent(operation)) return;
+        if (!response.ok) {
+          const payload: unknown = await response.json();
+          if (!isLoadCurrent(operation)) return;
+          if (
+            response.status === 401 &&
+            isExactErrorResponse(payload, "UNAUTHENTICATED")
+          ) {
+            commitLocalOnly(operation);
+            return;
+          }
+          if (
+            (response.status === 499 &&
+              isExactErrorResponse(payload, "REQUEST_ABORTED")) ||
+            (response.status === 500 &&
+              isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
+          ) {
+            remoteSyncEnabledRef.current = false;
+            setRemoteSyncEnabled(false);
+            setRemoteReady(true);
+            setInterfacePersistence("error");
+            activeLoadRef.current = null;
+            return;
+          }
+          throw new Error("Interface preference load failed unexpectedly");
+        }
 
-      // getUser(), never getSession() — the identity that selects the row must
-      // stay server-verified.
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (cancelled || token !== loadToken) return;
-      if (authError || !user) {
-        if (authError) capturePreferenceError("load", authError);
-        settledForUserRef.current = null;
-        markLocalOnly();
-        return;
-      }
+        const payload: unknown = await response.json();
+        if (!isLoadCurrent(operation)) return;
+        if (!isPreferenceReadResponse(payload)) {
+          throw new Error("Interface preference response was invalid");
+        }
+        operation.subject = payload.subject;
+        if (!isLoadCurrent(operation) || operation.subject !== payload.subject) {
+          return;
+        }
 
-      const { data, error } = await supabase
-        .from("user_preferences")
-        .select("interface_settings")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (cancelled || token !== loadToken) return;
-      if (error) {
+        const remote = parsePreferenceEnvelopeStrict(payload.envelope);
+        if (!remote) {
+          throw new Error("Interface preference envelope was invalid");
+        }
+        const pendingDraft = pendingPreferenceDraftRef.current;
+        const canRestorePendingDraft =
+          pendingDraft?.subject === payload.subject;
+        remoteSubjectRef.current = payload.subject;
+        quarantinedSubjectRef.current = payload.subject;
+        remoteEnvelopeRef.current = remote.envelope;
+        pendingPreferenceDraftRef.current = null;
+        if (canRestorePendingDraft && pendingDraft) {
+          themeValueRef.current = pendingDraft.theme;
+          settingsValueRef.current = pendingDraft.settings;
+          setThemeState(pendingDraft.theme);
+          setInterfaceSettingsState(pendingDraft.settings);
+          remoteWriteIntentRef.current = true;
+        } else {
+          const nextTheme = remote.theme ?? "dark";
+          const nextSettings = remote.settings ?? DEFAULT_INTERFACE_SETTINGS;
+          themeValueRef.current = nextTheme;
+          settingsValueRef.current = nextSettings;
+          setThemeState(nextTheme);
+          setInterfaceSettingsState(nextSettings);
+          remoteWriteIntentRef.current = false;
+          editRevisionRef.current = 0;
+        }
+        remoteSyncEnabledRef.current = true;
+        setRemoteSyncEnabled(true);
+        setRemoteReady(true);
+        setInterfacePersistence("synced");
+        activeLoadRef.current = null;
+      } catch (error) {
+        await deferFailureCommit();
+        if (!isLoadCurrent(operation)) return;
         capturePreferenceError("load", error);
-        // Deliberately not settled: a later auth event retries rather than
-        // latching this account into a permanent error state.
-        setInterfacePersistence("error");
+        remoteSyncEnabledRef.current = false;
         setRemoteSyncEnabled(false);
         setRemoteReady(true);
+        setInterfacePersistence("error");
+        activeLoadRef.current = null;
+      }
+    };
+
+    const isWriteCurrent = (candidate: ActiveRemoteWrite) => {
+      const active = activeWriteRef.current;
+      return (
+        providerActiveRef.current &&
+        pageActiveRef.current &&
+        remoteSyncEnabledRef.current &&
+        !candidate.controller.signal.aborted &&
+        active === candidate &&
+        active.controller === candidate.controller &&
+        active.identity === candidate.identity &&
+        candidate.generation === writeGenerationRef.current &&
+        candidate.ownershipGeneration === ownershipGenerationRef.current &&
+        candidate.subject === remoteSubjectRef.current
+      );
+    };
+
+    const startNextWrite = () => {
+      if (
+        activeWriteRef.current ||
+        !providerActiveRef.current ||
+        !pageActiveRef.current ||
+        !remoteSyncEnabledRef.current
+      ) {
         return;
       }
+      const queued = queuedWriteRef.current;
+      if (!queued) return;
+      if (
+        queued.ownershipGeneration !== ownershipGenerationRef.current ||
+        queued.subject !== remoteSubjectRef.current
+      ) {
+        queuedWriteRef.current = null;
+        return;
+      }
+      queuedWriteRef.current = null;
+      const candidate: ActiveRemoteWrite = {
+        controller: new AbortController(),
+        generation: ++writeGenerationRef.current,
+        ownershipGeneration: queued.ownershipGeneration,
+        identity: Symbol("interface-preference-write"),
+        subject: queued.subject,
+        envelope: queued.envelope,
+        editRevision: queued.editRevision,
+      };
+      activeWriteRef.current = candidate;
+      setInterfacePersistence("syncing");
 
-      const remote = parsePreferenceEnvelope(data?.interface_settings);
-      remoteUserIdRef.current = user.id;
-      remoteEnvelopeRef.current = remote.envelope;
-      settledForUserRef.current = user.id;
-      if (
-        remote.theme &&
-        !fieldWasEditedSince(
-          themeEpochAtLoad,
-          themeEditEpochRef.current,
-        )
-      ) {
-        setThemeState(remote.theme);
-      }
-      if (
-        remote.settings &&
-        !fieldWasEditedSince(
-          settingsEpochAtLoad,
-          settingsEditEpochRef.current,
-        )
-      ) {
-        setInterfaceSettingsState(remote.settings);
-      }
-      setInterfacePersistence("synced");
-      setRemoteSyncEnabled(true);
-      setRemoteReady(true);
+      const settleAndContinue = (saved: boolean) => {
+        if (!isWriteCurrent(candidate)) return;
+        activeWriteRef.current = null;
+        if (saved) remoteEnvelopeRef.current = candidate.envelope;
+        const next = queuedWriteRef.current;
+        if (
+          next &&
+          next.ownershipGeneration === ownershipGenerationRef.current &&
+          next.subject === remoteSubjectRef.current
+        ) {
+          startNextWrite();
+          return;
+        }
+        if (saved && candidate.editRevision === editRevisionRef.current) {
+          remoteWriteIntentRef.current = false;
+          setInterfacePersistence("synced");
+        } else if (saved) {
+          setInterfacePersistence("syncing");
+        }
+      };
+
+      const persistRemotePreferences = async () => {
+        try {
+          const saveResponse = await fetch(PREFERENCES_ROUTE, {
+            method: "PUT",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              subject: candidate.subject,
+              envelope: candidate.envelope,
+            }),
+            signal: candidate.controller.signal,
+          });
+          if (!isWriteCurrent(candidate)) return;
+          const payload: unknown = await saveResponse.json();
+          if (!isWriteCurrent(candidate)) return;
+          if (!saveResponse.ok) {
+            if (
+              saveResponse.status === 401 &&
+              isExactErrorResponse(payload, "UNAUTHENTICATED")
+            ) {
+              quarantineRemoteOwnership("local");
+              return;
+            }
+            if (
+              saveResponse.status === 409 &&
+              isExactErrorResponse(payload, "PROFILE_SUBJECT_CHANGED")
+            ) {
+              quarantineRemoteOwnership("loading");
+              runLoadRef.current?.();
+              return;
+            }
+            if (
+              (saveResponse.status === 499 &&
+                isExactErrorResponse(payload, "REQUEST_ABORTED")) ||
+              (saveResponse.status === 500 &&
+                isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
+            ) {
+              setInterfacePersistence("error");
+              settleAndContinue(false);
+              return;
+            }
+            throw new Error("Interface preference save failed unexpectedly");
+          }
+          if (!isPreferenceWriteResponse(payload, candidate.subject)) {
+            throw new Error("Interface preference save response was invalid");
+          }
+          settleAndContinue(true);
+        } catch (error) {
+          await deferFailureCommit();
+          if (!isWriteCurrent(candidate)) return;
+          capturePreferenceError("save", error);
+          setInterfacePersistence("error");
+          settleAndContinue(false);
+        }
+      };
+
+      void persistRemotePreferences();
     };
+    startNextWriteRef.current = startNextWrite;
 
     const runLoad = () => {
-      loadRemotePreferences().catch(() => {
-        if (!cancelled) {
-          capturePreferenceError("load", new Error("Interface preference load failed"));
-          setInterfacePersistence("error");
-          setRemoteSyncEnabled(false);
-          setRemoteReady(true);
-        }
-      });
+      if (!providerActiveRef.current || !pageActiveRef.current) return;
+      retireActiveLoad();
+      const operation: ActiveRemoteLoad = {
+        controller: new AbortController(),
+        generation: ++loadGenerationRef.current,
+        ownershipGeneration: ownershipGenerationRef.current,
+        identity: Symbol("interface-preference-load"),
+        subject: null,
+      };
+      activeLoadRef.current = operation;
+      void loadRemotePreferences(operation);
     };
+    runLoadRef.current = runLoad;
 
-    // This provider lives in the root layout, so on the ordinary login path it
-    // mounts while still signed out (middleware sends the first document request
-    // to /login) and the app then signs in via a SOFT navigation — the provider
-    // never remounts. Resolving auth only once at mount therefore pinned every
-    // post-login session to local-only mode: the save effect below stays gated
-    // on remoteSyncEnabled, so Interface Studio silently degraded to
-    // localStorage and nothing was ever written to user_preferences.
-    // Re-resolving on auth transitions is what makes preferences survive a
-    // sign-in, an account switch, and a new device.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (cancelled) return;
-      const nextUserId = session?.user.id ?? null;
-      // The session id is only a dedupe key here; getUser() remains the
-      // authority on identity inside loadRemotePreferences.
-      const action = preferenceAuthAction(event, nextUserId, settledForUserRef.current);
-      if (action === "ignore") return;
-      if (action === "reset-to-local") {
-        loadToken += 1; // abandon anything in flight for the previous account
-        settledForUserRef.current = null;
-        markLocalOnly();
+    const beginAuthoritativeReload = () => {
+      quarantineRemoteOwnership("loading");
+      runLoad();
+    };
+    const handlePageHide = () => {
+      pageActiveRef.current = false;
+      quarantineRemoteOwnership("loading");
+    };
+    const handlePageShow = () => {
+      if (document.visibilityState === "hidden") {
+        pageActiveRef.current = false;
+        quarantineRemoteOwnership("loading");
         return;
       }
-      runLoad();
+      const wasInactive = !pageActiveRef.current;
+      pageActiveRef.current = true;
+      if (!wasInactive) return;
+      beginAuthoritativeReload();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") handlePageHide();
+      else handlePageShow();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+
+    // Auth events are transition signals only. The route response is the sole
+    // identity authority, so every transition first quarantines prior ownership.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      if (!providerActiveRef.current) return;
+      beginAuthoritativeReload();
     });
 
-    runLoad();
+    beginAuthoritativeReload();
 
     return () => {
-      cancelled = true;
+      providerActiveRef.current = false;
+      pageActiveRef.current = false;
+      runLoadRef.current = null;
+      startNextWriteRef.current = null;
+      retireActiveLoad();
+      retireActiveWrite();
+      remoteSubjectRef.current = null;
+      quarantinedSubjectRef.current = null;
+      pendingPreferenceDraftRef.current = null;
+      remoteEnvelopeRef.current = {};
+      remoteSyncEnabledRef.current = false;
+      remoteWriteIntentRef.current = false;
+      editRevisionRef.current = 0;
       subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [supabase]);
+  }, [
+    quarantineRemoteOwnership,
+    retireActiveLoad,
+    retireActiveWrite,
+    supabase,
+  ]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -247,62 +609,94 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [interfaceSettings, theme, mounted]);
 
   useEffect(() => {
-    if (!mounted || !remoteReady || !remoteSyncEnabled) return;
-    let cancelled = false;
-    const userId = remoteUserIdRef.current;
-    if (!userId) return;
-    const writeVersion = ++writeVersionRef.current;
+    if (
+      !mounted ||
+      !remoteReady ||
+      !remoteSyncEnabled ||
+      !remoteWriteIntentRef.current
+    ) {
+      return;
+    }
+    const subject = remoteSubjectRef.current;
+    if (!subject) return;
+    const ownershipGeneration = ownershipGenerationRef.current;
     const envelope = buildPreferenceEnvelope(
       remoteEnvelopeRef.current,
       theme,
       interfaceSettings,
       getBrowserTimeZone(),
     );
-    const persistRemotePreferences = async () => {
-      if (cancelled) return;
-      setInterfacePersistence("syncing");
-      const { error } = await writeExecutorRef.current.enqueue(async () =>
-        await supabase.from("user_preferences").upsert(
-          {
-            user_id: userId,
-            interface_settings: envelope as Json,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id" },
-        ),
-      );
-      if (!cancelled) {
-        if (error) capturePreferenceError("save", error);
-        if (!error) remoteEnvelopeRef.current = envelope;
-        if (writeVersion === writeVersionRef.current) {
-          setInterfacePersistence(error ? "error" : "synced");
-        }
-      }
+    queuedWriteRef.current = {
+      ownershipGeneration,
+      subject,
+      envelope,
+      editRevision: editRevisionRef.current,
     };
-
+    if (activeWriteRef.current) return;
+    if (writeTimerRef.current !== null) {
+      window.clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = null;
+    }
     const timer = window.setTimeout(() => {
-      persistRemotePreferences().catch((error) => {
-        if (!cancelled) {
-          capturePreferenceError("save", error);
-          setInterfacePersistence("error");
-        }
-      });
+      writeTimerRef.current = null;
+      if (
+        !providerActiveRef.current ||
+        !pageActiveRef.current ||
+        !remoteSyncEnabledRef.current ||
+        ownershipGeneration !== ownershipGenerationRef.current ||
+        subject !== remoteSubjectRef.current
+      ) {
+        return;
+      }
+      startNextWriteRef.current?.();
     }, 450);
+    writeTimerRef.current = timer;
 
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      if (writeTimerRef.current === timer) {
+        window.clearTimeout(timer);
+        writeTimerRef.current = null;
+      }
     };
-  }, [interfaceSettings, mounted, remoteReady, remoteSyncEnabled, supabase, theme]);
+  }, [
+    interfaceSettings,
+    mounted,
+    remoteReady,
+    remoteSyncEnabled,
+    theme,
+  ]);
 
   const setTheme = useCallback((t: ThemeMode) => {
-    themeEditEpochRef.current += 1;
+    themeValueRef.current = t;
+    if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
+      editRevisionRef.current += 1;
+      remoteWriteIntentRef.current = true;
+    } else if (quarantinedSubjectRef.current) {
+      editRevisionRef.current += 1;
+      pendingPreferenceDraftRef.current = {
+        subject: quarantinedSubjectRef.current,
+        theme: t,
+        settings: settingsValueRef.current,
+      };
+    }
     setThemeState(t);
   }, []);
   const setInterfaceSettings = useCallback(
     (s: InterfaceSettings | ((prev: InterfaceSettings) => InterfaceSettings)) => {
-      settingsEditEpochRef.current += 1;
-      setInterfaceSettingsState(s);
+      const next = typeof s === "function" ? s(settingsValueRef.current) : s;
+      settingsValueRef.current = next;
+      if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
+        editRevisionRef.current += 1;
+        remoteWriteIntentRef.current = true;
+      } else if (quarantinedSubjectRef.current) {
+        editRevisionRef.current += 1;
+        pendingPreferenceDraftRef.current = {
+          subject: quarantinedSubjectRef.current,
+          theme: themeValueRef.current,
+          settings: next,
+        };
+      }
+      setInterfaceSettingsState(next);
     },
     [],
   );

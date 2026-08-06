@@ -90,6 +90,12 @@ export const ACCENT_PRESETS: Record<
 // Legacy keys from the previous Motivated-Dew palette — reset to gold if encountered.
 const STALE_ACCENTS = new Set(["iris", "arctic", "sapphire", "emerald", "platinum", "neon"]);
 
+export function normalizeAccentPreset(value: unknown): AccentPreset | null {
+  if (typeof value !== "string") return null;
+  if (STALE_ACCENTS.has(value)) return "gold";
+  return Object.hasOwn(ACCENT_PRESETS, value) ? value as AccentPreset : null;
+}
+
 const SURFACE_TOKENS = ["--bg", "--surface", "--surface-2", "--surface-3"] as const;
 const GLASS_TOKENS = ["--glass", "--glass-2"] as const;
 
@@ -140,11 +146,7 @@ export function applyInterfaceSettings(settings: InterfaceSettings) {
   const isLight = root.classList.contains("light");
 
   // ── Accent: drive the gold signal channel + legacy aliases on <html> ──
-  const accentKey: AccentPreset = STALE_ACCENTS.has(settings.accent as string)
-    ? "gold"
-    : settings.accent in ACCENT_PRESETS
-      ? settings.accent
-      : "gold";
+  const accentKey = normalizeAccentPreset(settings.accent) ?? "gold";
   const preset = ACCENT_PRESETS[accentKey];
 
   // primary signal channel — the 77 var(--gold*) call sites read these

@@ -1,10 +1,22 @@
 'use client';
 
 import * as Sentry from '@sentry/nextjs';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import BiometricPrompt from './BiometricPrompt';
 import { usePasskey } from '@/hooks/usePasskey';
 import { useToast } from '@/components/ui/Toast';
+
+type ActiveSettingsLookup = {
+  controller: AbortController;
+  generation: number;
+  identity: symbol;
+};
+
+type PendingSettingsFailure = {
+  operation: ActiveSettingsLookup;
+  status: number | null;
+  errorType: string;
+};
 
 function isMfaAssuranceDeferral(payload: unknown) {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
@@ -22,23 +34,56 @@ export default function BiometricGate() {
   const { isSupported, register } = usePasskey();
   const { toast } = useToast();
   const [lookupNonce, setLookupNonce] = useState(0);
+  const [pendingFailure, setPendingFailure] =
+    useState<PendingSettingsFailure | null>(null);
+  const generationRef = useRef(0);
+  const activeLookupRef = useRef<ActiveSettingsLookup | null>(null);
 
   useEffect(() => {
     let alive = true;
     let pageActive = true;
-    const controller = new AbortController();
-    const isCurrent = () => alive && pageActive && !controller.signal.aborted;
+    const operation: ActiveSettingsLookup = {
+      controller: new AbortController(),
+      generation: ++generationRef.current,
+      identity: Symbol('biometric-settings-lookup'),
+    };
+    activeLookupRef.current?.controller.abort();
+    activeLookupRef.current = operation;
+    setPendingFailure(null);
+    const isCurrent = () => {
+      const active = activeLookupRef.current;
+      return (
+        alive
+        && pageActive
+        && !operation.controller.signal.aborted
+        && active === operation
+        && active.controller === operation.controller
+        && active.identity === operation.identity
+        && active.generation === generationRef.current
+      );
+    };
     const handlePageHide = () => {
+      if (!pageActive) return;
       pageActive = false;
-      controller.abort();
+      operation.controller.abort();
+      if (activeLookupRef.current === operation) activeLookupRef.current = null;
+      setPendingFailure((current) =>
+        current?.operation === operation ? null : current,
+      );
       setShow(false);
     };
     const handlePageShow = () => {
+      if (document.visibilityState === 'hidden') return;
       const wasInactive = !pageActive;
       pageActive = true;
       if (!wasInactive) return;
       setLookupNonce((current) => current + 1);
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') handlePageHide();
+      else handlePageShow();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
 
@@ -48,7 +93,9 @@ export default function BiometricGate() {
         // The route verifies the session server-side. A redundant client-side
         // getUser() can log a native fetch rejection during navigation before
         // its caller can handle it.
-        const response = await fetch('/api/auth/settings', { signal: controller.signal });
+        const response = await fetch('/api/auth/settings', {
+          signal: operation.controller.signal,
+        });
         responseStatus = response.status;
         if (!isCurrent()) return;
         if (response.status === 401) {
@@ -80,28 +127,54 @@ export default function BiometricGate() {
       } catch (error) {
         // Navigation aborts are expected and are not actionable after unmount.
         if (!isCurrent() || (error instanceof DOMException && error.name === 'AbortError')) return;
-        Sentry.captureException(
-          new Error('Biometric setup settings lookup failed'),
-          {
-            tags: {
-              area: 'auth',
-              operation: 'biometric_gate_settings_lookup',
-              status: responseStatus === null ? 'network' : String(responseStatus),
-              error_type: error instanceof Error ? error.name : 'unknown',
-            },
-          },
-        );
-        toast('Could not check passkey setup. Please try again.', 'error', 'Security');
+        setPendingFailure({
+          operation,
+          status: responseStatus,
+          errorType: error instanceof Error ? error.name : 'unknown',
+        });
       }
     })();
 
     return () => {
       alive = false;
-      controller.abort();
+      operation.controller.abort();
+      if (activeLookupRef.current === operation) activeLookupRef.current = null;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
     };
   }, [lookupNonce, toast]);
+
+  useEffect(() => {
+    if (!pendingFailure) return;
+    const { operation } = pendingFailure;
+    const active = activeLookupRef.current;
+    if (
+      operation.controller.signal.aborted
+      || active !== operation
+      || active.controller !== operation.controller
+      || active.identity !== operation.identity
+      || active.generation !== generationRef.current
+    ) {
+      setPendingFailure(null);
+      return;
+    }
+    Sentry.captureException(
+      new Error('Biometric setup settings lookup failed'),
+      {
+        tags: {
+          area: 'auth',
+          operation: 'biometric_gate_settings_lookup',
+          status: pendingFailure.status === null
+            ? 'network'
+            : String(pendingFailure.status),
+          error_type: pendingFailure.errorType,
+        },
+      },
+    );
+    toast('Could not check passkey setup. Please try again.', 'error', 'Security');
+    setPendingFailure(null);
+  }, [pendingFailure, toast]);
 
   if (!show) return null;
 

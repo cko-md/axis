@@ -220,11 +220,19 @@ async function responseRequiresMfa(response: Response) {
   }
 }
 
-async function consumeResponseBody(response: Response) {
+async function consumeResponseBody(
+  response: Response,
+  rethrowTransportFailure = false,
+) {
   try {
     return await response.json() as unknown;
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (
+      isAbortError(error) ||
+      (rethrowTransportFailure && error instanceof TypeError)
+    ) {
+      throw error;
+    }
     return null;
   }
 }
@@ -290,9 +298,12 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const [uploadState, setUploadState] =
     useState<ProfileUploadState>("idle");
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
+  const [pendingLookupFailure, setPendingLookupFailure] =
+    useState<ActiveLookupOperation | null>(null);
 
   const mountedRef = useRef(false);
   const pageActiveRef = useRef(true);
+  const lookupActiveRef = useRef(true);
   const subjectRef = useRef<string | null>(null);
   const profileRef = useRef<ShellProfile | null>(null);
   const draftRef = useRef<ProfileDraft>(EMPTY_DRAFT);
@@ -417,6 +428,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       return (
         mountedRef.current &&
         pageActiveRef.current &&
+        lookupActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -1012,15 +1024,24 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     pageActiveRef.current = true;
+    lookupActiveRef.current = true;
+    const suspendLookup = () => {
+      if (!lookupActiveRef.current) return false;
+      lookupActiveRef.current = false;
+      lookupGenerationRef.current += 1;
+      activeLookupRef.current?.controller.abort();
+      activeLookupRef.current = null;
+      setPendingLookupFailure(null);
+      return true;
+    };
     const handlePageHide = () => {
+      if (!pageActiveRef.current) return;
       pageActiveRef.current = false;
+      suspendLookup();
       storeCurrentSubjectDraft();
       setCommittedProfile(null);
       setDraft(EMPTY_DRAFT);
       setState("loading");
-      lookupGenerationRef.current += 1;
-      activeLookupRef.current?.controller.abort();
-      activeLookupRef.current = null;
 
       const saveWasPending = dirtyRef.current || activeSaveRef.current !== null;
       saveEpochRef.current += 1;
@@ -1054,22 +1075,41 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       }
     };
     const handlePageShow = () => {
-      const wasInactive = !pageActiveRef.current;
+      if (document.visibilityState === "hidden") return;
+      const shouldReload =
+        !pageActiveRef.current || !lookupActiveRef.current;
       pageActiveRef.current = true;
-      if (!wasInactive) return;
+      lookupActiveRef.current = true;
+      if (!shouldReload) return;
+      setCommittedProfile(null);
+      setState("loading");
       lookupFailureCapturedRef.current = false;
       setLookupNonce((current) => current + 1);
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (pageActiveRef.current) {
+          suspendLookup();
+          setCommittedProfile(null);
+          setState("loading");
+        }
+        return;
+      }
+      handlePageShow();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("pageshow", handlePageShow);
     return () => {
       mountedRef.current = false;
       pageActiveRef.current = false;
+      lookupActiveRef.current = false;
       lookupGenerationRef.current += 1;
       activeLookupRef.current?.controller.abort();
       activeLookupRef.current = null;
       cancelSubjectWork(false);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("pageshow", handlePageShow);
     };
@@ -1082,6 +1122,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
+    if (!pageActiveRef.current || !lookupActiveRef.current) return;
     const requestGeneration = ++lookupGenerationRef.current;
     const committedVersionsAtStart = new Map(committedVersionsRef.current);
     const controller = new AbortController();
@@ -1093,6 +1134,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     };
     activeLookupRef.current?.controller.abort();
     activeLookupRef.current = operation;
+    setPendingLookupFailure(null);
     if (!profileRef.current) setState("loading");
 
     void (async () => {
@@ -1147,14 +1189,14 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
         if (!response.ok) {
           if (!bodyWasConsumed) {
-            await consumeResponseBody(response);
+            await consumeResponseBody(response, true);
             if (!isLookupOperationCurrent(operation)) return;
           }
           setState("error");
           return;
         }
 
-        const nextProfile = await consumeResponseBody(response);
+        const nextProfile = await consumeResponseBody(response, true);
         if (!isLookupOperationCurrent(operation)) return;
         if (!isShellProfile(nextProfile)) {
           throw new Error("Invalid shell profile");
@@ -1258,11 +1300,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         if (!isLookupOperationCurrent(operation) || isAbortError(error)) {
           return;
         }
-        if (!lookupFailureCapturedRef.current) {
-          lookupFailureCapturedRef.current = true;
-          captureShellProfileFailure();
-        }
-        setState("error");
+        setPendingLookupFailure(operation);
       }
     })();
 
@@ -1282,6 +1320,20 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     storeCurrentSubjectDraft,
     toast,
   ]);
+
+  useEffect(() => {
+    if (!pendingLookupFailure) return;
+    if (!isLookupOperationCurrent(pendingLookupFailure)) {
+      setPendingLookupFailure(null);
+      return;
+    }
+    if (!lookupFailureCapturedRef.current) {
+      lookupFailureCapturedRef.current = true;
+      captureShellProfileFailure();
+    }
+    setState("error");
+    setPendingLookupFailure(null);
+  }, [isLookupOperationCurrent, pendingLookupFailure]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
