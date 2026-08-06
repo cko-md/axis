@@ -1,12 +1,16 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T04:24:31.631Z",
+  "derivedAt": "2026-08-06T04:27:48.319Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "130106f8bb467e82ac32d18c5d92e2db1714f0a8",
+    "head": "071a2f20b9d122fbf26de5168f6fab251f2b8fff",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "071a2f20",
+        "subject": "docs(state): seal production Sentry repair provenance"
+      },
       {
         "sha": "130106f8",
         "subject": "docs(state): derive production Sentry repair candidate"
@@ -18,7 +22,7 @@
     ],
     "contentTreeHash": "077ca2cccb0ae7cdb796e1eb4a819900b3bd5565ffdf36c7028e157316789ebc",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "794785ad4422ed7fb8035f680b0e0bb8639610224f15f61fcb9eb0eff13e4dec"
+    "fingerprint": "4ae4f81359c4be4918ee781c675751a702cb9ced1aec92bfaff5386fc87ab7da"
   },
   "mergedPrs": [
     {
@@ -329,10 +333,10 @@
     ]
   },
   "gates": {
-    "measured": false,
+    "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "56a014bbcb2094003455d68e21dbebe3c0dd3f9e",
-    "sourceContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
+    "sourceHead": "071a2f20b9d122fbf26de5168f6fab251f2b8fff",
+    "sourceContentTreeHash": "077ca2cccb0ae7cdb796e1eb4a819900b3bd5565ffdf36c7028e157316789ebc",
     "typecheck": {
       "passed": true
     },
@@ -340,24 +344,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2411,
-      "total": 2411,
-      "files": 272,
-      "suites": 760
+      "passed": 2450,
+      "total": 2450,
+      "files": 275,
+      "suites": 766
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4104,
+      "used": 4110,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T22:02:35.525Z",
-    "note": "carried forward; re-run with --gates to measure"
+    "measuredAt": "2026-08-06T04:27:48.229Z"
   }
 }
