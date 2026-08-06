@@ -1,12 +1,16 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T04:24:14.403Z",
+  "derivedAt": "2026-08-06T04:24:31.631Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "2773c9c153240db0968828de7fccc3f04c2a9cbe",
+    "head": "130106f8bb467e82ac32d18c5d92e2db1714f0a8",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
-    "workingTreeClean": false,
+    "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "130106f8",
+        "subject": "docs(state): derive production Sentry repair candidate"
+      },
       {
         "sha": "2773c9c1",
         "subject": "fix(observability): harden production lifecycle reporting"
@@ -14,7 +18,7 @@
     ],
     "contentTreeHash": "077ca2cccb0ae7cdb796e1eb4a819900b3bd5565ffdf36c7028e157316789ebc",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "1b444022b02c8723fe97ca0a2f40a7294b64b65cfd1107ad7f2a7e58cfdedb49"
+    "fingerprint": "794785ad4422ed7fb8035f680b0e0bb8639610224f15f61fcb9eb0eff13e4dec"
   },
   "mergedPrs": [
     {
