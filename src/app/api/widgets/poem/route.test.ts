@@ -91,6 +91,24 @@ describe("GET /api/widgets/poem", () => {
     }));
   });
 
+  it("emits only the route-owned fallback breadcrumb for a slow provider failure", async () => {
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValue(2_000);
+    global.fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 503 }));
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.captureException).not.toHaveBeenCalled();
+    expect(mocks.addBreadcrumb).toHaveBeenCalledTimes(1);
+    expect(mocks.addBreadcrumb).toHaveBeenCalledWith(expect.objectContaining({
+      category: "provider.fallback",
+      level: "warning",
+    }));
+  });
+
   it("keeps every bundled fallback structurally valid", () => {
     expect(FALLBACK_POEMS.length).toBeGreaterThan(0);
     for (const poem of FALLBACK_POEMS) {

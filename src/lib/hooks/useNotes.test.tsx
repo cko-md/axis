@@ -120,6 +120,51 @@ describe("useNotes load lifecycle", () => {
     expect(latest?.saveError).toBeNull();
   });
 
+  it("restarts an aborted load after an ordinary pageshow", async () => {
+    const pending = deferred<{ data: Note[] | null; error: unknown }>();
+    const interrupted = loadBuilder(pending.promise);
+    const restored = loadBuilder(Promise.resolve({ data: [note("restored")], error: null }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from.mockReturnValueOnce(interrupted.builder).mockReturnValueOnce(restored.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    expect(interrupted.signals).toHaveLength(1);
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(interrupted.signals[0].aborted).toBe(true);
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(mocks.from).toHaveBeenCalledTimes(2);
+    expect(latest?.notes.map((item) => item.id)).toEqual(["restored"]);
+    expect(latest?.loading).toBe(false);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("finishes an ordinary pageshow recovery with a visible load failure", async () => {
+    const pending = deferred<{ data: Note[] | null; error: unknown }>();
+    const interrupted = loadBuilder(pending.promise);
+    const failed = loadBuilder(Promise.resolve({ data: null, error: { code: "network", status: 503 } }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from.mockReturnValueOnce(interrupted.builder).mockReturnValueOnce(failed.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.saveError).toBe("Could not load notes — check your connection and retry.");
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+    pending.resolve({ data: [note("stale")], error: null });
+    await act(flushFailureCommit);
+    expect(latest?.notes).toEqual([]);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+  });
+
   it("does not treat a current auth failure as ordinary signed-out state", async () => {
     const authError = { code: "network", status: 503 };
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: authError });

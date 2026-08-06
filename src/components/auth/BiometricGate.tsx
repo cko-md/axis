@@ -33,9 +33,9 @@ export default function BiometricGate() {
       controller.abort();
       setShow(false);
     };
-    const handlePageShow = (event: PageTransitionEvent) => {
+    const handlePageShow = () => {
       pageActive = true;
-      if (event.persisted) setLookupNonce((current) => current + 1);
+      setLookupNonce((current) => current + 1);
     };
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);

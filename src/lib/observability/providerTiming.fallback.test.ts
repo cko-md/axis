@@ -35,7 +35,7 @@ describe("provider timing fallback ownership", () => {
       provider: "example",
       operation: "read",
       captureFailures: false,
-      recordFailureBreadcrumbs: false,
+      recordBreadcrumbs: false,
     })).rejects.toThrow("provider offline");
 
     expect(console.info).toHaveBeenCalledWith(

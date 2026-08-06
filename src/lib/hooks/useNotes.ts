@@ -203,8 +203,8 @@ export function useNotes() {
         setUserId(null);
         setNotes([]);
         setLoading(true);
-        void refresh();
       }
+      void refresh();
     };
     window.addEventListener("pagehide", invalidate);
     window.addEventListener("pageshow", restore);

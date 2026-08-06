@@ -124,6 +124,51 @@ describe("useTasks load lifecycle", () => {
     expect(latest?.error).toBeNull();
   });
 
+  it("restarts an aborted load after an ordinary pageshow", async () => {
+    const pending = deferred<{ data: Task[] | null; error: unknown }>();
+    const interrupted = loadBuilder(pending.promise);
+    const restored = loadBuilder(Promise.resolve({ data: [task("restored")], error: null }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from.mockReturnValueOnce(interrupted.builder).mockReturnValueOnce(restored.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    expect(interrupted.signals).toHaveLength(1);
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(interrupted.signals[0].aborted).toBe(true);
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(mocks.from).toHaveBeenCalledTimes(2);
+    expect(latest?.tasks.map((item) => item.id)).toEqual(["restored"]);
+    expect(latest?.loading).toBe(false);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("finishes an ordinary pageshow recovery with a visible load failure", async () => {
+    const pending = deferred<{ data: Task[] | null; error: unknown }>();
+    const interrupted = loadBuilder(pending.promise);
+    const failed = loadBuilder(Promise.resolve({ data: null, error: { code: "network", status: 503 } }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from.mockReturnValueOnce(interrupted.builder).mockReturnValueOnce(failed.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error?.message).toBe("Could not load tasks — check your connection and retry.");
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+    pending.resolve({ data: [task("stale")], error: null });
+    await act(flushFailureCommit);
+    expect(latest?.tasks).toEqual([]);
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the identical current load failure visible and captures it once", async () => {
     const sameError = new TypeError("same live-looking failure");
     const load = loadBuilder(Promise.reject(sameError));

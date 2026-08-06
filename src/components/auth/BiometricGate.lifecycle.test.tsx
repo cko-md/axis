@@ -108,6 +108,43 @@ describe("BiometricGate lookup lifecycle", () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
+  it("restarts an aborted lookup after an ordinary pageshow", async () => {
+    const interrupted = deferred<never>();
+    mocks.fetch
+      .mockReturnValueOnce(interrupted.promise)
+      .mockResolvedValueOnce(promptedResponse(false));
+
+    act(() => root?.render(<BiometricGate />));
+    const request = mocks.fetch.mock.calls[0]?.[1] as RequestInit;
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(request.signal?.aborted).toBe(true);
+
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain("biometric prompt");
+    expect(mocks.captureException).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("reports only the new live failure after an ordinary pageshow", async () => {
+    const interrupted = deferred<never>();
+    mocks.fetch
+      .mockReturnValueOnce(interrupted.promise)
+      .mockRejectedValueOnce(new TypeError("restored lookup failed"));
+
+    act(() => root?.render(<BiometricGate />));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).not.toContain("biometric prompt");
+    expect(mocks.captureException).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+  });
+
   it("drops a delayed response body after pagehide", async () => {
     const body = deferred<unknown>();
     mocks.fetch.mockResolvedValueOnce({

@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
         // application failure. timedProviderFetch still records safe timing;
         // this route emits the single fallback breadcrumb below.
         captureFailures: false,
-        recordFailureBreadcrumbs: false,
+        recordBreadcrumbs: false,
       },
     );
     if (!res.ok) throw new Error(`PoetryDB ${res.status}`);

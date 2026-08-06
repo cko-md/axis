@@ -194,8 +194,8 @@ export function useTasks() {
         setUserId(null);
         setTasks([]);
         setLoading(true);
-        void refresh();
       }
+      void refresh();
     };
     window.addEventListener("pagehide", invalidate);
     window.addEventListener("pageshow", restore);

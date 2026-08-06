@@ -8,7 +8,7 @@ type ProviderTimingOptions = {
   operation: string;
   transport?: string;
   captureFailures?: boolean;
-  recordFailureBreadcrumbs?: boolean;
+  recordBreadcrumbs?: boolean;
   timeoutMs?: number;
   slowMs?: number;
   retry?: ProviderRetryOptions;
@@ -152,12 +152,14 @@ function recordProviderRetry(
     ...opts.tags,
     ...extra,
   };
-  Sentry.addBreadcrumb({
-    category: "provider.retry",
-    level: "info",
-    message: `${opts.provider}.${opts.operation}`,
-    data,
-  });
+  if (opts.recordBreadcrumbs !== false) {
+    Sentry.addBreadcrumb({
+      category: "provider.retry",
+      level: "info",
+      message: `${opts.provider}.${opts.operation}`,
+      data,
+    });
+  }
   logTiming("provider-retry", data);
 }
 
@@ -173,7 +175,7 @@ export function recordProviderFailure(
 
   logTiming("provider", data);
 
-  if (opts.recordFailureBreadcrumbs !== false) {
+  if (opts.recordBreadcrumbs !== false) {
     Sentry.addBreadcrumb({
       category: "provider.failure",
       level: shouldCapture(failure) ? "error" : "warning",
@@ -214,12 +216,14 @@ export async function timedProviderOperation<T>(
     const durationMs = nowMs() - startedAt;
     if (durationMs >= slowMs) {
       const data = timingData(opts, durationMs, "slow");
-      Sentry.addBreadcrumb({
-        category: "provider.slow",
-        level: "warning",
-        message: `${opts.provider}.${opts.operation}`,
-        data,
-      });
+      if (opts.recordBreadcrumbs !== false) {
+        Sentry.addBreadcrumb({
+          category: "provider.slow",
+          level: "warning",
+          message: `${opts.provider}.${opts.operation}`,
+          data,
+        });
+      }
       logTiming("provider", data);
     }
     return result;
@@ -263,12 +267,14 @@ export async function timedProviderFetch(
           status: res.status,
           target: safeTarget(input),
         });
-        Sentry.addBreadcrumb({
-          category: "provider.slow",
-          level: "warning",
-          message: `${opts.provider}.${opts.operation}`,
-          data,
-        });
+        if (opts.recordBreadcrumbs !== false) {
+          Sentry.addBreadcrumb({
+            category: "provider.slow",
+            level: "warning",
+            message: `${opts.provider}.${opts.operation}`,
+            data,
+          });
+        }
         logTiming("provider", data);
       }
 

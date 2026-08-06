@@ -377,6 +377,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const activeOperation = activeSaveRef.current;
       return (
         mountedRef.current &&
+        pageActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -394,6 +395,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const activeOperation = activeAvatarRef.current;
       return (
         mountedRef.current &&
+        pageActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -1010,10 +1012,32 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       lookupGenerationRef.current += 1;
       activeLookupRef.current?.controller.abort();
       activeLookupRef.current = null;
+
+      const saveWasPending = dirtyRef.current || activeSaveRef.current !== null;
+      saveEpochRef.current += 1;
+      drainingEpochRef.current = null;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      queuedSaveRef.current = null;
+      activeSaveRef.current?.controller.abort();
+      activeSaveRef.current = null;
+      if (saveWasPending) {
+        setSaveState("error");
+        setDraftPending(true);
+      }
+
+      const uploadWasPending = uploadPendingRef.current;
+      uploadGenerationRef.current += 1;
+      activeAvatarRef.current?.controller.abort();
+      activeAvatarRef.current = null;
+      if (uploadWasPending) {
+        setUploadState("error");
+        setUploadPending(false);
+      }
     };
-    const handlePageShow = (event: PageTransitionEvent) => {
+    const handlePageShow = () => {
       pageActiveRef.current = true;
-      if (event.persisted) setLookupNonce((current) => current + 1);
+      setLookupNonce((current) => current + 1);
     };
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("pageshow", handlePageShow);
@@ -1028,7 +1052,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [cancelSubjectWork]);
+  }, [cancelSubjectWork, setDraftPending, setUploadPending]);
 
   useEffect(() => {
     const requestGeneration = ++lookupGenerationRef.current;
