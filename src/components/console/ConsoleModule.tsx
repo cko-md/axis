@@ -33,6 +33,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { ConsoleCaptureBar } from "@/components/console/ConsoleCaptureBar";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
+import { PoemSourceNotice } from "@/components/console/PoemSourceNotice";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
 import { CONSOLE_SECTION_DRILL_INS, taskRingProgress, type ConsoleDrillInSection } from "@/components/console/widget-grid-model";
 import { callAiAction } from "@/lib/ai/callAction";
@@ -148,6 +149,7 @@ function PoemCard() {
           <>
             <div className="g-poem-title">{poem.title}</div>
             <div className="g-poem-author">{poem.author}</div>
+            <PoemSourceNotice source={poem.source} />
             <div className="g-poem-lines" style={{ maxHeight: 320, overflowY: "auto" }}>
               {poem.lines.map((line, i) => (
                 <div key={i} className="g-poem-line">{line || " "}</div>

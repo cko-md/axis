@@ -10,6 +10,72 @@ type PoetryDbPoem = {
   lines: string[];
 };
 
+const MAX_POEM_LINES = 1_000;
+const MAX_POEM_LINE_LENGTH = 5_000;
+const MAX_POEM_METADATA_LENGTH = 500;
+
+class PoetryDbHttpError extends Error {
+  constructor(readonly status: number) {
+    super("PoetryDB request failed");
+    this.name = "PoetryDbHttpError";
+  }
+}
+
+class PoetryDbPayloadError extends Error {
+  constructor() {
+    super("PoetryDB response was invalid");
+    this.name = "PoetryDbPayloadError";
+  }
+}
+
+function fallbackFailure(error: unknown) {
+  if (error instanceof PoetryDbHttpError) {
+    return {
+      code: error.status === 404
+        ? "not_found"
+        : error.status === 429
+          ? "rate_limited"
+          : "provider_error",
+      status: error.status,
+      expected: error.status < 500,
+    } as const;
+  }
+  if (error instanceof PoetryDbPayloadError || error instanceof SyntaxError) {
+    return { code: "INVALID_RESPONSE", expected: false } as const;
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return { code: "PROVIDER_TIMEOUT", status: 504, expected: false } as const;
+  }
+  if (error instanceof TypeError) {
+    return { code: "network", expected: false } as const;
+  }
+  return { code: "provider_error", expected: false } as const;
+}
+
+function isPoetryDbPoem(value: unknown): value is PoetryDbPoem {
+  if (!value || typeof value !== "object") return false;
+  const poem = value as Partial<PoetryDbPoem>;
+  return typeof poem.title === "string"
+    && poem.title.trim().length > 0
+    && poem.title.length <= MAX_POEM_METADATA_LENGTH
+    && typeof poem.author === "string"
+    && poem.author.trim().length > 0
+    && poem.author.length <= MAX_POEM_METADATA_LENGTH
+    && Array.isArray(poem.lines)
+    && poem.lines.length > 0
+    && poem.lines.length <= MAX_POEM_LINES
+    && poem.lines.every((line) => typeof line === "string" && line.length <= MAX_POEM_LINE_LENGTH);
+}
+
+function requestedSeed(req: NextRequest): number {
+  const raw = req.nextUrl.searchParams.get("seed");
+  if (raw !== null && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+  return Math.floor(Date.now() / 86_400_000);
+}
+
 // Mirrors /api/widgets/art: a seed (the client's local day number, or any
 // offset the "Next" button advances to) deterministically picks one entry
 // from the curated public-domain corpus. Same seed, same poem — no re-roll
@@ -18,8 +84,7 @@ type PoetryDbPoem = {
 // rotation's ordering.
 export async function GET(req: NextRequest) {
   const routeStartedAt = Date.now();
-  const seed = parseInt(req.nextUrl.searchParams.get("seed") ?? "0", 10)
-    || Math.floor(Date.now() / 86_400_000);
+  const seed = requestedSeed(req);
   const pick = CURATED_POEMS[seededIndex(seed, CURATED_POEMS.length)];
 
   try {
@@ -40,14 +105,24 @@ export async function GET(req: NextRequest) {
         recordBreadcrumbs: false,
       },
     );
-    if (!res.ok) throw new Error(`PoetryDB ${res.status}`);
+    if (!res.ok) throw new PoetryDbHttpError(res.status);
 
-    const json = (await res.json()) as PoetryDbPoem[] | { status: number };
-    if (!Array.isArray(json) || json.length === 0) throw new Error("Poem not found");
+    const json = (await res.json()) as unknown;
+    if (
+      json
+      && typeof json === "object"
+      && !Array.isArray(json)
+      && "status" in json
+      && typeof json.status === "number"
+      && Number.isInteger(json.status)
+    ) {
+      throw new PoetryDbHttpError(json.status);
+    }
+    if (!Array.isArray(json) || json.length === 0) throw new PoetryDbPayloadError();
 
     // Ambiguous titles can match more than one poem; the shortest fits the card.
-    const poem = [...json].sort((a, b) => a.lines.length - b.lines.length)[0];
-    if (!poem?.lines?.length) throw new Error("Poem empty");
+    const poem = json.filter(isPoetryDbPoem).sort((a, b) => a.lines.length - b.lines.length)[0];
+    if (!poem) throw new PoetryDbPayloadError();
 
     const payload: PoemPayload = {
       title: poem.title,
@@ -59,20 +134,44 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payload, {
       headers: { "Cache-Control": "s-maxage=3600, stale-while-revalidate=86400" },
     });
-  } catch {
+  } catch (error) {
+    const failure = fallbackFailure(error);
+    const telemetry = {
+      area: "console",
+      provider: "poetrydb",
+      operation: "poem_fetch",
+      code: failure.code,
+      ...(failure.status !== undefined ? { status: failure.status } : {}),
+      outcome: "degraded",
+      fallback: true,
+    };
     const fallback = FALLBACK_POEMS[seededIndex(seed, FALLBACK_POEMS.length, 1)];
     Sentry.addBreadcrumb({
       category: "provider.fallback",
-      level: "warning",
+      level: failure.expected ? "info" : "warning",
       message: "poetrydb.poem_fetch",
-      data: {
+      data: telemetry,
+    });
+    const captureContext = {
+      tags: {
         area: "console",
         provider: "poetrydb",
         operation: "poem_fetch",
-        code: "PROVIDER_FALLBACK",
+        code: failure.code,
+        ...(failure.status !== undefined ? { status: String(failure.status) } : {}),
         outcome: "degraded",
+        fallback: "true",
       },
-    });
+      contexts: { providerCall: telemetry },
+    };
+    if (failure.expected) {
+      Sentry.captureMessage("poetrydb poem_fetch degraded", {
+        ...captureContext,
+        level: "info",
+      });
+    } else {
+      Sentry.captureException(new Error(`poetrydb poem_fetch failed: ${failure.code}`), captureContext);
+    }
     logRouteTiming("/api/widgets/poem", routeStartedAt, { fallback: true });
     // Still a 200: the card shows a real poem either way, just from the
     // bundled corpus, and the shorter cache window retries the provider soon.

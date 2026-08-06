@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   addBreadcrumb: vi.fn(),
   captureException: vi.fn(),
+  captureMessage: vi.fn(),
 }));
 
 vi.mock("@sentry/nextjs", () => ({
   addBreadcrumb: mocks.addBreadcrumb,
   captureException: mocks.captureException,
+  captureMessage: mocks.captureMessage,
 }));
 
 import { FALLBACK_POEMS } from "@/lib/content/poems";
@@ -20,9 +22,14 @@ function request() {
   return new NextRequest("https://axis.test/api/widgets/poem?seed=17");
 }
 
+function requestForSeed(seed: number) {
+  return new NextRequest(`https://axis.test/api/widgets/poem?seed=${seed}`);
+}
+
 beforeEach(() => {
   mocks.addBreadcrumb.mockReset();
   mocks.captureException.mockReset();
+  mocks.captureMessage.mockReset();
   vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
@@ -33,13 +40,16 @@ afterEach(() => {
 
 describe("GET /api/widgets/poem", () => {
   it.each([
-    ["timeout", () => Promise.reject(new DOMException("timed out", "TimeoutError"))],
-    ["network", () => Promise.reject(new TypeError("offline"))],
-    ["503", () => Promise.resolve(new Response("{}", { status: 503 }))],
-    ["404", () => Promise.resolve(new Response("{}", { status: 404 }))],
-    ["malformed", () => Promise.resolve(new Response("not-json", { status: 200 }))],
-    ["empty", () => Promise.resolve(Response.json([]))],
-  ])("returns a deterministic bundled 200 for %s recovery", async (_case, implementation) => {
+    ["timeout", () => Promise.reject(new DOMException("timed out", "TimeoutError")), "PROVIDER_TIMEOUT", 504, "exception"],
+    ["network", () => Promise.reject(new TypeError("offline")), "network", undefined, "exception"],
+    ["503", () => Promise.resolve(new Response("{}", { status: 503 })), "provider_error", 503, "exception"],
+    ["404", () => Promise.resolve(new Response("private-body", { status: 404 })), "not_found", 404, "message"],
+    ["429", () => Promise.resolve(new Response("private-body", { status: 429 })), "rate_limited", 429, "message"],
+    ["malformed", () => Promise.resolve(new Response("not-json", { status: 200 })), "INVALID_RESPONSE", undefined, "exception"],
+    ["empty", () => Promise.resolve(Response.json([])), "INVALID_RESPONSE", undefined, "exception"],
+    ["error envelope", () => Promise.resolve(Response.json({ status: 404 })), "not_found", 404, "message"],
+    ["invalid shape", () => Promise.resolve(Response.json([{ title: "Private title", author: "Private author", lines: [7] }])), "INVALID_RESPONSE", undefined, "exception"],
+  ])("returns a deterministic bundled 200 for %s recovery", async (_case, implementation, code, status, captureKind) => {
     global.fetch = vi.fn().mockImplementation(implementation);
 
     const response = await GET(request());
@@ -52,19 +62,43 @@ describe("GET /api/widgets/poem", () => {
     expect(typeof payload.author).toBe("string");
     expect(Array.isArray(payload.lines)).toBe(true);
     expect(payload.lines.length).toBeGreaterThan(0);
-    expect(mocks.captureException).not.toHaveBeenCalled();
     expect(mocks.addBreadcrumb).toHaveBeenCalledTimes(1);
     expect(mocks.addBreadcrumb).toHaveBeenCalledWith(expect.objectContaining({
       category: "provider.fallback",
-      level: "warning",
+      level: captureKind === "message" ? "info" : "warning",
       data: expect.objectContaining({
         area: "console",
         provider: "poetrydb",
         operation: "poem_fetch",
-        code: "PROVIDER_FALLBACK",
+        code,
+        ...(status !== undefined ? { status } : {}),
         outcome: "degraded",
+        fallback: true,
       }),
     }));
+    if (captureKind === "message") {
+      expect(mocks.captureException).not.toHaveBeenCalled();
+      expect(mocks.captureMessage).toHaveBeenCalledTimes(1);
+      expect(mocks.captureMessage).toHaveBeenCalledWith(
+        "poetrydb poem_fetch degraded",
+        expect.objectContaining({
+          level: "info",
+          tags: expect.objectContaining({ code }),
+        }),
+      );
+    } else {
+      expect(mocks.captureMessage).not.toHaveBeenCalled();
+      expect(mocks.captureException).toHaveBeenCalledTimes(1);
+      expect(mocks.captureException).toHaveBeenCalledWith(
+        expect.objectContaining({ message: `poetrydb poem_fetch failed: ${code}` }),
+        expect.objectContaining({ tags: expect.objectContaining({ code }) }),
+      );
+    }
+    expect(JSON.stringify([
+      mocks.captureException.mock.calls,
+      mocks.captureMessage.mock.calls,
+      mocks.addBreadcrumb.mock.calls,
+    ])).not.toMatch(/timed out|offline|not-json|private-body|Private title|Private author/);
   });
 
   it("returns the provider payload with the long cache on success", async () => {
@@ -86,6 +120,7 @@ describe("GET /api/widgets/poem", () => {
       source: "poetrydb",
     });
     expect(mocks.captureException).not.toHaveBeenCalled();
+    expect(mocks.captureMessage).not.toHaveBeenCalled();
     expect(mocks.addBreadcrumb).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ code: "PROVIDER_FALLBACK" }),
     }));
@@ -101,12 +136,24 @@ describe("GET /api/widgets/poem", () => {
     const response = await GET(request());
 
     expect(response.status).toBe(200);
-    expect(mocks.captureException).not.toHaveBeenCalled();
+    expect(mocks.captureException).toHaveBeenCalledTimes(1);
+    expect(mocks.captureMessage).not.toHaveBeenCalled();
     expect(mocks.addBreadcrumb).toHaveBeenCalledTimes(1);
     expect(mocks.addBreadcrumb).toHaveBeenCalledWith(expect.objectContaining({
       category: "provider.fallback",
       level: "warning",
     }));
+  });
+
+  it("keeps explicit seed zero deterministic across fallback requests", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new TypeError("offline"));
+
+    const first = await GET(requestForSeed(0));
+    const second = await GET(requestForSeed(0));
+
+    expect(await first.json()).toEqual(await second.json());
+    expect(mocks.captureException).toHaveBeenCalledTimes(2);
+    expect(mocks.captureMessage).not.toHaveBeenCalled();
   });
 
   it("keeps every bundled fallback structurally valid", () => {
