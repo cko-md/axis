@@ -126,58 +126,26 @@ describe("/api/auth/preferences GET", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
-  it("returns only the opaque subject and owner-scoped envelope", async () => {
-    const q = query();
-    mocks.from.mockReturnValue(q);
-    mocks.result.data = {
-      interface_settings: { theme: "dim", preserved: { revision: 3 } },
-    };
-
+  it("returns only the opaque subject without reading a preference row", async () => {
     const request = getRequest();
     const response = await GET(request);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(payload).toEqual({
-      subject: OWNER_SUBJECT,
-      envelope: { theme: "dim", preserved: { revision: 3 } },
-    });
+    expect(payload).toEqual({ subject: OWNER_SUBJECT });
     expect(JSON.stringify(payload)).not.toContain(OWNER_ID);
-    expect(q.eq).toHaveBeenCalledWith("user_id", OWNER_ID);
-    expect(mocks.abortSignals).toEqual([request.signal]);
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.abortSignals).toEqual([]);
   });
 
-  it("fails closed on invalid stored envelopes and database errors", async () => {
-    mocks.result = {
-      data: { interface_settings: ["not-an-envelope"] },
-      error: null,
-    };
-    let response = await GET(getRequest());
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "PREFERENCES_UNAVAILABLE" });
-    expect(mocks.capture).toHaveBeenCalledTimes(1);
-
-    mocks.capture.mockClear();
-    mocks.result = {
-      data: null,
-      error: { message: "private database detail" },
-    };
-    response = await GET(getRequest());
-    expect(response.status).toBe(500);
-    expect(mocks.capture).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
-      "private database detail",
-    );
-  });
-
-  it("passes the request signal to the RLS query and does not capture cancellation", async () => {
+  it("honors cancellation after identity resolution without capturing", async () => {
     const controller = new AbortController();
     controller.abort();
     const response = await GET(getRequest(controller.signal));
 
     expect(response.status).toBe(499);
-    expect(mocks.abortSignals[0]?.aborted).toBe(true);
+    expect(mocks.from).not.toHaveBeenCalled();
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 });

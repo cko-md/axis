@@ -8,20 +8,36 @@ import { DEFAULT_INTERFACE_SETTINGS } from "@/lib/theme/interface-settings";
 const mocks = vi.hoisted(() => ({
   authCallback: null as ((event?: string, session?: unknown) => void) | null,
   capture: vi.fn(),
+  eq: vi.fn(),
   fetch: vi.fn(),
+  from: vi.fn(),
+  rlsRead: vi.fn(),
   unsubscribe: vi.fn(),
 }));
 
 vi.mock("@sentry/nextjs", () => ({ captureException: mocks.capture }));
 vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    auth: {
-      onAuthStateChange: (callback: (event?: string, session?: unknown) => void) => {
-        mocks.authCallback = callback;
-        return { data: { subscription: { unsubscribe: mocks.unsubscribe } } };
+  createClient: () => {
+    const query: Record<string, ReturnType<typeof vi.fn>> = {};
+    let readSignal: AbortSignal | undefined;
+    query.select = vi.fn(() => query);
+    query.eq = mocks.eq;
+    query.abortSignal = vi.fn((signal: AbortSignal) => {
+      readSignal = signal;
+      return query;
+    });
+    query.maybeSingle = vi.fn(() => mocks.rlsRead(readSignal));
+    mocks.from.mockReturnValue(query);
+    return {
+      auth: {
+        onAuthStateChange: (callback: (event?: string, session?: unknown) => void) => {
+          mocks.authCallback = callback;
+          return { data: { subscription: { unsubscribe: mocks.unsubscribe } } };
+        },
       },
-    },
-  }),
+      from: mocks.from,
+    };
+  },
 }));
 
 import { ThemeProvider, useTheme } from "./ThemeProvider";
@@ -58,9 +74,12 @@ function response(status: number, body: unknown) {
 
 function readResponse(
   subject = SUBJECT_A,
-  envelope: Record<string, unknown> = {},
 ) {
-  return response(200, { subject, envelope });
+  return response(200, { subject });
+}
+
+function preferenceRow(envelope: Record<string, unknown> = {}) {
+  return { data: { interface_settings: envelope }, error: null };
 }
 
 let observed: ReturnType<typeof useTheme> | null;
@@ -104,6 +123,10 @@ beforeEach(() => {
   mocks.authCallback = null;
   mocks.capture.mockReset();
   mocks.fetch.mockReset();
+  mocks.eq.mockReset();
+  mocks.from.mockReset();
+  mocks.rlsRead.mockReset();
+  mocks.rlsRead.mockResolvedValue(preferenceRow());
   mocks.unsubscribe.mockReset();
   observed = null;
   const container = document.createElement("div");
@@ -247,13 +270,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
   it("discards A and ownershipless edits when B resolves with an empty envelope", async () => {
     const pendingB = deferred<unknown>();
     mocks.fetch
-      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
-        theme: "light",
-        settings: {
-          ...DEFAULT_INTERFACE_SETTINGS,
-          surfaceTone: "lifted",
-        },
-      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingB.promise);
 
     await renderProvider();
@@ -278,6 +295,95 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     await act(flushMicrotasks);
 
     expect(writes()).toHaveLength(0);
+  });
+
+  it("stages an edit after opaque identity resolves while the direct RLS read is pending", async () => {
+    const pendingRead = deferred<unknown>();
+    let directSignal: AbortSignal | undefined;
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+    mocks.rlsRead.mockImplementationOnce((signal: AbortSignal) => {
+      directSignal = signal;
+      return pendingRead.promise;
+    });
+
+    await renderProvider();
+    expect(current().interfacePersistence).toBe("loading");
+    expect(mocks.from).toHaveBeenCalledWith("user_preferences");
+    expect(mocks.eq).not.toHaveBeenCalled();
+
+    act(() => current().setTheme("dim"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+
+    pendingRead.resolve(preferenceRow({ theme: "dark" }));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("dim");
+    expect(directSignal?.aborted).toBe(false);
+
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(1);
+    const body = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(body).toEqual(expect.objectContaining({
+      subject: SUBJECT_A,
+      envelope: expect.objectContaining({ theme: "dim" }),
+    }));
+    expect(JSON.stringify(mocks.fetch.mock.calls)).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+    );
+  });
+
+  it("captures a direct RLS read failure once and never performs a blind PUT", async () => {
+    mocks.fetch.mockResolvedValueOnce(readResponse(SUBJECT_A));
+    mocks.rlsRead.mockResolvedValueOnce({
+      data: null,
+      error: { message: "private direct read detail" },
+    });
+
+    await renderProvider();
+    expect(mocks.capture).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(0));
+    await act(flushMicrotasks);
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "private direct read detail",
+    );
+    act(() => current().setTheme("slate"));
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("drops a stale direct A response after authoritative identity changes to B", async () => {
+    const pendingA = deferred<unknown>();
+    let signalA: AbortSignal | undefined;
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B));
+    mocks.rlsRead
+      .mockImplementationOnce((signal: AbortSignal) => {
+        signalA = signal;
+        return pendingA.promise;
+      })
+      .mockResolvedValueOnce(preferenceRow({ theme: "slate" }));
+
+    await renderProvider();
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+
+    expect(signalA?.aborted).toBe(true);
+    expect(current().theme).toBe("slate");
+    expect(current().interfacePersistence).toBe("synced");
+
+    pendingA.resolve(preferenceRow({ theme: "light" }));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    expect(mocks.capture).not.toHaveBeenCalled();
   });
 
   it("aborts an in-flight A write before an auth transition can load B", async () => {
@@ -316,7 +422,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const visibility = vi.spyOn(document, "visibilityState", "get");
     const pendingReload = deferred<unknown>();
     mocks.fetch
-      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingReload.promise)
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
@@ -332,7 +438,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
 
     visibility.mockReturnValue("visible");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
-    pendingReload.resolve(readResponse(SUBJECT_A, { theme: "dark" }));
+    pendingReload.resolve(readResponse(SUBJECT_A));
     await act(flushMicrotasks);
 
     expect(current().theme).toBe("light");
@@ -348,7 +454,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
   it("stages edits made while a same-subject authoritative reload is pending", async () => {
     const pendingReload = deferred<unknown>();
     mocks.fetch
-      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dark" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingReload.promise)
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
@@ -365,10 +471,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     await act(flushMicrotasks);
     expect(writes()).toHaveLength(0);
 
-    pendingReload.resolve(readResponse(SUBJECT_A, {
-      theme: "dark",
-      settings: DEFAULT_INTERFACE_SETTINGS,
-    }));
+    pendingReload.resolve(readResponse(SUBJECT_A));
     await act(flushMicrotasks);
 
     expect(current().theme).toBe("light");

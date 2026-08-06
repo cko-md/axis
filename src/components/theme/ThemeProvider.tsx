@@ -139,15 +139,13 @@ function isPreferenceEnvelope(value: unknown): value is PreferenceEnvelope {
 
 function isPreferenceReadResponse(
   value: unknown,
-): value is { subject: string; envelope: PreferenceEnvelope } {
+): value is { subject: string } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
   return (
-    Object.keys(record).length === 2 &&
-    isProfileSubject(record.subject) &&
-    isPreferenceEnvelope(record.envelope)
+    Object.keys(record).length === 1 && isProfileSubject(record.subject)
   );
 }
 
@@ -342,7 +340,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const remote = parsePreferenceEnvelopeStrict(payload.envelope);
+        // The server route is identity authority only. Once its opaque subject
+        // is known, the browser performs the row read under Supabase RLS so the
+        // request remains abortable and never carries a user UUID or filter.
+        quarantinedSubjectRef.current = payload.subject;
+        const { data, error } = await supabase
+          .from("user_preferences")
+          .select("interface_settings")
+          .abortSignal(operation.controller.signal)
+          .maybeSingle();
+        if (!isLoadCurrent(operation)) return;
+        if (error) {
+          throw new Error("Interface preference RLS read failed");
+        }
+        const envelope = data?.interface_settings ?? {};
+        if (!isPreferenceEnvelope(envelope)) {
+          throw new Error("Interface preference RLS response was invalid");
+        }
+
+        const remote = parsePreferenceEnvelopeStrict(envelope);
         if (!remote) {
           throw new Error("Interface preference envelope was invalid");
         }
