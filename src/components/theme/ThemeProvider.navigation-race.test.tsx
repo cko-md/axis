@@ -242,6 +242,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
   it("captures unexpected save failures but suppresses only exact route errors", async () => {
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(response(500, {
         error: "PREFERENCES_UNAVAILABLE",
       }))
@@ -271,7 +272,9 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingB = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
-      .mockImplementationOnce(() => pendingB.promise);
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce(() => pendingB.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B));
 
     await renderProvider();
     expect(current().interfacePersistence).toBe("synced");
@@ -301,6 +304,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingRead = deferred<unknown>();
     let directSignal: AbortSignal | undefined;
     mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
     mocks.rlsRead.mockImplementationOnce((signal: AbortSignal) => {
@@ -359,11 +363,26 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     expect(writes()).toHaveLength(0);
   });
 
+  it("does not duplicate an exact route 500 from the S2 identity check", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(response(500, {
+        error: "PREFERENCES_UNAVAILABLE",
+      }));
+
+    await renderProvider();
+
+    expect(current().interfacePersistence).toBe("error");
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(writes()).toHaveLength(0);
+  });
+
   it("drops a stale direct A response after authoritative identity changes to B", async () => {
     const pendingA = deferred<unknown>();
     let signalA: AbortSignal | undefined;
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
       .mockResolvedValueOnce(readResponse(SUBJECT_B));
     mocks.rlsRead
       .mockImplementationOnce((signal: AbortSignal) => {
@@ -386,17 +405,107 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
+  it("rejects an S2 mismatch and never transfers the pending A draft to B", async () => {
+    const pendingARead = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B));
+    mocks.rlsRead.mockImplementationOnce(() => pendingARead.promise);
+
+    await renderProvider();
+    act(() => current().setTheme("light"));
+    pendingARead.resolve(preferenceRow({ theme: "dark" }));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("dark");
+    expect(current().interfacePersistence).toBe("synced");
+    expect(reads()).toHaveLength(4);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(writes()).toHaveLength(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("drops a stale S2 response after a newer B epoch completes", async () => {
+    const pendingS2 = deferred<unknown>();
+    let staleSignal: AbortSignal | null | undefined;
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        staleSignal = init.signal;
+        return pendingS2.promise;
+      })
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow({ theme: "light" }))
+      .mockResolvedValueOnce(preferenceRow({ theme: "slate" }));
+
+    await renderProvider();
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+
+    expect(staleSignal?.aborted).toBe(true);
+    expect(current().theme).toBe("slate");
+    pendingS2.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("slate");
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("invalidates A to B to A reads with monotonic ownership epochs", async () => {
+    const pendingFirstA = deferred<unknown>();
+    const pendingB = deferred<unknown>();
+    const signals: AbortSignal[] = [];
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A));
+    mocks.rlsRead
+      .mockImplementationOnce((signal: AbortSignal) => {
+        signals.push(signal);
+        return pendingFirstA.promise;
+      })
+      .mockImplementationOnce((signal: AbortSignal) => {
+        signals.push(signal);
+        return pendingB.promise;
+      })
+      .mockResolvedValueOnce(preferenceRow({ theme: "dim" }));
+
+    await renderProvider();
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => mocks.authCallback?.("TOKEN_REFRESHED"));
+    await act(flushMicrotasks);
+
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(current().theme).toBe("dim");
+    expect(current().interfacePersistence).toBe("synced");
+
+    pendingB.resolve(preferenceRow({ theme: "slate" }));
+    pendingFirstA.resolve(preferenceRow({ theme: "light" }));
+    await act(flushMicrotasks);
+    expect(current().theme).toBe("dim");
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it("aborts an in-flight A write before an auth transition can load B", async () => {
     const pendingWrite = deferred<unknown>();
     const pendingB = deferred<unknown>();
     let writeSignal: AbortSignal | null | undefined;
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce((_url: string, init: RequestInit) => {
         writeSignal = init.signal;
         return pendingWrite.promise;
       })
-      .mockImplementationOnce(() => pendingB.promise);
+      .mockImplementationOnce(() => pendingB.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B));
 
     await renderProvider();
     act(() => current().setTheme("light"));
@@ -423,7 +532,9 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingReload = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingReload.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
     await renderProvider();
@@ -455,7 +566,9 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingReload = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingReload.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
     await renderProvider();
@@ -494,6 +607,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingFirstWrite = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingFirstWrite.promise)
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
@@ -530,6 +644,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingFirstWrite = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockImplementationOnce(() => pendingFirstWrite.promise)
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
@@ -561,10 +676,12 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingB = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
-      .mockImplementationOnce(() => pendingB.promise);
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockImplementationOnce(() => pendingB.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_B));
 
     await renderProvider();
-    expect(reads()).toHaveLength(1);
+    expect(reads()).toHaveLength(2);
 
     visibility.mockReturnValue("hidden");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -573,12 +690,12 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     await act(flushMicrotasks);
 
     expect(current().interfacePersistence).toBe("loading");
-    expect(reads()).toHaveLength(1);
+    expect(reads()).toHaveLength(2);
 
     visibility.mockReturnValue("visible");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await act(flushMicrotasks);
-    expect(reads()).toHaveLength(2);
+    expect(reads()).toHaveLength(3);
 
     pendingB.resolve(readResponse(SUBJECT_B));
     await act(flushMicrotasks);
@@ -611,7 +728,9 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
   it("reloads authoritative ownership after a subject-conflict write", async () => {
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(response(409, { error: "PROFILE_SUBJECT_CHANGED" }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
       .mockResolvedValueOnce(readResponse(SUBJECT_B));
 
     await renderProvider();
@@ -619,7 +738,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     act(() => vi.advanceTimersByTime(450));
     await act(flushMicrotasks);
 
-    expect(reads()).toHaveLength(2);
+    expect(reads()).toHaveLength(4);
     expect(current().interfacePersistence).toBe("synced");
     expect(mocks.capture).not.toHaveBeenCalled();
   });

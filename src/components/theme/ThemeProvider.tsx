@@ -52,6 +52,8 @@ type ActiveRemoteLoad = {
   ownershipGeneration: number;
   identity: symbol;
   subject: string | null;
+  editRevisionAtStart: number;
+  editRevisionAtSubject: number | null;
 };
 
 type ActiveRemoteWrite = {
@@ -296,54 +298,65 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       activeLoadRef.current = null;
     };
 
+    const readAuthoritativeSubject = async (operation: ActiveRemoteLoad) => {
+      const response = await fetch(PREFERENCES_ROUTE, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: operation.controller.signal,
+      });
+      if (!isLoadCurrent(operation)) return null;
+      if (!response.ok) {
+        const payload: unknown = await response.json();
+        if (!isLoadCurrent(operation)) return null;
+        if (
+          response.status === 401 &&
+          isExactErrorResponse(payload, "UNAUTHENTICATED")
+        ) {
+          commitLocalOnly(operation);
+          return null;
+        }
+        if (
+          (response.status === 499 &&
+            isExactErrorResponse(payload, "REQUEST_ABORTED")) ||
+          (response.status === 500 &&
+            isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
+        ) {
+          remoteSyncEnabledRef.current = false;
+          setRemoteSyncEnabled(false);
+          setRemoteReady(true);
+          setInterfacePersistence("error");
+          activeLoadRef.current = null;
+          return null;
+        }
+        throw new Error("Interface preference load failed unexpectedly");
+      }
+
+      const payload: unknown = await response.json();
+      if (!isLoadCurrent(operation)) return null;
+      if (!isPreferenceReadResponse(payload)) {
+        throw new Error("Interface preference response was invalid");
+      }
+      return payload.subject;
+    };
+
     const loadRemotePreferences = async (operation: ActiveRemoteLoad) => {
       try {
-        const response = await fetch(PREFERENCES_ROUTE, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          signal: operation.controller.signal,
-        });
-        if (!isLoadCurrent(operation)) return;
-        if (!response.ok) {
-          const payload: unknown = await response.json();
-          if (!isLoadCurrent(operation)) return;
-          if (
-            response.status === 401 &&
-            isExactErrorResponse(payload, "UNAUTHENTICATED")
-          ) {
-            commitLocalOnly(operation);
-            return;
-          }
-          if (
-            (response.status === 499 &&
-              isExactErrorResponse(payload, "REQUEST_ABORTED")) ||
-            (response.status === 500 &&
-              isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
-          ) {
-            remoteSyncEnabledRef.current = false;
-            setRemoteSyncEnabled(false);
-            setRemoteReady(true);
-            setInterfacePersistence("error");
-            activeLoadRef.current = null;
-            return;
-          }
-          throw new Error("Interface preference load failed unexpectedly");
-        }
-
-        const payload: unknown = await response.json();
-        if (!isLoadCurrent(operation)) return;
-        if (!isPreferenceReadResponse(payload)) {
-          throw new Error("Interface preference response was invalid");
-        }
-        operation.subject = payload.subject;
-        if (!isLoadCurrent(operation) || operation.subject !== payload.subject) {
+        const initialSubject = await readAuthoritativeSubject(operation);
+        if (!isLoadCurrent(operation) || !initialSubject) return;
+        operation.subject = initialSubject;
+        operation.editRevisionAtSubject = editRevisionRef.current;
+        if (
+          !isLoadCurrent(operation) ||
+          operation.subject !== initialSubject ||
+          operation.editRevisionAtSubject < operation.editRevisionAtStart
+        ) {
           return;
         }
 
         // The server route is identity authority only. Once its opaque subject
         // is known, the browser performs the row read under Supabase RLS so the
         // request remains abortable and never carries a user UUID or filter.
-        quarantinedSubjectRef.current = payload.subject;
+        quarantinedSubjectRef.current = initialSubject;
         const { data, error } = await supabase
           .from("user_preferences")
           .select("interface_settings")
@@ -358,15 +371,30 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           throw new Error("Interface preference RLS response was invalid");
         }
 
+        const confirmedSubject = await readAuthoritativeSubject(operation);
+        if (!isLoadCurrent(operation) || !confirmedSubject) return;
+        if (confirmedSubject !== initialSubject) {
+          quarantineRemoteOwnership("loading");
+          runLoadRef.current?.();
+          return;
+        }
+
         const remote = parsePreferenceEnvelopeStrict(envelope);
         if (!remote) {
           throw new Error("Interface preference envelope was invalid");
         }
         const pendingDraft = pendingPreferenceDraftRef.current;
         const canRestorePendingDraft =
-          pendingDraft?.subject === payload.subject;
-        remoteSubjectRef.current = payload.subject;
-        quarantinedSubjectRef.current = payload.subject;
+          pendingDraft?.subject === confirmedSubject;
+        const editedDuringRead =
+          operation.editRevisionAtSubject !== editRevisionRef.current;
+        if (editedDuringRead && !canRestorePendingDraft) {
+          quarantineRemoteOwnership("loading");
+          runLoadRef.current?.();
+          return;
+        }
+        remoteSubjectRef.current = confirmedSubject;
+        quarantinedSubjectRef.current = confirmedSubject;
         remoteEnvelopeRef.current = remote.envelope;
         pendingPreferenceDraftRef.current = null;
         if (canRestorePendingDraft && pendingDraft) {
@@ -541,6 +569,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         ownershipGeneration: ownershipGenerationRef.current,
         identity: Symbol("interface-preference-load"),
         subject: null,
+        editRevisionAtStart: editRevisionRef.current,
+        editRevisionAtSubject: null,
       };
       activeLoadRef.current = operation;
       void loadRemotePreferences(operation);
