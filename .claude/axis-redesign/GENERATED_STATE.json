@@ -1,17 +1,28 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T02:38:18.398Z",
+  "derivedAt": "2026-08-06T04:24:14.403Z",
   "git": {
-    "branch": "codex/redesign-01-post-auth-policy-state",
-    "head": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
-    "mainHead": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
-    "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
+    "branch": "codex/redesign-01-production-sentry-gate",
+    "head": "2773c9c153240db0968828de7fccc3f04c2a9cbe",
+    "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
+    "workingTreeClean": false,
+    "aheadOfMain": [
+      {
+        "sha": "2773c9c1",
+        "subject": "fix(observability): harden production lifecycle reporting"
+      }
+    ],
+    "contentTreeHash": "077ca2cccb0ae7cdb796e1eb4a819900b3bd5565ffdf36c7028e157316789ebc",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "bc4e124adc9502d17396d00c5f9b98c39605408459ab70481418ff2b62836a00"
+    "fingerprint": "1b444022b02c8723fe97ca0a2f40a7294b64b65cfd1107ad7f2a7e58cfdedb49"
   },
   "mergedPrs": [
+    {
+      "pr": 296,
+      "sha": "7f775b5f",
+      "subject": "docs(state): refresh after AUTH-007 promotion",
+      "committedAt": "2026-08-05T23:27:53-04:00"
+    },
     {
       "pr": 295,
       "sha": "47ccc1ee",
@@ -155,12 +166,6 @@
       "sha": "065bde35",
       "subject": "fix(integrations): make Composio win the Mail/Calendar/Contacts dedup (finding I3)",
       "committedAt": "2026-07-21T09:20:14-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "76948aef",
-      "subject": "docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)",
-      "committedAt": "2026-07-21T01:55:59-04:00"
     }
   ],
   "waves": [
@@ -320,7 +325,7 @@
     ]
   },
   "gates": {
-    "measured": true,
+    "measured": false,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
     "sourceHead": "56a014bbcb2094003455d68e21dbebe3c0dd3f9e",
     "sourceContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
@@ -348,6 +353,7 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T22:02:35.525Z"
+    "measuredAt": "2026-08-05T22:02:35.525Z",
+    "note": "carried forward; re-run with --gates to measure"
   }
 }
