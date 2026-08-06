@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `1069cb0e1dab2c622fa685f6550eb236ec9a17987f74a0ba65eaca1f7cae4590` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `bc4e124adc9502d17396d00c5f9b98c39605408459ab70481418ff2b62836a00` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83`
-- **Source-main tree at derivation:** `d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61`
+- **Source-main tree at derivation:** `a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,27 +33,10 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-01-auth-policy-final`
-- **HEAD:** `56a014bb`
-- **main:** `2527b1f6`
+- **Branch:** `codex/redesign-01-post-auth-policy-state`
+- **HEAD:** `47ccc1ee`
+- **main:** `47ccc1ee`
 - **Working tree:** clean
-
-### Ahead of source main at derivation (14 commit(s))
-
-- `56a014bb` test(ci): enumerate Supabase build origins
-- `0a440da5` fix(ci): use allowlisted Supabase build origin
-- `ffabd659` docs(state): bind AUTH-007 OAuth recovery gates
-- `3c7634de` fix(auth): preserve OAuth failure recovery
-- `d03d7b3e` docs(state): rebind AUTH-007 review fixes
-- `b8c5d51d` fix(auth): recover stale sessions and assurance UX
-- `8c869ab8` docs(state): derive AUTH-007 candidate gates
-- `33e17577` fix(auth): close default-deny policy gaps
-- `5d6a87e9` fix(auth): register middleware telemetry contract
-- `aecfa48d` test(auth): retain route handler Sentry coverage
-- `4ab5e04f` test(auth): remove incomplete tunnel inventory
-- `3bdd4289` fix(auth): prevent Sentry tunnel prefix bypass
-- `c26e868a` test(auth): cover cookie carry on denial redirects
-- `1c72e122` fix(auth): fail closed at middleware boundary
 
 ## Waves merged to main
 
@@ -107,25 +90,25 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 _Human- and agent-authored. Safe to edit. Keep it short and current; delete what
 is no longer true rather than appending._
 
-### 2026-08-05 adversarial remediation continuation
+### 2026-08-06 adversarial remediation continuation
 
 Merge, SHA, defect, and measured local-gate facts live only in the generated
 block above. Hosted production runtime and Sentry verification remain external
 evidence and must be bound to the exact deployed head before any production
 claim.
 
-Complete the protected generated-state refresh and exact production/Sentry
-verification for the DNS-pinned safe outbound-fetch lane before closing
-`SSRF-001`. Preserve the source lane's measured gate evidence across the
-equivalent-tree refresh; production must remain skipped until canonical state
-is aligned.
+The DNS-pinned safe-fetch and fail-closed access-policy source lanes are now on
+canonical main. Their source deployments were intentionally skipped because
+the source-main state fingerprint was stale; this generated-only refresh is the
+sole production build. Preserve the exact measured source evidence and require
+the refreshed production deployment, runtime paths, logs, and Sentry window to
+pass before any production claim.
 
-The fail-closed API access-policy lane follows separately under its one-use
-protected-test authorization requirements. Then continue provider identity,
+`SSRF-001` and `AUTH-007` remain open until a later reviewed authored-state
+transition binds their closure to canonical production evidence. After this
+refresh is verified, continue Phase 1 with `AUTH-006` provider identity, then
 financial truth/order intent, cancellable mutation, generic-mutation
-containment, and distributed auth/rate limits. Open defects above remain
-stop-lines and close only after the fix is on canonical main and a later
-reviewed state change binds closure to the predeclared verification paths.
+containment, and distributed auth/rate limits.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 

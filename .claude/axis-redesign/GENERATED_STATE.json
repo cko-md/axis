@@ -1,74 +1,23 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-05T22:02:35.606Z",
+  "derivedAt": "2026-08-06T02:38:18.398Z",
   "git": {
-    "branch": "codex/redesign-01-auth-policy-final",
-    "head": "56a014bbcb2094003455d68e21dbebe3c0dd3f9e",
-    "mainHead": "2527b1f63d28c9515a971bbf1088b3aba5cbfb88",
+    "branch": "codex/redesign-01-post-auth-policy-state",
+    "head": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
+    "mainHead": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "56a014bb",
-        "subject": "test(ci): enumerate Supabase build origins"
-      },
-      {
-        "sha": "0a440da5",
-        "subject": "fix(ci): use allowlisted Supabase build origin"
-      },
-      {
-        "sha": "ffabd659",
-        "subject": "docs(state): bind AUTH-007 OAuth recovery gates"
-      },
-      {
-        "sha": "3c7634de",
-        "subject": "fix(auth): preserve OAuth failure recovery"
-      },
-      {
-        "sha": "d03d7b3e",
-        "subject": "docs(state): rebind AUTH-007 review fixes"
-      },
-      {
-        "sha": "b8c5d51d",
-        "subject": "fix(auth): recover stale sessions and assurance UX"
-      },
-      {
-        "sha": "8c869ab8",
-        "subject": "docs(state): derive AUTH-007 candidate gates"
-      },
-      {
-        "sha": "33e17577",
-        "subject": "fix(auth): close default-deny policy gaps"
-      },
-      {
-        "sha": "5d6a87e9",
-        "subject": "fix(auth): register middleware telemetry contract"
-      },
-      {
-        "sha": "aecfa48d",
-        "subject": "test(auth): retain route handler Sentry coverage"
-      },
-      {
-        "sha": "4ab5e04f",
-        "subject": "test(auth): remove incomplete tunnel inventory"
-      },
-      {
-        "sha": "3bdd4289",
-        "subject": "fix(auth): prevent Sentry tunnel prefix bypass"
-      },
-      {
-        "sha": "c26e868a",
-        "subject": "test(auth): cover cookie carry on denial redirects"
-      },
-      {
-        "sha": "1c72e122",
-        "subject": "fix(auth): fail closed at middleware boundary"
-      }
-    ],
+    "aheadOfMain": [],
     "contentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "sourceMainContentTreeHash": "d55f5f5b12b87df7fcf735af3d2cbf57177ce6fc37c48e08e70ed1bd555a0f61",
-    "fingerprint": "1069cb0e1dab2c622fa685f6550eb236ec9a17987f74a0ba65eaca1f7cae4590"
+    "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
+    "fingerprint": "bc4e124adc9502d17396d00c5f9b98c39605408459ab70481418ff2b62836a00"
   },
   "mergedPrs": [
+    {
+      "pr": 295,
+      "sha": "47ccc1ee",
+      "subject": "fix(auth): fail closed at the default-deny boundary (AUTH-007)",
+      "committedAt": "2026-08-05T22:35:29-04:00"
+    },
     {
       "pr": 294,
       "sha": "2527b1f6",
@@ -211,12 +160,6 @@
       "pr": null,
       "sha": "76948aef",
       "subject": "docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)",
-      "committedAt": "2026-07-21T01:55:59-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "7ca4af33",
-      "subject": "test(desktop): scope IPC source-scan handlerBody to one handler, not a fixed window (DESKTOP-004)",
       "committedAt": "2026-07-21T01:55:59-04:00"
     }
   ],
