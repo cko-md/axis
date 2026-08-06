@@ -54,6 +54,7 @@ type ActiveRemoteLoad = {
   subject: string | null;
   editRevisionAtStart: number;
   editRevisionAtSubject: number | null;
+  acceptsOwnershiplessEdits: boolean;
 };
 
 type ActiveRemoteWrite = {
@@ -64,6 +65,8 @@ type ActiveRemoteWrite = {
   subject: string;
   envelope: PreferenceEnvelope;
   editRevision: number;
+  themeEditRevision: number;
+  settingsEditRevision: number;
 };
 
 type QueuedRemoteWrite = {
@@ -71,12 +74,22 @@ type QueuedRemoteWrite = {
   subject: string;
   envelope: PreferenceEnvelope;
   editRevision: number;
+  themeEditRevision: number;
+  settingsEditRevision: number;
 };
 
-type PendingPreferenceDraft = {
+type DirtyPreferenceField<T> = {
+  value: T;
+  revision: number;
+};
+
+type PendingPreferenceFields = {
+  theme?: DirtyPreferenceField<ThemeMode>;
+  settings?: DirtyPreferenceField<InterfaceSettings>;
+};
+
+type SubjectPendingPreferenceFields = PendingPreferenceFields & {
   subject: string;
-  theme: ThemeMode;
-  settings: InterfaceSettings;
 };
 
 function readStorage(key: string): string | null {
@@ -141,13 +154,15 @@ function isPreferenceEnvelope(value: unknown): value is PreferenceEnvelope {
 
 function isPreferenceReadResponse(
   value: unknown,
-): value is { subject: string } {
+): value is { subject: string; envelope: PreferenceEnvelope } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
   return (
-    Object.keys(record).length === 1 && isProfileSubject(record.subject)
+    Object.keys(record).length === 2 &&
+    isProfileSubject(record.subject) &&
+    isPreferenceEnvelope(record.envelope)
   );
 }
 
@@ -174,12 +189,40 @@ function isExactErrorResponse(value: unknown, error: string) {
   return Object.keys(record).length === 1 && record.error === error;
 }
 
+class DirectPreferenceReadError extends Error {
+  readonly safeStatus: string;
+  readonly safeCode = "PROFILE_LOAD_FAILED";
+
+  constructor(error: unknown) {
+    super("Interface preference RLS read failed");
+    this.name = "DirectPreferenceReadError";
+    const record = typeof error === "object" && error !== null
+      ? error as Record<string, unknown>
+      : {};
+    this.safeStatus =
+      typeof record.status === "number" &&
+      Number.isInteger(record.status) &&
+      record.status >= 400 &&
+      record.status <= 599
+        ? String(record.status)
+        : "unknown";
+  }
+}
+
 function capturePreferenceError(operation: "load" | "save", error: unknown) {
+  const directRead = error instanceof DirectPreferenceReadError
+    ? {
+        status: error.safeStatus,
+        code: error.safeCode,
+        transport: "direct",
+      }
+    : {};
   Sentry.captureException(error instanceof Error ? error : new Error(`Interface preference ${operation} failed`), {
     tags: {
       area: "profile",
       provider: "supabase",
       operation,
+      ...directRead,
     },
   });
 }
@@ -197,16 +240,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const settingsValueRef = useRef<InterfaceSettings>(interfaceSettings);
   const remoteSubjectRef = useRef<string | null>(null);
   const quarantinedSubjectRef = useRef<string | null>(null);
-  const pendingPreferenceDraftRef = useRef<PendingPreferenceDraft | null>(null);
+  const ownershiplessEditsRef = useRef<PendingPreferenceFields | null>(null);
+  const subjectEditsRef = useRef<SubjectPendingPreferenceFields | null>(null);
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
   const remoteSyncEnabledRef = useRef(false);
   const remoteWriteIntentRef = useRef(false);
+  const themeDirtyRef = useRef(false);
+  const settingsDirtyRef = useRef(false);
   const providerActiveRef = useRef(false);
   const pageActiveRef = useRef(true);
   const ownershipGenerationRef = useRef(0);
   const loadGenerationRef = useRef(0);
   const writeGenerationRef = useRef(0);
   const editRevisionRef = useRef(0);
+  const themeEditRevisionRef = useRef(0);
+  const settingsEditRevisionRef = useRef(0);
   const activeLoadRef = useRef<ActiveRemoteLoad | null>(null);
   const activeWriteRef = useRef<ActiveRemoteWrite | null>(null);
   const queuedWriteRef = useRef<QueuedRemoteWrite | null>(null);
@@ -240,10 +288,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       retireActiveWrite();
       if (remoteSubjectRef.current) {
         if (remoteWriteIntentRef.current) {
-          pendingPreferenceDraftRef.current = {
-            subject: remoteSubjectRef.current,
-            theme: themeValueRef.current,
-            settings: settingsValueRef.current,
+          const existing = subjectEditsRef.current?.subject === remoteSubjectRef.current
+            ? subjectEditsRef.current
+            : { subject: remoteSubjectRef.current };
+          subjectEditsRef.current = {
+            ...existing,
+            ...(themeDirtyRef.current
+              ? {
+                  theme: {
+                    value: themeValueRef.current,
+                    revision: themeEditRevisionRef.current,
+                  },
+                }
+              : {}),
+            ...(settingsDirtyRef.current
+              ? {
+                  settings: {
+                    value: settingsValueRef.current,
+                    revision: settingsEditRevisionRef.current,
+                  },
+                }
+              : {}),
           };
         }
         quarantinedSubjectRef.current = remoteSubjectRef.current;
@@ -252,7 +317,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       remoteEnvelopeRef.current = {};
       remoteSyncEnabledRef.current = false;
       remoteWriteIntentRef.current = false;
-      editRevisionRef.current = 0;
+      themeDirtyRef.current = false;
+      settingsDirtyRef.current = false;
       setRemoteSyncEnabled(false);
       setRemoteReady(persistence === "local");
       setInterfacePersistence(persistence);
@@ -287,18 +353,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!isLoadCurrent(operation)) return;
       remoteSubjectRef.current = null;
       quarantinedSubjectRef.current = null;
-      pendingPreferenceDraftRef.current = null;
+      ownershiplessEditsRef.current = null;
+      subjectEditsRef.current = null;
       remoteEnvelopeRef.current = {};
       remoteSyncEnabledRef.current = false;
       remoteWriteIntentRef.current = false;
-      editRevisionRef.current = 0;
+      themeDirtyRef.current = false;
+      settingsDirtyRef.current = false;
       setRemoteSyncEnabled(false);
       setRemoteReady(true);
       setInterfacePersistence("local");
       activeLoadRef.current = null;
     };
 
-    const readAuthoritativeSubject = async (operation: ActiveRemoteLoad) => {
+    const readAuthoritativePreferences = async (operation: ActiveRemoteLoad) => {
       const response = await fetch(PREFERENCES_ROUTE, {
         method: "GET",
         headers: { Accept: "application/json" },
@@ -336,13 +404,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!isPreferenceReadResponse(payload)) {
         throw new Error("Interface preference response was invalid");
       }
-      return payload.subject;
+      return payload;
     };
 
     const loadRemotePreferences = async (operation: ActiveRemoteLoad) => {
       try {
-        const initialSubject = await readAuthoritativeSubject(operation);
-        if (!isLoadCurrent(operation) || !initialSubject) return;
+        const initialIdentity = await readAuthoritativePreferences(operation);
+        if (!isLoadCurrent(operation) || !initialIdentity) return;
+        const initialSubject = initialIdentity.subject;
         operation.subject = initialSubject;
         operation.editRevisionAtSubject = editRevisionRef.current;
         if (
@@ -353,42 +422,48 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // The server route is identity authority only. Once its opaque subject
-        // is known, the browser performs the row read under Supabase RLS so the
-        // request remains abortable and never carries a user UUID or filter.
+        // S1 establishes opaque identity. The browser RLS read remains the
+        // abortable readiness/error gate but its ownerless data is never used;
+        // only the matching post-read server response (S2) supplies the row.
         quarantinedSubjectRef.current = initialSubject;
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from("user_preferences")
           .select("interface_settings")
           .abortSignal(operation.controller.signal)
           .maybeSingle();
         if (!isLoadCurrent(operation)) return;
         if (error) {
-          throw new Error("Interface preference RLS read failed");
-        }
-        const envelope = data?.interface_settings ?? {};
-        if (!isPreferenceEnvelope(envelope)) {
-          throw new Error("Interface preference RLS response was invalid");
+          throw new DirectPreferenceReadError(error);
         }
 
-        const confirmedSubject = await readAuthoritativeSubject(operation);
-        if (!isLoadCurrent(operation) || !confirmedSubject) return;
-        if (confirmedSubject !== initialSubject) {
+        const confirmedIdentity = await readAuthoritativePreferences(operation);
+        if (!isLoadCurrent(operation) || !confirmedIdentity) return;
+        if (confirmedIdentity.subject !== initialSubject) {
           quarantineRemoteOwnership("loading");
           runLoadRef.current?.();
           return;
         }
+        const confirmedSubject = confirmedIdentity.subject;
 
-        const remote = parsePreferenceEnvelopeStrict(envelope);
+        const remote = parsePreferenceEnvelopeStrict(
+          confirmedIdentity.envelope,
+        );
         if (!remote) {
           throw new Error("Interface preference envelope was invalid");
         }
-        const pendingDraft = pendingPreferenceDraftRef.current;
-        const canRestorePendingDraft =
-          pendingDraft?.subject === confirmedSubject;
+        const subjectEdits =
+          subjectEditsRef.current?.subject === confirmedSubject
+            ? subjectEditsRef.current
+            : null;
+        const ownershiplessEdits = operation.acceptsOwnershiplessEdits
+          ? ownershiplessEditsRef.current
+          : null;
+        const themeEdit = subjectEdits?.theme ?? ownershiplessEdits?.theme;
+        const settingsEdit =
+          subjectEdits?.settings ?? ownershiplessEdits?.settings;
         const editedDuringRead =
           operation.editRevisionAtSubject !== editRevisionRef.current;
-        if (editedDuringRead && !canRestorePendingDraft) {
+        if (editedDuringRead && !themeEdit && !settingsEdit) {
           quarantineRemoteOwnership("loading");
           runLoadRef.current?.();
           return;
@@ -396,23 +471,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         remoteSubjectRef.current = confirmedSubject;
         quarantinedSubjectRef.current = confirmedSubject;
         remoteEnvelopeRef.current = remote.envelope;
-        pendingPreferenceDraftRef.current = null;
-        if (canRestorePendingDraft && pendingDraft) {
-          themeValueRef.current = pendingDraft.theme;
-          settingsValueRef.current = pendingDraft.settings;
-          setThemeState(pendingDraft.theme);
-          setInterfaceSettingsState(pendingDraft.settings);
-          remoteWriteIntentRef.current = true;
-        } else {
-          const nextTheme = remote.theme ?? "dark";
-          const nextSettings = remote.settings ?? DEFAULT_INTERFACE_SETTINGS;
-          themeValueRef.current = nextTheme;
-          settingsValueRef.current = nextSettings;
-          setThemeState(nextTheme);
-          setInterfaceSettingsState(nextSettings);
-          remoteWriteIntentRef.current = false;
-          editRevisionRef.current = 0;
+        subjectEditsRef.current = null;
+        if (operation.acceptsOwnershiplessEdits) {
+          ownershiplessEditsRef.current = null;
         }
+        const nextTheme = themeEdit?.value ?? remote.theme ?? "dark";
+        const nextSettings =
+          settingsEdit?.value ??
+          remote.settings ??
+          DEFAULT_INTERFACE_SETTINGS;
+        themeValueRef.current = nextTheme;
+        settingsValueRef.current = nextSettings;
+        setThemeState(nextTheme);
+        setInterfaceSettingsState(nextSettings);
+        themeDirtyRef.current = Boolean(themeEdit);
+        settingsDirtyRef.current = Boolean(settingsEdit);
+        remoteWriteIntentRef.current = Boolean(themeEdit || settingsEdit);
         remoteSyncEnabledRef.current = true;
         setRemoteSyncEnabled(true);
         setRemoteReady(true);
@@ -473,6 +547,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         subject: queued.subject,
         envelope: queued.envelope,
         editRevision: queued.editRevision,
+        themeEditRevision: queued.themeEditRevision,
+        settingsEditRevision: queued.settingsEditRevision,
       };
       activeWriteRef.current = candidate;
       setInterfacePersistence("syncing");
@@ -480,7 +556,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const settleAndContinue = (saved: boolean) => {
         if (!isWriteCurrent(candidate)) return;
         activeWriteRef.current = null;
-        if (saved) remoteEnvelopeRef.current = candidate.envelope;
+        if (saved) {
+          remoteEnvelopeRef.current = candidate.envelope;
+          if (
+            candidate.themeEditRevision === themeEditRevisionRef.current
+          ) {
+            themeDirtyRef.current = false;
+          }
+          if (
+            candidate.settingsEditRevision === settingsEditRevisionRef.current
+          ) {
+            settingsDirtyRef.current = false;
+          }
+        }
         const next = queuedWriteRef.current;
         if (
           next &&
@@ -571,6 +659,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         subject: null,
         editRevisionAtStart: editRevisionRef.current,
         editRevisionAtSubject: null,
+        acceptsOwnershiplessEdits:
+          quarantinedSubjectRef.current === null ||
+          ownershiplessEditsRef.current !== null,
       };
       activeLoadRef.current = operation;
       void loadRemotePreferences(operation);
@@ -622,11 +713,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       retireActiveWrite();
       remoteSubjectRef.current = null;
       quarantinedSubjectRef.current = null;
-      pendingPreferenceDraftRef.current = null;
+      ownershiplessEditsRef.current = null;
+      subjectEditsRef.current = null;
       remoteEnvelopeRef.current = {};
       remoteSyncEnabledRef.current = false;
       remoteWriteIntentRef.current = false;
-      editRevisionRef.current = 0;
+      themeDirtyRef.current = false;
+      settingsDirtyRef.current = false;
       subscription.unsubscribe();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
@@ -677,6 +770,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       subject,
       envelope,
       editRevision: editRevisionRef.current,
+      themeEditRevision: themeEditRevisionRef.current,
+      settingsEditRevision: settingsEditRevisionRef.current,
     };
     if (activeWriteRef.current) return;
     if (writeTimerRef.current !== null) {
@@ -714,16 +809,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = useCallback((t: ThemeMode) => {
     themeValueRef.current = t;
+    editRevisionRef.current += 1;
+    themeEditRevisionRef.current += 1;
+    const edit = {
+      value: t,
+      revision: themeEditRevisionRef.current,
+    };
     if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
-      editRevisionRef.current += 1;
+      themeDirtyRef.current = true;
       remoteWriteIntentRef.current = true;
-    } else if (quarantinedSubjectRef.current) {
-      editRevisionRef.current += 1;
-      pendingPreferenceDraftRef.current = {
-        subject: quarantinedSubjectRef.current,
-        theme: t,
-        settings: settingsValueRef.current,
-      };
+    } else {
+      const activeLoad = activeLoadRef.current;
+      if (
+        !quarantinedSubjectRef.current ||
+        activeLoad?.acceptsOwnershiplessEdits
+      ) {
+        ownershiplessEditsRef.current = {
+          ...ownershiplessEditsRef.current,
+          theme: edit,
+        };
+      } else {
+        const subject = quarantinedSubjectRef.current;
+        const existing = subjectEditsRef.current?.subject === subject
+          ? subjectEditsRef.current
+          : { subject };
+        subjectEditsRef.current = {
+          ...existing,
+          theme: edit,
+        };
+      }
     }
     setThemeState(t);
   }, []);
@@ -731,16 +845,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     (s: InterfaceSettings | ((prev: InterfaceSettings) => InterfaceSettings)) => {
       const next = typeof s === "function" ? s(settingsValueRef.current) : s;
       settingsValueRef.current = next;
+      editRevisionRef.current += 1;
+      settingsEditRevisionRef.current += 1;
+      const edit = {
+        value: next,
+        revision: settingsEditRevisionRef.current,
+      };
       if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
-        editRevisionRef.current += 1;
+        settingsDirtyRef.current = true;
         remoteWriteIntentRef.current = true;
-      } else if (quarantinedSubjectRef.current) {
-        editRevisionRef.current += 1;
-        pendingPreferenceDraftRef.current = {
-          subject: quarantinedSubjectRef.current,
-          theme: themeValueRef.current,
-          settings: next,
-        };
+      } else {
+        const activeLoad = activeLoadRef.current;
+        if (
+          !quarantinedSubjectRef.current ||
+          activeLoad?.acceptsOwnershiplessEdits
+        ) {
+          ownershiplessEditsRef.current = {
+            ...ownershiplessEditsRef.current,
+            settings: edit,
+          };
+        } else {
+          const subject = quarantinedSubjectRef.current;
+          const existing = subjectEditsRef.current?.subject === subject
+            ? subjectEditsRef.current
+            : { subject };
+          subjectEditsRef.current = {
+            ...existing,
+            settings: edit,
+          };
+        }
       }
       setInterfaceSettingsState(next);
     },

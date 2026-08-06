@@ -47,6 +47,16 @@ import { ThemeProvider, useTheme } from "./ThemeProvider";
 
 const SUBJECT_A = `ps1_${"a".repeat(64)}`;
 const SUBJECT_B = `ps1_${"b".repeat(64)}`;
+const SETTINGS_A = {
+  ...DEFAULT_INTERFACE_SETTINGS,
+  accent: "sage" as const,
+  surfaceTone: "lifted" as const,
+};
+const SETTINGS_B = {
+  ...DEFAULT_INTERFACE_SETTINGS,
+  accent: "marine" as const,
+  surfaceTone: "deep" as const,
+};
 
 const flushMicrotasks = async () => {
   await Promise.resolve();
@@ -74,8 +84,9 @@ function response(status: number, body: unknown) {
 
 function readResponse(
   subject = SUBJECT_A,
+  envelope: Record<string, unknown> = {},
 ) {
-  return response(200, { subject });
+  return response(200, { subject, envelope });
 }
 
 function preferenceRow(envelope: Record<string, unknown> = {}) {
@@ -340,11 +351,162 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     );
   });
 
+  it("merges a B-bound theme edit onto B settings without copying A settings", async () => {
+    const pendingBRead = deferred<unknown>();
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "light",
+        settings: SETTINGS_A,
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, {
+        theme: "slate",
+        settings: SETTINGS_B,
+      }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockImplementationOnce(() => pendingBRead.promise);
+
+    await renderProvider();
+    expect(current().interfaceSettings).toEqual(SETTINGS_A);
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => current().setTheme("dim"));
+    pendingBRead.resolve(preferenceRow({ settings: SETTINGS_A }));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("dim");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    const body = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(body.subject).toBe(SUBJECT_B);
+    expect(body.envelope.theme).toBe("dim");
+    expect(body.envelope.settings).toEqual(SETTINGS_B);
+  });
+
+  it("merges a B-bound settings edit while retaining B's authoritative theme", async () => {
+    const pendingBRead = deferred<unknown>();
+    const editedSettings = { ...SETTINGS_A, density: "compact" as const };
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "light",
+        settings: SETTINGS_A,
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B))
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, {
+        theme: "slate",
+        settings: SETTINGS_B,
+      }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_B }));
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockImplementationOnce(() => pendingBRead.promise);
+
+    await renderProvider();
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
+    act(() => current().setInterfaceSettings(editedSettings));
+    pendingBRead.resolve(preferenceRow({ theme: "light" }));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfaceSettings).toEqual(editedSettings);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    const body = JSON.parse(String((writes()[0]?.[1] as RequestInit).body));
+    expect(body.subject).toBe(SUBJECT_B);
+    expect(body.envelope.theme).toBe("slate");
+    expect(body.envelope.settings).toEqual(editedSettings);
+  });
+
+  it("promotes a theme-only edit made before the initial S1 response", async () => {
+    const pendingS1 = deferred<unknown>();
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "light",
+        settings: SETTINGS_B,
+      }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setTheme("dim"));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("dim");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(JSON.parse(String((writes()[0]?.[1] as RequestInit).body)).envelope)
+      .toEqual(expect.objectContaining({
+        theme: "dim",
+        settings: SETTINGS_B,
+      }));
+  });
+
+  it("promotes a settings-only edit made before the initial S1 response", async () => {
+    const pendingS1 = deferred<unknown>();
+    const editedSettings = { ...DEFAULT_INTERFACE_SETTINGS, density: "compact" as const };
+    mocks.fetch
+      .mockImplementationOnce(() => pendingS1.promise)
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "slate",
+        settings: SETTINGS_B,
+      }))
+      .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
+
+    await renderProvider();
+    act(() => current().setInterfaceSettings(editedSettings));
+    pendingS1.resolve(readResponse(SUBJECT_A));
+    await act(flushMicrotasks);
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfaceSettings).toEqual(editedSettings);
+    act(() => vi.advanceTimersByTime(450));
+    await act(flushMicrotasks);
+    expect(JSON.parse(String((writes()[0]?.[1] as RequestInit).body)).envelope)
+      .toEqual(expect.objectContaining({
+        theme: "slate",
+        settings: editedSettings,
+      }));
+  });
+
+  it("ignores browser RLS row data and applies only the authoritative S2 envelope", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "light",
+        settings: SETTINGS_A,
+      }))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "slate",
+        settings: SETTINGS_B,
+      }));
+    mocks.rlsRead.mockResolvedValueOnce(preferenceRow({
+      theme: "light",
+      settings: SETTINGS_A,
+    }));
+
+    await renderProvider();
+
+    expect(current().theme).toBe("slate");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
+    expect(writes()).toHaveLength(0);
+  });
+
   it("captures a direct RLS read failure once and never performs a blind PUT", async () => {
     mocks.fetch.mockResolvedValueOnce(readResponse(SUBJECT_A));
     mocks.rlsRead.mockResolvedValueOnce({
       data: null,
-      error: { message: "private direct read detail" },
+      error: {
+        message: "private direct read detail",
+        status: 503,
+        code: "PGRST301",
+      },
     });
 
     await renderProvider();
@@ -354,6 +516,16 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
 
     expect(current().interfacePersistence).toBe("error");
     expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          status: "503",
+          code: "PROFILE_LOAD_FAILED",
+          transport: "direct",
+        }),
+      }),
+    );
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
       "private direct read detail",
     );
@@ -383,7 +555,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(readResponse(SUBJECT_B))
-      .mockResolvedValueOnce(readResponse(SUBJECT_B));
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "slate" }));
     mocks.rlsRead
       .mockImplementationOnce((signal: AbortSignal) => {
         signalA = signal;
@@ -409,19 +581,25 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingARead = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(readResponse(SUBJECT_B))
       .mockResolvedValueOnce(readResponse(SUBJECT_B))
       .mockResolvedValueOnce(readResponse(SUBJECT_B));
-    mocks.rlsRead.mockImplementationOnce(() => pendingARead.promise);
+    mocks.rlsRead
+      .mockResolvedValueOnce(preferenceRow())
+      .mockImplementationOnce(() => pendingARead.promise);
 
     await renderProvider();
+    act(() => mocks.authCallback?.("SIGNED_IN"));
+    await act(flushMicrotasks);
     act(() => current().setTheme("light"));
     pendingARead.resolve(preferenceRow({ theme: "dark" }));
     await act(flushMicrotasks);
 
     expect(current().theme).toBe("dark");
     expect(current().interfacePersistence).toBe("synced");
-    expect(reads()).toHaveLength(4);
+    expect(reads()).toHaveLength(6);
     act(() => vi.advanceTimersByTime(450));
     await act(flushMicrotasks);
     expect(writes()).toHaveLength(0);
@@ -438,7 +616,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
         return pendingS2.promise;
       })
       .mockResolvedValueOnce(readResponse(SUBJECT_B))
-      .mockResolvedValueOnce(readResponse(SUBJECT_B));
+      .mockResolvedValueOnce(readResponse(SUBJECT_B, { theme: "slate" }));
     mocks.rlsRead
       .mockResolvedValueOnce(preferenceRow({ theme: "light" }))
       .mockResolvedValueOnce(preferenceRow({ theme: "slate" }));
@@ -463,7 +641,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
       .mockResolvedValueOnce(readResponse(SUBJECT_B))
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
-      .mockResolvedValueOnce(readResponse(SUBJECT_A));
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, { theme: "dim" }));
     mocks.rlsRead
       .mockImplementationOnce((signal: AbortSignal) => {
         signals.push(signal);
@@ -532,12 +710,19 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     const pendingReload = deferred<unknown>();
     mocks.fetch
       .mockResolvedValueOnce(readResponse(SUBJECT_A))
-      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "dark",
+        settings: SETTINGS_A,
+      }))
       .mockImplementationOnce(() => pendingReload.promise)
-      .mockResolvedValueOnce(readResponse(SUBJECT_A))
+      .mockResolvedValueOnce(readResponse(SUBJECT_A, {
+        theme: "dark",
+        settings: SETTINGS_B,
+      }))
       .mockResolvedValueOnce(response(200, { ok: true, subject: SUBJECT_A }));
 
     await renderProvider();
+    expect(current().interfaceSettings).toEqual(SETTINGS_A);
     visibility.mockReturnValue("hidden");
     act(() => {
       current().setTheme("light");
@@ -553,6 +738,7 @@ describe("ThemeProvider route-bound preference lifecycle", () => {
     await act(flushMicrotasks);
 
     expect(current().theme).toBe("light");
+    expect(current().interfaceSettings).toEqual(SETTINGS_B);
     act(() => vi.advanceTimersByTime(450));
     await act(flushMicrotasks);
 

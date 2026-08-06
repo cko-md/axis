@@ -301,6 +301,7 @@ export const AXIS_DYNAMIC_TELEMETRY_BASELINE: readonly string[] = [
   "src/components/tasks/TasksModule.tsx|shape|spread:expression:(status == null ? {} : { status: String(status) })",
   "src/components/tasks/TasksModule.tsx|status|property:response.status",
   "src/components/theme/ThemeProvider.tsx|operation|shorthand:operation",
+  "src/components/theme/ThemeProvider.tsx|shape|spread:identifier:directRead",
   "src/components/vector/GameRuntimeHost.tsx|code|property:failure.code",
   "src/components/vector/GameRuntimeHost.tsx|operation|shorthand:operation",
   "src/components/vector/GameRuntimeHost.tsx|route|template:`vector.game.${manifest.id}`",

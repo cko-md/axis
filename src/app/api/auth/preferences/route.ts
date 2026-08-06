@@ -260,8 +260,28 @@ export async function GET(request: Request) {
     const identityFailure = identityResponse(user, authError, "read");
     if (identityFailure) return identityFailure;
     if (!user) return unavailable("read");
+
+    const { data, error } = await supabase
+      .from("user_preferences")
+      .select("interface_settings")
+      .eq("user_id", user.id)
+      .abortSignal(request.signal)
+      .maybeSingle();
     if (request.signal.aborted) return aborted();
-    return response({ subject: profileSubjectForUserId(user.id) });
+    if (error) return unavailable("read");
+    const envelope = data?.interface_settings ?? {};
+    if (
+      !isPreferenceEnvelope(envelope) ||
+      !serializedWithinLimit(envelope) ||
+      !parsePreferenceEnvelopeStrict(envelope)
+    ) {
+      return unavailable("read");
+    }
+
+    return response({
+      subject: profileSubjectForUserId(user.id),
+      envelope,
+    });
   } catch {
     return request.signal.aborted ? aborted() : unavailable("read");
   }
