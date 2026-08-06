@@ -1043,6 +1043,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const wasInactive = !pageActiveRef.current;
       pageActiveRef.current = true;
       if (!wasInactive) return;
+      lookupFailureCapturedRef.current = false;
       setLookupNonce((current) => current + 1);
     };
     window.addEventListener("pagehide", handlePageHide);

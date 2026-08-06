@@ -134,6 +134,35 @@ describe("ShellProfileProvider lookup lifecycle", () => {
     );
   });
 
+  it.each([false, true])(
+    "reports a fresh live failure after pagehide and pageshow (persisted=%s)",
+    async (persisted) => {
+      mocks.fetch
+        .mockRejectedValueOnce(new TypeError("first live failure"))
+        .mockRejectedValueOnce(new TypeError("restored live failure"));
+      await renderProvider();
+
+      expect(current().state).toBe("error");
+      expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+      act(() =>
+        window.dispatchEvent(
+          persisted ? persistedPageEvent("pagehide") : new Event("pagehide"),
+        ),
+      );
+      act(() =>
+        window.dispatchEvent(
+          persisted ? persistedPageEvent("pageshow") : new Event("pageshow"),
+        ),
+      );
+      await act(flush);
+
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+      expect(current().state).toBe("error");
+      expect(mocks.capture).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("aborts and consumes a TypeError that races with pagehide", async () => {
     let rejectLookup!: (reason: unknown) => void;
     let lookupSignal: AbortSignal | null | undefined;
