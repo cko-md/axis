@@ -553,13 +553,155 @@ describe("useTasks load lifecycle", () => {
     });
   });
 
-  it.each(["resolves", "rejects"] as const)(
+  describe.each(["add", "update", "delete", "toggle"] as const)(
+    "%s during account-change recovery",
+    (operation) => {
+      it("stays neutral until the recovery snapshot settles, then permits a successful retry", async () => {
+        const ownerB = { id: "task-owner-b" };
+        const taskB = { ...task("known"), user_id: ownerB.id };
+        const retryTask = {
+          ...task(operation === "add" ? "new-b" : "known"),
+          user_id: ownerB.id,
+          title: operation === "update" ? "Changed" : taskB.title,
+          status: operation === "toggle" ? "done" as const : taskB.status,
+          completed_at: operation === "toggle" ? "2026-08-06T01:00:00.000Z" : null,
+        };
+        const recoveryPending = deferred<{ data: Task[] | null; error: unknown }>();
+        const loadA = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+        const loadB = loadBuilder(recoveryPending.promise);
+        const retryMutation = mutationBuilder(() => Promise.resolve({
+          data: operation === "delete" ? null : retryTask,
+          error: null,
+        }));
+        mocks.getUser
+          .mockResolvedValueOnce({ data: { user }, error: null })
+          .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+          .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+          .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+        mocks.from
+          .mockReturnValueOnce(loadA.builder)
+          .mockReturnValueOnce(loadB.builder)
+          .mockReturnValueOnce(retryMutation);
+
+        const invoke = () => {
+          if (operation === "add") {
+            return latest?.addTask({ title: "New", category: "personal" });
+          }
+          if (operation === "update") {
+            return latest?.updateTask("known", { title: "Changed" });
+          }
+          if (operation === "delete") return latest?.deleteTask("known");
+          return latest?.toggleDone("known");
+        };
+        const neutralResult = operation === "delete" ? false : null;
+
+        act(() => root?.render(<Probe />));
+        await act(flush);
+        let mismatchResult: unknown;
+        await act(async () => { mismatchResult = await invoke(); });
+
+        expect(mismatchResult).toBe(neutralResult);
+        expect(latest?.tasks).toEqual([]);
+        expect(latest?.loading).toBe(true);
+        expect(mocks.getUser).toHaveBeenCalledTimes(3);
+        expect(mocks.from).toHaveBeenCalledTimes(2);
+
+        let blockedRetryResult: unknown;
+        await act(async () => { blockedRetryResult = await invoke(); });
+
+        expect(blockedRetryResult).toBe(neutralResult);
+        expect(mocks.getUser).toHaveBeenCalledTimes(3);
+        expect(mocks.from).toHaveBeenCalledTimes(2);
+
+        recoveryPending.resolve({ data: [taskB], error: null });
+        await act(flush);
+
+        expect(latest?.tasks).toEqual([taskB]);
+        expect(latest?.error?.message).toBe(
+          "Account changed — tasks reloaded for the current account. Retry your action.",
+        );
+
+        let successfulRetryResult: unknown;
+        await act(async () => { successfulRetryResult = await invoke(); });
+
+        if (operation === "delete") {
+          expect(successfulRetryResult).toBe(true);
+          expect(latest?.tasks).toEqual([]);
+        } else {
+          expect(successfulRetryResult).toEqual(retryTask);
+          expect(latest?.tasks).toContainEqual(retryTask);
+        }
+        expect(latest?.error).toBeNull();
+        expect(mocks.getUser).toHaveBeenCalledTimes(4);
+        expect(mocks.from).toHaveBeenCalledTimes(3);
+        expect(mocks.capture).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it.each(["returns-error", "throws"] as const)(
+    "permits retry after an account-change recovery load %s",
+    async (outcome) => {
+      const ownerB = { id: "task-owner-b" };
+      const retryTask = { ...task("new-b"), user_id: ownerB.id };
+      const loadA = loadBuilder(Promise.resolve({ data: [task("known")], error: null }));
+      const recoveryPending = deferred<{ data: Task[] | null; error: unknown }>();
+      const loadB = loadBuilder(recoveryPending.promise);
+      const retryMutation = mutationBuilder(() => Promise.resolve({
+        data: retryTask,
+        error: null,
+      }));
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user }, error: null })
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null })
+        .mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+      mocks.from
+        .mockReturnValueOnce(loadA.builder)
+        .mockReturnValueOnce(loadB.builder)
+        .mockReturnValueOnce(retryMutation);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      let mismatchResult: Task | null | undefined;
+      await act(async () => {
+        mismatchResult = await latest?.addTask({ title: "Mismatch", category: "personal" });
+      });
+      if (outcome === "returns-error") {
+        recoveryPending.resolve({
+          data: null,
+          error: { status: 503, message: "temporary recovery failure" },
+        });
+      } else {
+        recoveryPending.reject({ status: 503, message: "thrown recovery failure" });
+      }
+      await act(flushFailureCommit);
+
+      expect(mismatchResult).toBeNull();
+      expect(latest?.tasks).toEqual([]);
+      expect(latest?.error?.operation).toBe("load");
+      expect(mocks.capture).toHaveBeenCalledTimes(1);
+
+      let retryResult: Task | null | undefined;
+      await act(async () => {
+        retryResult = await latest?.addTask({ title: "Retry", category: "personal" });
+      });
+
+      expect(retryResult).toEqual(retryTask);
+      expect(latest?.tasks).toEqual([retryTask]);
+      expect(latest?.error).toBeNull();
+      expect(mocks.getUser).toHaveBeenCalledTimes(4);
+      expect(mocks.from).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it.each(["resolves", "no-user", "missing-session", "throws-missing-session"] as const)(
     "keeps a null-owner pending A mutation neutral when a B refresh succeeds and A auth %s",
     async (outcome) => {
       const ownerB = { id: "task-owner-b" };
       const taskB = { ...task("owner-b"), user_id: ownerB.id };
       const pendingAuth = deferred<{
-        data: { user: typeof user };
+        data: { user: typeof user | null };
         error: unknown;
       }>();
       const loadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
@@ -584,8 +726,19 @@ describe("useTasks load lifecycle", () => {
 
       if (outcome === "resolves") {
         pendingAuth.resolve({ data: { user }, error: null });
+      } else if (outcome === "no-user") {
+        pendingAuth.resolve({ data: { user: null }, error: null });
+      } else if (outcome === "missing-session") {
+        pendingAuth.resolve({
+          data: { user: null },
+          error: { status: 401, message: "session expired" },
+        });
       } else {
-        pendingAuth.reject({ status: 500, message: "stale A auth failure" });
+        pendingAuth.reject({
+          name: "AuthSessionMissingError",
+          status: 400,
+          message: "Auth session missing!",
+        });
       }
       let result: Task | null | undefined;
       await act(async () => { result = await pendingAdd; });
@@ -594,6 +747,112 @@ describe("useTasks load lifecycle", () => {
       expect(mocks.from).toHaveBeenCalledTimes(1);
       expect(latest?.tasks).toEqual([taskB]);
       expect(latest?.error).toBeNull();
+      expect(mocks.capture).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["owner-b", "resolves"],
+    ["owner-b", "rejects"],
+    ["no-user", "resolves"],
+    ["no-user", "rejects"],
+    ["missing-session", "resolves"],
+    ["missing-session", "rejects"],
+    ["throws-missing-session", "resolves"],
+    ["throws-missing-session", "rejects"],
+  ] as const)(
+    "retires an initial A claim when concurrent auth returns %s and the older A write %s",
+    async (authOutcome, olderOutcome) => {
+      const ownerB = { id: "task-owner-b" };
+      const taskB = { ...task("owner-b"), user_id: ownerB.id };
+      const firstAuth = deferred<{
+        data: { user: typeof user | null };
+        error: unknown;
+      }>();
+      const conflictingAuth = deferred<{
+        data: { user: typeof user | null };
+        error: unknown;
+      }>();
+      const olderPending = deferred<{ data: Task | null; error: unknown }>();
+      const olderMutation = mutationBuilder(() => olderPending.promise);
+      const loadB = loadBuilder(Promise.resolve({ data: [taskB], error: null }));
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user: null }, error: null })
+        .mockReturnValueOnce(firstAuth.promise)
+        .mockReturnValueOnce(conflictingAuth.promise);
+      if (authOutcome === "owner-b") {
+        mocks.getUser.mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+      } else {
+        mocks.getUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+      }
+      mocks.from.mockReturnValueOnce(olderMutation);
+      if (authOutcome === "owner-b") {
+        mocks.from.mockReturnValueOnce(loadB.builder);
+      }
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      let older!: Promise<Task | null | undefined>;
+      let conflicting!: Promise<Task | null | undefined>;
+      act(() => {
+        older = Promise.resolve(
+          latest?.addTask({ title: "Owner A", category: "personal" }),
+        );
+        conflicting = Promise.resolve(
+          latest?.addTask({ title: "Conflicting subject", category: "personal" }),
+        );
+      });
+      firstAuth.resolve({ data: { user }, error: null });
+      await act(flush);
+      expect(mocks.from).toHaveBeenCalledTimes(1);
+
+      if (authOutcome === "owner-b") {
+        conflictingAuth.resolve({ data: { user: ownerB }, error: null });
+      } else if (authOutcome === "no-user") {
+        conflictingAuth.resolve({ data: { user: null }, error: null });
+      } else if (authOutcome === "missing-session") {
+        conflictingAuth.resolve({
+          data: { user: null },
+          error: { status: 401, message: "session expired" },
+        });
+      } else {
+        conflictingAuth.reject({
+          name: "AuthSessionMissingError",
+          status: 400,
+          message: "Auth session missing!",
+        });
+      }
+      let conflictingResult: Task | null | undefined;
+      await act(async () => { conflictingResult = await conflicting; });
+      await act(flush);
+
+      expect(conflictingResult).toBeNull();
+      if (authOutcome === "owner-b") {
+        expect(latest?.tasks).toEqual([taskB]);
+        expect(latest?.error).toEqual({
+          operation: "add",
+          message: "Account changed — tasks reloaded for the current account. Retry your action.",
+        });
+        expect(mocks.from).toHaveBeenCalledTimes(2);
+      } else {
+        expect(latest?.tasks).toEqual([]);
+        expect(latest?.error).toEqual({
+          operation: "add",
+          message: "Account changed — sign in to continue.",
+        });
+        expect(mocks.from).toHaveBeenCalledTimes(1);
+      }
+
+      if (olderOutcome === "resolves") {
+        olderPending.resolve({ data: task("older-a"), error: null });
+      } else {
+        olderPending.reject({ status: 500, message: "retired owner A failure" });
+      }
+      let olderResult: Task | null | undefined;
+      await act(async () => { olderResult = await older; });
+
+      expect(olderResult).toBeNull();
+      expect(latest?.tasks).toEqual(authOutcome === "owner-b" ? [taskB] : []);
       expect(mocks.capture).not.toHaveBeenCalled();
     },
   );

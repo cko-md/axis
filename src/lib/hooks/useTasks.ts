@@ -91,6 +91,7 @@ export function useTasks() {
   const loadGenerationRef = useRef(0);
   const activeLoadRef = useRef<TaskLoadOperation | null>(null);
   const loadedOwnerRef = useRef<string | null>(null);
+  const loadedOwnerAuthorityRef = useRef<"load" | "mutation" | null>(null);
   const accountChangeFeedbackRef = useRef<"add" | "update" | "delete" | null>(null);
 
   const recordError = useCallback((operation: TaskMutationError["operation"], rawError: unknown, message: string) => {
@@ -150,6 +151,22 @@ export function useTasks() {
     activeLoadRef.current?.controller.abort();
     activeLoadRef.current = operation;
 
+    const commitSignedOut = () => {
+      ownershipEpochRef.current += 1;
+      const accountChangeOperation = accountChangeFeedbackRef.current;
+      accountChangeFeedbackRef.current = null;
+      loadedOwnerRef.current = null;
+      loadedOwnerAuthorityRef.current = null;
+      setUserId(null);
+      setTasks([]);
+      setError(accountChangeOperation ? {
+        operation: accountChangeOperation,
+        message: "Account changed — sign in to continue.",
+      } : null);
+      setLoading(false);
+      activeLoadRef.current = null;
+    };
+
     const commitFailure = async (rawError: unknown, message: string, clearRows = false) => {
       await deferFailureCommit();
       if (!isLoadCurrent(operation)) return;
@@ -158,6 +175,7 @@ export function useTasks() {
       if (clearRows) {
         ownershipEpochRef.current += 1;
         loadedOwnerRef.current = null;
+        loadedOwnerAuthorityRef.current = null;
         setUserId(null);
         setTasks([]);
       }
@@ -170,35 +188,22 @@ export function useTasks() {
       if (!isLoadCurrent(operation)) return;
       if (authError) {
         if (isMissingTaskSession(authError)) {
-          ownershipEpochRef.current += 1;
-          accountChangeFeedbackRef.current = null;
-          loadedOwnerRef.current = null;
-          setUserId(null);
-          setTasks([]);
-          setError(null);
-          setLoading(false);
-          activeLoadRef.current = null;
+          commitSignedOut();
           return;
         }
         await commitFailure(authError, "Could not load tasks — sign in again and retry.", true);
         return;
       }
       if (!user) {
-        ownershipEpochRef.current += 1;
-        accountChangeFeedbackRef.current = null;
-        loadedOwnerRef.current = null;
-        setUserId(null);
-        setTasks([]);
-        setError(null);
-        setLoading(false);
-        activeLoadRef.current = null;
+        commitSignedOut();
         return;
       }
-      if (loadedOwnerRef.current !== null && loadedOwnerRef.current !== user.id) {
+      if (loadedOwnerRef.current !== user.id) {
         ownershipEpochRef.current += 1;
-        setTasks([]);
+        if (loadedOwnerRef.current !== null) setTasks([]);
       }
       loadedOwnerRef.current = user.id;
+      loadedOwnerAuthorityRef.current = "load";
       setUserId(user.id);
 
       const { data, error: loadError } = await supabase
@@ -235,14 +240,7 @@ export function useTasks() {
       activeLoadRef.current = null;
     } catch (loadError) {
       if (isMissingTaskSession(loadError) && isLoadCurrent(operation)) {
-        ownershipEpochRef.current += 1;
-        accountChangeFeedbackRef.current = null;
-        loadedOwnerRef.current = null;
-        setUserId(null);
-        setTasks([]);
-        setError(null);
-        setLoading(false);
-        activeLoadRef.current = null;
+        commitSignedOut();
         return;
       }
       await commitFailure(loadError, "Could not load tasks — check your connection and retry.");
@@ -266,6 +264,7 @@ export function useTasks() {
       if (!wasInactive) return;
       if (event.persisted) {
         loadedOwnerRef.current = null;
+        loadedOwnerAuthorityRef.current = null;
         setUserId(null);
         setTasks([]);
         setLoading(true);
@@ -298,11 +297,32 @@ export function useTasks() {
     activeLoadRef.current = null;
     accountChangeFeedbackRef.current = null;
     loadedOwnerRef.current = null;
+    loadedOwnerAuthorityRef.current = null;
     setUserId(null);
     setTasks([]);
     setLoading(false);
     setError({ operation, message });
   }, []);
+
+  const retireMutationOwnerClaim = useCallback((
+    operation: "add" | "update" | "delete",
+  ) => {
+    ownershipEpochRef.current += 1;
+    loadGenerationRef.current += 1;
+    activeLoadRef.current?.controller.abort();
+    activeLoadRef.current = null;
+    accountChangeFeedbackRef.current = operation;
+    loadedOwnerRef.current = null;
+    loadedOwnerAuthorityRef.current = null;
+    setUserId(null);
+    setTasks([]);
+    setLoading(true);
+    setError({
+      operation,
+      message: "Account changed — reloading tasks for the current account.",
+    });
+    void refresh();
+  }, [refresh]);
 
   const authenticateMutation = useCallback(async (
     ownershipEpoch: number,
@@ -311,6 +331,12 @@ export function useTasks() {
     signedOutMessage: string,
     failureMessage: string,
   ) => {
+    if (
+      accountChangeFeedbackRef.current !== null
+      && activeLoadRef.current !== null
+    ) {
+      return null;
+    }
     const settleSignedOut = () => {
       settleMutationSignedOut(operation, signedOutMessage);
       return null;
@@ -320,52 +346,68 @@ export function useTasks() {
         await supabase.auth.getUser();
       if (!isMutationEpochCurrent(ownershipEpoch)) return null;
       if (authError) {
-        if (loadedOwnerRef.current !== subjectAtStart) return null;
+        if (loadedOwnerRef.current !== subjectAtStart) {
+          if (
+            subjectAtStart === null
+            && loadedOwnerAuthorityRef.current === "mutation"
+          ) {
+            retireMutationOwnerClaim(operation);
+          }
+          return null;
+        }
         if (isMissingTaskSession(authError)) return settleSignedOut();
         recordError(operation, authError, failureMessage);
         return null;
       }
       if (!user) {
-        if (loadedOwnerRef.current !== subjectAtStart) return null;
+        if (loadedOwnerRef.current !== subjectAtStart) {
+          if (
+            subjectAtStart === null
+            && loadedOwnerAuthorityRef.current === "mutation"
+          ) {
+            retireMutationOwnerClaim(operation);
+          }
+          return null;
+        }
         return settleSignedOut();
       }
       const currentOwner = loadedOwnerRef.current;
       if (subjectAtStart === null) {
         if (currentOwner === null) {
           loadedOwnerRef.current = user.id;
+          loadedOwnerAuthorityRef.current = "mutation";
           setUserId(user.id);
         } else if (currentOwner !== user.id) {
+          if (loadedOwnerAuthorityRef.current === "mutation") {
+            retireMutationOwnerClaim(operation);
+          }
           return null;
         }
       } else {
         if (currentOwner !== subjectAtStart) return null;
         if (user.id !== subjectAtStart) {
-          ownershipEpochRef.current += 1;
-          loadGenerationRef.current += 1;
-          activeLoadRef.current?.controller.abort();
-          activeLoadRef.current = null;
-          accountChangeFeedbackRef.current = operation;
-          loadedOwnerRef.current = null;
-          setUserId(null);
-          setTasks([]);
-          setLoading(true);
-          setError({
-            operation,
-            message: "Account changed — reloading tasks for the current account.",
-          });
-          void refresh();
+          retireMutationOwnerClaim(operation);
           return null;
         }
       }
       if (!isMutationCurrent(ownershipEpoch, user.id)) return null;
       return user;
     } catch (authError) {
-      if (!isMutationCurrent(ownershipEpoch, subjectAtStart)) return null;
+      if (!isMutationEpochCurrent(ownershipEpoch)) return null;
+      if (loadedOwnerRef.current !== subjectAtStart) {
+        if (
+          subjectAtStart === null
+          && loadedOwnerAuthorityRef.current === "mutation"
+        ) {
+          retireMutationOwnerClaim(operation);
+        }
+        return null;
+      }
       if (isMissingTaskSession(authError)) return settleSignedOut();
       recordError(operation, authError, failureMessage);
       return null;
     }
-  }, [isMutationCurrent, isMutationEpochCurrent, recordError, refresh, settleMutationSignedOut, supabase]);
+  }, [isMutationCurrent, isMutationEpochCurrent, recordError, retireMutationOwnerClaim, settleMutationSignedOut, supabase]);
 
   const addTask = useCallback(async (partial: Partial<Task> & { title: string; category: TaskCategory }) => {
     const ownershipEpoch = ownershipEpochRef.current;
