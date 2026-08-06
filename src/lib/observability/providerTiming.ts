@@ -8,6 +8,7 @@ type ProviderTimingOptions = {
   operation: string;
   transport?: string;
   captureFailures?: boolean;
+  recordFailureBreadcrumbs?: boolean;
   timeoutMs?: number;
   slowMs?: number;
   retry?: ProviderRetryOptions;
@@ -170,13 +171,16 @@ export function recordProviderFailure(
     status: failure.status,
   });
 
-  Sentry.addBreadcrumb({
-    category: "provider.failure",
-    level: shouldCapture(failure) ? "error" : "warning",
-    message: `${opts.provider}.${opts.operation}`,
-    data,
-  });
   logTiming("provider", data);
+
+  if (opts.recordFailureBreadcrumbs !== false) {
+    Sentry.addBreadcrumb({
+      category: "provider.failure",
+      level: shouldCapture(failure) ? "error" : "warning",
+      message: `${opts.provider}.${opts.operation}`,
+      data,
+    });
+  }
 
   if (opts.captureFailures === false || !shouldCapture(failure)) return;
   Sentry.captureException(new Error(failure.message ?? `${opts.provider} ${opts.operation} failed`), {

@@ -1,10 +1,11 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
 import type { Database, Json } from "@/lib/supabase/database.types";
+import { deferFailureCommit } from "@/lib/observability/deferFailureCommit";
 
 type TaskRowUpdate = Database["public"]["Tables"]["tasks"]["Update"];
 
@@ -46,6 +47,12 @@ type SupabaseLikeError = {
   status?: number;
 };
 
+type TaskLoadOperation = {
+  controller: AbortController;
+  generation: number;
+  identity: symbol;
+};
+
 export type TaskUpdate = Partial<Pick<
   Task,
   "title" | "priority" | "effort" | "deadline" | "category" | "status" | "sort_order" | "metadata" | "completed_at"
@@ -60,6 +67,11 @@ export function useTasks() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<TaskMutationError | null>(null);
+  const mountedRef = useRef(false);
+  const pageActiveRef = useRef(true);
+  const loadGenerationRef = useRef(0);
+  const activeLoadRef = useRef<TaskLoadOperation | null>(null);
+  const loadedOwnerRef = useRef<string | null>(null);
 
   const recordError = useCallback((operation: TaskMutationError["operation"], rawError: unknown, message: string) => {
     const err = rawError as SupabaseLikeError | null;
@@ -82,44 +94,121 @@ export function useTasks() {
 
   const clearError = useCallback(() => setError(null), []);
 
+  const isLoadCurrent = useCallback((operation: TaskLoadOperation) => {
+    const active = activeLoadRef.current;
+    return (
+      mountedRef.current
+      && pageActiveRef.current
+      && !operation.controller.signal.aborted
+      && active === operation
+      && active.controller === operation.controller
+      && active.identity === operation.identity
+      && loadGenerationRef.current === operation.generation
+    );
+  }, []);
+
   const refresh = useCallback(async () => {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError) {
-      recordError("load", authError, "Could not load tasks — sign in again and retry.");
-      setTasks([]);
-      setLoading(false);
-      return;
-    }
-    setUserId(user?.id ?? null);
-    if (!user) {
-      setTasks([]);
-      setLoading(false);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("sort_order", { ascending: true });
-    if (error || !data) {
-      recordError("load", error, "Could not load tasks — check your connection and retry.");
-      setLoading(false);
-      return;
-    }
-    const now = Date.now();
-    const normalized = data.map((t) => {
-      if (t.status === "open" && t.deadline && new Date(t.deadline).getTime() < now) {
-        return { ...t, status: "overdue" as TaskStatus };
+    const operation: TaskLoadOperation = {
+      controller: new AbortController(),
+      generation: ++loadGenerationRef.current,
+      identity: Symbol("task-load"),
+    };
+    activeLoadRef.current?.controller.abort();
+    activeLoadRef.current = operation;
+
+    const commitFailure = async (rawError: unknown, message: string, clearRows = false) => {
+      await deferFailureCommit();
+      if (!isLoadCurrent(operation)) return;
+      recordError("load", rawError, message);
+      if (clearRows) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setTasks([]);
       }
-      return t as Task;
-    });
-    setTasks(normalized as Task[]);
-    clearError();
-    setLoading(false);
-  }, [clearError, recordError, supabase]);
+      setLoading(false);
+      activeLoadRef.current = null;
+    };
+
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (!isLoadCurrent(operation)) return;
+      if (authError) {
+        await commitFailure(authError, "Could not load tasks — sign in again and retry.", true);
+        return;
+      }
+      if (!user) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setTasks([]);
+        setLoading(false);
+        activeLoadRef.current = null;
+        return;
+      }
+      if (loadedOwnerRef.current !== null && loadedOwnerRef.current !== user.id) {
+        setTasks([]);
+      }
+      loadedOwnerRef.current = user.id;
+      setUserId(user.id);
+
+      const { data, error: loadError } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("sort_order", { ascending: true })
+        .abortSignal(operation.controller.signal);
+      if (!isLoadCurrent(operation)) return;
+      if (loadError || !data) {
+        await commitFailure(loadError, "Could not load tasks — check your connection and retry.");
+        return;
+      }
+      const now = Date.now();
+      const normalized = data.map((t) => {
+        if (t.status === "open" && t.deadline && new Date(t.deadline).getTime() < now) {
+          return { ...t, status: "overdue" as TaskStatus };
+        }
+        return t as Task;
+      });
+      if (!isLoadCurrent(operation)) return;
+      setTasks(normalized as Task[]);
+      clearError();
+      setLoading(false);
+      activeLoadRef.current = null;
+    } catch (loadError) {
+      await commitFailure(loadError, "Could not load tasks — check your connection and retry.");
+    }
+  }, [clearError, isLoadCurrent, recordError, supabase]);
 
   useEffect(() => {
-    refresh();
+    mountedRef.current = true;
+    pageActiveRef.current = true;
+    const invalidate = () => {
+      pageActiveRef.current = false;
+      loadGenerationRef.current += 1;
+      activeLoadRef.current?.controller.abort();
+      activeLoadRef.current = null;
+    };
+    const restore = (event: PageTransitionEvent) => {
+      pageActiveRef.current = true;
+      if (event.persisted) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setTasks([]);
+        setLoading(true);
+        void refresh();
+      }
+    };
+    window.addEventListener("pagehide", invalidate);
+    window.addEventListener("pageshow", restore);
+    return () => {
+      mountedRef.current = false;
+      invalidate();
+      window.removeEventListener("pagehide", invalidate);
+      window.removeEventListener("pageshow", restore);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    void refresh();
   }, [refresh]);
 
   useRealtimeRefresh(supabase, "tasks", userId, refresh);

@@ -1,6 +1,7 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
+import { deferFailureCommit } from "@/lib/observability/deferFailureCommit";
 import { usePathname } from "next/navigation";
 import React, {
   createContext,
@@ -292,6 +293,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
   const mountedRef = useRef(false);
+  const pageActiveRef = useRef(true);
   const subjectRef = useRef<string | null>(null);
   const profileRef = useRef<ShellProfile | null>(null);
   const draftRef = useRef<ProfileDraft>(EMPTY_DRAFT);
@@ -409,6 +411,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const activeOperation = activeLookupRef.current;
       return (
         mountedRef.current &&
+        pageActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -1002,13 +1005,29 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     mountedRef.current = true;
+    pageActiveRef.current = true;
+    const handlePageHide = () => {
+      pageActiveRef.current = false;
+      lookupGenerationRef.current += 1;
+      activeLookupRef.current?.controller.abort();
+      activeLookupRef.current = null;
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      pageActiveRef.current = true;
+      if (event.persisted) setLookupNonce((current) => current + 1);
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
     return () => {
       mountedRef.current = false;
+      pageActiveRef.current = false;
       lookupGenerationRef.current += 1;
       activeLookupRef.current?.controller.abort();
       activeLookupRef.current = null;
       cancelSubjectWork(false);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
     };
   }, [cancelSubjectWork]);
 
@@ -1168,6 +1187,8 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         if (!isLookupOperationCurrent(operation) || isAbortError(error)) {
           return;
         }
+        await deferFailureCommit();
+        if (!isLookupOperationCurrent(operation)) return;
         if (!lookupFailureCapturedRef.current) {
           lookupFailureCapturedRef.current = true;
           captureShellProfileFailure();

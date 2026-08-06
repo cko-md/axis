@@ -1,10 +1,11 @@
 'use client';
 
 import * as Sentry from '@sentry/nextjs';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import BiometricPrompt from './BiometricPrompt';
 import { usePasskey } from '@/hooks/usePasskey';
 import { useToast } from '@/components/ui/Toast';
+import { deferFailureCommit } from '@/lib/observability/deferFailureCommit';
 
 function isMfaAssuranceDeferral(payload: unknown) {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
@@ -21,10 +22,24 @@ export default function BiometricGate() {
   const [show, setShow] = useState(false);
   const { isSupported, register } = usePasskey();
   const { toast } = useToast();
+  const [lookupNonce, setLookupNonce] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    let pageActive = true;
     const controller = new AbortController();
+    const isCurrent = () => alive && pageActive && !controller.signal.aborted;
+    const handlePageHide = () => {
+      pageActive = false;
+      controller.abort();
+      setShow(false);
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      pageActive = true;
+      if (event.persisted) setLookupNonce((current) => current + 1);
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
 
     void (async () => {
       let responseStatus: number | null = null;
@@ -34,15 +49,24 @@ export default function BiometricGate() {
         // its caller can handle it.
         const response = await fetch('/api/auth/settings', { signal: controller.signal });
         responseStatus = response.status;
-        if (!alive || response.status === 401) return;
+        if (!isCurrent()) return;
+        if (response.status === 401) {
+          setShow(false);
+          return;
+        }
         if (response.status === 403) {
           const payload: unknown = await response.json();
-          if (isMfaAssuranceDeferral(payload)) return;
+          if (!isCurrent()) return;
+          if (isMfaAssuranceDeferral(payload)) {
+            setShow(false);
+            return;
+          }
           throw new Error('Settings request was forbidden');
         }
         if (!response.ok) throw new Error(`Settings request failed (${response.status})`);
 
         const settings: unknown = await response.json();
+        if (!isCurrent()) return;
         if (
           typeof settings !== 'object'
           || settings === null
@@ -51,10 +75,12 @@ export default function BiometricGate() {
           throw new Error('Settings response was invalid');
         }
         const biometricPrompted = (settings as { biometric_prompted: boolean }).biometric_prompted;
-        if (alive && !biometricPrompted) setShow(true);
+        setShow(!biometricPrompted);
       } catch (error) {
         // Navigation aborts are expected and are not actionable after unmount.
-        if (!alive || controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
+        if (!isCurrent() || (error instanceof DOMException && error.name === 'AbortError')) return;
+        await deferFailureCommit();
+        if (!isCurrent()) return;
         Sentry.captureException(
           new Error('Biometric setup settings lookup failed'),
           {
@@ -73,8 +99,10 @@ export default function BiometricGate() {
     return () => {
       alive = false;
       controller.abort();
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [toast]);
+  }, [lookupNonce, toast]);
 
   if (!show) return null;
 

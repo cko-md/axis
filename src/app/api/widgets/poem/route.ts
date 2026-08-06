@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
 import { seededIndex } from "@/lib/content/daily";
 import { CURATED_POEMS, FALLBACK_POEMS, type PoemPayload } from "@/lib/content/poems";
@@ -26,7 +27,18 @@ export async function GET(req: NextRequest) {
     const res = await timedProviderFetch(
       url,
       { next: { revalidate: 3600 } },
-      { area: "console", provider: "poetrydb", operation: "poem_fetch", timeoutMs: 5_000, slowMs: 1_500 },
+      {
+        area: "console",
+        provider: "poetrydb",
+        operation: "poem_fetch",
+        timeoutMs: 5_000,
+        slowMs: 1_500,
+        // A valid bundled public-domain poem is the completed workflow, not an
+        // application failure. timedProviderFetch still records safe timing;
+        // this route emits the single fallback breadcrumb below.
+        captureFailures: false,
+        recordFailureBreadcrumbs: false,
+      },
     );
     if (!res.ok) throw new Error(`PoetryDB ${res.status}`);
 
@@ -49,6 +61,18 @@ export async function GET(req: NextRequest) {
     });
   } catch {
     const fallback = FALLBACK_POEMS[seededIndex(seed, FALLBACK_POEMS.length, 1)];
+    Sentry.addBreadcrumb({
+      category: "provider.fallback",
+      level: "warning",
+      message: "poetrydb.poem_fetch",
+      data: {
+        area: "console",
+        provider: "poetrydb",
+        operation: "poem_fetch",
+        code: "PROVIDER_FALLBACK",
+        outcome: "degraded",
+      },
+    });
     logRouteTiming("/api/widgets/poem", routeStartedAt, { fallback: true });
     // Still a 200: the card shows a real poem either way, just from the
     // bundled corpus, and the shorter cache window retries the provider soon.
