@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `35974982c895b085676cc64d43d8f9775484a07550aba0fb015eab0e8a6758c1` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `4a40733892b2be90ace4f9b81f627996c481b1126a7158eb52f9e5d4911cb3d8`
+- **State fingerprint:** `9da49ab062810ebcac9a5615fc9c28d5b663c1ec24d84476028f64eecf1058e9` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `f55936c0b632d7edf7ac91cc8cdcf2ab3786af8443f97824a38c488abaa72bb1`
 - **Source-main tree at derivation:** `a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-01-production-sentry-gate`
-- **HEAD:** `6ca4d466`
+- **HEAD:** `194dc858`
 - **main:** `7f775b5f`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (18 commit(s))
+### Ahead of source main at derivation (20 commit(s))
 
+- `194dc858` fix(observability): fence navigation lifecycle failures
+- `3a2e5e54` docs(state): bind profile lifecycle repair gates
 - `6ca4d466` fix(profile): preserve subject-bound lifecycle state
 - `53cf8cb2` docs(state): bind final poetry observability gates
 - `4acadff8` fix(observability): close poetry response streams
@@ -97,12 +99,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2496/2496 across 280 files
-- **Bundle:** 4113 KB / 4400 KB
+- **Tests:** 2561/2561 across 285 files
+- **Bundle:** 4123 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `6ca4d466`
-- **Measured content tree:** `4a40733892b2be90ace4f9b81f627996c481b1126a7158eb52f9e5d4911cb3d8`
-- **Measured at:** 2026-08-06T08:10:34.120Z
+- **Measured source:** `194dc858`
+- **Measured content tree:** `f55936c0b632d7edf7ac91cc8cdcf2ab3786af8443f97824a38c488abaa72bb1`
+- **Measured at:** 2026-08-06T10:58:28.623Z
 
 <!-- END GENERATED: derive-program-state -->
 
