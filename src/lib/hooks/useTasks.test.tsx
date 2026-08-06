@@ -396,6 +396,55 @@ describe("useTasks load lifecycle", () => {
     expect(mocks.from).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["resolves", "rejects"] as const)(
+    "retires a prior-owner load before a signed-out mutation, even when the stale load %s",
+    async (outcome) => {
+      const pending = deferred<{ data: Task[] | null; error: unknown }>();
+      const load = loadBuilder(pending.promise);
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user }, error: null })
+        .mockResolvedValueOnce({
+          data: { user: null },
+          error: { status: 401, message: "session expired" },
+        });
+      mocks.from.mockReturnValue(load.builder);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      expect(load.signals).toHaveLength(1);
+
+      let result: Task | null | undefined;
+      await act(async () => {
+        result = await latest?.addTask({ title: "New", category: "personal" });
+      });
+
+      expect(result).toBeNull();
+      expect(load.signals[0].aborted).toBe(true);
+      expect(latest?.loading).toBe(false);
+      expect(latest?.tasks).toEqual([]);
+      expect(latest?.error).toEqual({
+        operation: "add",
+        message: "Sign in to create tasks.",
+      });
+
+      if (outcome === "resolves") {
+        pending.resolve({ data: [task("prior-owner")], error: null });
+      } else {
+        pending.reject(new TypeError("stale prior-owner load failure"));
+      }
+      await act(flushFailureCommit);
+
+      expect(latest?.loading).toBe(false);
+      expect(latest?.tasks).toEqual([]);
+      expect(latest?.error).toEqual({
+        operation: "add",
+        message: "Sign in to create tasks.",
+      });
+      expect(mocks.capture).not.toHaveBeenCalled();
+      expect(mocks.from).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each([
     ["add", async () => latest?.addTask({ title: "New", category: "personal" }), null, "Sign in to create tasks."],
     ["update", async () => latest?.updateTask("known", { title: "Changed" }), null, "Sign in to update tasks."],

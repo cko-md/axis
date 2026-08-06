@@ -256,9 +256,13 @@ export function useTasks() {
     operation: "add" | "update" | "delete",
     message: string,
   ) => {
+    loadGenerationRef.current += 1;
+    activeLoadRef.current?.controller.abort();
+    activeLoadRef.current = null;
     loadedOwnerRef.current = null;
     setUserId(null);
     setTasks([]);
+    setLoading(false);
     setError({ operation, message });
   }, []);
 
