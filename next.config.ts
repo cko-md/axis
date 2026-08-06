@@ -216,6 +216,10 @@ export default withSentryConfig(nextConfig, {
   tunnelRoute: "/monitoring",
 
   webpack: {
+    // The installed SDK wrapper treats every `/monitoring/*` descendant as a
+    // tunnel request. Keep its exact generated rewrites but let AXIS middleware
+    // enforce the authenticated default for every non-exact descendant.
+    autoInstrumentMiddleware: false,
     // Tree-shake Sentry logger in production
     treeshake: {
       removeDebugLogging: true,

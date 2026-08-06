@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAllowedSupabaseUrl } from "@/lib/auth/supabaseUrl";
 
 export const REQUIRED_ENV_NAMES = [
   "NEXT_PUBLIC_SUPABASE_URL",
@@ -6,7 +7,14 @@ export const REQUIRED_ENV_NAMES = [
 ] as const;
 
 const requiredPublicEnvSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().trim().url(),
+  NEXT_PUBLIC_SUPABASE_URL: z
+    .string()
+    .trim()
+    .url()
+    .refine(
+      isAllowedSupabaseUrl,
+      "Supabase URL must match the exact AXIS production or documented local origin",
+    ),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1),
 });
 

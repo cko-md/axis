@@ -105,9 +105,10 @@ jobs:
       - name: Build
         # Build validates the whole app compiles and reports route bundle sizes
         # (perf budgets, §11). Supabase public env is required at module load;
-        # placeholders are safe here because no network call runs at build time.
+        # use the exact local CLI origin accepted by the production validator.
+        # No network call runs at build time in this job.
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
         # Preserve next-build's exit status through tee; otherwise a failed
         # prerender can appear green until a later log parser happens to fail.
@@ -141,12 +142,12 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build public test server
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
         run: npm run build
       - name: Public browser suite
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
           E2E_WEB_SERVER_COMMAND: npm run start -- --hostname 127.0.0.1 --port 3000
         # A required browser gate must cover every public spec, and a retry is

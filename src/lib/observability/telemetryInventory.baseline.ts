@@ -356,4 +356,5 @@ export const AXIS_DYNAMIC_TELEMETRY_BASELINE: readonly string[] = [
   "src/lib/security/safe-fetch-observability.ts|operation|shorthand:operation",
   "src/lib/security/safe-fetch-observability.ts|shape|spread:identifier:data",
   "src/lib/security/safe-fetch-observability.ts|shape|spread:property:searchable.data",
+  "src/middleware.ts|code|shorthand:code",
 ];
