@@ -101,6 +101,20 @@ afterEach(() => {
 });
 
 describe("useNotes load lifecycle", () => {
+  it("ignores an unpaired pageshow without duplicating the initial load", async () => {
+    const load = loadBuilder(Promise.resolve({ data: [note("initial")], error: null }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from.mockReturnValue(load.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(latest?.notes.map((item) => item.id)).toEqual(["initial"]);
+  });
+
   it("aborts and consumes a pagehide-raced data failure", async () => {
     const pending = deferred<{ data: Note[] | null; error: unknown }>();
     const load = loadBuilder(pending.promise);

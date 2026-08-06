@@ -99,6 +99,17 @@ afterEach(() => {
 });
 
 describe("ShellProfileProvider lookup lifecycle", () => {
+  it("ignores an unpaired pageshow without duplicating the initial lookup", async () => {
+    mocks.fetch.mockResolvedValueOnce(response(200, profile()));
+    await renderProvider();
+
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(current().state).toBe("ready");
+  });
+
   it("captures the identical TypeError once while the lookup remains current", async () => {
     mocks.fetch.mockRejectedValueOnce(new TypeError("same live-looking failure"));
     await renderProvider();

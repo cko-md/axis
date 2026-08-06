@@ -105,6 +105,20 @@ afterEach(() => {
 });
 
 describe("useTasks load lifecycle", () => {
+  it("ignores an unpaired pageshow without duplicating the initial load", async () => {
+    const load = loadBuilder(Promise.resolve({ data: [task("initial")], error: null }));
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.from.mockReturnValue(load.builder);
+
+    act(() => root?.render(<Probe />));
+    await act(flush);
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flush);
+
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(latest?.tasks.map((item) => item.id)).toEqual(["initial"]);
+  });
+
   it("aborts and consumes the same load failure when pagehide invalidates the operation", async () => {
     const pending = deferred<{ data: Task[] | null; error: unknown }>();
     const load = loadBuilder(pending.promise);

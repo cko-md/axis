@@ -188,7 +188,9 @@ export function useTasks() {
       activeLoadRef.current = null;
     };
     const restore = (event: PageTransitionEvent) => {
+      const wasInactive = !pageActiveRef.current;
       pageActiveRef.current = true;
+      if (!wasInactive) return;
       if (event.persisted) {
         loadedOwnerRef.current = null;
         setUserId(null);

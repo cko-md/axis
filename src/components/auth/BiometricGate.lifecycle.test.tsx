@@ -82,6 +82,18 @@ afterEach(() => {
 });
 
 describe("BiometricGate lookup lifecycle", () => {
+  it("ignores an unpaired pageshow without duplicating the initial lookup", async () => {
+    mocks.fetch.mockResolvedValueOnce(promptedResponse(false));
+
+    act(() => root?.render(<BiometricGate />));
+    await act(flushFailureCommit);
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(flushFailureCommit);
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("biometric prompt");
+  });
+
   it("still captures an identical live network failure once", async () => {
     mocks.fetch.mockRejectedValueOnce(new TypeError("same live-looking failure"));
 

@@ -1036,7 +1036,9 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       }
     };
     const handlePageShow = () => {
+      const wasInactive = !pageActiveRef.current;
       pageActiveRef.current = true;
+      if (!wasInactive) return;
       setLookupNonce((current) => current + 1);
     };
     window.addEventListener("pagehide", handlePageHide);

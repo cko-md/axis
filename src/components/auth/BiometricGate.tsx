@@ -34,7 +34,9 @@ export default function BiometricGate() {
       setShow(false);
     };
     const handlePageShow = () => {
+      const wasInactive = !pageActive;
       pageActive = true;
+      if (!wasInactive) return;
       setLookupNonce((current) => current + 1);
     };
     window.addEventListener('pagehide', handlePageHide);
