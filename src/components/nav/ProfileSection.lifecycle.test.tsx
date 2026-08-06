@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -31,7 +31,7 @@ vi.mock("./cropImage", () => ({
   getCroppedImageBlob: vi.fn(),
 }));
 
-import { ProfileSection } from "./ProfileSection";
+import { ProfileSection, profileInitials } from "./ProfileSection";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -84,6 +84,24 @@ async function renderProfile(value: ShellProfileContextValue) {
   });
 }
 
+function ProfileBoundary({ value }: { value: ShellProfileContextValue }) {
+  const [profileName, setProfileName] = useState<string | undefined>();
+  return (
+    <ShellProfileContext.Provider value={value}>
+      <output data-testid="wordmark">AXIS[{profileInitials(profileName)}]</output>
+      <ProfileSection onSignOut={vi.fn()} onProfileName={setProfileName} />
+    </ShellProfileContext.Provider>
+  );
+}
+
+async function renderBoundary(value: ShellProfileContextValue) {
+  act(() => root?.render(<ProfileBoundary value={value} />));
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
   mocks.toast.mockReset();
   container = document.createElement("div");
@@ -98,6 +116,16 @@ afterEach(() => {
 });
 
 describe("ProfileSection lifecycle quarantine", () => {
+  it("clears former-subject initials while identity is unresolved", async () => {
+    await renderBoundary(contextValue());
+    expect(container.querySelector('[data-testid="wordmark"]')?.textContent).toBe("AXIS[OA]");
+
+    await renderBoundary(contextValue({ state: "loading", profile: null }));
+
+    expect(container.querySelector('[data-testid="wordmark"]')?.textContent).toBe("AXIS[CKO]");
+    expect(container.textContent).not.toContain("AXIS[OA]");
+  });
+
   it("closes and hides an open former-subject modal while identity is unresolved", async () => {
     await renderProfile(contextValue());
     const profileButton = container.querySelector<HTMLElement>(".profile");

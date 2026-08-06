@@ -25,7 +25,12 @@ import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_NAV } from "@/lib/store/nav";
 import type { NavGroup, NavItem } from "@/lib/store/nav";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
-import { ProfileSection, profileInitials } from "@/components/nav/ProfileSection";
+import {
+  ProfileSection,
+  profileInitials,
+  resolvedProfileName,
+} from "@/components/nav/ProfileSection";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
 import { UrlModules } from "@/components/nav/UrlModules";
 import { Icon } from "@/components/ui/Icon";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
@@ -441,7 +446,8 @@ export function Sidebar({ collapsed }: Props) {
   const { open: openWebViewer } = useWebViewer();
   const spotify = useSpotify();
 
-  const [profileName, setProfileName] = useState<string | undefined>(undefined);
+  const { state: profileState, profile } = useShellProfile();
+  const profileName = resolvedProfileName(profileState, profile);
 
   const [nav, setNav] = useState(DEFAULT_NAV);
   const [navLabels, setNavLabels] = useState<Record<string, string>>({});
@@ -693,7 +699,7 @@ export function Sidebar({ collapsed }: Props) {
 
       {/* Profile section (sidefoot + modal) */}
       {!collapsed && (
-        <ProfileSection onSignOut={signOut} onProfileName={setProfileName} />
+        <ProfileSection onSignOut={signOut} />
       )}
     </aside>
   );

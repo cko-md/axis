@@ -2,12 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import {
   MAX_PROFILE_FIELD_LENGTH,
   useShellProfile,
+  type AccountState,
   type ProfileDraft,
+  type ShellProfile,
 } from "@/components/layout/ShellProfileContext";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -15,7 +17,7 @@ import { useToast } from "@/components/ui/Toast";
 type Props = {
   onSignOut: () => void;
   /** Called whenever the resolved profile name changes (used by Sidebar for the wordmark). */
-  onProfileName?: (name: string) => void;
+  onProfileName?: (name: string | undefined) => void;
 };
 
 export function ProfileSection({ onSignOut, onProfileName }: Props) {
@@ -55,11 +57,8 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
     draftRef.current = draft;
   }, [draft]);
 
-  useEffect(() => {
-    if (accountState !== "ready" || !profile) return;
-    const name =
-      profile.display_name || profile.email?.split("@")[0] || "Account";
-    onProfileName?.(name);
+  useLayoutEffect(() => {
+    onProfileName?.(resolvedProfileName(accountState, profile));
   }, [accountState, onProfileName, profile]);
 
   useEffect(() => {
@@ -460,4 +459,12 @@ export function ProfileSection({ onSignOut, onProfileName }: Props) {
 export function profileInitials(name: string | undefined): string {
   if (!name) return "CKO";
   return name.trim().split(/\s+/).filter(Boolean).map((p) => p[0].toUpperCase()).join("").slice(0, 3) || "CKO";
+}
+
+export function resolvedProfileName(
+  accountState: AccountState,
+  profile: ShellProfile | null,
+): string | undefined {
+  if (accountState !== "ready" || !profile) return undefined;
+  return profile.display_name || profile.email?.split("@")[0] || "Account";
 }
