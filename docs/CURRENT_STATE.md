@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `5acc4008030f033a8ff79be7e0e6c068fcb0a363c6d8078ac19a7fdd9ead6455` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `9e3ae72412c40a4dfb7d34806257edd8b1eb1c0c4cebd211249566448e877e53`
+- **State fingerprint:** `ba0118e0a79e9638c8b10a6ac00aa4f20aaffccedbe79f68375d8a3abc7a6b35` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `1d908063e3cd2771ebd75856a17675384ad9625653d9f26af872ef53df141b0d`
 - **Source-main tree at derivation:** `a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,17 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/redesign-01-production-sentry-gate`
-- **HEAD:** `e29281de`
+- **HEAD:** `2c3a1832`
 - **main:** `7f775b5f`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (5 commit(s))
+### Ahead of source main at derivation (10 commit(s))
 
+- `2c3a1832` clear derived profile identity during restore
+- `15925bcd` quarantine shell profile during restore
+- `7d921d1c` guard lifecycle replay triggers
+- `b35fcd21` fix lifecycle recovery and fallback telemetry
+- `457c0d94` docs(state): bind additive Sentry repair gates
 - `e29281de` test(observability): keep lifecycle coverage additive
 - `0a4adc48` docs(state): bind exact Sentry repair gates
 - `071a2f20` docs(state): seal production Sentry repair provenance
@@ -84,12 +89,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2449/2449 across 278 files
-- **Bundle:** 4110 KB / 4400 KB
+- **Tests:** 2466/2466 across 279 files
+- **Bundle:** 4111 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `e29281de`
-- **Measured content tree:** `9e3ae72412c40a4dfb7d34806257edd8b1eb1c0c4cebd211249566448e877e53`
-- **Measured at:** 2026-08-06T04:42:00.011Z
+- **Measured source:** `2c3a1832`
+- **Measured content tree:** `1d908063e3cd2771ebd75856a17675384ad9625653d9f26af872ef53df141b0d`
+- **Measured at:** 2026-08-06T05:33:17.010Z
 
 <!-- END GENERATED: derive-program-state -->
 

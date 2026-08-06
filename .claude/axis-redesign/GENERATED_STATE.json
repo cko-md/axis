@@ -1,12 +1,32 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T04:42:00.103Z",
+  "derivedAt": "2026-08-06T05:33:17.090Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "e29281de27e51a25a2b8f00f01bb31fa0812b989",
+    "head": "2c3a1832a787a0c879875e46918532c6fb4dbf34",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "2c3a1832",
+        "subject": "clear derived profile identity during restore"
+      },
+      {
+        "sha": "15925bcd",
+        "subject": "quarantine shell profile during restore"
+      },
+      {
+        "sha": "7d921d1c",
+        "subject": "guard lifecycle replay triggers"
+      },
+      {
+        "sha": "b35fcd21",
+        "subject": "fix lifecycle recovery and fallback telemetry"
+      },
+      {
+        "sha": "457c0d94",
+        "subject": "docs(state): bind additive Sentry repair gates"
+      },
       {
         "sha": "e29281de",
         "subject": "test(observability): keep lifecycle coverage additive"
@@ -28,9 +48,9 @@
         "subject": "fix(observability): harden production lifecycle reporting"
       }
     ],
-    "contentTreeHash": "9e3ae72412c40a4dfb7d34806257edd8b1eb1c0c4cebd211249566448e877e53",
+    "contentTreeHash": "1d908063e3cd2771ebd75856a17675384ad9625653d9f26af872ef53df141b0d",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "5acc4008030f033a8ff79be7e0e6c068fcb0a363c6d8078ac19a7fdd9ead6455"
+    "fingerprint": "ba0118e0a79e9638c8b10a6ac00aa4f20aaffccedbe79f68375d8a3abc7a6b35"
   },
   "mergedPrs": [
     {
@@ -343,8 +363,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "e29281de27e51a25a2b8f00f01bb31fa0812b989",
-    "sourceContentTreeHash": "9e3ae72412c40a4dfb7d34806257edd8b1eb1c0c4cebd211249566448e877e53",
+    "sourceHead": "2c3a1832a787a0c879875e46918532c6fb4dbf34",
+    "sourceContentTreeHash": "1d908063e3cd2771ebd75856a17675384ad9625653d9f26af872ef53df141b0d",
     "typecheck": {
       "passed": true
     },
@@ -352,23 +372,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2449,
-      "total": 2449,
-      "files": 278,
-      "suites": 772
+      "passed": 2466,
+      "total": 2466,
+      "files": 279,
+      "suites": 774
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4110,
+      "used": 4111,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-06T04:42:00.011Z"
+    "measuredAt": "2026-08-06T05:33:17.010Z"
   }
 }
