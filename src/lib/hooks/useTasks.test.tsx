@@ -857,6 +857,96 @@ describe("useTasks load lifecycle", () => {
     },
   );
 
+  it.each([
+    ["returns", "resolves"],
+    ["returns", "rejects"],
+    ["throws", "resolves"],
+    ["throws", "rejects"],
+  ] as const)(
+    "keeps a provisional A claim when concurrent auth %s a contradictory 5xx and the A write %s",
+    async (authOutcome, olderOutcome) => {
+      const firstAuth = deferred<{
+        data: { user: typeof user | null };
+        error: unknown;
+      }>();
+      const conflictingAuth = deferred<{
+        data: { user: typeof user | null };
+        error: unknown;
+      }>();
+      const olderPending = deferred<{ data: Task | null; error: unknown }>();
+      const olderMutation = mutationBuilder(() => olderPending.promise);
+      mocks.getUser
+        .mockResolvedValueOnce({ data: { user: null }, error: null })
+        .mockReturnValueOnce(firstAuth.promise)
+        .mockReturnValueOnce(conflictingAuth.promise);
+      mocks.from.mockReturnValueOnce(olderMutation);
+
+      act(() => root?.render(<Probe />));
+      await act(flush);
+      let older!: Promise<Task | null | undefined>;
+      let conflicting!: Promise<Task | null | undefined>;
+      act(() => {
+        older = Promise.resolve(
+          latest?.addTask({ title: "Owner A", category: "personal" }),
+        );
+        conflicting = Promise.resolve(
+          latest?.addTask({ title: "Contradictory auth", category: "personal" }),
+        );
+      });
+      firstAuth.resolve({ data: { user }, error: null });
+      await act(flush);
+      expect(mocks.from).toHaveBeenCalledTimes(1);
+
+      const contradictory = {
+        name: "AuthSessionMissingError",
+        status: 500,
+        message: "contradictory server auth failure",
+      };
+      if (authOutcome === "returns") {
+        conflictingAuth.resolve({ data: { user: null }, error: contradictory });
+      } else {
+        conflictingAuth.reject(contradictory);
+      }
+      let conflictingResult: Task | null | undefined;
+      await act(async () => { conflictingResult = await conflicting; });
+
+      expect(conflictingResult).toBeNull();
+      expect(latest?.tasks).toEqual([]);
+      expect(latest?.error).toEqual({
+        operation: "add",
+        message: "Could not create task — sign in again and retry.",
+      });
+      expect(mocks.capture).toHaveBeenCalledTimes(1);
+      expect(mocks.getUser).toHaveBeenCalledTimes(3);
+      expect(mocks.from).toHaveBeenCalledTimes(1);
+
+      if (olderOutcome === "resolves") {
+        olderPending.resolve({ data: task("owner-a"), error: null });
+      } else {
+        olderPending.reject({ status: 503, message: "owner A write failure" });
+      }
+      let olderResult: Task | null | undefined;
+      await act(async () => { olderResult = await older; });
+
+      if (olderOutcome === "resolves") {
+        expect(olderResult).toEqual(task("owner-a"));
+        expect(latest?.tasks).toEqual([task("owner-a")]);
+        expect(latest?.error).toBeNull();
+        expect(mocks.capture).toHaveBeenCalledTimes(1);
+      } else {
+        expect(olderResult).toBeNull();
+        expect(latest?.tasks).toEqual([]);
+        expect(latest?.error).toEqual({
+          operation: "add",
+          message: "Could not create task — check your connection and retry.",
+        });
+        expect(mocks.capture).toHaveBeenCalledTimes(2);
+      }
+      expect(mocks.getUser).toHaveBeenCalledTimes(3);
+      expect(mocks.from).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("recovers owner B after a mismatch reload fails and is retried", async () => {
     const ownerB = { id: "task-owner-b" };
     const taskB = { ...task("owner-b"), user_id: ownerB.id };

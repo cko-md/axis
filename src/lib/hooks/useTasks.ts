@@ -351,7 +351,11 @@ export function useTasks() {
             subjectAtStart === null
             && loadedOwnerAuthorityRef.current === "mutation"
           ) {
-            retireMutationOwnerClaim(operation);
+            if (isMissingTaskSession(authError)) {
+              retireMutationOwnerClaim(operation);
+            } else {
+              recordError(operation, authError, failureMessage);
+            }
           }
           return null;
         }
@@ -399,7 +403,11 @@ export function useTasks() {
           subjectAtStart === null
           && loadedOwnerAuthorityRef.current === "mutation"
         ) {
-          retireMutationOwnerClaim(operation);
+          if (isMissingTaskSession(authError)) {
+            retireMutationOwnerClaim(operation);
+          } else {
+            recordError(operation, authError, failureMessage);
+          }
         }
         return null;
       }
