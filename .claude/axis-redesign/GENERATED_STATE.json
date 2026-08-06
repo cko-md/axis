@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T07:11:22.955Z",
+  "derivedAt": "2026-08-06T08:12:37.715Z",
   "git": {
     "branch": "codex/redesign-01-production-sentry-gate",
-    "head": "4acadff842bbef44bef0935b453a9b9084897907",
+    "head": "6ca4d466180b23015e8b99f5e6c2fa2f26089385",
     "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "6ca4d466",
+        "subject": "fix(profile): preserve subject-bound lifecycle state"
+      },
+      {
+        "sha": "53cf8cb2",
+        "subject": "docs(state): bind final poetry observability gates"
+      },
       {
         "sha": "4acadff8",
         "subject": "fix(observability): close poetry response streams"
@@ -72,9 +80,9 @@
         "subject": "fix(observability): harden production lifecycle reporting"
       }
     ],
-    "contentTreeHash": "25a19c6424f1316b41eca7011a94567eb74c98b8482554862a1e7cd1303fb961",
+    "contentTreeHash": "4a40733892b2be90ace4f9b81f627996c481b1126a7158eb52f9e5d4911cb3d8",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "42c04d38bd14df30b16f1527a0685ce9aa58dfcba02805a7b7a3c8b6897dac80"
+    "fingerprint": "35974982c895b085676cc64d43d8f9775484a07550aba0fb015eab0e8a6758c1"
   },
   "mergedPrs": [
     {
@@ -387,8 +395,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "4acadff842bbef44bef0935b453a9b9084897907",
-    "sourceContentTreeHash": "25a19c6424f1316b41eca7011a94567eb74c98b8482554862a1e7cd1303fb961",
+    "sourceHead": "6ca4d466180b23015e8b99f5e6c2fa2f26089385",
+    "sourceContentTreeHash": "4a40733892b2be90ace4f9b81f627996c481b1126a7158eb52f9e5d4911cb3d8",
     "typecheck": {
       "passed": true
     },
@@ -396,8 +404,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 2485,
-      "total": 2485,
+      "passed": 2496,
+      "total": 2496,
       "files": 280,
       "suites": 776
     },
@@ -406,13 +414,13 @@
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4111,
+      "used": 4113,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-06T07:11:22.871Z"
+    "measuredAt": "2026-08-06T08:10:34.120Z"
   }
 }
