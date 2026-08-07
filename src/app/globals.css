@@ -4824,6 +4824,13 @@ a:focus-visible,
   color: var(--ink-faint);
   margin-bottom: 22px;
 }
+.g-poem-source-status {
+  margin: -10px 0 18px;
+  font-family: var(--narrow);
+  font-size: 11px;
+  letter-spacing: .03em;
+  color: var(--warning, var(--gold));
+}
 .g-poem-lines {
   border-left: 1px solid var(--accent);
   padding-left: 20px;

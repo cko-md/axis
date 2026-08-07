@@ -220,11 +220,19 @@ async function responseRequiresMfa(response: Response) {
   }
 }
 
-async function consumeResponseBody(response: Response) {
+async function consumeResponseBody(
+  response: Response,
+  rethrowTransportFailure = false,
+) {
   try {
     return await response.json() as unknown;
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (
+      isAbortError(error) ||
+      (rethrowTransportFailure && error instanceof TypeError)
+    ) {
+      throw error;
+    }
     return null;
   }
 }
@@ -290,8 +298,12 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const [uploadState, setUploadState] =
     useState<ProfileUploadState>("idle");
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
+  const [pendingLookupFailure, setPendingLookupFailure] =
+    useState<ActiveLookupOperation | null>(null);
 
   const mountedRef = useRef(false);
+  const pageActiveRef = useRef(true);
+  const lookupActiveRef = useRef(true);
   const subjectRef = useRef<string | null>(null);
   const profileRef = useRef<ShellProfile | null>(null);
   const draftRef = useRef<ProfileDraft>(EMPTY_DRAFT);
@@ -314,6 +326,10 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const queuedSaveRef = useRef<SaveJob | null>(null);
   const uploadGenerationRef = useRef(0);
   const activeAvatarRef = useRef<ActiveAvatarOperation | null>(null);
+  const interruptedUploadRef = useRef<{
+    subject: string;
+    generation: number;
+  } | null>(null);
   const activeLookupRef = useRef<ActiveLookupOperation | null>(null);
 
   const syncPendingState = useCallback(() => {
@@ -376,6 +392,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const activeOperation = activeSaveRef.current;
       return (
         mountedRef.current &&
+        pageActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -393,6 +410,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const activeOperation = activeAvatarRef.current;
       return (
         mountedRef.current &&
+        pageActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -409,6 +427,8 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       const activeOperation = activeLookupRef.current;
       return (
         mountedRef.current &&
+        pageActiveRef.current &&
+        lookupActiveRef.current &&
         !operation.controller.signal.aborted &&
         activeOperation === operation &&
         activeOperation.controller === operation.controller &&
@@ -793,6 +813,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       }
 
       const generation = ++uploadGenerationRef.current;
+      interruptedUploadRef.current = null;
       const controller = new AbortController();
       activeAvatarRef.current?.controller.abort();
       const operation: ActiveAvatarOperation = {
@@ -1002,17 +1023,106 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     mountedRef.current = true;
+    pageActiveRef.current = true;
+    lookupActiveRef.current = true;
+    const suspendLookup = () => {
+      if (!lookupActiveRef.current) return false;
+      lookupActiveRef.current = false;
+      lookupGenerationRef.current += 1;
+      activeLookupRef.current?.controller.abort();
+      activeLookupRef.current = null;
+      setPendingLookupFailure(null);
+      return true;
+    };
+    const handlePageHide = () => {
+      if (!pageActiveRef.current) return;
+      pageActiveRef.current = false;
+      suspendLookup();
+      storeCurrentSubjectDraft();
+      setCommittedProfile(null);
+      setDraft(EMPTY_DRAFT);
+      setState("loading");
+
+      const saveWasPending = dirtyRef.current || activeSaveRef.current !== null;
+      saveEpochRef.current += 1;
+      drainingEpochRef.current = null;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      queuedSaveRef.current = null;
+      activeSaveRef.current?.controller.abort();
+      activeSaveRef.current = null;
+      if (saveWasPending) {
+        setSaveState("error");
+        setDraftPending(true);
+      }
+
+      const uploadWasPending = uploadPendingRef.current;
+      const interruptedUpload = activeAvatarRef.current;
+      uploadGenerationRef.current += 1;
+      activeAvatarRef.current?.controller.abort();
+      activeAvatarRef.current = null;
+      if (uploadWasPending) {
+        const subject = interruptedUpload?.subject ?? subjectRef.current;
+        if (subject) {
+          interruptedUploadRef.current = {
+            subject,
+            generation:
+              interruptedUpload?.generation ?? uploadGenerationRef.current - 1,
+          };
+        }
+        setUploadState("error");
+        setUploadPending(false);
+      }
+    };
+    const handlePageShow = () => {
+      if (document.visibilityState === "hidden") return;
+      const shouldReload =
+        !pageActiveRef.current || !lookupActiveRef.current;
+      pageActiveRef.current = true;
+      lookupActiveRef.current = true;
+      if (!shouldReload) return;
+      setCommittedProfile(null);
+      setState("loading");
+      lookupFailureCapturedRef.current = false;
+      setLookupNonce((current) => current + 1);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (pageActiveRef.current) {
+          suspendLookup();
+          setCommittedProfile(null);
+          setState("loading");
+        }
+        return;
+      }
+      handlePageShow();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
     return () => {
       mountedRef.current = false;
+      pageActiveRef.current = false;
+      lookupActiveRef.current = false;
       lookupGenerationRef.current += 1;
       activeLookupRef.current?.controller.abort();
       activeLookupRef.current = null;
       cancelSubjectWork(false);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [cancelSubjectWork]);
+  }, [
+    cancelSubjectWork,
+    setCommittedProfile,
+    setDraftPending,
+    setUploadPending,
+    storeCurrentSubjectDraft,
+  ]);
 
   useEffect(() => {
+    if (!pageActiveRef.current || !lookupActiveRef.current) return;
     const requestGeneration = ++lookupGenerationRef.current;
     const committedVersionsAtStart = new Map(committedVersionsRef.current);
     const controller = new AbortController();
@@ -1024,6 +1134,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     };
     activeLookupRef.current?.controller.abort();
     activeLookupRef.current = operation;
+    setPendingLookupFailure(null);
     if (!profileRef.current) setState("loading");
 
     void (async () => {
@@ -1035,11 +1146,21 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
         if (response.status === 401) {
           lookupFailureCapturedRef.current = false;
+          const interruptedUpload = interruptedUploadRef.current;
+          interruptedUploadRef.current = null;
           blockedReasonRef.current = subjectRef.current
             ? "signed-out"
             : null;
           setCommittedProfile(null);
           setState("signed-out");
+          if (interruptedUpload) {
+            setUploadState("error");
+            toast(
+              "The profile photo upload stopped because the session ended.",
+              "error",
+              "Profile",
+            );
+          }
           if (dirtyRef.current) {
             setSaveState("session-expired");
             setDraftPending(true);
@@ -1068,14 +1189,14 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
         if (!response.ok) {
           if (!bodyWasConsumed) {
-            await consumeResponseBody(response);
+            await consumeResponseBody(response, true);
             if (!isLookupOperationCurrent(operation)) return;
           }
           setState("error");
           return;
         }
 
-        const nextProfile = await consumeResponseBody(response);
+        const nextProfile = await consumeResponseBody(response, true);
         if (!isLookupOperationCurrent(operation)) return;
         if (!isShellProfile(nextProfile)) {
           throw new Error("Invalid shell profile");
@@ -1090,9 +1211,12 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
 
         if (subjectChanged) {
           const previousDraftWasDirty = dirtyRef.current;
-          const previousUploadWasPending = uploadPendingRef.current;
+          const previousUploadWasPending =
+            uploadPendingRef.current ||
+            interruptedUploadRef.current?.subject === previousSubject;
           storeCurrentSubjectDraft();
           cancelSubjectWork();
+          interruptedUploadRef.current = null;
           if (previousDraftWasDirty) {
             toast(
               "Unsaved profile changes were set aside for the previous account.",
@@ -1110,6 +1234,9 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         }
 
         subjectRef.current = nextProfile.subject;
+        if (interruptedUploadRef.current?.subject === nextProfile.subject) {
+          interruptedUploadRef.current = null;
+        }
         blockedReasonRef.current = null;
         setState("ready");
         setUploadState((current) =>
@@ -1160,19 +1287,20 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           });
           setSaveState("idle");
           setDraftPending(false);
-        } else if (wasBlocked) {
-          setSaveState("error");
-          setDraftPending(dirtyRef.current);
+        } else {
+          if (dirtyRef.current) {
+            setDraft(draftRef.current);
+          }
+          if (wasBlocked) {
+            setSaveState("error");
+            setDraftPending(dirtyRef.current);
+          }
         }
       } catch (error) {
         if (!isLookupOperationCurrent(operation) || isAbortError(error)) {
           return;
         }
-        if (!lookupFailureCapturedRef.current) {
-          lookupFailureCapturedRef.current = true;
-          captureShellProfileFailure();
-        }
-        setState("error");
+        setPendingLookupFailure(operation);
       }
     })();
 
@@ -1192,6 +1320,20 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     storeCurrentSubjectDraft,
     toast,
   ]);
+
+  useEffect(() => {
+    if (!pendingLookupFailure) return;
+    if (!isLookupOperationCurrent(pendingLookupFailure)) {
+      setPendingLookupFailure(null);
+      return;
+    }
+    if (!lookupFailureCapturedRef.current) {
+      lookupFailureCapturedRef.current = true;
+      captureShellProfileFailure();
+    }
+    setState("error");
+    setPendingLookupFailure(null);
+  }, [isLookupOperationCurrent, pendingLookupFailure]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {

@@ -8,6 +8,7 @@ type ProviderTimingOptions = {
   operation: string;
   transport?: string;
   captureFailures?: boolean;
+  recordBreadcrumbs?: boolean;
   timeoutMs?: number;
   slowMs?: number;
   retry?: ProviderRetryOptions;
@@ -151,12 +152,14 @@ function recordProviderRetry(
     ...opts.tags,
     ...extra,
   };
-  Sentry.addBreadcrumb({
-    category: "provider.retry",
-    level: "info",
-    message: `${opts.provider}.${opts.operation}`,
-    data,
-  });
+  if (opts.recordBreadcrumbs !== false) {
+    Sentry.addBreadcrumb({
+      category: "provider.retry",
+      level: "info",
+      message: `${opts.provider}.${opts.operation}`,
+      data,
+    });
+  }
   logTiming("provider-retry", data);
 }
 
@@ -170,13 +173,16 @@ export function recordProviderFailure(
     status: failure.status,
   });
 
-  Sentry.addBreadcrumb({
-    category: "provider.failure",
-    level: shouldCapture(failure) ? "error" : "warning",
-    message: `${opts.provider}.${opts.operation}`,
-    data,
-  });
   logTiming("provider", data);
+
+  if (opts.recordBreadcrumbs !== false) {
+    Sentry.addBreadcrumb({
+      category: "provider.failure",
+      level: shouldCapture(failure) ? "error" : "warning",
+      message: `${opts.provider}.${opts.operation}`,
+      data,
+    });
+  }
 
   if (opts.captureFailures === false || !shouldCapture(failure)) return;
   Sentry.captureException(new Error(failure.message ?? `${opts.provider} ${opts.operation} failed`), {
@@ -210,12 +216,14 @@ export async function timedProviderOperation<T>(
     const durationMs = nowMs() - startedAt;
     if (durationMs >= slowMs) {
       const data = timingData(opts, durationMs, "slow");
-      Sentry.addBreadcrumb({
-        category: "provider.slow",
-        level: "warning",
-        message: `${opts.provider}.${opts.operation}`,
-        data,
-      });
+      if (opts.recordBreadcrumbs !== false) {
+        Sentry.addBreadcrumb({
+          category: "provider.slow",
+          level: "warning",
+          message: `${opts.provider}.${opts.operation}`,
+          data,
+        });
+      }
       logTiming("provider", data);
     }
     return result;
@@ -259,12 +267,14 @@ export async function timedProviderFetch(
           status: res.status,
           target: safeTarget(input),
         });
-        Sentry.addBreadcrumb({
-          category: "provider.slow",
-          level: "warning",
-          message: `${opts.provider}.${opts.operation}`,
-          data,
-        });
+        if (opts.recordBreadcrumbs !== false) {
+          Sentry.addBreadcrumb({
+            category: "provider.slow",
+            level: "warning",
+            message: `${opts.provider}.${opts.operation}`,
+            data,
+          });
+        }
         logTiming("provider", data);
       }
 

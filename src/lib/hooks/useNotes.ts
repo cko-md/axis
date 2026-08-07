@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRealtimeRefresh } from "./useRealtimeRefresh";
 import type { AutosaveStatus } from "@/lib/notes/save-status";
+import { deferFailureCommit } from "@/lib/observability/deferFailureCommit";
 
 export type Note = {
   id: string;
@@ -35,6 +36,30 @@ const SEED = [
   { title: "Grant Aims — Restructure", body: "Aim 1 too broad. Split into mechanistic + outcomes arms.", folder: "Grants", tags: ["grant"] },
 ];
 
+type NoteLoadOperation = {
+  controller: AbortController;
+  generation: number;
+  identity: symbol;
+};
+
+function isMissingNoteSession(error: unknown) {
+  if (typeof error !== "object" || error === null || Array.isArray(error)) {
+    return false;
+  }
+  const value = error as Record<string, unknown>;
+  const status = value.status;
+  const boundedMissingSessionStatus =
+    status === undefined || status === 400 || status === 401;
+  return (
+    status === 401 ||
+    (value.name === "AuthSessionMissingError" && status === 400) ||
+    (boundedMissingSessionStatus &&
+      (value.code === "refresh_token_not_found" ||
+        value.code === "invalid_refresh_token" ||
+        value.message === "Auth session missing!"))
+  );
+}
+
 // Fire-and-forget: refreshes the note's embedding for semantic search. Silently
 // no-ops if GEMINI_API_KEY isn't configured server-side — search degrades to
 // quick (non-semantic) results rather than failing the note save.
@@ -60,6 +85,11 @@ export function useNotes() {
   const [saveStatus, setSaveStatus] = useState<AutosaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const lastFailedSaveRef = useRef<{ id: string; patch: Partial<Note> } | null>(null);
+  const mountedRef = useRef(false);
+  const pageActiveRef = useRef(true);
+  const loadGenerationRef = useRef(0);
+  const activeLoadRef = useRef<NoteLoadOperation | null>(null);
+  const loadedOwnerRef = useRef<string | null>(null);
 
   const recordError = useCallback((operation: string, rawError: unknown, message: string, noteId?: string) => {
     const err = rawError as { code?: string; status?: number } | null;
@@ -77,38 +107,156 @@ export function useNotes() {
     });
   }, []);
 
+  const isLoadCurrent = useCallback((operation: NoteLoadOperation) => {
+    const active = activeLoadRef.current;
+    return (
+      mountedRef.current
+      && pageActiveRef.current
+      && !operation.controller.signal.aborted
+      && active === operation
+      && active.controller === operation.controller
+      && active.identity === operation.identity
+      && loadGenerationRef.current === operation.generation
+    );
+  }, []);
+
   const refresh = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setUserId(user?.id ?? null);
-    if (!user) {
-      setNotes([]);
+    const operation: NoteLoadOperation = {
+      controller: new AbortController(),
+      generation: ++loadGenerationRef.current,
+      identity: Symbol("note-load"),
+    };
+    activeLoadRef.current?.controller.abort();
+    activeLoadRef.current = operation;
+
+    const commitFailure = async (
+      kind: "load" | "seed",
+      rawError: unknown,
+      message: string,
+      clearRows = false,
+    ) => {
+      await deferFailureCommit();
+      if (!isLoadCurrent(operation)) return;
+      recordError(kind, rawError, message);
+      if (clearRows) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setNotes([]);
+      }
       setLoading(false);
-      return;
-    }
-    const { data, error } = await supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
-    if (error) {
-      recordError("load", error, "Could not load notes — check your connection and retry.");
-      setLoading(false);
-      return;
-    }
-    if (!data?.length) {
-      const inserts = SEED.map((n, i) => ({ ...n, user_id: user.id, sort_order: i }));
-      const { data: seeded, error: seedError } = await supabase.from("notes").insert(inserts).select();
-      if (!seedError) {
+      activeLoadRef.current = null;
+    };
+
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (!isLoadCurrent(operation)) return;
+      if (authError) {
+        if (isMissingNoteSession(authError)) {
+          loadedOwnerRef.current = null;
+          setUserId(null);
+          setNotes([]);
+          setSaveError(null);
+          setLoading(false);
+          activeLoadRef.current = null;
+          return;
+        }
+        await commitFailure("load", authError, "Could not load notes — sign in again and retry.", true);
+        return;
+      }
+      if (!user) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setNotes([]);
+        setSaveError(null);
+        setLoading(false);
+        activeLoadRef.current = null;
+        return;
+      }
+      if (loadedOwnerRef.current !== null && loadedOwnerRef.current !== user.id) {
+        setNotes([]);
+      }
+      loadedOwnerRef.current = user.id;
+      setUserId(user.id);
+
+      const { data, error: loadError } = await supabase
+        .from("notes")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .abortSignal(operation.controller.signal);
+      if (!isLoadCurrent(operation)) return;
+      if (loadError || !data) {
+        await commitFailure("load", loadError, "Could not load notes — check your connection and retry.");
+        return;
+      }
+      if (data.length === 0) {
+        const inserts = SEED.map((n, i) => ({ ...n, user_id: user.id, sort_order: i }));
+        const { data: seeded, error: seedError } = await supabase
+          .from("notes")
+          .insert(inserts)
+          .select()
+          .abortSignal(operation.controller.signal);
+        if (!isLoadCurrent(operation)) return;
+        if (seedError) {
+          await commitFailure("seed", seedError, "Could not initialize notes — check your connection and retry.");
+          return;
+        }
         setNotes((seeded ?? []) as Note[]);
         setSaveError(null);
       } else {
-        recordError("seed", seedError, "Could not initialize notes — check your connection and retry.");
+        setNotes(data as Note[]);
+        setSaveError(null);
       }
-    } else {
-      setNotes(data as Note[]);
-      setSaveError(null);
+      if (!isLoadCurrent(operation)) return;
+      setLoading(false);
+      activeLoadRef.current = null;
+    } catch (loadError) {
+      if (isMissingNoteSession(loadError) && isLoadCurrent(operation)) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setNotes([]);
+        setSaveError(null);
+        setLoading(false);
+        activeLoadRef.current = null;
+        return;
+      }
+      await commitFailure("load", loadError, "Could not load notes — check your connection and retry.");
     }
-    setLoading(false);
-  }, [recordError, supabase]);
+  }, [isLoadCurrent, recordError, supabase]);
 
   useEffect(() => {
-    refresh();
+    mountedRef.current = true;
+    pageActiveRef.current = true;
+    const invalidate = () => {
+      pageActiveRef.current = false;
+      loadGenerationRef.current += 1;
+      activeLoadRef.current?.controller.abort();
+      activeLoadRef.current = null;
+    };
+    const restore = (event: PageTransitionEvent) => {
+      const wasInactive = !pageActiveRef.current;
+      pageActiveRef.current = true;
+      if (!wasInactive) return;
+      if (event.persisted) {
+        loadedOwnerRef.current = null;
+        setUserId(null);
+        setNotes([]);
+        setLoading(true);
+      }
+      void refresh();
+    };
+    window.addEventListener("pagehide", invalidate);
+    window.addEventListener("pageshow", restore);
+    return () => {
+      mountedRef.current = false;
+      invalidate();
+      window.removeEventListener("pagehide", invalidate);
+      window.removeEventListener("pageshow", restore);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    void refresh();
   }, [refresh]);
 
   useRealtimeRefresh(supabase, "notes", userId, refresh);

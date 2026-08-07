@@ -33,6 +33,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { ConsoleCaptureBar } from "@/components/console/ConsoleCaptureBar";
 import { FeaturedPhotos } from "@/components/console/FeaturedPhotos";
+import { PoemSourceNotice } from "@/components/console/PoemSourceNotice";
 import { WidgetGrid } from "@/components/console/WidgetGrid";
 import { CONSOLE_SECTION_DRILL_INS, taskRingProgress, type ConsoleDrillInSection } from "@/components/console/widget-grid-model";
 import { callAiAction } from "@/lib/ai/callAction";
@@ -148,6 +149,7 @@ function PoemCard() {
           <>
             <div className="g-poem-title">{poem.title}</div>
             <div className="g-poem-author">{poem.author}</div>
+            <PoemSourceNotice source={poem.source} />
             <div className="g-poem-lines" style={{ maxHeight: 320, overflowY: "auto" }}>
               {poem.lines.map((line, i) => (
                 <div key={i} className="g-poem-line">{line || " "}</div>
@@ -648,7 +650,11 @@ export function ConsoleModule() {
 
       // Save to tasks table if captMode is "task"
       if (captMode === "task") {
-        await addTask({ title: text, category: "personal", priority });
+        const task = await addTask({ title: text, category: "personal", priority });
+        if (!task) {
+          toast("Could not save task — sign in again and retry.", "error", "Capture");
+          return;
+        }
         toast(d ? `Task · ${d.label} · ${d.action}${sourceLabel ? ` · ${sourceLabel}` : ""}` : "Task saved", "success", "Capture");
         return;
       }
@@ -859,7 +865,15 @@ export function ConsoleModule() {
           ) : (
             topTasks.map((t) => (
               <div key={t.id} className={`task${t.status === "done" ? " done" : ""}`}>
-                <div className={`check${t.status === "done" ? " done" : ""}`} onClick={() => toggleDone(t.id)} />
+                <div
+                  className={`check${t.status === "done" ? " done" : ""}`}
+                  onClick={async () => {
+                    const updated = await toggleDone(t.id);
+                    if (!updated) {
+                      toast("Could not update task — sign in again and retry.", "error", "Console");
+                    }
+                  }}
+                />
                 <div className="task-main">
                   <div className="task-title">{t.title}</div>
                   <div className="task-meta">

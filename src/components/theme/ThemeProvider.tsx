@@ -19,13 +19,10 @@ import {
   type InterfaceSettings,
 } from "@/lib/theme/interface-settings";
 import { getBrowserTimeZone } from "@/lib/dates";
-import type { Json } from "@/lib/supabase/database.types";
+import { isProfileSubject } from "@/lib/auth/profileSubject";
 import {
   buildPreferenceEnvelope,
-  createSerialExecutor,
-  fieldWasEditedSince,
-  parsePreferenceEnvelope,
-  preferenceAuthAction,
+  parsePreferenceEnvelopeStrict,
   type PreferenceEnvelope,
 } from "@/lib/theme/preferences";
 
@@ -45,6 +42,89 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 const THEME_KEY = "axis-theme";
 const SETTINGS_KEY = "axis-interface-settings";
+const PREFERENCES_ROUTE = "/api/auth/preferences";
+const UNSAFE_PREFERENCE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+type ActiveRemoteLoad = {
+  controller: AbortController;
+  generation: number;
+  ownershipGeneration: number;
+  identity: symbol;
+  subject: string | null;
+  editRevisionAtStart: number;
+  editRevisionAtSubject: number | null;
+  acceptsOwnershiplessEdits: boolean;
+};
+
+type ActiveRemoteWrite = {
+  controller: AbortController;
+  generation: number;
+  ownershipGeneration: number;
+  identity: symbol;
+  subject: string;
+  envelope: PreferenceEnvelope;
+  editRevision: number;
+  themeEditRevision: number;
+  settingsEditRevision: number;
+};
+
+type QueuedRemoteWrite = {
+  ownershipGeneration: number;
+  subject: string;
+  envelope: PreferenceEnvelope;
+  editRevision: number;
+  themeEditRevision: number;
+  settingsEditRevision: number;
+};
+
+type DirtyPreferenceField<T> = {
+  value: T;
+  revision: number;
+};
+
+type PendingPreferenceFields = {
+  theme?: DirtyPreferenceField<ThemeMode>;
+  settings?: DirtyPreferenceField<InterfaceSettings>;
+};
+
+function newestPendingField<T>(
+  subjectBound: DirtyPreferenceField<T> | undefined,
+  ownershipless: DirtyPreferenceField<T> | undefined,
+): DirtyPreferenceField<T> | undefined {
+  if (!subjectBound) return ownershipless;
+  if (!ownershipless) return subjectBound;
+  return ownershipless.revision > subjectBound.revision
+    ? ownershipless
+    : subjectBound;
+}
+
+function mergePendingFields(
+  subjectBound: PendingPreferenceFields | null,
+  ownershipless: PendingPreferenceFields | null,
+): PendingPreferenceFields | null {
+  const theme = newestPendingField(
+    subjectBound?.theme,
+    ownershipless?.theme,
+  );
+  const settings = newestPendingField(
+    subjectBound?.settings,
+    ownershipless?.settings,
+  );
+  if (!theme && !settings) return null;
+  return {
+    ...(theme ? { theme } : {}),
+    ...(settings ? { settings } : {}),
+  };
+}
+
+type PreferenceFailureStage =
+  | "request"
+  | "response-body"
+  | "response-status"
+  | "contract"
+  | "rls";
+
+type PreferenceFailureTransport = "direct" | "route";
 
 function readStorage(key: string): string | null {
   try {
@@ -75,13 +155,199 @@ function parseStoredSettings(raw: string | null): InterfaceSettings | null {
   }
 }
 
+function isJsonValue(value: unknown, depth = 0): boolean {
+  if (depth > 12) return false;
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    return value.every((entry) => isJsonValue(entry, depth + 1));
+  }
+  if (typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).every(
+    ([key, entry]) =>
+      !UNSAFE_PREFERENCE_KEYS.has(key) &&
+      entry !== undefined &&
+      isJsonValue(entry, depth + 1),
+  );
+}
+
+function isPreferenceEnvelope(value: unknown): value is PreferenceEnvelope {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    isJsonValue(value)
+  );
+}
+
+function isPreferenceReadResponse(
+  value: unknown,
+): value is { subject: string; envelope: PreferenceEnvelope } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 2 &&
+    isProfileSubject(record.subject) &&
+    isPreferenceEnvelope(record.envelope)
+  );
+}
+
+function isPreferenceWriteResponse(
+  value: unknown,
+  subject: string,
+): value is { ok: true; subject: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 2 &&
+    record.ok === true &&
+    record.subject === subject
+  );
+}
+
+function isExactErrorResponse(value: unknown, error: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 1 && record.error === error;
+}
+
+type ExpectedPreferenceAuthBoundary = "local" | "server-observed-unavailable";
+
+function classifyExpectedPreferenceAuthBoundary(
+  status: number,
+  value: unknown,
+): ExpectedPreferenceAuthBoundary | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (
+    status === 401 &&
+    ((keys.length === 1 && record.error === "UNAUTHENTICATED") ||
+      (keys.length === 2 &&
+        record.error === "UNAUTHORIZED" &&
+        record.message === "Sign in required."))
+  ) {
+    return "local";
+  }
+  if (
+    status === 403 &&
+    keys.length === 2 &&
+    record.error === "MFA_REQUIRED" &&
+    record.message === "Complete two-factor authentication to continue."
+  ) {
+    return "local";
+  }
+  if (status !== 503 || keys.length !== 2) return null;
+  if (
+    (record.error === "AUTH_CONFIGURATION_UNAVAILABLE" ||
+      record.error === "AUTH_BACKEND_UNAVAILABLE") &&
+    record.message === "Authentication infrastructure is temporarily unavailable."
+  ) {
+    return "server-observed-unavailable";
+  }
+  if (
+    record.error === "AUTH_ASSURANCE_UNAVAILABLE" &&
+    record.message === "Authentication assurance could not be verified."
+  ) {
+    return "server-observed-unavailable";
+  }
+  return null;
+}
+
+class PreferenceClientError extends Error {
+  readonly safeStatus: number;
+  readonly safeCode: "PROFILE_LOAD_FAILED" | "PROFILE_SAVE_FAILED";
+  readonly safeStage: PreferenceFailureStage;
+  readonly safeTransport: PreferenceFailureTransport;
+
+  constructor(
+    operation: "load" | "save",
+    transport: PreferenceFailureTransport,
+    stage: PreferenceFailureStage,
+    status: number,
+  ) {
+    const code = operation === "load"
+      ? "PROFILE_LOAD_FAILED"
+      : "PROFILE_SAVE_FAILED";
+    super(code);
+    this.name = "PreferenceClientError";
+    this.safeCode = code;
+    this.safeStage = stage;
+    this.safeStatus =
+      Number.isInteger(status) && status >= 100 && status <= 599
+        ? status
+        : stage === "request" || stage === "rls"
+          ? 503
+          : 502;
+    this.safeTransport = transport;
+  }
+}
+
+class DirectPreferenceReadError extends PreferenceClientError {
+  constructor(error: unknown) {
+    const record = typeof error === "object" && error !== null
+      ? error as Record<string, unknown>
+      : {};
+    const status =
+      typeof record.status === "number" &&
+      Number.isInteger(record.status) &&
+      record.status >= 400 &&
+      record.status <= 599
+        ? record.status
+        : 500;
+    super("load", "direct", "rls", status);
+    this.name = "DirectPreferenceReadError";
+  }
+}
+
 function capturePreferenceError(operation: "load" | "save", error: unknown) {
-  Sentry.captureException(error instanceof Error ? error : new Error(`Interface preference ${operation} failed`), {
+  const safeError = error instanceof PreferenceClientError
+    ? error
+    : new PreferenceClientError(operation, "route", "request", 503);
+  const directRead = {
+    status: safeError.safeStatus,
+    code: safeError.safeCode,
+    transport: safeError.safeTransport,
+    stage: safeError.safeStage,
+  };
+  Sentry.captureException(safeError, {
     tags: {
-      feature: "interface-studio",
+      area: "profile",
+      provider: "supabase",
       operation,
-      storage: "user_preferences",
+      ...directRead,
     },
+  });
+}
+
+function deferPreferenceFailureCommit(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    let frame = 0;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", finish);
+      if (frame) window.cancelAnimationFrame(frame);
+      resolve();
+    };
+    signal.addEventListener("abort", finish, { once: true });
+    frame = window.requestAnimationFrame(finish);
   });
 }
 
@@ -93,143 +359,704 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [remoteReady, setRemoteReady] = useState(false);
   const [remoteSyncEnabled, setRemoteSyncEnabled] = useState(false);
   const [interfaceStudioOpen, setInterfaceStudioOpen] = useState(false);
+  const [hasOrphanedLocalEdits, setHasOrphanedLocalEdits] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const themeEditEpochRef = useRef(0);
-  const settingsEditEpochRef = useRef(0);
-  const remoteUserIdRef = useRef<string | null>(null);
+  const themeValueRef = useRef<ThemeMode>(theme);
+  const settingsValueRef = useRef<InterfaceSettings>(interfaceSettings);
+  const remoteSubjectRef = useRef<string | null>(null);
+  const quarantinedSubjectRef = useRef<string | null>(null);
+  const ownershiplessEditsRef = useRef<PendingPreferenceFields | null>(null);
+  const orphanedLocalEditsRef = useRef<PendingPreferenceFields | null>(null);
+  const subjectEditsBySubjectRef = useRef(new Map<string, PendingPreferenceFields>());
   const remoteEnvelopeRef = useRef<PreferenceEnvelope>({});
-  // `undefined` = auth has never settled. Distinguishing "not resolved yet" from
-  // "resolved to signed-out" is what lets a repeat auth event be deduped without
-  // swallowing the very first one.
-  const settledForUserRef = useRef<string | null | undefined>(undefined);
-  const writeVersionRef = useRef(0);
-  const writeExecutorRef = useRef(createSerialExecutor());
+  const authoritativeThemeRef = useRef<ThemeMode>("dark");
+  const authoritativeSettingsRef = useRef<InterfaceSettings>(DEFAULT_INTERFACE_SETTINGS);
+  const remoteSyncEnabledRef = useRef(false);
+  const remoteWriteIntentRef = useRef(false);
+  const loadFailureReportedRef = useRef(false);
+  const writeFailureSubjectRef = useRef<string | null>(null);
+  const themeDirtyRef = useRef(false);
+  const settingsDirtyRef = useRef(false);
+  const providerActiveRef = useRef(false);
+  const pageActiveRef = useRef(true);
+  const ownershipGenerationRef = useRef(0);
+  const loadGenerationRef = useRef(0);
+  const writeGenerationRef = useRef(0);
+  const editRevisionRef = useRef(0);
+  const themeEditRevisionRef = useRef(0);
+  const settingsEditRevisionRef = useRef(0);
+  const activeLoadRef = useRef<ActiveRemoteLoad | null>(null);
+  const activeWriteRef = useRef<ActiveRemoteWrite | null>(null);
+  const queuedWriteRef = useRef<QueuedRemoteWrite | null>(null);
+  const writeTimerRef = useRef<number | null>(null);
+  const runLoadRef = useRef<(() => void) | null>(null);
+  const startNextWriteRef = useRef<(() => void) | null>(null);
+  themeValueRef.current = theme;
+  settingsValueRef.current = interfaceSettings;
+
+  const retireActiveLoad = useCallback(() => {
+    loadGenerationRef.current += 1;
+    activeLoadRef.current?.controller.abort();
+    activeLoadRef.current = null;
+  }, []);
+
+  const retireActiveWrite = useCallback(() => {
+    writeGenerationRef.current += 1;
+    if (writeTimerRef.current !== null) {
+      window.clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = null;
+    }
+    queuedWriteRef.current = null;
+    activeWriteRef.current?.controller.abort();
+    activeWriteRef.current = null;
+  }, []);
+
+  const quarantineRemoteOwnership = useCallback(
+    (persistence: "loading" | "local" = "loading") => {
+      ownershipGenerationRef.current += 1;
+      retireActiveLoad();
+      retireActiveWrite();
+      if (remoteSubjectRef.current) {
+        const subject = remoteSubjectRef.current;
+        if (remoteWriteIntentRef.current) {
+          const existing = subjectEditsBySubjectRef.current.get(subject) ?? {};
+          subjectEditsBySubjectRef.current.set(subject, {
+            ...existing,
+            ...(themeDirtyRef.current
+              ? {
+                  theme: {
+                    value: themeValueRef.current,
+                    revision: themeEditRevisionRef.current,
+                  },
+                }
+              : {}),
+            ...(settingsDirtyRef.current
+              ? {
+                  settings: {
+                    value: settingsValueRef.current,
+                    revision: settingsEditRevisionRef.current,
+                  },
+                }
+              : {}),
+          });
+        }
+        quarantinedSubjectRef.current = subject;
+      }
+      remoteSubjectRef.current = null;
+      remoteEnvelopeRef.current = {};
+      remoteSyncEnabledRef.current = false;
+      remoteWriteIntentRef.current = false;
+      themeDirtyRef.current = false;
+      settingsDirtyRef.current = false;
+      setRemoteSyncEnabled(false);
+      setRemoteReady(persistence === "local");
+      setInterfacePersistence(persistence);
+    },
+    [retireActiveLoad, retireActiveWrite],
+  );
 
   useEffect(() => {
+    const subjectEditsBySubject = subjectEditsBySubjectRef.current;
     const stored = readStorage(THEME_KEY) as ThemeMode | null;
     if (isThemeMode(stored)) setThemeState(stored);
     const storedSettings = parseStoredSettings(readStorage(SETTINGS_KEY));
     if (storedSettings) setInterfaceSettingsState(storedSettings);
     setMounted(true);
+    providerActiveRef.current = true;
+    pageActiveRef.current = document.visibilityState !== "hidden";
 
-    let cancelled = false;
-    // Supersedes an in-flight load when auth changes again mid-request, so a
-    // slow response for a previous account can never apply over a newer one.
-    let loadToken = 0;
+    const isLoadCurrent = (operation: ActiveRemoteLoad) => {
+      const active = activeLoadRef.current;
+      return (
+        providerActiveRef.current &&
+        pageActiveRef.current &&
+        !operation.controller.signal.aborted &&
+        active === operation &&
+        active.controller === operation.controller &&
+        active.identity === operation.identity &&
+        operation.generation === loadGenerationRef.current &&
+        operation.ownershipGeneration === ownershipGenerationRef.current
+      );
+    };
 
-    const markLocalOnly = () => {
-      remoteUserIdRef.current = null;
+    const consolidatePendingLoadOwnership = (
+      operation: ActiveRemoteLoad,
+      subjectlessPolicy: "clear" | "preserve-subject-bound",
+    ) => {
+      if (!isLoadCurrent(operation)) return;
+      const establishedSubject = operation.subject;
+      if (establishedSubject) {
+        const consolidated = mergePendingFields(
+          subjectEditsBySubjectRef.current.get(establishedSubject) ?? null,
+          operation.acceptsOwnershiplessEdits
+            ? ownershiplessEditsRef.current
+            : null,
+        );
+        if (consolidated) {
+          subjectEditsBySubjectRef.current.set(
+            establishedSubject,
+            consolidated,
+          );
+        } else {
+          subjectEditsBySubjectRef.current.delete(establishedSubject);
+        }
+        quarantinedSubjectRef.current = establishedSubject;
+        ownershiplessEditsRef.current = null;
+      } else if (subjectlessPolicy === "clear") {
+        quarantinedSubjectRef.current = null;
+        ownershiplessEditsRef.current = null;
+        subjectEditsBySubjectRef.current.clear();
+      } else {
+        orphanedLocalEditsRef.current = mergePendingFields(
+          orphanedLocalEditsRef.current,
+          ownershiplessEditsRef.current,
+        );
+        setHasOrphanedLocalEdits(orphanedLocalEditsRef.current !== null);
+        ownershiplessEditsRef.current = null;
+      }
+      return true;
+    };
+
+    const retireTerminalLoad = (
+      operation: ActiveRemoteLoad,
+      persistence: "local" | "error",
+    ) => {
+      if (!consolidatePendingLoadOwnership(operation, "clear")) return;
+      remoteSubjectRef.current = null;
       remoteEnvelopeRef.current = {};
-      setInterfacePersistence("local");
+      remoteSyncEnabledRef.current = false;
+      remoteWriteIntentRef.current = false;
+      if (persistence === "local") {
+        loadFailureReportedRef.current = false;
+        writeFailureSubjectRef.current = null;
+      }
+      themeDirtyRef.current = false;
+      settingsDirtyRef.current = false;
       setRemoteSyncEnabled(false);
       setRemoteReady(true);
+      setInterfacePersistence(persistence);
+      activeLoadRef.current = null;
     };
 
-    const loadRemotePreferences = async () => {
-      const token = ++loadToken;
-      // Captured per invocation, not once per mount: each load must compare
-      // against its own start so an edit made while THIS request was in flight
-      // is preserved, while edits from before it are not treated as newer.
-      const themeEpochAtLoad = themeEditEpochRef.current;
-      const settingsEpochAtLoad = settingsEditEpochRef.current;
-
-      // getUser(), never getSession() — the identity that selects the row must
-      // stay server-verified.
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (cancelled || token !== loadToken) return;
-      if (authError || !user) {
-        if (authError) capturePreferenceError("load", authError);
-        settledForUserRef.current = null;
-        markLocalOnly();
+    const restartCurrentLoad = (operation: ActiveRemoteLoad) => {
+      if (
+        !consolidatePendingLoadOwnership(
+          operation,
+          "preserve-subject-bound",
+        )
+      ) {
         return;
       }
+      quarantineRemoteOwnership("loading");
+      runLoadRef.current?.();
+    };
 
-      const { data, error } = await supabase
-        .from("user_preferences")
-        .select("interface_settings")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (cancelled || token !== loadToken) return;
-      if (error) {
-        capturePreferenceError("load", error);
-        // Deliberately not settled: a later auth event retries rather than
-        // latching this account into a permanent error state.
-        setInterfacePersistence("error");
-        setRemoteSyncEnabled(false);
+    const consolidateActiveLoadOwnership = () => {
+      const activeLoad = activeLoadRef.current;
+      if (activeLoad) {
+        consolidatePendingLoadOwnership(
+          activeLoad,
+          "preserve-subject-bound",
+        );
+      }
+    };
+
+    const readAuthoritativePreferences = async (operation: ActiveRemoteLoad) => {
+      let response: Response;
+      try {
+        response = await fetch(PREFERENCES_ROUTE, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: operation.controller.signal,
+        });
+      } catch {
+        throw new PreferenceClientError("load", "route", "request", 503);
+      }
+      if (!isLoadCurrent(operation)) return null;
+      if (!response.ok) {
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          throw new PreferenceClientError(
+            "load",
+            "route",
+            "response-body",
+            response.status >= 400 ? response.status : 502,
+          );
+        }
+        if (!isLoadCurrent(operation)) return null;
+        const authBoundary = classifyExpectedPreferenceAuthBoundary(
+          response.status,
+          payload,
+        );
+        if (authBoundary === "local") {
+          retireTerminalLoad(operation, "local");
+          return null;
+        }
+        if (authBoundary === "server-observed-unavailable") {
+          loadFailureReportedRef.current = true;
+          retireTerminalLoad(operation, "error");
+          return null;
+        }
+        if (
+          (response.status === 499 &&
+            isExactErrorResponse(payload, "REQUEST_ABORTED")) ||
+          (response.status === 500 &&
+            isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
+        ) {
+          if (response.status === 500) loadFailureReportedRef.current = true;
+          retireTerminalLoad(operation, "error");
+          return null;
+        }
+        throw new PreferenceClientError(
+          "load",
+          "route",
+          "response-status",
+          response.status,
+        );
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new PreferenceClientError("load", "route", "response-body", 502);
+      }
+      if (!isLoadCurrent(operation)) return null;
+      if (!isPreferenceReadResponse(payload)) {
+        throw new PreferenceClientError("load", "route", "contract", 502);
+      }
+      return payload;
+    };
+
+    const loadRemotePreferences = async (operation: ActiveRemoteLoad) => {
+      try {
+        const initialIdentity = await readAuthoritativePreferences(operation);
+        if (!isLoadCurrent(operation) || !initialIdentity) return;
+        const initialSubject = initialIdentity.subject;
+        operation.subject = initialSubject;
+        operation.editRevisionAtSubject = editRevisionRef.current;
+        if (
+          !isLoadCurrent(operation) ||
+          operation.subject !== initialSubject ||
+          operation.editRevisionAtSubject < operation.editRevisionAtStart
+        ) {
+          return;
+        }
+
+        // S1 establishes opaque identity. The browser RLS read remains the
+        // abortable readiness/error gate but its ownerless data is never used;
+        // only the matching post-read server response (S2) supplies the row.
+        quarantinedSubjectRef.current = initialSubject;
+        let directRead: { error: unknown };
+        try {
+          directRead = await supabase
+            .from("user_preferences")
+            .select("interface_settings")
+            .abortSignal(operation.controller.signal)
+            .maybeSingle();
+        } catch {
+          throw new PreferenceClientError("load", "direct", "rls", 503);
+        }
+        if (!isLoadCurrent(operation)) return;
+        if (directRead.error) {
+          throw new DirectPreferenceReadError(directRead.error);
+        }
+
+        const confirmedIdentity = await readAuthoritativePreferences(operation);
+        if (!isLoadCurrent(operation) || !confirmedIdentity) return;
+        if (confirmedIdentity.subject !== initialSubject) {
+          restartCurrentLoad(operation);
+          return;
+        }
+        const confirmedSubject = confirmedIdentity.subject;
+
+        const remote = parsePreferenceEnvelopeStrict(
+          confirmedIdentity.envelope,
+        );
+        if (!remote) {
+          throw new PreferenceClientError("load", "route", "contract", 502);
+        }
+        const subjectEdits =
+          subjectEditsBySubjectRef.current.get(confirmedSubject) ?? null;
+        const ownershiplessEdits = operation.acceptsOwnershiplessEdits
+          ? ownershiplessEditsRef.current
+          : null;
+        const themeEdit = subjectEdits?.theme ?? ownershiplessEdits?.theme;
+        const settingsEdit =
+          subjectEdits?.settings ?? ownershiplessEdits?.settings;
+        const currentOrphanedEdits = orphanedLocalEditsRef.current;
+        const orphanedCandidate = currentOrphanedEdits
+          ? {
+              ...(!subjectEdits?.theme && currentOrphanedEdits.theme
+                ? { theme: currentOrphanedEdits.theme }
+                : {}),
+              ...(!subjectEdits?.settings && currentOrphanedEdits.settings
+                ? { settings: currentOrphanedEdits.settings }
+                : {}),
+            }
+          : null;
+        const orphanedEdits =
+          orphanedCandidate &&
+          (orphanedCandidate.theme || orphanedCandidate.settings)
+            ? orphanedCandidate
+            : null;
+        orphanedLocalEditsRef.current = orphanedEdits;
+        setHasOrphanedLocalEdits(orphanedEdits !== null);
+        const editedDuringRead =
+          operation.editRevisionAtSubject !== editRevisionRef.current;
+        if (editedDuringRead && !themeEdit && !settingsEdit) {
+          restartCurrentLoad(operation);
+          return;
+        }
+        remoteSubjectRef.current = confirmedSubject;
+        quarantinedSubjectRef.current = confirmedSubject;
+        remoteEnvelopeRef.current = remote.envelope;
+        subjectEditsBySubjectRef.current.delete(confirmedSubject);
+        if (operation.acceptsOwnershiplessEdits) {
+          ownershiplessEditsRef.current = null;
+        }
+        const authoritativeTheme = remote.theme ?? "dark";
+        const authoritativeSettings =
+          remote.settings ?? DEFAULT_INTERFACE_SETTINGS;
+        authoritativeThemeRef.current = authoritativeTheme;
+        authoritativeSettingsRef.current = authoritativeSettings;
+        const nextTheme =
+          themeEdit?.value ?? orphanedEdits?.theme?.value ?? authoritativeTheme;
+        const nextSettings =
+          settingsEdit?.value ??
+          orphanedEdits?.settings?.value ??
+          authoritativeSettings;
+        themeValueRef.current = nextTheme;
+        settingsValueRef.current = nextSettings;
+        setThemeState(nextTheme);
+        setInterfaceSettingsState(nextSettings);
+        themeDirtyRef.current = Boolean(themeEdit);
+        settingsDirtyRef.current = Boolean(settingsEdit);
+        remoteWriteIntentRef.current = Boolean(themeEdit || settingsEdit);
+        remoteSyncEnabledRef.current = true;
+        loadFailureReportedRef.current = false;
+        if (writeFailureSubjectRef.current !== confirmedSubject) {
+          writeFailureSubjectRef.current = null;
+        }
+        setRemoteSyncEnabled(true);
         setRemoteReady(true);
+        setInterfacePersistence(orphanedEdits ? "local" : "synced");
+        activeLoadRef.current = null;
+      } catch (error) {
+        await deferPreferenceFailureCommit(operation.controller.signal);
+        if (!isLoadCurrent(operation)) return;
+        if (!loadFailureReportedRef.current) {
+          loadFailureReportedRef.current = true;
+          capturePreferenceError("load", error);
+        }
+        retireTerminalLoad(operation, "error");
+      }
+    };
+
+    const isWriteCurrent = (candidate: ActiveRemoteWrite) => {
+      const active = activeWriteRef.current;
+      return (
+        providerActiveRef.current &&
+        pageActiveRef.current &&
+        remoteSyncEnabledRef.current &&
+        !candidate.controller.signal.aborted &&
+        active === candidate &&
+        active.controller === candidate.controller &&
+        active.identity === candidate.identity &&
+        candidate.generation === writeGenerationRef.current &&
+        candidate.ownershipGeneration === ownershipGenerationRef.current &&
+        candidate.subject === remoteSubjectRef.current
+      );
+    };
+
+    const startNextWrite = () => {
+      if (
+        activeWriteRef.current ||
+        !providerActiveRef.current ||
+        !pageActiveRef.current ||
+        !remoteSyncEnabledRef.current
+      ) {
         return;
       }
+      const queued = queuedWriteRef.current;
+      if (!queued) return;
+      if (
+        queued.ownershipGeneration !== ownershipGenerationRef.current ||
+        queued.subject !== remoteSubjectRef.current
+      ) {
+        queuedWriteRef.current = null;
+        return;
+      }
+      queuedWriteRef.current = null;
+      const candidate: ActiveRemoteWrite = {
+        controller: new AbortController(),
+        generation: ++writeGenerationRef.current,
+        ownershipGeneration: queued.ownershipGeneration,
+        identity: Symbol("interface-preference-write"),
+        subject: queued.subject,
+        envelope: queued.envelope,
+        editRevision: queued.editRevision,
+        themeEditRevision: queued.themeEditRevision,
+        settingsEditRevision: queued.settingsEditRevision,
+      };
+      activeWriteRef.current = candidate;
+      setInterfacePersistence("syncing");
 
-      const remote = parsePreferenceEnvelope(data?.interface_settings);
-      remoteUserIdRef.current = user.id;
-      remoteEnvelopeRef.current = remote.envelope;
-      settledForUserRef.current = user.id;
-      if (
-        remote.theme &&
-        !fieldWasEditedSince(
-          themeEpochAtLoad,
-          themeEditEpochRef.current,
-        )
-      ) {
-        setThemeState(remote.theme);
-      }
-      if (
-        remote.settings &&
-        !fieldWasEditedSince(
-          settingsEpochAtLoad,
-          settingsEditEpochRef.current,
-        )
-      ) {
-        setInterfaceSettingsState(remote.settings);
-      }
-      setInterfacePersistence("synced");
-      setRemoteSyncEnabled(true);
-      setRemoteReady(true);
+      const settleAndContinue = (saved: boolean) => {
+        if (!isWriteCurrent(candidate)) return;
+        activeWriteRef.current = null;
+        if (saved) {
+          remoteEnvelopeRef.current = candidate.envelope;
+          if (
+            candidate.themeEditRevision === themeEditRevisionRef.current
+          ) {
+            themeDirtyRef.current = false;
+          }
+          if (
+            candidate.settingsEditRevision === settingsEditRevisionRef.current
+          ) {
+            settingsDirtyRef.current = false;
+          }
+        }
+        const next = queuedWriteRef.current;
+        if (
+          next &&
+          next.ownershipGeneration === ownershipGenerationRef.current &&
+          next.subject === remoteSubjectRef.current
+        ) {
+          startNextWrite();
+          return;
+        }
+        if (saved && candidate.editRevision === editRevisionRef.current) {
+          remoteWriteIntentRef.current = false;
+          setInterfacePersistence(
+            orphanedLocalEditsRef.current ? "local" : "synced",
+          );
+        } else if (saved) {
+          setInterfacePersistence("syncing");
+        }
+      };
+
+      const persistRemotePreferences = async () => {
+        try {
+          let saveResponse: Response;
+          try {
+            saveResponse = await fetch(PREFERENCES_ROUTE, {
+              method: "PUT",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                subject: candidate.subject,
+                envelope: candidate.envelope,
+              }),
+              signal: candidate.controller.signal,
+            });
+          } catch {
+            throw new PreferenceClientError("save", "route", "request", 503);
+          }
+          if (!isWriteCurrent(candidate)) return;
+          let payload: unknown;
+          try {
+            payload = await saveResponse.json();
+          } catch {
+            throw new PreferenceClientError(
+              "save",
+              "route",
+              "response-body",
+              saveResponse.ok ? 502 : saveResponse.status,
+            );
+          }
+          if (!isWriteCurrent(candidate)) return;
+          if (!saveResponse.ok) {
+            const authBoundary = classifyExpectedPreferenceAuthBoundary(
+              saveResponse.status,
+              payload,
+            );
+            if (authBoundary === "local") {
+              quarantineRemoteOwnership("local");
+              return;
+            }
+            if (authBoundary === "server-observed-unavailable") {
+              writeFailureSubjectRef.current = candidate.subject;
+              setInterfacePersistence("error");
+              settleAndContinue(false);
+              return;
+            }
+            if (
+              saveResponse.status === 409 &&
+              isExactErrorResponse(payload, "PROFILE_SUBJECT_CHANGED")
+            ) {
+              quarantineRemoteOwnership("loading");
+              runLoadRef.current?.();
+              return;
+            }
+            if (
+              (saveResponse.status === 499 &&
+                isExactErrorResponse(payload, "REQUEST_ABORTED")) ||
+              (saveResponse.status === 500 &&
+                isExactErrorResponse(payload, "PREFERENCES_UNAVAILABLE"))
+            ) {
+              if (saveResponse.status === 500) {
+                writeFailureSubjectRef.current = candidate.subject;
+              }
+              setInterfacePersistence("error");
+              settleAndContinue(false);
+              return;
+            }
+            throw new PreferenceClientError(
+              "save",
+              "route",
+              "response-status",
+              saveResponse.status,
+            );
+          }
+          if (!isPreferenceWriteResponse(payload, candidate.subject)) {
+            throw new PreferenceClientError("save", "route", "contract", 502);
+          }
+          writeFailureSubjectRef.current = null;
+          settleAndContinue(true);
+        } catch (error) {
+          await deferPreferenceFailureCommit(candidate.controller.signal);
+          if (!isWriteCurrent(candidate)) return;
+          if (writeFailureSubjectRef.current !== candidate.subject) {
+            writeFailureSubjectRef.current = candidate.subject;
+            capturePreferenceError("save", error);
+          }
+          setInterfacePersistence("error");
+          settleAndContinue(false);
+        }
+      };
+
+      void persistRemotePreferences();
     };
+    startNextWriteRef.current = startNextWrite;
 
     const runLoad = () => {
-      loadRemotePreferences().catch(() => {
-        if (!cancelled) {
-          capturePreferenceError("load", new Error("Interface preference load failed"));
-          setInterfacePersistence("error");
-          setRemoteSyncEnabled(false);
-          setRemoteReady(true);
-        }
-      });
+      if (!providerActiveRef.current || !pageActiveRef.current) return;
+      retireActiveLoad();
+      const operation: ActiveRemoteLoad = {
+        controller: new AbortController(),
+        generation: ++loadGenerationRef.current,
+        ownershipGeneration: ownershipGenerationRef.current,
+        identity: Symbol("interface-preference-load"),
+        subject: null,
+        editRevisionAtStart: editRevisionRef.current,
+        editRevisionAtSubject: null,
+        acceptsOwnershiplessEdits:
+          quarantinedSubjectRef.current === null ||
+          ownershiplessEditsRef.current !== null,
+      };
+      activeLoadRef.current = operation;
+      void loadRemotePreferences(operation);
     };
+    runLoadRef.current = runLoad;
 
-    // This provider lives in the root layout, so on the ordinary login path it
-    // mounts while still signed out (middleware sends the first document request
-    // to /login) and the app then signs in via a SOFT navigation — the provider
-    // never remounts. Resolving auth only once at mount therefore pinned every
-    // post-login session to local-only mode: the save effect below stays gated
-    // on remoteSyncEnabled, so Interface Studio silently degraded to
-    // localStorage and nothing was ever written to user_preferences.
-    // Re-resolving on auth transitions is what makes preferences survive a
-    // sign-in, an account switch, and a new device.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (cancelled) return;
-      const nextUserId = session?.user.id ?? null;
-      // The session id is only a dedupe key here; getUser() remains the
-      // authority on identity inside loadRemotePreferences.
-      const action = preferenceAuthAction(event, nextUserId, settledForUserRef.current);
-      if (action === "ignore") return;
-      if (action === "reset-to-local") {
-        loadToken += 1; // abandon anything in flight for the previous account
-        settledForUserRef.current = null;
-        markLocalOnly();
+    const beginAuthoritativeReload = () => {
+      consolidateActiveLoadOwnership();
+      quarantineRemoteOwnership("loading");
+      runLoad();
+    };
+    const retireForCrossDocumentNavigation = () => {
+      consolidateActiveLoadOwnership();
+      pageActiveRef.current = false;
+      retireActiveLoad();
+      retireActiveWrite();
+    };
+    const handlePageHide = () => {
+      consolidateActiveLoadOwnership();
+      pageActiveRef.current = false;
+      quarantineRemoteOwnership("loading");
+    };
+    const handlePageShow = () => {
+      if (document.visibilityState === "hidden") {
+        consolidateActiveLoadOwnership();
+        pageActiveRef.current = false;
+        quarantineRemoteOwnership("loading");
         return;
       }
-      runLoad();
+      const wasInactive = !pageActiveRef.current;
+      pageActiveRef.current = true;
+      if (!wasInactive) return;
+      beginAuthoritativeReload();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") handlePageHide();
+      else handlePageShow();
+    };
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (
+        !activeLoadRef.current &&
+        !activeWriteRef.current &&
+        !queuedWriteRef.current &&
+        writeTimerRef.current === null
+      ) {
+        return;
+      }
+      retireForCrossDocumentNavigation();
+      // A dirty-state guard can cancel beforeunload. If the user stays, its
+      // timer resumes and this document must re-establish authority. If the
+      // user leaves, the document is destroyed before the recovery can run.
+      window.setTimeout(() => {
+        if (
+          event.defaultPrevented &&
+          providerActiveRef.current &&
+          document.visibilityState !== "hidden"
+        ) {
+          pageActiveRef.current = true;
+          beginAuthoritativeReload();
+        }
+      }, 0);
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    // Cross-document navigation begins here in hosted Chromium. Retire only
+    // exact operations; pagehide remains responsible for draft quarantine.
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+
+    // Auth events are transition signals only. The route response is the sole
+    // identity authority, so every transition first quarantines prior ownership.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      if (!providerActiveRef.current) return;
+      beginAuthoritativeReload();
     });
 
-    runLoad();
+    beginAuthoritativeReload();
 
     return () => {
-      cancelled = true;
+      providerActiveRef.current = false;
+      pageActiveRef.current = false;
+      runLoadRef.current = null;
+      startNextWriteRef.current = null;
+      retireActiveLoad();
+      retireActiveWrite();
+      remoteSubjectRef.current = null;
+      quarantinedSubjectRef.current = null;
+      ownershiplessEditsRef.current = null;
+      subjectEditsBySubject.clear();
+      remoteEnvelopeRef.current = {};
+      remoteSyncEnabledRef.current = false;
+      remoteWriteIntentRef.current = false;
+      themeDirtyRef.current = false;
+      settingsDirtyRef.current = false;
+      loadFailureReportedRef.current = false;
+      writeFailureSubjectRef.current = null;
       subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [supabase]);
+  }, [
+    quarantineRemoteOwnership,
+    retireActiveLoad,
+    retireActiveWrite,
+    supabase,
+  ]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -247,67 +1074,192 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [interfaceSettings, theme, mounted]);
 
   useEffect(() => {
-    if (!mounted || !remoteReady || !remoteSyncEnabled) return;
-    let cancelled = false;
-    const userId = remoteUserIdRef.current;
-    if (!userId) return;
-    const writeVersion = ++writeVersionRef.current;
+    if (
+      !mounted ||
+      !remoteReady ||
+      !remoteSyncEnabled ||
+      !remoteWriteIntentRef.current
+    ) {
+      return;
+    }
+    const subject = remoteSubjectRef.current;
+    if (!subject) return;
+    const ownershipGeneration = ownershipGenerationRef.current;
+    const orphanedEdits = orphanedLocalEditsRef.current;
     const envelope = buildPreferenceEnvelope(
       remoteEnvelopeRef.current,
-      theme,
-      interfaceSettings,
+      orphanedEdits?.theme && !themeDirtyRef.current
+        ? authoritativeThemeRef.current
+        : theme,
+      orphanedEdits?.settings && !settingsDirtyRef.current
+        ? authoritativeSettingsRef.current
+        : interfaceSettings,
       getBrowserTimeZone(),
     );
-    const persistRemotePreferences = async () => {
-      if (cancelled) return;
-      setInterfacePersistence("syncing");
-      const { error } = await writeExecutorRef.current.enqueue(async () =>
-        await supabase.from("user_preferences").upsert(
-          {
-            user_id: userId,
-            interface_settings: envelope as Json,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id" },
-        ),
-      );
-      if (!cancelled) {
-        if (error) capturePreferenceError("save", error);
-        if (!error) remoteEnvelopeRef.current = envelope;
-        if (writeVersion === writeVersionRef.current) {
-          setInterfacePersistence(error ? "error" : "synced");
-        }
-      }
+    queuedWriteRef.current = {
+      ownershipGeneration,
+      subject,
+      envelope,
+      editRevision: editRevisionRef.current,
+      themeEditRevision: themeEditRevisionRef.current,
+      settingsEditRevision: settingsEditRevisionRef.current,
     };
-
+    if (activeWriteRef.current) return;
+    if (writeTimerRef.current !== null) {
+      window.clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = null;
+    }
     const timer = window.setTimeout(() => {
-      persistRemotePreferences().catch((error) => {
-        if (!cancelled) {
-          capturePreferenceError("save", error);
-          setInterfacePersistence("error");
-        }
-      });
+      writeTimerRef.current = null;
+      if (
+        !providerActiveRef.current ||
+        !pageActiveRef.current ||
+        !remoteSyncEnabledRef.current ||
+        ownershipGeneration !== ownershipGenerationRef.current ||
+        subject !== remoteSubjectRef.current
+      ) {
+        return;
+      }
+      startNextWriteRef.current?.();
     }, 450);
+    writeTimerRef.current = timer;
 
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      if (writeTimerRef.current === timer) {
+        window.clearTimeout(timer);
+        writeTimerRef.current = null;
+      }
     };
-  }, [interfaceSettings, mounted, remoteReady, remoteSyncEnabled, supabase, theme]);
+  }, [
+    interfaceSettings,
+    mounted,
+    remoteReady,
+    remoteSyncEnabled,
+    theme,
+    hasOrphanedLocalEdits,
+  ]);
 
   const setTheme = useCallback((t: ThemeMode) => {
-    themeEditEpochRef.current += 1;
+    themeValueRef.current = t;
+    editRevisionRef.current += 1;
+    themeEditRevisionRef.current += 1;
+    const edit = {
+      value: t,
+      revision: themeEditRevisionRef.current,
+    };
+    if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
+      if (orphanedLocalEditsRef.current?.theme) {
+        const { settings } = orphanedLocalEditsRef.current;
+        orphanedLocalEditsRef.current = settings ? { settings } : null;
+        setHasOrphanedLocalEdits(Boolean(settings));
+      }
+      themeDirtyRef.current = true;
+      remoteWriteIntentRef.current = true;
+    } else {
+      const activeLoad = activeLoadRef.current;
+      const subject =
+        activeLoad &&
+        !activeLoad.controller.signal.aborted &&
+        activeLoad.generation === loadGenerationRef.current &&
+        activeLoad.ownershipGeneration === ownershipGenerationRef.current
+          ? activeLoad.subject ?? quarantinedSubjectRef.current
+          : quarantinedSubjectRef.current;
+      if (subject) {
+        const existing = subjectEditsBySubjectRef.current.get(subject) ?? {};
+        subjectEditsBySubjectRef.current.set(subject, {
+          ...existing,
+          theme: edit,
+        });
+      } else {
+        ownershiplessEditsRef.current = {
+          ...ownershiplessEditsRef.current,
+          theme: edit,
+        };
+      }
+    }
     setThemeState(t);
   }, []);
   const setInterfaceSettings = useCallback(
     (s: InterfaceSettings | ((prev: InterfaceSettings) => InterfaceSettings)) => {
-      settingsEditEpochRef.current += 1;
-      setInterfaceSettingsState(s);
+      const next = typeof s === "function" ? s(settingsValueRef.current) : s;
+      settingsValueRef.current = next;
+      editRevisionRef.current += 1;
+      settingsEditRevisionRef.current += 1;
+      const edit = {
+        value: next,
+        revision: settingsEditRevisionRef.current,
+      };
+      if (remoteSyncEnabledRef.current && remoteSubjectRef.current) {
+        if (orphanedLocalEditsRef.current?.settings) {
+          const { theme: orphanedTheme } = orphanedLocalEditsRef.current;
+          orphanedLocalEditsRef.current = orphanedTheme
+            ? { theme: orphanedTheme }
+            : null;
+          setHasOrphanedLocalEdits(Boolean(orphanedTheme));
+        }
+        settingsDirtyRef.current = true;
+        remoteWriteIntentRef.current = true;
+      } else {
+        const activeLoad = activeLoadRef.current;
+        const subject =
+          activeLoad &&
+          !activeLoad.controller.signal.aborted &&
+          activeLoad.generation === loadGenerationRef.current &&
+          activeLoad.ownershipGeneration === ownershipGenerationRef.current
+            ? activeLoad.subject ?? quarantinedSubjectRef.current
+            : quarantinedSubjectRef.current;
+        if (subject) {
+          const existing = subjectEditsBySubjectRef.current.get(subject) ?? {};
+          subjectEditsBySubjectRef.current.set(subject, {
+            ...existing,
+            settings: edit,
+          });
+        } else {
+          ownershiplessEditsRef.current = {
+            ...ownershiplessEditsRef.current,
+            settings: edit,
+          };
+        }
+      }
+      setInterfaceSettingsState(next);
     },
     [],
   );
   const openInterfaceStudio = useCallback(() => setInterfaceStudioOpen(true), []);
   const closeInterfaceStudio = useCallback(() => setInterfaceStudioOpen(false), []);
+  const applyOrphanedLocalEdits = useCallback(() => {
+    const orphaned = orphanedLocalEditsRef.current;
+    if (
+      !orphaned ||
+      !remoteSyncEnabledRef.current ||
+      !remoteSubjectRef.current
+    ) {
+      return;
+    }
+    if (orphaned.theme) themeDirtyRef.current = true;
+    if (orphaned.settings) settingsDirtyRef.current = true;
+    remoteWriteIntentRef.current = true;
+    orphanedLocalEditsRef.current = null;
+    setHasOrphanedLocalEdits(false);
+    setInterfacePersistence("syncing");
+  }, []);
+  const discardOrphanedLocalEdits = useCallback(() => {
+    const orphaned = orphanedLocalEditsRef.current;
+    if (!orphaned) return;
+    orphanedLocalEditsRef.current = null;
+    setHasOrphanedLocalEdits(false);
+    if (orphaned.theme) {
+      themeValueRef.current = authoritativeThemeRef.current;
+      setThemeState(authoritativeThemeRef.current);
+    }
+    if (orphaned.settings) {
+      settingsValueRef.current = authoritativeSettingsRef.current;
+      setInterfaceSettingsState(authoritativeSettingsRef.current);
+    }
+    setInterfacePersistence(
+      remoteSyncEnabledRef.current ? "synced" : "local",
+    );
+  }, []);
 
   return (
     <ThemeContext.Provider
@@ -323,6 +1275,74 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      {interfacePersistence === "error" ? (
+        <div
+          role="alert"
+          data-testid="interface-persistence-error"
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: 20,
+            zIndex: 70,
+            maxWidth: 420,
+            padding: "12px 14px",
+            border: "1px solid var(--danger, #b94a48)",
+            borderRadius: 10,
+            background: "var(--surface, #181a20)",
+            color: "var(--ink, #f3f4f6)",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          <div>
+            Interface preferences could not sync. Your current local settings
+            remain available. Open Interface Studio and make another change to
+            retry.
+          </div>
+          <button
+            type="button"
+            onClick={openInterfaceStudio}
+            style={{ marginTop: 10 }}
+          >
+            Open Interface Studio
+          </button>
+        </div>
+      ) : null}
+      {hasOrphanedLocalEdits ? (
+        <div
+          role="alert"
+          data-testid="orphaned-interface-preferences"
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: interfacePersistence === "error" ? 104 : 20,
+            zIndex: 70,
+            maxWidth: 420,
+            padding: "12px 14px",
+            border: "1px solid var(--line, #4b5563)",
+            borderRadius: 10,
+            background: "var(--surface, #181a20)",
+            color: "var(--ink, #f3f4f6)",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          <div>
+            These interface changes are local only because account ownership
+            was not verified when they were made.
+          </div>
+          {remoteSyncEnabled ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button type="button" onClick={applyOrphanedLocalEdits}>
+                Apply to this account
+              </button>
+              <button type="button" onClick={discardOrphanedLocalEdits}>
+                Discard local changes
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </ThemeContext.Provider>
   );
 }

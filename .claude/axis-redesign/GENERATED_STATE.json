@@ -1,17 +1,180 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-06T02:38:18.398Z",
+  "derivedAt": "2026-08-06T16:01:22.134Z",
   "git": {
-    "branch": "codex/redesign-01-post-auth-policy-state",
-    "head": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
-    "mainHead": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
+    "branch": "codex/redesign-01-production-sentry-gate",
+    "head": "8b8453850f68fc45dd768abb6acbcf60e7c90de3",
+    "mainHead": "7f775b5f195cc65cad7a4d3d7391b565a3a3f28e",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
+    "aheadOfMain": [
+      {
+        "sha": "8b845385",
+        "subject": "fix(tasks): fence stale load snapshots"
+      },
+      {
+        "sha": "4d7a3339",
+        "subject": "fix(tasks): preserve observable auth failures"
+      },
+      {
+        "sha": "06ec0687",
+        "subject": "fix(tasks): arbitrate concurrent owner claims"
+      },
+      {
+        "sha": "d10e8da4",
+        "subject": "fix(tasks): bind mutations to authenticated owner"
+      },
+      {
+        "sha": "5eff82a2",
+        "subject": "fix(tasks): fence mutation results by ownership epoch"
+      },
+      {
+        "sha": "a27d07bf",
+        "subject": "fix(tasks): retire loads on signed-out mutations"
+      },
+      {
+        "sha": "dc9da43c",
+        "subject": "fix(observability): close auth lifecycle review gaps"
+      },
+      {
+        "sha": "a58eaad5",
+        "subject": "docs(state): bind final lifecycle review gates"
+      },
+      {
+        "sha": "71e55aa4",
+        "subject": "fix(observability): close lifecycle review gaps"
+      },
+      {
+        "sha": "32113267",
+        "subject": "docs(state): bind subject-isolation repair gates"
+      },
+      {
+        "sha": "8d73f5f8",
+        "subject": "fix(theme): isolate preference drafts by subject"
+      },
+      {
+        "sha": "3675fc1d",
+        "subject": "docs(state): bind final navigation lifecycle gates"
+      },
+      {
+        "sha": "034c5601",
+        "subject": "fix(theme): retire preference failures before navigation"
+      },
+      {
+        "sha": "0195f3e8",
+        "subject": "docs(state): bind final lifecycle repair gates"
+      },
+      {
+        "sha": "1477b097",
+        "subject": "fix(theme): bind edits after subject resolution"
+      },
+      {
+        "sha": "58d76131",
+        "subject": "fix(theme): isolate preference ownership fields"
+      },
+      {
+        "sha": "74f817eb",
+        "subject": "fix(theme): verify preference read ownership"
+      },
+      {
+        "sha": "3978a515",
+        "subject": "fix(theme): restore abortable RLS preference reads"
+      },
+      {
+        "sha": "b4aab1fd",
+        "subject": "docs(state): bind navigation lifecycle repair gates"
+      },
+      {
+        "sha": "194dc858",
+        "subject": "fix(observability): fence navigation lifecycle failures"
+      },
+      {
+        "sha": "3a2e5e54",
+        "subject": "docs(state): bind profile lifecycle repair gates"
+      },
+      {
+        "sha": "6ca4d466",
+        "subject": "fix(profile): preserve subject-bound lifecycle state"
+      },
+      {
+        "sha": "53cf8cb2",
+        "subject": "docs(state): bind final poetry observability gates"
+      },
+      {
+        "sha": "4acadff8",
+        "subject": "fix(observability): close poetry response streams"
+      },
+      {
+        "sha": "b8c1550d",
+        "subject": "fix(observability): bound poetry provider responses"
+      },
+      {
+        "sha": "fcf85932",
+        "subject": "fix(observability): expose poetry fallback degradation"
+      },
+      {
+        "sha": "b125530e",
+        "subject": "docs(state): bind final Sentry repair gates"
+      },
+      {
+        "sha": "a7cf58dd",
+        "subject": "fix(observability): reset profile failure episode on restore"
+      },
+      {
+        "sha": "b950cd29",
+        "subject": "docs(state): bind repaired Sentry gates"
+      },
+      {
+        "sha": "2c3a1832",
+        "subject": "clear derived profile identity during restore"
+      },
+      {
+        "sha": "15925bcd",
+        "subject": "quarantine shell profile during restore"
+      },
+      {
+        "sha": "7d921d1c",
+        "subject": "guard lifecycle replay triggers"
+      },
+      {
+        "sha": "b35fcd21",
+        "subject": "fix lifecycle recovery and fallback telemetry"
+      },
+      {
+        "sha": "457c0d94",
+        "subject": "docs(state): bind additive Sentry repair gates"
+      },
+      {
+        "sha": "e29281de",
+        "subject": "test(observability): keep lifecycle coverage additive"
+      },
+      {
+        "sha": "0a4adc48",
+        "subject": "docs(state): bind exact Sentry repair gates"
+      },
+      {
+        "sha": "071a2f20",
+        "subject": "docs(state): seal production Sentry repair provenance"
+      },
+      {
+        "sha": "130106f8",
+        "subject": "docs(state): derive production Sentry repair candidate"
+      },
+      {
+        "sha": "2773c9c1",
+        "subject": "fix(observability): harden production lifecycle reporting"
+      }
+    ],
+    "contentTreeHash": "d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786",
     "sourceMainContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
-    "fingerprint": "bc4e124adc9502d17396d00c5f9b98c39605408459ab70481418ff2b62836a00"
+    "fingerprint": "20d7754c5025148e4d97faf549e6bb99712544c34b3476706f934ccafdfdb18c"
   },
   "mergedPrs": [
+    {
+      "pr": 296,
+      "sha": "7f775b5f",
+      "subject": "docs(state): refresh after AUTH-007 promotion",
+      "committedAt": "2026-08-05T23:27:53-04:00"
+    },
     {
       "pr": 295,
       "sha": "47ccc1ee",
@@ -155,12 +318,6 @@
       "sha": "065bde35",
       "subject": "fix(integrations): make Composio win the Mail/Calendar/Contacts dedup (finding I3)",
       "committedAt": "2026-07-21T09:20:14-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "76948aef",
-      "subject": "docs(axis): re-derive state after DESKTOP-004 (42 defects/0 open)",
-      "committedAt": "2026-07-21T01:55:59-04:00"
     }
   ],
   "waves": [
@@ -322,8 +479,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "56a014bbcb2094003455d68e21dbebe3c0dd3f9e",
-    "sourceContentTreeHash": "a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83",
+    "sourceHead": "8b8453850f68fc45dd768abb6acbcf60e7c90de3",
+    "sourceContentTreeHash": "d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786",
     "typecheck": {
       "passed": true
     },
@@ -331,23 +488,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2411,
-      "total": 2411,
-      "files": 272,
-      "suites": 760
+      "passed": 2749,
+      "total": 2749,
+      "files": 289,
+      "suites": 811
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4104,
+      "used": 4126,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-05T22:02:35.525Z"
+    "measuredAt": "2026-08-06T16:01:22.044Z"
   }
 }
