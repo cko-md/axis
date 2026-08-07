@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `20d7754c5025148e4d97faf549e6bb99712544c34b3476706f934ccafdfdb18c` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786`
-- **Source-main tree at derivation:** `a61ccaf326b3baa455a0aedf4e99c47b8172a3f1f669ea8e8284015d4834fa83`
+- **State fingerprint:** `7d925f5976006f902a603cbcef9b942e7ebf34aaeab6d1b79caa95acbc9ef1bf` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
+- **Source-main tree at derivation:** `d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,52 +33,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/redesign-01-production-sentry-gate`
-- **HEAD:** `8b845385`
-- **main:** `7f775b5f`
+- **Branch:** `codex/security-nanoid-runtime-audit`
+- **HEAD:** `140d77cc`
+- **main:** `b8a22fa6`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (39 commit(s))
+### Ahead of source main at derivation (1 commit(s))
 
-- `8b845385` fix(tasks): fence stale load snapshots
-- `4d7a3339` fix(tasks): preserve observable auth failures
-- `06ec0687` fix(tasks): arbitrate concurrent owner claims
-- `d10e8da4` fix(tasks): bind mutations to authenticated owner
-- `5eff82a2` fix(tasks): fence mutation results by ownership epoch
-- `a27d07bf` fix(tasks): retire loads on signed-out mutations
-- `dc9da43c` fix(observability): close auth lifecycle review gaps
-- `a58eaad5` docs(state): bind final lifecycle review gates
-- `71e55aa4` fix(observability): close lifecycle review gaps
-- `32113267` docs(state): bind subject-isolation repair gates
-- `8d73f5f8` fix(theme): isolate preference drafts by subject
-- `3675fc1d` docs(state): bind final navigation lifecycle gates
-- `034c5601` fix(theme): retire preference failures before navigation
-- `0195f3e8` docs(state): bind final lifecycle repair gates
-- `1477b097` fix(theme): bind edits after subject resolution
-- `58d76131` fix(theme): isolate preference ownership fields
-- `74f817eb` fix(theme): verify preference read ownership
-- `3978a515` fix(theme): restore abortable RLS preference reads
-- `b4aab1fd` docs(state): bind navigation lifecycle repair gates
-- `194dc858` fix(observability): fence navigation lifecycle failures
-- `3a2e5e54` docs(state): bind profile lifecycle repair gates
-- `6ca4d466` fix(profile): preserve subject-bound lifecycle state
-- `53cf8cb2` docs(state): bind final poetry observability gates
-- `4acadff8` fix(observability): close poetry response streams
-- `b8c1550d` fix(observability): bound poetry provider responses
-- `fcf85932` fix(observability): expose poetry fallback degradation
-- `b125530e` docs(state): bind final Sentry repair gates
-- `a7cf58dd` fix(observability): reset profile failure episode on restore
-- `b950cd29` docs(state): bind repaired Sentry gates
-- `2c3a1832` clear derived profile identity during restore
-- `15925bcd` quarantine shell profile during restore
-- `7d921d1c` guard lifecycle replay triggers
-- `b35fcd21` fix lifecycle recovery and fallback telemetry
-- `457c0d94` docs(state): bind additive Sentry repair gates
-- `e29281de` test(observability): keep lifecycle coverage additive
-- `0a4adc48` docs(state): bind exact Sentry repair gates
-- `071a2f20` docs(state): seal production Sentry repair provenance
-- `130106f8` docs(state): derive production Sentry repair candidate
-- `2773c9c1` fix(observability): harden production lifecycle reporting
+- `140d77cc` fix(security): refresh runtime sanitizer and identifier dependencies
 
 ## Waves merged to main
 
@@ -119,11 +81,11 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
 - **Tests:** 2749/2749 across 289 files
-- **Bundle:** 4126 KB / 4400 KB
+- **Bundle:** 4125 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `8b845385`
-- **Measured content tree:** `d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786`
-- **Measured at:** 2026-08-06T16:01:22.044Z
+- **Measured source:** `140d77cc`
+- **Measured content tree:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
+- **Measured at:** 2026-08-07T22:37:56.848Z
 
 <!-- END GENERATED: derive-program-state -->
 
