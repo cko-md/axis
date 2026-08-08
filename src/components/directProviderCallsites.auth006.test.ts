@@ -35,6 +35,15 @@ describe("AUTH-006 direct provider browser surface", () => {
     expect(strava).toMatch(/"\/api\/strava\?action=disconnect",\s*\n\s*\{ method: "POST"/);
   });
 
+  it("refreshes direct-provider status and surfaces OAuth errors on every authority transition", () => {
+    const source = read("src/components/control-room/ControlRoomModule.tsx");
+    expect(source).toContain("refreshSpotifyStatus(),");
+    expect(source).toContain("refreshStravaStatus(),");
+    expect(source).toContain("describeDirectProviderConnectFailure(\"spotify\", reason)");
+    expect(source).toContain("describeDirectProviderConnectFailure(\"strava\", reason)");
+    expect(source).toMatch(/authorityEpoch,[\s\S]*profile\?\.subject,[\s\S]*refreshSpotifyStatus,[\s\S]*refreshStravaStatus/);
+  });
+
   it("quarantines shell authority on auth, storage, BFCache, focus, and visibility events", () => {
     const source = read("src/components/layout/ShellProfileContext.tsx");
     for (const marker of [

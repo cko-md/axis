@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import {
   createOAuthPendingState,
@@ -11,6 +12,7 @@ import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
 import {
   clearProviderTokenCookies,
+  clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
   replaceProviderTokenCookies,
   setOAuthPendingStateCookie,
@@ -44,6 +46,14 @@ type StravaFailureReason =
   | "token_exchange_failed"
   | "invalid_token_response"
   | "session_expired";
+
+async function getRouteAccessToken(userId: string): Promise<string | null | Response> {
+  try {
+    return await getAccessToken(userId);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/strava");
+  }
+}
 
 function callbackFeedback(
   req: NextRequest,
@@ -216,7 +226,17 @@ export async function POST(req: NextRequest) {
   }
   if (actions.length === 1 && actions[0] === "disconnect") {
     const cookieStore = await cookies();
-    clearProviderTokenCookies(cookieStore, "strava");
+    const secret = optionalEnv("STRAVA_CLIENT_SECRET");
+    if (secret) {
+      clearProviderTokenCookiesForSubject(
+        cookieStore,
+        "strava",
+        identity.subject,
+        secret,
+      );
+    } else {
+      clearProviderTokenCookies(cookieStore, "strava");
+    }
     return privateJson({ connected: false });
   }
   return privateJson(
@@ -275,7 +295,8 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const token = await getAccessToken(user.id);
+    const token = await getRouteAccessToken(user.id);
+    if (token instanceof Response) return token;
     if (!token) return notConnected();
     const athlete = await stravaGet<StravaAthlete>(token, "/athlete");
     return privateJson({
@@ -307,7 +328,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const token = await getAccessToken(user.id);
+    const token = await getRouteAccessToken(user.id);
+    if (token instanceof Response) return token;
     if (!token) return notConnected();
     const activities = await stravaGet<StravaActivity[]>(
       token,
@@ -320,7 +342,8 @@ export async function GET(req: NextRequest) {
   }
 
   if (action === "stats") {
-    const token = await getAccessToken(user.id);
+    const token = await getRouteAccessToken(user.id);
+    if (token instanceof Response) return token;
     if (!token) return notConnected();
     const athlete = await stravaGet<StravaAthlete>(token, "/athlete");
     if (!athlete) {

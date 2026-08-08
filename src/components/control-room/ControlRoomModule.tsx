@@ -17,6 +17,7 @@ import {
   type OAuthPopupHandle,
 } from "@/lib/auth/openOAuthPopup";
 import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
+import { describeDirectProviderConnectFailure } from "@/lib/auth/directProviderConnectFailure";
 import { useShellProfile } from "@/components/layout/ShellProfileContext";
 import { Seg } from "@/components/ui/Seg";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
@@ -364,13 +365,29 @@ export function ControlRoomModule() {
     stravaStatusAuthorityRef.current = null;
     setSpotifyStatus(null);
     setStravaStatus(null);
+    if (
+      accountState === "ready" &&
+      profile?.subject &&
+      providerAuthorityRef.current.ready
+    ) {
+      void Promise.all([
+        refreshSpotifyStatus(),
+        refreshStravaStatus(),
+      ]);
+    }
     return () => {
       for (const controller of controllers) controller.abort();
       controllers.clear();
       spotifyPopupRef.current?.cancel();
       stravaPopupRef.current?.cancel();
     };
-  }, [accountState, authorityEpoch, profile?.subject]);
+  }, [
+    accountState,
+    authorityEpoch,
+    profile?.subject,
+    refreshSpotifyStatus,
+    refreshStravaStatus,
+  ]);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -477,8 +494,6 @@ export function ControlRoomModule() {
       await refreshComposioStatus();
       if (!alive) return;
       await Promise.all([
-        refreshSpotifyStatus(),
-        refreshStravaStatus(),
         refreshCalendarStatus(),
         refreshMailStatus(),
         refreshContactsStatus(),
@@ -493,8 +508,6 @@ export function ControlRoomModule() {
     refreshContactsStatus,
     refreshComposioStatus,
     refreshMailStatus,
-    refreshSpotifyStatus,
-    refreshStravaStatus,
   ]);
 
   // --- Load real activity from content tables -----------------------------
@@ -587,9 +600,23 @@ export function ControlRoomModule() {
         const current = providerAuthorityRef.current;
         return current.ready && current.subject === subject && current.epoch === epoch;
       },
-      onDone: (_provider, status) => {
+      onDone: (_provider, status, reason) => {
         spotifyPopupRef.current = null;
-        if (status === "ok") void refreshSpotifyStatus();
+        const current = providerAuthorityRef.current;
+        if (
+          !current.ready ||
+          current.subject !== authority.subject ||
+          current.epoch !== authority.epoch
+        ) return;
+        if (status === "ok") {
+          void refreshSpotifyStatus();
+          return;
+        }
+        toast(
+          describeDirectProviderConnectFailure("spotify", reason),
+          "error",
+          "Connections",
+        );
       },
     });
   };
@@ -609,9 +636,23 @@ export function ControlRoomModule() {
         const current = providerAuthorityRef.current;
         return current.ready && current.subject === subject && current.epoch === epoch;
       },
-      onDone: (_provider, status) => {
+      onDone: (_provider, status, reason) => {
         stravaPopupRef.current = null;
-        if (status === "ok") void refreshStravaStatus();
+        const current = providerAuthorityRef.current;
+        if (
+          !current.ready ||
+          current.subject !== authority.subject ||
+          current.epoch !== authority.epoch
+        ) return;
+        if (status === "ok") {
+          void refreshStravaStatus();
+          return;
+        }
+        toast(
+          describeDirectProviderConnectFailure("strava", reason),
+          "error",
+          "Connections",
+        );
       },
     });
   };

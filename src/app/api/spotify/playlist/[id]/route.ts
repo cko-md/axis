@@ -1,4 +1,5 @@
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, pickArt, spotifyGet, toTrackLite } from "../../_lib";
@@ -13,7 +14,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const identity = validateExpectedProfileSubject(req, user.id);
   if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken(user.id);
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/spotify/playlist/[id]");
+  }
   if (!token) return notConnected();
 
   const { id } = await params;

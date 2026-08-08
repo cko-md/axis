@@ -473,18 +473,38 @@ export function SpotifyProvider({
   const playUris = useCallback(async (uris: string[]) => {
     const result = await post({ action: "play", uris });
     if (!result || !isCurrent(result.authority)) return null;
-    const ok = result.response.ok;
-    return isCurrent(result.authority)
-      ? commandResult(result.authority, ok)
-      : null;
+    if (result.response.ok) {
+      return isCurrent(result.authority)
+        ? commandResult(result.authority, true)
+        : null;
+    }
+    const body = await result.response.json().catch(() => null) as {
+      message?: unknown;
+    } | null;
+    if (!isCurrent(result.authority)) return null;
+    return commandResult(
+      result.authority,
+      false,
+      typeof body?.message === "string" ? body.message : undefined,
+    );
   }, [isCurrent, post]);
   const playContext = useCallback(async (contextUri: string) => {
     const result = await post({ action: "play", contextUri });
     if (!result || !isCurrent(result.authority)) return null;
-    const ok = result.response.ok;
-    return isCurrent(result.authority)
-      ? commandResult(result.authority, ok)
-      : null;
+    if (result.response.ok) {
+      return isCurrent(result.authority)
+        ? commandResult(result.authority, true)
+        : null;
+    }
+    const body = await result.response.json().catch(() => null) as {
+      message?: unknown;
+    } | null;
+    if (!isCurrent(result.authority)) return null;
+    return commandResult(
+      result.authority,
+      false,
+      typeof body?.message === "string" ? body.message : undefined,
+    );
   }, [isCurrent, post]);
   const queue = useCallback(async (uri: string) => {
     const result = await post({ action: "queue", uri });

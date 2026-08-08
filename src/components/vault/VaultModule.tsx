@@ -394,6 +394,25 @@ type ProviderFetch = <T>(
 ) => Promise<{ ok: boolean; status: number; data: T } | null>;
 type CommandIsCurrent = (result: SpotifyCommandResult | null) => boolean;
 
+function reportPlayCommand(
+  result: SpotifyCommandResult | null,
+  successMessage: string,
+  commandIsCurrent: CommandIsCurrent,
+  toast: ToastFn,
+): "stale" | "success" | "failure" {
+  if (!commandIsCurrent(result)) return "stale";
+  if (!result?.ok) {
+    toast(
+      result?.message ?? "Spotify could not start playback. Open Spotify on a device and try again.",
+      "warn",
+      "Vault",
+    );
+    return "failure";
+  }
+  toast(successMessage, "success", "Vault");
+  return "success";
+}
+
 function PlayRecButton({ rec, spotify, toast, providerFetch, commandIsCurrent }: { rec: Rec; spotify: ReturnType<typeof useSpotify>; toast: ToastFn; providerFetch: ProviderFetch; commandIsCurrent: CommandIsCurrent }) {
   const [loading, setLoading] = useState(false);
 
@@ -411,11 +430,16 @@ function PlayRecButton({ rec, spotify, toast, providerFetch, commandIsCurrent }:
       const uri = result.data.tracks?.[0]?.uri;
       if (uri) {
         const command = await spotify.playUris([uri]);
-        if (!commandIsCurrent(command)) {
+        if (
+          reportPlayCommand(
+            command,
+            `Playing ${rec.track}`,
+            commandIsCurrent,
+            toast,
+          ) === "stale"
+        ) {
           mayCommit = false;
-          return;
         }
-        if (command?.ok) toast(`Playing ${rec.track}`, "success", "Vault");
       } else {
         toast("Track not found on Spotify", "warn", "Vault");
       }
@@ -807,8 +831,12 @@ export function VaultModule() {
       const command = isContext
         ? await spotify.playContext(item.uri)
         : await spotify.playUris([item.uri]);
-      if (!commandIsCurrent(command) || !command?.ok) return;
-      toast(`Playing ${item.name}`, "success", "Vault");
+      reportPlayCommand(
+        command,
+        `Playing ${item.name}`,
+        commandIsCurrent,
+        toast,
+      );
     },
     [commandIsCurrent, spotify, toast],
   );
@@ -853,8 +881,12 @@ export function VaultModule() {
   };
   const playTrack = async (t: TrackLite) => {
     const command = await spotify.playUris([t.uri]);
-    if (!commandIsCurrent(command) || !command?.ok) return;
-    toast(`Playing ${t.name}`, "success", "Vault");
+    reportPlayCommand(
+      command,
+      `Playing ${t.name}`,
+      commandIsCurrent,
+      toast,
+    );
   };
 
   // ── focus playlist modal ──
@@ -905,12 +937,17 @@ export function VaultModule() {
         } else {
           // Queue the suggested set onto the active device.
           const command = await spotify.playUris(data.tracks.map((t: TrackLite) => t.uri));
-          if (!commandIsCurrent(command)) {
+          const outcome = reportPlayCommand(
+            command,
+            `Queued ${data.tracks.length} tracks for “${data.label}”`,
+            commandIsCurrent,
+            toast,
+          );
+          if (outcome === "stale") {
             mayCommit = false;
             return;
           }
-          if (!command?.ok) return;
-          toast(`Queued ${data.tracks.length} tracks for “${data.label}”`, "success", "Vault");
+          if (outcome === "failure") return;
           setFocusOpen(false);
         }
       } catch {
@@ -1050,7 +1087,12 @@ export function VaultModule() {
                 onClick={() => {
                   if (s.uri) {
                     spotify.playContext(s.uri).then((result) => {
-                      if (commandIsCurrent(result) && result?.ok) toast(`Playing ${s.text}`, "success", "Vault");
+                      reportPlayCommand(
+                        result,
+                        `Playing ${s.text}`,
+                        commandIsCurrent,
+                        toast,
+                      );
                     });
                   } else if (s.spotifyUrl) {
                     setEmbedUrl(s.spotifyUrl);
@@ -1117,7 +1159,12 @@ export function VaultModule() {
                   onClick={() => {
                     if (connected) {
                       spotify.playContext(c.uri).then((result) => {
-                        if (commandIsCurrent(result) && result?.ok) toast(`Playing ${c.title}`, "success", "Vault");
+                        reportPlayCommand(
+                          result,
+                          `Playing ${c.title}`,
+                          commandIsCurrent,
+                          toast,
+                        );
                       });
                     } else {
                       setEmbedUrl(c.spotifyUrl);

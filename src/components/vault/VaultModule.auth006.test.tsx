@@ -237,4 +237,60 @@ describe("Vault AUTH-006 stale operation retirement", () => {
       "Vault",
     );
   });
+
+  it("surfaces a current provider playback failure without leaking stale feedback", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    mocks.playUris.mockResolvedValue({
+      ok: false,
+      subject: SUBJECT_A,
+      epoch: 1,
+      message: "Open Spotify on a device first.",
+    });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(input.toString(), window.location.origin);
+      const items = url.searchParams.get("kind") === "recent"
+        ? [{
+            id: "track-a",
+            uri: "spotify:track:a",
+            name: "A private track",
+            artists: "A private artist",
+            album: "A private album",
+            art: null,
+            durationMs: 100,
+          }]
+        : [];
+      return Promise.resolve(new Response(JSON.stringify({ connected: true, items }), {
+        status: 200,
+      }));
+    }));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<VaultModule />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const privateTrack = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("A private track"));
+    expect(privateTrack).toBeDefined();
+    await act(async () => {
+      privateTrack?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "Open Spotify on a device first.",
+      "warn",
+      "Vault",
+    );
+    expect(mocks.toast).not.toHaveBeenCalledWith(
+      "Playing A private track",
+      "success",
+      "Vault",
+    );
+  });
 });

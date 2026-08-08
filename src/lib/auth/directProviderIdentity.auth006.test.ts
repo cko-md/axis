@@ -138,7 +138,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       accessToken: null,
       refreshToken: null,
     });
-    expect(store.values.size).toBe(0);
+    expect(store.values.get("spotify_access_token")).toBe("stale-access");
 
     replaceProviderTokenCookies(store, "spotify", {
       accessToken: "fresh-access",
@@ -150,11 +150,6 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       accessToken: "fresh-access",
       refreshToken: "fresh-refresh",
     });
-    expect(store.operations.slice(0, 3)).toEqual([
-      "delete:spotify_token_owner",
-      "delete:spotify_access_token",
-      "delete:spotify_refresh_token",
-    ]);
     expect(store.operations.at(-1)).toBe("set:spotify_token_owner");
     expect(store.values.get("spotify_token_owner")).toBe(
       createProviderOwnerSeal("spotify", subjectA, secret),
@@ -162,7 +157,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     expect(store.values.get("spotify_token_owner")).not.toContain(subjectA);
   });
 
-  it("rejects and clears tampered, cross-provider, and legacy owner cookies", () => {
+  it("rejects tampered, cross-provider, and legacy owner cookies without deleting another subject's tuple", () => {
     expect(createProviderOwnerSeal("spotify", subjectA, secret)).toBe(
       "po1_biO-AGpq2_V9f9hbp6n-GejkA0bARQOlpbEyePn25po",
     );
@@ -184,7 +179,8 @@ describe("AUTH-006 direct-provider identity primitives", () => {
         accessToken: null,
         refreshToken: null,
       });
-      expect(store.values.size).toBe(0);
+      expect(store.values.get("spotify_access_token")).toBe("access");
+      expect(store.values.get("spotify_refresh_token")).toBe("refresh");
     }
   });
 

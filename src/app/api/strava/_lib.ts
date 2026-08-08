@@ -1,8 +1,13 @@
 import { cookies } from "next/headers";
 import {
+  clearProviderTokenCookiesForSubject,
   providerTokensForSubject,
-  replaceProviderTokenCookies,
+  replaceRefreshedProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
+import {
+  DirectProviderRefreshError,
+  providerRefreshTransportError,
+} from "@/lib/auth/directProviderRefresh.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
@@ -51,14 +56,35 @@ export async function getAccessToken(userId: string): Promise<string | null> {
         grant_type: "refresh_token",
       }),
     });
-  } catch {
-    return null;
+  } catch (error) {
+    throw providerRefreshTransportError("strava", error);
   }
   const { response: res, body: data } = exchange;
-  if (!res.ok) return null;
+  if (!res.ok) {
+    if (res.status === 429 || res.status >= 500) {
+      throw new DirectProviderRefreshError({
+        provider: "strava",
+        status: 502,
+        code: "PROVIDER_REFRESH_UNAVAILABLE",
+      });
+    }
+    clearProviderTokenCookiesForSubject(
+      cookieStore,
+      "strava",
+      subject,
+      clientSecret,
+    );
+    return null;
+  }
   const fresh = typeof data?.access_token === "string" ? data.access_token : null;
-  if (!fresh) return null;
-  replaceProviderTokenCookies(cookieStore, "strava", {
+  if (!fresh) {
+    throw new DirectProviderRefreshError({
+      provider: "strava",
+      status: 502,
+      code: "PROVIDER_REFRESH_INVALID_RESPONSE",
+    });
+  }
+  replaceRefreshedProviderTokenCookies(cookieStore, "strava", {
     accessToken: fresh,
     refreshToken: typeof data?.refresh_token === "string" && data.refresh_token
       ? data.refresh_token

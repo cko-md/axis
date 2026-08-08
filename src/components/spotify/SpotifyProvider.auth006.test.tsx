@@ -261,6 +261,90 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
     expect(result).toEqual({ ok: false, subject: SUBJECT_A, epoch: 1 });
   });
 
+  it("preserves a safe current playback failure message", async () => {
+    const fetchMock = vi.fn((input: URL, init?: RequestInit) => {
+      if (input.pathname === "/api/spotify/playback" && init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: false,
+          error: "no_active_device",
+          message: "Open Spotify on a device first.",
+        }), { status: 404 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        connected: true,
+        configured: true,
+        playing: false,
+        track: null,
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <SpotifyProvider accountState="ready" subject={SUBJECT_A} authorityEpoch={1}>
+          <Probe />
+        </SpotifyProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await expect(observed?.playContext("spotify:playlist:a")).resolves.toEqual({
+      ok: false,
+      subject: SUBJECT_A,
+      epoch: 1,
+      message: "Open Spotify on a device first.",
+    });
+  });
+
+  it("drops a playback failure body parsed after authority retirement", async () => {
+    const playBody = deferred<{ message: string }>();
+    const fetchMock = vi.fn((input: URL, init?: RequestInit) => {
+      if (input.pathname === "/api/spotify/playback" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: () => playBody.promise,
+        });
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        connected: true,
+        configured: true,
+        playing: false,
+        track: null,
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <SpotifyProvider accountState="ready" subject={SUBJECT_A} authorityEpoch={1}>
+          <Probe />
+        </SpotifyProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const pending = observed?.playUris(["spotify:track:a"]);
+    await act(async () => {
+      root?.render(
+        <SpotifyProvider accountState="loading" subject={null} authorityEpoch={2}>
+          <Probe />
+        </SpotifyProvider>,
+      );
+    });
+    playBody.resolve({ message: "A private provider message" });
+
+    expect(pending).toBeDefined();
+    await expect(pending!).resolves.toBeNull();
+  });
+
   it("retires every nominally successful command when its initiating authority changes", async () => {
     const commandResponses: Array<ReturnType<typeof deferred<Response>>> = [];
     const fetchMock = vi.fn((input: URL, init?: RequestInit) => {

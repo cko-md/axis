@@ -1,7 +1,11 @@
 import { cookies } from "next/headers";
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
-import { clearProviderTokenCookies } from "@/lib/auth/providerCookies.server";
+import {
+  clearProviderTokenCookies,
+  clearProviderTokenCookiesForSubject,
+} from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
+import { optionalEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
 /** POST /api/spotify/disconnect — clears stored tokens (server-side only). */
@@ -13,6 +17,16 @@ export async function POST(req: Request) {
   if (!identity.ok) return identity.response;
 
   const cookieStore = await cookies();
-  clearProviderTokenCookies(cookieStore, "spotify");
+  const secret = optionalEnv("SPOTIFY_CLIENT_SECRET");
+  if (secret) {
+    clearProviderTokenCookiesForSubject(
+      cookieStore,
+      "spotify",
+      identity.subject,
+      secret,
+    );
+  } else {
+    clearProviderTokenCookies(cookieStore, "spotify");
+  }
   return privateJson({ ok: true, connected: false });
 }

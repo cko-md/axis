@@ -1,4 +1,5 @@
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, stravaGet, metresToKm, type StravaActivity } from "@/app/api/strava/_lib";
@@ -20,7 +21,12 @@ export async function GET(req: Request) {
 
   const STUB = { value: "8 km banked", hint: "Connect Strava in Vitality", fallback: true };
 
-  const token = await getAccessToken(user.id);
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/widgets/training");
+  }
   if (!token) {
     logRouteTiming("/api/widgets/training", routeStartedAt, { fallback: true, connected: false });
     return privateJson(STUB);

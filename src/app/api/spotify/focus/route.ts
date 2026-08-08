@@ -1,5 +1,6 @@
 import { heuristicCapture } from "@/lib/ai/capture";
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } from "../_lib";
@@ -23,7 +24,12 @@ export async function POST(req: Request) {
   const identity = validateExpectedProfileSubject(req, user.id);
   if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken(user.id);
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/spotify/focus");
+  }
   if (!token) return notConnected();
 
   const { prompt, create } = (await req.json()) as { prompt: string; create?: boolean };

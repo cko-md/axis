@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { createProviderOwnerSeal } from "@/lib/auth/providerCookies.server";
+import { DirectProviderRefreshError } from "@/lib/auth/directProviderRefresh.server";
 
 const mocks = vi.hoisted(() => ({
   cookieStore: {
@@ -63,7 +64,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       invalidOwner: createProviderOwnerSeal("spotify", subject, "strava-secret"),
       getAccessToken: getStravaAccessToken,
     },
-  ])("clears invalid $provider ownership before provider traffic", async ({
+  ])("rejects invalid $provider ownership before provider traffic without deleting another subject", async ({
     owner,
     access,
     refresh,
@@ -78,9 +79,9 @@ describe("AUTH-006 direct provider token helpers", () => {
 
     await expect(getAccessToken(userId)).resolves.toBeNull();
 
-    expect(mocks.cookieStore.values.has(owner)).toBe(false);
-    expect(mocks.cookieStore.values.has(access)).toBe(false);
-    expect(mocks.cookieStore.values.has(refresh)).toBe(false);
+    expect(mocks.cookieStore.values.get(owner)).toBe(invalidOwner);
+    expect(mocks.cookieStore.values.get(access)).toBe("stale-access");
+    expect(mocks.cookieStore.values.get(refresh)).toBe("stale-refresh");
     expect(providerFetch).not.toHaveBeenCalled();
   });
 
@@ -93,7 +94,7 @@ describe("AUTH-006 direct provider token helpers", () => {
 
     await expect(getSpotifyAccessToken(userId)).resolves.toBe("bound-access");
     await expect(getSpotifyAccessToken("different-user")).resolves.toBeNull();
-    expect(mocks.cookieStore.values.has("spotify_access_token")).toBe(false);
+    expect(mocks.cookieStore.values.get("spotify_access_token")).toBe("bound-access");
   });
 
   it.each([
@@ -115,7 +116,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       secret: "strava-secret",
       getAccessToken: getStravaAccessToken,
     },
-  ])("reasserts A ownership when a late $provider refresh lands after B credentials", async ({
+  ])("preserves B when a late $provider refresh lands after B credentials", async ({
     provider,
     owner,
     access,
@@ -146,15 +147,17 @@ describe("AUTH-006 direct provider token helpers", () => {
 
     await expect(lateRefresh).resolves.toBe("late-access-a");
     expect(mocks.cookieStore.values.get(owner)).toBe(
-      createProviderOwnerSeal(provider, subject, secret),
+      createProviderOwnerSeal(provider, subjectB, secret),
     );
-    expect(mocks.cookieStore.values.get(access)).toBe("late-access-a");
-    expect(mocks.cookieStore.values.get(refresh)).toBe("late-refresh-a");
+    expect(mocks.cookieStore.values.get(access)).toBe("access-b");
+    expect(mocks.cookieStore.values.get(refresh)).toBe("refresh-b");
     expect(mocks.cookieStore.values.get(pending)).toBe("pending-b");
+    expect([...mocks.cookieStore.values.values()]).toContain("late-access-a");
+    expect([...mocks.cookieStore.values.values()]).toContain("late-refresh-a");
 
-    await expect(getAccessToken(userB)).resolves.toBeNull();
+    await expect(getAccessToken(userB)).resolves.toBe("access-b");
     expect(providerFetch).toHaveBeenCalledTimes(1);
-    expect(mocks.cookieStore.values.has(access)).toBe(false);
+    expect(mocks.cookieStore.values.get(access)).toBe("access-b");
   });
 
   it.each([
@@ -184,10 +187,99 @@ describe("AUTH-006 direct provider token helpers", () => {
     mocks.cookieStore.values.set(refresh, "refresh-a");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("Timed out", "AbortError")));
 
-    await expect(getAccessToken(userId)).resolves.toBeNull();
+    await expect(getAccessToken(userId)).rejects.toMatchObject({
+      name: "DirectProviderRefreshError",
+      status: 504,
+      code: "PROVIDER_REFRESH_TIMEOUT",
+    } satisfies Partial<DirectProviderRefreshError>);
     expect(mocks.cookieStore.values.get(owner)).toBe(ownerSeal);
     expect(mocks.cookieStore.values.get(refresh)).toBe("refresh-a");
     expect(mocks.cookieStore.set).not.toHaveBeenCalled();
     expect(mocks.cookieStore.delete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
+      owner: "spotify_token_owner",
+      refresh: "spotify_refresh_token",
+      secret: "spotify-secret",
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      owner: "strava_token_owner",
+      refresh: "strava_refresh_token",
+      secret: "strava-secret",
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("distinguishes transient and malformed $provider refresh responses", async ({
+    provider,
+    owner,
+    refresh,
+    secret,
+    getAccessToken,
+  }) => {
+    mocks.cookieStore.values.set(
+      owner,
+      createProviderOwnerSeal(provider, subject, secret),
+    );
+    mocks.cookieStore.values.set(refresh, "refresh-a");
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ expires_in: 900 }), {
+        status: 200,
+      }));
+    vi.stubGlobal("fetch", providerFetch);
+
+    await expect(getAccessToken(userId)).rejects.toMatchObject({
+      status: 502,
+      code: "PROVIDER_REFRESH_UNAVAILABLE",
+    } satisfies Partial<DirectProviderRefreshError>);
+    await expect(getAccessToken(userId)).rejects.toMatchObject({
+      status: 502,
+      code: "PROVIDER_REFRESH_INVALID_RESPONSE",
+    } satisfies Partial<DirectProviderRefreshError>);
+    expect(mocks.cookieStore.values.get(refresh)).toBe("refresh-a");
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
+      owner: "spotify_token_owner",
+      access: "spotify_access_token",
+      refresh: "spotify_refresh_token",
+      secret: "spotify-secret",
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      owner: "strava_token_owner",
+      access: "strava_access_token",
+      refresh: "strava_refresh_token",
+      secret: "strava-secret",
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("treats a definitive $provider refresh rejection as disconnected", async ({
+    provider,
+    owner,
+    access,
+    refresh,
+    secret,
+    getAccessToken,
+  }) => {
+    mocks.cookieStore.values.set(
+      owner,
+      createProviderOwnerSeal(provider, subject, secret),
+    );
+    mocks.cookieStore.values.set(refresh, "revoked-refresh");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
+      status: 400,
+    })));
+
+    await expect(getAccessToken(userId)).resolves.toBeNull();
+    expect(mocks.cookieStore.values.has(owner)).toBe(false);
+    expect(mocks.cookieStore.values.has(access)).toBe(false);
+    expect(mocks.cookieStore.values.has(refresh)).toBe(false);
   });
 });

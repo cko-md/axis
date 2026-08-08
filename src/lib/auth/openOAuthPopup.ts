@@ -115,12 +115,16 @@ export function openDirectOAuthPopup(options: {
 
   const current = () => isCurrent(subject, epoch);
   const initiationController = new AbortController();
+  let retiredByLifecycle = false;
   const lifecycle = attachPopupLifecycle(
     popup,
     provider,
     current,
     onDone,
-    () => initiationController.abort(),
+    () => {
+      retiredByLifecycle = true;
+      initiationController.abort();
+    },
   );
 
   void (async () => {
@@ -149,8 +153,8 @@ export function openDirectOAuthPopup(options: {
       }
       popup.location.replace(providerUrl.href);
     } catch (error) {
+      if (retiredByLifecycle || !current()) return;
       lifecycle.cancel();
-      if (!current()) return;
       const reason = error instanceof DOMException && error.name === "AbortError"
         ? "cancelled"
         : "initiation_failed";

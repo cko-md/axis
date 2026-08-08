@@ -12,6 +12,12 @@ type CookieOptions = {
   path: "/";
 };
 
+type CredentialCookieNames = {
+  access: string;
+  refresh: string;
+  owner: string;
+};
+
 export type MutableProviderCookieStore = {
   get(name: string): CookieValue;
   set(name: string, value: string, options: CookieOptions): unknown;
@@ -89,6 +95,26 @@ function ownerSealKey(secret: string, provider: DirectOAuthProvider): Buffer {
     .digest();
 }
 
+function subjectCredentialCookieNames(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): CredentialCookieNames {
+  if (!isProfileSubject(subject) || !secret) {
+    throw new Error("PROVIDER_CREDENTIAL_SLOT_INPUT_INVALID");
+  }
+  const config = PROVIDER_COOKIES[provider];
+  const slot = createHmac("sha256", ownerSealKey(secret, provider))
+    .update(`axis:direct-provider-cookie-slot:v${OWNER_SEAL_VERSION}\0${subject}`)
+    .digest("hex")
+    .slice(0, 24);
+  return {
+    access: `${config.access}_s${OWNER_SEAL_VERSION}_${slot}`,
+    refresh: `${config.refresh}_s${OWNER_SEAL_VERSION}_${slot}`,
+    owner: `${config.owner}_s${OWNER_SEAL_VERSION}_${slot}`,
+  };
+}
+
 export function createProviderOwnerSeal(
   provider: DirectOAuthProvider,
   subject: string,
@@ -125,13 +151,39 @@ export function providerTokensForSubject(
   subject: string,
   secret: string,
 ): { accessToken: string | null; refreshToken: string | null } {
-  const names = PROVIDER_COOKIES[provider];
-  const owner = store.get(names.owner)?.value;
-  const accessToken = store.get(names.access)?.value ?? null;
-  const refreshToken = store.get(names.refresh)?.value ?? null;
-  if (!validOwnerSeal(owner, provider, subject, secret)) {
-    if (owner || accessToken || refreshToken) clearProviderTokenCookies(store, provider);
+  const slotNames = subjectCredentialCookieNames(provider, subject, secret);
+  const slotOwner = store.get(slotNames.owner)?.value;
+  const slotAccessToken = store.get(slotNames.access)?.value ?? null;
+  const slotRefreshToken = store.get(slotNames.refresh)?.value ?? null;
+  if (validOwnerSeal(slotOwner, provider, subject, secret)) {
+    return {
+      accessToken: slotAccessToken,
+      refreshToken: slotRefreshToken,
+    };
+  }
+  if (slotOwner || slotAccessToken || slotRefreshToken) {
+    clearCredentialCookiesByName(store, slotNames);
+  }
+
+  // Legacy shared cookies are read only when they authenticate as this exact
+  // subject. A mismatch may be another signed-in account's valid tuple, so it
+  // must not be deleted by the current account.
+  const legacyNames = PROVIDER_COOKIES[provider];
+  const legacyOwner = store.get(legacyNames.owner)?.value;
+  const accessToken = store.get(legacyNames.access)?.value ?? null;
+  const refreshToken = store.get(legacyNames.refresh)?.value ?? null;
+  if (!validOwnerSeal(legacyOwner, provider, subject, secret)) {
     return { accessToken: null, refreshToken: null };
+  }
+  if (accessToken) {
+    replaceCredentialCookiesByName(
+      store,
+      provider,
+      slotNames,
+      { accessToken, ...(refreshToken ? { refreshToken } : {}) },
+      subject,
+      secret,
+    );
   }
   return {
     accessToken,
@@ -171,14 +223,66 @@ export function clearProviderTokenCookies(
   store.delete(names.oauthPendingState);
 }
 
+/** Clears only the authenticated subject's credential slot and matching legacy tuple. */
+export function clearProviderTokenCookiesForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): void {
+  const slotNames = subjectCredentialCookieNames(provider, subject, secret);
+  clearCredentialCookiesByName(store, slotNames);
+  const legacyNames = PROVIDER_COOKIES[provider];
+  const legacyOwner = store.get(legacyNames.owner)?.value;
+  if (
+    validOwnerSeal(legacyOwner, provider, subject, secret) ||
+    legacyOwner === subject
+  ) {
+    clearProviderCredentialCookies(store, provider);
+  }
+  store.delete(legacyNames.oauthPendingState);
+}
+
 function clearProviderCredentialCookies(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
 ): void {
   const names = PROVIDER_COOKIES[provider];
+  clearCredentialCookiesByName(store, names);
+}
+
+function clearCredentialCookiesByName(
+  store: MutableProviderCookieStore,
+  names: CredentialCookieNames,
+): void {
   store.delete(names.owner);
   store.delete(names.access);
   store.delete(names.refresh);
+}
+
+function replaceCredentialCookiesByName(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  names: CredentialCookieNames,
+  tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
+  subject: string,
+  secret: string,
+): void {
+  const config = PROVIDER_COOKIES[provider];
+  clearCredentialCookiesByName(store, names);
+  store.set(
+    names.access,
+    tokens.accessToken,
+    options(boundedMaxAge(tokens.expiresIn, config.accessMaxAge)),
+  );
+  if (tokens.refreshToken) {
+    store.set(names.refresh, tokens.refreshToken, options(config.refreshMaxAge));
+  }
+  store.set(
+    names.owner,
+    createProviderOwnerSeal(provider, subject, secret),
+    options(config.refreshMaxAge),
+  );
 }
 
 /** Clears any prior subject first, then publishes the owner only after tokens exist. */
@@ -192,15 +296,46 @@ export function replaceProviderTokenCookies(
   if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
     throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
   }
-  clearProviderCredentialCookies(store, provider);
-  setProviderAccessToken(store, provider, tokens.accessToken, tokens.expiresIn);
-  if (tokens.refreshToken) {
-    setProviderRefreshToken(store, provider, tokens.refreshToken);
+  const subjectNames = subjectCredentialCookieNames(provider, subject, secret);
+  replaceCredentialCookiesByName(
+    store,
+    provider,
+    subjectNames,
+    tokens,
+    subject,
+    secret,
+  );
+  const legacyNames = PROVIDER_COOKIES[provider];
+  replaceCredentialCookiesByName(
+    store,
+    provider,
+    legacyNames,
+    tokens,
+    subject,
+    secret,
+  );
+}
+
+/**
+ * Refresh responses write only the authenticated subject's deterministic slot.
+ * A late response from account A therefore cannot overwrite account B's tuple.
+ */
+export function replaceRefreshedProviderTokenCookies(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
+  subject: string,
+  secret: string,
+): void {
+  if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
+    throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
   }
-  const names = PROVIDER_COOKIES[provider];
-  store.set(
-    names.owner,
-    createProviderOwnerSeal(provider, subject, secret),
-    options(names.refreshMaxAge),
+  replaceCredentialCookiesByName(
+    store,
+    provider,
+    subjectCredentialCookieNames(provider, subject, secret),
+    tokens,
+    subject,
+    secret,
   );
 }

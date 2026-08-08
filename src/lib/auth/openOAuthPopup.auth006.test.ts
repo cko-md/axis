@@ -151,4 +151,58 @@ describe("direct OAuth popup AUTH-006 lifecycle", () => {
     expect(onDone).not.toHaveBeenCalled();
     expect(popup.close).toHaveBeenCalledTimes(1);
   });
+
+  it("suppresses feedback when a same-authority replacement cancels the prior initiation", async () => {
+    const firstPopup = fakePopup();
+    const secondPopup = fakePopup();
+    vi.spyOn(window, "open")
+      .mockReturnValueOnce(firstPopup as unknown as Window)
+      .mockReturnValueOnce(secondPopup as unknown as Window);
+    const secondResponse = deferred<Response>();
+    let call = 0;
+    vi.stubGlobal("fetch", vi.fn((_url: URL, init?: RequestInit) => {
+      call += 1;
+      if (call === 2) return secondResponse.promise;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Replaced", "AbortError"));
+        }, { once: true });
+      });
+    }));
+    const firstDone = vi.fn();
+    const secondDone = vi.fn();
+    const first = openDirectOAuthPopup({
+      provider: "spotify",
+      subject: SUBJECT,
+      epoch: 3,
+      isCurrent: () => true,
+      onDone: firstDone,
+    });
+    first.cancel();
+    openDirectOAuthPopup({
+      provider: "spotify",
+      subject: SUBJECT,
+      epoch: 3,
+      isCurrent: () => true,
+      onDone: secondDone,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(firstDone).not.toHaveBeenCalled();
+    expect(firstPopup.close).toHaveBeenCalledTimes(1);
+    expect(secondPopup.close).not.toHaveBeenCalled();
+
+    secondResponse.resolve(new Response(JSON.stringify({
+      url: "https://accounts.spotify.com/authorize?state=replacement",
+    }), { status: 200 }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(secondPopup.location.replace).toHaveBeenCalledWith(
+      "https://accounts.spotify.com/authorize?state=replacement",
+    );
+    expect(secondDone).not.toHaveBeenCalled();
+  });
 });

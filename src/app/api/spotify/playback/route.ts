@@ -1,4 +1,5 @@
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, isConfigured, notConnected, pickArt, spotifyFetch, spotifyGet } from "../_lib";
@@ -13,7 +14,12 @@ export async function GET(req: Request) {
   const identity = validateExpectedProfileSubject(req, user.id);
   if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken(user.id);
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/spotify/playback");
+  }
   if (!token) return notConnected();
 
   const configured = isConfigured();
@@ -50,7 +56,12 @@ export async function POST(req: Request) {
   const identity = validateExpectedProfileSubject(req, user.id);
   if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken(user.id);
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/spotify/playback");
+  }
   if (!token) return privateJson({ error: "Not connected" }, { status: 401 });
 
   const { action, value, uri, uris, contextUri, device_id } = (await req.json()) as {
