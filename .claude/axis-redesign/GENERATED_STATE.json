@@ -1,22 +1,23 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-07T22:37:57.549Z",
+  "derivedAt": "2026-08-08T00:43:12.499Z",
   "git": {
-    "branch": "codex/security-nanoid-runtime-audit",
-    "head": "140d77ccff78b5ac983b54f3560f0b822d3989a7",
-    "mainHead": "b8a22fa628d79259f2949d7a3746f1ab72238e91",
+    "branch": "codex/security-runtime-dependency-state-refresh",
+    "head": "120c06a31268ff04c7d954ccf5357f288124ad98",
+    "mainHead": "120c06a31268ff04c7d954ccf5357f288124ad98",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "140d77cc",
-        "subject": "fix(security): refresh runtime sanitizer and identifier dependencies"
-      }
-    ],
+    "aheadOfMain": [],
     "contentTreeHash": "a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c",
-    "sourceMainContentTreeHash": "d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786",
-    "fingerprint": "7d925f5976006f902a603cbcef9b942e7ebf34aaeab6d1b79caa95acbc9ef1bf"
+    "sourceMainContentTreeHash": "a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c",
+    "fingerprint": "b3772a1035c1bf0d2d0053571b28d29529396a35fa7d0266db0749f617af80ea"
   },
   "mergedPrs": [
+    {
+      "pr": 301,
+      "sha": "120c06a3",
+      "subject": "fix(security): refresh runtime sanitizer and identifier dependencies",
+      "committedAt": "2026-08-07T20:42:30-04:00"
+    },
     {
       "pr": 297,
       "sha": "b8a22fa6",
@@ -159,12 +160,6 @@
       "pr": null,
       "sha": "8f006fb5",
       "subject": "docs(readme): add the VECTOR arcade and the desktop (Electron) track",
-      "committedAt": "2026-07-21T09:20:14-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "19193a00",
-      "subject": "harden(desktop): contain the recomp spawn, scrub its env, and close the staging TOCTOU (DESKTOP-005)",
       "committedAt": "2026-07-21T09:20:14-04:00"
     }
   ],

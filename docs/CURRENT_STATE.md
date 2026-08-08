@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `7d925f5976006f902a603cbcef9b942e7ebf34aaeab6d1b79caa95acbc9ef1bf` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `b3772a1035c1bf0d2d0053571b28d29529396a35fa7d0266db0749f617af80ea` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
-- **Source-main tree at derivation:** `d617d8427afc54994d40c29f6bb636e7fb42a8daaa7f84b605efd7744a613786`
+- **Source-main tree at derivation:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,14 +33,10 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/security-nanoid-runtime-audit`
-- **HEAD:** `140d77cc`
-- **main:** `b8a22fa6`
+- **Branch:** `codex/security-runtime-dependency-state-refresh`
+- **HEAD:** `120c06a3`
+- **main:** `120c06a3`
 - **Working tree:** clean
-
-### Ahead of source main at derivation (1 commit(s))
-
-- `140d77cc` fix(security): refresh runtime sanitizer and identifier dependencies
 
 ## Waves merged to main
 
