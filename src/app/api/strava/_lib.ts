@@ -5,7 +5,7 @@ import {
 } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
-import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
+import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
@@ -35,9 +35,13 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   const clientId = optionalEnv("STRAVA_CLIENT_ID");
   if (!tokens.refreshToken || !clientId || !clientSecret) return null;
 
-  let res: Response;
+  let exchange: { response: Response; body: {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+  } | null };
   try {
-    res = await directProviderExchangeFetch(TOKEN_URL, {
+    exchange = await directProviderExchangeJson(TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -50,12 +54,8 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   } catch {
     return null;
   }
+  const { response: res, body: data } = exchange;
   if (!res.ok) return null;
-  const data = await res.json().catch(() => null) as {
-    access_token?: unknown;
-    refresh_token?: unknown;
-    expires_in?: unknown;
-  } | null;
   const fresh = typeof data?.access_token === "string" ? data.access_token : null;
   if (!fresh) return null;
   replaceProviderTokenCookies(cookieStore, "strava", {

@@ -408,7 +408,10 @@ function PlayRecButton({ rec, spotify, toast, providerFetch }: { rec: Rec; spoti
       }
       const uri = result.data.tracks?.[0]?.uri;
       if (uri) {
-        await spotify.playUris([uri]);
+        if (!await spotify.playUris([uri])) {
+          mayCommit = false;
+          return;
+        }
         toast(`Playing ${rec.track}`, "success", "Vault");
       } else {
         toast("Track not found on Spotify", "warn", "Vault");
@@ -788,11 +791,10 @@ export function VaultModule() {
     async (item: CrateItem) => {
       // Playlists, albums, and artists need context_uri; tracks use uris[].
       const isContext = /^spotify:(playlist|album|artist):/.test(item.uri);
-      if (isContext) {
-        await spotify.playContext(item.uri);
-      } else {
-        await spotify.playUris([item.uri]);
-      }
+      const played = isContext
+        ? await spotify.playContext(item.uri)
+        : await spotify.playUris([item.uri]);
+      if (!played) return;
       toast(`Playing ${item.name}`, "success", "Vault");
     },
     [spotify, toast],
@@ -832,11 +834,12 @@ export function VaultModule() {
 
   const queueTrack = async (t: TrackLite) => {
     const r = await spotify.queue(t.uri);
+    if (!r) return;
     if (r.ok) toast(`Queued ${t.name}`, "success", "Vault");
     else toast(r.message ?? "Couldn't queue — open Spotify on a device.", "warn", "Vault");
   };
   const playTrack = async (t: TrackLite) => {
-    await spotify.playUris([t.uri]);
+    if (!await spotify.playUris([t.uri])) return;
     toast(`Playing ${t.name}`, "success", "Vault");
   };
 
@@ -887,7 +890,10 @@ export function VaultModule() {
           setFocusOpen(false);
         } else {
           // Queue the suggested set onto the active device.
-          await spotify.playUris(data.tracks.map((t: TrackLite) => t.uri));
+          if (!await spotify.playUris(data.tracks.map((t: TrackLite) => t.uri))) {
+            mayCommit = false;
+            return;
+          }
           toast(`Queued ${data.tracks.length} tracks for “${data.label}”`, "success", "Vault");
           setFocusOpen(false);
         }
@@ -987,7 +993,9 @@ export function VaultModule() {
                 )}
                 <span className="vh-dot">·</span>
                 {connected ? (
-                  <button type="button" className="pst-connect" onClick={() => void spotify.disconnect().then(() => toast("Disconnected Spotify.", "info", "Vault"))}>
+                  <button type="button" className="pst-connect" onClick={() => void spotify.disconnect().then((disconnected) => {
+                    if (disconnected) toast("Disconnected Spotify.", "info", "Vault");
+                  })}>
                     Disconnect
                   </button>
                 ) : (
@@ -1025,7 +1033,9 @@ export function VaultModule() {
                 title={s.uri ? `Play ${s.text}` : `Load ${s.text} in player`}
                 onClick={() => {
                   if (s.uri) {
-                    spotify.playContext(s.uri).then(() => toast(`Playing ${s.text}`, "success", "Vault"));
+                    spotify.playContext(s.uri).then((played) => {
+                      if (played) toast(`Playing ${s.text}`, "success", "Vault");
+                    });
                   } else if (s.spotifyUrl) {
                     setEmbedUrl(s.spotifyUrl);
                     toast(`Loaded ${s.text}`, "info", "Vault");
@@ -1090,7 +1100,9 @@ export function VaultModule() {
                   className={`crate ${styles.crateBtn}`}
                   onClick={() => {
                     if (connected) {
-                      spotify.playContext(c.uri).then(() => toast(`Playing ${c.title}`, "success", "Vault"));
+                      spotify.playContext(c.uri).then((played) => {
+                        if (played) toast(`Playing ${c.title}`, "success", "Vault");
+                      });
                     } else {
                       setEmbedUrl(c.spotifyUrl);
                       toast(`Loaded ${c.title}`, "info", "Vault");

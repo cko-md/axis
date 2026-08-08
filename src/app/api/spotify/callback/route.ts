@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
-import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
+import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
 import { verifyOAuthPendingState } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
@@ -87,9 +87,13 @@ export async function GET(req: NextRequest) {
   if (!code) return fail(req, "missing_code", 400);
 
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
-  let tokenRes: Response;
+  let exchange: { response: Response; body: {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+  } | null };
   try {
-    tokenRes = await directProviderExchangeFetch(
+    exchange = await directProviderExchangeJson(
       "https://accounts.spotify.com/api/token",
       {
         method: "POST",
@@ -107,13 +111,8 @@ export async function GET(req: NextRequest) {
   } catch {
     return fail(req, "token_exchange_failed", 504);
   }
+  const { response: tokenRes, body: tokens } = exchange;
   if (!tokenRes.ok) return fail(req, "token_exchange_failed", 502);
-
-  const tokens = await tokenRes.json().catch(() => null) as {
-    access_token?: unknown;
-    refresh_token?: unknown;
-    expires_in?: unknown;
-  } | null;
   if (typeof tokens?.access_token !== "string" || !tokens.access_token) {
     return fail(req, "invalid_token_response", 502);
   }

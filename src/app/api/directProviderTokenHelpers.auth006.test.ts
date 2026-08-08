@@ -102,6 +102,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       owner: "spotify_token_owner",
       access: "spotify_access_token",
       refresh: "spotify_refresh_token",
+      pending: "spotify_oauth_state",
       secret: "spotify-secret",
       getAccessToken: getSpotifyAccessToken,
     },
@@ -110,6 +111,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       owner: "strava_token_owner",
       access: "strava_access_token",
       refresh: "strava_refresh_token",
+      pending: "strava_oauth_state",
       secret: "strava-secret",
       getAccessToken: getStravaAccessToken,
     },
@@ -118,6 +120,7 @@ describe("AUTH-006 direct provider token helpers", () => {
     owner,
     access,
     refresh,
+    pending,
     secret,
     getAccessToken,
   }) => {
@@ -134,6 +137,7 @@ describe("AUTH-006 direct provider token helpers", () => {
     mocks.cookieStore.values.set(owner, createProviderOwnerSeal(provider, subjectB, secret));
     mocks.cookieStore.values.set(access, "access-b");
     mocks.cookieStore.values.set(refresh, "refresh-b");
+    mocks.cookieStore.values.set(pending, "pending-b");
     exchange.resolve(new Response(JSON.stringify({
       access_token: "late-access-a",
       refresh_token: "late-refresh-a",
@@ -146,6 +150,7 @@ describe("AUTH-006 direct provider token helpers", () => {
     );
     expect(mocks.cookieStore.values.get(access)).toBe("late-access-a");
     expect(mocks.cookieStore.values.get(refresh)).toBe("late-refresh-a");
+    expect(mocks.cookieStore.values.get(pending)).toBe("pending-b");
 
     await expect(getAccessToken(userB)).resolves.toBeNull();
     expect(providerFetch).toHaveBeenCalledTimes(1);

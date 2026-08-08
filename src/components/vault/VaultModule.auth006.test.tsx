@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => ({
     authorityEpoch: number;
   },
   toast: vi.fn(),
+  playUris: vi.fn(),
+  playContext: vi.fn(),
+  disconnect: vi.fn(),
+  queue: vi.fn(),
 }));
 
 vi.mock("@/components/layout/ShellProfileContext", () => ({
@@ -51,7 +55,7 @@ vi.mock("@/components/spotify/SpotifyProvider", () => ({
     playing: false,
     refresh: vi.fn(),
     connect: vi.fn(),
-    disconnect: vi.fn(),
+    disconnect: mocks.disconnect,
     togglePlay: vi.fn(),
     next: vi.fn(),
     prev: vi.fn(),
@@ -59,9 +63,9 @@ vi.mock("@/components/spotify/SpotifyProvider", () => ({
     setVolume: vi.fn(),
     toggleShuffle: vi.fn(),
     cycleRepeat: vi.fn(),
-    playUris: vi.fn(),
-    playContext: vi.fn(),
-    queue: vi.fn().mockResolvedValue({ ok: true }),
+    playUris: mocks.playUris,
+    playContext: mocks.playContext,
+    queue: mocks.queue,
     sdkDeviceId: null,
   }),
 }));
@@ -70,6 +74,12 @@ import { VaultModule } from "@/components/vault/VaultModule";
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -84,6 +94,11 @@ afterEach(async () => {
     profile: { subject: SUBJECT_A },
     authorityEpoch: 1,
   };
+  mocks.playUris.mockReset();
+  mocks.playContext.mockReset();
+  mocks.disconnect.mockReset();
+  mocks.queue.mockReset();
+  mocks.toast.mockReset();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -152,5 +167,66 @@ describe("Vault AUTH-006 stale operation retirement", () => {
       "Vault",
     );
     expect(container.textContent).not.toContain("A private query");
+  });
+
+  it("suppresses A-owned playback success feedback after authority changes to B", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const playback = deferred<boolean>();
+    mocks.playUris.mockReturnValue(playback.promise);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input.toString(), window.location.origin);
+      const subject = new Headers(init?.headers).get("x-axis-expected-profile-subject");
+      const items = subject === SUBJECT_A && url.searchParams.get("kind") === "recent"
+        ? [{
+            id: "track-a",
+            uri: "spotify:track:a",
+            name: "A private track",
+            artists: "A private artist",
+            album: "A private album",
+            art: null,
+            durationMs: 100,
+          }]
+        : [];
+      return Promise.resolve(new Response(JSON.stringify({ connected: true, items }), {
+        status: 200,
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<VaultModule />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const privateTrack = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("A private track"));
+    expect(privateTrack).toBeDefined();
+    await act(async () => {
+      privateTrack?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(mocks.playUris).toHaveBeenCalledWith(["spotify:track:a"]);
+
+    mocks.authority = {
+      state: "ready",
+      profile: { subject: SUBJECT_B },
+      authorityEpoch: 2,
+    };
+    await act(async () => {
+      root?.render(<VaultModule />);
+      playback.resolve(false);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalledWith(
+      "Playing A private track",
+      "success",
+      "Vault",
+    );
   });
 });

@@ -8,7 +8,7 @@ import {
   verifyOAuthPendingState,
 } from "@/lib/auth/oauthState.server";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
-import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
+import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
 import {
   clearProviderTokenCookies,
   consumeOAuthPendingStateCookie,
@@ -128,9 +128,13 @@ async function completeCallback(
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return callbackFailure(req, "missing_code", 400);
 
-  let tokenRes: Response;
+  let exchange: { response: Response; body: {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+  } | null };
   try {
-    tokenRes = await directProviderExchangeFetch(
+    exchange = await directProviderExchangeJson(
       "https://www.strava.com/oauth/token",
       {
         method: "POST",
@@ -146,13 +150,8 @@ async function completeCallback(
   } catch {
     return callbackFailure(req, "token_exchange_failed", 504);
   }
+  const { response: tokenRes, body: tokens } = exchange;
   if (!tokenRes.ok) return callbackFailure(req, "token_exchange_failed", 502);
-
-  const tokens = await tokenRes.json().catch(() => null) as {
-    access_token?: unknown;
-    refresh_token?: unknown;
-    expires_in?: unknown;
-  } | null;
   if (typeof tokens?.access_token !== "string" || !tokens.access_token) {
     return callbackFailure(req, "invalid_token_response", 502);
   }

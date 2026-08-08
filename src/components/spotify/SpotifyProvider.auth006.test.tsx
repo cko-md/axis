@@ -23,7 +23,7 @@ let observed: {
   connected: boolean;
   track: string;
   now: NowPlaying;
-  queue: (uri: string) => Promise<{ ok: boolean; message?: string }>;
+  queue: (uri: string) => Promise<{ ok: boolean; message?: string } | null>;
 } | null = null;
 
 function Probe() {
@@ -202,7 +202,7 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    let queueResult: Promise<{ ok: boolean; message?: string }> | undefined;
+    let queueResult: Promise<{ ok: boolean; message?: string } | null> | undefined;
     await act(async () => {
       queueResult = observed?.queue("spotify:track:a");
       await Promise.resolve();
@@ -217,6 +217,6 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
     });
     queueBody.resolve({ message: "A private provider message" });
     expect(queueResult).toBeDefined();
-    await expect(queueResult!).resolves.toEqual({ ok: false });
+    await expect(queueResult!).resolves.toBeNull();
   });
 });

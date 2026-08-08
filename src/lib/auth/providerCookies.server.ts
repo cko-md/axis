@@ -167,10 +167,18 @@ export function clearProviderTokenCookies(
   provider: DirectOAuthProvider,
 ): void {
   const names = PROVIDER_COOKIES[provider];
+  clearProviderCredentialCookies(store, provider);
+  store.delete(names.oauthPendingState);
+}
+
+function clearProviderCredentialCookies(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+): void {
+  const names = PROVIDER_COOKIES[provider];
   store.delete(names.owner);
   store.delete(names.access);
   store.delete(names.refresh);
-  store.delete(names.oauthPendingState);
 }
 
 /** Clears any prior subject first, then publishes the owner only after tokens exist. */
@@ -184,7 +192,7 @@ export function replaceProviderTokenCookies(
   if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
     throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
   }
-  clearProviderTokenCookies(store, provider);
+  clearProviderCredentialCookies(store, provider);
   setProviderAccessToken(store, provider, tokens.accessToken, tokens.expiresIn);
   if (tokens.refreshToken) {
     setProviderRefreshToken(store, provider, tokens.refreshToken);

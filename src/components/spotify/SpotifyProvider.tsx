@@ -61,7 +61,7 @@ type SpotifyState = {
   now: NowPlaying;
   liveProgressMs: number;
   connect: () => void;
-  disconnect: () => Promise<void>;
+  disconnect: () => Promise<boolean>;
   refresh: () => Promise<void>;
   togglePlay: () => Promise<void>;
   next: () => Promise<void>;
@@ -70,9 +70,9 @@ type SpotifyState = {
   setVolume: (pct: number) => Promise<void>;
   toggleShuffle: () => Promise<void>;
   cycleRepeat: () => Promise<void>;
-  playUris: (uris: string[]) => Promise<void>;
-  playContext: (contextUri: string) => Promise<void>;
-  queue: (uri: string) => Promise<{ ok: boolean; message?: string }>;
+  playUris: (uris: string[]) => Promise<boolean>;
+  playContext: (contextUri: string) => Promise<boolean>;
+  queue: (uri: string) => Promise<{ ok: boolean; message?: string } | null>;
   sdkDeviceId: string | null;
 };
 
@@ -394,7 +394,7 @@ export function SpotifyProvider({
 
   const disconnect = useCallback(async () => {
     const operation = beginRequest();
-    if (!operation) return;
+    if (!operation) return false;
     const { authority, controller } = operation;
     try {
       const response = await subjectBoundFetch(
@@ -402,12 +402,19 @@ export function SpotifyProvider({
         "/api/spotify/disconnect",
         { method: "POST", signal: controller.signal },
       );
-      if (!isCurrent(authority) || controller.signal.aborted) return;
+      if (!isCurrent(authority) || controller.signal.aborted) return false;
       if (!response.ok) {
         setConnectError("Spotify could not be disconnected.");
-        return;
+        return false;
       }
       clearProviderState();
+      return true;
+    } catch {
+      if (isCurrent(authority) && !controller.signal.aborted) {
+        stateAuthorityRef.current = authority;
+        setConnectError("Spotify could not be disconnected.");
+      }
+      return false;
     } finally {
       finishRequest(controller);
     }
@@ -446,15 +453,19 @@ export function SpotifyProvider({
     setNow((current) => ({ ...current, repeat: value }));
     await post({ action: "repeat", value });
   }, [now.repeat, post]);
-  const playUris = useCallback(async (uris: string[]) => { await post({ action: "play", uris }); }, [post]);
-  const playContext = useCallback(async (contextUri: string) => { await post({ action: "play", contextUri }); }, [post]);
+  const playUris = useCallback(async (uris: string[]) => Boolean(
+    await post({ action: "play", uris }),
+  ), [post]);
+  const playContext = useCallback(async (contextUri: string) => Boolean(
+    await post({ action: "play", contextUri }),
+  ), [post]);
   const queue = useCallback(async (uri: string) => {
     const result = await post({ action: "queue", uri });
     if (result?.response.ok) return { ok: true };
-    if (!result) return { ok: false };
+    if (!result) return null;
     try {
       const body = await result.response.json() as { message?: string };
-      if (!isCurrent(result.authority)) return { ok: false };
+      if (!isCurrent(result.authority)) return null;
       return { ok: false, message: body.message };
     } catch {
       return { ok: false };
