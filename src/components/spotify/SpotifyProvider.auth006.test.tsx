@@ -7,6 +7,7 @@ import {
   SpotifyProvider,
   useSpotify,
   type NowPlaying,
+  type SpotifyCommandResult,
 } from "@/components/spotify/SpotifyProvider";
 
 const SUBJECT_A = `ps1_${"a".repeat(64)}`;
@@ -23,7 +24,10 @@ let observed: {
   connected: boolean;
   track: string;
   now: NowPlaying;
-  queue: (uri: string) => Promise<{ ok: boolean; message?: string } | null>;
+  queue: (uri: string) => Promise<SpotifyCommandResult | null>;
+  playUris: (uris: string[]) => Promise<SpotifyCommandResult | null>;
+  playContext: (contextUri: string) => Promise<SpotifyCommandResult | null>;
+  disconnect: () => Promise<SpotifyCommandResult | null>;
 } | null = null;
 
 function Probe() {
@@ -33,6 +37,9 @@ function Probe() {
     track: spotify.track,
     now: spotify.now,
     queue: spotify.queue,
+    playUris: spotify.playUris,
+    playContext: spotify.playContext,
+    disconnect: spotify.disconnect,
   };
   return null;
 }
@@ -202,7 +209,7 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    let queueResult: Promise<{ ok: boolean; message?: string } | null> | undefined;
+    let queueResult: Promise<SpotifyCommandResult | null> | undefined;
     await act(async () => {
       queueResult = observed?.queue("spotify:track:a");
       await Promise.resolve();
@@ -218,5 +225,90 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
     queueBody.resolve({ message: "A private provider message" });
     expect(queueResult).toBeDefined();
     await expect(queueResult!).resolves.toBeNull();
+  });
+
+  it("returns an authority-bearing failed command for a current provider 5xx", async () => {
+    const fetchMock = vi.fn((input: URL, init?: RequestInit) => {
+      if (input.pathname === "/api/spotify/playback" && init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ ok: false }), { status: 502 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        connected: true,
+        configured: true,
+        playing: false,
+        track: null,
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <SpotifyProvider accountState="ready" subject={SUBJECT_A} authorityEpoch={1}>
+          <Probe />
+        </SpotifyProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    let result: SpotifyCommandResult | null = null;
+    await act(async () => {
+      result = await observed?.playUris(["spotify:track:a"]) ?? null;
+    });
+
+    expect(result).toEqual({ ok: false, subject: SUBJECT_A, epoch: 1 });
+  });
+
+  it("retires every nominally successful command when its initiating authority changes", async () => {
+    const commandResponses: Array<ReturnType<typeof deferred<Response>>> = [];
+    const fetchMock = vi.fn((input: URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const pending = deferred<Response>();
+        commandResponses.push(pending);
+        return pending.promise;
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        connected: true,
+        configured: true,
+        playing: false,
+        track: null,
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <SpotifyProvider accountState="ready" subject={SUBJECT_A} authorityEpoch={1}>
+          <Probe />
+        </SpotifyProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const commands = [
+      observed?.playUris(["spotify:track:a"]),
+      observed?.playContext("spotify:playlist:a"),
+      observed?.queue("spotify:track:a"),
+      observed?.disconnect(),
+    ];
+    expect(commandResponses).toHaveLength(4);
+
+    await act(async () => {
+      root?.render(
+        <SpotifyProvider accountState="loading" subject={null} authorityEpoch={2}>
+          <Probe />
+        </SpotifyProvider>,
+      );
+    });
+    for (const pending of commandResponses) {
+      pending.resolve(new Response(null, { status: 204 }));
+    }
+
+    await expect(Promise.all(commands)).resolves.toEqual([null, null, null, null]);
   });
 });

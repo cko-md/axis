@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
+import type { SpotifyCommandResult } from "@/components/spotify/SpotifyProvider";
 import {
   openDirectOAuthPopup,
   type OAuthPopupHandle,
@@ -391,8 +392,9 @@ type ProviderFetch = <T>(
   path: string,
   init?: RequestInit,
 ) => Promise<{ ok: boolean; status: number; data: T } | null>;
+type CommandIsCurrent = (result: SpotifyCommandResult | null) => boolean;
 
-function PlayRecButton({ rec, spotify, toast, providerFetch }: { rec: Rec; spotify: ReturnType<typeof useSpotify>; toast: ToastFn; providerFetch: ProviderFetch }) {
+function PlayRecButton({ rec, spotify, toast, providerFetch, commandIsCurrent }: { rec: Rec; spotify: ReturnType<typeof useSpotify>; toast: ToastFn; providerFetch: ProviderFetch; commandIsCurrent: CommandIsCurrent }) {
   const [loading, setLoading] = useState(false);
 
   const play = async () => {
@@ -408,11 +410,12 @@ function PlayRecButton({ rec, spotify, toast, providerFetch }: { rec: Rec; spoti
       }
       const uri = result.data.tracks?.[0]?.uri;
       if (uri) {
-        if (!await spotify.playUris([uri])) {
+        const command = await spotify.playUris([uri]);
+        if (!commandIsCurrent(command)) {
           mayCommit = false;
           return;
         }
-        toast(`Playing ${rec.track}`, "success", "Vault");
+        if (command?.ok) toast(`Playing ${rec.track}`, "success", "Vault");
       } else {
         toast("Track not found on Spotify", "warn", "Vault");
       }
@@ -435,7 +438,7 @@ function PlayRecButton({ rec, spotify, toast, providerFetch }: { rec: Rec; spoti
   );
 }
 
-function RecommendationsSection({ connected, spotify, toast, providerFetch }: { connected: boolean; spotify: ReturnType<typeof useSpotify>; toast: ToastFn; providerFetch: ProviderFetch }) {
+function RecommendationsSection({ connected, spotify, toast, providerFetch, commandIsCurrent }: { connected: boolean; spotify: ReturnType<typeof useSpotify>; toast: ToastFn; providerFetch: ProviderFetch; commandIsCurrent: CommandIsCurrent }) {
   const [recs, setRecs] = useState<Rec[]>(SAMPLE_RECS);
   const [loading, setLoading] = useState(false);
   const [aiInsight, setAiInsight] = useState("");
@@ -476,7 +479,7 @@ function RecommendationsSection({ connected, spotify, toast, providerFetch }: { 
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)" }}>{r.artist}</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 10.5, color: "var(--ink-faint)", lineHeight: 1.5 }}>{r.reason}</div>
             {connected && (
-              <PlayRecButton rec={r} spotify={spotify} toast={toast} providerFetch={providerFetch} />
+              <PlayRecButton rec={r} spotify={spotify} toast={toast} providerFetch={providerFetch} commandIsCurrent={commandIsCurrent} />
             )}
           </div>
         ))}
@@ -620,6 +623,16 @@ export function VaultModule() {
   const providerDataAuthorityRef = useRef<{ subject: string; epoch: number } | null>(null);
   const spotifyPopupRef = useRef<OAuthPopupHandle | null>(null);
   const { connected, configured, connectError, now, liveProgressMs, playing, refresh: refreshSpotify } = spotify;
+
+  const commandIsCurrent = useCallback((result: SpotifyCommandResult | null) => {
+    const current = providerAuthorityRef.current;
+    return Boolean(
+      result &&
+      current.ready &&
+      current.subject === result.subject &&
+      current.epoch === result.epoch,
+    );
+  }, []);
 
   const providerFetch = useCallback(async <T,>(
     path: string,
@@ -791,13 +804,13 @@ export function VaultModule() {
     async (item: CrateItem) => {
       // Playlists, albums, and artists need context_uri; tracks use uris[].
       const isContext = /^spotify:(playlist|album|artist):/.test(item.uri);
-      const played = isContext
+      const command = isContext
         ? await spotify.playContext(item.uri)
         : await spotify.playUris([item.uri]);
-      if (!played) return;
+      if (!commandIsCurrent(command) || !command?.ok) return;
       toast(`Playing ${item.name}`, "success", "Vault");
     },
-    [spotify, toast],
+    [commandIsCurrent, spotify, toast],
   );
 
   // ── search modal ──
@@ -834,12 +847,13 @@ export function VaultModule() {
 
   const queueTrack = async (t: TrackLite) => {
     const r = await spotify.queue(t.uri);
-    if (!r) return;
+    if (!r || !commandIsCurrent(r)) return;
     if (r.ok) toast(`Queued ${t.name}`, "success", "Vault");
     else toast(r.message ?? "Couldn't queue — open Spotify on a device.", "warn", "Vault");
   };
   const playTrack = async (t: TrackLite) => {
-    if (!await spotify.playUris([t.uri])) return;
+    const command = await spotify.playUris([t.uri]);
+    if (!commandIsCurrent(command) || !command?.ok) return;
     toast(`Playing ${t.name}`, "success", "Vault");
   };
 
@@ -890,10 +904,12 @@ export function VaultModule() {
           setFocusOpen(false);
         } else {
           // Queue the suggested set onto the active device.
-          if (!await spotify.playUris(data.tracks.map((t: TrackLite) => t.uri))) {
+          const command = await spotify.playUris(data.tracks.map((t: TrackLite) => t.uri));
+          if (!commandIsCurrent(command)) {
             mayCommit = false;
             return;
           }
+          if (!command?.ok) return;
           toast(`Queued ${data.tracks.length} tracks for “${data.label}”`, "success", "Vault");
           setFocusOpen(false);
         }
@@ -903,7 +919,7 @@ export function VaultModule() {
         if (mayCommit) setBuilding(false);
       }
     },
-    [focusPrompt, providerFetch, spotify, toast],
+    [commandIsCurrent, focusPrompt, providerFetch, spotify, toast],
   );
 
   // ── derived spine list ──
@@ -964,7 +980,7 @@ export function VaultModule() {
       {/* ── Recommendations ── */}
       {vaultTab === "recs" && (
         <div className="vault-panel">
-          <RecommendationsSection connected={connected} spotify={spotify} toast={toast} providerFetch={providerFetch} />
+          <RecommendationsSection connected={connected} spotify={spotify} toast={toast} providerFetch={providerFetch} commandIsCurrent={commandIsCurrent} />
         </div>
       )}
 
@@ -993,8 +1009,8 @@ export function VaultModule() {
                 )}
                 <span className="vh-dot">·</span>
                 {connected ? (
-                  <button type="button" className="pst-connect" onClick={() => void spotify.disconnect().then((disconnected) => {
-                    if (disconnected) toast("Disconnected Spotify.", "info", "Vault");
+                  <button type="button" className="pst-connect" onClick={() => void spotify.disconnect().then((result) => {
+                    if (commandIsCurrent(result) && result?.ok) toast("Disconnected Spotify.", "info", "Vault");
                   })}>
                     Disconnect
                   </button>
@@ -1033,8 +1049,8 @@ export function VaultModule() {
                 title={s.uri ? `Play ${s.text}` : `Load ${s.text} in player`}
                 onClick={() => {
                   if (s.uri) {
-                    spotify.playContext(s.uri).then((played) => {
-                      if (played) toast(`Playing ${s.text}`, "success", "Vault");
+                    spotify.playContext(s.uri).then((result) => {
+                      if (commandIsCurrent(result) && result?.ok) toast(`Playing ${s.text}`, "success", "Vault");
                     });
                   } else if (s.spotifyUrl) {
                     setEmbedUrl(s.spotifyUrl);
@@ -1100,8 +1116,8 @@ export function VaultModule() {
                   className={`crate ${styles.crateBtn}`}
                   onClick={() => {
                     if (connected) {
-                      spotify.playContext(c.uri).then((played) => {
-                        if (played) toast(`Playing ${c.title}`, "success", "Vault");
+                      spotify.playContext(c.uri).then((result) => {
+                        if (commandIsCurrent(result) && result?.ok) toast(`Playing ${c.title}`, "success", "Vault");
                       });
                     } else {
                       setEmbedUrl(c.spotifyUrl);

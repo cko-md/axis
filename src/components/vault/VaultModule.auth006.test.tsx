@@ -171,7 +171,11 @@ describe("Vault AUTH-006 stale operation retirement", () => {
 
   it("suppresses A-owned playback success feedback after authority changes to B", async () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-    const playback = deferred<boolean>();
+    const playback = deferred<{
+      ok: boolean;
+      subject: string;
+      epoch: number;
+    }>();
     mocks.playUris.mockReturnValue(playback.promise);
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(input.toString(), window.location.origin);
@@ -218,7 +222,11 @@ describe("Vault AUTH-006 stale operation retirement", () => {
     };
     await act(async () => {
       root?.render(<VaultModule />);
-      playback.resolve(false);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      playback.resolve({ ok: true, subject: SUBJECT_A, epoch: 1 });
       await Promise.resolve();
       await Promise.resolve();
     });

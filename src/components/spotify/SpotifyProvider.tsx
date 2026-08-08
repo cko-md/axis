@@ -51,6 +51,13 @@ export type NowPlaying = {
   repeat: string;
 };
 
+export type SpotifyCommandResult = {
+  ok: boolean;
+  subject: string;
+  epoch: number;
+  message?: string;
+};
+
 type SpotifyState = {
   connected: boolean;
   configured: boolean;
@@ -61,7 +68,7 @@ type SpotifyState = {
   now: NowPlaying;
   liveProgressMs: number;
   connect: () => void;
-  disconnect: () => Promise<boolean>;
+  disconnect: () => Promise<SpotifyCommandResult | null>;
   refresh: () => Promise<void>;
   togglePlay: () => Promise<void>;
   next: () => Promise<void>;
@@ -70,13 +77,21 @@ type SpotifyState = {
   setVolume: (pct: number) => Promise<void>;
   toggleShuffle: () => Promise<void>;
   cycleRepeat: () => Promise<void>;
-  playUris: (uris: string[]) => Promise<boolean>;
-  playContext: (contextUri: string) => Promise<boolean>;
-  queue: (uri: string) => Promise<{ ok: boolean; message?: string } | null>;
+  playUris: (uris: string[]) => Promise<SpotifyCommandResult | null>;
+  playContext: (contextUri: string) => Promise<SpotifyCommandResult | null>;
+  queue: (uri: string) => Promise<SpotifyCommandResult | null>;
   sdkDeviceId: string | null;
 };
 
 type Authority = { subject: string; epoch: number };
+
+function commandResult(
+  authority: Authority,
+  ok: boolean,
+  message?: string,
+): SpotifyCommandResult {
+  return { ok, subject: authority.subject, epoch: authority.epoch, message };
+}
 
 const EMPTY_NOW: NowPlaying = {
   track: null,
@@ -394,7 +409,7 @@ export function SpotifyProvider({
 
   const disconnect = useCallback(async () => {
     const operation = beginRequest();
-    if (!operation) return false;
+    if (!operation) return null;
     const { authority, controller } = operation;
     try {
       const response = await subjectBoundFetch(
@@ -402,19 +417,21 @@ export function SpotifyProvider({
         "/api/spotify/disconnect",
         { method: "POST", signal: controller.signal },
       );
-      if (!isCurrent(authority) || controller.signal.aborted) return false;
+      if (!isCurrent(authority) || controller.signal.aborted) return null;
       if (!response.ok) {
         setConnectError("Spotify could not be disconnected.");
-        return false;
+        return commandResult(authority, false);
       }
       clearProviderState();
-      return true;
+      return commandResult(authority, true);
     } catch {
       if (isCurrent(authority) && !controller.signal.aborted) {
         stateAuthorityRef.current = authority;
         setConnectError("Spotify could not be disconnected.");
       }
-      return false;
+      return isCurrent(authority) && !controller.signal.aborted
+        ? commandResult(authority, false)
+        : null;
     } finally {
       finishRequest(controller);
     }
@@ -453,22 +470,38 @@ export function SpotifyProvider({
     setNow((current) => ({ ...current, repeat: value }));
     await post({ action: "repeat", value });
   }, [now.repeat, post]);
-  const playUris = useCallback(async (uris: string[]) => Boolean(
-    await post({ action: "play", uris }),
-  ), [post]);
-  const playContext = useCallback(async (contextUri: string) => Boolean(
-    await post({ action: "play", contextUri }),
-  ), [post]);
+  const playUris = useCallback(async (uris: string[]) => {
+    const result = await post({ action: "play", uris });
+    if (!result || !isCurrent(result.authority)) return null;
+    const ok = result.response.ok;
+    return isCurrent(result.authority)
+      ? commandResult(result.authority, ok)
+      : null;
+  }, [isCurrent, post]);
+  const playContext = useCallback(async (contextUri: string) => {
+    const result = await post({ action: "play", contextUri });
+    if (!result || !isCurrent(result.authority)) return null;
+    const ok = result.response.ok;
+    return isCurrent(result.authority)
+      ? commandResult(result.authority, ok)
+      : null;
+  }, [isCurrent, post]);
   const queue = useCallback(async (uri: string) => {
     const result = await post({ action: "queue", uri });
-    if (result?.response.ok) return { ok: true };
-    if (!result) return null;
+    if (!result || !isCurrent(result.authority)) return null;
+    if (result.response.ok) {
+      return isCurrent(result.authority)
+        ? commandResult(result.authority, true)
+        : null;
+    }
     try {
       const body = await result.response.json() as { message?: string };
       if (!isCurrent(result.authority)) return null;
-      return { ok: false, message: body.message };
+      return commandResult(result.authority, false, body.message);
     } catch {
-      return { ok: false };
+      return isCurrent(result.authority)
+        ? commandResult(result.authority, false)
+        : null;
     }
   }, [isCurrent, post]);
 
