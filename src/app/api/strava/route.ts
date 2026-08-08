@@ -8,6 +8,7 @@ import {
   verifyOAuthPendingState,
 } from "@/lib/auth/oauthState.server";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
 import {
   clearProviderTokenCookies,
   consumeOAuthPendingStateCookie,
@@ -66,14 +67,25 @@ function callbackFailure(req: NextRequest, reason: StravaFailureReason, status: 
         code: "NOT_CONFIGURED",
       });
     } else if (reason === "token_exchange_failed") {
-      captureRouteError(new Error("Strava OAuth callback failed"), {
-        route: "/api/strava",
-        operation: "complete_oauth",
-        area: "integrations",
-        provider: "strava",
-        status: 502,
-        code: "PROVIDER_ERROR",
-      });
+      if (status === 504) {
+        captureRouteError(new Error("Strava OAuth callback failed"), {
+          route: "/api/strava",
+          operation: "complete_oauth",
+          area: "integrations",
+          provider: "strava",
+          status: 504,
+          code: "PROVIDER_TIMEOUT",
+        });
+      } else {
+        captureRouteError(new Error("Strava OAuth callback failed"), {
+          route: "/api/strava",
+          operation: "complete_oauth",
+          area: "integrations",
+          provider: "strava",
+          status: 502,
+          code: "PROVIDER_ERROR",
+        });
+      }
     } else {
       captureRouteError(new Error("Strava OAuth callback failed"), {
         route: "/api/strava",
@@ -116,17 +128,24 @@ async function completeCallback(
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return callbackFailure(req, "missing_code", 400);
 
-  const tokenRes = await fetch("https://www.strava.com/oauth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: clientId,
-      client_secret: clientSecret,
-      code,
-      grant_type: "authorization_code",
-    }),
-    cache: "no-store",
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await directProviderExchangeFetch(
+      "https://www.strava.com/oauth/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: "authorization_code",
+        }),
+      },
+    );
+  } catch {
+    return callbackFailure(req, "token_exchange_failed", 504);
+  }
   if (!tokenRes.ok) return callbackFailure(req, "token_exchange_failed", 502);
 
   const tokens = await tokenRes.json().catch(() => null) as {

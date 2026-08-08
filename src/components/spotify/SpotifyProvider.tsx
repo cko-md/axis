@@ -287,6 +287,11 @@ export function SpotifyProvider({
               const body = await response.json().catch(() => null) as { access_token?: unknown } | null;
               if (!isCurrent(authority) || operation.controller.signal.aborted) return;
               if (typeof body?.access_token === "string") callback(body.access_token);
+            } catch {
+              if (isCurrent(authority) && !operation.controller.signal.aborted) {
+                stateAuthorityRef.current = authority;
+                setConnectError("Spotify session could not be refreshed.");
+              }
             } finally {
               finishRequest(operation.controller);
             }
@@ -375,7 +380,7 @@ export function SpotifyProvider({
         if (isCurrent(authority)) void poll();
       }, 350);
       resyncTimersRef.current.add(timer);
-      return response;
+      return { response, authority };
     } catch {
       if (isCurrent(authority) && !controller.signal.aborted) {
         stateAuthorityRef.current = authority;
@@ -444,16 +449,17 @@ export function SpotifyProvider({
   const playUris = useCallback(async (uris: string[]) => { await post({ action: "play", uris }); }, [post]);
   const playContext = useCallback(async (contextUri: string) => { await post({ action: "play", contextUri }); }, [post]);
   const queue = useCallback(async (uri: string) => {
-    const response = await post({ action: "queue", uri });
-    if (response?.ok) return { ok: true };
-    if (!response) return { ok: false };
+    const result = await post({ action: "queue", uri });
+    if (result?.response.ok) return { ok: true };
+    if (!result) return { ok: false };
     try {
-      const body = await response.json() as { message?: string };
+      const body = await result.response.json() as { message?: string };
+      if (!isCurrent(result.authority)) return { ok: false };
       return { ok: false, message: body.message };
     } catch {
       return { ok: false };
     }
-  }, [post]);
+  }, [isCurrent, post]);
 
   const currentAuthority = authorityRef.current;
   const stateAuthority = stateAuthorityRef.current;

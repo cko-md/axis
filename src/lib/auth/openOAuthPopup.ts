@@ -51,6 +51,7 @@ function attachPopupLifecycle(
   expectedProvider: string | null,
   isCurrent: () => boolean,
   onDone: Completion,
+  onRetire?: () => void,
 ): OAuthPopupHandle {
   let retired = false;
   let interval: ReturnType<typeof setInterval> | null = null;
@@ -61,6 +62,7 @@ function attachPopupLifecycle(
     window.removeEventListener("message", onMessage);
     if (interval) clearInterval(interval);
     interval = null;
+    onRetire?.();
     if (closePopup && !popup.closed) popup.close();
   };
 
@@ -112,14 +114,21 @@ export function openDirectOAuthPopup(options: {
   }
 
   const current = () => isCurrent(subject, epoch);
-  const lifecycle = attachPopupLifecycle(popup, provider, current, onDone);
+  const initiationController = new AbortController();
+  const lifecycle = attachPopupLifecycle(
+    popup,
+    provider,
+    current,
+    onDone,
+    () => initiationController.abort(),
+  );
 
   void (async () => {
     try {
       const response = await subjectBoundFetch(
         subject,
         DIRECT_ENDPOINTS[provider],
-        { method: "POST" },
+        { method: "POST", signal: initiationController.signal },
       );
       if (!current() || popup.closed) return lifecycle.cancel();
       const body = await response.json().catch(() => null) as { url?: unknown } | null;

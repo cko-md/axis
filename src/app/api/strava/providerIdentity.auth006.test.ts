@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
+import { DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS } from "@/lib/auth/directProviderFetch.server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -201,5 +202,40 @@ describe("AUTH-006 Strava server identity boundary", () => {
     expect(body).toMatchObject({ connected: true, configured: true, via: "composio" });
     expect(mocks.getAccessToken).not.toHaveBeenCalled();
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+  });
+
+  it("returns terminal safe feedback when the token exchange times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerState, sealedState } = createOAuthPendingState({
+        provider: "strava",
+        subject: subjectA,
+        secret,
+        nonce: "t".repeat(43),
+      });
+      mocks.cookieStore.values.set("strava_oauth_state", sealedState);
+      authenticatedAs(userA);
+      vi.stubGlobal("fetch", vi.fn((_url: URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Timed out", "AbortError"));
+          }, { once: true });
+        })));
+
+      const pending = GET(new NextRequest(
+        `https://axis.test/api/strava?action=callback&code=provider-code&state=${providerState}`,
+      ));
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS);
+      const response = await pending;
+
+      expect(response.headers.get("location")).toContain("reason=token_exchange_failed");
+      expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+      expect(mocks.cookieStore.operations[0]).toBe("delete:strava_oauth_state");
+      expect(mocks.cookieStore.values.has("strava_access_token")).toBe(false);
+      expect(mocks.cookieStore.values.has("strava_token_owner")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

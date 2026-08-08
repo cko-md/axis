@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpotify } from "@/components/spotify/SpotifyProvider";
 import {
   openDirectOAuthPopup,
@@ -396,12 +396,16 @@ function PlayRecButton({ rec, spotify, toast, providerFetch }: { rec: Rec; spoti
   const [loading, setLoading] = useState(false);
 
   const play = async () => {
+    let mayCommit = true;
     setLoading(true);
     try {
       const result = await providerFetch<{ tracks?: Array<{ uri?: string }> }>(
         `/api/spotify/search?q=${encodeURIComponent(`${rec.track} ${rec.artist}`)}&type=track`,
       );
-      if (!result) return;
+      if (!result) {
+        mayCommit = false;
+        return;
+      }
       const uri = result.data.tracks?.[0]?.uri;
       if (uri) {
         await spotify.playUris([uri]);
@@ -412,7 +416,7 @@ function PlayRecButton({ rec, spotify, toast, providerFetch }: { rec: Rec; spoti
     } catch {
       toast("Couldn't reach Spotify", "error", "Vault");
     } finally {
-      setLoading(false);
+      if (mayCommit) setLoading(false);
     }
   };
 
@@ -636,6 +640,16 @@ export function VaultModule() {
       if (controller.signal.aborted || afterBody.subject !== authority.subject || afterBody.epoch !== authority.epoch) return null;
       providerDataAuthorityRef.current = { subject: authority.subject, epoch: authority.epoch };
       return { ok: response.ok, status: response.status, data };
+    } catch (error) {
+      const current = providerAuthorityRef.current;
+      if (
+        controller.signal.aborted ||
+        current.subject !== authority.subject ||
+        current.epoch !== authority.epoch
+      ) {
+        return null;
+      }
+      throw error;
     } finally {
       init.signal?.removeEventListener("abort", onAbort);
       providerControllersRef.current.delete(controller);
@@ -800,15 +814,19 @@ export function VaultModule() {
 
   const runSearch = useCallback(async () => {
     if (!q.trim()) return;
+    let mayCommit = true;
     setSearching(true);
     try {
       const result = await providerFetch<{ tracks?: TrackLite[] }>(`/api/spotify/search?q=${encodeURIComponent(q)}&type=track`);
-      if (!result) return;
+      if (!result) {
+        mayCommit = false;
+        return;
+      }
       setTracks(result.data.tracks ?? []);
     } catch {
       toast("Search failed.", "error", "Vault");
     } finally {
-      setSearching(false);
+      if (mayCommit) setSearching(false);
     }
   }, [providerFetch, q, toast]);
 
@@ -846,6 +864,7 @@ export function VaultModule() {
         toast("Describe the mood first.", "warn", "Vault");
         return;
       }
+      let mayCommit = true;
       setBuilding(true);
       try {
         const result = await providerFetch<{ message?: string; tracks?: TrackLite[]; created?: boolean; name?: string; playlistId?: string; label?: string }>("/api/spotify/focus", {
@@ -853,7 +872,10 @@ export function VaultModule() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ prompt: focusPrompt, create }),
         });
-        if (!result) return;
+        if (!result) {
+          mayCommit = false;
+          return;
+        }
         const data = result.data;
         if (!result.ok || !data.tracks?.length) {
           toast(data.message ?? "No matches — try a different mood.", "warn", "Vault");
@@ -872,7 +894,7 @@ export function VaultModule() {
       } catch {
         toast("Couldn't build the playlist.", "error", "Vault");
       } finally {
-        setBuilding(false);
+        if (mayCommit) setBuilding(false);
       }
     },
     [focusPrompt, providerFetch, spotify, toast],

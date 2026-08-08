@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
 import { verifyOAuthPendingState } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
@@ -86,19 +87,26 @@ export async function GET(req: NextRequest) {
   if (!code) return fail(req, "missing_code", 400);
 
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
-  const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-    }),
-    cache: "no-store",
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await directProviderExchangeFetch(
+      "https://accounts.spotify.com/api/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: redirectUri,
+        }),
+      },
+    );
+  } catch {
+    return fail(req, "token_exchange_failed", 504);
+  }
   if (!tokenRes.ok) return fail(req, "token_exchange_failed", 502);
 
   const tokens = await tokenRes.json().catch(() => null) as {

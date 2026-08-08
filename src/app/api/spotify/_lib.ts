@@ -1,11 +1,11 @@
 import { cookies } from "next/headers";
 import {
   providerTokensForSubject,
-  setProviderAccessToken,
-  setProviderRefreshToken,
+  replaceProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
 import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
 /**
@@ -34,18 +34,22 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   if (!tokens.refreshToken || !clientId || !clientSecret) return null;
 
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: tokens.refreshToken,
-    }),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await directProviderExchangeFetch(TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: tokens.refreshToken,
+      }),
+    });
+  } catch {
+    return null;
+  }
   if (!res.ok) return null;
   const data = await res.json().catch(() => null) as {
     access_token?: unknown;
@@ -54,10 +58,13 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   } | null;
   const fresh = typeof data?.access_token === "string" ? data.access_token : null;
   if (!fresh) return null;
-  setProviderAccessToken(cookieStore, "spotify", fresh, data?.expires_in);
-  if (typeof data?.refresh_token === "string" && data.refresh_token) {
-    setProviderRefreshToken(cookieStore, "spotify", data.refresh_token);
-  }
+  replaceProviderTokenCookies(cookieStore, "spotify", {
+    accessToken: fresh,
+    refreshToken: typeof data?.refresh_token === "string" && data.refresh_token
+      ? data.refresh_token
+      : tokens.refreshToken,
+    expiresIn: data?.expires_in,
+  }, subject, clientSecret);
   return fresh;
 }
 

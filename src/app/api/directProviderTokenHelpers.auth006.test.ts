@@ -19,6 +19,12 @@ vi.mock("next/headers", () => ({ cookies: vi.fn(async () => mocks.cookieStore) }
 import { getAccessToken as getSpotifyAccessToken } from "./spotify/_lib";
 import { getAccessToken as getStravaAccessToken } from "./strava/_lib";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe("AUTH-006 direct provider token helpers", () => {
   const userId = "provider-user";
   const subject = profileSubjectForUserId(userId);
@@ -88,5 +94,95 @@ describe("AUTH-006 direct provider token helpers", () => {
     await expect(getSpotifyAccessToken(userId)).resolves.toBe("bound-access");
     await expect(getSpotifyAccessToken("different-user")).resolves.toBeNull();
     expect(mocks.cookieStore.values.has("spotify_access_token")).toBe(false);
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
+      owner: "spotify_token_owner",
+      access: "spotify_access_token",
+      refresh: "spotify_refresh_token",
+      secret: "spotify-secret",
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      owner: "strava_token_owner",
+      access: "strava_access_token",
+      refresh: "strava_refresh_token",
+      secret: "strava-secret",
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("reasserts A ownership when a late $provider refresh lands after B credentials", async ({
+    provider,
+    owner,
+    access,
+    refresh,
+    secret,
+    getAccessToken,
+  }) => {
+    const userB = "provider-user-b";
+    const subjectB = profileSubjectForUserId(userB);
+    mocks.cookieStore.values.set(owner, createProviderOwnerSeal(provider, subject, secret));
+    mocks.cookieStore.values.set(refresh, "refresh-a");
+    const exchange = deferred<Response>();
+    const providerFetch = vi.fn(() => exchange.promise);
+    vi.stubGlobal("fetch", providerFetch);
+
+    const lateRefresh = getAccessToken(userId);
+    await Promise.resolve();
+    mocks.cookieStore.values.set(owner, createProviderOwnerSeal(provider, subjectB, secret));
+    mocks.cookieStore.values.set(access, "access-b");
+    mocks.cookieStore.values.set(refresh, "refresh-b");
+    exchange.resolve(new Response(JSON.stringify({
+      access_token: "late-access-a",
+      refresh_token: "late-refresh-a",
+      expires_in: 900,
+    }), { status: 200 }));
+
+    await expect(lateRefresh).resolves.toBe("late-access-a");
+    expect(mocks.cookieStore.values.get(owner)).toBe(
+      createProviderOwnerSeal(provider, subject, secret),
+    );
+    expect(mocks.cookieStore.values.get(access)).toBe("late-access-a");
+    expect(mocks.cookieStore.values.get(refresh)).toBe("late-refresh-a");
+
+    await expect(getAccessToken(userB)).resolves.toBeNull();
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.cookieStore.values.has(access)).toBe(false);
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
+      owner: "spotify_token_owner",
+      refresh: "spotify_refresh_token",
+      secret: "spotify-secret",
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      owner: "strava_token_owner",
+      refresh: "strava_refresh_token",
+      secret: "strava-secret",
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("fails a rejected $provider refresh closed without cookie mutation", async ({
+    provider,
+    owner,
+    refresh,
+    secret,
+    getAccessToken,
+  }) => {
+    const ownerSeal = createProviderOwnerSeal(provider, subject, secret);
+    mocks.cookieStore.values.set(owner, ownerSeal);
+    mocks.cookieStore.values.set(refresh, "refresh-a");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("Timed out", "AbortError")));
+
+    await expect(getAccessToken(userId)).resolves.toBeNull();
+    expect(mocks.cookieStore.values.get(owner)).toBe(ownerSeal);
+    expect(mocks.cookieStore.values.get(refresh)).toBe("refresh-a");
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+    expect(mocks.cookieStore.delete).not.toHaveBeenCalled();
   });
 });

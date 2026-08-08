@@ -1,11 +1,11 @@
 import { cookies } from "next/headers";
 import {
   providerTokensForSubject,
-  setProviderAccessToken,
-  setProviderRefreshToken,
+  replaceProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { directProviderExchangeFetch } from "@/lib/auth/directProviderFetch.server";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
@@ -35,17 +35,21 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   const clientId = optionalEnv("STRAVA_CLIENT_ID");
   if (!tokens.refreshToken || !clientId || !clientSecret) return null;
 
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: tokens.refreshToken,
-      grant_type: "refresh_token",
-    }),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await directProviderExchangeFetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: tokens.refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+  } catch {
+    return null;
+  }
   if (!res.ok) return null;
   const data = await res.json().catch(() => null) as {
     access_token?: unknown;
@@ -54,10 +58,13 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   } | null;
   const fresh = typeof data?.access_token === "string" ? data.access_token : null;
   if (!fresh) return null;
-  setProviderAccessToken(cookieStore, "strava", fresh, data?.expires_in);
-  if (typeof data?.refresh_token === "string" && data.refresh_token) {
-    setProviderRefreshToken(cookieStore, "strava", data.refresh_token);
-  }
+  replaceProviderTokenCookies(cookieStore, "strava", {
+    accessToken: fresh,
+    refreshToken: typeof data?.refresh_token === "string" && data.refresh_token
+      ? data.refresh_token
+      : tokens.refreshToken,
+    expiresIn: data?.expires_in,
+  }, subject, clientSecret);
   return fresh;
 }
 

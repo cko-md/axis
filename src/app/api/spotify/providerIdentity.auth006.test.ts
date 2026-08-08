@@ -4,6 +4,7 @@ import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
 import { createProviderOwnerSeal } from "@/lib/auth/providerCookies.server";
+import { DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS } from "@/lib/auth/directProviderFetch.server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -188,5 +189,40 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     expect(mocks.cookieStore.values.get("spotify_refresh_token")).toBe("new-refresh");
     expect(mocks.cookieStore.operations[0]).toBe("delete:spotify_oauth_state");
     expect(mocks.cookieStore.operations.at(-1)).toBe("set:spotify_token_owner");
+  });
+
+  it("returns terminal safe feedback when the token exchange times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerState, sealedState } = createOAuthPendingState({
+        provider: "spotify",
+        subject: subjectA,
+        secret,
+        nonce: "t".repeat(43),
+      });
+      mocks.cookieStore.values.set("spotify_oauth_state", sealedState);
+      authenticatedAs(userA);
+      vi.stubGlobal("fetch", vi.fn((_url: URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Timed out", "AbortError"));
+          }, { once: true });
+        })));
+
+      const pending = completeSpotifyAuth(new NextRequest(
+        `https://axis.test/api/spotify/callback?code=provider-code&state=${providerState}`,
+      ));
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS);
+      const response = await pending;
+
+      expect(response.headers.get("location")).toContain("reason=token_exchange_failed");
+      expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+      expect(mocks.cookieStore.operations[0]).toBe("delete:spotify_oauth_state");
+      expect(mocks.cookieStore.values.has("spotify_access_token")).toBe(false);
+      expect(mocks.cookieStore.values.has("spotify_token_owner")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

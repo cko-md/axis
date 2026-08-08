@@ -9,7 +9,7 @@ import {
 } from "@/lib/auth/authenticatorAssurance";
 import { MFA_TRUST_COOKIE, verifyMfaTrustToken } from "@/lib/auth/mfaTrust";
 import { oauthPendingStateCookieName } from "@/lib/auth/directProviderCookies";
-import { privateRedirect } from "@/lib/auth/privateNoStore";
+import { privateJson, privateRedirect } from "@/lib/auth/privateNoStore";
 import { isAllowedSupabaseUrl } from "@/lib/auth/supabaseUrl";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
@@ -142,7 +142,7 @@ function unavailable(
   if (callbackProvider) {
     return providerAuthFeedback(request, callbackProvider, "auth_unavailable");
   }
-  return NextResponse.json(
+  return privateJson(
     {
       error: code,
       message: "Authentication infrastructure is temporarily unavailable.",
@@ -162,7 +162,7 @@ function observeAssuranceUnavailable() {
 }
 
 function assuranceUnavailable() {
-  return NextResponse.json(
+  return privateJson(
     {
       error: "AUTH_ASSURANCE_UNAVAILABLE",
       message: "Authentication assurance could not be verified.",
@@ -262,7 +262,7 @@ export async function middleware(request: NextRequest) {
     if (isApiPath(pathname)) {
       return carryCookies(
         supabaseResponse,
-        NextResponse.json({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 }),
+        privateJson({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 }),
       );
     }
     const search = new URLSearchParams({ redirect: `${pathname}${request.nextUrl.search}` });
@@ -316,7 +316,7 @@ export async function middleware(request: NextRequest) {
     if (isApiPath(pathname)) {
       return carryCookies(
         supabaseResponse,
-        NextResponse.json(
+        privateJson(
           { error: "MFA_REQUIRED", message: "Complete two-factor authentication to continue." },
           { status: 403 },
         ),
@@ -335,7 +335,10 @@ export async function middleware(request: NextRequest) {
   if (access === "mfa-bootstrap" && isApiPath(pathname) && !isMfaBootstrapApiPath(pathname)) {
     return carryCookies(
       supabaseResponse,
-      NextResponse.json({ error: "MFA_REQUIRED", message: "Complete two-factor authentication to continue." }, { status: 403 }),
+      privateJson(
+        { error: "MFA_REQUIRED", message: "Complete two-factor authentication to continue." },
+        { status: 403 },
+      ),
     );
   }
 

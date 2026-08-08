@@ -119,11 +119,15 @@ describe("direct OAuth popup AUTH-006 lifecycle", () => {
     expect(popup.close).toHaveBeenCalledTimes(1);
   });
 
-  it("retires without feedback when the captured subject epoch is no longer current", async () => {
+  it("aborts initiation and retires without feedback when authority is cancelled", async () => {
     const popup = fakePopup();
     vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
     const response = deferred<Response>();
-    vi.stubGlobal("fetch", vi.fn().mockReturnValue(response.promise));
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url: URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return response.promise;
+    }));
     const onDone = vi.fn();
     let current = true;
 
@@ -135,12 +139,13 @@ describe("direct OAuth popup AUTH-006 lifecycle", () => {
       onDone,
     });
     current = false;
+    handle.cancel();
+    expect(signal?.aborted).toBe(true);
     response.resolve(new Response(JSON.stringify({
       url: "https://accounts.spotify.com/authorize?state=late",
     }), { status: 200 }));
     await Promise.resolve();
     await Promise.resolve();
-    handle.cancel();
 
     expect(popup.location.replace).not.toHaveBeenCalled();
     expect(onDone).not.toHaveBeenCalled();
