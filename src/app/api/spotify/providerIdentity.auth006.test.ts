@@ -1,0 +1,192 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
+import { createProviderOwnerSeal } from "@/lib/auth/providerCookies.server";
+
+const mocks = vi.hoisted(() => ({
+  createClient: vi.fn(),
+  cookieStore: {
+    values: new Map<string, string>(),
+    operations: [] as string[],
+    get: vi.fn((name: string) => {
+      const value = mocks.cookieStore.values.get(name);
+      return value === undefined ? undefined : { name, value };
+    }),
+    set: vi.fn((name: string, value: string) => {
+      mocks.cookieStore.operations.push(`set:${name}`);
+      mocks.cookieStore.values.set(name, value);
+    }),
+    delete: vi.fn((name: string) => {
+      mocks.cookieStore.operations.push(`delete:${name}`);
+      mocks.cookieStore.values.delete(name);
+    }),
+  },
+  captureRouteError: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("next/headers", () => ({ cookies: vi.fn(async () => mocks.cookieStore) }));
+vi.mock("@/lib/observability/captureRouteError", () => ({
+  captureRouteError: mocks.captureRouteError,
+}));
+
+import { POST as startSpotifyAuth } from "./auth/route";
+import { GET as completeSpotifyAuth } from "./callback/route";
+import { POST as disconnectSpotify } from "./disconnect/route";
+
+function authenticatedAs(userId: string) {
+  mocks.createClient.mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: userId } },
+        error: null,
+      }),
+    },
+  });
+}
+
+describe("AUTH-006 Spotify server identity boundary", () => {
+  const userA = "spotify-user-a";
+  const userB = "spotify-user-b";
+  const subjectA = profileSubjectForUserId(userA);
+  const secret = "spotify-test-secret";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.cookieStore.values.clear();
+    mocks.cookieStore.operations.length = 0;
+    process.env.SPOTIFY_CLIENT_ID = "spotify-client";
+    process.env.SPOTIFY_CLIENT_SECRET = secret;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.SPOTIFY_CLIENT_ID;
+    delete process.env.SPOTIFY_CLIENT_SECRET;
+  });
+
+  it("requires a current expected subject before issuing OAuth state", async () => {
+    authenticatedAs(userA);
+    const rejected = await startSpotifyAuth(new NextRequest("https://axis.test/api/spotify/auth", {
+      method: "POST",
+    }));
+    expect(rejected.status).toBe(409);
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+
+    const accepted = await startSpotifyAuth(new NextRequest("https://axis.test/api/spotify/auth", {
+      method: "POST",
+      headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+    }));
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    const body = await accepted.json() as { url: string };
+    const providerUrl = new URL(body.url);
+    expect(providerUrl.origin).toBe("https://accounts.spotify.com");
+    expect(providerUrl.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(mocks.cookieStore.values.get("spotify_oauth_state")).toContain(".");
+    expect(body.url).not.toContain(userA);
+    expect(body.url).not.toContain(subjectA);
+  });
+
+  it("consumes state and refuses a callback after the authenticated subject changes", async () => {
+    const nonce = "n".repeat(43);
+    const { providerState, sealedState } = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      nonce,
+    });
+    mocks.cookieStore.values.set("spotify_oauth_state", sealedState);
+    authenticatedAs(userB);
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await completeSpotifyAuth(new NextRequest(
+      `https://axis.test/api/spotify/callback?code=secret-code&state=${providerState}`,
+    ));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("reason=state_invalid");
+    expect(response.headers.get("location")).not.toContain("secret-code");
+    expect(response.headers.get("location")).not.toContain(providerState);
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(mocks.cookieStore.values.has("spotify_oauth_state")).toBe(false);
+    expect(mocks.cookieStore.operations[0]).toBe("delete:spotify_oauth_state");
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("consumes pending state before route-level authentication failure", async () => {
+    mocks.cookieStore.values.set("spotify_oauth_state", "sealed-pending-state");
+    mocks.createClient.mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+    });
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await completeSpotifyAuth(new NextRequest(
+      "https://axis.test/api/spotify/callback?code=secret-code&state=opaque-state",
+    ));
+
+    expect(response.headers.get("location")).toContain("reason=session_expired");
+    expect(mocks.cookieStore.operations[0]).toBe("delete:spotify_oauth_state");
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("disconnect clears tokens, owner binding, and pending OAuth state", async () => {
+    authenticatedAs(userA);
+    mocks.cookieStore.values.set(
+      "spotify_token_owner",
+      createProviderOwnerSeal("spotify", subjectA, secret),
+    );
+    mocks.cookieStore.values.set("spotify_access_token", "access");
+    mocks.cookieStore.values.set("spotify_refresh_token", "refresh");
+    mocks.cookieStore.values.set("spotify_oauth_state", "sealed-pending-state");
+
+    const response = await disconnectSpotify(new Request(
+      "https://axis.test/api/spotify/disconnect",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.cookieStore.values.size).toBe(0);
+  });
+
+  it("publishes owner-bound tokens only after a valid single-use callback", async () => {
+    const nonce = "n".repeat(43);
+    const { providerState, sealedState } = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      nonce,
+    });
+    mocks.cookieStore.values.set("spotify_oauth_state", sealedState);
+    authenticatedAs(userA);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      access_token: "new-access",
+      refresh_token: "new-refresh",
+      expires_in: 900,
+    }), { status: 200 })));
+
+    const response = await completeSpotifyAuth(new NextRequest(
+      `https://axis.test/api/spotify/callback?code=provider-code&state=${providerState}`,
+    ));
+
+    expect(response.headers.get("location")).toContain("provider=spotify&status=ok");
+    expect(mocks.cookieStore.values.get("spotify_token_owner")).toBe(
+      createProviderOwnerSeal("spotify", subjectA, secret),
+    );
+    expect(mocks.cookieStore.values.get("spotify_token_owner")).not.toContain(subjectA);
+    expect(mocks.cookieStore.values.get("spotify_access_token")).toBe("new-access");
+    expect(mocks.cookieStore.values.get("spotify_refresh_token")).toBe("new-refresh");
+    expect(mocks.cookieStore.operations[0]).toBe("delete:spotify_oauth_state");
+    expect(mocks.cookieStore.operations.at(-1)).toBe("set:spotify_token_owner");
+  });
+});

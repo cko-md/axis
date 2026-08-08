@@ -51,6 +51,7 @@ import { usePeople } from "@/lib/hooks/usePeople";
 import { Card } from "@/components/ui/Card";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { AxisReflectiveCard } from "@/components/ui/axis/AxisReflectiveCard";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
 
 /* ── art gallery card ──────────────────────────────────────────── */
 
@@ -366,6 +367,7 @@ function SectionDrillIn({ section }: { section: ConsoleDrillInSection }) {
 
 export function ConsoleModule() {
   const supabase = useMemo(() => createClient(), []);
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
   const { toast } = useToast();
   const { interfaceSettings } = useTheme();
   const { signals, capture, applyClassification } = useSignals();
@@ -395,7 +397,15 @@ export function ConsoleModule() {
     if (typeof window === "undefined") return 0;
     try { return Number(localStorage.getItem(`axis-pom-${new Date().toDateString()}`) ?? "0"); } catch { return 0; }
   });
-  const { data: liveData, refreshOne, refreshAll, geoStatus } = useWidgetData(widgetIds, interfaceSettings.locationServices);
+  const { data: liveData, refreshOne, refreshAll, geoStatus } = useWidgetData(
+    widgetIds,
+    interfaceSettings.locationServices,
+    {
+      subject: accountState === "ready" ? profile?.subject ?? null : null,
+      accountState,
+      authorityEpoch,
+    },
+  );
 
   // Location Services is opt-in (Interface Studio); if the browser denies the
   // permission prompt (or geolocation isn't available at all) the widgets

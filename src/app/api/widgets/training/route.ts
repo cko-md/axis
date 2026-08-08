@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, stravaGet, metresToKm, type StravaActivity } from "@/app/api/strava/_lib";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
@@ -9,28 +10,29 @@ import { logRouteTiming } from "@/lib/observability/providerTiming";
 // day-streak — so the widget reflects real training instead of the static
 // "8 km banked / Streak day 8" catalog stub. Degrades gracefully to that stub
 // (fallback:true) whenever Strava isn't connected/configured.
-export async function GET() {
+export async function GET(req: Request) {
   const routeStartedAt = Date.now();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (authError || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
   const STUB = { value: "8 km banked", hint: "Connect Strava in Vitality", fallback: true };
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) {
     logRouteTiming("/api/widgets/training", routeStartedAt, { fallback: true, connected: false });
-    return NextResponse.json(STUB, { headers: { "Cache-Control": "no-store" } });
+    return privateJson(STUB);
   }
 
   const activities = await stravaGet<StravaActivity[]>(token, "/athlete/activities?per_page=60&page=1").catch(() => null);
   if (!activities || activities.length === 0) {
     logRouteTiming("/api/widgets/training", routeStartedAt, { fallback: !activities });
-    return NextResponse.json(
+    return privateJson(
       activities
         ? { value: "0 km banked", hint: "No recent activity · Strava", raw: { km: 0, streak: 0 } }
         : { ...STUB, hint: "Strava refresh failed", error: true },
-      { headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -65,8 +67,5 @@ export async function GET() {
   const hint = streak > 0 ? `Streak day ${streak} · Strava` : "This week · Strava";
 
   logRouteTiming("/api/widgets/training", routeStartedAt, { fallback: false });
-  return NextResponse.json(
-    { value: `${km} km banked`, hint, raw: { km, streak } },
-    { headers: { "Cache-Control": "s-maxage=600, stale-while-revalidate=1800" } },
-  );
+  return privateJson({ value: `${km} km banked`, hint, raw: { km, streak } });
 }

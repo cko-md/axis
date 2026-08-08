@@ -4,6 +4,8 @@ import { GET as daylightWidget } from "@/app/api/widgets/daylight/route";
 import { GET as marketsWidget } from "@/app/api/widgets/markets/route";
 import { GET as trainingWidget } from "@/app/api/widgets/training/route";
 import { GET as weatherWidget } from "@/app/api/widgets/weather/route";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import type { WidgetDataSource } from "@/lib/widgets/types";
 
 type WidgetLocation = {
@@ -32,7 +34,11 @@ const handlers: Record<string, WidgetHandler> = {
  * Authentication remains in the current Next request context used by each
  * handler's server client.
  */
-export async function invokeWidgetEndpoint(source: WidgetDataSource, location?: WidgetLocation) {
+export async function invokeWidgetEndpoint(
+  source: WidgetDataSource,
+  location: WidgetLocation | undefined,
+  authenticatedUserId: string,
+) {
   const path = source.endpoint;
   if (!path) throw new Error("WIDGET_ENDPOINT_NOT_ALLOWLISTED");
   const handler = handlers[path];
@@ -44,5 +50,8 @@ export async function invokeWidgetEndpoint(source: WidgetDataSource, location?: 
     if (location?.lon !== undefined) url.searchParams.set("lon", String(location.lon));
     if (location?.name) url.searchParams.set("name", location.name);
   }
-  return handler(new Request(url));
+  const headers = new Headers({
+    [EXPECTED_PROFILE_SUBJECT_HEADER]: profileSubjectForUserId(authenticatedUserId),
+  });
+  return handler(new Request(url, { headers }));
 }

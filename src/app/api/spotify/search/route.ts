@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, pickArt, spotifyGet, toTrackLite } from "../_lib";
 
@@ -7,15 +8,17 @@ import { getAccessToken, notConnected, pickArt, spotifyGet, toTrackLite } from "
 /** GET /api/spotify/search?q=...&type=track,artist,album,playlist */
 export async function GET(req: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return notConnected();
 
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
-  if (!q) return NextResponse.json({ connected: true, tracks: [], artists: [], albums: [], playlists: [] });
+  if (!q) return privateJson({ connected: true, tracks: [], artists: [], albums: [], playlists: [] });
 
   const type = url.searchParams.get("type") ?? "track,artist,album,playlist";
   const data = await spotifyGet<any>(
@@ -23,7 +26,7 @@ export async function GET(req: Request) {
     `/search?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}&limit=8`,
   );
 
-  return NextResponse.json({
+  return privateJson({
     connected: true,
     tracks: (data?.tracks?.items ?? []).map((t: any) => toTrackLite(t)),
     artists: (data?.artists?.items ?? []).map((a: any) => ({

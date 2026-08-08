@@ -74,6 +74,8 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
   const autoCollapsedRef = useRef(false);
   const {
     state: accountState,
+    profile,
+    authorityEpoch = 0,
     saveState: profileSaveState,
     uploadState: profileUploadState,
     hasPendingChanges: hasPendingProfileChanges,
@@ -157,7 +159,11 @@ function AppShellContent({ section, page, children, suppressPresence = false }: 
   };
 
   return (
-    <SpotifyProvider>
+    <SpotifyProvider
+      accountState={accountState}
+      subject={accountState === "ready" ? profile?.subject ?? null : null}
+      authorityEpoch={authorityEpoch}
+    >
       <AxisAtmosphere includeStars={isNight && !reduceMotion} />
       <div className="grain" aria-hidden />
       <div className={`app-shell mode-${sidebarMode}`}>

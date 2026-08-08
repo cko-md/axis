@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
 import { heuristicCapture } from "@/lib/ai/capture";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } from "../_lib";
 
@@ -17,14 +18,16 @@ import { getAccessToken, notConnected, spotifyFetch, spotifyGet, toTrackLite } f
  */
 export async function POST(req: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return notConnected();
 
   const { prompt, create } = (await req.json()) as { prompt: string; create?: boolean };
-  if (!prompt?.trim()) return NextResponse.json({ error: "prompt required" }, { status: 400 });
+  if (!prompt?.trim()) return privateJson({ error: "prompt required" }, { status: 400 });
 
   // Do not derive an internal URL from the request Host or forward a request
   // back into this server. The deterministic capture heuristic is the same
@@ -74,7 +77,7 @@ export async function POST(req: Request) {
   }
 
   if (tracks.length === 0) {
-    return NextResponse.json(
+    return privateJson(
       { connected: true, created: false, label, tracks: [], message: "No matches — try a different mood." },
       { status: 200 },
     );
@@ -83,13 +86,13 @@ export async function POST(req: Request) {
   const uris = tracks.map((t) => t.uri).filter(Boolean);
 
   if (!create) {
-    return NextResponse.json({ connected: true, created: false, label, tracks });
+    return privateJson({ connected: true, created: false, label, tracks });
   }
 
   // 4. Create a private playlist and add the tracks.
   const me = await spotifyGet<any>(token, "/me");
   if (!me?.id) {
-    return NextResponse.json({ connected: true, created: false, label, tracks });
+    return privateJson({ connected: true, created: false, label, tracks });
   }
   const playlistName = `Axis · ${label}`;
   const createRes = await spotifyFetch(token, `/users/${me.id}/playlists`, {
@@ -102,7 +105,7 @@ export async function POST(req: Request) {
     }),
   });
   if (!createRes.ok) {
-    return NextResponse.json({ connected: true, created: false, label, tracks });
+    return privateJson({ connected: true, created: false, label, tracks });
   }
   const playlist = await createRes.json();
   await spotifyFetch(token, `/playlists/${playlist.id}/tracks`, {
@@ -111,7 +114,7 @@ export async function POST(req: Request) {
     body: JSON.stringify({ uris }),
   });
 
-  return NextResponse.json({
+  return privateJson({
     connected: true,
     created: true,
     label,

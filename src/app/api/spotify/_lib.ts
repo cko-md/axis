@@ -1,5 +1,11 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import {
+  providerTokensForSubject,
+  setProviderAccessToken,
+  setProviderRefreshToken,
+} from "@/lib/auth/providerCookies.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { hasOptionalEnv, optionalEnv } from "@/lib/env";
 
 /**
@@ -17,16 +23,16 @@ export function isConfigured(): boolean {
   return hasOptionalEnv("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET");
 }
 
-/** Returns a valid access token, refreshing via the stored refresh token when needed, or null. */
-export async function getAccessToken(): Promise<string | null> {
+/** Returns a token only when the cookies belong to the authenticated Axis user. */
+export async function getAccessToken(userId: string): Promise<string | null> {
+  const subject = profileSubjectForUserId(userId);
+  const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET") ?? "";
   const cookieStore = await cookies();
-  const token = cookieStore.get("spotify_access_token")?.value;
-  if (token) return token;
+  const tokens = providerTokensForSubject(cookieStore, "spotify", subject, clientSecret);
+  if (tokens.accessToken) return tokens.accessToken;
 
-  const refresh = cookieStore.get("spotify_refresh_token")?.value;
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
-  const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
-  if (!refresh || !clientId || !clientSecret) return null;
+  if (!tokens.refreshToken || !clientId || !clientSecret) return null;
 
   const res = await fetch(TOKEN_URL, {
     method: "POST",
@@ -34,26 +40,30 @@ export async function getAccessToken(): Promise<string | null> {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
     },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refresh }),
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refreshToken,
+    }),
     cache: "no-store",
   });
   if (!res.ok) return null;
-  const data = await res.json();
-  const fresh = data.access_token as string | undefined;
+  const data = await res.json().catch(() => null) as {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+  } | null;
+  const fresh = typeof data?.access_token === "string" ? data.access_token : null;
   if (!fresh) return null;
-  cookieStore.set("spotify_access_token", fresh, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    maxAge: data.expires_in ?? 3600,
-    path: "/",
-    sameSite: "lax",
-  });
+  setProviderAccessToken(cookieStore, "spotify", fresh, data?.expires_in);
+  if (typeof data?.refresh_token === "string" && data.refresh_token) {
+    setProviderRefreshToken(cookieStore, "spotify", data.refresh_token);
+  }
   return fresh;
 }
 
 /** Standard "not connected" payload — drives the setup-state in the UI. */
 export function notConnected() {
-  return NextResponse.json({ connected: false, configured: isConfigured() });
+  return privateJson({ connected: false, configured: isConfigured() });
 }
 
 /** Authenticated fetch against the Spotify Web API. Returns the raw Response. */

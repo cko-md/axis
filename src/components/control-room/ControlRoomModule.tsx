@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { ACCENT_PRESETS } from "@/lib/theme/interface-settings";
@@ -11,7 +11,13 @@ import { Modal } from "@/components/ui/Modal";
 import styles from "./ControlRoom.module.css";
 import { MFASetup } from "@/components/auth/MFASetup";
 import { usePasskey } from "@/hooks/usePasskey";
-import { openComposioOAuthPopup, openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import {
+  openComposioOAuthPopup,
+  openDirectOAuthPopup,
+  type OAuthPopupHandle,
+} from "@/lib/auth/openOAuthPopup";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
 import { Seg } from "@/components/ui/Seg";
 import { AxisGlassPanel } from "@/components/ui/axis/AxisGlassPanel";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
@@ -180,6 +186,22 @@ export function ControlRoomModule() {
   const { toast } = useToast();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const providerAuthorityRef = useRef({
+    subject: accountState === "ready" ? profile?.subject ?? null : null,
+    epoch: authorityEpoch,
+    ready: accountState === "ready",
+  });
+  providerAuthorityRef.current = {
+    subject: accountState === "ready" ? profile?.subject ?? null : null,
+    epoch: authorityEpoch,
+    ready: accountState === "ready",
+  };
+  const providerControllersRef = useRef(new Set<AbortController>());
+  const spotifyStatusAuthorityRef = useRef<{ subject: string; epoch: number } | null>(null);
+  const stravaStatusAuthorityRef = useRef<{ subject: string; epoch: number } | null>(null);
+  const spotifyPopupRef = useRef<OAuthPopupHandle | null>(null);
+  const stravaPopupRef = useRef<OAuthPopupHandle | null>(null);
 
   // Auth / connection state ------------------------------------------------
   const [user, setUser] = useState<UserInfo | null>(null);
@@ -267,30 +289,88 @@ export function ControlRoomModule() {
   }, [setStatusError]);
 
   const refreshSpotifyStatus = useCallback(async () => {
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) {
+      setSpotifyStatus(null);
+      return;
+    }
+    const controller = new AbortController();
+    providerControllersRef.current.add(controller);
     try {
-      const res = await fetch("/api/spotify/playback", { cache: "no-store" });
+      const res = await subjectBoundFetch(authority.subject, "/api/spotify/playback", {
+        signal: controller.signal,
+      });
+      const current = providerAuthorityRef.current;
+      if (controller.signal.aborted || current.subject !== authority.subject || current.epoch !== authority.epoch) return;
       if (!res.ok) throw new Error("Spotify status unavailable");
       const json = (await res.json()) as { connected?: boolean };
+      const afterBody = providerAuthorityRef.current;
+      if (controller.signal.aborted || afterBody.subject !== authority.subject || afterBody.epoch !== authority.epoch) return;
+      spotifyStatusAuthorityRef.current = { subject: authority.subject, epoch: authority.epoch };
       setSpotifyStatus({ connected: !!json.connected, label: null });
       setStatusError("spotify", null);
     } catch {
+      const current = providerAuthorityRef.current;
+      if (controller.signal.aborted || current.subject !== authority.subject || current.epoch !== authority.epoch) return;
+      spotifyStatusAuthorityRef.current = { subject: authority.subject, epoch: authority.epoch };
       setSpotifyStatus({ connected: false, label: null });
       setStatusError("spotify", "Spotify status unavailable.");
+    } finally {
+      providerControllersRef.current.delete(controller);
     }
   }, [setStatusError]);
 
   const refreshStravaStatus = useCallback(async () => {
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) {
+      setStravaStatus(null);
+      return;
+    }
+    const controller = new AbortController();
+    providerControllersRef.current.add(controller);
     try {
-      const res = await fetch("/api/strava?action=status", { cache: "no-store" });
+      const res = await subjectBoundFetch(authority.subject, "/api/strava?action=status", {
+        signal: controller.signal,
+      });
+      const current = providerAuthorityRef.current;
+      if (controller.signal.aborted || current.subject !== authority.subject || current.epoch !== authority.epoch) return;
       if (!res.ok) throw new Error("Strava status unavailable");
       const json = (await res.json()) as { connected?: boolean; athlete?: { name?: string | null } | null };
+      const afterBody = providerAuthorityRef.current;
+      if (controller.signal.aborted || afterBody.subject !== authority.subject || afterBody.epoch !== authority.epoch) return;
+      stravaStatusAuthorityRef.current = { subject: authority.subject, epoch: authority.epoch };
       setStravaStatus({ connected: !!json.connected, label: json.athlete?.name ?? null });
       setStatusError("strava", null);
     } catch {
+      const current = providerAuthorityRef.current;
+      if (controller.signal.aborted || current.subject !== authority.subject || current.epoch !== authority.epoch) return;
+      stravaStatusAuthorityRef.current = { subject: authority.subject, epoch: authority.epoch };
       setStravaStatus({ connected: false, label: null });
       setStatusError("strava", "Strava status unavailable.");
+    } finally {
+      providerControllersRef.current.delete(controller);
     }
   }, [setStatusError]);
+
+  useEffect(() => {
+    const controllers = providerControllersRef.current;
+    for (const controller of controllers) controller.abort();
+    controllers.clear();
+    spotifyPopupRef.current?.cancel();
+    stravaPopupRef.current?.cancel();
+    spotifyPopupRef.current = null;
+    stravaPopupRef.current = null;
+    spotifyStatusAuthorityRef.current = null;
+    stravaStatusAuthorityRef.current = null;
+    setSpotifyStatus(null);
+    setStravaStatus(null);
+    return () => {
+      for (const controller of controllers) controller.abort();
+      controllers.clear();
+      spotifyPopupRef.current?.cancel();
+      stravaPopupRef.current?.cancel();
+    };
+  }, [accountState, authorityEpoch, profile?.subject]);
 
   // Activity ---------------------------------------------------------------
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
@@ -493,14 +573,46 @@ export function ControlRoomModule() {
   // both buttons were doing the same thing, and the one users click first didn't
   // reach the code that actually reads it.
   const connectSpotify = () => {
-    openOAuthPopup("/api/spotify/auth", (_provider, status) => {
-      if (status === "ok") void refreshSpotifyStatus();
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) {
+      toast("Sign in again before connecting Spotify.", "error", "Connections");
+      return;
+    }
+    spotifyPopupRef.current?.cancel();
+    spotifyPopupRef.current = openDirectOAuthPopup({
+      provider: "spotify",
+      subject: authority.subject,
+      epoch: authority.epoch,
+      isCurrent: (subject, epoch) => {
+        const current = providerAuthorityRef.current;
+        return current.ready && current.subject === subject && current.epoch === epoch;
+      },
+      onDone: (_provider, status) => {
+        spotifyPopupRef.current = null;
+        if (status === "ok") void refreshSpotifyStatus();
+      },
     });
   };
 
   const connectStrava = () => {
-    openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-      if (status === "ok") void refreshStravaStatus();
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) {
+      toast("Sign in again before connecting Strava.", "error", "Connections");
+      return;
+    }
+    stravaPopupRef.current?.cancel();
+    stravaPopupRef.current = openDirectOAuthPopup({
+      provider: "strava",
+      subject: authority.subject,
+      epoch: authority.epoch,
+      isCurrent: (subject, epoch) => {
+        const current = providerAuthorityRef.current;
+        return current.ready && current.subject === subject && current.epoch === epoch;
+      },
+      onDone: (_provider, status) => {
+        stravaPopupRef.current = null;
+        if (status === "ok") void refreshStravaStatus();
+      },
     });
   };
 
@@ -563,7 +675,11 @@ export function ControlRoomModule() {
   };
 
   const disconnectSpotify = async () => {
-    const res = await fetch("/api/spotify/disconnect", { method: "POST" });
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) return;
+    const res = await subjectBoundFetch(authority.subject, "/api/spotify/disconnect", { method: "POST" });
+    const current = providerAuthorityRef.current;
+    if (current.subject !== authority.subject || current.epoch !== authority.epoch) return;
     if (!res.ok) {
       toast("Could not disconnect Spotify.", "error", "Connections");
       return;
@@ -572,7 +688,11 @@ export function ControlRoomModule() {
   };
 
   const disconnectStrava = async () => {
-    const res = await fetch("/api/strava?action=disconnect");
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) return;
+    const res = await subjectBoundFetch(authority.subject, "/api/strava?action=disconnect", { method: "POST" });
+    const current = providerAuthorityRef.current;
+    if (current.subject !== authority.subject || current.epoch !== authority.epoch) return;
     if (!res.ok) {
       toast("Could not disconnect Strava.", "error", "Connections");
       return;
@@ -787,18 +907,31 @@ export function ControlRoomModule() {
         : sourceError("contacts", "composio")
           ? "broken"
           : composioState(contactsComposio);
+  const currentProviderAuthority = providerAuthorityRef.current;
+  const spotifyStatusAuthority = spotifyStatusAuthorityRef.current;
+  const stravaStatusAuthority = stravaStatusAuthorityRef.current;
+  const visibleSpotifyStatus = currentProviderAuthority.ready &&
+    spotifyStatusAuthority?.subject === currentProviderAuthority.subject &&
+    spotifyStatusAuthority.epoch === currentProviderAuthority.epoch
+    ? spotifyStatus
+    : null;
+  const visibleStravaStatus = currentProviderAuthority.ready &&
+    stravaStatusAuthority?.subject === currentProviderAuthority.subject &&
+    stravaStatusAuthority.epoch === currentProviderAuthority.epoch
+    ? stravaStatus
+    : null;
   const spotifyState: ConnState =
-    spotifyStatus?.connected
+    visibleSpotifyStatus?.connected
       ? "on"
-      : spotifyStatus === null || composioConnections === null
+      : visibleSpotifyStatus === null || composioConnections === null
         ? "pending"
         : sourceError("spotify", "composio")
           ? "broken"
           : composioState(spotifyComposio);
   const stravaState: ConnState =
-    stravaStatus?.connected
+    visibleStravaStatus?.connected
       ? "on"
-      : stravaStatus === null || composioConnections === null
+      : visibleStravaStatus === null || composioConnections === null
         ? "pending"
         : sourceError("strava", "composio")
           ? "broken"
@@ -905,8 +1038,8 @@ export function ControlRoomModule() {
       name: "Spotify",
       desc: "Listening Vault, search, library, and miniplayer",
       state: spotifyState,
-      detail: spotifyStatus?.connected
-        ? `${spotifyStatus.label ?? "Spotify account"} via OAuth`
+      detail: visibleSpotifyStatus?.connected
+        ? `${visibleSpotifyStatus.label ?? "Spotify account"} via OAuth`
         : isActiveComposio(spotifyComposio)
           ? composioDetail(spotifyComposio)
           : spotifyState === "pending"
@@ -919,7 +1052,7 @@ export function ControlRoomModule() {
           ? {
               label: "Disconnect",
               onClick: () =>
-                void (spotifyStatus?.connected ? disconnectSpotify() : disconnectComposioToolkit("spotify")),
+                void (visibleSpotifyStatus?.connected ? disconnectSpotify() : disconnectComposioToolkit("spotify")),
             }
           : spotifyState === "broken" && spotifyComposio
             ? composioConnectAction("spotify", spotifyState)
@@ -936,8 +1069,8 @@ export function ControlRoomModule() {
       name: "Strava",
       desc: "Vitality activity, training load, and plan context",
       state: stravaState,
-      detail: stravaStatus?.connected
-        ? `${stravaStatus.label ?? "Strava athlete"} via OAuth`
+      detail: visibleStravaStatus?.connected
+        ? `${visibleStravaStatus.label ?? "Strava athlete"} via OAuth`
         : isActiveComposio(stravaComposio)
           ? composioDetail(stravaComposio)
           : stravaState === "pending"
@@ -949,7 +1082,7 @@ export function ControlRoomModule() {
         stravaState === "on"
           ? {
               label: "Disconnect",
-              onClick: () => void (stravaStatus?.connected ? disconnectStrava() : disconnectComposioToolkit("strava")),
+              onClick: () => void (visibleStravaStatus?.connected ? disconnectStrava() : disconnectComposioToolkit("strava")),
             }
           : stravaState === "broken" && stravaComposio
             ? composioConnectAction("strava", stravaState)

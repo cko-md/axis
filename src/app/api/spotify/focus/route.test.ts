@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -30,7 +32,11 @@ describe("Spotify focus internal AI topology", () => {
     try {
       const response = await POST(new Request("https://attacker.invalid/api/spotify/focus", {
         method: "POST",
-        headers: { host: "attacker.invalid", cookie: "session=must-not-forward" },
+        headers: {
+          host: "attacker.invalid",
+          cookie: "session=must-not-forward",
+          [EXPECTED_PROFILE_SUBJECT_HEADER]: profileSubjectForUserId("user"),
+        },
         body: JSON.stringify({ prompt: "deep work" }),
       }));
 

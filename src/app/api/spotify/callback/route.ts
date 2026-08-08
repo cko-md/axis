@@ -1,25 +1,45 @@
-import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { NextRequest } from "next/server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { verifyOAuthPendingState } from "@/lib/auth/oauthState.server";
+import {
+  consumeOAuthPendingStateCookie,
+  replaceProviderTokenCookies,
+} from "@/lib/auth/providerCookies.server";
+import { privateRedirect } from "@/lib/auth/privateNoStore";
 import { optionalEnv } from "@/lib/env";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { createClient } from "@/lib/supabase/server";
 
-// Every failure below previously collapsed into a bare `status=error`, which
-// made a user-denied consent, a dropped state cookie, a misconfigured client,
-// and a rejected token exchange indistinguishable from each other — both in the
-// UI and in logs. Each branch now carries a distinct reason and is reported.
-const SPOTIFY_FAILURE_CODES = {
+type SpotifyFailureReason =
+  | "denied"
+  | "missing_code"
+  | "state_invalid"
+  | "not_configured"
+  | "token_exchange_failed"
+  | "invalid_token_response"
+  | "session_expired";
+
+const SPOTIFY_FAILURE_CODES: Record<SpotifyFailureReason, string> = {
   denied: "SPOTIFY_DENIED",
   missing_code: "SPOTIFY_MISSING_CODE",
-  state_missing: "SPOTIFY_STATE_MISSING",
-  state_mismatch: "SPOTIFY_STATE_MISMATCH",
+  state_invalid: "SPOTIFY_STATE_MISMATCH",
   not_configured: "SPOTIFY_NOT_CONFIGURED",
   token_exchange_failed: "SPOTIFY_TOKEN_EXCHANGE_FAILED",
-} as const;
-type SpotifyFailureReason = keyof typeof SPOTIFY_FAILURE_CODES;
+  invalid_token_response: "SPOTIFY_TOKEN_EXCHANGE_FAILED",
+  session_expired: "SPOTIFY_STATE_MISSING",
+};
 
-function fail(req: NextRequest, reason: SpotifyFailureReason, error: Error, status: number) {
-  captureRouteError(error, {
+function feedback(req: NextRequest, status: "ok" | "error", reason?: SpotifyFailureReason) {
+  const params = new URLSearchParams({ provider: "spotify", status });
+  if (reason) params.set("reason", reason);
+  return privateRedirect(buildAppUrl(req, `/oauth-done?${params}`));
+}
+
+function captureUnexpected(reason: SpotifyFailureReason, status: number) {
+  if (status < 500) return;
+  captureRouteError(new Error("Spotify OAuth callback failed"), {
     route: "/api/spotify/callback",
     operation: "complete_oauth",
     area: "integrations",
@@ -27,84 +47,75 @@ function fail(req: NextRequest, reason: SpotifyFailureReason, error: Error, stat
     status,
     code: SPOTIFY_FAILURE_CODES[reason],
   });
-  return NextResponse.redirect(
-    buildAppUrl(req, `/oauth-done?provider=spotify&status=error&reason=${reason}`),
-  );
+}
+
+function fail(req: NextRequest, reason: SpotifyFailureReason, status: number) {
+  captureUnexpected(reason, status);
+  return feedback(req, "error", reason);
 }
 
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl;
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const providerError = url.searchParams.get("error");
   const cookieStore = await cookies();
-  const saved = cookieStore.get("spotify_oauth_state")?.value;
-
-  // Spotify reports a declined consent screen as ?error=access_denied. This was
-  // never read, so cancelling looked identical to a broken integration.
-  if (providerError) {
-    return fail(req, "denied", new Error(`Spotify returned ${providerError}`), 400);
-  }
-  if (!code) {
-    return fail(req, "missing_code", new Error("Spotify callback had no code"), 400);
-  }
-  if (!saved) {
-    return fail(req, "state_missing", new Error("Spotify OAuth state cookie was absent"), 400);
-  }
-  if (!state || state !== saved) {
-    return fail(req, "state_mismatch", new Error("Spotify OAuth state did not match"), 400);
-  }
+  // Consume before route authentication as defense-in-depth for any invocation
+  // path that reaches this handler without the middleware auth boundary.
+  const sealedState = consumeOAuthPendingStateCookie(cookieStore, "spotify");
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return fail(req, "session_expired", 401);
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
-  const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
+  if (!clientId || !clientSecret) return fail(req, "not_configured", 503);
 
-  if (!clientId || !clientSecret) {
-    return fail(req, "not_configured", new Error("Spotify credentials are not configured"), 500);
+  const providerState = req.nextUrl.searchParams.get("state");
+  const subject = profileSubjectForUserId(user.id);
+  if (!verifyOAuthPendingState({
+    provider: "spotify",
+    subject,
+    secret: clientSecret,
+    providerState,
+    sealedState,
+  })) {
+    return fail(req, "state_invalid", 400);
   }
 
+  if (req.nextUrl.searchParams.has("error")) {
+    return fail(req, "denied", 400);
+  }
+  const code = req.nextUrl.searchParams.get("code");
+  if (!code) return fail(req, "missing_code", 400);
+
+  const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
     },
-    body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+    }),
+    cache: "no-store",
   });
+  if (!tokenRes.ok) return fail(req, "token_exchange_failed", 502);
 
-  if (!tokenRes.ok) {
-    // The token endpoint names the actual problem (invalid_grant,
-    // invalid_client, redirect_uri_mismatch). Discarding it is what made a
-    // redirect-URI mismatch undiagnosable. The body carries no secret — the
-    // credentials travel in the request's Authorization header, not the reply.
-    const detail = await tokenRes.text().catch(() => "");
-    return fail(
-      req,
-      "token_exchange_failed",
-      new Error(`Spotify token exchange failed (${tokenRes.status}): ${detail.slice(0, 300)}`),
-      502,
-    );
+  const tokens = await tokenRes.json().catch(() => null) as {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+  } | null;
+  if (typeof tokens?.access_token !== "string" || !tokens.access_token) {
+    return fail(req, "invalid_token_response", 502);
   }
+  replaceProviderTokenCookies(cookieStore, "spotify", {
+    accessToken: tokens.access_token,
+    refreshToken: typeof tokens.refresh_token === "string"
+      ? tokens.refresh_token
+      : undefined,
+    expiresIn: tokens.expires_in,
+  }, subject, clientSecret);
 
-  const tokens = await tokenRes.json();
-  const secure = process.env.NODE_ENV === "production";
-  cookieStore.set("spotify_access_token", tokens.access_token, {
-    httpOnly: true,
-    secure,
-    sameSite: "lax",
-    maxAge: tokens.expires_in ?? 3600,
-    path: "/",
-  });
-  if (tokens.refresh_token) {
-    cookieStore.set("spotify_refresh_token", tokens.refresh_token, {
-      httpOnly: true,
-      secure,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 30,
-      path: "/",
-    });
-  }
-  cookieStore.delete("spotify_oauth_state");
-
-  return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=spotify&status=ok"));
+  return feedback(req, "ok");
 }

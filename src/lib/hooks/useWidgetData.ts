@@ -1,14 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AccountState } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 import { DEFAULT_LOCATION, type GeoLocation } from "@/lib/geo/default-location";
 import { getWidgetById } from "@/lib/store/widgets";
-import { createClient } from "@/lib/supabase/client";
 import {
-  widgetCacheRowMatchesDefinition,
-  widgetCacheRowToData,
   widgetRefreshFailureData,
-  type WidgetCacheRow,
   type WidgetData,
 } from "@/lib/widgets/cache";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
@@ -63,18 +61,42 @@ function uniqueWidgetIds(ids: string[]) {
   return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
 }
 
-export function useWidgetData(widgetIds: string[], locationEnabled = false) {
+type WidgetAuthority = { subject: string; epoch: number };
+
+export function useWidgetData(
+  widgetIds: string[],
+  locationEnabled = false,
+  providerAuthority?: {
+    subject: string | null;
+    accountState: AccountState;
+    authorityEpoch: number;
+  },
+) {
   const [data, setData] = useState<Record<string, WidgetData>>({});
-  const supabase = useMemo(() => createClient(), []);
-  const widgetKey = widgetIds.join("|");
   const geoRef = useRef<GeoLocation>(DEFAULT_LOCATION);
+  const controllersRef = useRef(new Set<AbortController>());
+  const authorityRef = useRef<WidgetAuthority | null>(null);
+  const dataAuthorityRef = useRef<WidgetAuthority | null>(null);
+  authorityRef.current = providerAuthority?.accountState === "ready" && providerAuthority.subject
+    ? { subject: providerAuthority.subject, epoch: providerAuthority.authorityEpoch }
+    : null;
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   // Bumped whenever geolocation resolves so the fetch effect below re-runs
   // with the real coordinates instead of leaving widgets stuck on the
   // DEFAULT_LOCATION fallback they fetched with on first mount.
   const [geoVersion, setGeoVersion] = useState(0);
 
+  const isCurrent = useCallback((authority: WidgetAuthority) => {
+    const current = authorityRef.current;
+    return current?.subject === authority.subject && current.epoch === authority.epoch;
+  }, []);
+
   useEffect(() => {
+    const authority = authorityRef.current;
+    if (!authority) {
+      setGeoStatus("idle");
+      return;
+    }
     if (!locationEnabled) {
       setGeoStatus("idle");
       return;
@@ -86,11 +108,13 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
     setGeoStatus("pending");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (!isCurrent(authority)) return;
         geoRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, name: "Your location" };
         setGeoStatus("granted");
         setGeoVersion((v) => v + 1);
       },
       (err) => {
+        if (!isCurrent(authority)) return;
         // Denied or otherwise unavailable — fall back to DEFAULT_LOCATION
         // (geoRef.current is already seeded with it) but report *why*, so
         // the caller can tell the user instead of failing silently.
@@ -99,43 +123,39 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
       },
       { timeout: 5000 },
     );
-  }, [locationEnabled]);
+  }, [
+    isCurrent,
+    locationEnabled,
+    providerAuthority?.accountState,
+    providerAuthority?.authorityEpoch,
+    providerAuthority?.subject,
+  ]);
 
   useEffect(() => {
-    let cancelled = false;
-    const ids = uniqueWidgetIds(widgetIds);
-    if (ids.length === 0) return;
-
-    supabase
-      .from("widget_cache")
-      .select("widget_id,cache_key,status,value,hint,raw,error,fetched_at,expires_at")
-      .in("widget_id", ids)
-      .then(({ data: rows }) => {
-        if (cancelled || !rows?.length) return;
-        setData((current) => {
-          const next = { ...current };
-          for (const row of rows as WidgetCacheRow[]) {
-            if (!widgetCacheRowMatchesDefinition(row)) continue;
-            next[row.widget_id] = widgetCacheRowToData(row);
-          }
-          return next;
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase, widgetKey, widgetIds]);
+    for (const controller of controllersRef.current) controller.abort();
+    controllersRef.current.clear();
+    dataAuthorityRef.current = null;
+    setData({});
+    geoRef.current = DEFAULT_LOCATION;
+  }, [
+    providerAuthority?.accountState,
+    providerAuthority?.authorityEpoch,
+    providerAuthority?.subject,
+  ]);
 
   const refreshBatch = useCallback(
     async (ids: string[], signal?: AbortSignal) => {
       const requestedIds = uniqueWidgetIds(ids);
       if (requestedIds.length === 0) return;
+      const authority = authorityRef.current;
+      if (!authority) return;
       const batchIds = requestedIds.filter((id) => {
         const definition = getWidgetDefinition(id);
         return Boolean(definition?.source.endpoint ?? FETCHERS[id]);
       });
       const localIds = requestedIds.filter((id) => !batchIds.includes(id));
+      if (!isCurrent(authority)) return;
+      dataAuthorityRef.current = authority;
       setData((d) => {
         const next = { ...d };
         for (const id of localIds) {
@@ -151,18 +171,24 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
         return next;
       });
       if (batchIds.length === 0) return;
+      const controller = new AbortController();
+      controllersRef.current.add(controller);
+      const abortFromCaller = () => controller.abort();
+      signal?.addEventListener("abort", abortFromCaller, { once: true });
       try {
         const geo = geoRef.current;
-        const res = await fetch("/api/widgets/batch", {
+        const res = await subjectBoundFetch(authority.subject, "/api/widgets/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             widgetIds: batchIds,
             location: { lat: geo.lat, lon: geo.lon, name: geo.name },
           }),
-          signal,
+          signal: controller.signal,
         });
+        if (!isCurrent(authority) || controller.signal.aborted) return;
         const json = await res.json().catch(() => ({}));
+        if (!isCurrent(authority) || controller.signal.aborted) return;
         if (!res.ok) throw new Error((json as { error?: string }).error ?? "Widget batch failed");
         const payload = json as BatchResponse;
         setData((d) => {
@@ -177,8 +203,8 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
           }
           return next;
         });
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
+      } catch {
+        if (!isCurrent(authority) || controller.signal.aborted) return;
         setData((d) => {
           const next = { ...d };
           for (const id of batchIds) {
@@ -186,15 +212,21 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
           }
           return next;
         });
+      } finally {
+        signal?.removeEventListener("abort", abortFromCaller);
+        controllersRef.current.delete(controller);
       }
     },
-    [],
+    [isCurrent],
   );
 
   const refreshOne = useCallback(
     async (id: string, signal?: AbortSignal) => {
       const definition = getWidgetDefinition(id);
       if (!definition && !FETCHERS[id]) {
+        const authority = authorityRef.current;
+        if (!authority) return;
+        dataAuthorityRef.current = authority;
         const w = getWidgetById(id);
         setData((d) => ({ ...d, [id]: { v: w.value, k: w.hint } }));
         return;
@@ -209,6 +241,7 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
   }, [widgetIds, refreshBatch]);
 
   useEffect(() => {
+    if (!authorityRef.current) return;
     const controller = new AbortController();
     refreshAll(controller.signal);
     const intervalId = setInterval(() => {
@@ -223,7 +256,21 @@ export function useWidgetData(widgetIds: string[], locationEnabled = false) {
     // land (see the geolocation effect above), so location-dependent widgets
     // that already fetched against DEFAULT_LOCATION on mount get refetched
     // with the user's actual position instead of silently keeping the stub.
-  }, [refreshAll, geoVersion]);
+  }, [
+    geoVersion,
+    providerAuthority?.accountState,
+    providerAuthority?.authorityEpoch,
+    providerAuthority?.subject,
+    refreshAll,
+  ]);
 
-  return { data, refreshOne, refreshAll, geoStatus };
+  const currentAuthority = authorityRef.current;
+  const dataAuthority = dataAuthorityRef.current;
+  const visibleData = currentAuthority && dataAuthority &&
+    currentAuthority.subject === dataAuthority.subject &&
+    currentAuthority.epoch === dataAuthority.epoch
+    ? data
+    : {};
+
+  return { data: visibleData, refreshOne, refreshAll, geoStatus };
 }

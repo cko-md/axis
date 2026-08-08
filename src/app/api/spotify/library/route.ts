@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, notConnected, pickArt, spotifyGet, toTrackLite } from "../_lib";
 
@@ -10,10 +11,12 @@ import { getAccessToken, notConnected, pickArt, spotifyGet, toTrackLite } from "
  */
 export async function GET(req: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken();
+  const token = await getAccessToken(user.id);
   if (!token) return notConnected();
 
   const url = new URL(req.url);
@@ -29,12 +32,12 @@ export async function GET(req: Request) {
         ...toTrackLite(i.track),
         playedAt: i.played_at,
       }));
-      return NextResponse.json({ connected: true, kind, items });
+      return privateJson({ connected: true, kind, items });
     }
     case "top-tracks": {
       const data = await spotifyGet<any>(token, `/me/top/tracks?limit=24&time_range=${range}`);
       const items = (data?.items ?? []).map((t: any) => toTrackLite(t));
-      return NextResponse.json({ connected: true, kind, term, items });
+      return privateJson({ connected: true, kind, term, items });
     }
     case "top-artists": {
       const data = await spotifyGet<any>(token, `/me/top/artists?limit=24&time_range=${range}`);
@@ -46,7 +49,7 @@ export async function GET(req: Request) {
         genres: (a.genres ?? []).slice(0, 3),
         followers: a.followers?.total ?? 0,
       }));
-      return NextResponse.json({ connected: true, kind, term, items });
+      return privateJson({ connected: true, kind, term, items });
     }
     case "albums": {
       const data = await spotifyGet<any>(token, "/me/albums?limit=24");
@@ -58,7 +61,7 @@ export async function GET(req: Request) {
         art: pickArt(i.album?.images),
         total: i.album?.total_tracks ?? 0,
       }));
-      return NextResponse.json({ connected: true, kind, items });
+      return privateJson({ connected: true, kind, items });
     }
     case "playlists": {
       const data = await spotifyGet<any>(token, "/me/playlists?limit=30");
@@ -70,9 +73,9 @@ export async function GET(req: Request) {
         owner: p.owner?.display_name ?? "",
         total: p.tracks?.total ?? 0,
       }));
-      return NextResponse.json({ connected: true, kind, items });
+      return privateJson({ connected: true, kind, items });
     }
     default:
-      return NextResponse.json({ error: "unknown kind" }, { status: 400 });
+      return privateJson({ error: "unknown kind" }, { status: 400 });
   }
 }

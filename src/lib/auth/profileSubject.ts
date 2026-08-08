@@ -1,5 +1,6 @@
 export const PROFILE_SUBJECT_PREFIX = "ps1_";
 export const PROFILE_SUBJECT_LENGTH = PROFILE_SUBJECT_PREFIX.length + 64;
+export const EXPECTED_PROFILE_SUBJECT_HEADER = "x-axis-expected-profile-subject";
 
 const PROFILE_SUBJECT_PATTERN = /^ps1_[a-f0-9]{64}$/;
 
