@@ -1,17 +1,40 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-08T02:05:07.690Z",
+  "derivedAt": "2026-08-08T04:09:46.979Z",
   "git": {
-    "branch": "codex/security-auth-ssrf-production-state-refresh",
-    "head": "7fc28444a12f2918fefe465cf1287c826e3d50df",
-    "mainHead": "7fc28444a12f2918fefe465cf1287c826e3d50df",
+    "branch": "codex/security-auth006-direct-provider-identity",
+    "head": "31ff2529cb3d41fcc640613fa568fc0c6ab44e4d",
+    "mainHead": "bf15060f3cf681b9932a006d810faa051bf7da76",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
+    "aheadOfMain": [
+      {
+        "sha": "31ff2529",
+        "subject": "fix: preserve provider command authority"
+      },
+      {
+        "sha": "f3e2b8e4",
+        "subject": "fix: fence provider bodies and action feedback"
+      },
+      {
+        "sha": "5f0d938c",
+        "subject": "fix: close direct provider race conditions"
+      },
+      {
+        "sha": "f793b62a",
+        "subject": "security: isolate direct provider identity"
+      }
+    ],
+    "contentTreeHash": "881a4920da46ecbb91e4b8cee0040c448663bd786eea686a2891c43e6b15222d",
     "sourceMainContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
-    "fingerprint": "9ea70b862507a13598e54817b2aa9b75cd34cd2751688f55846aa8451bbd61c1"
+    "fingerprint": "241ab74ec0c44494c611a5ee5fd31c743acaf6b3c3fc8397d0581c70a01c05dd"
   },
   "mergedPrs": [
+    {
+      "pr": 304,
+      "sha": "bf15060f",
+      "subject": "chore(state): refresh after auth and SSRF closure",
+      "committedAt": "2026-08-07T22:29:48-04:00"
+    },
     {
       "pr": 303,
       "sha": "7fc28444",
@@ -155,12 +178,6 @@
       "sha": "28e4b879",
       "subject": "docs(envoys): add worker future backlog + Linear-style slices (EW-1..EW-10)",
       "committedAt": "2026-07-21T10:07:48-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "542eaedb",
-      "subject": "docs(axis): re-derive state for the batched non-game integration (43 defects/0 open)",
-      "committedAt": "2026-07-21T09:20:24-04:00"
     }
   ],
   "waves": [
@@ -320,8 +337,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "b5b6dd1e4887734a3a86624ed0b435e2815f532f",
-    "sourceContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
+    "sourceHead": "31ff2529cb3d41fcc640613fa568fc0c6ab44e4d",
+    "sourceContentTreeHash": "881a4920da46ecbb91e4b8cee0040c448663bd786eea686a2891c43e6b15222d",
     "typecheck": {
       "passed": true
     },
@@ -329,23 +346,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2749,
-      "total": 2749,
-      "files": 289,
-      "suites": 811
+      "passed": 2815,
+      "total": 2815,
+      "files": 306,
+      "suites": 845
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4126,
+      "used": 4140,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-08T01:36:51.733Z"
+    "measuredAt": "2026-08-08T04:09:46.870Z"
   }
 }
