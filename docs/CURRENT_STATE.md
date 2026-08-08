@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `b3772a1035c1bf0d2d0053571b28d29529396a35fa7d0266db0749f617af80ea` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
+- **State fingerprint:** `1c169a50df124a458fe7b09a7b228bb3f67a7a13a52056ada3231b63313b387d` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
 - **Source-main tree at derivation:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/security-runtime-dependency-state-refresh`
-- **HEAD:** `120c06a3`
-- **main:** `120c06a3`
+- **Branch:** `codex/security-auth-ssrf-production-closure`
+- **HEAD:** `b5b6dd1e`
+- **main:** `2d11d64d`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (1 commit(s))
+
+- `b5b6dd1e` docs(state): close AUTH-007 and SSRF-001 on production evidence
 
 ## Waves merged to main
 
@@ -70,18 +74,18 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 ## Defects
 
 - **Total logged:** 50
-- **Open:** 8 (AUTH-006, FIN-003, FIN-004, MUTATION-001, INTEGRATION-002, SSRF-001, AUTH-007, RATE-001)
+- **Open:** 6 (AUTH-006, FIN-003, FIN-004, MUTATION-001, INTEGRATION-002, RATE-001)
 
 ## Gates
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
 - **Tests:** 2749/2749 across 289 files
-- **Bundle:** 4125 KB / 4400 KB
+- **Bundle:** 4126 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `140d77cc`
-- **Measured content tree:** `a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c`
-- **Measured at:** 2026-08-07T22:37:56.848Z
+- **Measured source:** `b5b6dd1e`
+- **Measured content tree:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
+- **Measured at:** 2026-08-08T01:36:51.733Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -104,11 +108,12 @@ sole production build. Preserve the exact measured source evidence and require
 the refreshed production deployment, runtime paths, logs, and Sentry window to
 pass before any production claim.
 
-`SSRF-001` and `AUTH-007` remain open until a later reviewed authored-state
-transition binds their closure to canonical production evidence. After this
-refresh is verified, continue Phase 1 with `AUTH-006` provider identity, then
-financial truth/order intent, cancellable mutation, generic-mutation
-containment, and distributed auth/rate limits.
+`SSRF-001` and `AUTH-007` are closed by the reviewed authored-state transition
+at `b5b6dd1e`, bound to the exact canonical production deployment, runtime
+replays, logs, Sentry window, and sealed evidence recorded in the defect ledger.
+Continue Phase 1 with `AUTH-006` provider identity, then financial truth/order
+intent, cancellable mutation, generic-mutation containment, and distributed
+auth/rate limits.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 

@@ -1,17 +1,28 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-08T00:43:12.499Z",
+  "derivedAt": "2026-08-08T01:36:52.057Z",
   "git": {
-    "branch": "codex/security-runtime-dependency-state-refresh",
-    "head": "120c06a31268ff04c7d954ccf5357f288124ad98",
-    "mainHead": "120c06a31268ff04c7d954ccf5357f288124ad98",
+    "branch": "codex/security-auth-ssrf-production-closure",
+    "head": "b5b6dd1e4887734a3a86624ed0b435e2815f532f",
+    "mainHead": "2d11d64da2a0678aad3bd1c1d87e6e47caa15a52",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c",
+    "aheadOfMain": [
+      {
+        "sha": "b5b6dd1e",
+        "subject": "docs(state): close AUTH-007 and SSRF-001 on production evidence"
+      }
+    ],
+    "contentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
     "sourceMainContentTreeHash": "a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c",
-    "fingerprint": "b3772a1035c1bf0d2d0053571b28d29529396a35fa7d0266db0749f617af80ea"
+    "fingerprint": "1c169a50df124a458fe7b09a7b228bb3f67a7a13a52056ada3231b63313b387d"
   },
   "mergedPrs": [
+    {
+      "pr": 302,
+      "sha": "2d11d64d",
+      "subject": "chore(state): refresh after runtime dependency repair",
+      "committedAt": "2026-08-07T21:00:39-04:00"
+    },
     {
       "pr": 301,
       "sha": "120c06a3",
@@ -154,12 +165,6 @@
       "pr": null,
       "sha": "7ec07179",
       "subject": "chore(nongame): mark the Envoy/Mascot-removal plan dropped; broaden the dead-feed guard",
-      "committedAt": "2026-07-21T09:20:14-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "8f006fb5",
-      "subject": "docs(readme): add the VECTOR arcade and the desktop (Electron) track",
       "committedAt": "2026-07-21T09:20:14-04:00"
     }
   ],
@@ -307,23 +312,21 @@
   },
   "defects": {
     "total": 50,
-    "open": 8,
+    "open": 6,
     "openIds": [
       "AUTH-006",
       "FIN-003",
       "FIN-004",
       "MUTATION-001",
       "INTEGRATION-002",
-      "SSRF-001",
-      "AUTH-007",
       "RATE-001"
     ]
   },
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "140d77ccff78b5ac983b54f3560f0b822d3989a7",
-    "sourceContentTreeHash": "a91e89de89b06ca301eb3e44a99439d7c6242afb46550ebfb8f51c4616acf37c",
+    "sourceHead": "b5b6dd1e4887734a3a86624ed0b435e2815f532f",
+    "sourceContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
     "typecheck": {
       "passed": true
     },
@@ -341,13 +344,13 @@
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4125,
+      "used": 4126,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-07T22:37:56.848Z"
+    "measuredAt": "2026-08-08T01:36:51.733Z"
   }
 }

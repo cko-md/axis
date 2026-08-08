@@ -209,13 +209,15 @@
     "src/lib/feeds/rss.ts"
    ],
    "root_cause": "The existing boundary validates URL strings but does not resolve A/AAAA answers, reject every reserved range, validate each redirect hop, pin or revalidate the connect target, or bound streamed bodies consistently.",
-   "fix": "Pending Phase 1 safe-fetch recovery: one server-only boundary with DNS A/AAAA validation, private/reserved/mapped-address denial, manual bounded redirects, pinned or revalidated connections, total time and streaming body limits, and safe errors.",
+   "fix": "Implemented in PR #293: one server-only safeFetch boundary resolves and validates every A/AAAA answer, denies private/reserved/mapped addresses, validates bounded manual redirects, pins each connection to an approved address, bounds time and streamed body size, returns typed safe errors, and owns every affected outbound-read surface.",
    "regression_test": "Adversarial resolver/transport fixtures must prove the internal target receives zero requests for direct, redirect, and rebinding attacks across every affected route.",
-   "status": "open",
+   "status": "fixed",
    "verificationPaths": ["src/lib/security/ssrf.ts"],
    "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
-   "revision_fixed": null,
-   "verification": "Open; the prior safe-fetch lane was not recovered into Git."
+   "revision_fixed": "PR #293 (merged 2026-08-05)",
+   "mainVerificationCommit": "24d3480ffa54fe6dcdec0fdd874f5af8269c2e49",
+   "mainVerificationPaths": ["src/lib/security/ssrf.ts"],
+   "verification": "Canonical source commit 24d3480ffa54fe6dcdec0fdd874f5af8269c2e49 is an ancestor of production merge 2d11d64da2a0678aad3bd1c1d87e6e47caa15a52 and its required src/lib/security/ssrf.ts blob remains unchanged. Exact production deployment dpl_9R2J8E8BiwEGoLuX99Qxjt7LsZrB was READY. Authenticated public HTTPS safe fetch returned 200 with sandbox CSP; loopback IPv4, RFC1918, metadata link-local, IPv6 loopback, and alternate-integer IPv4 targets each returned 403 with SAFE_FETCH_BLOCKED_HOST or SAFE_FETCH_BLOCKED_ADDRESS and a visible safe fallback; anonymous proxy access returned 401; synthetic-user remnants were zero. Exact-deployment logs for 2026-08-08T01:00:42.905Z through 2026-08-08T01:08:15.000Z contained zero warnings, errors, fatal records, 5xx responses, or sensitive-message hits. Production Sentry release 2d11d64da2a0678aad3bd1c1d87e6e47caa15a52 for 2026-08-08T01:00:42.905Z through 2026-08-08T01:12:15.000Z reported zero new groups and zero unresolved regressions; the sole event was the deliberate tagged profile fault inside its forced window, with zero events before or after. Sealed external production evidence SHA-256: a07e9fe14a422057ef124f1ab44262800fd0feafaa3d452aa77b91f3cf2d6210."
   },
   {
    "id": "AUTH-007",
@@ -228,13 +230,15 @@
     "src/lib/env.ts"
    ],
    "root_cause": "Auth protection is an opt-in prefix list and required production auth configuration is not a fail-closed precondition.",
-   "fix": "Pending Phase 1 auth composition: explicit public allowlist, authenticated-by-default API policy, production configuration preflight, and 503 for protected routes when auth infrastructure is unavailable.",
+   "fix": "Implemented in PR #295: exact public, service-authorized, telemetry, and MFA-bootstrap allowlists; authenticated-by-default application and API policy; production Supabase configuration preflight; structured fail-closed 503 handling; safe Spotify callback termination; and exact Sentry-tunnel containment.",
    "regression_test": "Missing-env, public-lookalike, dotted-path, and newly added API route tests must fail closed while the exact public allowlist remains reachable.",
-   "status": "open",
+   "status": "fixed",
    "verificationPaths": ["src/middleware.ts"],
    "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
-   "revision_fixed": null,
-   "verification": "Open; the accepted auth checkpoint is not composed into this branch."
+   "revision_fixed": "PR #295 (merged 2026-08-05)",
+   "mainVerificationCommit": "47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8",
+   "mainVerificationPaths": ["src/middleware.ts"],
+   "verification": "Canonical source commit 47ccc1eef3a9580084e9d2fc6c2888ba8241f7c8 is an ancestor of production merge 2d11d64da2a0678aad3bd1c1d87e6e47caa15a52 and its required src/middleware.ts blob remains unchanged. Exact production deployment dpl_9R2J8E8BiwEGoLuX99Qxjt7LsZrB was READY. /login and /oauth-done returned 200; a signed-out exact Spotify callback terminated at /oauth-done with session_expired feedback and no code, state, or canary leakage; callback descendants/lookalikes, a dotted API path, an unknown API, and a keyless-public descendant each returned 401 without redirect; /oauth-done, /monitoring, and dotted-page descendants/lookalikes redirected to /login. Generic authenticated workflows, persistence, recovery, owner-versus-foreign isolation, and zero-remnant cleanup also passed. Exact-deployment logs for 2026-08-08T01:00:42.905Z through 2026-08-08T01:08:15.000Z contained zero warnings, errors, fatal records, 5xx responses, or sensitive-message hits; one empty-message path-only password search match was the deliberate /api/auth/forgot-password/extra 401 probe. Production Sentry release 2d11d64da2a0678aad3bd1c1d87e6e47caa15a52 for 2026-08-08T01:00:42.905Z through 2026-08-08T01:12:15.000Z reported zero new groups and zero unresolved regressions; the sole event was the deliberate tagged profile fault inside its forced window, with zero events before or after. Sealed external production evidence SHA-256: a07e9fe14a422057ef124f1ab44262800fd0feafaa3d452aa77b91f3cf2d6210."
   },
   {
    "id": "RATE-001",
