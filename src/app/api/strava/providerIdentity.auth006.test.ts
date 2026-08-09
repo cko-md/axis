@@ -3,7 +3,10 @@ import { NextRequest } from "next/server";
 import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
-import { DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS } from "@/lib/auth/directProviderFetch.server";
+import {
+  DIRECT_PROVIDER_EXCHANGE_MAX_BYTES,
+  DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS,
+} from "@/lib/auth/directProviderFetch.server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -11,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getComposioConnection: vi.fn(),
   getComposioAthlete: vi.fn(),
   listComposioActivities: vi.fn(),
+  captureRouteError: vi.fn(),
   cookieStore: {
     values: new Map<string, string>(),
     operations: [] as string[],
@@ -31,7 +35,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("next/headers", () => ({ cookies: vi.fn(async () => mocks.cookieStore) }));
-vi.mock("@/lib/observability/captureRouteError", () => ({ captureRouteError: vi.fn() }));
+vi.mock("@/lib/observability/captureRouteError", () => ({
+  captureRouteError: mocks.captureRouteError,
+}));
 vi.mock("@/lib/integrations/strava-composio", () => ({
   getComposioStravaConnection: mocks.getComposioConnection,
   getComposioStravaAthlete: mocks.getComposioAthlete,
@@ -61,6 +67,7 @@ describe("AUTH-006 Strava server identity boundary", () => {
   const userA = "strava-user-a";
   const userB = "strava-user-b";
   const subjectA = profileSubjectForUserId(userA);
+  const subjectB = profileSubjectForUserId(userB);
   const secret = "strava-test-secret";
 
   beforeEach(() => {
@@ -108,7 +115,7 @@ describe("AUTH-006 Strava server identity boundary", () => {
     expect(body.url).not.toContain(subjectA);
   });
 
-  it("consumes state and blocks provider exchange when the session subject changed", async () => {
+  it("preserves unmatched legacy state when the session subject changed", async () => {
     const nonce = "n".repeat(43);
     const { providerState, sealedState } = createOAuthPendingState({
       provider: "strava",
@@ -128,8 +135,49 @@ describe("AUTH-006 Strava server identity boundary", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toContain("reason=state_invalid");
     expect(response.headers.get("location")).not.toContain("secret-code");
-    expect(mocks.cookieStore.operations[0]).toBe("delete:strava_oauth_state");
+    expect(mocks.cookieStore.values.get("strava_oauth_state")).toBe(sealedState);
+    expect(mocks.cookieStore.operations).not.toContain("delete:strava_oauth_state");
     expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale callback consume the current subject's pending slot", async () => {
+    authenticatedAs(userB);
+    const started = await POST(new NextRequest(
+      "https://axis.test/api/strava?action=auth",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectB },
+      },
+    ));
+    const startedBody = await started.json() as { url: string };
+    const providerState = new URL(startedBody.url).searchParams.get("state");
+    const pendingName = [...mocks.cookieStore.values.keys()].find((name) =>
+      name.startsWith("strava_oauth_state_s1_"));
+    expect(providerState).toBeTruthy();
+    expect(pendingName).toBeTruthy();
+
+    const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      access_token: "access-b",
+      refresh_token: "refresh-b",
+      expires_in: 900,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", providerFetch);
+    const stale = await GET(new NextRequest(
+      `https://axis.test/api/strava?action=callback&code=stale-a&state=${"a".repeat(43)}`,
+    ));
+    expect(stale.headers.get("location")).toContain("reason=state_invalid");
+    expect(mocks.cookieStore.values.has(pendingName!)).toBe(true);
+    expect(providerFetch).not.toHaveBeenCalled();
+
+    const validUrl = `https://axis.test/api/strava?action=callback&code=code-b&state=${providerState}`;
+    const valid = await GET(new NextRequest(validUrl));
+    expect(valid.headers.get("location")).toContain("status=ok");
+    expect(mocks.cookieStore.values.has(pendingName!)).toBe(false);
+    expect(providerFetch).toHaveBeenCalledOnce();
+
+    const replay = await GET(new NextRequest(validUrl));
+    expect(replay.headers.get("location")).toContain("reason=state_invalid");
+    expect(providerFetch).toHaveBeenCalledOnce();
   });
 
   it("makes direct disconnect a subject-bound POST and rejects duplicate callback actions", async () => {
@@ -212,6 +260,33 @@ describe("AUTH-006 Strava server identity boundary", () => {
     expect(body).toMatchObject({ connected: true, configured: true, via: "composio" });
     expect(mocks.getAccessToken).not.toHaveBeenCalled();
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+  });
+
+  it("classifies an oversized token response as a 502 provider failure", async () => {
+    const { providerState, sealedState } = createOAuthPendingState({
+      provider: "strava",
+      subject: subjectA,
+      secret,
+      nonce: "o".repeat(43),
+    });
+    mocks.cookieStore.values.set("strava_oauth_state", sealedState);
+    authenticatedAs(userA);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", {
+      status: 400,
+      headers: {
+        "Content-Length": String(DIRECT_PROVIDER_EXCHANGE_MAX_BYTES + 1),
+      },
+    })));
+
+    const response = await GET(new NextRequest(
+      `https://axis.test/api/strava?action=callback&code=provider-code&state=${providerState}`,
+    ));
+
+    expect(response.headers.get("location")).toContain("reason=token_exchange_failed");
+    expect(mocks.captureRouteError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ status: 502, code: "PROVIDER_ERROR" }),
+    );
   });
 
   it("returns terminal safe feedback when the token exchange times out", async () => {

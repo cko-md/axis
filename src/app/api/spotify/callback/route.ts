@@ -7,6 +7,8 @@ import { verifyOAuthPendingState } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForSubject,
+  peekOAuthPendingStateCookie,
+  peekOAuthPendingStateCookieForSubject,
   replaceProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
 import { privateRedirect } from "@/lib/auth/privateNoStore";
@@ -58,12 +60,15 @@ function fail(req: NextRequest, reason: SpotifyFailureReason, status: number) {
 
 export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
-  // Consume before route authentication as defense-in-depth for any invocation
-  // path that reaches this handler without the middleware auth boundary.
-  const legacySealedState = consumeOAuthPendingStateCookie(cookieStore, "spotify");
+  const legacySealedState = peekOAuthPendingStateCookie(cookieStore, "spotify");
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return fail(req, "session_expired", 401);
+  if (error || !user) {
+    if (legacySealedState !== null) {
+      consumeOAuthPendingStateCookie(cookieStore, "spotify");
+    }
+    return fail(req, "session_expired", 401);
+  }
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
@@ -71,12 +76,13 @@ export async function GET(req: NextRequest) {
 
   const providerState = req.nextUrl.searchParams.get("state");
   const subject = profileSubjectForUserId(user.id);
-  const sealedState = consumeOAuthPendingStateCookieForSubject(
+  const subjectSealedState = peekOAuthPendingStateCookieForSubject(
     cookieStore,
     "spotify",
     subject,
     clientSecret,
-  ) ?? legacySealedState;
+  );
+  const sealedState = subjectSealedState ?? legacySealedState;
   if (!verifyOAuthPendingState({
     provider: "spotify",
     subject,
@@ -85,6 +91,16 @@ export async function GET(req: NextRequest) {
     sealedState,
   })) {
     return fail(req, "state_invalid", 400);
+  }
+  if (subjectSealedState !== null) {
+    consumeOAuthPendingStateCookieForSubject(
+      cookieStore,
+      "spotify",
+      subject,
+      clientSecret,
+    );
+  } else {
+    consumeOAuthPendingStateCookie(cookieStore, "spotify");
   }
 
   if (req.nextUrl.searchParams.has("error")) {
@@ -115,8 +131,11 @@ export async function GET(req: NextRequest) {
         }),
       },
     );
-  } catch {
-    return fail(req, "token_exchange_failed", 504);
+  } catch (error) {
+    const status = error instanceof DOMException && error.name === "AbortError"
+      ? 504
+      : 502;
+    return fail(req, "token_exchange_failed", status);
   }
   const { response: tokenRes, body: tokens } = exchange;
   if (!tokenRes.ok) return fail(req, "token_exchange_failed", 502);

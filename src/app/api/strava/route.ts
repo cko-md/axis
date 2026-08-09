@@ -15,6 +15,8 @@ import {
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForSubject,
+  peekOAuthPendingStateCookie,
+  peekOAuthPendingStateCookieForSubject,
   replaceProviderTokenCookies,
   setOAuthPendingStateCookie,
 } from "@/lib/auth/providerCookies.server";
@@ -124,7 +126,7 @@ async function completeCallback(
   }
 
   const subject = profileSubjectForUserId(userId);
-  const subjectSealedState = consumeOAuthPendingStateCookieForSubject(
+  const subjectSealedState = peekOAuthPendingStateCookieForSubject(
     cookieStore,
     "strava",
     subject,
@@ -138,6 +140,16 @@ async function completeCallback(
     sealedState: subjectSealedState ?? sealedState,
   })) {
     return callbackFailure(req, "state_invalid", 400);
+  }
+  if (subjectSealedState !== null) {
+    consumeOAuthPendingStateCookieForSubject(
+      cookieStore,
+      "strava",
+      subject,
+      clientSecret,
+    );
+  } else {
+    consumeOAuthPendingStateCookie(cookieStore, "strava");
   }
   if (req.nextUrl.searchParams.has("error")) {
     return callbackFailure(req, "denied", 400);
@@ -164,8 +176,11 @@ async function completeCallback(
         }),
       },
     );
-  } catch {
-    return callbackFailure(req, "token_exchange_failed", 504);
+  } catch (error) {
+    const status = error instanceof DOMException && error.name === "AbortError"
+      ? 504
+      : 502;
+    return callbackFailure(req, "token_exchange_failed", status);
   }
   const { response: tokenRes, body: tokens } = exchange;
   if (!tokenRes.ok) return callbackFailure(req, "token_exchange_failed", 502);
@@ -259,14 +274,15 @@ export async function GET(req: NextRequest) {
   const action = actions.length === 0 ? "status" : actions[0];
   const exactCallback = actions.length === 1 && action === "callback";
   const callbackCookieStore = exactCallback ? await cookies() : null;
-  // Consume before route authentication as defense-in-depth for any invocation
-  // path that reaches this handler without the middleware auth boundary.
   const sealedCallbackState = callbackCookieStore
-    ? consumeOAuthPendingStateCookie(callbackCookieStore, "strava")
+    ? peekOAuthPendingStateCookie(callbackCookieStore, "strava")
     : null;
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) {
+    if (callbackCookieStore && sealedCallbackState !== null) {
+      consumeOAuthPendingStateCookie(callbackCookieStore, "strava");
+    }
     return exactCallback
       ? callbackFailure(req, "session_expired", 401)
       : privateJson({ error: "UNAUTHORIZED" }, { status: 401 });

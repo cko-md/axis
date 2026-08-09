@@ -87,15 +87,32 @@ export function setOAuthPendingStateCookie(
   );
 }
 
-/** Reads and terminally clears pending OAuth state before callback validation/exchange. */
+/** Reads the legacy shared pending-state cookie without mutating browser state. */
+export function peekOAuthPendingStateCookie(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+): string | null {
+  return store.get(PROVIDER_COOKIES[provider].oauthPendingState)?.value ?? null;
+}
+
 export function consumeOAuthPendingStateCookie(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
 ): string | null {
   const name = PROVIDER_COOKIES[provider].oauthPendingState;
-  const sealedState = store.get(name)?.value ?? null;
+  const sealedState = peekOAuthPendingStateCookie(store, provider);
   store.delete(name);
   return sealedState;
+}
+
+export function peekOAuthPendingStateCookieForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): string | null {
+  const name = subjectOAuthPendingStateCookieName(provider, subject, secret);
+  return store.get(name)?.value ?? null;
 }
 
 /** Consumes only the deterministic pending-state slot for the exact subject. */
@@ -106,7 +123,12 @@ export function consumeOAuthPendingStateCookieForSubject(
   secret: string,
 ): string | null {
   const name = subjectOAuthPendingStateCookieName(provider, subject, secret);
-  const sealedState = store.get(name)?.value ?? null;
+  const sealedState = peekOAuthPendingStateCookieForSubject(
+    store,
+    provider,
+    subject,
+    secret,
+  );
   store.delete(name);
   return sealedState;
 }
