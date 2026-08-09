@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
-import { NextResponse } from "next/server";
 import { z } from "zod";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { logRouteTiming } from "@/lib/observability/providerTiming";
 import { createClient } from "@/lib/supabase/server";
@@ -64,6 +65,7 @@ async function fetchWidget(
   id: string,
   location: z.infer<typeof batchSchema>["location"],
   fetchedAt: string,
+  authenticatedUserId: string,
 ): Promise<FetchWidgetResult> {
   const definition = getWidgetDefinition(id);
   if (!definition) {
@@ -90,7 +92,7 @@ async function fetchWidget(
 
   try {
     const res = await withWidgetTimeout(
-      invokeWidgetEndpoint(definition.source, location),
+      invokeWidgetEndpoint(definition.source, location, authenticatedUserId),
       widgetProviderTimeoutMs(definition.source.provider),
     );
     const json = await res.json().catch(() => ({}));
@@ -174,13 +176,15 @@ export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
   }
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
   const body = await req.json().catch(() => null);
   const parsed = batchSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
+    return privateJson(
       { error: "Invalid widget batch request", code: "INVALID_QUERY" },
       { status: 400 },
     );
@@ -188,7 +192,8 @@ export async function POST(req: Request) {
 
   const fetchedAt = new Date().toISOString();
   const widgetIds = dedupeWidgetIds(parsed.data.widgetIds);
-  const results = await Promise.all(widgetIds.map((id) => fetchWidget(id, parsed.data.location, fetchedAt)));
+  const results = await Promise.all(widgetIds.map((id) =>
+    fetchWidget(id, parsed.data.location, fetchedAt, user.id)));
   const widgets: Record<string, BatchWidget> = {};
   const errors: Record<string, BatchWidgetError> = {};
   const freshWidgetIds = new Set<string>();
@@ -266,7 +271,7 @@ export async function POST(req: Request) {
     failed: Object.keys(errors).length,
   });
 
-  return NextResponse.json({
+  return privateJson({
     fetchedAt,
     widgets,
     errors,

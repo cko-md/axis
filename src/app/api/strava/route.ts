@@ -1,5 +1,34 @@
-import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { NextRequest } from "next/server";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
+import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
+import {
+  createOAuthPendingState,
+  OAUTH_STATE_TTL_SECONDS,
+  verifiedOAuthPendingStateOrder,
+} from "@/lib/auth/oauthState.server";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
+import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
+import {
+  clearProviderTokenCookiesForSubject,
+  consumeOAuthPendingStateCookie,
+  consumeOAuthPendingStateCookieForAttempt,
+  nextProviderAuthorizationOrder,
+  peekOAuthPendingStateCookie,
+  peekOAuthPendingStateCookieForAttempt,
+  replaceProviderTokenCookiesForAttempt,
+  setOAuthPendingStateCookie,
+} from "@/lib/auth/providerCookies.server";
+import { privateJson, privateRedirect } from "@/lib/auth/privateNoStore";
+import { optionalEnv } from "@/lib/env";
+import {
+  getComposioStravaConnection,
+  getComposioStravaAthlete,
+  listComposioStravaActivities,
+} from "@/lib/integrations/strava-composio";
+import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { createClient } from "@/lib/supabase/server";
 import {
   isConfigured,
@@ -10,197 +39,372 @@ import {
   type StravaStats,
   type StravaAthlete,
 } from "./_lib";
-import {
-  getComposioStravaConnection,
-  getComposioStravaAthlete,
-  listComposioStravaActivities,
-} from "@/lib/integrations/strava-composio";
-import { hasOptionalEnv } from "@/lib/env";
-import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
-import { optionalEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 
-/**
- * Unified Strava API route.
- * GET /api/strava?action=status      — connection status
- * GET /api/strava?action=auth        — redirect to Strava OAuth
- * GET /api/strava?action=callback    — exchange code for tokens (Strava calls back here)
- * GET /api/strava?action=activities  — recent activities (up to 20)
- * GET /api/strava?action=stats       — athlete lifetime stats
- * GET /api/strava?action=disconnect  — clear cookies / disconnect
- *
- * All actions except the OAuth callback (which arrives via redirect from
- * Strava's domain but still carries the Axis session cookie in the browser)
- * require an authenticated Supabase session — defense-in-depth on top of the
- * middleware-level guard on /api/strava.
- */
-export async function GET(req: NextRequest) {
-  const action = req.nextUrl.searchParams.get("action") ?? "status";
+type StravaFailureReason =
+  | "denied"
+  | "missing_code"
+  | "state_invalid"
+  | "not_configured"
+  | "token_exchange_failed"
+  | "invalid_token_response"
+  | "session_expired";
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  // ── AUTH REDIRECT ──────────────────────────────────────────────────────────
-  if (action === "auth") {
-    const clientId = optionalEnv("STRAVA_CLIENT_ID");
-    if (!clientId && !hasOptionalEnv("COMPOSIO_API_KEY")) {
-      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
-    }
-    if (!clientId) {
-      return NextResponse.redirect(buildAppUrl(req, "/api/integrations/composio/connect?toolkit=strava"));
-    }
-
-    const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
-    const state = crypto.randomUUID();
-    const cookieStore = await cookies();
-    cookieStore.set("strava_oauth_state", state, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 600,
-      path: "/",
-    });
-
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      approval_prompt: "auto",
-      scope: "read,activity:read_all,profile:read_all",
-      state,
-    });
-
-    return NextResponse.redirect(`https://www.strava.com/oauth/authorize?${params}`);
+async function getRouteAccessToken(userId: string): Promise<string | null | Response> {
+  try {
+    return await getAccessToken(userId);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/strava");
   }
+}
 
-  // ── OAUTH CALLBACK ─────────────────────────────────────────────────────────
-  if (action === "callback") {
-    const code = req.nextUrl.searchParams.get("code");
-    const state = req.nextUrl.searchParams.get("state");
-    const cookieStore = await cookies();
-    const savedState = cookieStore.get("strava_oauth_state")?.value;
+function callbackFeedback(
+  req: NextRequest,
+  status: "ok" | "error",
+  reason?: StravaFailureReason,
+) {
+  const params = new URLSearchParams({ provider: "strava", status });
+  if (reason) params.set("reason", reason);
+  return privateRedirect(buildAppUrl(req, `/oauth-done?${params}`));
+}
 
-    if (!code || !state || state !== savedState) {
-      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
-    }
-
-    const clientId = optionalEnv("STRAVA_CLIENT_ID");
-    const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET");
-    if (!clientId || !clientSecret) {
-      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
-    }
-
-    const tokenRes = await fetch("https://www.strava.com/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        grant_type: "authorization_code",
-      }),
-    });
-
-    if (!tokenRes.ok) {
-      return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=error"));
-    }
-
-    const tokens = await tokenRes.json();
-    const secure = process.env.NODE_ENV === "production";
-    cookieStore.set("strava_access_token", tokens.access_token, {
-      httpOnly: true,
-      secure,
-      maxAge: tokens.expires_in ?? 21600,
-      path: "/",
-      sameSite: "lax",
-    });
-    if (tokens.refresh_token) {
-      cookieStore.set("strava_refresh_token", tokens.refresh_token, {
-        httpOnly: true,
-        secure,
-        maxAge: 60 * 60 * 24 * 90,
-        path: "/",
-        sameSite: "lax",
+function callbackFailure(req: NextRequest, reason: StravaFailureReason, status: number) {
+  if (status >= 500) {
+    if (reason === "not_configured") {
+      captureRouteError(new Error("Strava OAuth callback failed"), {
+        route: "/api/strava",
+        operation: "complete_oauth",
+        area: "integrations",
+        provider: "strava",
+        status: 503,
+        code: "NOT_CONFIGURED",
+      });
+    } else if (reason === "token_exchange_failed") {
+      if (status === 504) {
+        captureRouteError(new Error("Strava OAuth callback failed"), {
+          route: "/api/strava",
+          operation: "complete_oauth",
+          area: "integrations",
+          provider: "strava",
+          status: 504,
+          code: "PROVIDER_TIMEOUT",
+        });
+      } else {
+        captureRouteError(new Error("Strava OAuth callback failed"), {
+          route: "/api/strava",
+          operation: "complete_oauth",
+          area: "integrations",
+          provider: "strava",
+          status: 502,
+          code: "PROVIDER_ERROR",
+        });
+      }
+    } else {
+      captureRouteError(new Error("Strava OAuth callback failed"), {
+        route: "/api/strava",
+        operation: "complete_oauth",
+        area: "integrations",
+        provider: "strava",
+        status: 502,
+        code: "PROVIDER_ERROR",
       });
     }
-    cookieStore.delete("strava_oauth_state");
-
-    return NextResponse.redirect(buildAppUrl(req, "/oauth-done?provider=strava&status=ok"));
   }
+  return callbackFeedback(req, "error", reason);
+}
 
-  // ── DISCONNECT ─────────────────────────────────────────────────────────────
-  if (action === "disconnect") {
+async function completeCallback(
+  req: NextRequest,
+  userId: string,
+  sealedState: string | null,
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+) {
+  const clientId = optionalEnv("STRAVA_CLIENT_ID");
+  const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET");
+  if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
+    return callbackFailure(req, "not_configured", 503);
+  }
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("STRAVA_CLIENT_SECRET_PREVIOUS"),
+  );
+
+  const subject = profileSubjectForUserId(userId);
+  const providerState = req.nextUrl.searchParams.get("state");
+  const attemptSealedState = peekOAuthPendingStateCookieForAttempt(
+    cookieStore,
+    "strava",
+    providerState,
+  );
+  const authorizationOrder = verifiedOAuthPendingStateOrder({
+    provider: "strava",
+    subject,
+    secret: cookieKeyring.current.secret,
+    legacySecrets: cookieKeyring.legacy.map((key) => key.secret),
+    providerState,
+    sealedState: attemptSealedState ?? sealedState,
+  });
+  if (authorizationOrder === null || providerState === null) {
+    return callbackFailure(req, "state_invalid", 400);
+  }
+  if (attemptSealedState !== null) {
+    consumeOAuthPendingStateCookieForAttempt(
+      cookieStore,
+      "strava",
+      providerState,
+    );
+  } else {
+    consumeOAuthPendingStateCookie(cookieStore, "strava");
+  }
+  if (req.nextUrl.searchParams.has("error")) {
+    return callbackFailure(req, "denied", 400);
+  }
+  const code = req.nextUrl.searchParams.get("code");
+  if (!code) return callbackFailure(req, "missing_code", 400);
+
+  let exchange: { response: Response; body: {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+  } | null };
+  try {
+    exchange = await directProviderExchangeJson(
+      "https://www.strava.com/oauth/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: "authorization_code",
+        }),
+      },
+    );
+  } catch (error) {
+    const status = error instanceof DOMException && error.name === "AbortError"
+      ? 504
+      : 502;
+    return callbackFailure(req, "token_exchange_failed", status);
+  }
+  const { response: tokenRes, body: tokens } = exchange;
+  if (!tokenRes.ok) return callbackFailure(req, "token_exchange_failed", 502);
+  if (typeof tokens?.access_token !== "string" || !tokens.access_token) {
+    return callbackFailure(req, "invalid_token_response", 502);
+  }
+  replaceProviderTokenCookiesForAttempt(cookieStore, "strava", {
+    accessToken: tokens.access_token,
+    refreshToken: typeof tokens.refresh_token === "string"
+      ? tokens.refresh_token
+      : undefined,
+    expiresIn: tokens.expires_in,
+  }, subject, cookieKeyring, {
+    providerState,
+    authorizationOrder,
+  });
+  return callbackFeedback(req, "ok");
+}
+
+async function initiateAuth(req: NextRequest, subject: string) {
+  const clientId = optionalEnv("STRAVA_CLIENT_ID");
+  const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET");
+  if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
+    captureRouteError(new Error("Strava OAuth is not configured"), {
+      route: "/api/strava",
+      operation: "start_oauth",
+      area: "integrations",
+      provider: "strava",
+      status: 503,
+      code: "NOT_CONFIGURED",
+    });
+    return privateJson({ error: "STRAVA_NOT_CONFIGURED" }, { status: 503 });
+  }
+  const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
+  const cookieStore = await cookies();
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("STRAVA_CLIENT_SECRET_PREVIOUS"),
+  );
+  const { providerState, sealedState } = createOAuthPendingState({
+    provider: "strava",
+    subject,
+    secret: cookieKeyring.current.secret,
+    order: nextProviderAuthorizationOrder(
+      cookieStore,
+      "strava",
+      subject,
+      cookieKeyring,
+    ),
+  });
+  setOAuthPendingStateCookie(
+    cookieStore,
+    "strava",
+    sealedState,
+    OAUTH_STATE_TTL_SECONDS,
+    providerState,
+  );
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    approval_prompt: "auto",
+    scope: "read,activity:read_all,profile:read_all",
+    state: providerState,
+  });
+  return privateJson({ url: `https://www.strava.com/oauth/authorize?${params}` });
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
+
+  const actions = req.nextUrl.searchParams.getAll("action");
+  if (actions.length === 1 && actions[0] === "auth") {
+    return initiateAuth(req, identity.subject);
+  }
+  if (actions.length === 1 && actions[0] === "disconnect") {
     const cookieStore = await cookies();
-    cookieStore.delete("strava_access_token");
-    cookieStore.delete("strava_refresh_token");
-    return NextResponse.json({ connected: false });
+    const secret = optionalEnv("STRAVA_CLIENT_SECRET");
+    if (!secret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
+      return privateJson(
+        { error: "PROVIDER_NOT_CONFIGURED" },
+        { status: 503 },
+      );
+    }
+    const cookieKeyring = directProviderCookieKeyring(
+      secret,
+      optionalEnv("STRAVA_CLIENT_SECRET_PREVIOUS"),
+    );
+    clearProviderTokenCookiesForSubject(
+      cookieStore,
+      "strava",
+      identity.subject,
+      cookieKeyring,
+    );
+    return privateJson({ connected: false });
+  }
+  return privateJson(
+    { error: "METHOD_NOT_ALLOWED" },
+    { status: 405, headers: { Allow: "GET" } },
+  );
+}
+
+export async function GET(req: NextRequest) {
+  const actions = req.nextUrl.searchParams.getAll("action");
+  const action = actions.length === 0 ? "status" : actions[0];
+  const exactCallback = actions.length === 1 && action === "callback";
+  const callbackCookieStore = exactCallback ? await cookies() : null;
+  const sealedCallbackState = callbackCookieStore
+    ? peekOAuthPendingStateCookie(callbackCookieStore, "strava")
+    : null;
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    if (callbackCookieStore && sealedCallbackState !== null) {
+      consumeOAuthPendingStateCookie(callbackCookieStore, "strava");
+    }
+    return exactCallback
+      ? callbackFailure(req, "session_expired", 401)
+      : privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  if (exactCallback && callbackCookieStore) {
+    return completeCallback(req, user.id, sealedCallbackState, callbackCookieStore);
   }
 
-  // ── STATUS ─────────────────────────────────────────────────────────────────
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
+  if (actions.length > 1) {
+    return privateJson({ error: "Unknown action" }, { status: 400 });
+  }
+  if (action === "auth" || action === "disconnect") {
+    return privateJson(
+      { error: "METHOD_NOT_ALLOWED" },
+      { status: 405, headers: { Allow: "POST" } },
+    );
+  }
+
   if (action === "status") {
     const composio = await getComposioStravaConnection(user.id);
     if (composio) {
-      const athlete = await getComposioStravaAthlete(composio.connectedAccountId, user.id);
-      return NextResponse.json({
+      const athlete = await getComposioStravaAthlete(
+        composio.connectedAccountId,
+        user.id,
+      );
+      return privateJson({
         connected: Boolean(athlete),
         configured: true,
         via: "composio",
-        athlete: athlete ? { name: `${athlete.firstname} ${athlete.lastname}`, avatar: athlete.profile } : null,
+        athlete: athlete
+          ? { name: `${athlete.firstname} ${athlete.lastname}`, avatar: athlete.profile }
+          : null,
       });
     }
 
-    const token = await getAccessToken();
+    const token = await getRouteAccessToken(user.id);
+    if (token instanceof Response) return token;
     if (!token) return notConnected();
     const athlete = await stravaGet<StravaAthlete>(token, "/athlete");
-    return NextResponse.json({
+    return privateJson({
       connected: Boolean(athlete),
       configured: isConfigured(),
       via: "direct",
-      athlete: athlete ? { name: `${athlete.firstname} ${athlete.lastname}`, avatar: athlete.profile } : null,
+      athlete: athlete
+        ? { name: `${athlete.firstname} ${athlete.lastname}`, avatar: athlete.profile }
+        : null,
     });
   }
 
-  // ── ACTIVITIES ─────────────────────────────────────────────────────────────
   if (action === "activities") {
     const composio = await getComposioStravaConnection(user.id);
     if (composio) {
       try {
-        const activities = await listComposioStravaActivities(composio.connectedAccountId, user.id);
-        return NextResponse.json({ connected: true, via: "composio", activities });
+        const activities = await listComposioStravaActivities(
+          composio.connectedAccountId,
+          user.id,
+        );
+        return privateJson({ connected: true, via: "composio", activities });
       } catch {
-        return NextResponse.json({ connected: true, via: "composio", activities: [], error: "fetch_failed" });
+        return privateJson({
+          connected: true,
+          via: "composio",
+          activities: [],
+          error: "fetch_failed",
+        });
       }
     }
 
-    const token = await getAccessToken();
+    const token = await getRouteAccessToken(user.id);
+    if (token instanceof Response) return token;
     if (!token) return notConnected();
-
-    // Fetch up to 20 most recent activities
     const activities = await stravaGet<StravaActivity[]>(
       token,
       "/athlete/activities?per_page=20&page=1",
     );
     if (!activities) {
-      return NextResponse.json({ connected: true, activities: [], error: "fetch_failed" });
+      return privateJson({ connected: true, activities: [], error: "fetch_failed" });
     }
-    return NextResponse.json({ connected: true, activities });
+    return privateJson({ connected: true, activities });
   }
 
-  // ── STATS ──────────────────────────────────────────────────────────────────
   if (action === "stats") {
-    const token = await getAccessToken();
+    const token = await getRouteAccessToken(user.id);
+    if (token instanceof Response) return token;
     if (!token) return notConnected();
-
-    // We need the athlete id first
     const athlete = await stravaGet<StravaAthlete>(token, "/athlete");
     if (!athlete) {
-      return NextResponse.json({ connected: true, stats: null, error: "athlete_fetch_failed" });
+      return privateJson({
+        connected: true,
+        stats: null,
+        error: "athlete_fetch_failed",
+      });
     }
     const stats = await stravaGet<StravaStats>(token, `/athletes/${athlete.id}/stats`);
-    return NextResponse.json({ connected: true, stats });
+    return privateJson({ connected: true, stats });
   }
 
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  return privateJson({ error: "Unknown action" }, { status: 400 });
 }

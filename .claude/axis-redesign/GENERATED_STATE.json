@@ -1,17 +1,144 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-08T02:05:07.690Z",
+  "derivedAt": "2026-08-09T07:17:42.293Z",
   "git": {
-    "branch": "codex/security-auth-ssrf-production-state-refresh",
-    "head": "7fc28444a12f2918fefe465cf1287c826e3d50df",
-    "mainHead": "7fc28444a12f2918fefe465cf1287c826e3d50df",
+    "branch": "codex/security-auth006-direct-provider-identity",
+    "head": "fb6066eab2556a26d7d81f914b000fef6747077f",
+    "mainHead": "bf15060f3cf681b9932a006d810faa051bf7da76",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
+    "aheadOfMain": [
+      {
+        "sha": "fb6066ea",
+        "subject": "chore: review refresh cleanup telemetry"
+      },
+      {
+        "sha": "7207c194",
+        "subject": "test: preserve trusted setup boundary"
+      },
+      {
+        "sha": "65ac9795",
+        "subject": "test: localize provider migration window"
+      },
+      {
+        "sha": "ef41d767",
+        "subject": "fix: close direct provider rotation gaps"
+      },
+      {
+        "sha": "1241c1c6",
+        "subject": "fix: remove authenticated legacy cookie copies"
+      },
+      {
+        "sha": "2cdc7587",
+        "subject": "fix: classify refresh contention as expected"
+      },
+      {
+        "sha": "b02d0e16",
+        "subject": "fix: fence provider rotation and signing keys"
+      },
+      {
+        "sha": "4a3fc8e6",
+        "subject": "chore(state): record reviewed AUTH-006 gates"
+      },
+      {
+        "sha": "c6a44693",
+        "subject": "chore: register widget cache telemetry route"
+      },
+      {
+        "sha": "80519ac2",
+        "subject": "fix: version refresh rejection and isolate cache lifecycle"
+      },
+      {
+        "sha": "927f5d84",
+        "subject": "fix: seal provider generations and cache hydration"
+      },
+      {
+        "sha": "686ef433",
+        "subject": "fix: contain direct-provider refresh races"
+      },
+      {
+        "sha": "0f714fe3",
+        "subject": "chore(state): record reviewed AUTH-006 gates"
+      },
+      {
+        "sha": "d0fca82b",
+        "subject": "refactor: name provider cutoff ordering explicitly"
+      },
+      {
+        "sha": "d1656b4e",
+        "subject": "fix: separate provider causal order from wall time"
+      },
+      {
+        "sha": "1541a4ab",
+        "subject": "fix: order provider authorization from signed browser state"
+      },
+      {
+        "sha": "b26559af",
+        "subject": "fix: derive disconnect cutoffs from signed attempts"
+      },
+      {
+        "sha": "30aeed25",
+        "subject": "fix: fail closed when disconnect sealing is unavailable"
+      },
+      {
+        "sha": "1ffc25cf",
+        "subject": "fix: make provider disconnect durable"
+      },
+      {
+        "sha": "7dac3b1b",
+        "subject": "fix: preserve newest provider authorization intent"
+      },
+      {
+        "sha": "5b2e5704",
+        "subject": "fix: isolate each provider authorization attempt"
+      },
+      {
+        "sha": "3a197268",
+        "subject": "fix: consume only verified provider callbacks"
+      },
+      {
+        "sha": "66e2feac",
+        "subject": "fix: isolate pending provider authorization state"
+      },
+      {
+        "sha": "4453289d",
+        "subject": "fix: preserve newer provider authorization state"
+      },
+      {
+        "sha": "29a6c825",
+        "subject": "fix: contain direct provider lifecycle failures"
+      },
+      {
+        "sha": "9662fda3",
+        "subject": "chore(state): record AUTH-006 source gates"
+      },
+      {
+        "sha": "31ff2529",
+        "subject": "fix: preserve provider command authority"
+      },
+      {
+        "sha": "f3e2b8e4",
+        "subject": "fix: fence provider bodies and action feedback"
+      },
+      {
+        "sha": "5f0d938c",
+        "subject": "fix: close direct provider race conditions"
+      },
+      {
+        "sha": "f793b62a",
+        "subject": "security: isolate direct provider identity"
+      }
+    ],
+    "contentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
     "sourceMainContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
-    "fingerprint": "9ea70b862507a13598e54817b2aa9b75cd34cd2751688f55846aa8451bbd61c1"
+    "fingerprint": "a4bb8bfe88f60f5c4958196cb69cf59516755b16db3d04a85e987c6ca2073e5d"
   },
   "mergedPrs": [
+    {
+      "pr": 304,
+      "sha": "bf15060f",
+      "subject": "chore(state): refresh after auth and SSRF closure",
+      "committedAt": "2026-08-07T22:29:48-04:00"
+    },
     {
       "pr": 303,
       "sha": "7fc28444",
@@ -155,12 +282,6 @@
       "sha": "28e4b879",
       "subject": "docs(envoys): add worker future backlog + Linear-style slices (EW-1..EW-10)",
       "committedAt": "2026-07-21T10:07:48-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "542eaedb",
-      "subject": "docs(axis): re-derive state for the batched non-game integration (43 defects/0 open)",
-      "committedAt": "2026-07-21T09:20:24-04:00"
     }
   ],
   "waves": [
@@ -320,8 +441,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "b5b6dd1e4887734a3a86624ed0b435e2815f532f",
-    "sourceContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
+    "sourceHead": "fb6066eab2556a26d7d81f914b000fef6747077f",
+    "sourceContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
     "typecheck": {
       "passed": true
     },
@@ -329,23 +450,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2749,
-      "total": 2749,
-      "files": 289,
-      "suites": 811
+      "passed": 2889,
+      "total": 2889,
+      "files": 310,
+      "suites": 853
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4126,
+      "used": 4146,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-08T01:36:51.733Z"
+    "measuredAt": "2026-08-09T07:17:42.207Z"
   }
 }

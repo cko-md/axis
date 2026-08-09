@@ -17,7 +17,11 @@ import { WorkoutDetailModal } from "./WorkoutDetailModal";
 import { AIRegimenModal } from "./AIRegimenModal";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
-import { openOAuthPopup } from "@/lib/auth/openOAuthPopup";
+import {
+  openDirectOAuthPopup,
+  type OAuthPopupHandle,
+} from "@/lib/auth/openOAuthPopup";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
 import { callAiAction } from "@/lib/ai/callAction";
 import { useWebViewer } from "@/lib/hooks/useWebViewer";
 import { DIET_LABEL, DIETS, RECIPES, recipeUrl, type Diet } from "@/lib/recipes";
@@ -1164,6 +1168,22 @@ function isVitalityPrefs(v: unknown): v is VitalityPrefs {
 
 export function VitalityModule() {
   const { toast } = useToast();
+  const {
+    state: accountState,
+    profile,
+    authorityEpoch = 0,
+  } = useShellProfile();
+  const providerAuthorityRef = useRef({
+    subject: accountState === "ready" ? profile?.subject ?? null : null,
+    epoch: authorityEpoch,
+    ready: accountState === "ready",
+  });
+  providerAuthorityRef.current = {
+    subject: accountState === "ready" ? profile?.subject ?? null : null,
+    epoch: authorityEpoch,
+    ready: accountState === "ready",
+  };
+  const stravaPopupRef = useRef<OAuthPopupHandle | null>(null);
   const [tab, setTab] = useState("fit-health");
   const [runChip, setRunChip] = useState("All");
   const [yogaChip, setYogaChip] = useState("All");
@@ -1238,7 +1258,41 @@ export function VitalityModule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, statusError: stravaStatusError, activitiesError: stravaActivitiesError, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit);
+  const { status: stravaStatus, summary: stravaSummary, activities: stravaActivities, highlights: stravaHighlights, loading: stravaLoading, statusError: stravaStatusError, activitiesError: stravaActivitiesError, disconnect: stravaDisconnect, setUnit: setStravaUnit, refetchStatus: refetchStravaStatus } = useStrava(paceUnit, {
+    subject: accountState === "ready" ? profile?.subject ?? null : null,
+    accountState,
+    authorityEpoch,
+  });
+  useEffect(() => {
+    stravaPopupRef.current?.cancel();
+    stravaPopupRef.current = null;
+    return () => {
+      stravaPopupRef.current?.cancel();
+      stravaPopupRef.current = null;
+    };
+  }, [accountState, authorityEpoch, profile?.subject]);
+  const connectStrava = useCallback(() => {
+    const authority = providerAuthorityRef.current;
+    if (!authority.ready || !authority.subject) {
+      toast("Sign in again before connecting Strava.", "error", "Vitality");
+      return;
+    }
+    stravaPopupRef.current?.cancel();
+    stravaPopupRef.current = openDirectOAuthPopup({
+      provider: "strava",
+      subject: authority.subject,
+      epoch: authority.epoch,
+      isCurrent: (subject, epoch) => {
+        const current = providerAuthorityRef.current;
+        return current.ready && current.subject === subject && current.epoch === epoch;
+      },
+      onDone: (_provider, status) => {
+        stravaPopupRef.current = null;
+        if (status === "ok") void refetchStravaStatus();
+        else toast("Strava connection was not completed.", "error", "Vitality");
+      },
+    });
+  }, [refetchStravaStatus, toast]);
   const { open: openInApp } = useWebViewer();
   const { protocol: nutritionProtocol, updateProtocol, cycleDiet: cycleNutritionDiet, loadError: nutritionLoadError } = useNutritionProtocol();
   const stravaConnected = stravaStatus?.connected ?? false;
@@ -1381,9 +1435,7 @@ export function VitalityModule() {
                   // Composio-only connect could never resolve an athlete and
                   // status would report "disconnected" forever despite an
                   // ACTIVE connected_account row existing.
-                  openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-                    if (status === "ok") void refetchStravaStatus();
-                  });
+                  connectStrava();
                 }
               },
             },
@@ -1544,9 +1596,7 @@ export function VitalityModule() {
               type="button"
               style={{ flexShrink: 0, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", padding: "6px 14px", border: "1px solid var(--accent)", borderRadius: "var(--r)", background: "transparent", color: "var(--accent)", whiteSpace: "nowrap", cursor: "pointer" }}
               onClick={() => {
-                openOAuthPopup("/api/strava?action=auth", (_provider, status) => {
-                  if (status === "ok") void refetchStravaStatus();
-                });
+                connectStrava();
               }}
             >
               Connect Strava →

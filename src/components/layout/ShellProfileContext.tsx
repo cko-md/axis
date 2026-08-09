@@ -16,6 +16,7 @@ import type { Area } from "react-easy-crop";
 import { useToast } from "@/components/ui/Toast";
 import { isProfileSubject } from "@/lib/auth/profileSubject";
 import { getCroppedImageBlob } from "@/components/nav/cropImage";
+import { createClient } from "@/lib/supabase/client";
 
 export const MAX_PROFILE_FIELD_LENGTH = 2_000;
 const MAX_PROFILE_EMAIL_LENGTH = 320;
@@ -61,6 +62,7 @@ export type ProfileDraft = {
 export type ShellProfileContextValue = {
   state: AccountState;
   profile: ShellProfile | null;
+  authorityEpoch?: number;
   draft: ProfileDraft;
   saveState: ProfileSaveState;
   uploadState: ProfileUploadState;
@@ -210,6 +212,10 @@ function isAbortError(error: unknown) {
   );
 }
 
+function isSupabaseAuthStorageKey(key: string | null) {
+  return key === null || key.startsWith("sb-") || key.includes("auth-token");
+}
+
 async function responseRequiresMfa(response: Response) {
   if (response.status !== 403) return false;
   try {
@@ -293,6 +299,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
   const [lookupNonce, setLookupNonce] = useState(0);
   const [state, setState] = useState<AccountState>("loading");
   const [profile, setProfile] = useState<ShellProfile | null>(null);
+  const [authorityEpoch, setAuthorityEpoch] = useState(0);
   const [draft, setDraft] = useState<ProfileDraft>(EMPTY_DRAFT);
   const [saveState, setSaveState] = useState<ProfileSaveState>("idle");
   const [uploadState, setUploadState] =
@@ -1034,6 +1041,19 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       setPendingLookupFailure(null);
       return true;
     };
+    const quarantineAuthority = () => {
+      suspendLookup();
+      setCommittedProfile(null);
+      setState("loading");
+      setAuthorityEpoch((current) => current + 1);
+    };
+    const revalidateAuthority = () => {
+      if (!mountedRef.current || document.visibilityState === "hidden") return;
+      quarantineAuthority();
+      lookupActiveRef.current = true;
+      lookupFailureCapturedRef.current = false;
+      setLookupNonce((current) => current + 1);
+    };
     const handlePageHide = () => {
       if (!pageActiveRef.current) return;
       pageActiveRef.current = false;
@@ -1042,6 +1062,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       setCommittedProfile(null);
       setDraft(EMPTY_DRAFT);
       setState("loading");
+      setAuthorityEpoch((current) => current + 1);
 
       const saveWasPending = dirtyRef.current || activeSaveRef.current !== null;
       saveEpochRef.current += 1;
@@ -1074,17 +1095,14 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
         setUploadPending(false);
       }
     };
-    const handlePageShow = () => {
+    const handlePageShow = (event?: PageTransitionEvent) => {
       if (document.visibilityState === "hidden") return;
       const shouldReload =
-        !pageActiveRef.current || !lookupActiveRef.current;
+        Boolean(event?.persisted) || !pageActiveRef.current || !lookupActiveRef.current;
       pageActiveRef.current = true;
       lookupActiveRef.current = true;
       if (!shouldReload) return;
-      setCommittedProfile(null);
-      setState("loading");
-      lookupFailureCapturedRef.current = false;
-      setLookupNonce((current) => current + 1);
+      revalidateAuthority();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -1092,14 +1110,34 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
           suspendLookup();
           setCommittedProfile(null);
           setState("loading");
+          setAuthorityEpoch((current) => current + 1);
         }
         return;
       }
       handlePageShow();
     };
+    const handleStorage = (event: StorageEvent) => {
+      if (!isSupabaseAuthStorageKey(event.key)) return;
+      revalidateAuthority();
+    };
+    const handleFocus = () => revalidateAuthority();
+    let unsubscribeAuthListener: () => void = () => {};
+    try {
+      const supabase = createClient();
+      const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+        if (event === "INITIAL_SESSION") return;
+        revalidateAuthority();
+      });
+      unsubscribeAuthListener = () => authListener.subscription.unsubscribe();
+    } catch {
+      // The server-authenticated profile lookup remains fail closed when the
+      // browser client is unavailable (for example before public env loads).
+    }
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleFocus);
     return () => {
       mountedRef.current = false;
       pageActiveRef.current = false;
@@ -1112,6 +1150,9 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
+      unsubscribeAuthListener();
     };
   }, [
     cancelSubjectWork,
@@ -1349,6 +1390,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
     () => ({
       state,
       profile,
+      authorityEpoch,
       draft,
       saveState,
       uploadState,
@@ -1360,6 +1402,7 @@ export function ShellProfileProvider({ children }: { children: ReactNode }) {
       cancelProfilePhotoProcessing,
     }),
     [
+      authorityEpoch,
       draft,
       cancelProfilePhotoProcessing,
       hasPendingChanges,

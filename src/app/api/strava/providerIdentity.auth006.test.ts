@@ -1,0 +1,415 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
+import {
+  DIRECT_PROVIDER_EXCHANGE_MAX_BYTES,
+  DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS,
+} from "@/lib/auth/directProviderFetch.server";
+
+const mocks = vi.hoisted(() => ({
+  createClient: vi.fn(),
+  getAccessToken: vi.fn(),
+  getComposioConnection: vi.fn(),
+  getComposioAthlete: vi.fn(),
+  listComposioActivities: vi.fn(),
+  captureRouteError: vi.fn(),
+  cookieStore: {
+    values: new Map<string, string>(),
+    operations: [] as string[],
+    get: vi.fn((name: string) => {
+      const value = mocks.cookieStore.values.get(name);
+      return value === undefined ? undefined : { name, value };
+    }),
+    getAll: vi.fn(() => [...mocks.cookieStore.values].map(([name, value]) => ({ name, value }))),
+    set: vi.fn((name: string, value: string) => {
+      mocks.cookieStore.operations.push(`set:${name}`);
+      mocks.cookieStore.values.set(name, value);
+    }),
+    delete: vi.fn((name: string) => {
+      mocks.cookieStore.operations.push(`delete:${name}`);
+      mocks.cookieStore.values.delete(name);
+    }),
+  },
+}));
+
+vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("next/headers", () => ({ cookies: vi.fn(async () => mocks.cookieStore) }));
+vi.mock("@/lib/observability/captureRouteError", () => ({
+  captureRouteError: mocks.captureRouteError,
+}));
+vi.mock("@/lib/integrations/strava-composio", () => ({
+  getComposioStravaConnection: mocks.getComposioConnection,
+  getComposioStravaAthlete: mocks.getComposioAthlete,
+  listComposioStravaActivities: mocks.listComposioActivities,
+}));
+vi.mock("./_lib", () => ({
+  isConfigured: () => true,
+  getAccessToken: mocks.getAccessToken,
+  stravaGet: vi.fn(),
+  notConnected: () => new Response(JSON.stringify({ connected: false }), { status: 401 }),
+}));
+
+import { GET, POST } from "./route";
+
+function authenticatedAs(userId: string) {
+  mocks.createClient.mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: userId } },
+        error: null,
+      }),
+    },
+  });
+}
+
+describe("AUTH-006 Strava server identity boundary", () => {
+  const userA = "strava-user-a";
+  const userB = "strava-user-b";
+  const subjectA = profileSubjectForUserId(userA);
+  const subjectB = profileSubjectForUserId(userB);
+  const secret = "strava-test-secret";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.cookieStore.values.clear();
+    mocks.cookieStore.operations.length = 0;
+    mocks.getComposioConnection.mockResolvedValue(null);
+    process.env.STRAVA_CLIENT_ID = "strava-client";
+    process.env.STRAVA_CLIENT_SECRET = secret;
+    process.env.DIRECT_PROVIDER_COOKIE_SECRET =
+      "axis-test-direct-provider-cookie-secret-v2";
+    process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL =
+      "2099-01-01T00:00:00.000Z";
+    delete process.env.NEXT_PUBLIC_APP_URL;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.STRAVA_CLIENT_ID;
+    delete process.env.STRAVA_CLIENT_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
+  });
+
+  it("allows only subject-bound POST initiation and leaves legacy GET fail closed", async () => {
+    authenticatedAs(userA);
+    const legacy = await GET(new NextRequest("https://axis.test/api/strava?action=auth", {
+      headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+    }));
+    expect(legacy.status).toBe(405);
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+
+    const missingSubject = await POST(new NextRequest("https://axis.test/api/strava?action=auth", {
+      method: "POST",
+    }));
+    expect(missingSubject.status).toBe(409);
+
+    const started = await POST(new NextRequest("https://axis.test/api/strava?action=auth", {
+      method: "POST",
+      headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+    }));
+    const body = await started.json() as { url: string };
+    const providerUrl = new URL(body.url);
+    expect(providerUrl.origin).toBe("https://www.strava.com");
+    expect(providerUrl.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(started.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    const pendingEntry = [...mocks.cookieStore.values.entries()].find(([name]) =>
+      name.startsWith("strava_oauth_state_a1_"));
+    expect(pendingEntry?.[1]).toContain(".");
+    expect(mocks.cookieStore.values.has("strava_oauth_state")).toBe(false);
+    expect(body.url).not.toContain(subjectA);
+  });
+
+  it("preserves unmatched legacy state when the session subject changed", async () => {
+    const nonce = "n".repeat(43);
+    const { providerState, sealedState } = createOAuthPendingState({
+      provider: "strava",
+      subject: subjectA,
+      secret,
+      nonce,
+    });
+    mocks.cookieStore.values.set("strava_oauth_state", sealedState);
+    authenticatedAs(userB);
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await GET(new NextRequest(
+      `https://axis.test/api/strava?action=callback&code=secret-code&state=${providerState}`,
+    ));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("reason=state_invalid");
+    expect(response.headers.get("location")).not.toContain("secret-code");
+    expect(mocks.cookieStore.values.get("strava_oauth_state")).toBe(sealedState);
+    expect(mocks.cookieStore.operations).not.toContain("delete:strava_oauth_state");
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale callback consume the current subject's pending slot", async () => {
+    authenticatedAs(userB);
+    const started = await POST(new NextRequest(
+      "https://axis.test/api/strava?action=auth",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectB },
+      },
+    ));
+    const startedBody = await started.json() as { url: string };
+    const providerState = new URL(startedBody.url).searchParams.get("state");
+    const pendingName = [...mocks.cookieStore.values.keys()].find((name) =>
+      name.startsWith("strava_oauth_state_a1_"));
+    expect(providerState).toBeTruthy();
+    expect(pendingName).toBeTruthy();
+
+    const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      access_token: "access-b",
+      refresh_token: "refresh-b",
+      expires_in: 900,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", providerFetch);
+    const stale = await GET(new NextRequest(
+      `https://axis.test/api/strava?action=callback&code=stale-a&state=${"a".repeat(43)}`,
+    ));
+    expect(stale.headers.get("location")).toContain("reason=state_invalid");
+    expect(mocks.cookieStore.values.has(pendingName!)).toBe(true);
+    expect(providerFetch).not.toHaveBeenCalled();
+
+    const validUrl = `https://axis.test/api/strava?action=callback&code=code-b&state=${providerState}`;
+    const valid = await GET(new NextRequest(validUrl));
+    expect(valid.headers.get("location")).toContain("status=ok");
+    expect(mocks.cookieStore.values.has(pendingName!)).toBe(false);
+    expect(providerFetch).toHaveBeenCalledOnce();
+
+    const replay = await GET(new NextRequest(validUrl));
+    expect(replay.headers.get("location")).toContain("reason=state_invalid");
+    expect(providerFetch).toHaveBeenCalledOnce();
+  });
+
+  it("makes direct disconnect a subject-bound POST and rejects duplicate callback actions", async () => {
+    authenticatedAs(userA);
+    mocks.cookieStore.values.set("strava_token_owner", subjectA);
+    mocks.cookieStore.values.set("strava_access_token", "access");
+    mocks.cookieStore.values.set("strava_refresh_token", "refresh");
+    mocks.cookieStore.values.set(
+      "strava_oauth_state",
+      createOAuthPendingState({
+        provider: "strava",
+        subject: subjectA,
+        secret,
+      }).sealedState,
+    );
+
+    const legacyDisconnect = await GET(new NextRequest(
+      "https://axis.test/api/strava?action=disconnect",
+      { headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA } },
+    ));
+    expect(legacyDisconnect.status).toBe(405);
+    expect(mocks.cookieStore.values.get("strava_access_token")).toBe("access");
+
+    const disconnected = await POST(new NextRequest(
+      "https://axis.test/api/strava?action=disconnect",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+      },
+    ));
+    expect(disconnected.status).toBe(200);
+    expect(mocks.cookieStore.values.has("strava_token_owner")).toBe(false);
+    expect(mocks.cookieStore.values.has("strava_access_token")).toBe(false);
+    expect(mocks.cookieStore.values.has("strava_refresh_token")).toBe(false);
+    expect(mocks.cookieStore.values.has("strava_oauth_state")).toBe(false);
+
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+    const duplicateCallback = await GET(new NextRequest(
+      "https://axis.test/api/strava?action=callback&action=callback&code=secret&state=secret",
+      { headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA } },
+    ));
+    expect(duplicateCallback.status).toBe(400);
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("fails disconnect visibly without owner sealing and preserves browser state", async () => {
+    const nonce = "u".repeat(43);
+    for (const name of [
+      "strava_access_token",
+      "strava_refresh_token",
+      "strava_token_owner",
+      "strava_oauth_state",
+      `strava_access_token_a1_${nonce}`,
+      `strava_refresh_token_a1_${nonce}`,
+      `strava_token_owner_a1_${nonce}`,
+      `strava_oauth_state_a1_${nonce}`,
+      "strava_access_token_s1_subject-slot",
+      "strava_refresh_token_s1_subject-slot",
+      "strava_token_owner_s1_subject-slot",
+      "strava_token_owner_cut1_subject-slot_cutoff",
+    ]) {
+      mocks.cookieStore.values.set(name, "opaque");
+    }
+    const before = new Map(mocks.cookieStore.values);
+    delete process.env.STRAVA_CLIENT_SECRET;
+    authenticatedAs(userA);
+
+    const response = await POST(new NextRequest(
+      "https://axis.test/api/strava?action=disconnect",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+      },
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "PROVIDER_NOT_CONFIGURED" });
+    expect(mocks.cookieStore.values).toEqual(before);
+    expect(mocks.cookieStore.operations).toEqual([]);
+  });
+
+  it("completes post-disconnect authorization across multi-second clock skew", async () => {
+    const slowNow = Date.UTC(2026, 7, 8, 12, 0, 0);
+    authenticatedAs(userA);
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(slowNow + 5_000);
+      const disconnected = await POST(new NextRequest(
+        "https://axis.test/api/strava?action=disconnect",
+        {
+          method: "POST",
+          headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+        },
+      ));
+      expect(disconnected.status).toBe(200);
+
+      clock.mockReturnValue(slowNow);
+      const started = await POST(new NextRequest(
+        "https://axis.test/api/strava?action=auth",
+        {
+          method: "POST",
+          headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+        },
+      ));
+      const providerState = new URL(
+        ((await started.json()) as { url: string }).url,
+      ).searchParams.get("state");
+      expect(providerState).toBeTruthy();
+
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        access_token: "skew-access",
+        refresh_token: "skew-refresh",
+        expires_in: 900,
+      }), { status: 200 })));
+      clock.mockReturnValue(slowNow + 500);
+      const callback = await GET(new NextRequest(
+        `https://axis.test/api/strava?action=callback&code=skew-code&state=${providerState}`,
+      ));
+      expect(callback.headers.get("location")).toContain("provider=strava&status=ok");
+      expect(
+        mocks.cookieStore.values.get(`strava_access_token_a1_${providerState}`),
+      ).toBe("skew-access");
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("consumes pending state before route-level authentication failure", async () => {
+    mocks.cookieStore.values.set("strava_oauth_state", "sealed-pending-state");
+    mocks.createClient.mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+    });
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await GET(new NextRequest(
+      "https://axis.test/api/strava?action=callback&code=secret-code&state=opaque-state",
+    ));
+
+    expect(response.headers.get("location")).toContain("reason=session_expired");
+    expect(mocks.cookieStore.operations[0]).toBe("delete:strava_oauth_state");
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves Composio precedence before consulting direct cookies", async () => {
+    authenticatedAs(userA);
+    mocks.getComposioConnection.mockResolvedValue({ connectedAccountId: "connection" });
+    mocks.getComposioAthlete.mockResolvedValue({
+      firstname: "Test",
+      lastname: "Athlete",
+      profile: "https://images.test/avatar",
+    });
+
+    const response = await GET(new NextRequest("https://axis.test/api/strava?action=status", {
+      headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+    }));
+    const body = await response.json();
+
+    expect(body).toMatchObject({ connected: true, configured: true, via: "composio" });
+    expect(mocks.getAccessToken).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+  });
+
+  it("classifies an oversized token response as a 502 provider failure", async () => {
+    const { providerState, sealedState } = createOAuthPendingState({
+      provider: "strava",
+      subject: subjectA,
+      secret,
+      nonce: "o".repeat(43),
+    });
+    mocks.cookieStore.values.set("strava_oauth_state", sealedState);
+    authenticatedAs(userA);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", {
+      status: 400,
+      headers: {
+        "Content-Length": String(DIRECT_PROVIDER_EXCHANGE_MAX_BYTES + 1),
+      },
+    })));
+
+    const response = await GET(new NextRequest(
+      `https://axis.test/api/strava?action=callback&code=provider-code&state=${providerState}`,
+    ));
+
+    expect(response.headers.get("location")).toContain("reason=token_exchange_failed");
+    expect(mocks.captureRouteError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ status: 502, code: "PROVIDER_ERROR" }),
+    );
+  });
+
+  it("returns terminal safe feedback when the token exchange times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerState, sealedState } = createOAuthPendingState({
+        provider: "strava",
+        subject: subjectA,
+        secret,
+        nonce: "t".repeat(43),
+      });
+      mocks.cookieStore.values.set("strava_oauth_state", sealedState);
+      authenticatedAs(userA);
+      vi.stubGlobal("fetch", vi.fn((_url: URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Timed out", "AbortError"));
+          }, { once: true });
+        })));
+
+      const pending = GET(new NextRequest(
+        `https://axis.test/api/strava?action=callback&code=provider-code&state=${providerState}`,
+      ));
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(DIRECT_PROVIDER_EXCHANGE_TIMEOUT_MS);
+      const response = await pending;
+
+      expect(response.headers.get("location")).toContain("reason=token_exchange_failed");
+      expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+      expect(mocks.cookieStore.operations[0]).toBe("delete:strava_oauth_state");
+      expect(mocks.cookieStore.values.has("strava_access_token")).toBe(false);
+      expect(mocks.cookieStore.values.has("strava_token_owner")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

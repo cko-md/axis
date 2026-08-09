@@ -8,6 +8,8 @@ import {
   type AuthenticatorAssuranceState,
 } from "@/lib/auth/authenticatorAssurance";
 import { MFA_TRUST_COOKIE, verifyMfaTrustToken } from "@/lib/auth/mfaTrust";
+import { oauthPendingStateCookieName } from "@/lib/auth/directProviderCookies";
+import { privateJson, privateRedirect } from "@/lib/auth/privateNoStore";
 import { isAllowedSupabaseUrl } from "@/lib/auth/supabaseUrl";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { isPublicVectorArtifactPath } from "@/lib/vector/public-artifacts";
@@ -46,7 +48,7 @@ function redirectWithinApp(
 ): NextResponse {
   const url = buildAppUrl(request, pathname);
   if (search) url.search = search.toString();
-  return NextResponse.redirect(url);
+  return privateRedirect(url);
 }
 
 function carryCookies(source: NextResponse, target: NextResponse): NextResponse {
@@ -83,17 +85,35 @@ function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
-function isSpotifyCallback(pathname: string): boolean {
-  return pathname === "/api/spotify/callback";
+type DirectOAuthProvider = "spotify" | "strava";
+
+function directOAuthCallbackProvider(request: NextRequest): DirectOAuthProvider | null {
+  if (request.method !== "GET") return null;
+  if (request.nextUrl.pathname === "/api/spotify/callback") return "spotify";
+  if (request.nextUrl.pathname !== "/api/strava") return null;
+  const actions = request.nextUrl.searchParams.getAll("action");
+  return actions.length === 1 && actions[0] === "callback" ? "strava" : null;
 }
 
-function spotifyAuthFeedback(request: NextRequest, reason: string): NextResponse {
+function providerAuthFeedback(
+  request: NextRequest,
+  provider: DirectOAuthProvider,
+  reason: string,
+): NextResponse {
   const search = new URLSearchParams({
-    provider: "spotify",
+    provider,
     status: "error",
     reason,
   });
-  return redirectWithinApp(request, "/oauth-done", search);
+  const response = redirectWithinApp(request, "/oauth-done", search);
+  response.cookies.set(oauthPendingStateCookieName(provider), "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 0,
+    path: "/",
+  });
+  return response;
 }
 
 function isRefreshTokenAbsence(error: unknown): boolean {
@@ -118,10 +138,11 @@ function unavailable(
     status: 503,
     code,
   });
-  if (isSpotifyCallback(request.nextUrl.pathname)) {
-    return spotifyAuthFeedback(request, "auth_unavailable");
+  const callbackProvider = directOAuthCallbackProvider(request);
+  if (callbackProvider) {
+    return providerAuthFeedback(request, callbackProvider, "auth_unavailable");
   }
-  return NextResponse.json(
+  return privateJson(
     {
       error: code,
       message: "Authentication infrastructure is temporarily unavailable.",
@@ -141,7 +162,7 @@ function observeAssuranceUnavailable() {
 }
 
 function assuranceUnavailable() {
-  return NextResponse.json(
+  return privateJson(
     {
       error: "AUTH_ASSURANCE_UNAVAILABLE",
       message: "Authentication assurance could not be verified.",
@@ -231,13 +252,17 @@ export async function middleware(request: NextRequest) {
     if (optionalRootSession || access === "keyless-public" || access === "public-page") {
       return supabaseResponse;
     }
-    if (isSpotifyCallback(pathname)) {
-      return carryCookies(supabaseResponse, spotifyAuthFeedback(request, "session_expired"));
+    const callbackProvider = directOAuthCallbackProvider(request);
+    if (callbackProvider) {
+      return carryCookies(
+        supabaseResponse,
+        providerAuthFeedback(request, callbackProvider, "session_expired"),
+      );
     }
     if (isApiPath(pathname)) {
       return carryCookies(
         supabaseResponse,
-        NextResponse.json({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 }),
+        privateJson({ error: "UNAUTHORIZED", message: "Sign in required." }, { status: 401 }),
       );
     }
     const search = new URLSearchParams({ redirect: `${pathname}${request.nextUrl.search}` });
@@ -260,8 +285,12 @@ export async function middleware(request: NextRequest) {
 
   if (assurance === "unavailable") {
     observeAssuranceUnavailable();
-    if (isSpotifyCallback(pathname)) {
-      return carryCookies(supabaseResponse, spotifyAuthFeedback(request, "assurance_unavailable"));
+    const callbackProvider = directOAuthCallbackProvider(request);
+    if (callbackProvider) {
+      return carryCookies(
+        supabaseResponse,
+        providerAuthFeedback(request, callbackProvider, "assurance_unavailable"),
+      );
     }
     if (isApiPath(pathname)) {
       return carryCookies(supabaseResponse, assuranceUnavailable());
@@ -277,13 +306,17 @@ export async function middleware(request: NextRequest) {
   }
 
   if (assurance === "mfa_required" && access !== "mfa-bootstrap") {
-    if (isSpotifyCallback(pathname)) {
-      return carryCookies(supabaseResponse, spotifyAuthFeedback(request, "mfa_required"));
+    const callbackProvider = directOAuthCallbackProvider(request);
+    if (callbackProvider) {
+      return carryCookies(
+        supabaseResponse,
+        providerAuthFeedback(request, callbackProvider, "mfa_required"),
+      );
     }
     if (isApiPath(pathname)) {
       return carryCookies(
         supabaseResponse,
-        NextResponse.json(
+        privateJson(
           { error: "MFA_REQUIRED", message: "Complete two-factor authentication to continue." },
           { status: 403 },
         ),
@@ -302,7 +335,10 @@ export async function middleware(request: NextRequest) {
   if (access === "mfa-bootstrap" && isApiPath(pathname) && !isMfaBootstrapApiPath(pathname)) {
     return carryCookies(
       supabaseResponse,
-      NextResponse.json({ error: "MFA_REQUIRED", message: "Complete two-factor authentication to continue." }, { status: 403 }),
+      privateJson(
+        { error: "MFA_REQUIRED", message: "Complete two-factor authentication to continue." },
+        { status: 403 },
+      ),
     );
   }
 

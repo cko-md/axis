@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -35,7 +37,11 @@ describe("widget batch internal dispatch", () => {
   it("does not derive a self-fetch target or credentials from an adversarial Host header", async () => {
     const response = await POST(new Request("https://attacker.invalid/api/widgets/batch", {
       method: "POST",
-      headers: { host: "attacker.invalid", cookie: "session=must-not-forward" },
+      headers: {
+        host: "attacker.invalid",
+        cookie: "session=must-not-forward",
+        [EXPECTED_PROFILE_SUBJECT_HEADER]: profileSubjectForUserId("user"),
+      },
       body: JSON.stringify({ widgetIds: ["weather"], location: { lat: 1, lon: 2, name: "Test" } }),
     }));
 
@@ -43,6 +49,7 @@ describe("widget batch internal dispatch", () => {
     expect(mocks.invokeWidgetEndpoint).toHaveBeenCalledWith(
       expect.objectContaining({ endpoint: "/api/widgets/weather" }),
       { lat: 1, lon: 2, name: "Test" },
+      "user",
     );
     expect(JSON.stringify(mocks.invokeWidgetEndpoint.mock.calls)).not.toContain("attacker.invalid");
     expect(JSON.stringify(mocks.invokeWidgetEndpoint.mock.calls)).not.toContain("must-not-forward");

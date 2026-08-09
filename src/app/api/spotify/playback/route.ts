@@ -1,26 +1,35 @@
-import { NextResponse } from "next/server";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import { directProviderRefreshFailureResponse } from "@/lib/auth/directProviderRefresh.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessToken, isConfigured, notConnected, pickArt, spotifyFetch, spotifyGet } from "../_lib";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET — rich now-playing snapshot (track, progress, device, volume, shuffle/repeat)
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken();
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/spotify/playback");
+  }
   if (!token) return notConnected();
 
   const configured = isConfigured();
   const data = await spotifyGet<any>(token, "/me/player");
   if (!data || !data.item) {
-    return NextResponse.json({ connected: true, configured, playing: false, track: null });
+    return privateJson({ connected: true, configured, playing: false, track: null });
   }
 
   const item = data.item;
-  return NextResponse.json({
+  return privateJson({
     connected: true,
     configured,
     playing: data.is_playing ?? false,
@@ -42,11 +51,18 @@ export async function GET() {
 // POST — player controls. Body: { action, value? }
 export async function POST(req: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
-  const token = await getAccessToken();
-  if (!token) return NextResponse.json({ error: "Not connected" }, { status: 401 });
+  let token: string | null;
+  try {
+    token = await getAccessToken(user.id);
+  } catch (error) {
+    return directProviderRefreshFailureResponse(error, "/api/spotify/playback");
+  }
+  if (!token) return privateJson({ error: "Not connected" }, { status: 401 });
 
   const { action, value, uri, uris, contextUri, device_id } = (await req.json()) as {
     action: string;
@@ -108,24 +124,24 @@ export async function POST(req: Request) {
       break;
     }
     case "queue":
-      if (!uri) return NextResponse.json({ error: "uri required" }, { status: 400 });
+      if (!uri) return privateJson({ error: "uri required" }, { status: 400 });
       res = await spotifyFetch(token, `/me/player/queue?uri=${encodeURIComponent(uri)}`, {
         method: "POST",
       });
       break;
     default:
-      return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+      return privateJson({ error: "Invalid action" }, { status: 400 });
   }
 
   // 404 = no active device; surface a friendly hint for the UI.
   if (res.status === 404) {
-    return NextResponse.json(
+    return privateJson(
       { ok: false, error: "no_active_device", message: "Open Spotify on a device first." },
       { status: 404 },
     );
   }
   if (!res.ok && res.status !== 204) {
-    return NextResponse.json({ ok: false, status: res.status }, { status: res.status });
+    return privateJson({ ok: false, status: res.status }, { status: res.status });
   }
-  return NextResponse.json({ ok: true });
+  return privateJson({ ok: true });
 }

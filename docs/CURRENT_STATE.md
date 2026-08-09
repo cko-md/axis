@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `9ea70b862507a13598e54817b2aa9b75cd34cd2751688f55846aa8451bbd61c1` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
+- **State fingerprint:** `a4bb8bfe88f60f5c4958196cb69cf59516755b16db3d04a85e987c6ca2073e5d` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
 - **Source-main tree at derivation:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,43 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/security-auth-ssrf-production-state-refresh`
-- **HEAD:** `7fc28444`
-- **main:** `7fc28444`
+- **Branch:** `codex/security-auth006-direct-provider-identity`
+- **HEAD:** `fb6066ea`
+- **main:** `bf15060f`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (30 commit(s))
+
+- `fb6066ea` chore: review refresh cleanup telemetry
+- `7207c194` test: preserve trusted setup boundary
+- `65ac9795` test: localize provider migration window
+- `ef41d767` fix: close direct provider rotation gaps
+- `1241c1c6` fix: remove authenticated legacy cookie copies
+- `2cdc7587` fix: classify refresh contention as expected
+- `b02d0e16` fix: fence provider rotation and signing keys
+- `4a3fc8e6` chore(state): record reviewed AUTH-006 gates
+- `c6a44693` chore: register widget cache telemetry route
+- `80519ac2` fix: version refresh rejection and isolate cache lifecycle
+- `927f5d84` fix: seal provider generations and cache hydration
+- `686ef433` fix: contain direct-provider refresh races
+- `0f714fe3` chore(state): record reviewed AUTH-006 gates
+- `d0fca82b` refactor: name provider cutoff ordering explicitly
+- `d1656b4e` fix: separate provider causal order from wall time
+- `1541a4ab` fix: order provider authorization from signed browser state
+- `b26559af` fix: derive disconnect cutoffs from signed attempts
+- `30aeed25` fix: fail closed when disconnect sealing is unavailable
+- `1ffc25cf` fix: make provider disconnect durable
+- `7dac3b1b` fix: preserve newest provider authorization intent
+- `5b2e5704` fix: isolate each provider authorization attempt
+- `3a197268` fix: consume only verified provider callbacks
+- `66e2feac` fix: isolate pending provider authorization state
+- `4453289d` fix: preserve newer provider authorization state
+- `29a6c825` fix: contain direct provider lifecycle failures
+- `9662fda3` chore(state): record AUTH-006 source gates
+- `31ff2529` fix: preserve provider command authority
+- `f3e2b8e4` fix: fence provider bodies and action feedback
+- `5f0d938c` fix: close direct provider race conditions
+- `f793b62a` security: isolate direct provider identity
 
 ## Waves merged to main
 
@@ -76,12 +109,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2749/2749 across 289 files
-- **Bundle:** 4126 KB / 4400 KB
+- **Tests:** 2889/2889 across 310 files
+- **Bundle:** 4146 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `b5b6dd1e`
-- **Measured content tree:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
-- **Measured at:** 2026-08-08T01:36:51.733Z
+- **Measured source:** `fb6066ea`
+- **Measured content tree:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
+- **Measured at:** 2026-08-09T07:17:42.207Z
 
 <!-- END GENERATED: derive-program-state -->
 

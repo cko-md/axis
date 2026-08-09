@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import type { AccountState } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 export type StravaActivity = {
   id: number;
@@ -161,7 +163,19 @@ function computeHighlights(activities: StravaActivity[]): StravaHighlights {
 
 // ── hook ─────────────────────────────────────────────────────────────────────
 
-export function useStrava(initialUnit: PaceUnit = "km") {
+type StravaAuthority = {
+  subject: string;
+  epoch: number;
+};
+
+export function useStrava(
+  initialUnit: PaceUnit = "km",
+  providerAuthority?: {
+    subject: string | null;
+    accountState: AccountState;
+    authorityEpoch: number;
+  },
+) {
   const [status, setStatus] = useState<StravaStatus | null>(null);
   const [activities, setActivities] = useState<StravaActivity[]>([]);
   const [summary, setSummary] = useState<StravaRunSummary | null>(null);
@@ -175,52 +189,113 @@ export function useStrava(initialUnit: PaceUnit = "km") {
   // latest unit without depending on it (so toggling the unit never triggers
   // a redundant network re-fetch — only a local recompute).
   const unitRef = useRef(unit);
+  const controllersRef = useRef(new Set<AbortController>());
+  const authorityRef = useRef<StravaAuthority | null>(null);
+  const dataAuthorityRef = useRef<StravaAuthority | null>(null);
+  authorityRef.current = providerAuthority?.accountState === "ready" && providerAuthority.subject
+    ? { subject: providerAuthority.subject, epoch: providerAuthority.authorityEpoch }
+    : null;
   useEffect(() => {
     unitRef.current = unit;
   }, [unit]);
 
-  const fetchStatus = useCallback(async (signal?: AbortSignal) => {
+  const isCurrent = useCallback((authority: StravaAuthority) => {
+    const current = authorityRef.current;
+    return current?.subject === authority.subject && current.epoch === authority.epoch;
+  }, []);
+
+  const beginRequest = useCallback(() => {
+    const authority = authorityRef.current;
+    if (!authority) return null;
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
+    return { authority, controller };
+  }, []);
+
+  const clearProviderState = useCallback(() => {
+    dataAuthorityRef.current = null;
+    setStatus(null);
+    setActivities([]);
+    setSummary(null);
+    setHighlights(null);
+    setStatusError(null);
+    setActivitiesError(null);
+    setActivitiesLoading(false);
+  }, []);
+
+  const fetchStatus = useCallback(async () => {
+    const operation = beginRequest();
+    if (!operation) return false;
+    const { authority, controller } = operation;
     try {
-      const res = await fetch("/api/strava?action=status", { signal });
+      const res = await subjectBoundFetch(authority.subject, "/api/strava?action=status", {
+        signal: controller.signal,
+      });
+      if (!isCurrent(authority) || controller.signal.aborted) return false;
+      const data = await res.json().catch(() => null) as StravaStatus | null;
+      if (!isCurrent(authority) || controller.signal.aborted) return false;
       if (!res.ok) {
+        dataAuthorityRef.current = authority;
         setStatusError("Strava status could not be loaded.");
         setStatus({ connected: false, configured: false, athlete: null });
         return false;
       }
-      const data = (await res.json()) as StravaStatus;
+      if (!data) {
+        dataAuthorityRef.current = authority;
+        setStatusError("Strava status could not be loaded.");
+        return false;
+      }
+      dataAuthorityRef.current = authority;
       setStatus(data);
       setStatusError(null);
       return data.connected;
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") throw err;
+    } catch {
+      if (!isCurrent(authority) || controller.signal.aborted) return false;
+      dataAuthorityRef.current = authority;
       setStatusError("Strava status could not be loaded.");
       setStatus({ connected: false, configured: false, athlete: null });
       return false;
+    } finally {
+      controllersRef.current.delete(controller);
     }
-  }, []);
+  }, [beginRequest, isCurrent]);
 
-  const fetchActivities = useCallback(async (signal?: AbortSignal) => {
+  const fetchActivities = useCallback(async () => {
+    const operation = beginRequest();
+    if (!operation) return;
+    const { authority, controller } = operation;
     setActivitiesLoading(true);
     setActivitiesError(null);
     try {
-      const res = await fetch("/api/strava?action=activities", { signal });
+      const res = await subjectBoundFetch(authority.subject, "/api/strava?action=activities", {
+        signal: controller.signal,
+      });
+      if (!isCurrent(authority) || controller.signal.aborted) return;
+      const data = await res.json().catch(() => null) as {
+        connected: boolean;
+        activities?: StravaActivity[];
+      } | null;
+      if (!isCurrent(authority) || controller.signal.aborted) return;
       if (!res.ok) {
+        dataAuthorityRef.current = authority;
         setActivitiesError("Strava activities could not be loaded.");
         return;
       }
-      const data = await res.json() as { connected: boolean; activities?: StravaActivity[] };
-      if (data.connected && data.activities) {
+      if (data?.connected && data.activities) {
+        dataAuthorityRef.current = authority;
         setActivities(data.activities);
         setSummary(computeSummary(data.activities, unitRef.current));
         setHighlights(computeHighlights(data.activities));
       }
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return;
+    } catch {
+      if (!isCurrent(authority) || controller.signal.aborted) return;
+      dataAuthorityRef.current = authority;
       setActivitiesError("Strava activities could not be loaded.");
     } finally {
-      setActivitiesLoading(false);
+      controllersRef.current.delete(controller);
+      if (isCurrent(authority) && !controller.signal.aborted) setActivitiesLoading(false);
     }
-  }, []);
+  }, [beginRequest, isCurrent]);
 
   // Recompute the summary (pace/distance strings) when the unit changes,
   // without re-fetching from the network.
@@ -230,12 +305,30 @@ export function useStrava(initialUnit: PaceUnit = "km") {
   }, [unit]);
 
   const disconnect = useCallback(async () => {
-    await fetch("/api/strava?action=disconnect");
-    setStatus({ connected: false, configured: status?.configured ?? false, athlete: null });
-    setActivities([]);
-    setSummary(null);
-    setHighlights(null);
-  }, [status?.configured]);
+    const operation = beginRequest();
+    if (!operation) return;
+    const { authority, controller } = operation;
+    try {
+      const response = await subjectBoundFetch(
+        authority.subject,
+        "/api/strava?action=disconnect",
+        { method: "POST", signal: controller.signal },
+      );
+      if (!isCurrent(authority) || controller.signal.aborted) return;
+      if (!response.ok) {
+        dataAuthorityRef.current = authority;
+        setStatusError("Strava could not be disconnected.");
+        return;
+      }
+      dataAuthorityRef.current = authority;
+      setStatus({ connected: false, configured: status?.configured ?? false, athlete: null });
+      setActivities([]);
+      setSummary(null);
+      setHighlights(null);
+    } finally {
+      controllersRef.current.delete(controller);
+    }
+  }, [beginRequest, isCurrent, status?.configured]);
 
   const refetchStatus = useCallback(async () => {
     const connected = await fetchStatus();
@@ -244,34 +337,56 @@ export function useStrava(initialUnit: PaceUnit = "km") {
   }, [fetchStatus, fetchActivities]);
 
   useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
+    const controllers = controllersRef.current;
+    for (const controller of controllers) controller.abort();
+    controllers.clear();
+    clearProviderState();
+    if (!authorityRef.current) {
+      setLoading(false);
+      return;
+    }
+    let active = true;
     (async () => {
       setLoading(true);
       try {
-        const connected = await fetchStatus(controller.signal);
-        if (mounted && connected) await fetchActivities(controller.signal);
-      } catch (err) {
-        if (!(err instanceof Error && err.name === "AbortError")) throw err;
+        const connected = await fetchStatus();
+        if (active && connected) await fetchActivities();
       } finally {
-        if (mounted) setLoading(false);
+        if (active && authorityRef.current) setLoading(false);
       }
     })();
     return () => {
-      mounted = false;
-      controller.abort();
+      active = false;
+      for (const controller of controllers) controller.abort();
+      controllers.clear();
     };
-  }, [fetchStatus, fetchActivities]);
+  }, [
+    clearProviderState,
+    fetchActivities,
+    fetchStatus,
+    providerAuthority?.accountState,
+    providerAuthority?.authorityEpoch,
+    providerAuthority?.subject,
+  ]);
+
+  const currentAuthority = authorityRef.current;
+  const dataAuthority = dataAuthorityRef.current;
+  const mayRenderProviderState = Boolean(
+    currentAuthority &&
+    dataAuthority &&
+    currentAuthority.subject === dataAuthority.subject &&
+    currentAuthority.epoch === dataAuthority.epoch,
+  );
 
   return {
-    status,
-    activities,
-    summary,
-    highlights,
+    status: mayRenderProviderState ? status : null,
+    activities: mayRenderProviderState ? activities : [],
+    summary: mayRenderProviderState ? summary : null,
+    highlights: mayRenderProviderState ? highlights : null,
     loading,
     activitiesLoading,
-    statusError,
-    activitiesError,
+    statusError: mayRenderProviderState ? statusError : null,
+    activitiesError: mayRenderProviderState ? activitiesError : null,
     unit,
     setUnit,
     disconnect,

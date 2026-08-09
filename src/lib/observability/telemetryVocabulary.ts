@@ -18,12 +18,17 @@ export const AXIS_TELEMETRY_VOCABULARY = {
     ...AXIS_TELEMETRY_VOCABULARY_BASE.operations,
     "authenticate_request",
     "biometric_prompt_status_save",
+    "refresh_token",
+    "release_refresh_lease",
     "resolve_optional_session",
   ],
   codes: [
     ...AXIS_TELEMETRY_VOCABULARY_BASE.codes,
     "AUTH_BACKEND_UNAVAILABLE",
     "AUTH_CONFIGURATION_UNAVAILABLE",
+    "PROVIDER_REFRESH_INVALID_RESPONSE",
+    "PROVIDER_REFRESH_TIMEOUT",
+    "PROVIDER_REFRESH_UNAVAILABLE",
   ],
 } as const;
 

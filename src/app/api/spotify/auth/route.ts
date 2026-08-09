@@ -1,15 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
-import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
+import { NextRequest } from "next/server";
+import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
+import {
+  createOAuthPendingState,
+  OAUTH_STATE_TTL_SECONDS,
+} from "@/lib/auth/oauthState.server";
+import {
+  nextProviderAuthorizationOrder,
+  setOAuthPendingStateCookie,
+} from "@/lib/auth/providerCookies.server";
+import { privateJson } from "@/lib/auth/privateNoStore";
+import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
 import { optionalEnv } from "@/lib/env";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { createClient } from "@/lib/supabase/server";
 
 const SCOPES = [
-  // Web Playback SDK (the in-browser "Axis Web Player" device) requires these
-  // three — without `streaming` the SDK token is rejected and no device ever
-  // becomes ready, so play/pause silently no-ops with "no active device".
-  // (Spotify also requires a Premium account for SDK playback.)
   "streaming",
   "user-read-email",
   "user-read-private",
@@ -25,48 +32,67 @@ const SCOPES = [
   "playlist-modify-public",
 ].join(" ");
 
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    return privateJson({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  const identity = validateExpectedProfileSubject(req, user.id);
+  if (!identity.ok) return identity.response;
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
-  if (!clientId) {
-    // Spotify is a DIRECT OAuth integration. There was previously a fallback
-    // here that redirected to the Composio connector when SPOTIFY_CLIENT_ID was
-    // absent, but nothing reads that result: getAccessToken() in _lib.ts only
-    // ever looks at the spotify_access_token / spotify_refresh_token cookies and
-    // has no Composio awareness. A Composio grant therefore always left the app
-    // reporting "not connected". Failing honestly is the truthful outcome.
-    captureRouteError(new Error("Spotify client id is not configured"), {
+  const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
+  if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
+    captureRouteError(new Error("Spotify OAuth is not configured"), {
       route: "/api/spotify/auth",
       operation: "start_oauth",
       area: "integrations",
-      status: 500,
+      provider: "spotify",
+      status: 503,
       code: "SPOTIFY_NOT_CONFIGURED",
     });
-    return NextResponse.redirect(
-      buildAppUrl(req, "/oauth-done?provider=spotify&status=error&reason=not_configured"),
-    );
+    return privateJson({ error: "SPOTIFY_NOT_CONFIGURED" }, { status: 503 });
   }
+
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
-  const state = crypto.randomUUID();
   const cookieStore = await cookies();
-  cookieStore.set("spotify_oauth_state", state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 600,
-    path: "/",
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("SPOTIFY_CLIENT_SECRET_PREVIOUS"),
+  );
+  const { providerState, sealedState } = createOAuthPendingState({
+    provider: "spotify",
+    subject: identity.subject,
+    secret: cookieKeyring.current.secret,
+    order: nextProviderAuthorizationOrder(
+      cookieStore,
+      "spotify",
+      identity.subject,
+      cookieKeyring,
+    ),
   });
+  setOAuthPendingStateCookie(
+    cookieStore,
+    "spotify",
+    sealedState,
+    OAUTH_STATE_TTL_SECONDS,
+    providerState,
+  );
 
   const params = new URLSearchParams({
     client_id: clientId,
     response_type: "code",
     redirect_uri: redirectUri,
     scope: SCOPES,
-    state,
+    state: providerState,
   });
+  return privateJson({ url: `https://accounts.spotify.com/authorize?${params}` });
+}
 
-  return NextResponse.redirect(`https://accounts.spotify.com/authorize?${params}`);
+export function GET() {
+  return privateJson(
+    { error: "METHOD_NOT_ALLOWED" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
 }
