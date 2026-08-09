@@ -410,6 +410,78 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     });
   });
 
+  it("advances disconnect past signed attempts from a faster server clock", () => {
+    const store = new MemoryCookieStore();
+    const attempt = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      nonce: "m".repeat(43),
+      nowMs: nowMs + 1,
+    });
+    setOAuthPendingStateCookie(
+      store,
+      "spotify",
+      attempt.sealedState,
+      OAUTH_STATE_TTL_SECONDS,
+      attempt.providerState,
+    );
+    const slowClock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      clearProviderTokenCookiesForSubject(store, "spotify", subjectA, secret);
+    } finally {
+      slowClock.mockRestore();
+    }
+
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "spotify",
+      { accessToken: "late-callback", refreshToken: "late-refresh" },
+      subjectA,
+      secret,
+      { providerState: attempt.providerState, initiatedAtMs: nowMs + 1 },
+    );
+    expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+  });
+
+  it("advances disconnect past visible credentials from a faster server clock", () => {
+    const store = new MemoryCookieStore();
+    const attempt = {
+      providerState: "n".repeat(43),
+      initiatedAtMs: nowMs + 2,
+    };
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "strava",
+      { accessToken: "current-access", refreshToken: "current-refresh" },
+      subjectA,
+      secret,
+      attempt,
+    );
+    const slowClock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      clearProviderTokenCookiesForSubject(store, "strava", subjectA, secret);
+    } finally {
+      slowClock.mockRestore();
+    }
+
+    replaceRefreshedProviderTokenCookies(
+      store,
+      "strava",
+      { accessToken: "late-refresh", refreshToken: "current-refresh" },
+      subjectA,
+      secret,
+      attempt,
+    );
+    expect(providerTokensForSubject(store, "strava", subjectA, secret)).toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+  });
+
   it("selects the newest signed cutoff when disconnect responses arrive out of order", () => {
     const store = new MemoryCookieStore();
     const clock = vi.spyOn(Date, "now");
@@ -434,6 +506,34 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       accessToken: null,
       refreshToken: null,
     });
+  });
+
+  it("compacts equal-millisecond disconnect cutoffs to one authenticated record", () => {
+    const browser = new MemoryCookieStore();
+    const cutoffPrefix = "spotify_token_owner_cut1_";
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs + 30);
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const request = new MemoryCookieStore();
+        clearProviderTokenCookiesForSubject(request, "spotify", subjectA, secret);
+        for (const [name, value] of request.values) {
+          if (name.startsWith(cutoffPrefix)) browser.values.set(name, value);
+        }
+      }
+    } finally {
+      clock.mockRestore();
+    }
+    expect(
+      [...browser.values.keys()].filter((name) => name.startsWith(cutoffPrefix)),
+    ).toHaveLength(5);
+
+    expect(providerTokensForSubject(browser, "spotify", subjectA, secret)).toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+    expect(
+      [...browser.values.keys()].filter((name) => name.startsWith(cutoffPrefix)),
+    ).toHaveLength(1);
   });
 
   it("never exposes one subject's provider tokens to another subject", () => {

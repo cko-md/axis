@@ -97,7 +97,7 @@ export function createOAuthPendingState(options: {
   };
 }
 
-function verifiedOAuthStatePayload(
+function authenticatedOAuthStatePayload(
   options: VerifiedOAuthStateOptions,
 ): OAuthStatePayload | null {
   const { provider, subject, secret, sealedState } = options;
@@ -124,7 +124,6 @@ function verifiedOAuthStatePayload(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const payload = parsed as Record<string, unknown>;
     if (!exactPayloadKeys(payload)) return null;
-    const now = Math.floor((options.nowMs ?? Date.now()) / 1000);
     if (
       payload.v === STATE_VERSION &&
       payload.purpose === STATE_PURPOSE &&
@@ -140,9 +139,7 @@ function verifiedOAuthStatePayload(
       Math.floor(payload.iatMs / 1000) === payload.iat &&
       typeof payload.exp === "number" &&
       Number.isSafeInteger(payload.exp) &&
-      payload.exp - payload.iat === OAUTH_STATE_TTL_SECONDS &&
-      payload.iat <= now &&
-      now < payload.exp
+      payload.exp - payload.iat === OAUTH_STATE_TTL_SECONDS
     ) {
       return payload as OAuthStatePayload;
     }
@@ -150,6 +147,29 @@ function verifiedOAuthStatePayload(
   } catch {
     return null;
   }
+}
+
+function verifiedOAuthStatePayload(
+  options: VerifiedOAuthStateOptions,
+): OAuthStatePayload | null {
+  const payload = authenticatedOAuthStatePayload(options);
+  if (!payload) return null;
+  const now = Math.floor((options.nowMs ?? Date.now()) / 1000);
+  return payload.iat <= now && now < payload.exp ? payload : null;
+}
+
+/**
+ * Authenticates a pending attempt without applying local wall-clock validity.
+ * Disconnect uses this only to advance its logical cutoff past signed attempts
+ * visible in the request, including when serverless instances have clock skew.
+ */
+export function authenticatedOAuthPendingStateIssuedAt(
+  options: VerifiedOAuthStateOptions & { providerState?: string | null },
+): number | null {
+  const payload = authenticatedOAuthStatePayload(options);
+  if (!payload) return null;
+  if (options.providerState === undefined) return payload.iatMs;
+  return options.providerState === payload.nonce ? payload.iatMs : null;
 }
 
 export function oauthPendingStateBelongsToSubject(
