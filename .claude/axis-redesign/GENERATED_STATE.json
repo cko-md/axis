@@ -1,12 +1,64 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-08T04:09:46.979Z",
+  "derivedAt": "2026-08-09T01:27:05.467Z",
   "git": {
     "branch": "codex/security-auth006-direct-provider-identity",
-    "head": "31ff2529cb3d41fcc640613fa568fc0c6ab44e4d",
+    "head": "d0fca82b48bbe0b10d22f6e7edbab99311c0ab55",
     "mainHead": "bf15060f3cf681b9932a006d810faa051bf7da76",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "d0fca82b",
+        "subject": "refactor: name provider cutoff ordering explicitly"
+      },
+      {
+        "sha": "d1656b4e",
+        "subject": "fix: separate provider causal order from wall time"
+      },
+      {
+        "sha": "1541a4ab",
+        "subject": "fix: order provider authorization from signed browser state"
+      },
+      {
+        "sha": "b26559af",
+        "subject": "fix: derive disconnect cutoffs from signed attempts"
+      },
+      {
+        "sha": "30aeed25",
+        "subject": "fix: fail closed when disconnect sealing is unavailable"
+      },
+      {
+        "sha": "1ffc25cf",
+        "subject": "fix: make provider disconnect durable"
+      },
+      {
+        "sha": "7dac3b1b",
+        "subject": "fix: preserve newest provider authorization intent"
+      },
+      {
+        "sha": "5b2e5704",
+        "subject": "fix: isolate each provider authorization attempt"
+      },
+      {
+        "sha": "3a197268",
+        "subject": "fix: consume only verified provider callbacks"
+      },
+      {
+        "sha": "66e2feac",
+        "subject": "fix: isolate pending provider authorization state"
+      },
+      {
+        "sha": "4453289d",
+        "subject": "fix: preserve newer provider authorization state"
+      },
+      {
+        "sha": "29a6c825",
+        "subject": "fix: contain direct provider lifecycle failures"
+      },
+      {
+        "sha": "9662fda3",
+        "subject": "chore(state): record AUTH-006 source gates"
+      },
       {
         "sha": "31ff2529",
         "subject": "fix: preserve provider command authority"
@@ -24,9 +76,9 @@
         "subject": "security: isolate direct provider identity"
       }
     ],
-    "contentTreeHash": "881a4920da46ecbb91e4b8cee0040c448663bd786eea686a2891c43e6b15222d",
+    "contentTreeHash": "cdb0d441c864cea18adff910120e65134c1609654b3148f3b7bfd3b30f5b7a0a",
     "sourceMainContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
-    "fingerprint": "241ab74ec0c44494c611a5ee5fd31c743acaf6b3c3fc8397d0581c70a01c05dd"
+    "fingerprint": "072edcb411465c7ecb7d8e713b9c5982ca95aed4e886ebd95b7d25f469c1e3c8"
   },
   "mergedPrs": [
     {
@@ -337,8 +389,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "31ff2529cb3d41fcc640613fa568fc0c6ab44e4d",
-    "sourceContentTreeHash": "881a4920da46ecbb91e4b8cee0040c448663bd786eea686a2891c43e6b15222d",
+    "sourceHead": "d0fca82b48bbe0b10d22f6e7edbab99311c0ab55",
+    "sourceContentTreeHash": "cdb0d441c864cea18adff910120e65134c1609654b3148f3b7bfd3b30f5b7a0a",
     "typecheck": {
       "passed": true
     },
@@ -346,23 +398,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2815,
-      "total": 2815,
-      "files": 306,
-      "suites": 845
+      "passed": 2859,
+      "total": 2859,
+      "files": 307,
+      "suites": 847
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4140,
+      "used": 4142,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-08T04:09:46.870Z"
+    "measuredAt": "2026-08-09T01:27:05.221Z"
   }
 }
