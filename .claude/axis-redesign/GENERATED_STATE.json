@@ -1,12 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T08:56:40.588Z",
+  "derivedAt": "2026-08-09T18:19:32.556Z",
   "git": {
     "branch": "codex/state-close-auth006",
-    "head": "93598646a64e870125045a21a1ae8f6aa6a84081",
+    "head": "254d1ebf90ea7157a326b47f2ad436b504b7a93d",
     "mainHead": "1b2df6b03ba03831a0a596cbd943e8903450f66a",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "254d1ebf",
+        "subject": "docs(state): advance post-AUTH-006 continuation"
+      },
+      {
+        "sha": "c24884e2",
+        "subject": "chore(state): derive AUTH-006 closure"
+      },
       {
         "sha": "93598646",
         "subject": "docs(state): close AUTH-006 on canonical production evidence"
@@ -14,7 +22,7 @@
     ],
     "contentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
     "sourceMainContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
-    "fingerprint": "01efd5d24f8837853a0eedfe431ec0e880d7b7c5faf706026110d9fa6a2c5b13"
+    "fingerprint": "ca44f48893ea5fed35daf1f630276dff245650776e09302ab8092ea9b647f4e2"
   },
   "mergedPrs": [
     {
@@ -324,7 +332,7 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "93598646a64e870125045a21a1ae8f6aa6a84081",
+    "sourceHead": "254d1ebf90ea7157a326b47f2ad436b504b7a93d",
     "sourceContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
     "typecheck": {
       "passed": true
@@ -350,6 +358,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T08:56:40.490Z"
+    "measuredAt": "2026-08-09T18:19:32.472Z"
   }
 }

@@ -23,7 +23,7 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `01efd5d24f8837853a0eedfe431ec0e880d7b7c5faf706026110d9fa6a2c5b13` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `ca44f48893ea5fed35daf1f630276dff245650776e09302ab8092ea9b647f4e2` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Source-main tree at derivation:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
@@ -34,12 +34,14 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/state-close-auth006`
-- **HEAD:** `93598646`
+- **HEAD:** `254d1ebf`
 - **main:** `1b2df6b0`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (1 commit(s))
+### Ahead of source main at derivation (3 commit(s))
 
+- `254d1ebf` docs(state): advance post-AUTH-006 continuation
+- `c24884e2` chore(state): derive AUTH-006 closure
 - `93598646` docs(state): close AUTH-006 on canonical production evidence
 
 ## Waves merged to main
@@ -83,9 +85,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 2889/2889 across 310 files
 - **Bundle:** 4146 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `93598646`
+- **Measured source:** `254d1ebf`
 - **Measured content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
-- **Measured at:** 2026-08-09T08:56:40.490Z
+- **Measured at:** 2026-08-09T18:19:32.472Z
 
 <!-- END GENERATED: derive-program-state -->
 
