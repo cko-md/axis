@@ -109,7 +109,7 @@ describe("AUTH-006 Strava server identity boundary", () => {
     expect(providerUrl.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(started.headers.get("cache-control")).toBe("private, no-store, max-age=0");
     const pendingEntry = [...mocks.cookieStore.values.entries()].find(([name]) =>
-      name.startsWith("strava_oauth_state_s1_"));
+      name.startsWith("strava_oauth_state_a1_"));
     expect(pendingEntry?.[1]).toContain(".");
     expect(mocks.cookieStore.values.has("strava_oauth_state")).toBe(false);
     expect(body.url).not.toContain(subjectA);
@@ -152,7 +152,7 @@ describe("AUTH-006 Strava server identity boundary", () => {
     const startedBody = await started.json() as { url: string };
     const providerState = new URL(startedBody.url).searchParams.get("state");
     const pendingName = [...mocks.cookieStore.values.keys()].find((name) =>
-      name.startsWith("strava_oauth_state_s1_"));
+      name.startsWith("strava_oauth_state_a1_"));
     expect(providerState).toBeTruthy();
     expect(pendingName).toBeTruthy();
 

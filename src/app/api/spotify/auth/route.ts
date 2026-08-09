@@ -63,8 +63,7 @@ export async function POST(req: NextRequest) {
     "spotify",
     sealedState,
     OAUTH_STATE_TTL_SECONDS,
-    identity.subject,
-    clientSecret,
+    providerState,
   );
 
   const params = new URLSearchParams({

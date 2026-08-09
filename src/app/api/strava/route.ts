@@ -14,9 +14,9 @@ import {
   clearProviderTokenCookies,
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
-  consumeOAuthPendingStateCookieForSubject,
+  consumeOAuthPendingStateCookieForAttempt,
   peekOAuthPendingStateCookie,
-  peekOAuthPendingStateCookieForSubject,
+  peekOAuthPendingStateCookieForAttempt,
   replaceProviderTokenCookies,
   setOAuthPendingStateCookie,
 } from "@/lib/auth/providerCookies.server";
@@ -126,27 +126,26 @@ async function completeCallback(
   }
 
   const subject = profileSubjectForUserId(userId);
-  const subjectSealedState = peekOAuthPendingStateCookieForSubject(
+  const providerState = req.nextUrl.searchParams.get("state");
+  const attemptSealedState = peekOAuthPendingStateCookieForAttempt(
     cookieStore,
     "strava",
-    subject,
-    clientSecret,
+    providerState,
   );
   if (!verifyOAuthPendingState({
     provider: "strava",
     subject,
     secret: clientSecret,
-    providerState: req.nextUrl.searchParams.get("state"),
-    sealedState: subjectSealedState ?? sealedState,
+    providerState,
+    sealedState: attemptSealedState ?? sealedState,
   })) {
     return callbackFailure(req, "state_invalid", 400);
   }
-  if (subjectSealedState !== null) {
-    consumeOAuthPendingStateCookieForSubject(
+  if (attemptSealedState !== null) {
+    consumeOAuthPendingStateCookieForAttempt(
       cookieStore,
       "strava",
-      subject,
-      clientSecret,
+      providerState,
     );
   } else {
     consumeOAuthPendingStateCookie(cookieStore, "strava");
@@ -223,8 +222,7 @@ async function initiateAuth(req: NextRequest, subject: string) {
     "strava",
     sealedState,
     OAUTH_STATE_TTL_SECONDS,
-    subject,
-    clientSecret,
+    providerState,
   );
   const params = new URLSearchParams({
     client_id: clientId,

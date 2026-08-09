@@ -6,9 +6,9 @@ import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.serve
 import { verifyOAuthPendingState } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
-  consumeOAuthPendingStateCookieForSubject,
+  consumeOAuthPendingStateCookieForAttempt,
   peekOAuthPendingStateCookie,
-  peekOAuthPendingStateCookieForSubject,
+  peekOAuthPendingStateCookieForAttempt,
   replaceProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
 import { privateRedirect } from "@/lib/auth/privateNoStore";
@@ -76,13 +76,12 @@ export async function GET(req: NextRequest) {
 
   const providerState = req.nextUrl.searchParams.get("state");
   const subject = profileSubjectForUserId(user.id);
-  const subjectSealedState = peekOAuthPendingStateCookieForSubject(
+  const attemptSealedState = peekOAuthPendingStateCookieForAttempt(
     cookieStore,
     "spotify",
-    subject,
-    clientSecret,
+    providerState,
   );
-  const sealedState = subjectSealedState ?? legacySealedState;
+  const sealedState = attemptSealedState ?? legacySealedState;
   if (!verifyOAuthPendingState({
     provider: "spotify",
     subject,
@@ -92,12 +91,11 @@ export async function GET(req: NextRequest) {
   })) {
     return fail(req, "state_invalid", 400);
   }
-  if (subjectSealedState !== null) {
-    consumeOAuthPendingStateCookieForSubject(
+  if (attemptSealedState !== null) {
+    consumeOAuthPendingStateCookieForAttempt(
       cookieStore,
       "spotify",
-      subject,
-      clientSecret,
+      providerState,
     );
   } else {
     consumeOAuthPendingStateCookie(cookieStore, "spotify");

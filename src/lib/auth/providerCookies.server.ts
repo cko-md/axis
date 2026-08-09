@@ -23,6 +23,7 @@ type CredentialCookieNames = {
 
 export type MutableProviderCookieStore = {
   get(name: string): CookieValue;
+  getAll?(): Array<{ name: string; value: string }>;
   set(name: string, value: string, options: CookieOptions): unknown;
   delete(name: string): unknown;
 };
@@ -56,6 +57,8 @@ const PROVIDER_COOKIES: Record<DirectOAuthProvider, {
 const OWNER_SEAL_VERSION = 1;
 const OWNER_SEAL_PREFIX = `po${OWNER_SEAL_VERSION}_`;
 const OWNER_SEAL_PATTERN = /^po1_[A-Za-z0-9_-]{43}$/;
+const OAUTH_ATTEMPT_VERSION = 1;
+const OAUTH_PROVIDER_STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 function options(maxAge: number): CookieOptions {
   return {
@@ -77,11 +80,12 @@ export function setOAuthPendingStateCookie(
   provider: DirectOAuthProvider,
   sealedState: string,
   maxAge: number,
-  subject: string,
-  secret: string,
+  providerState: string,
 ): void {
+  const name = oauthPendingAttemptCookieName(provider, providerState);
+  if (!name) throw new Error("OAUTH_PENDING_COOKIE_STATE_INVALID");
   store.set(
-    subjectOAuthPendingStateCookieName(provider, subject, secret),
+    name,
     sealedState,
     options(maxAge),
   );
@@ -105,30 +109,25 @@ export function consumeOAuthPendingStateCookie(
   return sealedState;
 }
 
-export function peekOAuthPendingStateCookieForSubject(
+export function peekOAuthPendingStateCookieForAttempt(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
-  subject: string,
-  secret: string,
+  providerState: string | null,
 ): string | null {
-  const name = subjectOAuthPendingStateCookieName(provider, subject, secret);
+  const name = oauthPendingAttemptCookieName(provider, providerState);
+  if (!name) return null;
   return store.get(name)?.value ?? null;
 }
 
-/** Consumes only the deterministic pending-state slot for the exact subject. */
-export function consumeOAuthPendingStateCookieForSubject(
+/** Consumes only the cookie for the exact public OAuth attempt nonce. */
+export function consumeOAuthPendingStateCookieForAttempt(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
-  subject: string,
-  secret: string,
+  providerState: string | null,
 ): string | null {
-  const name = subjectOAuthPendingStateCookieName(provider, subject, secret);
-  const sealedState = peekOAuthPendingStateCookieForSubject(
-    store,
-    provider,
-    subject,
-    secret,
-  );
+  const name = oauthPendingAttemptCookieName(provider, providerState);
+  if (!name) return null;
+  const sealedState = peekOAuthPendingStateCookieForAttempt(store, provider, providerState);
   store.delete(name);
   return sealedState;
 }
@@ -153,13 +152,13 @@ function subjectCookieSlot(
     .slice(0, 24);
 }
 
-function subjectOAuthPendingStateCookieName(
+function oauthPendingAttemptCookieName(
   provider: DirectOAuthProvider,
-  subject: string,
-  secret: string,
-): string {
+  providerState: string | null,
+): string | null {
+  if (!providerState || !OAUTH_PROVIDER_STATE_PATTERN.test(providerState)) return null;
   const config = PROVIDER_COOKIES[provider];
-  return `${config.oauthPendingState}_s${OWNER_SEAL_VERSION}_${subjectCookieSlot(provider, subject, secret)}`;
+  return `${config.oauthPendingState}_a${OAUTH_ATTEMPT_VERSION}_${providerState}`;
 }
 
 function subjectCredentialCookieNames(
@@ -303,7 +302,7 @@ export function clearProviderCredentialCookiesForSubject(
   }
 }
 
-/** Clears exact-subject credentials and pending OAuth state without cross-slot writes. */
+/** Clears exact-subject credentials and only pending attempts visible in this request snapshot. */
 export function clearProviderTokenCookiesForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
@@ -311,8 +310,21 @@ export function clearProviderTokenCookiesForSubject(
   secret: string,
 ): void {
   clearProviderCredentialCookiesForSubject(store, provider, subject, secret);
-  store.delete(subjectOAuthPendingStateCookieName(provider, subject, secret));
   const legacyNames = PROVIDER_COOKIES[provider];
+  const attemptPrefix = `${legacyNames.oauthPendingState}_a${OAUTH_ATTEMPT_VERSION}_`;
+  for (const cookie of store.getAll?.() ?? []) {
+    if (
+      cookie.name.startsWith(attemptPrefix) &&
+      oauthPendingStateBelongsToSubject({
+        provider,
+        subject,
+        secret,
+        sealedState: cookie.value,
+      })
+    ) {
+      store.delete(cookie.name);
+    }
+  }
   const pendingState = store.get(legacyNames.oauthPendingState)?.value ?? null;
   if (
     oauthPendingStateBelongsToSubject({

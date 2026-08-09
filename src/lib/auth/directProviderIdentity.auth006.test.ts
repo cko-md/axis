@@ -12,7 +12,7 @@ import {
   clearProviderCredentialCookiesForSubject,
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
-  consumeOAuthPendingStateCookieForSubject,
+  consumeOAuthPendingStateCookieForAttempt,
   createProviderOwnerSeal,
   providerTokensForSubject,
   replaceProviderTokenCookies,
@@ -27,6 +27,10 @@ class MemoryCookieStore implements MutableProviderCookieStore {
   get(name: string) {
     const value = this.values.get(name);
     return value === undefined ? undefined : { value };
+  }
+
+  getAll() {
+    return [...this.values].map(([name, value]) => ({ name, value }));
   }
 
   set(name: string, value: string) {
@@ -163,49 +167,53 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     expect(store.values.has("spotify_oauth_state")).toBe(false);
   });
 
-  it("keeps pending OAuth response mutations in disjoint subject slots", () => {
+  it("keeps pending OAuth response mutations in disjoint attempt slots", () => {
     const browser = new MemoryCookieStore();
-    const pendingA = createOAuthPendingState({
-      provider: "spotify",
-      subject: subjectA,
-      secret,
-    }).sealedState;
-    setOAuthPendingStateCookie(
-      browser,
-      "spotify",
-      pendingA,
-      OAUTH_STATE_TTL_SECONDS,
-      subjectA,
-      secret,
-    );
-    const pendingAName = browser.operations[0]!.slice("set:".length);
-
-    const requestA = new MemoryCookieStore();
-    for (const [name, value] of browser.values) requestA.values.set(name, value);
-    const pendingB = createOAuthPendingState({
+    const first = createOAuthPendingState({
       provider: "spotify",
       subject: subjectB,
       secret,
-    }).sealedState;
+      nonce: "a".repeat(43),
+    });
     setOAuthPendingStateCookie(
       browser,
       "spotify",
-      pendingB,
+      first.sealedState,
       OAUTH_STATE_TTL_SECONDS,
-      subjectB,
-      secret,
+      first.providerState,
     );
-    const pendingBName = browser.operations.at(-1)!.slice("set:".length);
-    expect(pendingBName).not.toBe(pendingAName);
+    const firstName = browser.operations[0]!.slice("set:".length);
 
-    clearProviderTokenCookiesForSubject(requestA, "spotify", subjectA, secret);
-    for (const operation of requestA.operations) {
+    const firstCallback = new MemoryCookieStore();
+    for (const [name, value] of browser.values) firstCallback.values.set(name, value);
+    const second = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectB,
+      secret,
+      nonce: "b".repeat(43),
+    });
+    setOAuthPendingStateCookie(
+      browser,
+      "spotify",
+      second.sealedState,
+      OAUTH_STATE_TTL_SECONDS,
+      second.providerState,
+    );
+    const secondName = browser.operations.at(-1)!.slice("set:".length);
+    expect(secondName).not.toBe(firstName);
+
+    expect(consumeOAuthPendingStateCookieForAttempt(
+      firstCallback,
+      "spotify",
+      first.providerState,
+    )).toBe(first.sealedState);
+    for (const operation of firstCallback.operations) {
       if (operation.startsWith("delete:")) {
         browser.values.delete(operation.slice("delete:".length));
       }
     }
-    expect(browser.values.get(pendingBName)).toBe(pendingB);
-    expect(browser.values.has(pendingAName)).toBe(false);
+    expect(browser.values.get(secondName)).toBe(second.sealedState);
+    expect(browser.values.has(firstName)).toBe(false);
 
     const refreshRequestA = new MemoryCookieStore();
     clearProviderCredentialCookiesForSubject(
@@ -217,12 +225,60 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     expect(refreshRequestA.operations).not.toContainEqual(
       expect.stringContaining("oauth_state"),
     );
-    expect(consumeOAuthPendingStateCookieForSubject(
+    expect(consumeOAuthPendingStateCookieForAttempt(
       browser,
       "spotify",
-      subjectB,
+      second.providerState,
+    )).toBe(second.sealedState);
+  });
+
+  it("keeps a newer same-subject attempt across a late disconnect response", () => {
+    const browser = new MemoryCookieStore();
+    const first = createOAuthPendingState({
+      provider: "strava",
+      subject: subjectA,
       secret,
-    )).toBe(pendingB);
+      nonce: "c".repeat(43),
+    });
+    setOAuthPendingStateCookie(
+      browser,
+      "strava",
+      first.sealedState,
+      OAUTH_STATE_TTL_SECONDS,
+      first.providerState,
+    );
+    const disconnectRequest = new MemoryCookieStore();
+    for (const [name, value] of browser.values) {
+      disconnectRequest.values.set(name, value);
+    }
+
+    const second = createOAuthPendingState({
+      provider: "strava",
+      subject: subjectA,
+      secret,
+      nonce: "d".repeat(43),
+    });
+    setOAuthPendingStateCookie(
+      browser,
+      "strava",
+      second.sealedState,
+      OAUTH_STATE_TTL_SECONDS,
+      second.providerState,
+    );
+    const secondName = browser.operations.at(-1)!.slice("set:".length);
+
+    clearProviderTokenCookiesForSubject(
+      disconnectRequest,
+      "strava",
+      subjectA,
+      secret,
+    );
+    for (const operation of disconnectRequest.operations) {
+      if (operation.startsWith("delete:")) {
+        browser.values.delete(operation.slice("delete:".length));
+      }
+    }
+    expect(browser.values.get(secondName)).toBe(second.sealedState);
   });
 
   it("never exposes one subject's provider tokens to another subject", () => {
