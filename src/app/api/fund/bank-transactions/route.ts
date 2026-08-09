@@ -49,7 +49,6 @@ export async function GET(request: NextRequest) {
     Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000,
   ).toISOString().slice(0, 10);
   const coverageEnd = to ?? today;
-  let operationalError: unknown = null;
   let complete: { proof: TransactionCoverageProof; rows: BankTransactionRow[] } | null;
   try {
     complete = await readCompleteTransactionRows<BankTransactionRow>(
@@ -58,15 +57,9 @@ export async function GET(request: NextRequest) {
       coverageStart,
       coverageEnd,
       "*",
-      undefined,
-      (error) => { operationalError ??= error; },
     );
   } catch (error) {
-    operationalError = error;
-    complete = null;
-  }
-  if (operationalError) {
-    return redactRouteError(operationalError, {
+    return redactRouteError(error, {
       route: "fund/bank-transactions",
       area: "fund",
     });

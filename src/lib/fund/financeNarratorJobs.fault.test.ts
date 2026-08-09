@@ -109,51 +109,23 @@ describe("finance narrator exact boundaries", () => {
     );
   });
 
-  it("does not notify or persist an anomaly when current/history provenance is missing", async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    let transactionRead = 0;
+  it("propagates an unavailable coverage verifier to the job failure boundary", async () => {
     const insightInsert = vi.fn();
     const provenanceAdmin = {
       from: vi.fn((table: string) => {
-        if (table === "fund_bank_transactions") {
-          const data = transactionRead++ === 0
-            ? [{
-                id: "prior",
-                merchant_name: "Merchant",
-                amount: "-10.00",
-                iso_currency_code: "USD",
-                posted_date: "2026-07-01",
-                is_transfer: false,
-                pending: false,
-                connection_id: null,
-                retrieved_at: null,
-              }]
-            : [{
-                id: "today",
-                merchant_name: "Merchant",
-                amount: "-500.00",
-                iso_currency_code: "USD",
-                posted_date: today,
-                is_transfer: false,
-                pending: false,
-                connection_id: null,
-                retrieved_at: null,
-              }];
-          return query({ data, error: null });
-        }
         if (table === "ai_insights") return { insert: insightInsert };
         throw new Error(`Unexpected table ${table}`);
       }),
     } as unknown as SupabaseClient;
 
-    const outcome = await detectAndExplainAnomalies(
+    const outcome = detectAndExplainAnomalies(
       provenanceAdmin,
       "user-1",
       "person@example.com",
       null,
     );
 
-    expect(outcome).toEqual({ attempted: 0, failed: 0, results: [] });
+    await expect(outcome).rejects.toThrow("TRANSACTION_COVERAGE_RPC_UNAVAILABLE");
     expect(mocks.notifyViaMake).not.toHaveBeenCalled();
     expect(insightInsert).not.toHaveBeenCalled();
   });

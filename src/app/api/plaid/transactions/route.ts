@@ -48,13 +48,28 @@ export async function POST() {
   const today = new Date().toISOString().slice(0, 10);
   const start = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)
     .toISOString().slice(0, 10);
-  const complete = await readCompleteTransactionRows<StoredTransaction>(
-    supabase,
-    user.id,
-    start,
-    today,
-    "id, connection_id, generation_id, merchant_name, raw_name, custom_category, plaid_category, amount, iso_currency_code, posted_date, pending",
-  );
+  let complete;
+  try {
+    complete = await readCompleteTransactionRows<StoredTransaction>(
+      supabase,
+      user.id,
+      start,
+      today,
+      "id, connection_id, generation_id, merchant_name, raw_name, custom_category, plaid_category, amount, iso_currency_code, posted_date, pending",
+    );
+  } catch (error) {
+    captureRouteError(error, {
+      route: "/api/plaid/transactions",
+      operation: "verify_transaction_generation",
+      area: "fund",
+      provider: "supabase",
+      status: 503,
+    });
+    return NextResponse.json(
+      { configured: true, completeness: "unavailable", error: "TRANSACTION_HISTORY_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
   if (!complete) {
     return NextResponse.json(
       { configured: true, completeness: "unavailable", error: "TRANSACTION_HISTORY_UNAVAILABLE" },

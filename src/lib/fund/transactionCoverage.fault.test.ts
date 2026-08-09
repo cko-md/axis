@@ -29,20 +29,16 @@ function proof(recordCount: number): TransactionCoverageProof {
 }
 
 describe("transaction coverage completeness", () => {
-  it("fails closed when the database coverage verifier is unavailable", async () => {
+  it("fails observably when the database coverage verifier is unavailable", async () => {
     const from = vi.fn(() => { throw new Error("table fallback must not run"); });
-    const result = await readCompleteTransactionCoverage(
+    const result = readCompleteTransactionCoverage(
       { from } as unknown as SupabaseClient,
       "user-1",
       "2026-04-24",
       "2026-07-23",
     );
 
-    expect(result).toEqual({
-      available: false,
-      reason: "TRANSACTION_HISTORY_UNAVAILABLE",
-      facts: [],
-    });
+    await expect(result).rejects.toThrow("TRANSACTION_COVERAGE_RPC_UNAVAILABLE");
     expect(from).not.toHaveBeenCalled();
   });
 
@@ -68,6 +64,29 @@ describe("transaction coverage completeness", () => {
       p_user_id: "user-1",
       p_window_start: "2026-04-24",
       p_window_end: "2026-07-23",
+    });
+  });
+
+  it("keeps the exact authoritative unavailable row non-operational", async () => {
+    const rpc = vi.fn(async () => ({
+      data: [{
+        available: false,
+        reason: "TRANSACTION_HISTORY_UNAVAILABLE",
+        coverage: [],
+        lineage_hash: null,
+      }],
+      error: null,
+    }));
+
+    await expect(readCompleteTransactionCoverage(
+      { rpc } as unknown as SupabaseClient,
+      "user-1",
+      "2026-04-24",
+      "2026-07-23",
+    )).resolves.toEqual({
+      available: false,
+      reason: "TRANSACTION_HISTORY_UNAVAILABLE",
+      facts: [],
     });
   });
 

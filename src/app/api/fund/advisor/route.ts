@@ -195,8 +195,14 @@ export async function POST(req: NextRequest) {
       let isError = false;
       try {
         output = await executeTool(block.name, block.input as Record<string, unknown>, { supabase, userId: user.id });
-      } catch {
+      } catch (error) {
         isError = true;
+        captureRouteError(error, {
+          route: "/api/fund/advisor",
+          operation: "execute_financial_tool",
+          area: "fund",
+          status: 500,
+        });
         output = { error: "TOOL_EXECUTION_FAILED" };
       }
       const latencyMs = Date.now() - startedAt;

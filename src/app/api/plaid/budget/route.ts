@@ -79,20 +79,33 @@ export async function POST() {
   const coverageStart = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)
     .toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 8)}01`;
-  const [complete, budgetResult] = await Promise.all([
-    readCompleteTransactionRows<BudgetTransaction>(
+  let complete;
+  try {
+    complete = await readCompleteTransactionRows<BudgetTransaction>(
       supabase,
       user.id,
       coverageStart,
       today,
       "connection_id, generation_id, amount, iso_currency_code, custom_category, plaid_category, excluded_from_budget, pending, posted_date",
-    ),
-    supabase
-      .from("fund_category_budgets")
-      .select("category, monthly_limit, currency")
-      .eq("user_id", user.id)
-      .order("category", { ascending: true }),
-  ]);
+    );
+  } catch (error) {
+    captureRouteError(error, {
+      route: "/api/plaid/budget",
+      operation: "verify_transaction_generation",
+      area: "fund",
+      provider: "supabase",
+      status: 503,
+    });
+    return NextResponse.json(
+      { configured: true, completeness: "unavailable", error: "BUDGET_DATA_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
+  const budgetResult = await supabase
+    .from("fund_category_budgets")
+    .select("category, monthly_limit, currency")
+    .eq("user_id", user.id)
+    .order("category", { ascending: true });
   if (!complete || budgetResult.error) {
     if (budgetResult.error) {
       captureRouteError(new Error("Fund budget query unavailable"), {

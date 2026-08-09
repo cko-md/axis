@@ -43,6 +43,10 @@ function unavailable(): TransactionCoverageProof {
   return { available: false, reason: "TRANSACTION_HISTORY_UNAVAILABLE", facts: [] };
 }
 
+function operational(code: string): never {
+  throw new Error(code);
+}
+
 function dateOnly(value: unknown): string | null {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = Date.parse(`${value}T00:00:00.000Z`);
@@ -115,7 +119,6 @@ export async function readCompleteTransactionCoverage(
   windowStart: string,
   windowEnd: string,
   signal?: AbortSignal,
-  onOperationalError?: (error: unknown) => void,
 ): Promise<TransactionCoverageProof> {
   if (signal?.aborted) return unavailable();
   if (!dateOnly(windowStart) || !dateOnly(windowEnd) || windowStart > windowEnd) return unavailable();
@@ -123,7 +126,7 @@ export async function readCompleteTransactionCoverage(
   const rpc = (client as unknown as {
     rpc?: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   }).rpc;
-  if (typeof rpc !== "function") return unavailable();
+  if (typeof rpc !== "function") operational("TRANSACTION_COVERAGE_RPC_UNAVAILABLE");
   let response: { data: unknown; error: unknown };
   try {
     response = await rpc.call(client, "check_fund_transaction_history_coverage", {
@@ -131,19 +134,16 @@ export async function readCompleteTransactionCoverage(
       p_window_start: windowStart,
       p_window_end: windowEnd,
     });
-  } catch (error) {
-    onOperationalError?.(error);
-    return unavailable();
+  } catch {
+    operational("TRANSACTION_COVERAGE_QUERY_FAILED");
   }
   const { data, error } = response;
   if (signal?.aborted) return unavailable();
   if (error) {
-    onOperationalError?.(error);
-    return unavailable();
+    operational("TRANSACTION_COVERAGE_QUERY_FAILED");
   }
   if (!Array.isArray(data) || data.length !== 1) {
-    onOperationalError?.(new Error("TRANSACTION_COVERAGE_RESPONSE_MALFORMED"));
-    return unavailable();
+    operational("TRANSACTION_COVERAGE_RESPONSE_MALFORMED");
   }
   const result = data[0] as Record<string, unknown>;
   if (result.available === false) {
@@ -153,21 +153,17 @@ export async function readCompleteTransactionCoverage(
       && result.coverage.length === 0
       && result.lineage_hash === null
     ) return unavailable();
-    onOperationalError?.(new Error("TRANSACTION_COVERAGE_UNAVAILABLE_RESPONSE_MALFORMED"));
-    return unavailable();
+    operational("TRANSACTION_COVERAGE_UNAVAILABLE_RESPONSE_MALFORMED");
   }
   if (result.available !== true) {
-    onOperationalError?.(new Error("TRANSACTION_COVERAGE_AVAILABILITY_MALFORMED"));
-    return unavailable();
+    operational("TRANSACTION_COVERAGE_AVAILABILITY_MALFORMED");
   }
   const facts = parseFacts(result.coverage, windowStart, windowEnd);
   if (!facts) {
-    onOperationalError?.(new Error("TRANSACTION_COVERAGE_FACTS_MALFORMED"));
-    return unavailable();
+    operational("TRANSACTION_COVERAGE_FACTS_MALFORMED");
   }
   if (typeof result.lineage_hash !== "string" || !SHA256.test(result.lineage_hash)) {
-    onOperationalError?.(new Error("TRANSACTION_COVERAGE_LINEAGE_MALFORMED"));
-    return unavailable();
+    operational("TRANSACTION_COVERAGE_LINEAGE_MALFORMED");
   }
   return { available: true, facts, lineage_hash: result.lineage_hash };
 }
@@ -208,7 +204,6 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
   requestedEnd: string,
   select: string,
   signal?: AbortSignal,
-  onOperationalError?: (error: unknown) => void,
 ): Promise<{ proof: TransactionCoverageProof; rows: T[] } | null> {
   const proof = await readCompleteTransactionCoverage(
     client,
@@ -216,7 +211,6 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
     requestedStart,
     requestedEnd,
     signal,
-    onOperationalError,
   );
   if (!proof.available) return null;
   const expected = proof.facts.reduce((total, fact) => total + fact.record_count, 0);
@@ -242,27 +236,23 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
       let response: { data: T[] | null; error: unknown };
       try {
         response = await query as unknown as { data: T[] | null; error: unknown };
-      } catch (error) {
-        onOperationalError?.(error);
-        return null;
+      } catch {
+        operational("TRANSACTION_GENERATION_QUERY_FAILED");
       }
       const { data, error } = response;
       if (error || !data) {
-        onOperationalError?.(error ?? new Error("TRANSACTION_GENERATION_QUERY_MALFORMED"));
-        return null;
+        operational(error ? "TRANSACTION_GENERATION_QUERY_FAILED" : "TRANSACTION_GENERATION_QUERY_MALFORMED");
       }
       factRows.push(...data);
       if (data.length < TRANSACTION_PAGE_SIZE) break;
     }
     if (factRows.length !== fact.record_count) {
-      onOperationalError?.(new Error("TRANSACTION_GENERATION_COUNT_MISMATCH"));
-      return null;
+      operational("TRANSACTION_GENERATION_COUNT_MISMATCH");
     }
     rows.push(...factRows);
   }
   if (!transactionRowsMatchCoverage(rows, proof)) {
-    onOperationalError?.(new Error("TRANSACTION_GENERATION_LINEAGE_MISMATCH"));
-    return null;
+    operational("TRANSACTION_GENERATION_LINEAGE_MISMATCH");
   }
   return { proof, rows };
 }
