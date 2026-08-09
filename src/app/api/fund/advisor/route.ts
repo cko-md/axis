@@ -8,6 +8,7 @@ import { memoryRateLimit } from "@/lib/ratelimit";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import type { Json } from "@/lib/supabase/database.types";
 import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
+import { TransactionCoverageOperationalError } from "@/lib/fund/transactionCoverage";
 
 /**
  * FIN-502: Advisor chat — the only conversational entry point with real
@@ -197,12 +198,14 @@ export async function POST(req: NextRequest) {
         output = await executeTool(block.name, block.input as Record<string, unknown>, { supabase, userId: user.id });
       } catch (error) {
         isError = true;
-        captureRouteError(error, {
-          route: "/api/fund/advisor",
-          operation: "execute_financial_tool",
-          area: "fund",
-          status: 500,
-        });
+        if (error instanceof TransactionCoverageOperationalError) {
+          captureRouteError(error, {
+            route: "/api/fund/advisor",
+            operation: "execute_financial_tool",
+            area: "fund",
+            status: 500,
+          });
+        }
         output = { error: "TOOL_EXECUTION_FAILED" };
       }
       const latencyMs = Date.now() - startedAt;

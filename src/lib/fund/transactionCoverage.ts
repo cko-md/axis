@@ -36,6 +36,13 @@ export type TransactionLineageRow = {
   generation_id?: unknown;
 };
 
+export class TransactionCoverageOperationalError extends Error {
+  constructor(public readonly code: string) {
+    super(code);
+    this.name = "TransactionCoverageOperationalError";
+  }
+}
+
 const TRANSACTION_PAGE_SIZE = 500;
 const MAX_COMPLETE_TRANSACTION_ROWS = 20_000;
 
@@ -44,7 +51,7 @@ function unavailable(): TransactionCoverageProof {
 }
 
 function operational(code: string): never {
-  throw new Error(code);
+  throw new TransactionCoverageOperationalError(code);
 }
 
 function dateOnly(value: unknown): string | null {
