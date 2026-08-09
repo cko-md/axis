@@ -15,7 +15,11 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  if tg_op = 'DELETE' and pg_catalog.pg_trigger_depth() > 1 then
+  if tg_op = 'DELETE'
+     and pg_catalog.pg_trigger_depth() = 2
+     and not exists (
+       select 1 from auth.users where id = old.user_id
+     ) then
     return old;
   end if;
 

@@ -4,7 +4,7 @@
   "latest": {
     "version": "20260809240000",
     "file": "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql",
-    "sha256": "7c4e91bd4ada09bed490c341d62ca74ee4e5a5696cf1e3ab15f1a0b64fd22077"
+    "sha256": "8bdcc9a93e033b5421f065737065f954dc66d1d2a5068e623386a39bf5de5995"
   },
   "migrations": [
     {
@@ -485,7 +485,7 @@
     {
       "version": "20260809240000",
       "file": "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql",
-      "sha256": "7c4e91bd4ada09bed490c341d62ca74ee4e5a5696cf1e3ab15f1a0b64fd22077"
+      "sha256": "8bdcc9a93e033b5421f065737065f954dc66d1d2a5068e623386a39bf5de5995"
     }
   ]
 }

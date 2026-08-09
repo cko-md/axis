@@ -89,7 +89,8 @@ describe("order intent and verified execution database contract", () => {
 
   it("allows only the declared owner-account cascade to remove unexecuted intents", () => {
     expect(cascadeRepair).toContain("tg_op = 'DELETE'");
-    expect(cascadeRepair).toContain("pg_catalog.pg_trigger_depth() > 1");
+    expect(cascadeRepair).toContain("pg_catalog.pg_trigger_depth() = 2");
+    expect(cascadeRepair).toContain("select 1 from auth.users where id = old.user_id");
     expect(cascadeRepair).toContain("raise exception 'order intents are immutable'");
     expect(cascadeRepair).not.toContain("drop trigger");
     expect(cascadeRepair).not.toContain("disable trigger");

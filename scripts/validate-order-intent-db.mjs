@@ -284,6 +284,21 @@ try {
     where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   `, { expectFailure: true, label: "database-owner intent deletion denial" });
   run(disposableUrl, `
+    create table public.intent_nested_delete_probe (id integer primary key);
+    create function public.probe_nested_intent_delete()
+    returns trigger language plpgsql set search_path = '' as $$
+    begin
+      delete from public.fund_order_intents
+      where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      return new;
+    end;
+    $$;
+    create trigger probe_nested_intent_delete
+    after insert on public.intent_nested_delete_probe
+    for each row execute function public.probe_nested_intent_delete();
+    insert into public.intent_nested_delete_probe(id) values (1);
+  `, { expectFailure: true, label: "unrelated nested-trigger intent deletion denial" });
+  run(disposableUrl, `
     set role service_role;
     insert into public.fund_order_intents (
       id,user_id,provider,action_class,idempotency_key,payload_hash,symbol,side,
@@ -442,6 +457,14 @@ try {
       'provider-order-1','forged',repeat('5',64),1,1,0,now(),now()
     );
   `, { expectFailure: true, label: "authenticated receipt RPC denial" });
+  run(disposableUrl, `
+    delete from auth.users where id='11111111-1111-4111-8111-111111111111';
+  `, { expectFailure: true, label: "executed owner account retention" });
+  assertScalar(
+    "select (select count(*) from auth.users where id='11111111-1111-4111-8111-111111111111')::text || ':' || (select count(*) from public.fund_order_intents where user_id='11111111-1111-4111-8111-111111111111')::text || ':' || (select count(*) from public.fund_order_submissions where user_id='11111111-1111-4111-8111-111111111111')::text || ':' || (select count(*) from public.fund_execution_receipts where user_id='11111111-1111-4111-8111-111111111111')::text || ':' || (select count(*) from public.fund_transactions where user_id='11111111-1111-4111-8111-111111111111')::text;",
+    "1:2:1:1:1",
+    "failed executed-owner deletion retains the complete financial history",
+  );
 
   process.stdout.write(`ORDER_INTENT_DB_VALIDATION_PASS ${databaseName}\n`);
 } finally {
