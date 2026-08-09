@@ -72,6 +72,12 @@ owner merge authorization and evidence. Any source, protected-test, migration,
 manifest, or ADR change invalidates the envelope and requires fresh hashes and
 review.
 
+After the single permitted attempt, the executor must destroy or
+cryptographically invalidate the one-use acceptance envelope, retain a
+sanitized immutable receipt, and destroy any secret-bearing execution journal
+after protected-branch and ruleset restoration has been independently
+verified.
+
 ## Rollback
 
 Before the database contract, abandoning the candidate restores the eight base

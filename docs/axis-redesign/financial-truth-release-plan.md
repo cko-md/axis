@@ -92,6 +92,9 @@ independently review the append-only contract migration. It must:
 - remove `guard_fund_connection_expansion_compatibility`;
 - remove `guard_make_outbox_expansion_compatibility` after all old workers are
   drained;
+- remove the lineage-less detected-recurring compatibility branch from
+  `guard_fund_recurring_transaction_authority`; every detected recurrence must
+  carry authoritative provider lineage before publication resumes;
 - remove the protected-main budget, bank-transaction, recurring, and holding
   conflict arbiters after the exact app is Ready, old workers are drained, and
   the aggregate collision preflight is clean; enable and observe new publishers
