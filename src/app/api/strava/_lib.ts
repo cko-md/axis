@@ -1,6 +1,9 @@
 import { cookies } from "next/headers";
 import {
-  providerTokensForSubject,
+  clearProviderRefreshRejectionForGeneration,
+  markProviderRefreshRejectedForSubject,
+  peekProviderTokensForSubject,
+  providerRefreshRejectedForSubject,
   replaceRefreshedProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
 import {
@@ -35,10 +38,18 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   const clientId = optionalEnv("STRAVA_CLIENT_ID");
   if (!clientId || !clientSecret) return null;
   const cookieStore = await cookies();
-  const tokens = providerTokensForSubject(cookieStore, "strava", subject, clientSecret);
+  const tokens = peekProviderTokensForSubject(cookieStore, "strava", subject, clientSecret);
   if (tokens.accessToken) return tokens.accessToken;
 
   if (!tokens.refreshToken) return null;
+  if (providerRefreshRejectedForSubject(
+    cookieStore,
+    "strava",
+    subject,
+    clientSecret,
+    tokens.refreshToken,
+    tokens.credentialAttempt,
+  )) return null;
 
   let exchange: { response: Response; body: {
     access_token?: unknown;
@@ -67,10 +78,14 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       res.status < 500 &&
       data?.error === "invalid_grant"
     ) {
-      // HTTP cookie responses provide no compare-and-swap against a concurrent
-      // refresh that may already have rotated this same credential slot. A
-      // stale invalid_grant response must therefore remain non-mutating; later
-      // OAuth authorization or explicit disconnect performs durable cleanup.
+      markProviderRefreshRejectedForSubject(
+        cookieStore,
+        "strava",
+        subject,
+        clientSecret,
+        tokens.refreshToken,
+        tokens.credentialAttempt,
+      );
       return null;
     }
     if (res.status >= 400) {
@@ -96,6 +111,14 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       : tokens.refreshToken,
     expiresIn: data?.expires_in,
   }, subject, clientSecret, tokens.credentialAttempt);
+  clearProviderRefreshRejectionForGeneration(
+    cookieStore,
+    "strava",
+    subject,
+    clientSecret,
+    tokens.refreshToken,
+    tokens.credentialAttempt,
+  );
   return fresh;
 }
 

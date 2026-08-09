@@ -6,7 +6,10 @@ import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 import { DEFAULT_LOCATION, type GeoLocation } from "@/lib/geo/default-location";
 import { getWidgetById } from "@/lib/store/widgets";
 import {
+  widgetCacheRowMatchesDefinition,
+  widgetCacheRowToData,
   widgetRefreshFailureData,
+  type WidgetCacheRow,
   type WidgetData,
 } from "@/lib/widgets/cache";
 import { getWidgetDefinition } from "@/lib/widgets/registry";
@@ -44,6 +47,8 @@ type BatchResponse = {
   errors: Record<string, { code: string; message: string; retryable: boolean; status?: number }>;
 };
 
+type CacheResponse = { rows: WidgetCacheRow[] };
+
 function batchWidgetToData(widget: BatchWidget): WidgetData {
   return {
     v: widget.value,
@@ -75,6 +80,7 @@ export function useWidgetData(
   const [data, setData] = useState<Record<string, WidgetData>>({});
   const geoRef = useRef<GeoLocation>(DEFAULT_LOCATION);
   const controllersRef = useRef(new Set<AbortController>());
+  const liveCommittedWidgetIdsRef = useRef(new Set<string>());
   const authorityRef = useRef<WidgetAuthority | null>(null);
   const dataAuthorityRef = useRef<WidgetAuthority | null>(null);
   authorityRef.current = providerAuthority?.accountState === "ready" && providerAuthority.subject
@@ -94,11 +100,13 @@ export function useWidgetData(
   const retireWidgetRequests = useCallback(() => {
     for (const controller of controllersRef.current) controller.abort();
     controllersRef.current.clear();
+    liveCommittedWidgetIdsRef.current.clear();
     dataAuthorityRef.current = null;
   }, []);
 
   useEffect(() => {
     const authority = authorityRef.current;
+    let active = true;
     if (!authority) {
       setGeoStatus("idle");
       return;
@@ -114,13 +122,13 @@ export function useWidgetData(
     setGeoStatus("pending");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        if (!isCurrent(authority)) return;
+        if (!active || !isCurrent(authority)) return;
         geoRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, name: "Your location" };
         setGeoStatus("granted");
         setGeoVersion((v) => v + 1);
       },
       (err) => {
-        if (!isCurrent(authority)) return;
+        if (!active || !isCurrent(authority)) return;
         // Denied or otherwise unavailable — fall back to DEFAULT_LOCATION
         // (geoRef.current is already seeded with it) but report *why*, so
         // the caller can tell the user instead of failing silently.
@@ -129,6 +137,9 @@ export function useWidgetData(
       },
       { timeout: 5000 },
     );
+    return () => {
+      active = false;
+    };
   }, [
     isCurrent,
     locationEnabled,
@@ -196,6 +207,9 @@ export function useWidgetData(
         if (!isCurrent(authority) || controller.signal.aborted) return;
         if (!res.ok) throw new Error((json as { error?: string }).error ?? "Widget batch failed");
         const payload = json as BatchResponse;
+        for (const id of Object.keys(payload.widgets ?? {})) {
+          liveCommittedWidgetIdsRef.current.add(id);
+        }
         setData((d) => {
           const next = { ...d };
           for (const [id, widget] of Object.entries(payload.widgets ?? {})) {
@@ -225,6 +239,59 @@ export function useWidgetData(
     [isCurrent],
   );
 
+  const hydrateCache = useCallback(async (ids: string[], signal?: AbortSignal) => {
+    const requestedIds = uniqueWidgetIds(ids);
+    if (requestedIds.length === 0) return;
+    const authority = authorityRef.current;
+    if (!authority || !isCurrent(authority)) return;
+    dataAuthorityRef.current = authority;
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
+    const abortFromCaller = () => controller.abort();
+    signal?.addEventListener("abort", abortFromCaller, { once: true });
+    try {
+      const response = await subjectBoundFetch(
+        authority.subject,
+        "/api/widgets/cache",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ widgetIds: requestedIds }),
+          signal: controller.signal,
+        },
+      );
+      if (!isCurrent(authority) || controller.signal.aborted) return;
+      const body = await response.json().catch(() => null) as CacheResponse | null;
+      if (!isCurrent(authority) || controller.signal.aborted || !response.ok || !body) return;
+      setData((current) => {
+        const next = { ...current };
+        for (const row of body.rows ?? []) {
+          if (!widgetCacheRowMatchesDefinition(row)) continue;
+          if (liveCommittedWidgetIdsRef.current.has(row.widget_id)) continue;
+          const existing = current[row.widget_id];
+          const existingTime = Date.parse(existing?.updatedAt ?? "");
+          const cachedTime = Date.parse(row.fetched_at);
+          if (
+            Number.isFinite(existingTime) &&
+            Number.isFinite(cachedTime) &&
+            existingTime >= cachedTime
+          ) continue;
+          next[row.widget_id] = {
+            ...widgetCacheRowToData(row),
+            loading: existing?.loading ?? false,
+          };
+        }
+        return next;
+      });
+    } catch {
+      // Cache hydration is an optional acceleration. The live batch remains
+      // authoritative and the server records actionable cache failures.
+    } finally {
+      signal?.removeEventListener("abort", abortFromCaller);
+      controllersRef.current.delete(controller);
+    }
+  }, [isCurrent]);
+
   const refreshOne = useCallback(
     async (id: string, signal?: AbortSignal) => {
       const definition = getWidgetDefinition(id);
@@ -244,6 +311,21 @@ export function useWidgetData(
   const refreshAll = useCallback((signal?: AbortSignal) => {
     return refreshBatch(widgetIds, signal);
   }, [widgetIds, refreshBatch]);
+
+  const widgetKey = uniqueWidgetIds(widgetIds).join("|");
+
+  useEffect(() => {
+    if (!authorityRef.current || !widgetKey) return;
+    const controller = new AbortController();
+    void hydrateCache(widgetKey.split("|"), controller.signal);
+    return () => controller.abort();
+  }, [
+    hydrateCache,
+    providerAuthority?.accountState,
+    providerAuthority?.authorityEpoch,
+    providerAuthority?.subject,
+    widgetKey,
+  ]);
 
   useEffect(() => {
     if (!authorityRef.current) return;

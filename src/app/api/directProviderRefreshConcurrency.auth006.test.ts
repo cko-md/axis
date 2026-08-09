@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import {
-  createProviderOwnerSeal,
+  markProviderRefreshRejectedForSubject,
   providerTokensForSubject,
+  providerRefreshRejectedForSubject,
+  replaceProviderTokenCookies,
   type MutableProviderCookieStore,
 } from "@/lib/auth/providerCookies.server";
 
@@ -78,6 +80,45 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     process.env.STRAVA_CLIENT_SECRET = "strava-secret";
   });
 
+  it("binds a terminal marker to the exact OAuth attempt even when token text repeats", () => {
+    const store = cookieStore();
+    const oldAttempt = {
+      providerState: "a".repeat(43),
+      authorizationOrder: 100,
+    };
+    const newAttempt = {
+      providerState: "b".repeat(43),
+      authorizationOrder: 101,
+    };
+    markProviderRefreshRejectedForSubject(
+      store,
+      "spotify",
+      subject,
+      "spotify-secret",
+      "provider-reused-refresh-token",
+      oldAttempt,
+    );
+
+    expect(providerRefreshRejectedForSubject(
+      store,
+      "spotify",
+      subject,
+      "spotify-secret",
+      "provider-reused-refresh-token",
+      oldAttempt,
+    )).toBe(true);
+    expect(providerRefreshRejectedForSubject(
+      store,
+      "spotify",
+      subject,
+      "spotify-secret",
+      "provider-reused-refresh-token",
+      newAttempt,
+    )).toBe(false);
+    expect([...store.values.keys()].join(" ")).not.toContain("provider-reused-refresh-token");
+    expect([...store.values.values()].join(" ")).not.toContain("provider-reused-refresh-token");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -91,7 +132,6 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     {
       provider: "spotify" as const,
       owner: "spotify_token_owner",
-      refresh: "spotify_refresh_token",
       secret: "spotify-secret",
       freshAccess: "spotify-access-v2",
       freshRefresh: "spotify-refresh-v2",
@@ -100,7 +140,6 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     {
       provider: "strava" as const,
       owner: "strava_token_owner",
-      refresh: "strava_refresh_token",
       secret: "strava-secret",
       freshAccess: "strava-access-v2",
       freshRefresh: "strava-refresh-v2",
@@ -109,16 +148,33 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
   ])("keeps a successful $provider rotation when a same-snapshot invalid_grant lands last", async ({
     provider,
     owner,
-    refresh,
     secret,
     freshAccess,
     freshRefresh,
     getAccessToken,
   }) => {
-    const browser = new Map<string, string>([
-      [owner, createProviderOwnerSeal(provider, subject, secret)],
-      [refresh, `${provider}-refresh-v1`],
-    ]);
+    const bootstrap = cookieStore();
+    replaceProviderTokenCookies(
+      bootstrap,
+      provider,
+      {
+        accessToken: `${provider}-expired-access`,
+        refreshToken: `${provider}-refresh-v1`,
+      },
+      subject,
+      secret,
+    );
+    const subjectOwner = [...bootstrap.values.keys()].find((name) =>
+      name.startsWith(`${owner}_s1_`));
+    const subjectAccess = [...bootstrap.values.keys()].find((name) =>
+      name.startsWith(`${provider}_access_token_s1_`));
+    if (!subjectOwner || !subjectAccess) throw new Error("TEST_SUBJECT_SLOT_MISSING");
+    bootstrap.values.set(subjectOwner, "corrupt-owner");
+    bootstrap.values.delete(subjectAccess);
+    bootstrap.values.delete(`${provider}_access_token`);
+    bootstrap.operations.length = 0;
+    const browser = new Map(bootstrap.values);
+    const initialBrowser = new Map(browser);
     const winnerStore = cookieStore(browser);
     const loserStore = cookieStore(browser);
     mocks.stores.push(winnerStore, loserStore);
@@ -148,7 +204,9 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     await expect(loser).resolves.toBeNull();
 
     expect(winnerStore.operations.length).toBeGreaterThan(0);
-    expect(loserStore.operations).toEqual([]);
+    expect(loserStore.operations).toHaveLength(1);
+    expect(loserStore.operations[0]).toMatchObject({ kind: "set" });
+    expect(loserStore.operations.some((operation) => operation.kind === "delete")).toBe(false);
     applyOperations(browser, winnerStore.operations);
     applyOperations(browser, loserStore.operations);
 
@@ -158,5 +216,18 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       refreshToken: freshRefresh,
     });
     expect(finalStore.operations).toEqual([]);
+
+    const inverseBrowser = new Map(initialBrowser);
+    applyOperations(inverseBrowser, loserStore.operations);
+    applyOperations(inverseBrowser, winnerStore.operations);
+    expect(providerTokensForSubject(
+      cookieStore(inverseBrowser),
+      provider,
+      subject,
+      secret,
+    )).toMatchObject({
+      accessToken: freshAccess,
+      refreshToken: freshRefresh,
+    });
   });
 });

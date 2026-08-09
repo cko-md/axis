@@ -71,6 +71,8 @@ const CREDENTIAL_CUTOFF_VERSION = 1;
 const CREDENTIAL_CUTOFF_SUFFIX_PATTERN = /^([0-9a-z]+)_([a-f0-9]{16})$/;
 const CREDENTIAL_CUTOFF_VALUE_PATTERN = /^pc1_[A-Za-z0-9_-]{43}$/;
 const CREDENTIAL_CUTOFF_MAX_AGE = 60 * 60 * 24 * 365;
+const REFRESH_REJECTION_VERSION = 1;
+const REFRESH_REJECTION_VALUE_PATTERN = /^pr1_[A-Za-z0-9_-]{43}$/;
 
 function options(maxAge: number): CookieOptions {
   return {
@@ -185,6 +187,76 @@ function subjectCredentialCookieNames(
     refresh: `${config.refresh}_s${OWNER_SEAL_VERSION}_${slot}`,
     owner: `${config.owner}_s${OWNER_SEAL_VERSION}_${slot}`,
   };
+}
+
+function providerRefreshRejectionCookiePrefix(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): string {
+  return `${PROVIDER_COOKIES[provider].owner}_refresh_rejected_v${REFRESH_REJECTION_VERSION}_${subjectCookieSlot(provider, subject, secret)}_`;
+}
+
+function providerRefreshRejectionDigest(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  refreshToken: string,
+  attempt?: ProviderCredentialAttempt,
+): string {
+  if (
+    !isProfileSubject(subject) ||
+    !secret ||
+    !refreshToken ||
+    (attempt && (
+      !OAUTH_PROVIDER_STATE_PATTERN.test(attempt.providerState) ||
+      !Number.isSafeInteger(attempt.authorizationOrder) ||
+      attempt.authorizationOrder < 0
+    ))
+  ) {
+    throw new Error("PROVIDER_REFRESH_REJECTION_INPUT_INVALID");
+  }
+  const generation = attempt
+    ? `${attempt.authorizationOrder.toString(36)}:${attempt.providerState}`
+    : "subject-slot";
+  return createHmac("sha256", ownerSealKey(secret, provider))
+    .update(
+      `axis:direct-provider-refresh-rejection:v${REFRESH_REJECTION_VERSION}\0${subject}\0${generation}\0${refreshToken}`,
+    )
+    .digest("base64url");
+}
+
+function providerRefreshRejectionCookieName(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  refreshToken: string,
+  attempt?: ProviderCredentialAttempt,
+): string {
+  const digest = providerRefreshRejectionDigest(
+    provider,
+    subject,
+    secret,
+    refreshToken,
+    attempt,
+  );
+  return `${providerRefreshRejectionCookiePrefix(provider, subject, secret)}${digest.slice(0, 22)}`;
+}
+
+function createProviderRefreshRejectionValue(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  refreshToken: string,
+  attempt?: ProviderCredentialAttempt,
+): string {
+  return `pr${REFRESH_REJECTION_VERSION}_${providerRefreshRejectionDigest(
+    provider,
+    subject,
+    secret,
+    refreshToken,
+    attempt,
+  )}`;
 }
 
 function attemptCredentialCookieNames(
@@ -584,6 +656,121 @@ export function providerTokensForSubject(
   };
 }
 
+/**
+ * Selects the exact subject's credential snapshot without scheduling any
+ * response-cookie cleanup or migration. Refresh requests must use this reader:
+ * a stale response cannot safely apply mutations selected before the provider
+ * exchange finishes.
+ */
+export function peekProviderTokensForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): ReturnType<typeof providerTokensForSubject> {
+  const readOnlyStore: MutableProviderCookieStore = {
+    get: (name) => store.get(name),
+    getAll: () => store.getAll?.() ?? [],
+    set: () => undefined,
+    delete: () => undefined,
+  };
+  return providerTokensForSubject(readOnlyStore, provider, subject, secret);
+}
+
+/** True only for the exact signed refresh-token generation rejected upstream. */
+export function providerRefreshRejectedForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  refreshToken: string,
+  attempt?: ProviderCredentialAttempt,
+): boolean {
+  const supplied = store.get(
+    providerRefreshRejectionCookieName(
+      provider,
+      subject,
+      secret,
+      refreshToken,
+      attempt,
+    ),
+  )?.value;
+  if (!REFRESH_REJECTION_VALUE_PATTERN.test(supplied ?? "")) return false;
+  const expected = createProviderRefreshRejectionValue(
+    provider,
+    subject,
+    secret,
+    refreshToken,
+    attempt,
+  );
+  const suppliedBytes = Buffer.from(supplied!);
+  const expectedBytes = Buffer.from(expected);
+  return suppliedBytes.length === expectedBytes.length &&
+    timingSafeEqual(suppliedBytes, expectedBytes);
+}
+
+/** Records a terminal rejection without deleting or exposing the token. */
+export function markProviderRefreshRejectedForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  refreshToken: string,
+  attempt?: ProviderCredentialAttempt,
+): void {
+  store.set(
+    providerRefreshRejectionCookieName(
+      provider,
+      subject,
+      secret,
+      refreshToken,
+      attempt,
+    ),
+    createProviderRefreshRejectionValue(
+      provider,
+      subject,
+      secret,
+      refreshToken,
+      attempt,
+    ),
+    options(PROVIDER_COOKIES[provider].refreshMaxAge),
+  );
+}
+
+/** A successful rotation supersedes any rejection marker in its response order. */
+export function clearProviderRefreshRejectionForGeneration(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  refreshToken: string,
+  attempt?: ProviderCredentialAttempt,
+): void {
+  store.delete(providerRefreshRejectionCookieName(
+    provider,
+    subject,
+    secret,
+    refreshToken,
+    attempt,
+  ));
+}
+
+function clearProviderRefreshRejectionsForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): void {
+  const prefix = providerRefreshRejectionCookiePrefix(
+    provider,
+    subject,
+    secret,
+  );
+  for (const cookie of store.getAll?.() ?? []) {
+    if (cookie.name.startsWith(prefix)) store.delete(cookie.name);
+  }
+}
+
 export function setProviderAccessToken(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
@@ -652,6 +839,7 @@ export function clearProviderCredentialCookiesForSubject(
   ) {
     clearProviderCredentialCookies(store, provider);
   }
+  clearProviderRefreshRejectionsForSubject(store, provider, subject, secret);
 }
 
 /** Clears exact-subject credentials and only pending attempts visible in this request snapshot. */
@@ -759,6 +947,7 @@ export function replaceProviderTokenCookies(
     subject,
     secret,
   );
+  clearProviderRefreshRejectionsForSubject(store, provider, subject, secret);
   const legacyNames = PROVIDER_COOKIES[provider];
   replaceCredentialCookiesByName(
     store,
@@ -798,6 +987,7 @@ export function replaceProviderTokenCookiesForAttempt(
     createProviderAttemptOwnerSeal(provider, subject, secret, attempt),
     options(config.refreshMaxAge),
   );
+  clearProviderRefreshRejectionsForSubject(store, provider, subject, secret);
 }
 
 /**

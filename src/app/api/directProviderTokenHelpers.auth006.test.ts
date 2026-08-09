@@ -416,18 +416,31 @@ describe("AUTH-006 direct provider token helpers", () => {
       createProviderOwnerSeal(provider, subject, secret),
     );
     mocks.cookieStore.values.set(refresh, "revoked-refresh");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ error: "invalid_grant" }),
-      { status: 400 },
-    )));
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: "invalid_grant" }),
+        { status: 400 },
+      ))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "replacement-access",
+        refresh_token: "replacement-refresh-v2",
+        expires_in: 900,
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", providerFetch);
 
+    await expect(getAccessToken(userId)).resolves.toBeNull();
     await expect(getAccessToken(userId)).resolves.toBeNull();
     expect(mocks.cookieStore.values.get(owner)).toBe(
       createProviderOwnerSeal(provider, subject, secret),
     );
     expect(mocks.cookieStore.values.has(access)).toBe(false);
     expect(mocks.cookieStore.values.get(refresh)).toBe("revoked-refresh");
-    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.cookieStore.set).toHaveBeenCalledTimes(1);
     expect(mocks.cookieStore.delete).not.toHaveBeenCalled();
+
+    mocks.cookieStore.values.set(refresh, "replacement-refresh-v1");
+    await expect(getAccessToken(userId)).resolves.toBe("replacement-access");
+    expect(providerFetch).toHaveBeenCalledTimes(2);
   });
 });

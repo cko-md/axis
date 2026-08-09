@@ -18,13 +18,27 @@ function deferred<T>() {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 let observed: Record<string, WidgetData> = {};
+let observedGeoStatus = "idle";
 
 function Probe({ state, subject, epoch }: { state: AccountState; subject: string | null; epoch: number }) {
-  observed = useWidgetData(WIDGET_IDS, false, {
+  const result = useWidgetData(WIDGET_IDS, false, {
     accountState: state,
     subject,
     authorityEpoch: epoch,
-  }).data;
+  });
+  observed = result.data;
+  observedGeoStatus = result.geoStatus;
+  return null;
+}
+
+function LocationProbe({ state, subject, epoch }: { state: AccountState; subject: string | null; epoch: number }) {
+  const result = useWidgetData(WIDGET_IDS, true, {
+    accountState: state,
+    subject,
+    authorityEpoch: epoch,
+  });
+  observed = result.data;
+  observedGeoStatus = result.geoStatus;
   return null;
 }
 
@@ -37,6 +51,7 @@ afterEach(async () => {
   root = null;
   container = null;
   observed = {};
+  observedGeoStatus = "idle";
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -46,7 +61,10 @@ describe("useWidgetData AUTH-006 subject boundary", () => {
   it("discards a delayed A batch body after the shell authority changes", async () => {
     const body = deferred<Record<string, unknown>>();
     let signal: AbortSignal | undefined;
-    const fetchMock = vi.fn((_url: URL, init?: RequestInit) => {
+    const fetchMock = vi.fn((url: URL, init?: RequestInit) => {
+      if (url.pathname === "/api/widgets/cache") {
+        return Promise.resolve(new Response(JSON.stringify({ rows: [] }), { status: 200 }));
+      }
       signal = init?.signal ?? undefined;
       return Promise.resolve({ ok: true, status: 200, json: () => body.promise });
     });
@@ -59,7 +77,7 @@ describe("useWidgetData AUTH-006 subject boundary", () => {
       root?.render(<Probe state="ready" subject={SUBJECT_A} epoch={1} />);
       await Promise.resolve();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       root?.render(<Probe state="loading" subject={null} epoch={2} />);
@@ -90,8 +108,13 @@ describe("useWidgetData AUTH-006 subject boundary", () => {
     vi.useFakeTimers();
     const intervalBody = deferred<Record<string, unknown>>();
     let intervalSignal: AbortSignal | undefined;
-    const fetchMock = vi.fn((_url: URL, init?: RequestInit) => {
-      if (fetchMock.mock.calls.length === 2) {
+    let batchCalls = 0;
+    const fetchMock = vi.fn((url: URL, init?: RequestInit) => {
+      if (url.pathname === "/api/widgets/cache") {
+        return Promise.resolve(new Response(JSON.stringify({ rows: [] }), { status: 200 }));
+      }
+      batchCalls += 1;
+      if (batchCalls === 2) {
         intervalSignal = init?.signal ?? undefined;
         return Promise.resolve({
           ok: true,
@@ -115,12 +138,12 @@ describe("useWidgetData AUTH-006 subject boundary", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(intervalSignal?.aborted).toBe(false);
 
     await act(async () => root?.unmount());
@@ -142,5 +165,202 @@ describe("useWidgetData AUTH-006 subject boundary", () => {
     });
     await Promise.resolve();
     await Promise.resolve();
+  });
+
+  it("paints subject-bound cache before the live batch and then commits fresh data", async () => {
+    const liveBody = deferred<Record<string, unknown>>();
+    const fetchMock = vi.fn((url: URL) => {
+      if (url.pathname === "/api/widgets/cache") {
+        return Promise.resolve(new Response(JSON.stringify({
+          rows: [{
+            widget_id: "run",
+            cache_key: "run",
+            status: "fresh",
+            value: "cached run",
+            hint: "cached hint",
+            raw: {},
+            error: null,
+            fetched_at: "2026-08-09T00:00:00.000Z",
+            expires_at: "2099-08-09T00:15:00.000Z",
+          }],
+        }), { status: 200 }));
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => liveBody.promise });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<Probe state="ready" subject={SUBJECT_A} epoch={1} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(observed.run?.v).toBe("cached run");
+    expect(observed.run?.loading).toBe(true);
+
+    await act(async () => {
+      liveBody.resolve({
+        widgets: {
+          run: {
+            id: "run",
+            status: "fresh",
+            value: "fresh run",
+            hint: "fresh hint",
+            fetchedAt: "2026-08-09T00:01:00.000Z",
+            source: { provider: "strava", cacheKey: "run" },
+          },
+        },
+        errors: {},
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(observed.run?.v).toBe("fresh run");
+    expect(observed.run?.loading).toBe(false);
+  });
+
+  it("does not let a late cache body overwrite a committed live widget", async () => {
+    const cacheBody = deferred<Record<string, unknown>>();
+    const fetchMock = vi.fn((url: URL) => {
+      if (url.pathname === "/api/widgets/cache") {
+        return Promise.resolve({ ok: true, status: 200, json: () => cacheBody.promise });
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        widgets: {
+          run: {
+            id: "run",
+            status: "fresh",
+            value: "fresh wins",
+            hint: "fresh hint",
+            fetchedAt: "2026-08-09T00:01:00.000Z",
+            source: { provider: "strava", cacheKey: "run" },
+          },
+        },
+        errors: {},
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<Probe state="ready" subject={SUBJECT_A} epoch={1} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(observed.run?.v).toBe("fresh wins");
+
+    await act(async () => {
+      cacheBody.resolve({
+        rows: [{
+          widget_id: "run",
+          cache_key: "run",
+          status: "fresh",
+          value: "late cache",
+          hint: "late cache hint",
+          raw: {},
+          error: null,
+          fetched_at: "2099-08-09T00:00:00.000Z",
+          expires_at: "2099-08-09T00:15:00.000Z",
+        }],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(observed.run?.v).toBe("fresh wins");
+  });
+
+  it("aborts and discards a delayed cache body when authority retires", async () => {
+    const cacheBody = deferred<Record<string, unknown>>();
+    let cacheSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((url: URL, init?: RequestInit) => {
+      if (url.pathname === "/api/widgets/cache") {
+        cacheSignal = init?.signal ?? undefined;
+        return Promise.resolve({ ok: true, status: 200, json: () => cacheBody.promise });
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        widgets: {},
+        errors: {},
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<Probe state="ready" subject={SUBJECT_A} epoch={1} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root?.render(<Probe state="loading" subject={null} epoch={2} />);
+    });
+    expect(cacheSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      cacheBody.resolve({
+        rows: [{
+          widget_id: "run",
+          cache_key: "run",
+          status: "fresh",
+          value: "retired private cache",
+          hint: "retired private hint",
+          raw: {},
+          error: null,
+          fetched_at: "2099-08-09T00:00:00.000Z",
+          expires_at: "2099-08-09T00:15:00.000Z",
+        }],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(observed).toEqual({});
+  });
+
+  it("ignores a geolocation callback delivered after unmount", async () => {
+    let succeed: PositionCallback | undefined;
+    const original = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: (onSuccess: PositionCallback) => {
+          succeed = onSuccess;
+        },
+      },
+    });
+    const fetchMock = vi.fn((url: URL) => Promise.resolve(new Response(JSON.stringify(
+      url.pathname === "/api/widgets/cache"
+        ? { rows: [] }
+        : { widgets: {}, errors: {} },
+    ), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<LocationProbe state="ready" subject={SUBJECT_A} epoch={1} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(observedGeoStatus).toBe("pending");
+    await act(async () => root?.unmount());
+    root = null;
+    await act(async () => {
+      succeed?.({ coords: { latitude: 1, longitude: 2 } } as GeolocationPosition);
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    if (original) Object.defineProperty(navigator, "geolocation", original);
+    else Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: undefined,
+    });
   });
 });
