@@ -762,6 +762,15 @@ export function providerTokensForSubject(
           secret,
         );
         clearCredentialCookiesByName(store, slotNames);
+        const sharedNames = PROVIDER_COOKIES[provider];
+        if (validOwnerSeal(
+          store.get(sharedNames.owner)?.value,
+          provider,
+          subject,
+          secret,
+        )) {
+          clearProviderCredentialCookies(store, provider);
+        }
       }
       return {
         accessToken: slotAccessToken,
@@ -797,6 +806,7 @@ export function providerTokensForSubject(
       subject,
       secret,
     );
+    clearProviderCredentialCookies(store, provider);
   }
   return {
     accessToken,
