@@ -107,14 +107,23 @@ async function appendDeliveryAudit(
   dedupeKeyHash: string,
   result: "success" | "failure" | "pending_confirmation",
   metadata: Record<string, unknown> = {},
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const { error } = await admin.from("audit_logs").insert({
+  ensureDeliveryActive(signal);
+  const query = admin.from("audit_logs").insert({
     user_id: payload.userId,
     actor: "system",
     action: `notify.${payload.kind}`,
     payload: { dedupe_key_hash: dedupeKeyHash, ...metadata },
     result,
   });
+  const abortable = query as typeof query & {
+    abortSignal?: (activeSignal: AbortSignal) => Promise<{ error: unknown }>;
+  };
+  const { error } = signal && typeof abortable.abortSignal === "function"
+    ? await abortable.abortSignal(signal)
+    : await query;
+  ensureDeliveryActive(signal);
   if (!error) return true;
   captureOutboxFailure("notification_audit", payload.kind);
   return false;
@@ -136,12 +145,16 @@ async function markUnattemptedFailure(input: {
   errorCode: string;
   now: string;
   kind: NotifyKind;
+  signal?: AbortSignal;
 }) {
+  ensureDeliveryActive(input.signal);
   const result = await input.store.failWithoutAttempt({
     row: input.row,
     errorCode: input.errorCode,
     now: input.now,
+    signal: input.signal,
   });
+  ensureDeliveryActive(input.signal);
   if (!result.ok) captureOutboxFailure("outbox_finalize", input.kind);
   return result.ok;
 }
@@ -161,6 +174,7 @@ async function deliverClaimedMakeNotification(input: {
     row: input.row,
     claimToken,
     now: claimedAt,
+    signal: input.deps.signal,
   });
   ensureDeliveryActive(input.deps.signal);
   if (!claim.ok) {
@@ -200,7 +214,9 @@ async function deliverClaimedMakeNotification(input: {
           ...(delivery.error.status !== undefined ? { status: delivery.error.status } : {}),
         },
     now: completedAt,
+    signal: input.deps.signal,
   });
+  ensureDeliveryActive(input.deps.signal);
   if (!completion.ok) captureOutboxFailure("outbox_finalize", input.payload.kind);
 
   if (!delivery.ok) {
@@ -215,6 +231,7 @@ async function deliverClaimedMakeNotification(input: {
         status: delivery.error.status ?? null,
         retryable: delivery.error.retryable,
       },
+      input.deps.signal,
     );
     return {
       sent: false,
@@ -235,6 +252,7 @@ async function deliverClaimedMakeNotification(input: {
     input.dedupeKeyHash,
     confirmedDelivered ? "success" : "pending_confirmation",
     { delivery_id: input.row.id, status: delivery.data.status },
+    input.deps.signal,
   );
   if (confirmedDelivered) {
     return {
@@ -278,6 +296,7 @@ export async function notifyViaMake(
       dedupeKeyHash,
       "failure",
       { error_code: "outbox_encryption_unavailable" },
+      deps.signal,
     );
     return {
       sent: false,
@@ -295,6 +314,7 @@ export async function notifyViaMake(
     dedupeKeyHash,
     payloadCiphertext: sealed.data,
     now,
+    signal: deps.signal,
   });
   ensureDeliveryActive(deps.signal);
   if (!queued.ok) {
@@ -305,6 +325,7 @@ export async function notifyViaMake(
         dedupeKeyHash,
         "pending_confirmation",
         { delivery_id: queued.existing.id, deduped: true, delivery_attempted: false },
+        deps.signal,
       );
       return {
         sent: false,
@@ -327,6 +348,7 @@ export async function notifyViaMake(
         dedupeKeyHash,
         "success",
         { delivery_id: queued.existing.id, deduped: true, delivery_attempted: false },
+        deps.signal,
       );
       return {
         sent: true,
@@ -357,6 +379,7 @@ export async function notifyViaMake(
       errorCode: "webhook_not_configured",
       now: deps.now().toISOString(),
       kind: payload.kind,
+      signal: deps.signal,
     });
     const auditRecorded = await appendDeliveryAudit(
       admin,
@@ -364,6 +387,7 @@ export async function notifyViaMake(
       dedupeKeyHash,
       "pending_confirmation",
       { delivery_id: queued.data.id, reason: "webhook_not_configured" },
+      deps.signal,
     );
     return {
       sent: false,
@@ -381,6 +405,7 @@ export async function notifyViaMake(
     dedupeKeyHash,
     "pending_confirmation",
     { delivery_id: queued.data.id },
+    deps.signal,
   );
   ensureDeliveryActive(deps.signal);
   if (!preflightRecorded) {
@@ -390,6 +415,7 @@ export async function notifyViaMake(
       errorCode: "audit_write_failed",
       now: deps.now().toISOString(),
       kind: payload.kind,
+      signal: deps.signal,
     });
     return {
       sent: false,
@@ -438,6 +464,7 @@ export async function replayMakeNotification(
       errorCode: "payload_decryption_failed",
       now: deps.now().toISOString(),
       kind: row.event_type,
+      signal: deps.signal,
     });
     return {
       sent: false,
@@ -457,6 +484,7 @@ export async function replayMakeNotification(
       errorCode: "webhook_not_configured",
       now: deps.now().toISOString(),
       kind: opened.data.kind,
+      signal: deps.signal,
     });
     return {
       sent: false,
@@ -474,6 +502,7 @@ export async function replayMakeNotification(
     row.dedupe_key_hash,
     "pending_confirmation",
     { delivery_id: row.id, replay: true },
+    deps.signal,
   );
   if (!preflightRecorded) {
     return {

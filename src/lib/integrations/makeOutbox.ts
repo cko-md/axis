@@ -73,23 +73,27 @@ export type MakeOutboxStore = {
     dedupeKeyHash: string;
     payloadCiphertext: string;
     now: string;
+    signal?: AbortSignal;
   }): Promise<MakeOutboxStoreResult<MakeOutboxRow>>;
-  getOwned(id: string, userId: string): Promise<MakeOutboxStoreResult<MakeOutboxRow | null>>;
+  getOwned(id: string, userId: string, signal?: AbortSignal): Promise<MakeOutboxStoreResult<MakeOutboxRow | null>>;
   claim(input: {
     row: MakeOutboxRow;
     claimToken: string;
     now: string;
+    signal?: AbortSignal;
   }): Promise<MakeOutboxStoreResult<MakeOutboxRow>>;
   complete(input: {
     row: MakeOutboxRow;
     claimToken: string;
     completion: MakeOutboxCompletion;
     now: string;
+    signal?: AbortSignal;
   }): Promise<MakeOutboxStoreResult<MakeOutboxRow>>;
   failWithoutAttempt(input: {
     row: MakeOutboxRow;
     errorCode: string;
     now: string;
+    signal?: AbortSignal;
   }): Promise<MakeOutboxStoreResult<MakeOutboxRow>>;
 };
 
@@ -245,10 +249,20 @@ function asRow(value: unknown): MakeOutboxRow {
   return value as MakeOutboxRow;
 }
 
+async function awaitOutboxQuery<T>(
+  query: PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> },
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) throw new DOMException("Make outbox operation aborted", "AbortError");
+  return signal && typeof query.abortSignal === "function"
+    ? await query.abortSignal(signal)
+    : await query;
+}
+
 export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutboxStore {
   return {
     async enqueue(input) {
-      const { data, error } = await admin
+      const insert = admin
         .from("integration_delivery_outbox")
         .insert({
           user_id: input.userId,
@@ -262,15 +276,17 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
         })
         .select(OUTBOX_SELECT)
         .maybeSingle();
+      const { data, error } = await awaitOutboxQuery(insert, input.signal);
       if (!error && data) return { ok: true, data: asRow(data) };
       if (error?.code === "23505") {
-        const existing = await admin
+        const existingQuery = admin
           .from("integration_delivery_outbox")
           .select(OUTBOX_SELECT)
           .eq("user_id", input.userId)
           .eq("provider", "make")
           .eq("dedupe_key_hash", input.dedupeKeyHash)
           .maybeSingle();
+        const existing = await awaitOutboxQuery(existingQuery, input.signal);
         return {
           ok: false,
           code: "duplicate",
@@ -280,19 +296,20 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
       return { ok: false, code: "database" };
     },
 
-    async getOwned(id, userId) {
-      const { data, error } = await admin
+    async getOwned(id, userId, signal) {
+      const query = admin
         .from("integration_delivery_outbox")
         .select(OUTBOX_SELECT)
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
+      const { data, error } = await awaitOutboxQuery(query, signal);
       return error
         ? { ok: false, code: "database" }
         : { ok: true, data: data ? asRow(data) : null };
     },
 
-    async claim({ row, claimToken, now }) {
+    async claim({ row, claimToken, now, signal }) {
       let query = admin
         .from("integration_delivery_outbox")
         .update({
@@ -313,14 +330,15 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
       query = row.claim_token
         ? query.eq("claim_token", row.claim_token)
         : query.is("claim_token", null);
-      const { data, error } = await query.select(OUTBOX_SELECT).maybeSingle();
+      const resultQuery = query.select(OUTBOX_SELECT).maybeSingle();
+      const { data, error } = await awaitOutboxQuery(resultQuery, signal);
       if (error) return { ok: false, code: "database" };
       return data
         ? { ok: true, data: asRow(data) }
         : { ok: false, code: "claim_conflict" };
     },
 
-    async complete({ row, claimToken, completion, now }) {
+    async complete({ row, claimToken, completion, now, signal }) {
       const patch = completion.accepted
         ? {
             status: "accepted",
@@ -342,7 +360,7 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
             delivered_at: null,
             updated_at: now,
           };
-      const { data, error } = await admin
+      const completionQuery = admin
         .from("integration_delivery_outbox")
         .update(patch)
         .eq("id", row.id)
@@ -350,14 +368,15 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
         .eq("claim_token", claimToken)
         .select(OUTBOX_SELECT)
         .maybeSingle();
+      const { data, error } = await awaitOutboxQuery(completionQuery, signal);
       if (error) return { ok: false, code: "database" };
       return data
         ? { ok: true, data: asRow(data) }
         : { ok: false, code: "claim_conflict" };
     },
 
-    async failWithoutAttempt({ row, errorCode, now }) {
-      const { data, error } = await admin
+    async failWithoutAttempt({ row, errorCode, now, signal }) {
+      const failureQuery = admin
         .from("integration_delivery_outbox")
         .update({
           status: "failed",
@@ -374,6 +393,7 @@ export function createSupabaseMakeOutboxStore(admin: SupabaseClient): MakeOutbox
         .eq("attempt_count", row.attempt_count)
         .select(OUTBOX_SELECT)
         .maybeSingle();
+      const { data, error } = await awaitOutboxQuery(failureQuery, signal);
       if (error) return { ok: false, code: "database" };
       return data
         ? { ok: true, data: asRow(data) }
