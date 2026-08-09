@@ -285,7 +285,7 @@ function providerCredentialCutoffForSubject(
   secret: string,
 ): number | null {
   const prefix = credentialCutoffPrefix(provider, subject, secret);
-  const valid: Array<{ name: string; cutoffMs: number }> = [];
+  const valid: Array<{ name: string; cutoffOrder: number }> = [];
   for (const cookie of store.getAll?.() ?? []) {
     if (!cookie.name.startsWith(prefix)) continue;
     const suffix = cookie.name.slice(prefix.length);
@@ -293,8 +293,8 @@ function providerCredentialCutoffForSubject(
     if (!match || !match[1] || !CREDENTIAL_CUTOFF_VALUE_PATTERN.test(cookie.value)) {
       continue;
     }
-    const cutoffMs = Number.parseInt(match[1], 36);
-    if (!Number.isSafeInteger(cutoffMs) || cutoffMs < 0) continue;
+    const cutoffOrder = Number.parseInt(match[1], 36);
+    if (!Number.isSafeInteger(cutoffOrder) || cutoffOrder < 0) continue;
     const expected = createCredentialCutoffValue(
       provider,
       subject,
@@ -307,16 +307,16 @@ function providerCredentialCutoffForSubject(
       suppliedBytes.length === expectedBytes.length &&
       timingSafeEqual(suppliedBytes, expectedBytes)
     ) {
-      valid.push({ name: cookie.name, cutoffMs });
+      valid.push({ name: cookie.name, cutoffOrder });
     }
   }
-  valid.sort((left, right) => right.cutoffMs - left.cutoffMs);
+  valid.sort((left, right) => right.cutoffOrder - left.cutoffOrder);
   const newest = valid[0];
   if (!newest) return null;
   for (const stale of valid.slice(1)) {
     store.delete(stale.name);
   }
-  return newest.cutoffMs;
+  return newest.cutoffOrder;
 }
 
 function appendProviderCredentialCutoff(
@@ -324,18 +324,18 @@ function appendProviderCredentialCutoff(
   provider: DirectOAuthProvider,
   subject: string,
   secret: string,
-  cutoffMs: number,
+  cutoffOrder: number,
 ): number {
-  if (!Number.isSafeInteger(cutoffMs) || cutoffMs < 0) {
-    throw new Error("PROVIDER_CREDENTIAL_CUTOFF_TIME_INVALID");
+  if (!Number.isSafeInteger(cutoffOrder) || cutoffOrder < 0) {
+    throw new Error("PROVIDER_CREDENTIAL_CUTOFF_ORDER_INVALID");
   }
-  const suffix = `${cutoffMs.toString(36)}_${randomBytes(8).toString("hex")}`;
+  const suffix = `${cutoffOrder.toString(36)}_${randomBytes(8).toString("hex")}`;
   store.set(
     `${credentialCutoffPrefix(provider, subject, secret)}${suffix}`,
     createCredentialCutoffValue(provider, subject, secret, suffix),
     options(CREDENTIAL_CUTOFF_MAX_AGE),
   );
-  return cutoffMs;
+  return cutoffOrder;
 }
 
 function providerCredentialCutoffBoundaryForSubject(
@@ -344,7 +344,7 @@ function providerCredentialCutoffBoundaryForSubject(
   subject: string,
   secret: string,
 ): number {
-  let cutoffMs = Math.max(
+  let cutoffOrder = Math.max(
     Date.now(),
     providerCredentialCutoffForSubject(store, provider, subject, secret) ?? 0,
   );
@@ -361,7 +361,7 @@ function providerCredentialCutoffBoundaryForSubject(
         secret,
         providerState,
       );
-      if (attempt) cutoffMs = Math.max(cutoffMs, attempt.authorizationOrder);
+      if (attempt) cutoffOrder = Math.max(cutoffOrder, attempt.authorizationOrder);
       continue;
     }
     if (cookie.name.startsWith(pendingPrefix)) {
@@ -373,7 +373,9 @@ function providerCredentialCutoffBoundaryForSubject(
         sealedState: cookie.value,
         providerState,
       });
-      if (authorizationOrder !== null) cutoffMs = Math.max(cutoffMs, authorizationOrder);
+      if (authorizationOrder !== null) {
+        cutoffOrder = Math.max(cutoffOrder, authorizationOrder);
+      }
     }
   }
   const legacyAuthorizationOrder = authenticatedOAuthPendingStateOrder({
@@ -383,8 +385,8 @@ function providerCredentialCutoffBoundaryForSubject(
     sealedState: store.get(config.oauthPendingState)?.value ?? null,
   });
   return legacyAuthorizationOrder === null
-    ? cutoffMs
-    : Math.max(cutoffMs, legacyAuthorizationOrder);
+    ? cutoffOrder
+    : Math.max(cutoffOrder, legacyAuthorizationOrder);
 }
 
 export function nextProviderAuthorizationOrder(
@@ -410,7 +412,7 @@ function providerAttemptCredentialsForSubject(
   provider: DirectOAuthProvider,
   subject: string,
   secret: string,
-  cutoffMs: number | null,
+  cutoffOrder: number | null,
 ): {
   accessToken: string | null;
   refreshToken: string | null;
@@ -437,8 +439,8 @@ function providerAttemptCredentialsForSubject(
     if (!credentialAttempt) continue;
     const names = attemptCredentialCookieNames(provider, providerState);
     if (
-      cutoffMs !== null &&
-      credentialAttempt.authorizationOrder <= cutoffMs
+      cutoffOrder !== null &&
+      credentialAttempt.authorizationOrder <= cutoffOrder
     ) {
       clearCredentialCookiesByName(store, names);
       continue;
@@ -525,7 +527,7 @@ export function providerTokensForSubject(
   refreshToken: string | null;
   credentialAttempt?: ProviderCredentialAttempt;
 } {
-  const credentialCutoffMs = providerCredentialCutoffForSubject(
+  const credentialCutoffOrder = providerCredentialCutoffForSubject(
     store,
     provider,
     subject,
@@ -536,10 +538,10 @@ export function providerTokensForSubject(
     provider,
     subject,
     secret,
-    credentialCutoffMs,
+    credentialCutoffOrder,
   );
   if (attemptCredentials) return attemptCredentials;
-  if (credentialCutoffMs !== null) {
+  if (credentialCutoffOrder !== null) {
     return { accessToken: null, refreshToken: null };
   }
   const slotNames = subjectCredentialCookieNames(provider, subject, secret);
@@ -659,7 +661,7 @@ export function clearProviderTokenCookiesForSubject(
   subject: string,
   secret: string,
 ): void {
-  const cutoffMs = providerCredentialCutoffBoundaryForSubject(
+  const cutoffOrder = providerCredentialCutoffBoundaryForSubject(
     store,
     provider,
     subject,
@@ -692,7 +694,7 @@ export function clearProviderTokenCookiesForSubject(
   ) {
     store.delete(legacyNames.oauthPendingState);
   }
-  appendProviderCredentialCutoff(store, provider, subject, secret, cutoffMs);
+  appendProviderCredentialCutoff(store, provider, subject, secret, cutoffOrder);
 }
 
 function clearProviderCredentialCookies(
