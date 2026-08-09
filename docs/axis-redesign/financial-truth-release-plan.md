@@ -95,6 +95,12 @@ independently review the append-only contract migration. It must:
 - remove the lineage-less detected-recurring compatibility branch from
   `guard_fund_recurring_transaction_authority`; every detected recurrence must
   carry authoritative provider lineage before publication resumes;
+- stop the contract if any detected recurring row lacks `source_generations`
+  or `source_generation_hash`, unless a separately reviewed non-fabricating
+  quarantine or removal step reduces that aggregate count to zero;
+- replace `fund_recurring_transactions_lineage_contract` so detected rows
+  require a non-empty `source_generations` array and a 64-character lowercase
+  hexadecimal `source_generation_hash`;
 - remove the protected-main budget, bank-transaction, recurring, and holding
   conflict arbiters after the exact app is Ready, old workers are drained, and
   the aggregate collision preflight is clean; enable and observe new publishers
@@ -105,7 +111,9 @@ independently review the append-only contract migration. It must:
   browser DML;
 - retain service-only publication, immutable intent/submission/receipt
   boundaries, the provider-verified execution guard, and owner SELECT;
-- include an executable privilege, RLS, forgery, and existing-row read-back.
+- include an executable privilege, RLS, forgery, and existing-row read-back,
+  including zero lineage-less detected recurring rows and denial of a direct
+  service-role detected-recurring insert without lineage.
 
 Apply the exact reviewed contract only after recording the live application SHA
 and recovery owner. Immediately repeat the Fund authenticated smoke, direct-DML
