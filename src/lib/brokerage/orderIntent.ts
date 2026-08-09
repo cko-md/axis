@@ -49,4 +49,3 @@ export function buildFundOrderIntentDraft(order: PreparedPublicOrder): FundOrder
 export function hashFundOrderIntentDraft(draft: FundOrderIntentDraft): string {
   return createHash("sha256").update(JSON.stringify(draft), "utf8").digest("hex");
 }
-

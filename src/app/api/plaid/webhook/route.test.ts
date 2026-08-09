@@ -45,6 +45,7 @@ function admin(connection: unknown) {
         select: vi.fn(() => {
           const chain = {
             eq: vi.fn(() => chain),
+            neq: vi.fn(() => chain),
             maybeSingle: vi.fn(async () => ({ data: connection, error: null })),
           };
           return chain;

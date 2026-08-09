@@ -44,12 +44,92 @@ create policy "fund_order_intents_select_own"
   using ((select auth.uid()) = user_id);
 revoke all on table public.fund_order_intents from public, anon, authenticated;
 grant select on table public.fund_order_intents to authenticated;
-grant all on table public.fund_order_intents to service_role;
+revoke all on table public.fund_order_intents from service_role;
+grant select, insert on table public.fund_order_intents to service_role;
+
+create or replace function public.reject_fund_order_intent_mutation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'order intents are immutable' using errcode = '55000';
+end;
+$$;
+revoke all on function public.reject_fund_order_intent_mutation() from public, anon, authenticated;
+drop trigger if exists reject_fund_order_intent_row_mutation on public.fund_order_intents;
+create trigger reject_fund_order_intent_row_mutation
+before update or delete on public.fund_order_intents
+for each row execute function public.reject_fund_order_intent_mutation();
+drop trigger if exists reject_fund_order_intent_truncate on public.fund_order_intents;
+create trigger reject_fund_order_intent_truncate
+before truncate on public.fund_order_intents
+for each statement execute function public.reject_fund_order_intent_mutation();
+
+-- Live submission is deliberately absent in this phase. This immutable table
+-- defines the evidence a future provider adapter must create atomically after
+-- consuming an exact FINANCIAL_EXECUTION approval. No current role can insert
+-- a submission row, so an intent cannot become execution authority today.
+create table if not exists public.fund_order_submissions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete restrict,
+  intent_id uuid not null,
+  approval_id uuid not null,
+  connection_id uuid not null,
+  provider text not null check (provider = 'public'),
+  provider_account_ref_hash text not null check (provider_account_ref_hash ~ '^[0-9a-f]{64}$'),
+  provider_order_id text not null check (length(btrim(provider_order_id)) between 1 and 512),
+  submission_hash text not null check (submission_hash ~ '^[0-9a-f]{64}$'),
+  submitted_at timestamptz not null,
+  acknowledged_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  unique (id, user_id),
+  unique (intent_id),
+  unique (approval_id),
+  unique (provider, provider_account_ref_hash, provider_order_id),
+  unique (submission_hash),
+  foreign key (intent_id, user_id)
+    references public.fund_order_intents (id, user_id) on delete restrict,
+  foreign key (approval_id, user_id)
+    references public.approvals (id, user_id) on delete restrict,
+  foreign key (connection_id)
+    references public.fund_connections (id) on delete restrict,
+  check (submitted_at >= created_at - interval '1 minute'),
+  check (acknowledged_at >= submitted_at)
+);
+
+alter table public.fund_order_submissions enable row level security;
+drop policy if exists "fund_order_submissions_select_own" on public.fund_order_submissions;
+create policy "fund_order_submissions_select_own"
+  on public.fund_order_submissions for select to authenticated
+  using ((select auth.uid()) = user_id);
+revoke all on table public.fund_order_submissions from public, anon, authenticated, service_role;
+grant select on table public.fund_order_submissions to authenticated, service_role;
+
+create or replace function public.reject_fund_order_submission_mutation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'provider order submissions are immutable' using errcode = '55000';
+end;
+$$;
+revoke all on function public.reject_fund_order_submission_mutation() from public, anon, authenticated;
+drop trigger if exists reject_fund_order_submission_row_mutation on public.fund_order_submissions;
+create trigger reject_fund_order_submission_row_mutation
+before update or delete on public.fund_order_submissions
+for each row execute function public.reject_fund_order_submission_mutation();
+drop trigger if exists reject_fund_order_submission_truncate on public.fund_order_submissions;
+create trigger reject_fund_order_submission_truncate
+before truncate on public.fund_order_submissions
+for each statement execute function public.reject_fund_order_submission_mutation();
 
 create table if not exists public.fund_execution_receipts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete restrict,
   intent_id uuid not null,
+  submission_id uuid not null,
   provider text not null check (provider = 'public'),
   provider_account_ref_hash text not null check (provider_account_ref_hash ~ '^[0-9a-f]{64}$'),
   provider_order_id text not null check (length(btrim(provider_order_id)) between 1 and 512),
@@ -69,6 +149,8 @@ create table if not exists public.fund_execution_receipts (
   unique (receipt_hash),
   foreign key (intent_id, user_id)
     references public.fund_order_intents (id, user_id) on delete restrict,
+  foreign key (submission_id, user_id)
+    references public.fund_order_submissions (id, user_id) on delete restrict,
   check (
     gross_amount_minor = round(
       filled_quantity_units::numeric * price_minor::numeric / quantity_scale
@@ -83,7 +165,8 @@ create policy "fund_execution_receipts_select_own"
   using ((select auth.uid()) = user_id);
 revoke all on table public.fund_execution_receipts from public, anon, authenticated;
 grant select on table public.fund_execution_receipts to authenticated;
-grant all on table public.fund_execution_receipts to service_role;
+revoke all on table public.fund_execution_receipts from service_role;
+grant select on table public.fund_execution_receipts to service_role;
 
 create or replace function public.reject_fund_execution_receipt_mutation()
 returns trigger
@@ -215,10 +298,12 @@ drop policy if exists "fund_transactions_update_own" on public.fund_transactions
 drop policy if exists "fund_transactions_delete_own" on public.fund_transactions;
 revoke insert, update, delete, truncate on table public.fund_transactions from authenticated;
 grant select on table public.fund_transactions to authenticated;
+revoke insert, update, delete, truncate on table public.fund_transactions from service_role;
+grant select on table public.fund_transactions to service_role;
 
 create or replace function public.record_verified_fund_execution(
   p_user_id uuid,
-  p_intent_id uuid,
+  p_submission_id uuid,
   p_provider_account_ref_hash text,
   p_provider_order_id text,
   p_provider_fill_id text,
@@ -235,9 +320,13 @@ security definer
 set search_path = ''
 as $$
 declare
+  submission public.fund_order_submissions%rowtype;
   intent public.fund_order_intents%rowtype;
+  approval public.approvals%rowtype;
+  connection public.fund_connections%rowtype;
   receipt public.fund_execution_receipts%rowtype;
   transaction_row public.fund_transactions%rowtype;
+  existing_fill_units numeric;
   gross_minor bigint;
   signed_amount numeric;
   inserted_receipt boolean := false;
@@ -255,10 +344,99 @@ begin
     raise exception 'invalid verified receipt' using errcode = '22023';
   end if;
 
-  select * into intent from public.fund_order_intents
-  where id = p_intent_id and user_id = p_user_id;
+  -- The submission row is intentionally uncreatable in this phase. A future
+  -- live adapter must add one canonical approval-consuming submission RPC;
+  -- receipt materialization stays fail-closed until that separate review.
+  select * into submission
+  from public.fund_order_submissions
+  where id = p_submission_id and user_id = p_user_id
+  for update;
   if not found then
     return jsonb_build_object('outcome', 'not_found');
+  end if;
+
+  select * into intent
+  from public.fund_order_intents
+  where id = submission.intent_id and user_id = p_user_id
+  for update;
+  if not found then
+    return jsonb_build_object('outcome', 'conflict');
+  end if;
+  select * into approval
+  from public.approvals
+  where id = submission.approval_id and user_id = p_user_id;
+  if not found
+    or approval.action_class <> 'FINANCIAL_EXECUTION'
+    or approval.requirement <> 'approval_step_up'
+    or approval.status <> 'executed'
+    or approval.step_up_verified_at is null
+    or approval.proposed_action ->> 'intentId' is distinct from intent.id::text then
+    return jsonb_build_object('outcome', 'approval_not_actionable');
+  end if;
+  select * into connection
+  from public.fund_connections
+  where id = submission.connection_id
+    and user_id = p_user_id
+    and provider = 'public'
+    and status = 'linked'
+    and authority = 'provider_verified';
+  if not found
+    or connection.item_id is null
+    or encode(extensions.digest(connection.item_id, 'sha256'), 'hex')
+      <> submission.provider_account_ref_hash
+    or approval.proposed_action #>> '{target,accountId}' is distinct from connection.item_id
+    or submission.provider_account_ref_hash <> p_provider_account_ref_hash
+    or submission.provider_order_id <> btrim(p_provider_order_id)
+    or submission.provider <> intent.provider
+    or submission.submitted_at < intent.created_at
+    or submission.acknowledged_at < submission.submitted_at then
+    return jsonb_build_object('outcome', 'submission_not_authoritative');
+  end if;
+  if p_executed_at < submission.acknowledged_at
+    or p_retrieved_at < p_executed_at
+    or p_retrieved_at > clock_timestamp() + interval '1 minute' then
+    return jsonb_build_object('outcome', 'invalid_chronology');
+  end if;
+  if intent.order_type = 'limit' and (
+    (intent.side = 'buy' and p_price_minor > intent.limit_price_minor)
+    or (intent.side = 'sell' and p_price_minor < intent.limit_price_minor)
+  ) then
+    return jsonb_build_object('outcome', 'limit_price_violated');
+  end if;
+
+  select * into receipt
+  from public.fund_execution_receipts
+  where provider = intent.provider
+    and provider_account_ref_hash = p_provider_account_ref_hash
+    and provider_fill_id = btrim(p_provider_fill_id);
+  if found then
+    if receipt.user_id <> p_user_id
+      or receipt.intent_id <> intent.id
+      or receipt.submission_id <> submission.id
+      or receipt.provider_order_id <> submission.provider_order_id
+      or receipt.receipt_hash <> p_receipt_hash
+      or receipt.filled_quantity_units <> p_filled_quantity_units
+      or receipt.price_minor <> p_price_minor
+      or receipt.fee_minor <> p_fee_minor
+      or receipt.executed_at <> p_executed_at
+      or receipt.retrieved_at <> p_retrieved_at then
+      return jsonb_build_object('outcome', 'conflict');
+    end if;
+    select * into transaction_row from public.fund_transactions
+    where execution_receipt_id = receipt.id;
+    return jsonb_build_object(
+      'outcome', 'deduplicated',
+      'receiptId', receipt.id,
+      'transactionId', transaction_row.id
+    );
+  end if;
+
+  select coalesce(sum(filled_quantity_units), 0)
+  into existing_fill_units
+  from public.fund_execution_receipts
+  where intent_id = intent.id;
+  if existing_fill_units + p_filled_quantity_units > intent.quantity_units then
+    return jsonb_build_object('outcome', 'quantity_exceeded');
   end if;
 
   gross_minor := round(
@@ -266,17 +444,17 @@ begin
   )::bigint;
 
   insert into public.fund_execution_receipts (
-    user_id, intent_id, provider, provider_account_ref_hash,
+    user_id, intent_id, submission_id, provider, provider_account_ref_hash,
     provider_order_id, provider_fill_id, receipt_hash,
     filled_quantity_units, quantity_scale, price_minor, gross_amount_minor,
     fee_minor, currency, executed_at, retrieved_at
   ) values (
-    p_user_id, intent.id, intent.provider, p_provider_account_ref_hash,
+    p_user_id, intent.id, submission.id, intent.provider, p_provider_account_ref_hash,
     btrim(p_provider_order_id), btrim(p_provider_fill_id), p_receipt_hash,
     p_filled_quantity_units, intent.quantity_scale, p_price_minor, gross_minor,
     p_fee_minor, intent.currency, p_executed_at, p_retrieved_at
   )
-  on conflict (provider, provider_account_ref_hash, provider_fill_id) do nothing
+  on conflict do nothing
   returning * into receipt;
   inserted_receipt := found;
 
@@ -288,12 +466,14 @@ begin
     if not found
       or receipt.user_id <> p_user_id
       or receipt.intent_id <> intent.id
-      or receipt.provider_order_id <> btrim(p_provider_order_id)
+      or receipt.submission_id <> submission.id
+      or receipt.provider_order_id <> submission.provider_order_id
       or receipt.receipt_hash <> p_receipt_hash
       or receipt.filled_quantity_units <> p_filled_quantity_units
       or receipt.price_minor <> p_price_minor
       or receipt.fee_minor <> p_fee_minor
-      or receipt.executed_at <> p_executed_at then
+      or receipt.executed_at <> p_executed_at
+      or receipt.retrieved_at <> p_retrieved_at then
       return jsonb_build_object('outcome', 'conflict');
     end if;
   end if;
@@ -335,4 +515,3 @@ revoke all on function public.record_verified_fund_execution(
 grant execute on function public.record_verified_fund_execution(
   uuid, uuid, text, text, text, text, bigint, bigint, bigint, timestamptz, timestamptz
 ) to service_role;
-

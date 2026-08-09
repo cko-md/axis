@@ -18,8 +18,8 @@ import {
 } from "@/lib/brokerage/orderIntent";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 
-function normalizeAction(value: unknown): PublicOrderAction {
-  return value === "verify" || value === "submit" ? value : "prepare";
+function normalizeAction(value: unknown): PublicOrderAction | null {
+  return value === "prepare" || value === "verify" || value === "submit" ? value : null;
 }
 
 function orderInput(body: Record<string, unknown>): PublicOrderInput {
@@ -100,6 +100,10 @@ export async function POST(request: NextRequest) {
   }
   const body = parsedBody.value;
   const action = normalizeAction(body.action);
+  if (!action) {
+    logRouteTiming("/api/brokerage/orders", routeStartedAt, { ok: false, code: "UNKNOWN_ORDER_ACTION" });
+    return NextResponse.json({ error: "UNKNOWN_ORDER_ACTION" }, { status: 400 });
+  }
   const input = orderInput(body);
   const creds = getBrokerageCreds();
   const brokerageConfigured = Boolean(creds?.apiKey);

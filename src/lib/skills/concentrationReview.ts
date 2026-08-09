@@ -11,7 +11,7 @@ import { strictExactMinorUnits } from "@/lib/fund/financialTruth";
 
 export type Position = {
   symbol: string;
-  /** Position value in major units (the Fund uses cost_basis as the value proxy). */
+  /** Current provider-backed market value in major units. Historical cost basis is never a substitute. */
   value: number;
 };
 

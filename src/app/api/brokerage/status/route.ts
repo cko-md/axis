@@ -6,8 +6,8 @@ import { captureRouteError } from "@/lib/observability/captureRouteError";
 /**
  * Brokerage (Public.com) connectivity status. Generic scaffold behind a
  * setup-state, matching /api/massive/status and /api/plaid/status. Returns
- * { configured: false } with no error when keys are absent so the order
- * ticket can route to local-log mode and show a "Connect Public" prompt.
+ * { configured: false } with no error when keys are absent. Connectivity never
+ * implies that live submission is enabled; this phase stores intents only.
  */
 
 export async function GET() {
@@ -56,7 +56,7 @@ export async function GET() {
       : null,
     provider: "public",
     message: creds
-      ? "Brokerage (Public.com) is configured server-side."
-      : "Add APP_PUBLIC_API_KEY to enable order routing through Public.com. Orders are logged locally until then.",
+      ? "Public.com credentials are configured. Live order submission remains disabled."
+      : "Public.com credentials are not configured. Order intents can still be saved for review; no order is submitted.",
   });
 }

@@ -11,8 +11,6 @@ import { FundSparkline } from "@/components/fund/FundSparkline";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
 import { reconciliationView } from "@/lib/fund/reconciliationView";
-import { calculateAllocation } from "@/lib/fund/portfolioPerformance";
-import { reviewConcentration } from "@/lib/skills/concentrationReview";
 
 export function FundInvestingModule() {
   const { toast } = useToast();
@@ -26,25 +24,6 @@ export function FundInvestingModule() {
   const [addShares, setAddShares] = useState("1");
   const [addCost, setAddCost] = useState("0");
   const concentrationLimit = 0.25;
-  const hasMixedCurrency = aggregated.some((holding) =>
-    !holding.currency || holding.cost_basis === null,
-  );
-  const allocation = hasMixedCurrency
-    ? null
-    : calculateAllocation(
-        aggregated.map((holding) => ({
-          key: holding.symbol,
-          label: holding.name,
-          value: holding.cost_basis as number,
-          currency: holding.currency,
-        })),
-      );
-  const concentration = hasMixedCurrency
-    ? null
-    : reviewConcentration(
-        aggregated.map((holding) => ({ symbol: holding.symbol, value: holding.cost_basis as number })),
-        concentrationLimit,
-      );
 
   async function addHolding() {
     const symbol = addSym.trim().toUpperCase();
@@ -108,7 +87,7 @@ export function FundInvestingModule() {
       <div className="divider" />
       {brokerageStatusState === "unavailable" && (
         <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--clay)" }}>
-          Brokerage connection status is unavailable. Live routing remains disabled; ledger-only intent capture is still available.
+          Brokerage connection status is unavailable. Live submission remains disabled; reviewable intent capture is still available.
         </p>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, alignItems: "start" }}>
@@ -162,50 +141,23 @@ export function FundInvestingModule() {
           )}
         </Card>
         <Card>
-          <h2 className="sec">Allocation<span className="rule" /><span className="count">{allocation?.ok ? allocation.value.currency : "FX needed"}</span></h2>
+          <h2 className="sec">Allocation<span className="rule" /><span className="count">Current value required</span></h2>
           {aggregated.length === 0 ? (
             <div className="empty-state"><strong>No allocation yet</strong><p>Add holdings to see portfolio weights.</p></div>
-          ) : !allocation?.ok ? (
-            <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6, marginTop: 10 }}>
-              Allocation needs one currency or explicit FX rates before weights can be shown.
-            </p>
           ) : (
-            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-              {allocation.value.slices.map((slice) => (
-                <div key={slice.key}>
-                  <div className="metricrow" style={{ marginBottom: 4 }}>
-                    <span className="metric-k">{slice.key}</span>
-                    <span className="metric-v">{(slice.weight * 100).toFixed(1)}%</span>
-                  </div>
-                  <div aria-hidden="true" style={{ height: 6, borderRadius: 4, background: "var(--surface-2)", overflow: "hidden" }}>
-                    <div style={{ width: `${Math.min(100, slice.weight * 100)}%`, height: "100%", background: "var(--accent)" }} />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6, marginTop: 10 }}>
+              Allocation is withheld until every position has a fresh provider-verified quantity and market quote. Cost basis is historical and is never used as current market value.
+            </p>
           )}
         </Card>
         <Card>
           <h2 className="sec">Concentration<span className="rule" /><span className="count">Max {(concentrationLimit * 100).toFixed(0)}%</span></h2>
           {aggregated.length === 0 ? (
             <div className="empty-state"><strong>No concentration yet</strong><p>Add holdings to check position weights.</p></div>
-          ) : !concentration ? (
-            <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6, marginTop: 10 }}>
-              Concentration needs one currency or explicit FX rates before position weights can be shown.
-            </p>
-          ) : concentration.breaches.length === 0 ? (
-            <p style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6, marginTop: 10 }}>
-              No position is above the {(concentrationLimit * 100).toFixed(0)}% review threshold.
-            </p>
           ) : (
-            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-              {concentration.breaches.map((breach) => (
-                <div key={breach.symbol} className="metricrow">
-                  <span className="metric-k">{breach.symbol} · {(breach.weight * 100).toFixed(1)}%</span>
-                  <span className="metric-v down">{fmtUsd(breach.overByValue)} over</span>
-                </div>
-              ))}
-            </div>
+            <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6, marginTop: 10 }}>
+              Concentration is withheld until complete current market values are available. Historical cost basis cannot establish portfolio weights.
+            </p>
           )}
         </Card>
         <FundOrderTicket defaultSymbol={aggregated[0]?.symbol ?? ""} brokerageConfigured={brokerageConfigured} />

@@ -2,7 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { aiGenerate, type AIProviderPref } from "@/lib/ai/router";
 import { optionalEnv } from "@/lib/env";
-import { marketReportInput, marketReportSources, MARKET_REPORT_SYSTEM } from "@/lib/fund/marketReport";
+import {
+  authoritativeMarketReportHoldings,
+  marketReportInput,
+  marketReportSources,
+  MARKET_REPORT_SYSTEM,
+} from "@/lib/fund/marketReport";
 import { fetchNews, getPolygonApiKey } from "@/lib/massive/client";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { createClient } from "@/lib/supabase/server";
@@ -18,19 +23,45 @@ export async function POST() {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
-  const [holdingsResult, watchlistResult, profileResult] = await Promise.all([
-    supabase.from("fund_holdings").select("symbol, name, shares, cost_basis").eq("user_id", user.id).limit(10),
+  const [holdingsResult, watchlistResult, profileResult, connectionsResult, coverageResult] = await Promise.all([
+    supabase
+      .from("fund_holdings")
+      .select("symbol, name, shares, currency, authority, source, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state, generation_id")
+      .eq("user_id", user.id)
+      .limit(10),
     supabase.from("fund_watchlist").select("symbol, name").eq("user_id", user.id).limit(5),
     supabase.from("profiles").select("ai_provider").eq("id", user.id).maybeSingle(),
+    supabase
+      .from("fund_connections")
+      .select("id, provider, status, authority, verified_at")
+      .eq("user_id", user.id)
+      .limit(32),
+    supabase
+      .from("fund_provider_coverage")
+      .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
+      .eq("user_id", user.id)
+      .eq("component", "holdings")
+      .limit(33),
   ]);
 
-  const readError = holdingsResult.error ?? watchlistResult.error ?? profileResult.error;
+  const readError = holdingsResult.error
+    ?? watchlistResult.error
+    ?? profileResult.error
+    ?? connectionsResult.error
+    ?? coverageResult.error;
   if (readError) {
     captureRouteError(readError, { route: ROUTE, operation: "read_research_context", area: "fund", status: 500 });
     return NextResponse.json({ error: "RESEARCH_CONTEXT_UNAVAILABLE" }, { status: 500 });
   }
 
-  const holdings = holdingsResult.data ?? [];
+  const candidateHoldings = holdingsResult.data ?? [];
+  const portfolioContext = authoritativeMarketReportHoldings(
+    candidateHoldings,
+    connectionsResult.data ?? [],
+    coverageResult.data ?? [],
+  );
+  const portfolioReason = portfolioContext.reason;
+  const holdings = portfolioContext.holdings;
   const watchlist = watchlistResult.data ?? [];
   const symbols = [...new Set([...holdings, ...watchlist].map((item) => item.symbol.trim().toUpperCase()).filter(Boolean))].slice(0, 8);
 
@@ -68,8 +99,6 @@ export async function POST() {
         holdings: holdings.map((holding) => ({
           symbol: holding.symbol,
           name: holding.name,
-          shares: holding.shares,
-          costBasis: holding.cost_basis,
         })),
         watchlist,
         sources,
@@ -96,6 +125,7 @@ export async function POST() {
         watchlist: watchlist.map((item) => item.symbol),
         sources,
         source_status: sourceStatus,
+        portfolio_status: portfolioReason ?? "provider_verified",
         model: generated.model,
       },
       assumptions: "The draft is grounded only in the listed holdings, watchlist symbols, and cited market-source metadata. It is a review aid, not investment advice or an execution instruction.",

@@ -203,6 +203,7 @@ describe("finance daily job financial-truth faults", () => {
       item: { item_id: "item-1" },
       accounts: [{
         type: "depository",
+        persistent_account_id: "persistent-cash-1",
         balances: { current: "123.45", iso_currency_code: "USD" },
       }],
     });
@@ -222,6 +223,7 @@ describe("finance daily job financial-truth faults", () => {
       item: { item_id: "item-1" },
       accounts: [{
         type: "depository",
+        persistent_account_id: "persistent-cash-1",
         balances: { current: 0, iso_currency_code: "USD" },
       }],
     });
@@ -250,9 +252,31 @@ describe("finance daily job financial-truth faults", () => {
   });
 
   it.each([
-    ["missing balance", [{ type: "depository" }], "plaid_balance_invalid"],
-    ["mixed currency", [{ type: "depository", balances: { current: "1.00", iso_currency_code: "EUR" } }], "plaid_balance_invalid_or_mixed_currency"],
+    ["missing balance", [{ type: "depository", persistent_account_id: "persistent-cash-1" }], "plaid_balance_invalid"],
+    ["mixed currency", [{ type: "depository", persistent_account_id: "persistent-cash-1", balances: { current: "1.00", iso_currency_code: "EUR" } }], "plaid_balance_invalid_or_mixed_currency"],
   ])("declines %s rather than persisting numeric zero", async (_label, accounts, reason) => {
+    mocks.plaidRequest.mockResolvedValue({
+      request_id: "request",
+      item: { item_id: "item-1" },
+      accounts,
+    });
+    const db = makeAdmin();
+
+    const outcome = await snapshotNetWorth(db.admin, "user-1");
+
+    expect(outcome).toMatchObject({ status: "error", reason });
+    expect(db.upserts).toHaveLength(0);
+  });
+
+  it.each([
+    ["missing", [
+      { type: "depository", balances: { current: "10.00", iso_currency_code: "USD" } },
+    ], "plaid_persistent_account_id_missing"],
+    ["duplicated", [
+      { type: "depository", persistent_account_id: "same-account", balances: { current: "10.00", iso_currency_code: "USD" } },
+      { type: "depository", persistent_account_id: "same-account", balances: { current: "20.00", iso_currency_code: "USD" } },
+    ], "plaid_persistent_account_id_duplicate"],
+  ])("declines %s persistent cash-account identity", async (_label, accounts, reason) => {
     mocks.plaidRequest.mockResolvedValue({
       request_id: "request",
       item: { item_id: "item-1" },

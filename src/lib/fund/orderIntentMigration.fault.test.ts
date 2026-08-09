@@ -13,10 +13,15 @@ describe("order intent and verified execution database contract", () => {
     expect(migration).toContain("check (status = 'not_submitted')");
     expect(migration).toContain("payload_hash text not null check (payload_hash ~ '^[0-9a-f]{64}$')");
     expect(migration).toContain("grant select on table public.fund_order_intents to authenticated");
+    expect(migration).toContain("order intents are immutable");
+    expect(migration).toContain("grant select, insert on table public.fund_order_intents to service_role");
     expect(migration).not.toContain("grant insert on table public.fund_order_intents to authenticated");
+    expect(migration).not.toContain("grant all on table public.fund_order_intents to service_role");
   });
 
   it("allows a provider execution only through a unique immutable fill receipt", () => {
+    expect(migration).toContain("create table if not exists public.fund_order_submissions");
+    expect(migration).toContain("revoke all on table public.fund_order_submissions from public, anon, authenticated, service_role");
     expect(migration).toContain("create table if not exists public.fund_execution_receipts");
     expect(migration).toContain("unique (provider, provider_account_ref_hash, provider_fill_id)");
     expect(migration).toContain("verified execution receipts are immutable");
@@ -25,6 +30,9 @@ describe("order intent and verified execution database contract", () => {
     expect(migration).toContain("execution does not match verified receipt");
     expect(migration).toContain("provider-verified executions are immutable");
     expect(migration).toContain("revoke insert, update, delete, truncate on table public.fund_transactions from authenticated");
+    expect(migration).toContain("revoke insert, update, delete, truncate on table public.fund_transactions from service_role");
+    expect(migration).toContain("revoke all on table public.fund_execution_receipts from service_role");
+    expect(migration).not.toContain("grant all on table public.fund_execution_receipts to service_role");
   });
 
   it("exposes one service-only idempotent receipt materialization boundary", () => {
@@ -32,7 +40,12 @@ describe("order intent and verified execution database contract", () => {
       /record_verified_fund_execution[\s\S]*?security definer[\s\S]*?set search_path = ''/,
     );
     expect(migration).toContain("if auth.role() <> 'service_role' then");
-    expect(migration).toContain("on conflict (provider, provider_account_ref_hash, provider_fill_id) do nothing");
+    expect(migration).toContain("approval.action_class <> 'FINANCIAL_EXECUTION'");
+    expect(migration).toContain("submission.provider_account_ref_hash <> p_provider_account_ref_hash");
+    expect(migration).toContain("p_retrieved_at < p_executed_at");
+    expect(migration).toContain("return jsonb_build_object('outcome', 'limit_price_violated')");
+    expect(migration).toContain("existing_fill_units + p_filled_quantity_units > intent.quantity_units");
+    expect(migration).toContain("on conflict do nothing");
     expect(migration).toContain("on conflict (execution_receipt_id) where execution_receipt_id is not null do nothing");
     expect(migration).toContain("grant execute on function public.record_verified_fund_execution");
 

@@ -130,6 +130,22 @@ async function fetchPlaidCash(
     if (depositoryCount === 0) {
       return cashObservation(financialInput(null, { status: "missing", authority: "provider", currency: "USD", reason: "plaid_cash_account_missing" }), retrievedAt);
     }
+    if (persistentAccountIds.some((accountId) => accountId === null)) {
+      return cashObservation(financialInput(null, {
+        status: "error",
+        authority: "provider",
+        currency: "USD",
+        reason: "plaid_persistent_account_id_missing",
+      }), retrievedAt);
+    }
+    if (new Set(persistentAccountIds).size !== persistentAccountIds.length) {
+      return cashObservation(financialInput(null, {
+        status: "error",
+        authority: "provider",
+        currency: "USD",
+        reason: "plaid_persistent_account_id_duplicate",
+      }), retrievedAt);
+    }
     return cashObservation(
       financialInputMinor(cashMinor, { authority: "provider", currency: "USD" }),
       retrievedAt,
@@ -458,6 +474,18 @@ export async function snapshotNetWorth(
     currency: cashFailure.input.currency,
     reason: cashFailure.input.reason ?? "cash_input_unavailable",
   };
+  const persistentCashAccountIds = cashResults.flatMap(({ persistentAccountIds }) => persistentAccountIds);
+  if (
+    persistentCashAccountIds.some((accountId) => accountId === null)
+    || new Set(persistentCashAccountIds).size !== persistentCashAccountIds.length
+  ) {
+    return {
+      status: "error",
+      authority: "provider",
+      currency: "USD",
+      reason: "plaid_cash_account_identity_conflict",
+    };
+  }
   let cashMinor = 0;
   for (let index = 0; index < cashResults.length; index++) {
     const amountMinor = cashResults[index].input.amountMinor as number;
@@ -472,6 +500,10 @@ export async function snapshotNetWorth(
       provider: "plaid",
       connection_id: tokens[index].connection.id,
       retrieved_at: retrievedAt,
+      account_identity_set_hash: crypto
+        .createHash("sha256")
+        .update(JSON.stringify([...cashResults[index].persistentAccountIds].sort()))
+        .digest("hex"),
     });
     asOfTimes.push(retrievedAt);
   }

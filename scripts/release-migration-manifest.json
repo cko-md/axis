@@ -4,7 +4,7 @@
   "latest": {
     "version": "20260809210000",
     "file": "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
-    "sha256": "7b24c446cc86267e4f6a7b0a59a42be3ab520d062b8baf025845b8af9c36b727"
+    "sha256": "e5631bfa67956aecc2c90a05ccc771f1849dbd6320f6c70529f03354f2bdae10"
   },
   "migrations": [
     {
@@ -470,7 +470,7 @@
     {
       "version": "20260809210000",
       "file": "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
-      "sha256": "7b24c446cc86267e4f6a7b0a59a42be3ab520d062b8baf025845b8af9c36b727"
+      "sha256": "e5631bfa67956aecc2c90a05ccc771f1849dbd6320f6c70529f03354f2bdae10"
     }
   ]
 }

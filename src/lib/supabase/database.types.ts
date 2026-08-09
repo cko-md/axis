@@ -1129,6 +1129,7 @@ export type Database = {
           quantity_scale: number
           receipt_hash: string
           retrieved_at: string
+          submission_id: string
           user_id: string
         }
         Insert: {
@@ -1148,6 +1149,7 @@ export type Database = {
           quantity_scale?: number
           receipt_hash: string
           retrieved_at: string
+          submission_id: string
           user_id: string
         }
         Update: {
@@ -1167,6 +1169,7 @@ export type Database = {
           quantity_scale?: number
           receipt_hash?: string
           retrieved_at?: string
+          submission_id?: string
           user_id?: string
         }
         Relationships: [
@@ -1175,6 +1178,13 @@ export type Database = {
             columns: ["intent_id", "user_id"]
             isOneToOne: false
             referencedRelation: "fund_order_intents"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "fund_execution_receipts_submission_id_user_id_fkey"
+            columns: ["submission_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "fund_order_submissions"
             referencedColumns: ["id", "user_id"]
           },
         ]
@@ -1460,6 +1470,73 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      fund_order_submissions: {
+        Row: {
+          acknowledged_at: string
+          approval_id: string
+          connection_id: string
+          created_at: string
+          id: string
+          intent_id: string
+          provider: string
+          provider_account_ref_hash: string
+          provider_order_id: string
+          submission_hash: string
+          submitted_at: string
+          user_id: string
+        }
+        Insert: {
+          acknowledged_at: string
+          approval_id: string
+          connection_id: string
+          created_at?: string
+          id?: string
+          intent_id: string
+          provider?: string
+          provider_account_ref_hash: string
+          provider_order_id: string
+          submission_hash: string
+          submitted_at: string
+          user_id: string
+        }
+        Update: {
+          acknowledged_at?: string
+          approval_id?: string
+          connection_id?: string
+          created_at?: string
+          id?: string
+          intent_id?: string
+          provider?: string
+          provider_account_ref_hash?: string
+          provider_order_id?: string
+          submission_hash?: string
+          submitted_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fund_order_submissions_approval_id_user_id_fkey"
+            columns: ["approval_id", "user_id"]
+            isOneToOne: true
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "fund_order_submissions_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "fund_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fund_order_submissions_intent_id_user_id_fkey"
+            columns: ["intent_id", "user_id"]
+            isOneToOne: true
+            referencedRelation: "fund_order_intents"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
       }
       fund_recurring_transactions: {
         Row: {
@@ -4043,13 +4120,13 @@ export type Database = {
           p_executed_at: string
           p_fee_minor: number
           p_filled_quantity_units: number
-          p_intent_id: string
           p_price_minor: number
           p_provider_account_ref_hash: string
           p_provider_fill_id: string
           p_provider_order_id: string
           p_receipt_hash: string
           p_retrieved_at: string
+          p_submission_id: string
           p_user_id: string
         }
         Returns: Json

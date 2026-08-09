@@ -185,6 +185,14 @@ describe("order intent boundary", () => {
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 
+  it("rejects unknown actions instead of silently preparing an intent", async () => {
+    const response = await POST(prepareRequest({ action: "unexpected" }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "UNKNOWN_ORDER_ACTION" });
+    expect(mocks.createAdminClient).not.toHaveBeenCalled();
+  });
+
   it("lists only owner-scoped order intents", async () => {
     const client = authClient([{ id: "intent-1", status: "not_submitted" }]);
     mocks.createClient.mockResolvedValue(client);
