@@ -15,6 +15,8 @@ vi.mock("@/lib/observability/providerTiming", () => ({ logRouteTiming: vi.fn() }
 vi.mock("@/lib/observability/captureRouteError", () => ({ captureRouteError: mocks.captureRouteError }));
 
 import { GET, POST } from "./route";
+import { preparePublicOrder } from "@/lib/brokerage/publicOrderAdapter";
+import { buildFundOrderIntentDraft, hashFundOrderIntentDraft } from "@/lib/brokerage/orderIntent";
 
 const USER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const IDEMPOTENCY_KEY = "11111111-1111-4111-8111-111111111111";
@@ -116,6 +118,50 @@ describe("order intent boundary", () => {
     expect(admin.from).toHaveBeenCalledWith("fund_order_intents");
   });
 
+  it("returns the same intent for an ambiguous retry with the same key and payload", async () => {
+    const prepared = preparePublicOrder({
+      symbol: "AAPL",
+      side: "buy",
+      quantity: "1.25",
+      type: "market",
+      referencePrice: "195.12",
+      currency: "USD",
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    const payloadHash = hashFundOrderIntentDraft(buildFundOrderIntentDraft(prepared.data));
+    const existing = {
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      symbol: "AAPL",
+      side: "buy",
+      quantity_units: 1_250_000,
+      quantity_scale: 1_000_000,
+      reference_price_minor: 19_512,
+      currency: "USD",
+      status: "not_submitted",
+      created_at: "2026-08-09T21:00:00.000Z",
+      payload_hash: payloadHash,
+    };
+    const lookup: Record<string, unknown> = {};
+    for (const method of ["select", "eq"]) lookup[method] = vi.fn(() => lookup);
+    lookup.maybeSingle = vi.fn(async () => ({ data: existing, error: null }));
+    const insert: Record<string, unknown> = {};
+    insert.insert = vi.fn(() => insert);
+    insert.select = vi.fn(() => insert);
+    insert.single = vi.fn(async () => ({ data: null, error: { code: "23505" } }));
+    const admin = { from: vi.fn().mockReturnValueOnce(insert).mockReturnValueOnce(lookup) };
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const response = await POST(prepareRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      intent: { id: existing.id, status: "not_submitted" },
+      deduplicated: true,
+      submitted: false,
+    });
+  });
+
   it("fails visibly and writes nothing when intent persistence is unavailable", async () => {
     mocks.createAdminClient.mockReturnValue(null);
 
@@ -150,4 +196,3 @@ describe("order intent boundary", () => {
     expect(client.from).toHaveBeenCalledWith("fund_order_intents");
   });
 });
-
