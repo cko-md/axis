@@ -9,7 +9,7 @@ import {
 } from "@/lib/auth/providerCookies.server";
 
 type CookieOperation =
-  | { kind: "set"; name: string; value: string }
+  | { kind: "set"; name: string; value: string; maxAge: number }
   | { kind: "delete"; name: string };
 
 type TestCookieStore = MutableProviderCookieStore & {
@@ -50,8 +50,8 @@ function cookieStore(values: Map<string, string> = new Map()): TestCookieStore {
     getAll() {
       return [...this.values].map(([name, value]) => ({ name, value }));
     },
-    set(name, value) {
-      operations.push({ kind: "set", name, value });
+    set(name, value, options) {
+      operations.push({ kind: "set", name, value, maxAge: options.maxAge });
       this.values.set(name, value);
     },
     delete(name) {
@@ -96,6 +96,7 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       subject,
       "spotify-secret",
       "provider-reused-refresh-token",
+      "legacy",
       oldAttempt,
     );
 
@@ -105,6 +106,7 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       subject,
       "spotify-secret",
       "provider-reused-refresh-token",
+      "legacy",
       oldAttempt,
     )).toBe(true);
     expect(providerRefreshRejectedForSubject(
@@ -113,6 +115,7 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       subject,
       "spotify-secret",
       "provider-reused-refresh-token",
+      "legacy",
       newAttempt,
     )).toBe(false);
     expect([...store.values.keys()].join(" ")).not.toContain("provider-reused-refresh-token");
@@ -134,7 +137,8 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       owner: "spotify_token_owner",
       secret: "spotify-secret",
       freshAccess: "spotify-access-v2",
-      freshRefresh: "spotify-refresh-v2",
+      freshRefresh: "spotify-refresh-v1",
+      markerMaxAge: 60 * 60,
       getAccessToken: getSpotifyAccessToken,
     },
     {
@@ -143,6 +147,7 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       secret: "strava-secret",
       freshAccess: "strava-access-v2",
       freshRefresh: "strava-refresh-v2",
+      markerMaxAge: 6 * 60 * 60,
       getAccessToken: getStravaAccessToken,
     },
   ])("keeps a successful $provider rotation when a same-snapshot invalid_grant lands last", async ({
@@ -151,6 +156,7 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     secret,
     freshAccess,
     freshRefresh,
+    markerMaxAge,
     getAccessToken,
   }) => {
     const bootstrap = cookieStore();
@@ -205,7 +211,10 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
 
     expect(winnerStore.operations.length).toBeGreaterThan(0);
     expect(loserStore.operations).toHaveLength(1);
-    expect(loserStore.operations[0]).toMatchObject({ kind: "set" });
+    expect(loserStore.operations[0]).toMatchObject({
+      kind: "set",
+      maxAge: markerMaxAge,
+    });
     expect(loserStore.operations.some((operation) => operation.kind === "delete")).toBe(false);
     applyOperations(browser, winnerStore.operations);
     applyOperations(browser, loserStore.operations);
@@ -229,5 +238,17 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       accessToken: freshAccess,
       refreshToken: freshRefresh,
     });
+
+    const resumedBrowser = new Map(browser);
+    resumedBrowser.delete(subjectAccess);
+    const resumedStore = cookieStore(resumedBrowser);
+    mocks.stores.push(resumedStore);
+    providerFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      access_token: `${provider}-access-v3`,
+      refresh_token: freshRefresh,
+      expires_in: 900,
+    }), { status: 200 }));
+    await expect(getAccessToken(userId)).resolves.toBe(`${provider}-access-v3`);
+    expect(providerFetch).toHaveBeenCalledTimes(3);
   });
 });

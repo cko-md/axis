@@ -3,6 +3,7 @@ import {
   clearProviderRefreshRejectionForGeneration,
   markProviderRefreshRejectedForSubject,
   peekProviderTokensForSubject,
+  providerRefreshGenerationForSubject,
   providerRefreshRejectedForSubject,
   replaceRefreshedProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
@@ -41,12 +42,20 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   if (tokens.accessToken) return tokens.accessToken;
 
   if (!tokens.refreshToken) return null;
+  const refreshGeneration = providerRefreshGenerationForSubject(
+    cookieStore,
+    "spotify",
+    subject,
+    clientSecret,
+    tokens.credentialAttempt,
+  );
   if (providerRefreshRejectedForSubject(
     cookieStore,
     "spotify",
     subject,
     clientSecret,
     tokens.refreshToken,
+    refreshGeneration,
     tokens.credentialAttempt,
   )) return null;
 
@@ -84,6 +93,7 @@ export async function getAccessToken(userId: string): Promise<string | null> {
         subject,
         clientSecret,
         tokens.refreshToken,
+        refreshGeneration,
         tokens.credentialAttempt,
       );
       return null;
@@ -117,6 +127,7 @@ export async function getAccessToken(userId: string): Promise<string | null> {
     subject,
     clientSecret,
     tokens.refreshToken,
+    refreshGeneration,
     tokens.credentialAttempt,
   );
   return fresh;

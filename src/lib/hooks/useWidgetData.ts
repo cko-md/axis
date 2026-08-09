@@ -49,6 +49,35 @@ type BatchResponse = {
 
 type CacheResponse = { rows: WidgetCacheRow[] };
 
+const WIDGET_STATUSES = new Set<WidgetStatus>([
+  "fresh",
+  "live",
+  "loading",
+  "refreshing",
+  "stale",
+  "error",
+  "empty",
+  "disconnected",
+  "setup_required",
+  "lab",
+  "disabled",
+]);
+
+function isWidgetCacheRow(value: unknown): value is WidgetCacheRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.widget_id === "string" &&
+    typeof row.cache_key === "string" &&
+    typeof row.status === "string" &&
+    WIDGET_STATUSES.has(row.status as WidgetStatus) &&
+    (typeof row.value === "string" || row.value === null) &&
+    (typeof row.hint === "string" || row.hint === null) &&
+    (row.raw === null || (typeof row.raw === "object" && !Array.isArray(row.raw))) &&
+    (row.error === null || (typeof row.error === "object" && !Array.isArray(row.error))) &&
+    typeof row.fetched_at === "string" &&
+    (typeof row.expires_at === "string" || row.expires_at === null);
+}
+
 function batchWidgetToData(widget: BatchWidget): WidgetData {
   return {
     v: widget.value,
@@ -262,10 +291,17 @@ export function useWidgetData(
       );
       if (!isCurrent(authority) || controller.signal.aborted) return;
       const body = await response.json().catch(() => null) as CacheResponse | null;
-      if (!isCurrent(authority) || controller.signal.aborted || !response.ok || !body) return;
+      if (
+        !isCurrent(authority) ||
+        controller.signal.aborted ||
+        !response.ok ||
+        !body ||
+        !Array.isArray(body.rows)
+      ) return;
+      const rows = body.rows.filter(isWidgetCacheRow);
       setData((current) => {
         const next = { ...current };
-        for (const row of body.rows ?? []) {
+        for (const row of rows) {
           if (!widgetCacheRowMatchesDefinition(row)) continue;
           if (liveCommittedWidgetIdsRef.current.has(row.widget_id)) continue;
           const existing = current[row.widget_id];
@@ -327,18 +363,25 @@ export function useWidgetData(
     widgetKey,
   ]);
 
+  useEffect(() => () => retireWidgetRequests(), [retireWidgetRequests]);
+
   useEffect(() => {
     if (!authorityRef.current) return;
-    const controller = new AbortController();
-    refreshAll(controller.signal);
+    const liveControllers = new Set<AbortController>();
+    const runLiveRefresh = (controller: AbortController) => {
+      liveControllers.add(controller);
+      void refreshAll(controller.signal).finally(() => {
+        liveControllers.delete(controller);
+      });
+    };
+    runLiveRefresh(new AbortController());
     const intervalId = setInterval(() => {
-      const c = new AbortController();
-      refreshAll(c.signal);
+      runLiveRefresh(new AbortController());
     }, 15 * 60 * 1000);
     return () => {
-      controller.abort();
+      for (const liveController of liveControllers) liveController.abort();
+      liveControllers.clear();
       clearInterval(intervalId);
-      retireWidgetRequests();
     };
     // geoVersion is intentionally included: it bumps once real GPS coordinates
     // land (see the geolocation effect above), so location-dependent widgets
@@ -350,7 +393,6 @@ export function useWidgetData(
     providerAuthority?.authorityEpoch,
     providerAuthority?.subject,
     refreshAll,
-    retireWidgetRequests,
   ]);
 
   const currentAuthority = authorityRef.current;

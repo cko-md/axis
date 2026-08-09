@@ -19,6 +19,7 @@ type CookieOptions = {
 type CredentialCookieNames = {
   access: string;
   refresh: string;
+  refreshGeneration: string;
   owner: string;
 };
 
@@ -37,6 +38,7 @@ export type MutableProviderCookieStore = {
 const PROVIDER_COOKIES: Record<DirectOAuthProvider, {
   access: string;
   refresh: string;
+  refreshGeneration: string;
   owner: string;
   oauthPendingState: string;
   accessMaxAge: number;
@@ -45,6 +47,7 @@ const PROVIDER_COOKIES: Record<DirectOAuthProvider, {
   spotify: {
     access: "spotify_access_token",
     refresh: "spotify_refresh_token",
+    refreshGeneration: "spotify_refresh_generation",
     owner: "spotify_token_owner",
     oauthPendingState: oauthPendingStateCookieName("spotify"),
     accessMaxAge: 60 * 60,
@@ -53,6 +56,7 @@ const PROVIDER_COOKIES: Record<DirectOAuthProvider, {
   strava: {
     access: "strava_access_token",
     refresh: "strava_refresh_token",
+    refreshGeneration: "strava_refresh_generation",
     owner: "strava_token_owner",
     oauthPendingState: oauthPendingStateCookieName("strava"),
     accessMaxAge: 6 * 60 * 60,
@@ -73,6 +77,8 @@ const CREDENTIAL_CUTOFF_VALUE_PATTERN = /^pc1_[A-Za-z0-9_-]{43}$/;
 const CREDENTIAL_CUTOFF_MAX_AGE = 60 * 60 * 24 * 365;
 const REFRESH_REJECTION_VERSION = 1;
 const REFRESH_REJECTION_VALUE_PATTERN = /^pr1_[A-Za-z0-9_-]{43}$/;
+const REFRESH_GENERATION_VERSION = 1;
+const REFRESH_GENERATION_PATTERN = /^rg1_([A-Za-z0-9_-]{22})_([A-Za-z0-9_-]{43})$/;
 
 function options(maxAge: number): CookieOptions {
   return {
@@ -185,8 +191,56 @@ function subjectCredentialCookieNames(
   return {
     access: `${config.access}_s${OWNER_SEAL_VERSION}_${slot}`,
     refresh: `${config.refresh}_s${OWNER_SEAL_VERSION}_${slot}`,
+    refreshGeneration: `${config.refreshGeneration}_s${OWNER_SEAL_VERSION}_${slot}`,
     owner: `${config.owner}_s${OWNER_SEAL_VERSION}_${slot}`,
   };
+}
+
+function createProviderRefreshGeneration(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  slotName: string,
+  nonce = randomBytes(16).toString("base64url"),
+): string {
+  if (
+    !isProfileSubject(subject) ||
+    !secret ||
+    !slotName ||
+    !/^[A-Za-z0-9_-]{22}$/.test(nonce)
+  ) {
+    throw new Error("PROVIDER_REFRESH_GENERATION_INPUT_INVALID");
+  }
+  const digest = createHmac("sha256", ownerSealKey(secret, provider))
+    .update(
+      `axis:direct-provider-refresh-generation:v${REFRESH_GENERATION_VERSION}\0${subject}\0${slotName}\0${nonce}`,
+    )
+    .digest("base64url");
+  return `rg${REFRESH_GENERATION_VERSION}_${nonce}_${digest}`;
+}
+
+function validProviderRefreshGeneration(
+  supplied: string | undefined,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  slotName: string,
+): string | null {
+  const match = supplied?.match(REFRESH_GENERATION_PATTERN);
+  if (!match?.[1]) return null;
+  const expected = createProviderRefreshGeneration(
+    provider,
+    subject,
+    secret,
+    slotName,
+    match[1],
+  );
+  const suppliedBytes = Buffer.from(supplied!);
+  const expectedBytes = Buffer.from(expected);
+  return suppliedBytes.length === expectedBytes.length &&
+    timingSafeEqual(suppliedBytes, expectedBytes)
+    ? supplied!
+    : null;
 }
 
 function providerRefreshRejectionCookiePrefix(
@@ -202,12 +256,14 @@ function providerRefreshRejectionDigest(
   subject: string,
   secret: string,
   refreshToken: string,
+  refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): string {
   if (
     !isProfileSubject(subject) ||
     !secret ||
     !refreshToken ||
+    !refreshGeneration ||
     (attempt && (
       !OAUTH_PROVIDER_STATE_PATTERN.test(attempt.providerState) ||
       !Number.isSafeInteger(attempt.authorizationOrder) ||
@@ -221,7 +277,7 @@ function providerRefreshRejectionDigest(
     : "subject-slot";
   return createHmac("sha256", ownerSealKey(secret, provider))
     .update(
-      `axis:direct-provider-refresh-rejection:v${REFRESH_REJECTION_VERSION}\0${subject}\0${generation}\0${refreshToken}`,
+      `axis:direct-provider-refresh-rejection:v${REFRESH_REJECTION_VERSION}\0${subject}\0${generation}\0${refreshGeneration}\0${refreshToken}`,
     )
     .digest("base64url");
 }
@@ -231,6 +287,7 @@ function providerRefreshRejectionCookieName(
   subject: string,
   secret: string,
   refreshToken: string,
+  refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): string {
   const digest = providerRefreshRejectionDigest(
@@ -238,6 +295,7 @@ function providerRefreshRejectionCookieName(
     subject,
     secret,
     refreshToken,
+    refreshGeneration,
     attempt,
   );
   return `${providerRefreshRejectionCookiePrefix(provider, subject, secret)}${digest.slice(0, 22)}`;
@@ -248,6 +306,7 @@ function createProviderRefreshRejectionValue(
   subject: string,
   secret: string,
   refreshToken: string,
+  refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): string {
   return `pr${REFRESH_REJECTION_VERSION}_${providerRefreshRejectionDigest(
@@ -255,6 +314,7 @@ function createProviderRefreshRejectionValue(
     subject,
     secret,
     refreshToken,
+    refreshGeneration,
     attempt,
   )}`;
 }
@@ -271,6 +331,7 @@ function attemptCredentialCookieNames(
   return {
     access: `${config.access}${suffix}`,
     refresh: `${config.refresh}${suffix}`,
+    refreshGeneration: `${config.refreshGeneration}${suffix}`,
     owner: `${config.owner}${suffix}`,
   };
 }
@@ -677,6 +738,59 @@ export function peekProviderTokensForSubject(
   return providerTokensForSubject(readOnlyStore, provider, subject, secret);
 }
 
+/** Returns a signed local refresh revision, or the legacy revision sentinel. */
+export function providerRefreshGenerationForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  attempt?: ProviderCredentialAttempt,
+): string {
+  let names: CredentialCookieNames | null = null;
+  if (attempt) {
+    const attemptNames = attemptCredentialCookieNames(
+      provider,
+      attempt.providerState,
+    );
+    const verifiedAttempt = validProviderAttemptOwnerSeal(
+      store.get(attemptNames.owner)?.value,
+      provider,
+      subject,
+      secret,
+      attempt.providerState,
+    );
+    if (
+      verifiedAttempt?.authorizationOrder === attempt.authorizationOrder
+    ) names = attemptNames;
+  } else {
+    const subjectNames = subjectCredentialCookieNames(provider, subject, secret);
+    if (validOwnerSeal(
+      store.get(subjectNames.owner)?.value,
+      provider,
+      subject,
+      secret,
+    )) {
+      names = subjectNames;
+    } else {
+      const legacyNames = PROVIDER_COOKIES[provider];
+      if (validOwnerSeal(
+        store.get(legacyNames.owner)?.value,
+        provider,
+        subject,
+        secret,
+      )) names = legacyNames;
+    }
+  }
+  if (!names) return "legacy";
+  return validProviderRefreshGeneration(
+    store.get(names.refreshGeneration)?.value,
+    provider,
+    subject,
+    secret,
+    names.owner,
+  ) ?? "legacy";
+}
+
 /** True only for the exact signed refresh-token generation rejected upstream. */
 export function providerRefreshRejectedForSubject(
   store: MutableProviderCookieStore,
@@ -684,6 +798,7 @@ export function providerRefreshRejectedForSubject(
   subject: string,
   secret: string,
   refreshToken: string,
+  refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): boolean {
   const supplied = store.get(
@@ -692,6 +807,7 @@ export function providerRefreshRejectedForSubject(
       subject,
       secret,
       refreshToken,
+      refreshGeneration,
       attempt,
     ),
   )?.value;
@@ -701,6 +817,7 @@ export function providerRefreshRejectedForSubject(
     subject,
     secret,
     refreshToken,
+    refreshGeneration,
     attempt,
   );
   const suppliedBytes = Buffer.from(supplied!);
@@ -716,6 +833,7 @@ export function markProviderRefreshRejectedForSubject(
   subject: string,
   secret: string,
   refreshToken: string,
+  refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): void {
   store.set(
@@ -724,6 +842,7 @@ export function markProviderRefreshRejectedForSubject(
       subject,
       secret,
       refreshToken,
+      refreshGeneration,
       attempt,
     ),
     createProviderRefreshRejectionValue(
@@ -731,9 +850,13 @@ export function markProviderRefreshRejectedForSubject(
       subject,
       secret,
       refreshToken,
+      refreshGeneration,
       attempt,
     ),
-    options(PROVIDER_COOKIES[provider].refreshMaxAge),
+    // Bound orphan markers to one access-token lifetime. This suppresses tight
+    // retry loops without allowing rotated-token markers to accumulate for the
+    // full refresh-token lifetime.
+    options(PROVIDER_COOKIES[provider].accessMaxAge),
   );
 }
 
@@ -744,6 +867,7 @@ export function clearProviderRefreshRejectionForGeneration(
   subject: string,
   secret: string,
   refreshToken: string,
+  refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): void {
   store.delete(providerRefreshRejectionCookieName(
@@ -751,6 +875,7 @@ export function clearProviderRefreshRejectionForGeneration(
     subject,
     secret,
     refreshToken,
+    refreshGeneration,
     attempt,
   ));
 }
@@ -900,6 +1025,7 @@ function clearCredentialCookiesByName(
   store.delete(names.owner);
   store.delete(names.access);
   store.delete(names.refresh);
+  store.delete(names.refreshGeneration);
 }
 
 function replaceCredentialCookiesByName(
@@ -919,6 +1045,16 @@ function replaceCredentialCookiesByName(
   );
   if (tokens.refreshToken) {
     store.set(names.refresh, tokens.refreshToken, options(config.refreshMaxAge));
+    store.set(
+      names.refreshGeneration,
+      createProviderRefreshGeneration(
+        provider,
+        subject,
+        secret,
+        names.owner,
+      ),
+      options(config.refreshMaxAge),
+    );
   }
   store.set(
     names.owner,
@@ -967,6 +1103,7 @@ export function replaceProviderTokenCookiesForAttempt(
   subject: string,
   secret: string,
   attempt: ProviderCredentialAttempt,
+  clearRejections = true,
 ): void {
   if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
     throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
@@ -981,13 +1118,25 @@ export function replaceProviderTokenCookiesForAttempt(
   );
   if (tokens.refreshToken) {
     store.set(names.refresh, tokens.refreshToken, options(config.refreshMaxAge));
+    store.set(
+      names.refreshGeneration,
+      createProviderRefreshGeneration(
+        provider,
+        subject,
+        secret,
+        names.owner,
+      ),
+      options(config.refreshMaxAge),
+    );
   }
   store.set(
     names.owner,
     createProviderAttemptOwnerSeal(provider, subject, secret, attempt),
     options(config.refreshMaxAge),
   );
-  clearProviderRefreshRejectionsForSubject(store, provider, subject, secret);
+  if (clearRejections) {
+    clearProviderRefreshRejectionsForSubject(store, provider, subject, secret);
+  }
 }
 
 /**
@@ -1013,6 +1162,7 @@ export function replaceRefreshedProviderTokenCookies(
       subject,
       secret,
       attempt,
+      false,
     );
   } else {
     replaceCredentialCookiesByName(
