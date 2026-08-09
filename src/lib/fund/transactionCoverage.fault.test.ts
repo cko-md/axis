@@ -90,6 +90,93 @@ describe("transaction coverage completeness", () => {
     });
   });
 
+  it("rejects invalid windows and oversized authoritative generations", async () => {
+    await expect(readCompleteTransactionCoverage(
+      { rpc: vi.fn() } as unknown as SupabaseClient,
+      "user-1",
+      "invalid",
+      "2026-07-23",
+    )).rejects.toThrow("TRANSACTION_COVERAGE_WINDOW_INVALID");
+
+    const rpc = vi.fn(async () => ({
+      data: [{
+        available: true,
+        coverage: proof(20_001).facts,
+        lineage_hash: "c".repeat(64),
+      }],
+      error: null,
+    }));
+    await expect(readCompleteTransactionRows(
+      { rpc, from: vi.fn() } as unknown as SupabaseClient,
+      "user-1",
+      "2026-04-24",
+      "2026-07-23",
+      "connection_id, generation_id",
+    )).rejects.toThrow("TRANSACTION_GENERATION_LIMIT_EXCEEDED");
+  });
+
+  it.each(["reject", "resolve-error"] as const)(
+    "keeps a mid-flight generation-query abort quiet when the query %s path fires",
+    async (mode) => {
+      const controller = new AbortController();
+      const rpc = vi.fn(async () => ({
+        data: [{
+          available: true,
+          coverage: proof(1).facts,
+          lineage_hash: "c".repeat(64),
+        }],
+        error: null,
+      }));
+      const from = vi.fn(() => {
+        const chain: Record<string, unknown> = {};
+        for (const method of ["select", "eq", "gte", "lte", "order", "range", "abortSignal"]) {
+          chain[method] = vi.fn(() => chain);
+        }
+        chain.then = (
+          resolve: (value: { data: null; error: DOMException }) => unknown,
+          reject: (reason: unknown) => unknown,
+        ) => {
+          controller.abort();
+          const abortError = new DOMException("aborted", "AbortError");
+          const promise = mode === "reject"
+            ? Promise.reject(abortError)
+            : Promise.resolve({ data: null, error: abortError });
+          return promise.then(resolve, reject);
+        };
+        return chain;
+      });
+
+      await expect(readCompleteTransactionRows(
+        { rpc, from } as unknown as SupabaseClient,
+        "user-1",
+        "2026-04-24",
+        "2026-07-23",
+        "connection_id, generation_id",
+        controller.signal,
+      )).resolves.toBeNull();
+    },
+  );
+
+  it("keeps a mid-flight coverage RPC abort quiet", async () => {
+    const controller = new AbortController();
+    const rpc = vi.fn(async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+
+    await expect(readCompleteTransactionCoverage(
+      { rpc } as unknown as SupabaseClient,
+      "user-1",
+      "2026-04-24",
+      "2026-07-23",
+      controller.signal,
+    )).resolves.toEqual({
+      available: false,
+      reason: "TRANSACTION_HISTORY_UNAVAILABLE",
+      facts: [],
+    });
+  });
+
   it("accepts a verified empty generation only when its fact count is zero", () => {
     expect(transactionRowsMatchCoverage([], proof(0))).toBe(true);
     expect(transactionRowsMatchCoverage([], proof(1))).toBe(false);

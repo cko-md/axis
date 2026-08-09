@@ -172,4 +172,17 @@ describe("fund bank-transactions authority boundary", () => {
       { route: "fund/bank-transactions", area: "fund" },
     );
   });
+
+  it("rejects a malformed date window as a client error without Sentry noise", async () => {
+    const client = supabaseClient();
+    mocks.createClient.mockResolvedValue(client);
+
+    const response = await GET(new NextRequest(
+      "https://axis.example/api/fund/bank-transactions?from=not-a-date",
+    ));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "INVALID_QUERY" });
+    expect(mocks.redactRouteError).not.toHaveBeenCalled();
+  });
 });

@@ -5,6 +5,7 @@ import {
   readCompleteTransactionRows,
   TRANSACTION_HISTORY_DAYS,
   type TransactionCoverageProof,
+  TransactionCoverageInputError,
 } from "@/lib/fund/transactionCoverage";
 
 type BankTransactionRow = {
@@ -59,6 +60,9 @@ export async function GET(request: NextRequest) {
       "*",
     );
   } catch (error) {
+    if (error instanceof TransactionCoverageInputError) {
+      return NextResponse.json({ error: "INVALID_QUERY" }, { status: 400 });
+    }
     return redactRouteError(error, {
       route: "fund/bank-transactions",
       area: "fund",

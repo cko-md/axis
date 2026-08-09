@@ -43,6 +43,13 @@ export class TransactionCoverageOperationalError extends Error {
   }
 }
 
+export class TransactionCoverageInputError extends Error {
+  constructor(public readonly code: string) {
+    super(code);
+    this.name = "TransactionCoverageInputError";
+  }
+}
+
 const TRANSACTION_PAGE_SIZE = 500;
 const MAX_COMPLETE_TRANSACTION_ROWS = 20_000;
 
@@ -128,7 +135,9 @@ export async function readCompleteTransactionCoverage(
   signal?: AbortSignal,
 ): Promise<TransactionCoverageProof> {
   if (signal?.aborted) return unavailable();
-  if (!dateOnly(windowStart) || !dateOnly(windowEnd) || windowStart > windowEnd) return unavailable();
+  if (!dateOnly(windowStart) || !dateOnly(windowEnd) || windowStart > windowEnd) {
+    throw new TransactionCoverageInputError("TRANSACTION_COVERAGE_WINDOW_INVALID");
+  }
 
   const rpc = (client as unknown as {
     rpc?: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
@@ -142,6 +151,7 @@ export async function readCompleteTransactionCoverage(
       p_window_end: windowEnd,
     });
   } catch {
+    if (signal?.aborted) return unavailable();
     operational("TRANSACTION_COVERAGE_QUERY_FAILED");
   }
   const { data, error } = response;
@@ -221,7 +231,9 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
   );
   if (!proof.available) return null;
   const expected = proof.facts.reduce((total, fact) => total + fact.record_count, 0);
-  if (expected > MAX_COMPLETE_TRANSACTION_ROWS) return null;
+  if (!Number.isSafeInteger(expected) || expected > MAX_COMPLETE_TRANSACTION_ROWS) {
+    operational("TRANSACTION_GENERATION_LIMIT_EXCEEDED");
+  }
   const rows: T[] = [];
   for (const fact of proof.facts) {
     const factRows: T[] = [];
@@ -244,8 +256,10 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
       try {
         response = await query as unknown as { data: T[] | null; error: unknown };
       } catch {
+        if (signal?.aborted) return null;
         operational("TRANSACTION_GENERATION_QUERY_FAILED");
       }
+      if (signal?.aborted) return null;
       const { data, error } = response;
       if (error || !data) {
         operational(error ? "TRANSACTION_GENERATION_QUERY_FAILED" : "TRANSACTION_GENERATION_QUERY_MALFORMED");
