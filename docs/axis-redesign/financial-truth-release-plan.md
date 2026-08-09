@@ -35,10 +35,15 @@ revokes `PUBLIC`/`anon` privileges across the financial expansion, reasserts
 `net_worth_snapshots_exact` as security-invoker, adds a security barrier, and
 grants only `SELECT` on that view to `authenticated` and `service_role`.
 
-Before applying, capture the complete linked remote migration ledger and a
-current recovery point. Apply each named transaction-wrapped file with a
-multi-statement PostgreSQL client, mark only that exact migration version
-applied, then capture the complete ledger again. Do not use `supabase db push`.
+Before applying any pending file, capture the complete linked remote migration
+ledger and a current recovery point. Verify every already-recorded Stage 1
+version against its reviewed file and evidence hash; never replay it. Apply only
+each still-pending named transaction-wrapped file with a multi-statement
+PostgreSQL client, mark only that exact migration version applied, then capture
+the complete ledger again. Do not use `supabase db push`. For this resumed
+rollout, `20260723090000` and `20260809210000` were already recorded after their
+exact files applied successfully, so only the pending `20260809220000` repair
+was applied and marked.
 
 Required read-back:
 
