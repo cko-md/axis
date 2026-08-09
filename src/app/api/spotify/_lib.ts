@@ -97,7 +97,7 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       ? data.refresh_token
       : tokens.refreshToken,
     expiresIn: data?.expires_in,
-  }, subject, clientSecret);
+  }, subject, clientSecret, tokens.credentialAttempt);
   return fresh;
 }
 

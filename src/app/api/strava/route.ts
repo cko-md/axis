@@ -6,7 +6,7 @@ import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import {
   createOAuthPendingState,
   OAUTH_STATE_TTL_SECONDS,
-  verifyOAuthPendingState,
+  verifiedOAuthPendingStateIssuedAt,
 } from "@/lib/auth/oauthState.server";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
@@ -17,7 +17,7 @@ import {
   consumeOAuthPendingStateCookieForAttempt,
   peekOAuthPendingStateCookie,
   peekOAuthPendingStateCookieForAttempt,
-  replaceProviderTokenCookies,
+  replaceProviderTokenCookiesForAttempt,
   setOAuthPendingStateCookie,
 } from "@/lib/auth/providerCookies.server";
 import { privateJson, privateRedirect } from "@/lib/auth/privateNoStore";
@@ -132,13 +132,14 @@ async function completeCallback(
     "strava",
     providerState,
   );
-  if (!verifyOAuthPendingState({
+  const attemptInitiatedAtMs = verifiedOAuthPendingStateIssuedAt({
     provider: "strava",
     subject,
     secret: clientSecret,
     providerState,
     sealedState: attemptSealedState ?? sealedState,
-  })) {
+  });
+  if (attemptInitiatedAtMs === null || providerState === null) {
     return callbackFailure(req, "state_invalid", 400);
   }
   if (attemptSealedState !== null) {
@@ -186,13 +187,16 @@ async function completeCallback(
   if (typeof tokens?.access_token !== "string" || !tokens.access_token) {
     return callbackFailure(req, "invalid_token_response", 502);
   }
-  replaceProviderTokenCookies(cookieStore, "strava", {
+  replaceProviderTokenCookiesForAttempt(cookieStore, "strava", {
     accessToken: tokens.access_token,
     refreshToken: typeof tokens.refresh_token === "string"
       ? tokens.refresh_token
       : undefined,
     expiresIn: tokens.expires_in,
-  }, subject, clientSecret);
+  }, subject, clientSecret, {
+    providerState,
+    initiatedAtMs: attemptInitiatedAtMs,
+  });
   return callbackFeedback(req, "ok");
 }
 

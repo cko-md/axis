@@ -242,14 +242,22 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     ));
 
     expect(response.headers.get("location")).toContain("provider=spotify&status=ok");
-    expect(mocks.cookieStore.values.get("spotify_token_owner")).toBe(
-      createProviderOwnerSeal("spotify", subjectA, secret),
+    const attemptSuffix = `_a1_${providerState}`;
+    const attemptOwner = mocks.cookieStore.values.get(
+      `spotify_token_owner${attemptSuffix}`,
     );
-    expect(mocks.cookieStore.values.get("spotify_token_owner")).not.toContain(subjectA);
-    expect(mocks.cookieStore.values.get("spotify_access_token")).toBe("new-access");
-    expect(mocks.cookieStore.values.get("spotify_refresh_token")).toBe("new-refresh");
+    expect(attemptOwner).toMatch(/^pa1_[0-9a-z]+_[A-Za-z0-9_-]{43}$/);
+    expect(attemptOwner).not.toContain(subjectA);
+    expect(mocks.cookieStore.values.get(`spotify_access_token${attemptSuffix}`)).toBe(
+      "new-access",
+    );
+    expect(mocks.cookieStore.values.get(`spotify_refresh_token${attemptSuffix}`)).toBe(
+      "new-refresh",
+    );
     expect(mocks.cookieStore.operations[0]).toBe("delete:spotify_oauth_state");
-    expect(mocks.cookieStore.operations.at(-1)).toBe("set:spotify_token_owner");
+    expect(mocks.cookieStore.operations.at(-1)).toBe(
+      `set:spotify_token_owner${attemptSuffix}`,
+    );
   });
 
   it("classifies an oversized token response as a 502 provider failure", async () => {

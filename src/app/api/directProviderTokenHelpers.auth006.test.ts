@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
-import { createProviderOwnerSeal } from "@/lib/auth/providerCookies.server";
+import {
+  createProviderOwnerSeal,
+  replaceProviderTokenCookiesForAttempt,
+} from "@/lib/auth/providerCookies.server";
 import { DirectProviderRefreshError } from "@/lib/auth/directProviderRefresh.server";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +14,10 @@ const mocks = vi.hoisted(() => ({
       const value = mocks.cookieStore.values.get(name);
       return value === undefined ? undefined : { name, value };
     }),
+    getAll: vi.fn(() => [...mocks.cookieStore.values].map(([name, value]) => ({
+      name,
+      value,
+    }))),
     set: vi.fn((name: string, value: string) => mocks.cookieStore.values.set(name, value)),
     delete: vi.fn((name: string) => mocks.cookieStore.values.delete(name)),
   },
@@ -96,6 +103,31 @@ describe("AUTH-006 direct provider token helpers", () => {
     await expect(getSpotifyAccessToken(userId)).resolves.toBe("bound-access");
     await expect(getSpotifyAccessToken("different-user")).resolves.toBeNull();
     expect(mocks.cookieStore.values.get("spotify_access_token")).toBe("bound-access");
+  });
+
+  it("refreshes an attempt credential without publishing into a shared slot", async () => {
+    const providerState = "g".repeat(43);
+    replaceProviderTokenCookiesForAttempt(
+      mocks.cookieStore,
+      "spotify",
+      { accessToken: "expired-access", refreshToken: "attempt-refresh" },
+      subject,
+      "spotify-secret",
+      { providerState, initiatedAtMs: Date.UTC(2026, 7, 8) },
+    );
+    mocks.cookieStore.values.delete(`spotify_access_token_a1_${providerState}`);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      access_token: "fresh-attempt-access",
+      expires_in: 900,
+    }), { status: 200 })));
+
+    await expect(getSpotifyAccessToken(userId)).resolves.toBe(
+      "fresh-attempt-access",
+    );
+    expect(mocks.cookieStore.values.get(
+      `spotify_access_token_a1_${providerState}`,
+    )).toBe("fresh-attempt-access");
+    expect(mocks.cookieStore.values.has("spotify_access_token")).toBe(false);
   });
 
   it.each([

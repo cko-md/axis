@@ -16,6 +16,7 @@ import {
   createProviderOwnerSeal,
   providerTokensForSubject,
   replaceProviderTokenCookies,
+  replaceProviderTokenCookiesForAttempt,
   setOAuthPendingStateCookie,
   type MutableProviderCookieStore,
 } from "./providerCookies.server";
@@ -279,6 +280,75 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       }
     }
     expect(browser.values.get(secondName)).toBe(second.sealedState);
+  });
+
+  it("selects the newest signed initiation when callbacks publish in reverse order", () => {
+    const store = new MemoryCookieStore();
+    const older = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      nonce: "e".repeat(43),
+      nowMs: nowMs,
+    });
+    const newer = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      nonce: "f".repeat(43),
+      nowMs: nowMs + 1,
+    });
+
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "spotify",
+      { accessToken: "new-access", refreshToken: "new-refresh" },
+      subjectA,
+      secret,
+      { providerState: newer.providerState, initiatedAtMs: nowMs + 1 },
+    );
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "spotify",
+      { accessToken: "old-access", refreshToken: "old-refresh" },
+      subjectA,
+      secret,
+      { providerState: older.providerState, initiatedAtMs: nowMs },
+    );
+
+    expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toEqual({
+      accessToken: "new-access",
+      refreshToken: "new-refresh",
+      credentialAttempt: {
+        providerState: newer.providerState,
+        initiatedAtMs: nowMs + 1,
+      },
+    });
+    expect(store.operations).toContain(
+      `delete:spotify_access_token_a1_${older.providerState}`,
+    );
+  });
+
+  it("fails closed when two successful attempts have the same initiation millisecond", () => {
+    const store = new MemoryCookieStore();
+    for (const [providerState, accessToken] of [
+      ["h".repeat(43), "first-access"],
+      ["i".repeat(43), "second-access"],
+    ] as const) {
+      replaceProviderTokenCookiesForAttempt(
+        store,
+        "spotify",
+        { accessToken },
+        subjectA,
+        secret,
+        { providerState, initiatedAtMs: nowMs },
+      );
+    }
+
+    expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toMatchObject({
+      accessToken: null,
+      refreshToken: null,
+    });
   });
 
   it("never exposes one subject's provider tokens to another subject", () => {

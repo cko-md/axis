@@ -21,6 +21,11 @@ type CredentialCookieNames = {
   owner: string;
 };
 
+export type ProviderCredentialAttempt = {
+  providerState: string;
+  initiatedAtMs: number;
+};
+
 export type MutableProviderCookieStore = {
   get(name: string): CookieValue;
   getAll?(): Array<{ name: string; value: string }>;
@@ -59,6 +64,8 @@ const OWNER_SEAL_PREFIX = `po${OWNER_SEAL_VERSION}_`;
 const OWNER_SEAL_PATTERN = /^po1_[A-Za-z0-9_-]{43}$/;
 const OAUTH_ATTEMPT_VERSION = 1;
 const OAUTH_PROVIDER_STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const CREDENTIAL_ATTEMPT_VERSION = 1;
+const CREDENTIAL_ATTEMPT_OWNER_PATTERN = /^pa1_([0-9a-z]+)_([A-Za-z0-9_-]{43})$/;
 
 function options(maxAge: number): CookieOptions {
   return {
@@ -175,6 +182,144 @@ function subjectCredentialCookieNames(
   };
 }
 
+function attemptCredentialCookieNames(
+  provider: DirectOAuthProvider,
+  providerState: string,
+): CredentialCookieNames {
+  if (!OAUTH_PROVIDER_STATE_PATTERN.test(providerState)) {
+    throw new Error("PROVIDER_CREDENTIAL_ATTEMPT_INVALID");
+  }
+  const config = PROVIDER_COOKIES[provider];
+  const suffix = `_a${CREDENTIAL_ATTEMPT_VERSION}_${providerState}`;
+  return {
+    access: `${config.access}${suffix}`,
+    refresh: `${config.refresh}${suffix}`,
+    owner: `${config.owner}${suffix}`,
+  };
+}
+
+function createProviderAttemptOwnerSeal(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  attempt: ProviderCredentialAttempt,
+): string {
+  if (
+    !isProfileSubject(subject) ||
+    !secret ||
+    !OAUTH_PROVIDER_STATE_PATTERN.test(attempt.providerState) ||
+    !Number.isSafeInteger(attempt.initiatedAtMs) ||
+    attempt.initiatedAtMs < 0
+  ) {
+    throw new Error("PROVIDER_ATTEMPT_OWNER_SEAL_INPUT_INVALID");
+  }
+  const encodedTime = attempt.initiatedAtMs.toString(36);
+  const digest = createHmac("sha256", ownerSealKey(secret, provider))
+    .update(
+      `axis:direct-provider-attempt-owner:v${CREDENTIAL_ATTEMPT_VERSION}\0${subject}\0${attempt.providerState}\0${encodedTime}`,
+    )
+    .digest("base64url");
+  return `pa${CREDENTIAL_ATTEMPT_VERSION}_${encodedTime}_${digest}`;
+}
+
+function validProviderAttemptOwnerSeal(
+  supplied: string | undefined,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  providerState: string,
+): ProviderCredentialAttempt | null {
+  const match = supplied?.match(CREDENTIAL_ATTEMPT_OWNER_PATTERN);
+  if (!match || !match[1] || !match[2]) return null;
+  const initiatedAtMs = Number.parseInt(match[1], 36);
+  if (!Number.isSafeInteger(initiatedAtMs) || initiatedAtMs < 0) return null;
+  const attempt = { providerState, initiatedAtMs };
+  const expected = createProviderAttemptOwnerSeal(
+    provider,
+    subject,
+    secret,
+    attempt,
+  );
+  const suppliedBytes = Buffer.from(supplied!);
+  const expectedBytes = Buffer.from(expected);
+  return suppliedBytes.length === expectedBytes.length &&
+    timingSafeEqual(suppliedBytes, expectedBytes)
+    ? attempt
+    : null;
+}
+
+function providerAttemptCredentialsForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): {
+  accessToken: string | null;
+  refreshToken: string | null;
+  credentialAttempt: ProviderCredentialAttempt;
+} | null {
+  const ownerPrefix = `${PROVIDER_COOKIES[provider].owner}_a${CREDENTIAL_ATTEMPT_VERSION}_`;
+  const candidates: Array<{
+    names: CredentialCookieNames;
+    accessToken: string | null;
+    refreshToken: string | null;
+    credentialAttempt: ProviderCredentialAttempt;
+  }> = [];
+  for (const cookie of store.getAll?.() ?? []) {
+    if (!cookie.name.startsWith(ownerPrefix)) continue;
+    const providerState = cookie.name.slice(ownerPrefix.length);
+    if (!OAUTH_PROVIDER_STATE_PATTERN.test(providerState)) continue;
+    const credentialAttempt = validProviderAttemptOwnerSeal(
+      cookie.value,
+      provider,
+      subject,
+      secret,
+      providerState,
+    );
+    if (!credentialAttempt) continue;
+    const names = attemptCredentialCookieNames(provider, providerState);
+    candidates.push({
+      names,
+      accessToken: store.get(names.access)?.value ?? null,
+      refreshToken: store.get(names.refresh)?.value ?? null,
+      credentialAttempt,
+    });
+  }
+  candidates.sort((left, right) => {
+    const timeOrder =
+      right.credentialAttempt.initiatedAtMs - left.credentialAttempt.initiatedAtMs;
+    if (timeOrder !== 0) return timeOrder;
+    if (
+      right.credentialAttempt.providerState ===
+      left.credentialAttempt.providerState
+    ) return 0;
+    return right.credentialAttempt.providerState >
+      left.credentialAttempt.providerState
+      ? 1
+      : -1;
+  });
+  const selected = candidates[0];
+  if (!selected) return null;
+  if (
+    candidates[1]?.credentialAttempt.initiatedAtMs ===
+    selected.credentialAttempt.initiatedAtMs
+  ) {
+    return {
+      accessToken: null,
+      refreshToken: null,
+      credentialAttempt: selected.credentialAttempt,
+    };
+  }
+  for (const stale of candidates.slice(1)) {
+    clearCredentialCookiesByName(store, stale.names);
+  }
+  return {
+    accessToken: selected.accessToken,
+    refreshToken: selected.refreshToken,
+    credentialAttempt: selected.credentialAttempt,
+  };
+}
+
 export function createProviderOwnerSeal(
   provider: DirectOAuthProvider,
   subject: string,
@@ -210,7 +355,18 @@ export function providerTokensForSubject(
   provider: DirectOAuthProvider,
   subject: string,
   secret: string,
-): { accessToken: string | null; refreshToken: string | null } {
+): {
+  accessToken: string | null;
+  refreshToken: string | null;
+  credentialAttempt?: ProviderCredentialAttempt;
+} {
+  const attemptCredentials = providerAttemptCredentialsForSubject(
+    store,
+    provider,
+    subject,
+    secret,
+  );
+  if (attemptCredentials) return attemptCredentials;
   const slotNames = subjectCredentialCookieNames(provider, subject, secret);
   const slotOwner = store.get(slotNames.owner)?.value;
   const slotAccessToken = store.get(slotNames.access)?.value ?? null;
@@ -290,6 +446,25 @@ export function clearProviderCredentialCookiesForSubject(
   subject: string,
   secret: string,
 ): void {
+  const ownerPrefix = `${PROVIDER_COOKIES[provider].owner}_a${CREDENTIAL_ATTEMPT_VERSION}_`;
+  for (const cookie of store.getAll?.() ?? []) {
+    if (!cookie.name.startsWith(ownerPrefix)) continue;
+    const providerState = cookie.name.slice(ownerPrefix.length);
+    if (
+      validProviderAttemptOwnerSeal(
+        cookie.value,
+        provider,
+        subject,
+        secret,
+        providerState,
+      )
+    ) {
+      clearCredentialCookiesByName(
+        store,
+        attemptCredentialCookieNames(provider, providerState),
+      );
+    }
+  }
   const slotNames = subjectCredentialCookieNames(provider, subject, secret);
   clearCredentialCookiesByName(store, slotNames);
   const legacyNames = PROVIDER_COOKIES[provider];
@@ -411,6 +586,36 @@ export function replaceProviderTokenCookies(
   );
 }
 
+/** Publishes callback credentials only into the exact signed OAuth attempt. */
+export function replaceProviderTokenCookiesForAttempt(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
+  subject: string,
+  secret: string,
+  attempt: ProviderCredentialAttempt,
+): void {
+  if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
+    throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
+  }
+  const names = attemptCredentialCookieNames(provider, attempt.providerState);
+  const config = PROVIDER_COOKIES[provider];
+  clearCredentialCookiesByName(store, names);
+  store.set(
+    names.access,
+    tokens.accessToken,
+    options(boundedMaxAge(tokens.expiresIn, config.accessMaxAge)),
+  );
+  if (tokens.refreshToken) {
+    store.set(names.refresh, tokens.refreshToken, options(config.refreshMaxAge));
+  }
+  store.set(
+    names.owner,
+    createProviderAttemptOwnerSeal(provider, subject, secret, attempt),
+    options(config.refreshMaxAge),
+  );
+}
+
 /**
  * Refresh responses write only the authenticated subject's deterministic slot.
  * A late response from account A therefore cannot overwrite account B's tuple.
@@ -421,16 +626,28 @@ export function replaceRefreshedProviderTokenCookies(
   tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
   subject: string,
   secret: string,
+  attempt?: ProviderCredentialAttempt,
 ): void {
   if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
     throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
   }
-  replaceCredentialCookiesByName(
-    store,
-    provider,
-    subjectCredentialCookieNames(provider, subject, secret),
-    tokens,
-    subject,
-    secret,
-  );
+  if (attempt) {
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      provider,
+      tokens,
+      subject,
+      secret,
+      attempt,
+    );
+  } else {
+    replaceCredentialCookiesByName(
+      store,
+      provider,
+      subjectCredentialCookieNames(provider, subject, secret),
+      tokens,
+      subject,
+      secret,
+    );
+  }
 }

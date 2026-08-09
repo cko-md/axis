@@ -20,6 +20,7 @@ type OAuthStatePayload = {
   subject: string;
   nonce: string;
   iat: number;
+  iatMs: number;
   exp: number;
 };
 
@@ -51,6 +52,7 @@ function exactPayloadKeys(payload: Record<string, unknown>): boolean {
   return JSON.stringify(Object.keys(payload).sort()) === JSON.stringify([
     "exp",
     "iat",
+    "iatMs",
     "nonce",
     "provider",
     "purpose",
@@ -72,7 +74,11 @@ export function createOAuthPendingState(options: {
   }
   const nonce = options.nonce ?? randomBytes(32).toString("base64url");
   if (!NONCE_PATTERN.test(nonce)) throw new Error("OAUTH_STATE_NONCE_INVALID");
-  const iat = Math.floor((options.nowMs ?? Date.now()) / 1000);
+  const iatMs = options.nowMs ?? Date.now();
+  if (!Number.isSafeInteger(iatMs) || iatMs < 0) {
+    throw new Error("OAUTH_STATE_TIME_INVALID");
+  }
+  const iat = Math.floor(iatMs / 1000);
   const payload: OAuthStatePayload = {
     v: STATE_VERSION,
     purpose: STATE_PURPOSE,
@@ -80,6 +86,7 @@ export function createOAuthPendingState(options: {
     subject,
     nonce,
     iat,
+    iatMs,
     exp: iat + OAUTH_STATE_TTL_SECONDS,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -127,6 +134,10 @@ function verifiedOAuthStatePayload(
       NONCE_PATTERN.test(payload.nonce) &&
       typeof payload.iat === "number" &&
       Number.isSafeInteger(payload.iat) &&
+      typeof payload.iatMs === "number" &&
+      Number.isSafeInteger(payload.iatMs) &&
+      payload.iatMs >= 0 &&
+      Math.floor(payload.iatMs / 1000) === payload.iat &&
       typeof payload.exp === "number" &&
       Number.isSafeInteger(payload.exp) &&
       payload.exp - payload.iat === OAUTH_STATE_TTL_SECONDS &&
@@ -150,7 +161,14 @@ export function oauthPendingStateBelongsToSubject(
 export function verifyOAuthPendingState(options: VerifiedOAuthStateOptions & {
   providerState: string | null;
 }): boolean {
+  return verifiedOAuthPendingStateIssuedAt(options) !== null;
+}
+
+export function verifiedOAuthPendingStateIssuedAt(
+  options: VerifiedOAuthStateOptions & { providerState: string | null },
+): number | null {
   const { providerState } = options;
-  if (!providerState || !NONCE_PATTERN.test(providerState)) return false;
-  return verifiedOAuthStatePayload(options)?.nonce === providerState;
+  if (!providerState || !NONCE_PATTERN.test(providerState)) return null;
+  const payload = verifiedOAuthStatePayload(options);
+  return payload?.nonce === providerState ? payload.iatMs : null;
 }
