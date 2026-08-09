@@ -69,6 +69,16 @@ function ensureJobActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("Finance job aborted", "AbortError");
 }
 
+async function awaitJobQuery<T>(
+  query: PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> },
+  signal?: AbortSignal,
+): Promise<T> {
+  ensureJobActive(signal);
+  return signal && typeof query.abortSignal === "function"
+    ? await query.abortSignal(signal)
+    : await query;
+}
+
 function notifyWhileActive(
   admin: SupabaseClient,
   payload: NotifyPayload,
@@ -243,7 +253,7 @@ export async function detectAndExplainAnomalies(
     const body = `Flagged a transaction at ${merchant} for ${amount} ${assessment.currency} on ${t.posted_date} — ${reason}.`;
 
     ensureJobActive(signal);
-    const { error: insightError } = await admin.from("ai_insights").insert({
+    const insightWrite = admin.from("ai_insights").insert({
       user_id: userId,
       kind: "anomaly",
       title: `Unusual transaction: ${merchant}`,
@@ -255,6 +265,7 @@ export async function detectAndExplainAnomalies(
       confidence: "low",
       requires_review: true,
     });
+    const { error: insightError } = await awaitJobQuery(insightWrite, signal);
     if (insightError) throw insightError;
   }
   return notificationOutcome(results);
@@ -363,7 +374,7 @@ export async function writeWeeklyRecap(
   const body = `Net worth ${netWorthChangeMinor >= 0 ? "rose" : "fell"} $${minorUnitsToDecimalString(Math.abs(netWorthChangeMinor), "USD")} this week, now $${todayExact}. Top spend: ${topCategories.map(({ category, total }) => `${category} ($${total})`).join(", ") || "none recorded"}.`;
 
   ensureJobActive(signal);
-  const { error: insightError } = await admin.from("ai_insights").insert({
+  const insightWrite = admin.from("ai_insights").insert({
     user_id: userId,
     kind: "weekly_recap",
     title: "Weekly recap",
@@ -373,6 +384,7 @@ export async function writeWeeklyRecap(
     confidence: "low",
     requires_review: true,
   });
+  const { error: insightError } = await awaitJobQuery(insightWrite, signal);
   if (insightError) throw insightError;
 
   if (userEmail) {
@@ -451,7 +463,7 @@ export async function writeSubscriptionAudit(
   const body = `${shapedStale.length} recurring charge${shapedStale.length > 1 ? "s" : ""} haven't shown up in a while: ${shapedStale.map((s) => s.merchant_name).join(", ")}. They might be cancelled but still billing, or just renamed on your statement — worth a check.`;
 
   ensureJobActive(signal);
-  const { error: insightError } = await admin.from("ai_insights").insert({
+  const insightWrite = admin.from("ai_insights").insert({
     user_id: userId,
     kind: "subscription_audit",
     title: "Subscription audit",
@@ -461,6 +473,7 @@ export async function writeSubscriptionAudit(
     confidence: "low",
     requires_review: true,
   });
+  const { error: insightError } = await awaitJobQuery(insightWrite, signal);
   if (insightError) throw insightError;
 
   if (userEmail) {

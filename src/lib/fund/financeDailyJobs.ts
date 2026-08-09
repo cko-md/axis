@@ -54,6 +54,16 @@ function ensureJobActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("Finance job aborted", "AbortError");
 }
 
+async function awaitJobQuery<T>(
+  query: PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> },
+  signal?: AbortSignal,
+): Promise<T> {
+  ensureJobActive(signal);
+  return signal && typeof query.abortSignal === "function"
+    ? await query.abortSignal(signal)
+    : await query;
+}
+
 function notifyWhileActive(
   admin: SupabaseClient,
   payload: NotifyPayload,
@@ -590,7 +600,7 @@ export async function snapshotNetWorth(
   })).digest("hex");
   const computedAt = new Date().toISOString();
   ensureJobActive(signal);
-  const { error: snapshotError } = await admin.from("net_worth_snapshots").upsert(
+  const snapshotWrite = admin.from("net_worth_snapshots").upsert(
     {
       user_id: userId,
       captured_on: computedAt.slice(0, 10),
@@ -606,6 +616,7 @@ export async function snapshotNetWorth(
     },
     { onConflict: "user_id,captured_on" },
   );
+  const { error: snapshotError } = await awaitJobQuery(snapshotWrite, signal);
   if (snapshotError) throw snapshotError;
   return outcome;
 }
@@ -721,7 +732,7 @@ export async function detectRecurring(
     if (!expectedAmount) throw new Error("RECURRING_INPUT_AMOUNT_INVALID");
 
     ensureJobActive(signal);
-    const { error: recurringError } = await admin.from("fund_recurring_transactions").upsert(
+    const recurringWrite = admin.from("fund_recurring_transactions").upsert(
       {
         user_id: userId,
         merchant_name: last.merchant,
@@ -739,6 +750,7 @@ export async function detectRecurring(
       },
       { onConflict: "user_id,merchant_name,currency,source", ignoreDuplicates: false },
     );
+    const { error: recurringError } = await awaitJobQuery(recurringWrite, signal);
     if (recurringError) throw recurringError;
   }
 }
@@ -806,7 +818,7 @@ export async function writeDailyBrief(
       : `Net worth ${changeMinor > 0 ? "increased" : changeMinor < 0 ? "decreased" : "changed"} by $${absoluteChangeExact} since ${weekAgo.captured_on}, now $${todayExact}. Percentage change is unavailable because the prior net worth was not positive.`;
 
   ensureJobActive(signal);
-  const { error: insightError } = await admin.from("ai_insights").insert({
+  const insightWrite = admin.from("ai_insights").insert({
     user_id: userId,
     kind: "daily_brief",
     title: "Daily brief",
@@ -816,6 +828,7 @@ export async function writeDailyBrief(
     confidence: "high",
     requires_review: false,
   });
+  const { error: insightError } = await awaitJobQuery(insightWrite, signal);
   if (insightError) throw insightError;
 
   if (userEmail) {
