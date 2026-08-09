@@ -1,12 +1,44 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T06:05:56.388Z",
+  "derivedAt": "2026-08-09T07:17:42.293Z",
   "git": {
     "branch": "codex/security-auth006-direct-provider-identity",
-    "head": "c6a44693383a07592227a44d1859bfc88c44a021",
+    "head": "fb6066eab2556a26d7d81f914b000fef6747077f",
     "mainHead": "bf15060f3cf681b9932a006d810faa051bf7da76",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "fb6066ea",
+        "subject": "chore: review refresh cleanup telemetry"
+      },
+      {
+        "sha": "7207c194",
+        "subject": "test: preserve trusted setup boundary"
+      },
+      {
+        "sha": "65ac9795",
+        "subject": "test: localize provider migration window"
+      },
+      {
+        "sha": "ef41d767",
+        "subject": "fix: close direct provider rotation gaps"
+      },
+      {
+        "sha": "1241c1c6",
+        "subject": "fix: remove authenticated legacy cookie copies"
+      },
+      {
+        "sha": "2cdc7587",
+        "subject": "fix: classify refresh contention as expected"
+      },
+      {
+        "sha": "b02d0e16",
+        "subject": "fix: fence provider rotation and signing keys"
+      },
+      {
+        "sha": "4a3fc8e6",
+        "subject": "chore(state): record reviewed AUTH-006 gates"
+      },
       {
         "sha": "c6a44693",
         "subject": "chore: register widget cache telemetry route"
@@ -96,9 +128,9 @@
         "subject": "security: isolate direct provider identity"
       }
     ],
-    "contentTreeHash": "7563b2d511c7a6218d52a4618dbfeefeee37f0699debd2791e35d6fd8b8699ff",
+    "contentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
     "sourceMainContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
-    "fingerprint": "b7c65d3951b4b2c73b809a2d5be708987e4b4bef38877075e98ce4e7ca0bf187"
+    "fingerprint": "a4bb8bfe88f60f5c4958196cb69cf59516755b16db3d04a85e987c6ca2073e5d"
   },
   "mergedPrs": [
     {
@@ -409,8 +441,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "c6a44693383a07592227a44d1859bfc88c44a021",
-    "sourceContentTreeHash": "7563b2d511c7a6218d52a4618dbfeefeee37f0699debd2791e35d6fd8b8699ff",
+    "sourceHead": "fb6066eab2556a26d7d81f914b000fef6747077f",
+    "sourceContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
     "typecheck": {
       "passed": true
     },
@@ -418,10 +450,10 @@
       "passed": true
     },
     "tests": {
-      "passed": 2877,
-      "total": 2877,
-      "files": 309,
-      "suites": 851
+      "passed": 2889,
+      "total": 2889,
+      "files": 310,
+      "suites": 853
     },
     "build": {
       "passed": true,
@@ -435,6 +467,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T06:05:56.320Z"
+    "measuredAt": "2026-08-09T07:17:42.207Z"
   }
 }
