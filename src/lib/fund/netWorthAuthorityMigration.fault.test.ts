@@ -39,7 +39,7 @@ describe("net-worth snapshot database authority contract", () => {
     expect(migration).toContain("owner to postgres");
     expect(migration).toContain("if (select auth.role()) is distinct from 'service_role' then");
     expect(migration).toContain("pg_catalog.pg_advisory_xact_lock");
-    expect(migration).toContain("transaction generation id cannot be rebound to different facts");
+    expect(migration).toContain("provider coverage generation facts are immutable");
     expect(migration).toContain("set search_path = ''");
     expect(migration).toContain(
       "revoke all on function public.publish_fund_transaction_generation(uuid,uuid,date,date,timestamptz,uuid,jsonb)",

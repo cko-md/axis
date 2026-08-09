@@ -6,6 +6,15 @@ import {
   type OrderTicket,
   type OrderType,
 } from "@/lib/orders/orderTicket";
+import {
+  multiplyScaledMinorUnits,
+  normalizeFinancialCurrency,
+  strictExactMinorUnits,
+  strictScaledUnits,
+} from "@/lib/fund/financialTruth";
+import { toMajorUnitsIn } from "@/lib/fund/currency";
+
+export const PUBLIC_ORDER_QUANTITY_SCALE = 1_000_000;
 
 export type PublicOrderAction = "prepare" | "verify" | "submit";
 
@@ -29,10 +38,15 @@ export type PreparedPublicOrder = {
   symbol: string;
   side: OrderSide;
   quantity: number;
+  quantityUnits: number;
+  quantityScale: typeof PUBLIC_ORDER_QUANTITY_SCALE;
   type: OrderType;
   limitPrice: number | null;
+  limitPriceMinor: number | null;
   referencePrice: number | null;
+  referencePriceMinor: number | null;
   estimatedNotional: number | null;
+  estimatedNotionalMinor: number | null;
   currency: string;
   summary: string;
   ticket: OrderTicket | null;
@@ -54,16 +68,6 @@ export type PublicOrderSubmitClearance = {
   serverVerified: boolean;
 };
 
-function finitePositiveNumber(value: unknown): number | null {
-  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-function finiteNonNegativeNumber(value: unknown): number | null {
-  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
 function normalizeOrderType(value: unknown): OrderType | null {
   if (value === undefined || value === null || value === "") return "market";
   return value === "market" || value === "limit" ? value : null;
@@ -78,30 +82,56 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   const warnings: string[] = [];
   const symbol = typeof input.symbol === "string" ? input.symbol.trim().toUpperCase() : "";
   const side = normalizeSide(input.side);
-  const quantity = finitePositiveNumber(input.quantity);
+  const quantityUnits = strictScaledUnits(input.quantity, PUBLIC_ORDER_QUANTITY_SCALE);
+  const quantity = quantityUnits === null ? null : quantityUnits / PUBLIC_ORDER_QUANTITY_SCALE;
   const type = normalizeOrderType(input.type);
-  const limitPrice = finitePositiveNumber(input.limitPrice ?? input.limit_price);
-  const referencePrice = finiteNonNegativeNumber(input.referencePrice ?? input.reference_price);
-  const currency = typeof input.currency === "string" && input.currency.trim()
-    ? input.currency.trim().toUpperCase()
-    : "";
+  const currency = normalizeFinancialCurrency(input.currency, "") ?? "";
+  const rawLimitPrice = input.limitPrice ?? input.limit_price;
+  const rawReferencePrice = input.referencePrice ?? input.reference_price;
+  const limitPriceMinor = rawLimitPrice === undefined || rawLimitPrice === null || rawLimitPrice === ""
+    ? null
+    : strictExactMinorUnits(rawLimitPrice, currency);
+  const referencePriceMinor = rawReferencePrice === undefined || rawReferencePrice === null || rawReferencePrice === ""
+    ? null
+    : strictExactMinorUnits(rawReferencePrice, currency);
+  const limitPrice = limitPriceMinor === null ? null : toMajorUnitsIn(limitPriceMinor, currency);
+  const referencePrice = referencePriceMinor === null ? null : toMajorUnitsIn(referencePriceMinor, currency);
 
   if (!symbol) errors.push("symbol is required");
   if (symbol.length > 12) errors.push("symbol must be 12 characters or fewer");
   if (!side) errors.push("side must be buy or sell");
-  if (quantity === null) errors.push("quantity must be > 0");
+  if (quantity === null || quantityUnits === null || quantityUnits <= 0) {
+    errors.push("quantity must be > 0 with at most 6 decimal places");
+  }
   if (!type) errors.push("type must be market or limit");
   if (!currency) errors.push("currency is required");
-  if (type === "limit" && limitPrice === null) errors.push("limit order requires a positive limitPrice");
+  if (type === "limit" && (limitPriceMinor === null || limitPriceMinor <= 0)) {
+    errors.push("limit order requires a positive cent-exact limitPrice");
+  }
+  if (rawReferencePrice !== undefined && rawReferencePrice !== null && rawReferencePrice !== "" && referencePriceMinor === null) {
+    errors.push("referencePrice must be a non-negative cent-exact amount");
+  }
   if (referencePrice === null) warnings.push("referencePrice missing; estimated notional is unavailable until quote verification");
 
-  if (errors.length > 0 || !side || quantity === null || !type) {
+  if (errors.length > 0 || !side || quantity === null || quantityUnits === null || !type) {
     return fail("invalid_request", errors.join("; "), { provider: "public", retryable: false });
   }
 
   let ticket: OrderTicket | null = null;
   let estimatedNotional: number | null = null;
-  if (referencePrice !== null) {
+  let estimatedNotionalMinor: number | null = null;
+  if (referencePrice !== null && referencePriceMinor !== null) {
+    estimatedNotionalMinor = multiplyScaledMinorUnits(
+      quantityUnits,
+      referencePriceMinor,
+      PUBLIC_ORDER_QUANTITY_SCALE,
+    );
+    if (estimatedNotionalMinor === null) {
+      return fail("invalid_request", "estimated notional is outside the supported range", {
+        provider: "public",
+        retryable: false,
+      });
+    }
     const ticketResult = buildOrderTicket({
       symbol,
       side,
@@ -115,7 +145,7 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
       return fail("invalid_request", ticketResult.errors.join("; "), { provider: "public", retryable: false });
     }
     ticket = ticketResult.ticket;
-    estimatedNotional = ticket.estimatedNotional;
+    estimatedNotional = toMajorUnitsIn(estimatedNotionalMinor, currency);
   }
 
   const summary = ticket
@@ -130,10 +160,15 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
     symbol,
     side,
     quantity,
+    quantityUnits,
+    quantityScale: PUBLIC_ORDER_QUANTITY_SCALE,
     type,
     limitPrice: type === "limit" ? limitPrice : null,
+    limitPriceMinor: type === "limit" ? limitPriceMinor : null,
     referencePrice,
+    referencePriceMinor,
     estimatedNotional,
+    estimatedNotionalMinor,
     currency,
     summary,
     ticket,

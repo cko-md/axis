@@ -1111,6 +1111,74 @@ export type Database = {
         }
         Relationships: []
       }
+      fund_execution_receipts: {
+        Row: {
+          created_at: string
+          currency: string
+          executed_at: string
+          fee_minor: number
+          filled_quantity_units: number
+          gross_amount_minor: number
+          id: string
+          intent_id: string
+          price_minor: number
+          provider: string
+          provider_account_ref_hash: string
+          provider_fill_id: string
+          provider_order_id: string
+          quantity_scale: number
+          receipt_hash: string
+          retrieved_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          executed_at: string
+          fee_minor: number
+          filled_quantity_units: number
+          gross_amount_minor: number
+          id?: string
+          intent_id: string
+          price_minor: number
+          provider?: string
+          provider_account_ref_hash: string
+          provider_fill_id: string
+          provider_order_id: string
+          quantity_scale?: number
+          receipt_hash: string
+          retrieved_at: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          executed_at?: string
+          fee_minor?: number
+          filled_quantity_units?: number
+          gross_amount_minor?: number
+          id?: string
+          intent_id?: string
+          price_minor?: number
+          provider?: string
+          provider_account_ref_hash?: string
+          provider_fill_id?: string
+          provider_order_id?: string
+          quantity_scale?: number
+          receipt_hash?: string
+          retrieved_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fund_execution_receipts_intent_id_user_id_fkey"
+            columns: ["intent_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "fund_order_intents"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       fund_holdings: {
         Row: {
           authority: string
@@ -1330,6 +1398,69 @@ export type Database = {
           },
         ]
       }
+      fund_order_intents: {
+        Row: {
+          action_class: string
+          created_at: string
+          currency: string
+          estimated_notional_minor: number | null
+          id: string
+          idempotency_key: string
+          limit_price_minor: number | null
+          order_type: string
+          payload_hash: string
+          provider: string
+          quantity_scale: number
+          quantity_units: number
+          reference_price_minor: number | null
+          reference_price_source: string
+          side: string
+          status: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          action_class?: string
+          created_at?: string
+          currency: string
+          estimated_notional_minor?: number | null
+          id?: string
+          idempotency_key: string
+          limit_price_minor?: number | null
+          order_type: string
+          payload_hash: string
+          provider?: string
+          quantity_scale?: number
+          quantity_units: number
+          reference_price_minor?: number | null
+          reference_price_source: string
+          side: string
+          status?: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          action_class?: string
+          created_at?: string
+          currency?: string
+          estimated_notional_minor?: number | null
+          id?: string
+          idempotency_key?: string
+          limit_price_minor?: number | null
+          order_type?: string
+          payload_hash?: string
+          provider?: string
+          quantity_scale?: number
+          quantity_units?: number
+          reference_price_minor?: number | null
+          reference_price_source?: string
+          side?: string
+          status?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       fund_recurring_transactions: {
         Row: {
           cadence: string
@@ -1389,14 +1520,18 @@ export type Database = {
           amount: number
           created_at: string
           currency: string
+          execution_authority: string
+          execution_receipt_id: string | null
           executed_at: string
           fee: number
           id: string
           kind: string
           name: string | null
           note: string | null
+          order_intent_id: string | null
           price: number
           provider_record_id: string | null
+          provider_receipt_hash: string | null
           reconciliation_state: string | null
           retrieved_at: string | null
           shares: number
@@ -1408,14 +1543,18 @@ export type Database = {
           amount?: number
           created_at?: string
           currency?: string
+          execution_authority?: string
+          execution_receipt_id?: string | null
           executed_at?: string
           fee?: number
           id?: string
           kind?: string
           name?: string | null
           note?: string | null
+          order_intent_id?: string | null
           price?: number
           provider_record_id?: string | null
+          provider_receipt_hash?: string | null
           reconciliation_state?: string | null
           retrieved_at?: string | null
           shares?: number
@@ -1427,14 +1566,18 @@ export type Database = {
           amount?: number
           created_at?: string
           currency?: string
+          execution_authority?: string
+          execution_receipt_id?: string | null
           executed_at?: string
           fee?: number
           id?: string
           kind?: string
           name?: string | null
           note?: string | null
+          order_intent_id?: string | null
           price?: number
           provider_record_id?: string | null
+          provider_receipt_hash?: string | null
           reconciliation_state?: string | null
           retrieved_at?: string | null
           shares?: number
@@ -1442,7 +1585,22 @@ export type Database = {
           symbol?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fund_transactions_execution_receipt_owner_fkey"
+            columns: ["execution_receipt_id", "user_id"]
+            isOneToOne: true
+            referencedRelation: "fund_execution_receipts"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "fund_transactions_order_intent_owner_fkey"
+            columns: ["order_intent_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "fund_order_intents"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
       }
       fund_watchlist: {
         Row: {
@@ -3880,6 +4038,22 @@ export type Database = {
       }
       mark_overdue_tasks: { Args: never; Returns: number }
       purge_old_done_tasks: { Args: never; Returns: undefined }
+      record_verified_fund_execution: {
+        Args: {
+          p_executed_at: string
+          p_fee_minor: number
+          p_filled_quantity_units: number
+          p_intent_id: string
+          p_price_minor: number
+          p_provider_account_ref_hash: string
+          p_provider_fill_id: string
+          p_provider_order_id: string
+          p_receipt_hash: string
+          p_retrieved_at: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       record_entity_usage: {
         Args: { p_action: string; p_entity_id: string; p_entity_kind: string }
         Returns: {

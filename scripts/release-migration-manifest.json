@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 92,
+  "migrationCount": 93,
   "latest": {
-    "version": "20260723090000",
-    "file": "supabase/migrations/20260723090000_net_worth_snapshots_authority_provenance.sql",
-    "sha256": "0c470bbd22e787c134e5c0abb04a19ce5f4b4354ecab61dc44dbc790e8e0f48c"
+    "version": "20260809210000",
+    "file": "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
+    "sha256": "7b24c446cc86267e4f6a7b0a59a42be3ab520d062b8baf025845b8af9c36b727"
   },
   "migrations": [
     {
@@ -465,7 +465,12 @@
     {
       "version": "20260723090000",
       "file": "supabase/migrations/20260723090000_net_worth_snapshots_authority_provenance.sql",
-      "sha256": "0c470bbd22e787c134e5c0abb04a19ce5f4b4354ecab61dc44dbc790e8e0f48c"
+      "sha256": "31ebd33de4a516d032ca54b3c88f07a1a57b7ecdeef649f6cafe48a5941331a7"
+    },
+    {
+      "version": "20260809210000",
+      "file": "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
+      "sha256": "7b24c446cc86267e4f6a7b0a59a42be3ab520d062b8baf025845b8af9c36b727"
     }
   ]
 }

@@ -1,16 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-/**
- * Order routing scaffold for Public.com (or a generic brokerage).
- *
- * Without keys: returns { routed: false, mode: "log" } (200) so the client can
- * record the intended trade to fund_transactions locally without pretending an
- * execution happened. This is the graceful setup-state.
- *
- * With keys: this is where the real Public.com order placement call would go.
- * Trades are never auto-executed without an explicit confirmed request body.
- */
+/** Retired unsafe order-capture boundary. Use prepare-only /api/brokerage/orders. */
 export async function POST(request: NextRequest) {
   void request;
   let supabase: Awaited<ReturnType<typeof createClient>>;

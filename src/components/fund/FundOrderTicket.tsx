@@ -1,143 +1,137 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { Card } from "@/components/ui/Card";
-import type { TransactionRow } from "@/lib/store/fund-defaults";
+
+type IntentSummary = {
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  quantity_units: number;
+  quantity_scale: number;
+  reference_price_minor: number | null;
+  currency: string;
+  status: "not_submitted";
+  created_at: string;
+};
 
 type OrderRouteResponse = {
-  routed?: boolean;
+  error?: string;
   message?: string;
+  submitted?: boolean;
+  intent?: IntentSummary;
 };
 
 interface Props {
   /** Pre-fill the symbol (e.g. from the selected chart ticker). */
   defaultSymbol?: string;
-  /** Called with the new transaction after a successful capture. */
-  onLogged?: (txn: TransactionRow) => void;
-  /** Whether a brokerage (Public) is connected, for the routing note. */
+  /** Whether a brokerage (Public) is connected, for the safety note. */
   brokerageConfigured?: boolean;
 }
 
+function displayQuantity(intent: IntentSummary) {
+  return intent.quantity_units / intent.quantity_scale;
+}
+
 /**
- * Order ticket built on the .capture (order-ticket) motif. Logs buys/sells to
- * fund_transactions and routes through /api/brokerage/order, which no-ops
- * cleanly to "log only" when no brokerage key is configured.
+ * Saves an immutable order intent for later review. This component never calls
+ * a submit boundary and never writes fund_transactions: an intent is not a
+ * provider acknowledgement or a verified fill.
  */
-export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigured }: Props) {
+export function FundOrderTicket({ defaultSymbol = "", brokerageConfigured }: Props) {
   const { toast } = useToast();
   const [symbol, setSymbol] = useState(defaultSymbol);
   const [shares, setShares] = useState("");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recentIntents, setRecentIntents] = useState<IntentSummary[]>([]);
+  const [historyError, setHistoryError] = useState(false);
+  const retryIdentity = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
 
-  async function submit(side: "buy" | "sell") {
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const response = await fetch("/api/brokerage/orders", { cache: "no-store" }).catch(() => null);
+      if (!alive) return;
+      if (!response?.ok) {
+        setHistoryError(true);
+        return;
+      }
+      const data = await response.json().catch(() => null) as { intents?: unknown } | null;
+      setRecentIntents(Array.isArray(data?.intents) ? data.intents.slice(0, 3) as IntentSummary[] : []);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  async function saveIntent(side: "buy" | "sell") {
     const sym = symbol.trim().toUpperCase();
-    const qty = parseFloat(shares);
-    const px = parseFloat(price);
+    const qty = shares.trim();
+    const referencePrice = price.trim();
     if (!sym) {
-      toast("Enter a symbol first.", "warn", "Order Ticket");
+      toast("Enter a symbol first.", "warn", "Order Intent");
       return;
     }
-    if (!(qty > 0) || !(px > 0)) {
-      toast("Enter share quantity and a price above zero.", "warn", "Order Ticket");
+    if (!/^\d+(?:\.\d{1,6})?$/.test(qty) || Number(qty) <= 0) {
+      toast("Enter a positive share quantity with at most six decimal places.", "warn", "Order Intent");
+      return;
+    }
+    if (!/^\d+(?:\.\d{1,2})?$/.test(referencePrice) || Number(referencePrice) < 0) {
+      toast("Enter a non-negative reference price in dollars and cents.", "warn", "Order Intent");
       return;
     }
 
+    const order = {
+      symbol: sym,
+      side,
+      quantity: qty,
+      type: "market",
+      referencePrice,
+      currency: "USD",
+    } as const;
+    const fingerprint = JSON.stringify(order);
+    const identity = retryIdentity.current?.fingerprint === fingerprint
+      ? retryIdentity.current
+      : { fingerprint, idempotencyKey: crypto.randomUUID() };
+    retryIdentity.current = identity;
     setBusy(true);
-    const gross = qty * px;
-    const amount = side === "buy" ? -gross : gross;
 
-    // 1. Route through brokerage proxy (degrades to local-log without keys)
-    let routeMsg = "";
-    let routed = false;
     try {
-      const res = await fetch("/api/brokerage/order", {
+      const response = await fetch("/api/brokerage/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: sym, side, quantity: qty }),
+        body: JSON.stringify({ action: "prepare", idempotencyKey: identity.idempotencyKey, order }),
       });
-      const data = (await res.json().catch(() => ({}))) as OrderRouteResponse;
-      if (!res.ok) {
-        routeMsg = data?.message ?? "Brokerage route unavailable; captured to ledger only.";
-      } else {
-        routed = data?.routed === true;
-        routeMsg = data?.message ?? "";
+      const data = await response.json().catch(() => ({})) as OrderRouteResponse;
+      if (!response.ok || !data.intent || data.submitted !== false || data.intent.status !== "not_submitted") {
+        toast(data.message ?? data.error ?? "The intent could not be saved. No order was submitted.", "error", "Order Intent");
+        return;
       }
-    } catch {
-      routeMsg = "Network issue reaching brokerage; captured to ledger only.";
-    }
 
-    if (brokerageConfigured && !routed && !window.confirm("Live brokerage execution is not enabled. Capture this order intent to your ledger only?")) {
+      setRecentIntents((current) => [data.intent as IntentSummary, ...current.filter((row) => row.id !== data.intent?.id)].slice(0, 3));
+      setHistoryError(false);
+      retryIdentity.current = null;
+      setShares("");
+      setPrice("");
+      toast(
+        `${side === "buy" ? "Buy" : "Sell"} intent saved for ${qty} ${sym}. No brokerage order was submitted.`,
+        "success",
+        "Order Intent",
+      );
+    } catch {
+      toast("The network outcome is unknown. Retry to safely resolve the same intent; no execution is being claimed.", "error", "Order Intent");
+    } finally {
       setBusy(false);
-      return;
     }
-
-    // 2. Persist to the ledger
-    const txn: TransactionRow = {
-      kind: side,
-      symbol: sym,
-      name: sym,
-      shares: qty,
-      price: px,
-      amount,
-      source: routed ? "public" : "manual",
-      executed_at: new Date().toISOString(),
-    };
-
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data, error } = await supabase
-          .from("fund_transactions")
-          .insert({
-            user_id: user.id,
-            kind: txn.kind,
-            symbol: txn.symbol,
-            name: txn.name,
-            shares: txn.shares,
-            price: txn.price,
-            amount: txn.amount,
-            source: txn.source,
-            executed_at: txn.executed_at,
-            // Provenance: capture time is the retrieval anchor for this ledger row.
-            retrieved_at: txn.executed_at,
-            currency: "USD",
-          })
-          .select()
-          .single();
-        if (error) {
-          toast(error.message, "error", "Order Ticket");
-          setBusy(false);
-          return;
-        }
-        txn.id = data?.id;
-      }
-    } catch {
-      // signed-out: keep the local row only
-    }
-
-    onLogged?.(txn);
-    const verb = routed ? (side === "buy" ? "Bought" : "Sold") : `${side === "buy" ? "Buy" : "Sell"} intent captured`;
-    toast(
-      `${verb} ${qty} ${sym} @ $${px.toFixed(2)}. ${routeMsg || "Logged to ledger."}`,
-      "success",
-      "Order Ticket",
-    );
-    setShares("");
-    setPrice("");
-    setBusy(false);
   }
 
   return (
     <div>
       <Card>
         <h2 className="sec">
-          Order Ticket
+          Order Intent
           <span className="rule" />
-          <span className="count">{brokerageConfigured ? "Public" : "Ledger"}</span>
+          <span className="count">Not submitted</span>
         </h2>
 
         <div className="capture" style={{ margin: "12px 0 0" }}>
@@ -147,7 +141,7 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
           </svg>
           <input
             value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onChange={(event) => setSymbol(event.target.value.toUpperCase())}
             placeholder="Symbol"
             aria-label="Symbol"
             style={{ maxWidth: 96, fontFamily: "var(--mono)", fontSize: 12 }}
@@ -155,19 +149,19 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
           <span className="capt-pill">Shares</span>
           <input
             value={shares}
-            onChange={(e) => setShares(e.target.value)}
+            onChange={(event) => setShares(event.target.value)}
             placeholder="0"
             inputMode="decimal"
             aria-label="Shares"
             style={{ maxWidth: 70, fontFamily: "var(--mono)", fontSize: 12 }}
           />
-          <span className="capt-pill">Price</span>
+          <span className="capt-pill">Reference</span>
           <input
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(event) => setPrice(event.target.value)}
             placeholder="0.00"
             inputMode="decimal"
-            aria-label="Price per share"
+            aria-label="Reference price per share"
             style={{ maxWidth: 80, fontFamily: "var(--mono)", fontSize: 12 }}
           />
         </div>
@@ -178,25 +172,45 @@ export function FundOrderTicket({ defaultSymbol = "", onLogged, brokerageConfigu
             className="sig-go"
             style={{ flex: 1, padding: 9, color: "var(--up)" }}
             disabled={busy}
-            onClick={() => submit("buy")}
+            onClick={() => saveIntent("buy")}
           >
-            {busy ? "…" : "Buy"}
+            {busy ? "Saving…" : "Save buy intent"}
           </button>
           <button
             type="button"
             className="sig-go"
             style={{ flex: 1, padding: 9, color: "var(--down)" }}
             disabled={busy}
-            onClick={() => submit("sell")}
+            onClick={() => saveIntent("sell")}
           >
-            {busy ? "…" : "Sell"}
+            {busy ? "Saving…" : "Save sell intent"}
           </button>
         </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 9, lineHeight: 1.5 }}>
+
+        <p style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--ink-faint)", marginTop: 9, lineHeight: 1.5 }}>
           {brokerageConfigured
-            ? "Public credentials detected. Live routing must be enabled server-side; otherwise orders are captured to your ledger only."
-            : "No brokerage connected — captures to your ledger only. Add APP_PUBLIC_API_KEY to route live."}
-        </div>
+            ? "Public credentials are detected, but live submission remains disabled. Saving creates a reviewable intent only."
+            : "Saving creates a reviewable intent only. It does not place or simulate a brokerage order."}
+        </p>
+
+        {historyError && (
+          <p role="status" style={{ fontSize: 11, color: "var(--clay)", marginTop: 10 }}>
+            Saved-intent history is temporarily unavailable.
+          </p>
+        )}
+        {recentIntents.length > 0 && (
+          <div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 9 }}>
+            <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--ink-faint)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+              Recent intents
+            </p>
+            {recentIntents.map((intent) => (
+              <div key={intent.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 7, fontSize: 11 }}>
+                <span>{intent.side === "buy" ? "Buy" : "Sell"} {displayQuantity(intent)} {intent.symbol}</span>
+                <span style={{ color: "var(--ink-faint)", fontFamily: "var(--mono)", fontSize: 9.5 }}>NOT SUBMITTED</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );
