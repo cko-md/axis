@@ -29,6 +29,10 @@ describe("net-worth snapshot database authority contract", () => {
     expect(migration).toMatch(/before insert or update or delete on public\.net_worth_snapshots/);
     expect(migration).toContain("provider bank transaction facts are immutable to owners");
     expect(migration).toContain("detected recurring facts are server-managed");
+    expect(migration).toContain("guard_fund_connection_expansion_compatibility");
+    expect(migration).toContain("new.authority := 'legacy_unknown'");
+    expect(migration).toContain("grant select, insert, update, delete on table public.fund_connections to authenticated");
+    expect(migration).toContain("subsequent\n-- contract migration removes these policies");
   });
 
   it("hardens the atomic publication RPC and binds the exact migration in the release manifest", () => {

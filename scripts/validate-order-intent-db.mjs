@@ -158,6 +158,41 @@ try {
     "true",
     "single execution materialization boundary",
   );
+  assertScalar(
+    "select has_table_privilege('authenticated','public.fund_transactions','INSERT')::text;",
+    "true",
+    "pre-application legacy transaction compatibility",
+  );
+  run(disposableUrl, `
+    set role authenticated;
+    set request.jwt.claim.role='authenticated';
+    set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+    insert into public.fund_transactions (
+      id,user_id,kind,symbol,name,shares,price,amount,fee,source
+    ) values (
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      '11111111-1111-4111-8111-111111111111',
+      'buy','AAPL','Apple',1,10,-10,0,'manual'
+    );
+    delete from public.fund_transactions
+    where id='ffffffff-ffff-4fff-8fff-ffffffffffff';
+  `, { label: "legacy unverified transaction compatibility" });
+  run(disposableUrl, `
+    set role authenticated;
+    set request.jwt.claim.role='authenticated';
+    set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+    insert into public.fund_transactions (
+      user_id,kind,symbol,name,shares,price,amount,fee,source,
+      execution_authority,order_intent_id,execution_receipt_id,
+      provider_record_id,provider_receipt_hash,retrieved_at,reconciliation_state
+    ) values (
+      '11111111-1111-4111-8111-111111111111',
+      'buy','AAPL','Apple',1,10,-10,0,'public','provider_verified',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      'forged-fill',repeat('f',64),now(),'matched'
+    );
+  `, { expectFailure: true, label: "legacy path provider execution forgery denial" });
 
   run(disposableUrl, `
     set role service_role;

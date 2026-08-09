@@ -225,8 +225,9 @@ alter table public.fund_category_budgets
     and monthly_limit <= 100000000000
     and monthly_limit * public.fund_currency_minor_factor(currency)
       = trunc(monthly_limit * public.fund_currency_minor_factor(currency))
-  ),
-  drop constraint if exists fund_category_budgets_user_id_category_key;
+  );
+-- Expansion keeps the protected-main (user_id, category) conflict arbiter.
+-- The post-application contract removes it after currency-aware writes are live.
 create unique index if not exists fund_category_budgets_identity_uidx
   on public.fund_category_budgets (user_id, category, currency);
 
@@ -260,8 +261,8 @@ alter table public.fund_bank_transactions
 create index if not exists idx_fund_bank_transactions_generation
   on public.fund_bank_transactions (user_id, connection_id, generation_id, posted_date);
 
-alter table public.fund_bank_transactions
-  drop constraint if exists fund_bank_transactions_user_id_plaid_transaction_id_key;
+-- Expansion keeps the protected-main transaction upsert conflict arbiter.
+-- The post-application contract removes it after generation publication is live.
 create unique index if not exists fund_bank_transactions_provider_identity_uidx
   on public.fund_bank_transactions (
     user_id, provider, connection_id, plaid_transaction_id
@@ -1535,8 +1536,8 @@ alter table public.fund_recurring_transactions
 
 create unique index if not exists fund_recurring_transactions_identity_uidx
   on public.fund_recurring_transactions (user_id, merchant_name, currency, source);
-alter table public.fund_recurring_transactions
-  drop constraint if exists fund_recurring_transactions_user_id_merchant_name_key;
+-- Expansion keeps the protected-main recurring upsert conflict arbiter.
+-- The post-application contract removes it after lineage-aware writes are live.
 
 create or replace function public.guard_fund_recurring_transaction_authority()
 returns trigger
@@ -1583,6 +1584,17 @@ begin
     new.source := 'manual';
     new.source_generations := null;
     new.source_generation_hash := null;
+    return new;
+  end if;
+
+  -- Expansion compatibility: protected main writes detected rows without a
+  -- coverage generation. They remain explicitly lineage-less and therefore
+  -- non-authoritative to the compatible application. The post-application
+  -- contract removes this branch.
+  if tg_op <> 'DELETE'
+    and new.source = 'detected'
+    and new.source_generations is null
+    and new.source_generation_hash is null then
     return new;
   end if;
 
@@ -1741,8 +1753,8 @@ alter table public.fund_liabilities
     )
   );
 
-alter table public.fund_holdings
-  drop constraint if exists fund_holdings_user_id_symbol_key;
+-- Expansion keeps the protected-main holding upsert conflict arbiter.
+-- The post-application contract removes it after provider publication is live.
 create unique index if not exists fund_holdings_manual_identity_uidx
   on public.fund_holdings (user_id, symbol)
   where authority = 'manual';
@@ -2227,5 +2239,76 @@ grant select (
   id, provider, event_type, status, attempt_count, last_error_code,
   last_http_status, locked_at, accepted_at, delivered_at, created_at, updated_at
 ) on table public.integration_delivery_outbox to authenticated;
+
+-- Protected main equates a Make webhook 2xx with delivery. During expansion,
+-- accept that legacy write without preserving its false delivery claim.
+create or replace function public.guard_make_outbox_expansion_compatibility()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if new.status = 'delivered' and new.accepted_at is null then
+    new.status := 'accepted';
+    new.accepted_at := coalesce(new.delivered_at, new.updated_at, now());
+    new.delivered_at := null;
+    new.last_error_code := 'delivery_confirmation_pending';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.guard_make_outbox_expansion_compatibility()
+  from public, anon, authenticated;
+drop trigger if exists guard_make_outbox_expansion_compatibility
+  on public.integration_delivery_outbox;
+create trigger guard_make_outbox_expansion_compatibility
+before insert or update on public.integration_delivery_outbox
+for each row execute function public.guard_make_outbox_expansion_compatibility();
+
+-- Expansion/application compatibility boundary.
+--
+-- Protected main still reads and writes Plaid credentials through an
+-- authenticated server client. Keep its existing owner-scoped connection DML
+-- until the compatible application revision is Ready in production, while
+-- refusing to let that legacy path mint provider authority. The subsequent
+-- contract migration removes these policies and table privileges after the
+-- service-role credential path is live.
+create or replace function public.guard_fund_connection_expansion_compatibility()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if current_user = 'authenticated' and tg_op <> 'DELETE' then
+    new.authority := 'legacy_unknown';
+    new.verified_at := null;
+    new.action_required := null;
+    new.provider_event_at := null;
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+revoke all on function public.guard_fund_connection_expansion_compatibility()
+  from public, anon, authenticated;
+drop trigger if exists guard_fund_connection_expansion_compatibility
+  on public.fund_connections;
+create trigger guard_fund_connection_expansion_compatibility
+before insert or update or delete on public.fund_connections
+for each row execute function public.guard_fund_connection_expansion_compatibility();
+
+drop policy if exists "fund_connections_insert_own" on public.fund_connections;
+drop policy if exists "fund_connections_update_own" on public.fund_connections;
+drop policy if exists "fund_connections_delete_own" on public.fund_connections;
+create policy "fund_connections_insert_own" on public.fund_connections
+  for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy "fund_connections_update_own" on public.fund_connections
+  for update to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+create policy "fund_connections_delete_own" on public.fund_connections
+  for delete to authenticated using ((select auth.uid()) = user_id);
+grant select, insert, update, delete on table public.fund_connections to authenticated;
 
 commit;

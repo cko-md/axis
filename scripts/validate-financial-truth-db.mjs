@@ -325,15 +325,29 @@ try {
     set request.jwt.claim.role = 'authenticated';
     set request.jwt.claim.sub = '11111111-1111-4111-8111-111111111111';
     insert into public.fund_category_budgets (user_id,category,monthly_limit,currency)
-    values
-      ('11111111-1111-4111-8111-111111111111','TRAVEL','100.00','USD'),
-      ('11111111-1111-4111-8111-111111111111','TRAVEL','100.00','EUR');
-  `, { label: "currency-partitioned category budgets" });
+    values ('11111111-1111-4111-8111-111111111111','TRAVEL','100.00','USD');
+  `, { label: "expansion category budget" });
+  run(disposableUrl, `
+    set role authenticated;
+    set request.jwt.claim.role = 'authenticated';
+    set request.jwt.claim.sub = '11111111-1111-4111-8111-111111111111';
+    insert into public.fund_category_budgets (user_id,category,monthly_limit,currency)
+    values ('11111111-1111-4111-8111-111111111111','TRAVEL','100.00','EUR');
+  `, { expectFailure: true, label: "protected-main category arbiter compatibility" });
   assertScalar(
     "select count(*)::text from fund_category_budgets where category='TRAVEL';",
-    "2",
-    "same category remains separate by currency",
+    "1",
+    "protected-main category identity remains until contract",
   );
+  run(disposableUrl, `
+    set role authenticated;
+    set request.jwt.claim.role = 'authenticated';
+    set request.jwt.claim.sub = '11111111-1111-4111-8111-111111111111';
+    insert into public.fund_category_budgets (user_id,category,monthly_limit,currency)
+    values ('11111111-1111-4111-8111-111111111111','TRAVEL','125.00','USD')
+    on conflict (user_id,category) do update
+      set monthly_limit=excluded.monthly_limit;
+  `, { label: "protected-main category upsert compatibility" });
   run(disposableUrl, `
     set role authenticated;
     set request.jwt.claim.role = 'authenticated';
@@ -353,6 +367,16 @@ try {
     "select status || ':' || (accepted_at is not null)::text || ':' || (delivered_at is null)::text from integration_delivery_outbox;",
     "accepted:true:true",
     "legacy Make delivery downgrade",
+  );
+  run(disposableUrl, `
+    set role service_role;
+    update public.integration_delivery_outbox
+    set status='delivered', accepted_at=null, delivered_at=now(), updated_at=now();
+  `, { label: "protected-main Make completion compatibility" });
+  assertScalar(
+    "select status || ':' || (accepted_at is not null)::text || ':' || (delivered_at is null)::text from integration_delivery_outbox;",
+    "accepted:true:true",
+    "legacy Make completion is accepted but not falsely delivered",
   );
 
   run(disposableUrl, `
@@ -498,14 +522,14 @@ try {
     update public.net_worth_snapshot_revisions set net_worth='0';
   `, { expectFailure: true, label: "append-only revision mutation" });
   assertScalar(
-    "select (not has_column_privilege('authenticated','public.fund_connections','access_token_enc','SELECT') and not has_column_privilege('authenticated','public.fund_connections','refresh_token_enc','SELECT') and not has_column_privilege('authenticated','public.fund_connections','item_id','SELECT'))::text;",
+    "select (has_column_privilege('authenticated','public.fund_connections','access_token_enc','SELECT') and has_column_privilege('authenticated','public.fund_connections','refresh_token_enc','SELECT') and has_column_privilege('authenticated','public.fund_connections','item_id','SELECT'))::text;",
     "true",
-    "provider credential and identity non-disclosure",
+    "protected-main credential-read compatibility until contract",
   );
   assertScalar(
-    "select (not has_table_privilege('authenticated','public.fund_connections','INSERT') and not has_table_privilege('authenticated','public.fund_connections','UPDATE') and not has_table_privilege('authenticated','public.fund_connections','DELETE'))::text;",
+    "select (has_table_privilege('authenticated','public.fund_connections','INSERT') and has_table_privilege('authenticated','public.fund_connections','UPDATE') and has_table_privilege('authenticated','public.fund_connections','DELETE'))::text;",
     "true",
-    "provider connection owner mutation denial",
+    "pre-application legacy connection compatibility",
   );
   assertScalar(
     "set role authenticated; set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111'; select count(id)::text from public.fund_connections;",
@@ -519,10 +543,28 @@ try {
   );
   run(disposableUrl, `
     set role authenticated;
+    set request.jwt.claim.role='authenticated';
     set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
-    update public.fund_connections set status='revoked'
-    where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  `, { expectFailure: true, label: "direct connection mutation denial" });
+    insert into public.fund_connections (
+      id,user_id,provider,item_id,status,authority,verified_at,access_token_enc
+    ) values (
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      '11111111-1111-4111-8111-111111111111',
+      'plaid','legacy-item','linked','provider_verified',now(),'legacy-encrypted'
+    );
+  `, { label: "legacy connection write compatibility" });
+  assertScalar(
+    "select authority || ':' || (verified_at is null)::text from public.fund_connections where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';",
+    "legacy_unknown:true",
+    "legacy connection cannot mint provider authority",
+  );
+  run(disposableUrl, `
+    set role authenticated;
+    set request.jwt.claim.role='authenticated';
+    set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+    delete from public.fund_connections
+    where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  `, { label: "legacy connection delete compatibility" });
   run(disposableUrl, `
     set role service_role;
     update public.fund_connections set institution='Server verified'
@@ -752,7 +794,8 @@ try {
       '11111111-1111-4111-8111-111111111111',
       'Netflix','15.00','USD','manual'
     );
-    reset role;
+  `, { label: "manual recurring expansion row" });
+  run(disposableUrl, `
     set role service_role;
     set request.jwt.claim.role = 'service_role';
     insert into public.fund_recurring_transactions (
@@ -770,26 +813,38 @@ try {
     where verified.available
     on conflict (user_id,merchant_name,currency,source) do update
       set expected_amount=excluded.expected_amount;
+  `, { expectFailure: true, label: "protected-main recurring arbiter compatibility" });
+  run(disposableUrl, `
+    set role service_role;
+    set request.jwt.claim.role = 'service_role';
     insert into public.fund_recurring_transactions (
       user_id,merchant_name,expected_amount,currency,cadence,source,
       source_generations,source_generation_hash
+    ) values (
+      '11111111-1111-4111-8111-111111111111',
+      'Legacy detected','12.00','USD','monthly','detected',null,null
     )
-    select
-      '11111111-1111-4111-8111-111111111111',
-      'Netflix','14.00','EUR','monthly','detected',
-      verified.coverage,verified.lineage_hash
-    from public.check_fund_transaction_history_coverage(
-      '11111111-1111-4111-8111-111111111111',
-      current_date-90,current_date
-    ) verified
-    where verified.available
-    on conflict (user_id,merchant_name,currency,source) do update
+    on conflict (user_id,merchant_name) do update
       set expected_amount=excluded.expected_amount;
-  `, { label: "manual and detected recurring identity partition" });
+    insert into public.fund_recurring_transactions (
+      user_id,merchant_name,expected_amount,currency,cadence,source,
+      source_generations,source_generation_hash
+    ) values (
+      '11111111-1111-4111-8111-111111111111',
+      'Legacy detected','13.00','USD','monthly','detected',null,null
+    )
+    on conflict (user_id,merchant_name) do update
+      set expected_amount=excluded.expected_amount;
+  `, { label: "protected-main lineage-less recurring upsert compatibility" });
   assertScalar(
     "select count(*)::text from public.fund_recurring_transactions where merchant_name='Netflix';",
-    "2",
-    "manual recurring survives detected cross-currency idempotence",
+    "1",
+    "protected-main recurring identity remains until contract",
+  );
+  assertScalar(
+    "select expected_amount::text || ':' || (source_generation_hash is null)::text from public.fund_recurring_transactions where merchant_name='Legacy detected';",
+    "13.00:true",
+    "legacy recurring writer remains compatible and non-authoritative",
   );
   run(disposableUrl, `
     set role service_role;

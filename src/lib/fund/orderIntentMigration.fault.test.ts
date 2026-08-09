@@ -31,6 +31,8 @@ describe("order intent and verified execution database contract", () => {
     expect(migration).toContain("provider-verified executions are immutable");
     expect(migration).toContain("revoke insert, update, delete, truncate on table public.fund_transactions from authenticated");
     expect(migration).toContain("revoke insert, update, delete, truncate on table public.fund_transactions from service_role");
+    expect(migration).toContain("grant insert, update, delete on table public.fund_transactions to authenticated");
+    expect(migration).toContain("temporary path can\n-- never manufacture a verified execution");
     expect(migration).toContain("revoke all on table public.fund_execution_receipts from service_role");
     expect(migration).not.toContain("grant all on table public.fund_execution_receipts to service_role");
   });

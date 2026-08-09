@@ -4,6 +4,8 @@
 -- server may create an immutable intent and only a service-role reconciliation
 -- boundary may materialize a provider-verified fill as fund_transactions.
 
+begin;
+
 create table if not exists public.fund_order_intents (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -515,3 +517,24 @@ revoke all on function public.record_verified_fund_execution(
 grant execute on function public.record_verified_fund_execution(
   uuid, uuid, text, text, text, text, bigint, bigint, bigint, timestamptz, timestamptz
 ) to service_role;
+
+-- Expansion/application compatibility boundary.
+-- Protected main still records a clearly unverified local transaction from
+-- the old order-ticket UI. Preserve only owner-scoped legacy/manual DML until
+-- the compatible intent-only application revision is Ready in production.
+-- The provider-verified guard above remains active, so this temporary path can
+-- never manufacture a verified execution. The subsequent contract migration
+-- drops these policies and revokes browser transaction DML.
+create policy "fund_transactions_insert_own"
+  on public.fund_transactions for insert to authenticated
+  with check ((select auth.uid()) = user_id);
+create policy "fund_transactions_update_own"
+  on public.fund_transactions for update to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+create policy "fund_transactions_delete_own"
+  on public.fund_transactions for delete to authenticated
+  using ((select auth.uid()) = user_id);
+grant insert, update, delete on table public.fund_transactions to authenticated;
+
+commit;
