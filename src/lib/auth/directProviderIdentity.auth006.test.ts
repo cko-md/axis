@@ -341,7 +341,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     );
   });
 
-  it("fails closed when two successful attempts have the same initiation millisecond", () => {
+  it("deterministically resolves two successful attempts from the same initiation millisecond", () => {
     const store = new MemoryCookieStore();
     for (const [providerState, accessToken] of [
       ["h".repeat(43), "first-access"],
@@ -358,9 +358,14 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     }
 
     expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toMatchObject({
-      accessToken: null,
+      accessToken: "second-access",
       refreshToken: null,
+      credentialAttempt: {
+        providerState: "i".repeat(43),
+        authorizationOrder: nowMs,
+      },
     });
+    expect(store.operations).toContain(`delete:spotify_access_token_a1_${"h".repeat(43)}`);
   });
 
   it("does not resurrect pre-disconnect callback or refresh credentials", () => {

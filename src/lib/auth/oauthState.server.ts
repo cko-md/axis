@@ -29,6 +29,7 @@ type VerifiedOAuthStateOptions = {
   provider: DirectOAuthProvider;
   subject: string;
   secret: string;
+  legacySecrets?: readonly string[];
   sealedState: string | null;
   nowMs?: number;
 };
@@ -121,11 +122,14 @@ function authenticatedOAuthStatePayload(
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   try {
     const suppliedSignature = Buffer.from(parts[1], "base64url");
-    const expectedSignature = signature(parts[0], secret, provider);
-    if (
-      suppliedSignature.length !== expectedSignature.length ||
-      !timingSafeEqual(suppliedSignature, expectedSignature)
-    ) {
+    const verifiedSignature = [secret, ...(options.legacySecrets ?? [])]
+      .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index)
+      .some((candidate) => {
+        const expectedSignature = signature(parts[0]!, candidate, provider);
+        return suppliedSignature.length === expectedSignature.length &&
+          timingSafeEqual(suppliedSignature, expectedSignature);
+      });
+    if (!verifiedSignature) {
       return null;
     }
     const parsed = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as unknown;

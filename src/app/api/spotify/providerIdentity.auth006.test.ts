@@ -224,8 +224,8 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     expect(mocks.cookieStore.values.has("spotify_refresh_token")).toBe(false);
     expect(mocks.cookieStore.values.has("spotify_oauth_state")).toBe(false);
     const cutoff = [...mocks.cookieStore.values.entries()].find(([name]) =>
-      name.startsWith("spotify_token_owner_cut1_"));
-    expect(cutoff?.[1]).toMatch(/^pc1_[A-Za-z0-9_-]{43}$/);
+      name.startsWith("spotify_token_owner_cut2_"));
+    expect(cutoff?.[1]).toMatch(/^pc2_[A-Za-z0-9_-]{43}$/);
   });
 
   it("fails disconnect visibly without owner sealing and preserves browser state", async () => {
@@ -335,7 +335,7 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     const attemptOwner = mocks.cookieStore.values.get(
       `spotify_token_owner${attemptSuffix}`,
     );
-    expect(attemptOwner).toMatch(/^pa1_[0-9a-z]+_[A-Za-z0-9_-]{43}$/);
+    expect(attemptOwner).toMatch(/^pa2_[0-9a-z]+_[A-Za-z0-9_-]{43}$/);
     expect(attemptOwner).not.toContain(subjectA);
     expect(mocks.cookieStore.values.get(`spotify_access_token${attemptSuffix}`)).toBe(
       "new-access",

@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
+import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
 import { verifiedOAuthPendingStateOrder } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
@@ -72,7 +73,10 @@ export async function GET(req: NextRequest) {
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
-  if (!clientId || !clientSecret) return fail(req, "not_configured", 503);
+  if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
+    return fail(req, "not_configured", 503);
+  }
+  const cookieKeyring = directProviderCookieKeyring(clientSecret);
 
   const providerState = req.nextUrl.searchParams.get("state");
   const subject = profileSubjectForUserId(user.id);
@@ -85,7 +89,8 @@ export async function GET(req: NextRequest) {
   const authorizationOrder = verifiedOAuthPendingStateOrder({
     provider: "spotify",
     subject,
-    secret: clientSecret,
+    secret: cookieKeyring.current.secret,
+    legacySecrets: cookieKeyring.legacy.map((key) => key.secret),
     providerState,
     sealedState,
   });
@@ -147,7 +152,7 @@ export async function GET(req: NextRequest) {
       ? tokens.refresh_token
       : undefined,
     expiresIn: tokens.expires_in,
-  }, subject, clientSecret, {
+  }, subject, cookieKeyring, {
     providerState,
     authorizationOrder,
   });

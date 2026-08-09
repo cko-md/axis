@@ -6,6 +6,11 @@ import {
   type DirectOAuthProvider,
 } from "@/lib/auth/oauthState.server";
 import { isProfileSubject } from "@/lib/auth/profileSubject";
+import {
+  normalizeDirectProviderCookieKeyring,
+  type DirectProviderCookieKey,
+  type DirectProviderCookieKeyInput,
+} from "@/lib/auth/directProviderKeyring.server";
 
 type CookieValue = { value: string } | undefined;
 type CookieOptions = {
@@ -64,21 +69,40 @@ const PROVIDER_COOKIES: Record<DirectOAuthProvider, {
   },
 };
 
-const OWNER_SEAL_VERSION = 1;
-const OWNER_SEAL_PREFIX = `po${OWNER_SEAL_VERSION}_`;
-const OWNER_SEAL_PATTERN = /^po1_[A-Za-z0-9_-]{43}$/;
+const OWNER_SEAL_PATTERN = /^po([12])_[A-Za-z0-9_-]{43}$/;
 const OAUTH_ATTEMPT_VERSION = 1;
 const OAUTH_PROVIDER_STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CREDENTIAL_ATTEMPT_VERSION = 1;
-const CREDENTIAL_ATTEMPT_OWNER_PATTERN = /^pa1_([0-9a-z]+)_([A-Za-z0-9_-]{43})$/;
-const CREDENTIAL_CUTOFF_VERSION = 1;
+const CREDENTIAL_ATTEMPT_OWNER_PATTERN = /^pa([12])_([0-9a-z]+)_([A-Za-z0-9_-]{43})$/;
 const CREDENTIAL_CUTOFF_SUFFIX_PATTERN = /^([0-9a-z]+)_([a-f0-9]{16})$/;
-const CREDENTIAL_CUTOFF_VALUE_PATTERN = /^pc1_[A-Za-z0-9_-]{43}$/;
+const CREDENTIAL_CUTOFF_VALUE_PATTERN = /^pc([12])_[A-Za-z0-9_-]{43}$/;
 const CREDENTIAL_CUTOFF_MAX_AGE = 60 * 60 * 24 * 365;
-const REFRESH_REJECTION_VERSION = 1;
-const REFRESH_REJECTION_VALUE_PATTERN = /^pr1_[A-Za-z0-9_-]{43}$/;
-const REFRESH_GENERATION_VERSION = 1;
-const REFRESH_GENERATION_PATTERN = /^rg1_([A-Za-z0-9_-]{22})_([A-Za-z0-9_-]{43})$/;
+const REFRESH_REJECTION_VALUE_PATTERN = /^pr([12])_[A-Za-z0-9_-]{43}$/;
+const REFRESH_GENERATION_PATTERN = /^rg([12])_([A-Za-z0-9_-]{22})_([A-Za-z0-9_-]{43})$/;
+
+function cookieKeys(secret: DirectProviderCookieKeyInput): readonly DirectProviderCookieKey[] {
+  const keyring = normalizeDirectProviderCookieKeyring(secret);
+  return [keyring.current, ...keyring.legacy];
+}
+
+function currentCookieKey(secret: DirectProviderCookieKeyInput): DirectProviderCookieKey {
+  return normalizeDirectProviderCookieKeyring(secret).current;
+}
+
+function oauthSigningSecret(secret: DirectProviderCookieKeyInput): string {
+  return normalizeDirectProviderCookieKeyring(secret).current.secret;
+}
+
+function oauthLegacySigningSecrets(
+  secret: DirectProviderCookieKeyInput,
+): readonly string[] {
+  const keyring = normalizeDirectProviderCookieKeyring(secret);
+  return [
+    ...keyring.legacy.map((key) => key.secret),
+    keyring.oauthSecret,
+  ].filter((candidate, index, all) =>
+    candidate !== keyring.current.secret && all.indexOf(candidate) === index);
+}
 
 function options(maxAge: number): CookieOptions {
   return {
@@ -152,22 +176,22 @@ export function consumeOAuthPendingStateCookieForAttempt(
   return sealedState;
 }
 
-function ownerSealKey(secret: string, provider: DirectOAuthProvider): Buffer {
-  return createHmac("sha256", secret)
-    .update(`axis:direct-provider-owner:key:v${OWNER_SEAL_VERSION}:${provider}`)
+function ownerSealKey(key: DirectProviderCookieKey, provider: DirectOAuthProvider): Buffer {
+  return createHmac("sha256", key.secret)
+    .update(`axis:direct-provider-owner:key:v${key.version}:${provider}`)
     .digest();
 }
 
 function subjectCookieSlot(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  key: DirectProviderCookieKey,
 ): string {
-  if (!isProfileSubject(subject) || !secret) {
+  if (!isProfileSubject(subject) || !key.secret) {
     throw new Error("PROVIDER_CREDENTIAL_SLOT_INPUT_INVALID");
   }
-  return createHmac("sha256", ownerSealKey(secret, provider))
-    .update(`axis:direct-provider-cookie-slot:v${OWNER_SEAL_VERSION}\0${subject}`)
+  return createHmac("sha256", ownerSealKey(key, provider))
+    .update(`axis:direct-provider-cookie-slot:v${key.version}\0${subject}`)
     .digest("hex")
     .slice(0, 24);
 }
@@ -184,84 +208,92 @@ function oauthPendingAttemptCookieName(
 function subjectCredentialCookieNames(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
+  key = currentCookieKey(secret),
 ): CredentialCookieNames {
   const config = PROVIDER_COOKIES[provider];
-  const slot = subjectCookieSlot(provider, subject, secret);
+  const slot = subjectCookieSlot(provider, subject, key);
   return {
-    access: `${config.access}_s${OWNER_SEAL_VERSION}_${slot}`,
-    refresh: `${config.refresh}_s${OWNER_SEAL_VERSION}_${slot}`,
-    refreshGeneration: `${config.refreshGeneration}_s${OWNER_SEAL_VERSION}_${slot}`,
-    owner: `${config.owner}_s${OWNER_SEAL_VERSION}_${slot}`,
+    access: `${config.access}_s${key.version}_${slot}`,
+    refresh: `${config.refresh}_s${key.version}_${slot}`,
+    refreshGeneration: `${config.refreshGeneration}_s${key.version}_${slot}`,
+    owner: `${config.owner}_s${key.version}_${slot}`,
   };
 }
 
 function createProviderRefreshGeneration(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   slotName: string,
   nonce = randomBytes(16).toString("base64url"),
+  key = currentCookieKey(secret),
 ): string {
   if (
     !isProfileSubject(subject) ||
-    !secret ||
+    !key.secret ||
     !slotName ||
     !/^[A-Za-z0-9_-]{22}$/.test(nonce)
   ) {
     throw new Error("PROVIDER_REFRESH_GENERATION_INPUT_INVALID");
   }
-  const digest = createHmac("sha256", ownerSealKey(secret, provider))
+  const digest = createHmac("sha256", ownerSealKey(key, provider))
     .update(
-      `axis:direct-provider-refresh-generation:v${REFRESH_GENERATION_VERSION}\0${subject}\0${slotName}\0${nonce}`,
+      `axis:direct-provider-refresh-generation:v${key.version}\0${subject}\0${slotName}\0${nonce}`,
     )
     .digest("base64url");
-  return `rg${REFRESH_GENERATION_VERSION}_${nonce}_${digest}`;
+  return `rg${key.version}_${nonce}_${digest}`;
 }
 
 function validProviderRefreshGeneration(
   supplied: string | undefined,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   slotName: string,
 ): string | null {
   const match = supplied?.match(REFRESH_GENERATION_PATTERN);
-  if (!match?.[1]) return null;
-  const expected = createProviderRefreshGeneration(
-    provider,
-    subject,
-    secret,
-    slotName,
-    match[1],
-  );
-  const suppliedBytes = Buffer.from(supplied!);
-  const expectedBytes = Buffer.from(expected);
-  return suppliedBytes.length === expectedBytes.length &&
-    timingSafeEqual(suppliedBytes, expectedBytes)
-    ? supplied!
-    : null;
+  if (!match?.[1] || !match[2]) return null;
+  const version = Number(match[1]);
+  for (const key of cookieKeys(secret)) {
+    if (key.version !== version) continue;
+    const expected = createProviderRefreshGeneration(
+      provider,
+      subject,
+      secret,
+      slotName,
+      match[2],
+      key,
+    );
+    const suppliedBytes = Buffer.from(supplied!);
+    const expectedBytes = Buffer.from(expected);
+    if (suppliedBytes.length === expectedBytes.length &&
+      timingSafeEqual(suppliedBytes, expectedBytes)) return supplied!;
+  }
+  return null;
 }
 
 function providerRefreshRejectionCookiePrefix(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
+  key = currentCookieKey(secret),
 ): string {
-  return `${PROVIDER_COOKIES[provider].owner}_refresh_rejected_v${REFRESH_REJECTION_VERSION}_${subjectCookieSlot(provider, subject, secret)}_`;
+  return `${PROVIDER_COOKIES[provider].owner}_refresh_rejected_v${key.version}_${subjectCookieSlot(provider, subject, key)}_`;
 }
 
 function providerRefreshRejectionDigest(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   refreshToken: string,
   refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
+  key = currentCookieKey(secret),
 ): string {
   if (
     !isProfileSubject(subject) ||
-    !secret ||
+    !key.secret ||
     !refreshToken ||
     !refreshGeneration ||
     (attempt && (
@@ -275,9 +307,9 @@ function providerRefreshRejectionDigest(
   const generation = attempt
     ? `${attempt.authorizationOrder.toString(36)}:${attempt.providerState}`
     : "subject-slot";
-  return createHmac("sha256", ownerSealKey(secret, provider))
+  return createHmac("sha256", ownerSealKey(key, provider))
     .update(
-      `axis:direct-provider-refresh-rejection:v${REFRESH_REJECTION_VERSION}\0${subject}\0${generation}\0${refreshGeneration}\0${refreshToken}`,
+      `axis:direct-provider-refresh-rejection:v${key.version}\0${subject}\0${generation}\0${refreshGeneration}\0${refreshToken}`,
     )
     .digest("base64url");
 }
@@ -285,10 +317,11 @@ function providerRefreshRejectionDigest(
 function providerRefreshRejectionCookieName(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   refreshToken: string,
   refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
+  key = currentCookieKey(secret),
 ): string {
   const digest = providerRefreshRejectionDigest(
     provider,
@@ -297,25 +330,28 @@ function providerRefreshRejectionCookieName(
     refreshToken,
     refreshGeneration,
     attempt,
+    key,
   );
-  return `${providerRefreshRejectionCookiePrefix(provider, subject, secret)}${digest.slice(0, 22)}`;
+  return `${providerRefreshRejectionCookiePrefix(provider, subject, secret, key)}${digest.slice(0, 22)}`;
 }
 
 function createProviderRefreshRejectionValue(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   refreshToken: string,
   refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
+  key = currentCookieKey(secret),
 ): string {
-  return `pr${REFRESH_REJECTION_VERSION}_${providerRefreshRejectionDigest(
+  return `pr${key.version}_${providerRefreshRejectionDigest(
     provider,
     subject,
     secret,
     refreshToken,
     refreshGeneration,
     attempt,
+    key,
   )}`;
 }
 
@@ -339,12 +375,13 @@ function attemptCredentialCookieNames(
 function createProviderAttemptOwnerSeal(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   attempt: ProviderCredentialAttempt,
+  key = currentCookieKey(secret),
 ): string {
   if (
     !isProfileSubject(subject) ||
-    !secret ||
+    !key.secret ||
     !OAUTH_PROVIDER_STATE_PATTERN.test(attempt.providerState) ||
     !Number.isSafeInteger(attempt.authorizationOrder) ||
     attempt.authorizationOrder < 0
@@ -352,95 +389,103 @@ function createProviderAttemptOwnerSeal(
     throw new Error("PROVIDER_ATTEMPT_OWNER_SEAL_INPUT_INVALID");
   }
   const encodedOrder = attempt.authorizationOrder.toString(36);
-  const digest = createHmac("sha256", ownerSealKey(secret, provider))
+  const digest = createHmac("sha256", ownerSealKey(key, provider))
     .update(
-      `axis:direct-provider-attempt-owner:v${CREDENTIAL_ATTEMPT_VERSION}\0${subject}\0${attempt.providerState}\0${encodedOrder}`,
+      `axis:direct-provider-attempt-owner:v${key.version}\0${subject}\0${attempt.providerState}\0${encodedOrder}`,
     )
     .digest("base64url");
-  return `pa${CREDENTIAL_ATTEMPT_VERSION}_${encodedOrder}_${digest}`;
+  return `pa${key.version}_${encodedOrder}_${digest}`;
 }
 
 function validProviderAttemptOwnerSeal(
   supplied: string | undefined,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   providerState: string,
 ): ProviderCredentialAttempt | null {
   const match = supplied?.match(CREDENTIAL_ATTEMPT_OWNER_PATTERN);
-  if (!match || !match[1] || !match[2]) return null;
-  const authorizationOrder = Number.parseInt(match[1], 36);
+  if (!match || !match[1] || !match[2] || !match[3]) return null;
+  const version = Number(match[1]);
+  const authorizationOrder = Number.parseInt(match[2], 36);
   if (!Number.isSafeInteger(authorizationOrder) || authorizationOrder < 0) return null;
   const attempt = { providerState, authorizationOrder };
-  const expected = createProviderAttemptOwnerSeal(
-    provider,
-    subject,
-    secret,
-    attempt,
-  );
-  const suppliedBytes = Buffer.from(supplied!);
-  const expectedBytes = Buffer.from(expected);
-  return suppliedBytes.length === expectedBytes.length &&
-    timingSafeEqual(suppliedBytes, expectedBytes)
-    ? attempt
-    : null;
+  for (const key of cookieKeys(secret)) {
+    if (key.version !== version) continue;
+    const expected = createProviderAttemptOwnerSeal(
+      provider,
+      subject,
+      secret,
+      attempt,
+      key,
+    );
+    const suppliedBytes = Buffer.from(supplied!);
+    const expectedBytes = Buffer.from(expected);
+    if (suppliedBytes.length === expectedBytes.length &&
+      timingSafeEqual(suppliedBytes, expectedBytes)) return attempt;
+  }
+  return null;
 }
 
 function credentialCutoffPrefix(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
+  key = currentCookieKey(secret),
 ): string {
-  return `${PROVIDER_COOKIES[provider].owner}_cut${CREDENTIAL_CUTOFF_VERSION}_${subjectCookieSlot(provider, subject, secret)}_`;
+  return `${PROVIDER_COOKIES[provider].owner}_cut${key.version}_${subjectCookieSlot(provider, subject, key)}_`;
 }
 
 function createCredentialCutoffValue(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   suffix: string,
+  key = currentCookieKey(secret),
 ): string {
-  if (!isProfileSubject(subject) || !secret || !CREDENTIAL_CUTOFF_SUFFIX_PATTERN.test(suffix)) {
+  if (!isProfileSubject(subject) || !key.secret || !CREDENTIAL_CUTOFF_SUFFIX_PATTERN.test(suffix)) {
     throw new Error("PROVIDER_CREDENTIAL_CUTOFF_INPUT_INVALID");
   }
-  const digest = createHmac("sha256", ownerSealKey(secret, provider))
+  const digest = createHmac("sha256", ownerSealKey(key, provider))
     .update(
-      `axis:direct-provider-credential-cutoff:v${CREDENTIAL_CUTOFF_VERSION}\0${subject}\0${suffix}`,
+      `axis:direct-provider-credential-cutoff:v${key.version}\0${subject}\0${suffix}`,
     )
     .digest("base64url");
-  return `pc${CREDENTIAL_CUTOFF_VERSION}_${digest}`;
+  return `pc${key.version}_${digest}`;
 }
 
 function providerCredentialCutoffForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): number | null {
-  const prefix = credentialCutoffPrefix(provider, subject, secret);
   const valid: Array<{ name: string; cutoffOrder: number }> = [];
-  for (const cookie of store.getAll?.() ?? []) {
-    if (!cookie.name.startsWith(prefix)) continue;
-    const suffix = cookie.name.slice(prefix.length);
-    const match = suffix.match(CREDENTIAL_CUTOFF_SUFFIX_PATTERN);
-    if (!match || !match[1] || !CREDENTIAL_CUTOFF_VALUE_PATTERN.test(cookie.value)) {
-      continue;
-    }
-    const cutoffOrder = Number.parseInt(match[1], 36);
-    if (!Number.isSafeInteger(cutoffOrder) || cutoffOrder < 0) continue;
-    const expected = createCredentialCutoffValue(
-      provider,
-      subject,
-      secret,
-      suffix,
-    );
-    const suppliedBytes = Buffer.from(cookie.value);
-    const expectedBytes = Buffer.from(expected);
-    if (
-      suppliedBytes.length === expectedBytes.length &&
-      timingSafeEqual(suppliedBytes, expectedBytes)
-    ) {
-      valid.push({ name: cookie.name, cutoffOrder });
+  for (const key of cookieKeys(secret)) {
+    const prefix = credentialCutoffPrefix(provider, subject, secret, key);
+    for (const cookie of store.getAll?.() ?? []) {
+      if (!cookie.name.startsWith(prefix)) continue;
+      const suffix = cookie.name.slice(prefix.length);
+      const match = suffix.match(CREDENTIAL_CUTOFF_SUFFIX_PATTERN);
+      const valueMatch = cookie.value.match(CREDENTIAL_CUTOFF_VALUE_PATTERN);
+      if (!match?.[1] || Number(valueMatch?.[1]) !== key.version) continue;
+      const cutoffOrder = Number.parseInt(match[1], 36);
+      if (!Number.isSafeInteger(cutoffOrder) || cutoffOrder < 0) continue;
+      const expected = createCredentialCutoffValue(
+        provider,
+        subject,
+        secret,
+        suffix,
+        key,
+      );
+      const suppliedBytes = Buffer.from(cookie.value);
+      const expectedBytes = Buffer.from(expected);
+      if (
+        suppliedBytes.length === expectedBytes.length &&
+        timingSafeEqual(suppliedBytes, expectedBytes)
+      ) {
+        valid.push({ name: cookie.name, cutoffOrder });
+      }
     }
   }
   valid.sort((left, right) => right.cutoffOrder - left.cutoffOrder);
@@ -456,7 +501,7 @@ function appendProviderCredentialCutoff(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   cutoffOrder: number,
 ): number {
   if (!Number.isSafeInteger(cutoffOrder) || cutoffOrder < 0) {
@@ -475,7 +520,7 @@ function providerCredentialCutoffBoundaryForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): number {
   let cutoffOrder = Math.max(
     Date.now(),
@@ -502,7 +547,8 @@ function providerCredentialCutoffBoundaryForSubject(
       const authorizationOrder = authenticatedOAuthPendingStateOrder({
         provider,
         subject,
-        secret,
+        secret: oauthSigningSecret(secret),
+        legacySecrets: oauthLegacySigningSecrets(secret),
         sealedState: cookie.value,
         providerState,
       });
@@ -514,7 +560,8 @@ function providerCredentialCutoffBoundaryForSubject(
   const legacyAuthorizationOrder = authenticatedOAuthPendingStateOrder({
     provider,
     subject,
-    secret,
+    secret: oauthSigningSecret(secret),
+    legacySecrets: oauthLegacySigningSecrets(secret),
     sealedState: store.get(config.oauthPendingState)?.value ?? null,
   });
   return legacyAuthorizationOrder === null
@@ -526,7 +573,7 @@ export function nextProviderAuthorizationOrder(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): number {
   const boundary = providerCredentialCutoffBoundaryForSubject(
     store,
@@ -544,7 +591,7 @@ function providerAttemptCredentialsForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   cutoffOrder: number | null,
 ): {
   accessToken: string | null;
@@ -600,15 +647,22 @@ function providerAttemptCredentialsForSubject(
   });
   const selected = candidates[0];
   if (!selected) return null;
+  const selectedOwner = store.get(selected.names.owner)?.value;
   if (
-    candidates[1]?.credentialAttempt.authorizationOrder ===
-    selected.credentialAttempt.authorizationOrder
+    selected.accessToken &&
+    !selectedOwner?.startsWith(`pa${currentCookieKey(secret).version}_`)
   ) {
-    return {
-      accessToken: null,
-      refreshToken: null,
-      credentialAttempt: selected.credentialAttempt,
-    };
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      provider,
+      {
+        accessToken: selected.accessToken,
+        ...(selected.refreshToken ? { refreshToken: selected.refreshToken } : {}),
+      },
+      subject,
+      secret,
+      selected.credentialAttempt,
+    );
   }
   for (const stale of candidates.slice(1)) {
     clearCredentialCookiesByName(store, stale.names);
@@ -623,38 +677,45 @@ function providerAttemptCredentialsForSubject(
 export function createProviderOwnerSeal(
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
+  key = currentCookieKey(secret),
 ): string {
-  if (!isProfileSubject(subject) || !secret) {
+  if (!isProfileSubject(subject) || !key.secret) {
     throw new Error("PROVIDER_OWNER_SEAL_INPUT_INVALID");
   }
-  const digest = createHmac("sha256", ownerSealKey(secret, provider))
-    .update(`axis:direct-provider-owner:subject:v${OWNER_SEAL_VERSION}\0${subject}`)
+  const digest = createHmac("sha256", ownerSealKey(key, provider))
+    .update(`axis:direct-provider-owner:subject:v${key.version}\0${subject}`)
     .digest("base64url");
-  return `${OWNER_SEAL_PREFIX}${digest}`;
+  return `po${key.version}_${digest}`;
 }
 
 function validOwnerSeal(
   supplied: string | undefined,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): boolean {
-  if (!OWNER_SEAL_PATTERN.test(supplied ?? "") || !isProfileSubject(subject) || !secret) {
+  const match = supplied?.match(OWNER_SEAL_PATTERN);
+  if (!match?.[1] || !isProfileSubject(subject)) {
     return false;
   }
-  const expected = createProviderOwnerSeal(provider, subject, secret);
-  const suppliedBytes = Buffer.from(supplied!);
-  const expectedBytes = Buffer.from(expected);
-  return suppliedBytes.length === expectedBytes.length
-    && timingSafeEqual(suppliedBytes, expectedBytes);
+  const version = Number(match[1]);
+  for (const key of cookieKeys(secret)) {
+    if (key.version !== version) continue;
+    const expected = createProviderOwnerSeal(provider, subject, secret, key);
+    const suppliedBytes = Buffer.from(supplied!);
+    const expectedBytes = Buffer.from(expected);
+    if (suppliedBytes.length === expectedBytes.length &&
+      timingSafeEqual(suppliedBytes, expectedBytes)) return true;
+  }
+  return false;
 }
 
 export function providerTokensForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): {
   accessToken: string | null;
   refreshToken: string | null;
@@ -677,18 +738,39 @@ export function providerTokensForSubject(
   if (credentialCutoffOrder !== null) {
     return { accessToken: null, refreshToken: null };
   }
-  const slotNames = subjectCredentialCookieNames(provider, subject, secret);
-  const slotOwner = store.get(slotNames.owner)?.value;
-  const slotAccessToken = store.get(slotNames.access)?.value ?? null;
-  const slotRefreshToken = store.get(slotNames.refresh)?.value ?? null;
-  if (validOwnerSeal(slotOwner, provider, subject, secret)) {
-    return {
-      accessToken: slotAccessToken,
-      refreshToken: slotRefreshToken,
-    };
-  }
-  if (slotOwner || slotAccessToken || slotRefreshToken) {
-    clearCredentialCookiesByName(store, slotNames);
+  for (const key of cookieKeys(secret)) {
+    const slotNames = subjectCredentialCookieNames(provider, subject, secret, key);
+    const slotOwner = store.get(slotNames.owner)?.value;
+    const slotAccessToken = store.get(slotNames.access)?.value ?? null;
+    const slotRefreshToken = store.get(slotNames.refresh)?.value ?? null;
+    if (validOwnerSeal(slotOwner, provider, subject, secret)) {
+      const currentKey = currentCookieKey(secret);
+      if (
+        (key.version !== currentKey.version || key.secret !== currentKey.secret) &&
+        slotAccessToken
+      ) {
+        const currentNames = subjectCredentialCookieNames(provider, subject, secret);
+        replaceCredentialCookiesByName(
+          store,
+          provider,
+          currentNames,
+          {
+            accessToken: slotAccessToken,
+            ...(slotRefreshToken ? { refreshToken: slotRefreshToken } : {}),
+          },
+          subject,
+          secret,
+        );
+        clearCredentialCookiesByName(store, slotNames);
+      }
+      return {
+        accessToken: slotAccessToken,
+        refreshToken: slotRefreshToken,
+      };
+    }
+    if (slotOwner || slotAccessToken || slotRefreshToken) {
+      clearCredentialCookiesByName(store, slotNames);
+    }
   }
 
   // Legacy shared cookies are read only when they authenticate as this exact
@@ -702,10 +784,15 @@ export function providerTokensForSubject(
     return { accessToken: null, refreshToken: null };
   }
   if (accessToken) {
+    const currentSlotNames = subjectCredentialCookieNames(
+      provider,
+      subject,
+      secret,
+    );
     replaceCredentialCookiesByName(
       store,
       provider,
-      slotNames,
+      currentSlotNames,
       { accessToken, ...(refreshToken ? { refreshToken } : {}) },
       subject,
       secret,
@@ -727,7 +814,7 @@ export function peekProviderTokensForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): ReturnType<typeof providerTokensForSubject> {
   const readOnlyStore: MutableProviderCookieStore = {
     get: (name) => store.get(name),
@@ -743,7 +830,7 @@ export function providerRefreshGenerationForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   attempt?: ProviderCredentialAttempt,
 ): string {
   let names: CredentialCookieNames | null = null;
@@ -763,15 +850,24 @@ export function providerRefreshGenerationForSubject(
       verifiedAttempt?.authorizationOrder === attempt.authorizationOrder
     ) names = attemptNames;
   } else {
-    const subjectNames = subjectCredentialCookieNames(provider, subject, secret);
-    if (validOwnerSeal(
-      store.get(subjectNames.owner)?.value,
-      provider,
-      subject,
-      secret,
-    )) {
-      names = subjectNames;
-    } else {
+    for (const key of cookieKeys(secret)) {
+      const subjectNames = subjectCredentialCookieNames(
+        provider,
+        subject,
+        secret,
+        key,
+      );
+      if (validOwnerSeal(
+        store.get(subjectNames.owner)?.value,
+        provider,
+        subject,
+        secret,
+      )) {
+        names = subjectNames;
+        break;
+      }
+    }
+    if (!names) {
       const legacyNames = PROVIDER_COOKIES[provider];
       if (validOwnerSeal(
         store.get(legacyNames.owner)?.value,
@@ -796,34 +892,40 @@ export function providerRefreshRejectedForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   refreshToken: string,
   refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): boolean {
-  const supplied = store.get(
-    providerRefreshRejectionCookieName(
+  for (const key of cookieKeys(secret)) {
+    const supplied = store.get(
+      providerRefreshRejectionCookieName(
+        provider,
+        subject,
+        secret,
+        refreshToken,
+        refreshGeneration,
+        attempt,
+        key,
+      ),
+    )?.value;
+    const match = supplied?.match(REFRESH_REJECTION_VALUE_PATTERN);
+    if (Number(match?.[1]) !== key.version) continue;
+    const expected = createProviderRefreshRejectionValue(
       provider,
       subject,
       secret,
       refreshToken,
       refreshGeneration,
       attempt,
-    ),
-  )?.value;
-  if (!REFRESH_REJECTION_VALUE_PATTERN.test(supplied ?? "")) return false;
-  const expected = createProviderRefreshRejectionValue(
-    provider,
-    subject,
-    secret,
-    refreshToken,
-    refreshGeneration,
-    attempt,
-  );
-  const suppliedBytes = Buffer.from(supplied!);
-  const expectedBytes = Buffer.from(expected);
-  return suppliedBytes.length === expectedBytes.length &&
-    timingSafeEqual(suppliedBytes, expectedBytes);
+      key,
+    );
+    const suppliedBytes = Buffer.from(supplied!);
+    const expectedBytes = Buffer.from(expected);
+    if (suppliedBytes.length === expectedBytes.length &&
+      timingSafeEqual(suppliedBytes, expectedBytes)) return true;
+  }
+  return false;
 }
 
 /** Records a terminal rejection without deleting or exposing the token. */
@@ -831,7 +933,7 @@ export function markProviderRefreshRejectedForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   refreshToken: string,
   refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
@@ -865,34 +967,40 @@ export function clearProviderRefreshRejectionForGeneration(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   refreshToken: string,
   refreshGeneration: string,
   attempt?: ProviderCredentialAttempt,
 ): void {
-  store.delete(providerRefreshRejectionCookieName(
-    provider,
-    subject,
-    secret,
-    refreshToken,
-    refreshGeneration,
-    attempt,
-  ));
+  for (const key of cookieKeys(secret)) {
+    store.delete(providerRefreshRejectionCookieName(
+      provider,
+      subject,
+      secret,
+      refreshToken,
+      refreshGeneration,
+      attempt,
+      key,
+    ));
+  }
 }
 
 function clearProviderRefreshRejectionsForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): void {
-  const prefix = providerRefreshRejectionCookiePrefix(
-    provider,
-    subject,
-    secret,
-  );
-  for (const cookie of store.getAll?.() ?? []) {
-    if (cookie.name.startsWith(prefix)) store.delete(cookie.name);
+  for (const key of cookieKeys(secret)) {
+    const prefix = providerRefreshRejectionCookiePrefix(
+      provider,
+      subject,
+      secret,
+      key,
+    );
+    for (const cookie of store.getAll?.() ?? []) {
+      if (cookie.name.startsWith(prefix)) store.delete(cookie.name);
+    }
   }
 }
 
@@ -933,7 +1041,7 @@ export function clearProviderCredentialCookiesForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): void {
   const ownerPrefix = `${PROVIDER_COOKIES[provider].owner}_a${CREDENTIAL_ATTEMPT_VERSION}_`;
   for (const cookie of store.getAll?.() ?? []) {
@@ -954,8 +1062,12 @@ export function clearProviderCredentialCookiesForSubject(
       );
     }
   }
-  const slotNames = subjectCredentialCookieNames(provider, subject, secret);
-  clearCredentialCookiesByName(store, slotNames);
+  for (const key of cookieKeys(secret)) {
+    clearCredentialCookiesByName(
+      store,
+      subjectCredentialCookieNames(provider, subject, secret, key),
+    );
+  }
   const legacyNames = PROVIDER_COOKIES[provider];
   const legacyOwner = store.get(legacyNames.owner)?.value;
   if (
@@ -972,7 +1084,7 @@ export function clearProviderTokenCookiesForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): void {
   const cutoffOrder = providerCredentialCutoffBoundaryForSubject(
     store,
@@ -989,7 +1101,8 @@ export function clearProviderTokenCookiesForSubject(
       oauthPendingStateBelongsToSubject({
         provider,
         subject,
-        secret,
+        secret: oauthSigningSecret(secret),
+        legacySecrets: oauthLegacySigningSecrets(secret),
         sealedState: cookie.value,
       })
     ) {
@@ -1001,7 +1114,8 @@ export function clearProviderTokenCookiesForSubject(
     oauthPendingStateBelongsToSubject({
       provider,
       subject,
-      secret,
+      secret: oauthSigningSecret(secret),
+      legacySecrets: oauthLegacySigningSecrets(secret),
       sealedState: pendingState,
     })
   ) {
@@ -1034,7 +1148,7 @@ function replaceCredentialCookiesByName(
   names: CredentialCookieNames,
   tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): void {
   const config = PROVIDER_COOKIES[provider];
   clearCredentialCookiesByName(store, names);
@@ -1069,7 +1183,7 @@ export function replaceProviderTokenCookies(
   provider: DirectOAuthProvider,
   tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
 ): void {
   if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {
     throw new Error("PROVIDER_TOKEN_COOKIE_INPUT_INVALID");
@@ -1101,7 +1215,7 @@ export function replaceProviderTokenCookiesForAttempt(
   provider: DirectOAuthProvider,
   tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   attempt: ProviderCredentialAttempt,
   clearRejections = true,
 ): void {
@@ -1148,7 +1262,7 @@ export function replaceRefreshedProviderTokenCookies(
   provider: DirectOAuthProvider,
   tokens: { accessToken: string; refreshToken?: string; expiresIn?: unknown },
   subject: string,
-  secret: string,
+  secret: DirectProviderCookieKeyInput,
   attempt?: ProviderCredentialAttempt,
 ): void {
   if (!isProfileSubject(subject) || !tokens.accessToken || !secret) {

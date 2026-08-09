@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
+import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
 import { optionalEnv } from "@/lib/env";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { createClient } from "@/lib/supabase/server";
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   const clientId = optionalEnv("SPOTIFY_CLIENT_ID");
   const clientSecret = optionalEnv("SPOTIFY_CLIENT_SECRET");
-  if (!clientId || !clientSecret) {
+  if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
     captureRouteError(new Error("Spotify OAuth is not configured"), {
       route: "/api/spotify/auth",
       operation: "start_oauth",
@@ -56,15 +57,16 @@ export async function POST(req: NextRequest) {
 
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const cookieStore = await cookies();
+  const cookieKeyring = directProviderCookieKeyring(clientSecret);
   const { providerState, sealedState } = createOAuthPendingState({
     provider: "spotify",
     subject: identity.subject,
-    secret: clientSecret,
+    secret: cookieKeyring.current.secret,
     order: nextProviderAuthorizationOrder(
       cookieStore,
       "spotify",
       identity.subject,
-      clientSecret,
+      cookieKeyring,
     ),
   });
   setOAuthPendingStateCookie(

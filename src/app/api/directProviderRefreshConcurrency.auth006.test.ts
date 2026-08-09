@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
 import {
   markProviderRefreshRejectedForSubject,
   providerTokensForSubject,
@@ -138,7 +139,6 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       secret: "spotify-secret",
       freshAccess: "spotify-access-v2",
       freshRefresh: "spotify-refresh-v1",
-      markerMaxAge: 60 * 60,
       getAccessToken: getSpotifyAccessToken,
     },
     {
@@ -147,7 +147,6 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       secret: "strava-secret",
       freshAccess: "strava-access-v2",
       freshRefresh: "strava-refresh-v2",
-      markerMaxAge: 6 * 60 * 60,
       getAccessToken: getStravaAccessToken,
     },
   ])("keeps a successful $provider rotation when a same-snapshot invalid_grant lands last", async ({
@@ -156,7 +155,6 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     secret,
     freshAccess,
     freshRefresh,
-    markerMaxAge,
     getAccessToken,
   }) => {
     const bootstrap = cookieStore();
@@ -186,16 +184,18 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     mocks.stores.push(winnerStore, loserStore);
 
     const winnerResponse = deferred<Response>();
-    const loserResponse = deferred<Response>();
     const providerFetch = vi.fn()
-      .mockImplementationOnce(() => winnerResponse.promise)
-      .mockImplementationOnce(() => loserResponse.promise);
+      .mockImplementationOnce(() => winnerResponse.promise);
     vi.stubGlobal("fetch", providerFetch);
 
     const winner = getAccessToken(userId);
     const loser = getAccessToken(userId);
+    const loserAssertion = expect(loser).rejects.toMatchObject({
+      status: 409,
+      code: "PROVIDER_REFRESH_IN_PROGRESS",
+    });
     await Promise.resolve();
-    expect(providerFetch).toHaveBeenCalledTimes(2);
+    expect(providerFetch).toHaveBeenCalledTimes(1);
 
     winnerResponse.resolve(new Response(JSON.stringify({
       access_token: freshAccess,
@@ -204,23 +204,20 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     }), { status: 200 }));
     await expect(winner).resolves.toBe(freshAccess);
 
-    loserResponse.resolve(new Response(JSON.stringify({ error: "invalid_grant" }), {
-      status: 400,
-    }));
-    await expect(loser).resolves.toBeNull();
+    await loserAssertion;
 
     expect(winnerStore.operations.length).toBeGreaterThan(0);
-    expect(loserStore.operations).toHaveLength(1);
-    expect(loserStore.operations[0]).toMatchObject({
-      kind: "set",
-      maxAge: markerMaxAge,
-    });
-    expect(loserStore.operations.some((operation) => operation.kind === "delete")).toBe(false);
+    expect(loserStore.operations).toHaveLength(0);
     applyOperations(browser, winnerStore.operations);
     applyOperations(browser, loserStore.operations);
 
     const finalStore = cookieStore(browser);
-    expect(providerTokensForSubject(finalStore, provider, subject, secret)).toMatchObject({
+    expect(providerTokensForSubject(
+      finalStore,
+      provider,
+      subject,
+      directProviderCookieKeyring(secret),
+    )).toMatchObject({
       accessToken: freshAccess,
       refreshToken: freshRefresh,
     });
@@ -233,14 +230,17 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       cookieStore(inverseBrowser),
       provider,
       subject,
-      secret,
+      directProviderCookieKeyring(secret),
     )).toMatchObject({
       accessToken: freshAccess,
       refreshToken: freshRefresh,
     });
 
     const resumedBrowser = new Map(browser);
-    resumedBrowser.delete(subjectAccess);
+    const refreshedAccess = [...resumedBrowser.keys()].find((name) =>
+      name.startsWith(`${provider}_access_token_s2_`));
+    if (!refreshedAccess) throw new Error("TEST_REFRESHED_SUBJECT_SLOT_MISSING");
+    resumedBrowser.delete(refreshedAccess);
     const resumedStore = cookieStore(resumedBrowser);
     mocks.stores.push(resumedStore);
     providerFetch.mockResolvedValueOnce(new Response(JSON.stringify({
@@ -249,6 +249,6 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
       expires_in: 900,
     }), { status: 200 }));
     await expect(getAccessToken(userId)).resolves.toBe(`${provider}-access-v3`);
-    expect(providerFetch).toHaveBeenCalledTimes(3);
+    expect(providerFetch).toHaveBeenCalledTimes(2);
   });
 });

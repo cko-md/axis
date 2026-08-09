@@ -3,6 +3,7 @@ import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubjec
 import { clearProviderTokenCookiesForSubject } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { optionalEnv } from "@/lib/env";
+import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
 import { createClient } from "@/lib/supabase/server";
 
 /** POST /api/spotify/disconnect — clears stored tokens (server-side only). */
@@ -15,17 +16,18 @@ export async function POST(req: Request) {
 
   const cookieStore = await cookies();
   const secret = optionalEnv("SPOTIFY_CLIENT_SECRET");
-  if (!secret) {
+  if (!secret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
     return privateJson(
       { error: "PROVIDER_NOT_CONFIGURED" },
       { status: 503 },
     );
   }
+  const cookieKeyring = directProviderCookieKeyring(secret);
   clearProviderTokenCookiesForSubject(
     cookieStore,
     "spotify",
     identity.subject,
-    secret,
+    cookieKeyring,
   );
   return privateJson({ ok: true, connected: false });
 }

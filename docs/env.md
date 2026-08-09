@@ -35,8 +35,9 @@ Missing optional keys should produce a configured/not-configured response, a set
 | Direct Microsoft OAuth | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` |
 | Polygon/Massive markets | `POLYGON_API_KEY` or `MASSIVE_API_KEY` |
 | Plaid | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` |
-| Spotify | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` |
-| Strava | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` |
+| Spotify | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `DIRECT_PROVIDER_COOKIE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+| Strava | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `DIRECT_PROVIDER_COOKIE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+| Direct-provider key rotation | `DIRECT_PROVIDER_COOKIE_SECRET_PREVIOUS` during a planned AXIS signing-key transition only |
 | AI routing | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY` |
 | Tavily search | `TAVILY_API_KEY` |
 | Make | `MAKE_API_KEY`, `MAKE_TEAM_ID`, `MAKE_ZONE`, `MAKE_WEBHOOK_SECRET`, `MAKE_WEBHOOK_DAILY_BRIEF_URL`, `MAKE_WEBHOOK_WEEKLY_RECAP_URL`, `MAKE_WEBHOOK_BILL_REMINDER_URL`, `MAKE_WEBHOOK_BUDGET_ALERT_URL`, `MAKE_WEBHOOK_ANOMALY_ALERT_URL`, `MAKE_WEBHOOK_SUBSCRIPTION_AUDIT_URL` |
@@ -106,6 +107,8 @@ string match, scheme included):
 
 - Required Supabase variables are read through `getPublicEnv()` and fail with a clear message that points back to this file.
 - Optional variables must be read with `optionalEnv()`, `hasOptionalEnv()`, or a feature helper such as `getPolygonApiKeyEnv()`.
+- Direct Spotify/Strava credentials and OAuth state use `DIRECT_PROVIDER_COOKIE_SECRET` as the stable AXIS-owned v2 signing key. Keep the prior AXIS key in `DIRECT_PROVIDER_COOKIE_SECRET_PREVIOUS` during planned key rotation. The v2 rollout dual-reads provider-secret-derived v1 cookies and writes only v2, so deploy it while the existing provider secrets remain available; retain the legacy provider secret for the maximum existing cookie lifetime (90 days) before rotating it.
+- Upstash is a fail-closed correctness dependency for direct-provider refresh rotation: one opaque generation-scoped lease permits the provider exchange, and a short completion tombstone prevents stale request snapshots from re-entering before the winning response is applied. Coordinator keys contain only an HMAC digest—never tokens, raw subjects, or OAuth payloads.
 - Missing optional providers should respond with `NOT_CONFIGURED`, a setup message, or an intentional fallback. Examples: Composio connect returns 503 `NOT_CONFIGURED`, Polygon/Massive routes return `POLYGON_API_KEY_NOT_CONFIGURED`, AI routes fall back to heuristics where supported, and Upstash rate limiting falls back to in-memory limits.
 - Route-level Sentry capture should use `captureRouteError()` with safe tags only. Expected missing-config and user-error responses are breadcrumbs or visible API responses, not exception events.
 
