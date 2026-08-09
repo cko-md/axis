@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { oauthPendingStateCookieName } from "@/lib/auth/directProviderCookies";
 import {
-  authenticatedOAuthPendingStateIssuedAt,
+  authenticatedOAuthPendingStateOrder,
   oauthPendingStateBelongsToSubject,
   type DirectOAuthProvider,
 } from "@/lib/auth/oauthState.server";
@@ -24,7 +24,7 @@ type CredentialCookieNames = {
 
 export type ProviderCredentialAttempt = {
   providerState: string;
-  initiatedAtMs: number;
+  authorizationOrder: number;
 };
 
 export type MutableProviderCookieStore = {
@@ -213,18 +213,18 @@ function createProviderAttemptOwnerSeal(
     !isProfileSubject(subject) ||
     !secret ||
     !OAUTH_PROVIDER_STATE_PATTERN.test(attempt.providerState) ||
-    !Number.isSafeInteger(attempt.initiatedAtMs) ||
-    attempt.initiatedAtMs < 0
+    !Number.isSafeInteger(attempt.authorizationOrder) ||
+    attempt.authorizationOrder < 0
   ) {
     throw new Error("PROVIDER_ATTEMPT_OWNER_SEAL_INPUT_INVALID");
   }
-  const encodedTime = attempt.initiatedAtMs.toString(36);
+  const encodedOrder = attempt.authorizationOrder.toString(36);
   const digest = createHmac("sha256", ownerSealKey(secret, provider))
     .update(
-      `axis:direct-provider-attempt-owner:v${CREDENTIAL_ATTEMPT_VERSION}\0${subject}\0${attempt.providerState}\0${encodedTime}`,
+      `axis:direct-provider-attempt-owner:v${CREDENTIAL_ATTEMPT_VERSION}\0${subject}\0${attempt.providerState}\0${encodedOrder}`,
     )
     .digest("base64url");
-  return `pa${CREDENTIAL_ATTEMPT_VERSION}_${encodedTime}_${digest}`;
+  return `pa${CREDENTIAL_ATTEMPT_VERSION}_${encodedOrder}_${digest}`;
 }
 
 function validProviderAttemptOwnerSeal(
@@ -236,9 +236,9 @@ function validProviderAttemptOwnerSeal(
 ): ProviderCredentialAttempt | null {
   const match = supplied?.match(CREDENTIAL_ATTEMPT_OWNER_PATTERN);
   if (!match || !match[1] || !match[2]) return null;
-  const initiatedAtMs = Number.parseInt(match[1], 36);
-  if (!Number.isSafeInteger(initiatedAtMs) || initiatedAtMs < 0) return null;
-  const attempt = { providerState, initiatedAtMs };
+  const authorizationOrder = Number.parseInt(match[1], 36);
+  if (!Number.isSafeInteger(authorizationOrder) || authorizationOrder < 0) return null;
+  const attempt = { providerState, authorizationOrder };
   const expected = createProviderAttemptOwnerSeal(
     provider,
     subject,
@@ -361,33 +361,33 @@ function providerCredentialCutoffBoundaryForSubject(
         secret,
         providerState,
       );
-      if (attempt) cutoffMs = Math.max(cutoffMs, attempt.initiatedAtMs);
+      if (attempt) cutoffMs = Math.max(cutoffMs, attempt.authorizationOrder);
       continue;
     }
     if (cookie.name.startsWith(pendingPrefix)) {
       const providerState = cookie.name.slice(pendingPrefix.length);
-      const initiatedAtMs = authenticatedOAuthPendingStateIssuedAt({
+      const authorizationOrder = authenticatedOAuthPendingStateOrder({
         provider,
         subject,
         secret,
         sealedState: cookie.value,
         providerState,
       });
-      if (initiatedAtMs !== null) cutoffMs = Math.max(cutoffMs, initiatedAtMs);
+      if (authorizationOrder !== null) cutoffMs = Math.max(cutoffMs, authorizationOrder);
     }
   }
-  const legacyInitiatedAtMs = authenticatedOAuthPendingStateIssuedAt({
+  const legacyAuthorizationOrder = authenticatedOAuthPendingStateOrder({
     provider,
     subject,
     secret,
     sealedState: store.get(config.oauthPendingState)?.value ?? null,
   });
-  return legacyInitiatedAtMs === null
+  return legacyAuthorizationOrder === null
     ? cutoffMs
-    : Math.max(cutoffMs, legacyInitiatedAtMs);
+    : Math.max(cutoffMs, legacyAuthorizationOrder);
 }
 
-export function nextProviderAuthorizationIssuedAt(
+export function nextProviderAuthorizationOrder(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
@@ -438,7 +438,7 @@ function providerAttemptCredentialsForSubject(
     const names = attemptCredentialCookieNames(provider, providerState);
     if (
       cutoffMs !== null &&
-      credentialAttempt.initiatedAtMs <= cutoffMs
+      credentialAttempt.authorizationOrder <= cutoffMs
     ) {
       clearCredentialCookiesByName(store, names);
       continue;
@@ -452,7 +452,7 @@ function providerAttemptCredentialsForSubject(
   }
   candidates.sort((left, right) => {
     const timeOrder =
-      right.credentialAttempt.initiatedAtMs - left.credentialAttempt.initiatedAtMs;
+      right.credentialAttempt.authorizationOrder - left.credentialAttempt.authorizationOrder;
     if (timeOrder !== 0) return timeOrder;
     if (
       right.credentialAttempt.providerState ===
@@ -466,8 +466,8 @@ function providerAttemptCredentialsForSubject(
   const selected = candidates[0];
   if (!selected) return null;
   if (
-    candidates[1]?.credentialAttempt.initiatedAtMs ===
-    selected.credentialAttempt.initiatedAtMs
+    candidates[1]?.credentialAttempt.authorizationOrder ===
+    selected.credentialAttempt.authorizationOrder
   ) {
     return {
       accessToken: null,

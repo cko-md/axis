@@ -6,7 +6,7 @@ import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import {
   createOAuthPendingState,
   OAUTH_STATE_TTL_SECONDS,
-  verifiedOAuthPendingStateIssuedAt,
+  verifiedOAuthPendingStateOrder,
 } from "@/lib/auth/oauthState.server";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
@@ -14,7 +14,7 @@ import {
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForAttempt,
-  nextProviderAuthorizationIssuedAt,
+  nextProviderAuthorizationOrder,
   peekOAuthPendingStateCookie,
   peekOAuthPendingStateCookieForAttempt,
   replaceProviderTokenCookiesForAttempt,
@@ -132,14 +132,14 @@ async function completeCallback(
     "strava",
     providerState,
   );
-  const attemptInitiatedAtMs = verifiedOAuthPendingStateIssuedAt({
+  const authorizationOrder = verifiedOAuthPendingStateOrder({
     provider: "strava",
     subject,
     secret: clientSecret,
     providerState,
     sealedState: attemptSealedState ?? sealedState,
   });
-  if (attemptInitiatedAtMs === null || providerState === null) {
+  if (authorizationOrder === null || providerState === null) {
     return callbackFailure(req, "state_invalid", 400);
   }
   if (attemptSealedState !== null) {
@@ -195,7 +195,7 @@ async function completeCallback(
     expiresIn: tokens.expires_in,
   }, subject, clientSecret, {
     providerState,
-    initiatedAtMs: attemptInitiatedAtMs,
+    authorizationOrder,
   });
   return callbackFeedback(req, "ok");
 }
@@ -220,7 +220,7 @@ async function initiateAuth(req: NextRequest, subject: string) {
     provider: "strava",
     subject,
     secret: clientSecret,
-    nowMs: nextProviderAuthorizationIssuedAt(
+    order: nextProviderAuthorizationOrder(
       cookieStore,
       "strava",
       subject,

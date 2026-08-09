@@ -21,6 +21,7 @@ type OAuthStatePayload = {
   nonce: string;
   iat: number;
   iatMs: number;
+  order: number;
   exp: number;
 };
 
@@ -54,6 +55,7 @@ function exactPayloadKeys(payload: Record<string, unknown>): boolean {
     "iat",
     "iatMs",
     "nonce",
+    "order",
     "provider",
     "purpose",
     "subject",
@@ -66,6 +68,7 @@ export function createOAuthPendingState(options: {
   subject: string;
   secret: string;
   nowMs?: number;
+  order?: number;
   nonce?: string;
 }): { providerState: string; sealedState: string } {
   const { provider, subject, secret } = options;
@@ -79,6 +82,10 @@ export function createOAuthPendingState(options: {
     throw new Error("OAUTH_STATE_TIME_INVALID");
   }
   const iat = Math.floor(iatMs / 1000);
+  const order = options.order ?? iatMs;
+  if (!Number.isSafeInteger(order) || order < 0) {
+    throw new Error("OAUTH_STATE_ORDER_INVALID");
+  }
   const payload: OAuthStatePayload = {
     v: STATE_VERSION,
     purpose: STATE_PURPOSE,
@@ -87,6 +94,7 @@ export function createOAuthPendingState(options: {
     nonce,
     iat,
     iatMs,
+    order,
     exp: iat + OAUTH_STATE_TTL_SECONDS,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -137,6 +145,9 @@ function authenticatedOAuthStatePayload(
       Number.isSafeInteger(payload.iatMs) &&
       payload.iatMs >= 0 &&
       Math.floor(payload.iatMs / 1000) === payload.iat &&
+      typeof payload.order === "number" &&
+      Number.isSafeInteger(payload.order) &&
+      payload.order >= 0 &&
       typeof payload.exp === "number" &&
       Number.isSafeInteger(payload.exp) &&
       payload.exp - payload.iat === OAUTH_STATE_TTL_SECONDS
@@ -163,13 +174,13 @@ function verifiedOAuthStatePayload(
  * Disconnect uses this only to advance its logical cutoff past signed attempts
  * visible in the request, including when serverless instances have clock skew.
  */
-export function authenticatedOAuthPendingStateIssuedAt(
+export function authenticatedOAuthPendingStateOrder(
   options: VerifiedOAuthStateOptions & { providerState?: string | null },
 ): number | null {
   const payload = authenticatedOAuthStatePayload(options);
   if (!payload) return null;
-  if (options.providerState === undefined) return payload.iatMs;
-  return options.providerState === payload.nonce ? payload.iatMs : null;
+  if (options.providerState === undefined) return payload.order;
+  return options.providerState === payload.nonce ? payload.order : null;
 }
 
 export function oauthPendingStateBelongsToSubject(
@@ -181,14 +192,14 @@ export function oauthPendingStateBelongsToSubject(
 export function verifyOAuthPendingState(options: VerifiedOAuthStateOptions & {
   providerState: string | null;
 }): boolean {
-  return verifiedOAuthPendingStateIssuedAt(options) !== null;
+  return verifiedOAuthPendingStateOrder(options) !== null;
 }
 
-export function verifiedOAuthPendingStateIssuedAt(
+export function verifiedOAuthPendingStateOrder(
   options: VerifiedOAuthStateOptions & { providerState: string | null },
 ): number | null {
   const { providerState } = options;
   if (!providerState || !NONCE_PATTERN.test(providerState)) return null;
   const payload = verifiedOAuthStatePayload(options);
-  return payload?.nonce === providerState ? payload.iatMs : null;
+  return payload?.nonce === providerState ? payload.order : null;
 }

@@ -264,6 +264,52 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     expect(mocks.cookieStore.operations).toEqual([]);
   });
 
+  it("completes post-disconnect authorization across multi-second clock skew", async () => {
+    const slowNow = Date.UTC(2026, 7, 8, 12, 0, 0);
+    authenticatedAs(userA);
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(slowNow + 5_000);
+      const disconnected = await disconnectSpotify(new Request(
+        "https://axis.test/api/spotify/disconnect",
+        {
+          method: "POST",
+          headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+        },
+      ));
+      expect(disconnected.status).toBe(200);
+
+      clock.mockReturnValue(slowNow);
+      const started = await startSpotifyAuth(new NextRequest(
+        "https://axis.test/api/spotify/auth",
+        {
+          method: "POST",
+          headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+        },
+      ));
+      const providerState = new URL(
+        ((await started.json()) as { url: string }).url,
+      ).searchParams.get("state");
+      expect(providerState).toBeTruthy();
+
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        access_token: "skew-access",
+        refresh_token: "skew-refresh",
+        expires_in: 900,
+      }), { status: 200 })));
+      clock.mockReturnValue(slowNow + 500);
+      const callback = await completeSpotifyAuth(new NextRequest(
+        `https://axis.test/api/spotify/callback?code=skew-code&state=${providerState}`,
+      ));
+      expect(callback.headers.get("location")).toContain("provider=spotify&status=ok");
+      expect(
+        mocks.cookieStore.values.get(`spotify_access_token_a1_${providerState}`),
+      ).toBe("skew-access");
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("publishes owner-bound tokens only after a valid single-use callback", async () => {
     const nonce = "n".repeat(43);
     const { providerState, sealedState } = createOAuthPendingState({

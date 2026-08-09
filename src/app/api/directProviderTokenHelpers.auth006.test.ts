@@ -125,7 +125,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       { accessToken: "expired-access", refreshToken: "attempt-refresh" },
       subject,
       "spotify-secret",
-      { providerState, initiatedAtMs: Date.UTC(2026, 7, 8) },
+      { providerState, authorizationOrder: Date.UTC(2026, 7, 8) },
     );
     mocks.cookieStore.values.delete(`spotify_access_token_a1_${providerState}`);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({

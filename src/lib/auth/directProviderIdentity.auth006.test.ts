@@ -5,6 +5,7 @@ import {
   oauthPendingStateBelongsToSubject,
   OAUTH_STATE_TTL_SECONDS,
   verifyOAuthPendingState,
+  verifiedOAuthPendingStateOrder,
 } from "./oauthState.server";
 import { EXPECTED_PROFILE_SUBJECT_HEADER } from "./profileSubject";
 import { profileSubjectForUserId } from "./profileSubject.server";
@@ -14,7 +15,7 @@ import {
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForAttempt,
   createProviderOwnerSeal,
-  nextProviderAuthorizationIssuedAt,
+  nextProviderAuthorizationOrder,
   providerTokensForSubject,
   replaceProviderTokenCookies,
   replaceProviderTokenCookiesForAttempt,
@@ -85,11 +86,20 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       secret,
       nonce,
       nowMs,
+      order: nowMs + 5_000,
     });
 
     expect(providerState).toBe(nonce);
     expect(providerState).not.toContain(userA);
     expect(providerState).not.toContain(subjectA);
+    expect(verifiedOAuthPendingStateOrder({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      providerState,
+      sealedState,
+      nowMs,
+    })).toBe(nowMs + 5_000);
     expect(verifyOAuthPendingState({
       provider: "spotify",
       subject: subjectA,
@@ -307,7 +317,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       { accessToken: "new-access", refreshToken: "new-refresh" },
       subjectA,
       secret,
-      { providerState: newer.providerState, initiatedAtMs: nowMs + 1 },
+      { providerState: newer.providerState, authorizationOrder: nowMs + 1 },
     );
     replaceProviderTokenCookiesForAttempt(
       store,
@@ -315,7 +325,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       { accessToken: "old-access", refreshToken: "old-refresh" },
       subjectA,
       secret,
-      { providerState: older.providerState, initiatedAtMs: nowMs },
+      { providerState: older.providerState, authorizationOrder: nowMs },
     );
 
     expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toEqual({
@@ -323,7 +333,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       refreshToken: "new-refresh",
       credentialAttempt: {
         providerState: newer.providerState,
-        initiatedAtMs: nowMs + 1,
+        authorizationOrder: nowMs + 1,
       },
     });
     expect(store.operations).toContain(
@@ -343,7 +353,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
         { accessToken },
         subjectA,
         secret,
-        { providerState, initiatedAtMs: nowMs },
+        { providerState, authorizationOrder: nowMs },
       );
     }
 
@@ -357,7 +367,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     const store = new MemoryCookieStore();
     const oldAttempt = {
       providerState: "j".repeat(43),
-      initiatedAtMs: nowMs,
+      authorizationOrder: nowMs,
     };
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs + 10);
     try {
@@ -394,7 +404,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
 
     const newAttempt = {
       providerState: "k".repeat(43),
-      initiatedAtMs: nowMs + 11,
+      authorizationOrder: nowMs + 11,
     };
     replaceProviderTokenCookiesForAttempt(
       store,
@@ -440,7 +450,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       { accessToken: "late-callback", refreshToken: "late-refresh" },
       subjectA,
       secret,
-      { providerState: attempt.providerState, initiatedAtMs: nowMs + 1 },
+      { providerState: attempt.providerState, authorizationOrder: nowMs + 1 },
     );
     expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toEqual({
       accessToken: null,
@@ -452,7 +462,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     const store = new MemoryCookieStore();
     const attempt = {
       providerState: "n".repeat(43),
-      initiatedAtMs: nowMs + 2,
+      authorizationOrder: nowMs + 2,
     };
     replaceProviderTokenCookiesForAttempt(
       store,
@@ -492,9 +502,9 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       fastClock.mockRestore();
     }
     const slowClock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
-    let initiatedAtMs: number;
+    let authorizationOrder: number;
     try {
-      initiatedAtMs = nextProviderAuthorizationIssuedAt(
+      authorizationOrder = nextProviderAuthorizationOrder(
         store,
         "spotify",
         subjectA,
@@ -503,7 +513,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     } finally {
       slowClock.mockRestore();
     }
-    expect(initiatedAtMs).toBe(nowMs + 11);
+    expect(authorizationOrder).toBe(nowMs + 11);
 
     replaceProviderTokenCookiesForAttempt(
       store,
@@ -511,7 +521,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       { accessToken: "new-access", refreshToken: "new-refresh" },
       subjectA,
       secret,
-      { providerState: "o".repeat(43), initiatedAtMs },
+      { providerState: "o".repeat(43), authorizationOrder },
     );
     expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toMatchObject({
       accessToken: "new-access",
@@ -536,7 +546,7 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       { accessToken: "between-disconnects" },
       subjectA,
       secret,
-      { providerState: "l".repeat(43), initiatedAtMs: nowMs + 15 },
+      { providerState: "l".repeat(43), authorizationOrder: nowMs + 15 },
     );
 
     expect(providerTokensForSubject(store, "strava", subjectA, secret)).toEqual({

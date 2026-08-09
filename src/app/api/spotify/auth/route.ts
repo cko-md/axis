@@ -6,7 +6,7 @@ import {
   OAUTH_STATE_TTL_SECONDS,
 } from "@/lib/auth/oauthState.server";
 import {
-  nextProviderAuthorizationIssuedAt,
+  nextProviderAuthorizationOrder,
   setOAuthPendingStateCookie,
 } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     provider: "spotify",
     subject: identity.subject,
     secret: clientSecret,
-    nowMs: nextProviderAuthorizationIssuedAt(
+    order: nextProviderAuthorizationOrder(
       cookieStore,
       "spotify",
       identity.subject,

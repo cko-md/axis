@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { getAppOrigin, buildAppUrl } from "@/lib/auth/getAppOrigin";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
-import { verifiedOAuthPendingStateIssuedAt } from "@/lib/auth/oauthState.server";
+import { verifiedOAuthPendingStateOrder } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForAttempt,
@@ -82,14 +82,14 @@ export async function GET(req: NextRequest) {
     providerState,
   );
   const sealedState = attemptSealedState ?? legacySealedState;
-  const attemptInitiatedAtMs = verifiedOAuthPendingStateIssuedAt({
+  const authorizationOrder = verifiedOAuthPendingStateOrder({
     provider: "spotify",
     subject,
     secret: clientSecret,
     providerState,
     sealedState,
   });
-  if (attemptInitiatedAtMs === null || providerState === null) {
+  if (authorizationOrder === null || providerState === null) {
     return fail(req, "state_invalid", 400);
   }
   if (attemptSealedState !== null) {
@@ -149,7 +149,7 @@ export async function GET(req: NextRequest) {
     expiresIn: tokens.expires_in,
   }, subject, clientSecret, {
     providerState,
-    initiatedAtMs: attemptInitiatedAtMs,
+    authorizationOrder,
   });
 
   return feedback(req, "ok");
