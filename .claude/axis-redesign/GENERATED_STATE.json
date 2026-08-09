@@ -1,22 +1,28 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T08:13:27.812Z",
+  "derivedAt": "2026-08-09T08:56:40.588Z",
   "git": {
-    "branch": "codex/state-refresh-auth006",
-    "head": "bc99114e3049b237c7ed1e3f718151a719661c7d",
-    "mainHead": "583794997a7a175f8ee23fa9f7ef386871b16384",
+    "branch": "codex/state-close-auth006",
+    "head": "93598646a64e870125045a21a1ae8f6aa6a84081",
+    "mainHead": "1b2df6b03ba03831a0a596cbd943e8903450f66a",
     "workingTreeClean": true,
     "aheadOfMain": [
       {
-        "sha": "bc99114e",
-        "subject": "chore(state): refresh AUTH-006 production state"
+        "sha": "93598646",
+        "subject": "docs(state): close AUTH-006 on canonical production evidence"
       }
     ],
-    "contentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
+    "contentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
     "sourceMainContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
-    "fingerprint": "2ffe8f50ca95c97bbd56c43af684820a73df9821b02792224523ce62d97ce801"
+    "fingerprint": "01efd5d24f8837853a0eedfe431ec0e880d7b7c5faf706026110d9fa6a2c5b13"
   },
   "mergedPrs": [
+    {
+      "pr": 308,
+      "sha": "1b2df6b0",
+      "subject": "chore(state): refresh AUTH-006 production state",
+      "committedAt": "2026-08-09T04:26:07-04:00"
+    },
     {
       "pr": 305,
       "sha": "58379499",
@@ -160,12 +166,6 @@
       "sha": "6833e60e",
       "subject": "feat(icons): native macOS squircle app icon — cerulean line-art, cinematic depth",
       "committedAt": "2026-07-21T10:07:55-04:00"
-    },
-    {
-      "pr": 265,
-      "sha": "8be88199",
-      "subject": "chore(supabase): track downloaded fund_bank_transactions provenance snippets",
-      "committedAt": "2026-07-21T10:07:51-04:00"
     }
   ],
   "waves": [
@@ -312,9 +312,8 @@
   },
   "defects": {
     "total": 50,
-    "open": 6,
+    "open": 5,
     "openIds": [
-      "AUTH-006",
       "FIN-003",
       "FIN-004",
       "MUTATION-001",
@@ -325,8 +324,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "fb6066eab2556a26d7d81f914b000fef6747077f",
-    "sourceContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
+    "sourceHead": "93598646a64e870125045a21a1ae8f6aa6a84081",
+    "sourceContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
     "typecheck": {
       "passed": true
     },
@@ -351,6 +350,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T07:17:42.207Z"
+    "measuredAt": "2026-08-09T08:56:40.490Z"
   }
 }
