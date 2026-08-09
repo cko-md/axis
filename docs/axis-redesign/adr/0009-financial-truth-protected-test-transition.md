@@ -9,7 +9,7 @@
 
 | Protected test | Base blob | Candidate blob | Base SHA-256 | Candidate SHA-256 |
 |---|---|---|---|---|
-| `src/lib/brokerage/publicOrderAdapter.test.ts` | `9121ba3886b19b005d1e7e7eb866fa566ef53702` | `4978d3c764da238360043de8d3bdaa1d9ebfb8a7` | `9749e318ec5a48bf5d17a731e3b29efc85be61855fff691830036ec64fbed8d9` | `684639d4a819663243ac1946b9b3d567529cb13adf9de3a6d841484b9cbffa4a` |
+| `src/lib/brokerage/publicOrderAdapter.test.ts` | `9121ba3886b19b005d1e7e7eb866fa566ef53702` | `4e2eb9e13c7d065151d1985871ee7904e8836335` | `9749e318ec5a48bf5d17a731e3b29efc85be61855fff691830036ec64fbed8d9` | `358b7bcbd0f4574e2186ae4ddaf12aa6a5b0296c7fc77ebeef327ad80b40a50a` |
 | `src/lib/fund/provenance.test.ts` | `11b9c87035c3a333bcc0e239f809580d9d31ed1f` | `b585b9f059393c978d9e4d0e65767a3b351156b0` | `679d0c6f26088bd7e9c6b666f9f4c5e0f689164afc2f9f081db55f91c5d48b4b` | `229a5f4c6a5ae160af61af92bd59176b92ccce11acce8c5e71604ce0dd9e7f33` |
 | `src/lib/fund/reconcileHoldings.test.ts` | `f3730523a5b5035c11c694c3605c32bf304a1b8f` | `971d307a63f15772eb4d1c6cac43ebcd4336e9fb` | `01b6c8f1686899db3a4baa40e6d9d6b6c6a396c8cc5feac473b7f5ec03814ce5` | `39660feeb6129829a6e15d08e611c1b2cf86bf09f8ad74f855c47a4df7eedf55` |
 | `src/lib/orders/orderTicket.test.ts` | `1e267cd2fcb27390d734c6ad92686846aeb0eb10` | `2ef4abd826d48cf7afd3a6b3e103f7a144171f41` | `aa44da28c5121d44f02d89556266c23b8c7fa10110c8584c5dd46ee800a6b773` | `34a213e822cd2e079cb81b46523b43dffca50e2166b88ecc6ab47d5afc01373d` |
@@ -21,6 +21,22 @@
 `marketReport.test.ts` and `concentrationCheck.test.ts` remain byte-identical to
 protected main. Their new authority coverage lives only in additive
 `*.fault.test.ts` files.
+
+## Exact release inputs reviewed with this transition
+
+| Release input | Candidate blob | Candidate SHA-256 |
+|---|---|---|
+| `scripts/release-migration-manifest.json` | `a1b0d89c619e9552619d9bf5f7232118c3c986e3` | `d455465b6f742c68ae99b0c8c607df2e87a2da2c7a5e9e01f2d4ea9fd051b869` |
+| `supabase/migrations/20260723090000_net_worth_snapshots_authority_provenance.sql` | `3bc0570b1859610bfe72cdea7ccba3b47f353684` | `6351220ccd30ecff6a5f2b4894c8a0a6d4d92a1c3d709044b6a008fb1dc6cc2d` |
+| `supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql` | `1df6e258319c077a6360f8ffb1fe45e6e5ddc60a` | `23bb299b16b5d4205523ab039b42703419b43df50c63261b4db12fdef577f027` |
+| `supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql` | `9dcc7241fdef6450545363ae555a0cb85218a700` | `8427bbbc495edb38ece6f12095853a6ad5f2d262c2d30360c964c303c6c591da` |
+| `supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql` | `4fe75fd65fa6108bdd3952da165e294ffeffe2aa` | `05e71269a9c5d72719971a1a0adf5ba425b2e6c9ddc15adbe55d6ac57016193c` |
+
+The manifest declares 95 migrations and binds `20260809230000` as the exact
+latest file. The repair fails closed before replacing constraints if an
+existing immutable limit intent was derived from a reference quote rather
+than its limit price; such rows require quarantine and owner review, not an
+in-place rewrite.
 
 ## Decision
 

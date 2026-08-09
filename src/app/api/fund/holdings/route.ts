@@ -15,6 +15,8 @@ import {
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 type HoldingRow = {
   id: string;
@@ -49,10 +51,14 @@ function normalizeCurrency(currency: string | null | undefined): string | null {
  * merged into one row — they're summed by symbol here for display, while
  * `rows` still exposes each source-tagged row individually.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/holdings", area: "fund" });
   if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const { data, error } = await supabase
     .from("fund_holdings")

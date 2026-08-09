@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -54,7 +55,7 @@ describe("holdings read authority boundary", () => {
     const supabase = client();
     mocks.createClient.mockResolvedValue(supabase);
 
-    const response = await GET();
+    const response = await GET(new NextRequest("http://axis.test/api/fund/holdings"));
 
     expect(response.status).toBe(200);
     expect(supabase.update).not.toHaveBeenCalled();
@@ -62,5 +63,18 @@ describe("holdings read authority boundary", () => {
       rows: [expect.objectContaining({ symbol: "AAPL", reconciliation_state: "matched" })],
       aggregated: [expect.objectContaining({ symbol: "AAPL", reconciliation_state: null })],
     });
+  });
+
+  it("rejects a stale opaque subject before reading financial rows", async () => {
+    const supabase = client();
+    mocks.createClient.mockResolvedValue(supabase);
+
+    const response = await GET(new NextRequest("http://axis.test/api/fund/holdings", {
+      headers: { "x-axis-expected-profile-subject": `ps1_${"f".repeat(64)}` },
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "SUBJECT_CHANGED" });
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 });

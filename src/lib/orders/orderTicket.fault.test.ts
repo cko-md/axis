@@ -31,27 +31,28 @@ describe("order ticket exact intent boundaries", () => {
     })).toMatchObject({ ok: false });
   });
 
-  it("uses exact scaled quantity and minor price fields at high-value boundaries", () => {
-    const result = buildOrderTicket({
-      symbol: "BRK.A",
+  it("rejects contradictory compatibility and exact aliases", () => {
+    expect(buildOrderTicket({
+      symbol: "AAPL",
+      side: "buy",
+      quantity: 1,
+      quantityUnits: 2_000_000,
+      quantityScale: 1_000_000,
+      referencePrice: 100,
+      referencePriceMinor: 10_000,
+      currency: "USD",
+    })).toMatchObject({ ok: false, errors: expect.arrayContaining(["quantity and quantityUnits disagree"]) });
+
+    expect(buildOrderTicket({
+      symbol: "AAPL",
       side: "buy",
       quantity: 1,
       quantityUnits: 1_000_000,
       quantityScale: 1_000_000,
       type: "limit",
-      limitPrice: 90_071_992_547_409.9,
-      limitPriceMinor: Number.MAX_SAFE_INTEGER,
+      limitPrice: 100,
+      limitPriceMinor: 1,
       currency: "USD",
-    });
-
-    expect(result).toMatchObject({
-      ok: true,
-      ticket: {
-        quantityText: "1.000000",
-        limitPriceText: "90071992547409.91",
-        estimatedNotionalMinor: Number.MAX_SAFE_INTEGER,
-        estimatedNotionalText: "90071992547409.91",
-      },
-    });
+    })).toMatchObject({ ok: false, errors: expect.arrayContaining(["limitPrice and limitPriceMinor disagree"]) });
   });
 });

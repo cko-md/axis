@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import {
   minorUnitsToDecimalString,
   normalizeFinancialCurrency,
@@ -44,10 +46,14 @@ function parseRate(value: unknown) {
   return { value: exact as unknown as number };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await authenticate();
   if ("response" in auth) return auth.response;
   const { supabase, user } = auth;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const [
     { data, error },

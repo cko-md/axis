@@ -3,6 +3,15 @@
 import React, { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  shellProfile: vi.fn(),
+}));
+
+vi.mock("@/components/layout/ShellProfileContext", () => ({
+  useShellProfile: mocks.shellProfile,
+}));
+
 import { FundDataProvider, useFundData } from "./FundDataProvider";
 
 let root: Root | null = null;
@@ -58,6 +67,11 @@ async function mount(
 describe("Plaid liability availability state", () => {
   beforeEach(() => {
     latest = null;
+    mocks.shellProfile.mockReturnValue({
+      state: "ready",
+      profile: { subject: "ps1_" + "a".repeat(64) },
+      authorityEpoch: 1,
+    });
     vi.stubGlobal("React", React);
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -128,5 +142,80 @@ describe("Plaid liability availability state", () => {
     expect(latest?.holdingsError).toBe(false);
     expect(latest?.rows).toEqual([]);
     expect(latest?.aggregated).toEqual([]);
+  });
+
+  it("never exposes subject A holdings after a direct switch to subject B fails", async () => {
+    const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
+    const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };
+    await mount("ready-empty", { rows: [holding], aggregated: [aggregate] });
+    mocks.shellProfile.mockReturnValue({
+      state: "ready",
+      profile: { subject: "ps1_" + "b".repeat(64) },
+      authorityEpoch: 2,
+    });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/fund/holdings") return json({ error: "unavailable" }, 503);
+      return json({ liabilities: [], providerAvailability: [] });
+    });
+
+    await act(async () => {
+      root?.render(<FundDataProvider><Harness /></FundDataProvider>);
+    });
+    for (let index = 0; index < 5; index++) {
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+    }
+
+    expect(latest?.holdingsError).toBe(true);
+    expect(latest?.rows).toEqual([]);
+    expect(latest?.aggregated).toEqual([]);
+  });
+
+  it("ignores a late subject A response after subject B becomes authoritative", async () => {
+    const holdingA = { id: "holding-a", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
+    const aggregateA = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };
+    const holdingB = { id: "holding-b", symbol: "MSFT", name: "Microsoft", shares: 2, cost_basis: 200, source: "manual" };
+    const aggregateB = { symbol: "MSFT", name: "Microsoft", shares: 2, cost_basis: 200, sources: ["manual"] };
+    let resolveSubjectA: ((response: Response) => void) | null = null;
+    let holdingsCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/fund/holdings") {
+        holdingsCalls += 1;
+        if (holdingsCalls === 1) {
+          return new Promise<Response>((resolve) => { resolveSubjectA = resolve; });
+        }
+        return Promise.resolve(json({ rows: [holdingB], aggregated: [aggregateB] }));
+      }
+      return Promise.resolve(json({ liabilities: [], providerAvailability: [] }));
+    }));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<FundDataProvider><Harness /></FundDataProvider>);
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    mocks.shellProfile.mockReturnValue({
+      state: "ready",
+      profile: { subject: "ps1_" + "b".repeat(64) },
+      authorityEpoch: 2,
+    });
+    await act(async () => {
+      root?.render(<FundDataProvider><Harness /></FundDataProvider>);
+    });
+    for (let index = 0; index < 3; index++) {
+      await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+    }
+    expect(latest?.rows).toEqual([holdingB]);
+
+    await act(async () => {
+      resolveSubjectA?.(json({ rows: [holdingA], aggregated: [aggregateA] }));
+      await Promise.resolve();
+    });
+
+    expect(latest?.rows).toEqual([holdingB]);
+    expect(latest?.aggregated).toEqual([aggregateB]);
   });
 });

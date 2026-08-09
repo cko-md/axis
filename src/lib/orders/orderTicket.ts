@@ -17,6 +17,7 @@ import {
   multiplyScaledQuantityByDecimalPrice,
   normalizeFinancialCurrency,
   scaledUnitsToDecimalString,
+  strictExactMinorUnits,
   strictExactScaledUnits,
 } from "@/lib/fund/financialTruth";
 
@@ -96,8 +97,18 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
   const currency = normalizeFinancialCurrency(input.currency, "");
   if (!currency) errors.push("currency is required and must be supported");
   const quantityScale = input.quantityScale ?? ORDER_QUANTITY_SCALE;
-  const quantityScaled = input.quantityUnits ?? strictExactScaledUnits(input.quantity, quantityScale);
+  const compatibilityQuantity = strictExactScaledUnits(input.quantity, quantityScale);
+  const quantityScaled = input.quantityUnits ?? compatibilityQuantity;
   if (quantityScaled === null || quantityScaled <= 0) errors.push("quantity precision is invalid");
+  if (input.quantityUnits !== undefined && compatibilityQuantity !== input.quantityUnits) {
+    errors.push("quantity and quantityUnits disagree");
+  }
+  if (currency && input.limitPriceMinor !== undefined && strictExactMinorUnits(input.limitPrice, currency) !== input.limitPriceMinor) {
+    errors.push("limitPrice and limitPriceMinor disagree");
+  }
+  if (currency && input.referencePriceMinor !== undefined && input.referencePriceMinor !== null && strictExactMinorUnits(input.referencePrice, currency) !== input.referencePriceMinor) {
+    errors.push("referencePrice and referencePriceMinor disagree");
+  }
   const quantityText = quantityScaled === null ? null : scaledUnitsToDecimalString(quantityScaled, quantityScale);
   if (!quantityText) errors.push("quantity representation is unavailable");
   if (errors.length > 0) return { ok: false, errors };
