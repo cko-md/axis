@@ -43,6 +43,8 @@ describe("order intent and verified execution database contract", () => {
     expect(migration).toContain("approval.action_class <> 'FINANCIAL_EXECUTION'");
     expect(migration).toContain("submission.provider_account_ref_hash <> p_provider_account_ref_hash");
     expect(migration).toContain("p_retrieved_at < p_executed_at");
+    expect(migration).toContain("p_price_minor <= 0");
+    expect(migration).toContain("price_minor bigint not null check (price_minor > 0)");
     expect(migration).toContain("return jsonb_build_object('outcome', 'limit_price_violated')");
     expect(migration).toContain("existing_fill_units + p_filled_quantity_units > intent.quantity_units");
     expect(migration).toContain("on conflict do nothing");

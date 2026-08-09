@@ -228,6 +228,23 @@ try {
     );
   `, { label: "trusted future submission fixture" });
 
+  run(disposableUrl, `
+    set role service_role;
+    set request.jwt.claim.role='service_role';
+    select public.record_verified_fund_execution(
+      '11111111-1111-4111-8111-111111111111',
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      encode(extensions.digest('account-1','sha256'),'hex'),
+      'provider-order-1','fill-zero-price',repeat('0',64),100000,0,0,
+      now(),now()
+    );
+  `, { expectFailure: true, label: "zero-price provider fill denial" });
+  assertScalar(
+    "select (select count(*) from public.fund_execution_receipts)::text || ':' || (select count(*) from public.fund_transactions)::text;",
+    "0:0",
+    "rejected zero-price fill leaves no financial record",
+  );
+
   assertScalar(`
     set role service_role;
     set request.jwt.claim.role='service_role';

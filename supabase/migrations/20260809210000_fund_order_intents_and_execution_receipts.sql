@@ -137,7 +137,7 @@ create table if not exists public.fund_execution_receipts (
   receipt_hash text not null check (receipt_hash ~ '^[0-9a-f]{64}$'),
   filled_quantity_units bigint not null check (filled_quantity_units > 0),
   quantity_scale integer not null check (quantity_scale = 1000000),
-  price_minor bigint not null check (price_minor >= 0),
+  price_minor bigint not null check (price_minor > 0),
   gross_amount_minor bigint not null check (gross_amount_minor >= 0),
   fee_minor bigint not null check (fee_minor >= 0),
   currency text not null check (currency = 'USD'),
@@ -337,7 +337,7 @@ begin
   if p_provider_account_ref_hash !~ '^[0-9a-f]{64}$'
     or p_receipt_hash !~ '^[0-9a-f]{64}$'
     or p_filled_quantity_units <= 0
-    or p_price_minor < 0
+    or p_price_minor <= 0
     or p_fee_minor < 0
     or p_executed_at is null
     or p_retrieved_at is null then

@@ -5,12 +5,15 @@ import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-import { fmtUsd } from "@/lib/store/fund-defaults";
 import { FundOrderTicket } from "@/components/fund/FundOrderTicket";
 import { FundSparkline } from "@/components/fund/FundSparkline";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
 import { reconciliationView } from "@/lib/fund/reconciliationView";
+
+function formatHoldingCost(value: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value);
+}
 
 export function FundInvestingModule() {
   const { toast } = useToast();
@@ -109,7 +112,7 @@ export function FundInvestingModule() {
                         <td><a href={`/fund/position/${h.symbol}`} style={{ color: "var(--accent)" }}>{h.symbol}</a></td>
                         <td>{h.name}</td>
                         <td>{h.shares}</td>
-                        <td>{h.cost_basis === null ? "— · FX required" : fmtUsd(h.cost_basis)}</td>
+                        <td>{h.cost_basis === null || !h.currency ? "— · FX required" : formatHoldingCost(h.cost_basis, h.currency)}</td>
                         <td style={{ fontSize: 10, color: "var(--ink-faint)" }}>
                           {h.sources.join(" + ")}
                           {(() => {
