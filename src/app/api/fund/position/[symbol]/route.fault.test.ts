@@ -46,9 +46,20 @@ function client(
     authority: "provider_verified",
     verified_at: new Date().toISOString(),
   }], error: null },
+  coverage: QueryResult = { data: [{
+    connection_id: "connection-1",
+    provider: "plaid",
+    component: "holdings",
+    complete: true,
+    availability_status: "available",
+    record_count: 1,
+    retrieved_at: new Date().toISOString(),
+    generation_id: "44444444-4444-4444-8444-444444444444",
+    generation_hash: "a".repeat(64),
+  }], error: null },
 ) {
   let read = 0;
-  const results = [target, portfolio, connections];
+  const results = [target, portfolio, connections, coverage];
   return {
     auth: {
       getUser: vi.fn(async () => ({
@@ -80,6 +91,7 @@ const aapl = {
   connection_id: "connection-1",
   retrieved_at: new Date().toISOString(),
   reconciliation_state: "matched",
+  generation_id: "44444444-4444-4444-8444-444444444444",
 };
 
 describe("position route live-value faults", () => {
@@ -149,10 +161,23 @@ describe("position route live-value faults", () => {
       connection_id: "connection-1",
       retrieved_at: new Date().toISOString(),
       reconciliation_state: "matched",
+      generation_id: "44444444-4444-4444-8444-444444444444",
     };
     mocks.createClient.mockResolvedValue(client(
       { data: [aapl], error: null },
       { data: [aapl, msft], error: null },
+      undefined,
+      { data: [{
+        connection_id: "connection-1",
+        provider: "plaid",
+        component: "holdings",
+        complete: true,
+        availability_status: "available",
+        record_count: 2,
+        retrieved_at: new Date().toISOString(),
+        generation_id: "44444444-4444-4444-8444-444444444444",
+        generation_hash: "a".repeat(64),
+      }], error: null },
     ));
     mocks.fetchSnapshot.mockImplementation(async (symbol: string) => {
       if (symbol === "AAPL") return { price: 75, chg: 1, source: "massive", asOf: new Date().toISOString() };

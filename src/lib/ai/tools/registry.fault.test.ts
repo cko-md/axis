@@ -70,6 +70,7 @@ const holdingCoverage = {
   provider: "plaid",
   component: "holdings",
   complete: true,
+  availability_status: "available",
   record_count: 1,
   retrieved_at: new Date().toISOString(),
   generation_id: "44444444-4444-4444-8444-444444444444",

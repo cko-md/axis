@@ -14,7 +14,7 @@ import { GET } from "./route";
 
 function client(rows: unknown[], error: unknown = null) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order"]) chain[method] = vi.fn(() => chain);
+  for (const method of ["select", "eq", "order", "limit"]) chain[method] = vi.fn(() => chain);
   chain.then = (
     resolve: (value: { data: unknown[]; error: unknown }) => unknown,
     reject: (reason: unknown) => unknown,

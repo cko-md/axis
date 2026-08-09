@@ -90,10 +90,15 @@ export function usePlaidConnection() {
           }
           cashMinor = nextCash;
         }
-        if (cashAccounts.length === 0 || currencies.size !== 1 || !currencies.has("USD")) {
+        if (cashAccounts.length === 0) {
           setCash(null);
           setCashMinor(null);
-          setCashReason(currencies.size !== 1 || !currencies.has("USD") ? "MIXED_CURRENCY_REQUIRES_FX" : "CASH_UNAVAILABLE");
+          setCashReason(accounts.length > 0 ? "ACCOUNT_TYPE_REQUIRES_PARTITION" : "CASH_UNAVAILABLE");
+          setBalanceError(true);
+        } else if (currencies.size !== 1 || !currencies.has("USD")) {
+          setCash(null);
+          setCashMinor(null);
+          setCashReason("MIXED_CURRENCY_REQUIRES_FX");
           setBalanceError(true);
         } else {
           setCash(minorUnitsToDecimalString(cashMinor, "USD"));

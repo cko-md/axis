@@ -26,6 +26,7 @@ function client() {
       shares: "1",
       cost_basis: "10.00",
       source: "plaid",
+      authority: "provider",
       currency: "USD",
       reconciliation_state: "matched",
       retrieved_at: "2026-07-23T12:00:00.000Z",
