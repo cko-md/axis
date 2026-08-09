@@ -9,11 +9,14 @@ import {
 import { EXPECTED_PROFILE_SUBJECT_HEADER } from "./profileSubject";
 import { profileSubjectForUserId } from "./profileSubject.server";
 import {
+  clearProviderCredentialCookiesForSubject,
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
+  consumeOAuthPendingStateCookieForSubject,
   createProviderOwnerSeal,
   providerTokensForSubject,
   replaceProviderTokenCookies,
+  setOAuthPendingStateCookie,
   type MutableProviderCookieStore,
 } from "./providerCookies.server";
 
@@ -158,6 +161,68 @@ describe("AUTH-006 direct-provider identity primitives", () => {
 
     clearProviderTokenCookiesForSubject(store, "spotify", subjectB, secret);
     expect(store.values.has("spotify_oauth_state")).toBe(false);
+  });
+
+  it("keeps pending OAuth response mutations in disjoint subject slots", () => {
+    const browser = new MemoryCookieStore();
+    const pendingA = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+    }).sealedState;
+    setOAuthPendingStateCookie(
+      browser,
+      "spotify",
+      pendingA,
+      OAUTH_STATE_TTL_SECONDS,
+      subjectA,
+      secret,
+    );
+    const pendingAName = browser.operations[0]!.slice("set:".length);
+
+    const requestA = new MemoryCookieStore();
+    for (const [name, value] of browser.values) requestA.values.set(name, value);
+    const pendingB = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectB,
+      secret,
+    }).sealedState;
+    setOAuthPendingStateCookie(
+      browser,
+      "spotify",
+      pendingB,
+      OAUTH_STATE_TTL_SECONDS,
+      subjectB,
+      secret,
+    );
+    const pendingBName = browser.operations.at(-1)!.slice("set:".length);
+    expect(pendingBName).not.toBe(pendingAName);
+
+    clearProviderTokenCookiesForSubject(requestA, "spotify", subjectA, secret);
+    for (const operation of requestA.operations) {
+      if (operation.startsWith("delete:")) {
+        browser.values.delete(operation.slice("delete:".length));
+      }
+    }
+    expect(browser.values.get(pendingBName)).toBe(pendingB);
+    expect(browser.values.has(pendingAName)).toBe(false);
+
+    const refreshRequestA = new MemoryCookieStore();
+    clearProviderCredentialCookiesForSubject(
+      refreshRequestA,
+      "spotify",
+      subjectA,
+      secret,
+    );
+    expect(refreshRequestA.operations).not.toContainEqual(
+      expect.stringContaining("oauth_state"),
+    );
+    expect(consumeOAuthPendingStateCookieForSubject(
+      browser,
+      "spotify",
+      subjectB,
+      secret,
+    )).toBe(pendingB);
   });
 
   it("never exposes one subject's provider tokens to another subject", () => {

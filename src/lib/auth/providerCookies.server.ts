@@ -77,8 +77,14 @@ export function setOAuthPendingStateCookie(
   provider: DirectOAuthProvider,
   sealedState: string,
   maxAge: number,
+  subject: string,
+  secret: string,
 ): void {
-  store.set(PROVIDER_COOKIES[provider].oauthPendingState, sealedState, options(maxAge));
+  store.set(
+    subjectOAuthPendingStateCookieName(provider, subject, secret),
+    sealedState,
+    options(maxAge),
+  );
 }
 
 /** Reads and terminally clears pending OAuth state before callback validation/exchange. */
@@ -92,10 +98,46 @@ export function consumeOAuthPendingStateCookie(
   return sealedState;
 }
 
+/** Consumes only the deterministic pending-state slot for the exact subject. */
+export function consumeOAuthPendingStateCookieForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): string | null {
+  const name = subjectOAuthPendingStateCookieName(provider, subject, secret);
+  const sealedState = store.get(name)?.value ?? null;
+  store.delete(name);
+  return sealedState;
+}
+
 function ownerSealKey(secret: string, provider: DirectOAuthProvider): Buffer {
   return createHmac("sha256", secret)
     .update(`axis:direct-provider-owner:key:v${OWNER_SEAL_VERSION}:${provider}`)
     .digest();
+}
+
+function subjectCookieSlot(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): string {
+  if (!isProfileSubject(subject) || !secret) {
+    throw new Error("PROVIDER_CREDENTIAL_SLOT_INPUT_INVALID");
+  }
+  return createHmac("sha256", ownerSealKey(secret, provider))
+    .update(`axis:direct-provider-cookie-slot:v${OWNER_SEAL_VERSION}\0${subject}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function subjectOAuthPendingStateCookieName(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): string {
+  const config = PROVIDER_COOKIES[provider];
+  return `${config.oauthPendingState}_s${OWNER_SEAL_VERSION}_${subjectCookieSlot(provider, subject, secret)}`;
 }
 
 function subjectCredentialCookieNames(
@@ -103,14 +145,8 @@ function subjectCredentialCookieNames(
   subject: string,
   secret: string,
 ): CredentialCookieNames {
-  if (!isProfileSubject(subject) || !secret) {
-    throw new Error("PROVIDER_CREDENTIAL_SLOT_INPUT_INVALID");
-  }
   const config = PROVIDER_COOKIES[provider];
-  const slot = createHmac("sha256", ownerSealKey(secret, provider))
-    .update(`axis:direct-provider-cookie-slot:v${OWNER_SEAL_VERSION}\0${subject}`)
-    .digest("hex")
-    .slice(0, 24);
+  const slot = subjectCookieSlot(provider, subject, secret);
   return {
     access: `${config.access}_s${OWNER_SEAL_VERSION}_${slot}`,
     refresh: `${config.refresh}_s${OWNER_SEAL_VERSION}_${slot}`,
@@ -226,8 +262,8 @@ export function clearProviderTokenCookies(
   store.delete(names.oauthPendingState);
 }
 
-/** Clears only state authenticated as belonging to the exact subject. */
-export function clearProviderTokenCookiesForSubject(
+/** Clears only credential cookies authenticated as belonging to the exact subject. */
+export function clearProviderCredentialCookiesForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
@@ -243,6 +279,18 @@ export function clearProviderTokenCookiesForSubject(
   ) {
     clearProviderCredentialCookies(store, provider);
   }
+}
+
+/** Clears exact-subject credentials and pending OAuth state without cross-slot writes. */
+export function clearProviderTokenCookiesForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): void {
+  clearProviderCredentialCookiesForSubject(store, provider, subject, secret);
+  store.delete(subjectOAuthPendingStateCookieName(provider, subject, secret));
+  const legacyNames = PROVIDER_COOKIES[provider];
   const pendingState = store.get(legacyNames.oauthPendingState)?.value ?? null;
   if (
     oauthPendingStateBelongsToSubject({

@@ -14,6 +14,7 @@ import {
   clearProviderTokenCookies,
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
+  consumeOAuthPendingStateCookieForSubject,
   replaceProviderTokenCookies,
   setOAuthPendingStateCookie,
 } from "@/lib/auth/providerCookies.server";
@@ -123,12 +124,18 @@ async function completeCallback(
   }
 
   const subject = profileSubjectForUserId(userId);
+  const subjectSealedState = consumeOAuthPendingStateCookieForSubject(
+    cookieStore,
+    "strava",
+    subject,
+    clientSecret,
+  );
   if (!verifyOAuthPendingState({
     provider: "strava",
     subject,
     secret: clientSecret,
     providerState: req.nextUrl.searchParams.get("state"),
-    sealedState,
+    sealedState: subjectSealedState ?? sealedState,
   })) {
     return callbackFailure(req, "state_invalid", 400);
   }
@@ -201,6 +208,8 @@ async function initiateAuth(req: NextRequest, subject: string) {
     "strava",
     sealedState,
     OAUTH_STATE_TTL_SECONDS,
+    subject,
+    clientSecret,
   );
   const params = new URLSearchParams({
     client_id: clientId,

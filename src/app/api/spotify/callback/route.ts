@@ -6,6 +6,7 @@ import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.serve
 import { verifyOAuthPendingState } from "@/lib/auth/oauthState.server";
 import {
   consumeOAuthPendingStateCookie,
+  consumeOAuthPendingStateCookieForSubject,
   replaceProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
 import { privateRedirect } from "@/lib/auth/privateNoStore";
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
   // Consume before route authentication as defense-in-depth for any invocation
   // path that reaches this handler without the middleware auth boundary.
-  const sealedState = consumeOAuthPendingStateCookie(cookieStore, "spotify");
+  const legacySealedState = consumeOAuthPendingStateCookie(cookieStore, "spotify");
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return fail(req, "session_expired", 401);
@@ -70,6 +71,12 @@ export async function GET(req: NextRequest) {
 
   const providerState = req.nextUrl.searchParams.get("state");
   const subject = profileSubjectForUserId(user.id);
+  const sealedState = consumeOAuthPendingStateCookieForSubject(
+    cookieStore,
+    "spotify",
+    subject,
+    clientSecret,
+  ) ?? legacySealedState;
   if (!verifyOAuthPendingState({
     provider: "spotify",
     subject,

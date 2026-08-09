@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import {
-  clearProviderTokenCookiesForSubject,
+  clearProviderCredentialCookiesForSubject,
   providerTokensForSubject,
   replaceRefreshedProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
@@ -67,7 +67,7 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       res.status < 500 &&
       data?.error === "invalid_grant"
     ) {
-      clearProviderTokenCookiesForSubject(
+      clearProviderCredentialCookiesForSubject(
         cookieStore,
         "strava",
         subject,

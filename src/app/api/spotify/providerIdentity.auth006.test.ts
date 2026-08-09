@@ -87,7 +87,10 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     const providerUrl = new URL(body.url);
     expect(providerUrl.origin).toBe("https://accounts.spotify.com");
     expect(providerUrl.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(mocks.cookieStore.values.get("spotify_oauth_state")).toContain(".");
+    const pendingEntry = [...mocks.cookieStore.values.entries()].find(([name]) =>
+      name.startsWith("spotify_oauth_state_s1_"));
+    expect(pendingEntry?.[1]).toContain(".");
+    expect(mocks.cookieStore.values.has("spotify_oauth_state")).toBe(false);
     expect(body.url).not.toContain(userA);
     expect(body.url).not.toContain(subjectA);
   });
