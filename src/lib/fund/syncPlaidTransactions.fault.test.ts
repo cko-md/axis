@@ -45,11 +45,9 @@ function plaidResponse(
   });
 }
 
-function adminClient(transferRows: unknown[] = []) {
-  const transactionUpserts: unknown[] = [];
-  const coverageUpserts: unknown[] = [];
-  const transferUpdates: unknown[] = [];
-  const from = vi.fn((table: string) => {
+function adminClient(rpcError: unknown = null) {
+  const rpcCalls: Array<{ name: string; params: Record<string, unknown> }> = [];
+  const from = vi.fn((_table: string) => {
     const selectChain: Record<string, unknown> = {};
     for (const method of ["select", "eq", "gte"]) {
       selectChain[method] = vi.fn(() => selectChain);
@@ -57,30 +55,22 @@ function adminClient(transferRows: unknown[] = []) {
     selectChain.then = (
       resolve: (value: { data: unknown[]; error: null }) => unknown,
       reject: (reason: unknown) => unknown,
-    ) => Promise.resolve({ data: table === "fund_bank_transactions" ? transferRows : [], error: null })
+    ) => Promise.resolve({ data: [], error: null })
       .then(resolve, reject);
 
     return {
       ...selectChain,
-      upsert: vi.fn(async (payload: unknown) => {
-        if (table === "fund_bank_transactions") transactionUpserts.push(payload);
-        if (table === "fund_provider_coverage") coverageUpserts.push(payload);
-        return { error: null };
-      }),
-      update: vi.fn((payload: unknown) => ({
-        in: vi.fn(async () => {
-          if (table === "fund_bank_transactions") transferUpdates.push(payload);
-          return { error: null };
-        }),
-      })),
     };
+  });
+  const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
+    rpcCalls.push({ name, params });
+    return { data: null, error: rpcError };
   });
 
   return {
-    admin: { from } as unknown as SupabaseClient,
-    transactionUpserts,
-    coverageUpserts,
-    transferUpdates,
+    admin: { from, rpc } as unknown as SupabaseClient,
+    from,
+    rpcCalls,
   };
 }
 
@@ -109,7 +99,7 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
 
     await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 
-    const rows = db.transactionUpserts[0] as Array<Record<string, unknown>>;
+    const rows = db.rpcCalls[0]?.params.p_rows as Array<Record<string, unknown>>;
     expect(rows[0]?.retrieved_at).toBe(providerCompletedAt);
   });
 
@@ -127,7 +117,7 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
     );
 
     expect(result).toEqual({ error: "PLAID_TRANSACTION_CURRENCY_UNAVAILABLE" });
-    expect(db.transactionUpserts).toHaveLength(0);
+    expect(db.rpcCalls).toHaveLength(0);
   });
 
   it("requests the 90-day anomaly window rather than a 30-day subset", async () => {
@@ -158,45 +148,40 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
     });
   });
 
-  it("writes a connection-scoped transaction coverage fact after a complete sync", async () => {
+  it("publishes the complete generation through the atomic database contract", async () => {
     const db = adminClient();
 
     await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 
-    expect(db.coverageUpserts).toEqual([expect.objectContaining({
-      user_id: "user-1",
-      connection_id: "connection-1",
-      provider: "plaid",
-      component: "transactions",
-      complete: true,
-      record_count: 1,
+    expect(db.rpcCalls).toEqual([expect.objectContaining({
+      name: "publish_fund_transaction_generation",
+      params: expect.objectContaining({
+        p_user_id: "user-1",
+        p_connection_id: "connection-1",
+        p_rows: [expect.objectContaining({
+          plaid_transaction_id: "transaction-1",
+          generation_id: expect.any(String),
+        })],
+      }),
     })]);
+    expect(db.from).not.toHaveBeenCalled();
   });
 
-  it("does not tag equal-magnitude transactions across different currencies", async () => {
-    const db = adminClient([
-      {
-        id: "usd",
-        account_id: "account-1",
-        amount: "-100.00",
-        iso_currency_code: "USD",
-        connection_id: "connection-1",
-        posted_date: "2026-07-22",
-        is_transfer: false,
-      },
-      {
-        id: "eur",
-        account_id: "account-2",
-        amount: "100.00",
-        iso_currency_code: "EUR",
-        connection_id: "connection-2",
-        posted_date: "2026-07-22",
-        is_transfer: false,
-      },
-    ]);
+  it("fails closed when the atomic publication contract is unavailable", async () => {
+    const db = adminClient();
+    const withoutRpc = { from: db.from } as unknown as SupabaseClient;
 
-    await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
+    const result = await syncPlaidTransactions(withoutRpc, "user-1", "connection-1", "token");
 
-    expect(db.transferUpdates).toHaveLength(0);
+    expect(result).toEqual({ error: "PLAID_TRANSACTION_ATOMIC_PUBLISH_UNAVAILABLE" });
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
+  it("does not report success when atomic publication fails", async () => {
+    const db = adminClient({ message: "transaction rolled back" });
+
+    const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
+
+    expect(result).toEqual({ error: "PLAID_TRANSACTION_PERSIST_FAILED" });
   });
 });

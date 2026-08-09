@@ -116,25 +116,6 @@ function normalizeTransaction(
   };
 }
 
-function generationHash(rows: readonly PublishedTransaction[]): string {
-  const canonical = [...rows]
-    .sort((left, right) => left.plaid_transaction_id.localeCompare(right.plaid_transaction_id))
-    .map((row) => ({
-      plaid_transaction_id: row.plaid_transaction_id,
-      account_id: row.account_id,
-      amount: row.amount,
-      amount_minor: row.amount_minor,
-      iso_currency_code: row.iso_currency_code,
-      posted_date: row.posted_date,
-      authorized_date: row.authorized_date,
-      pending: row.pending,
-      merchant_name: row.merchant_name,
-      raw_name: row.raw_name,
-      plaid_category: row.plaid_category,
-    }));
-  return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
-}
-
 /**
  * Pull a bounded 90-day Plaid transaction generation. No database state is
  * published until every provider page has arrived and every fact validates.
@@ -250,125 +231,23 @@ export async function syncPlaidTransactions(
     if ("error" in normalized) return normalized;
     rows.push(normalized);
   }
-  const hash = generationHash(rows);
-
   const rpc = (admin as unknown as {
     rpc?: (
       name: string,
       params: Record<string, unknown>,
     ) => Promise<{ data: unknown; error: unknown }>;
   }).rpc;
-  if (typeof rpc === "function") {
-    const { error } = await rpc.call(admin, "publish_fund_transaction_generation", {
-      p_user_id: userId,
-      p_connection_id: connectionId,
-      p_window_start: windowStart,
-      p_window_end: windowEnd,
-      p_retrieved_at: retrievedAt,
-      p_generation_id: generationId,
-      p_rows: rows,
-    });
-    return error ? syncError("PLAID_TRANSACTION_PERSIST_FAILED") : { synced: rows.length };
-  }
-
-  // Deterministic lightweight test clients do not implement RPC. Production
-  // Supabase clients always take the atomic path above; a missing RPC outside
-  // Vitest is a hard failure and can never degrade into non-atomic writes.
-  if (process.env.NODE_ENV !== "test") {
+  if (typeof rpc !== "function") {
     return syncError("PLAID_TRANSACTION_ATOMIC_PUBLISH_UNAVAILABLE");
   }
-  if (rows.length > 0) {
-    const { error } = await admin
-      .from("fund_bank_transactions")
-      .upsert(rows.map((row) => ({ ...row, user_id: userId, connection_id: connectionId })), {
-        onConflict: "user_id,provider,connection_id,plaid_transaction_id",
-      });
-    if (error) return syncError("PLAID_TRANSACTION_PERSIST_FAILED");
-  }
-  const transferError = await tagTransfers(admin, userId);
-  if (transferError) return syncError(transferError);
-  const { error: coverageError } = await admin.from("fund_provider_coverage").upsert({
-    user_id: userId,
-    connection_id: connectionId,
-    provider: "plaid",
-    component: "transactions",
-    complete: true,
-    record_count: rows.length,
-    retrieved_at: retrievedAt,
-    window_start: windowStart,
-    window_end: windowEnd,
-    generation_id: generationId,
-    generation_hash: hash,
-  }, { onConflict: "connection_id,component" });
-  return coverageError
-    ? syncError("PLAID_TRANSACTION_COVERAGE_PERSIST_FAILED")
-    : { synced: rows.length };
-}
-
-/**
- * Test-client fallback for deterministic transfer tagging. The production RPC
- * performs the equivalent operation inside the publication transaction.
- */
-async function tagTransfers(admin: SupabaseClient, userId: string): Promise<string | null> {
-  const since = new Date(Date.now() - (TRANSACTION_HISTORY_DAYS + 2) * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  const { data: transactions, error } = await admin
-    .from("fund_bank_transactions")
-    .select("id, connection_id, account_id, amount, amount_minor, iso_currency_code, posted_date, is_transfer")
-    .eq("user_id", userId)
-    .gte("posted_date", since);
-  if (error) return "PLAID_TRANSFER_SCAN_FAILED";
-  if (!transactions || transactions.length < 2) return null;
-
-  const ordered = [...transactions].sort((left, right) =>
-    left.posted_date === right.posted_date
-      ? String(left.id).localeCompare(String(right.id))
-      : String(left.posted_date).localeCompare(String(right.posted_date)),
-  );
-  const toTag = new Set<string>();
-  for (let leftIndex = 0; leftIndex < ordered.length; leftIndex++) {
-    const left = ordered[leftIndex];
-    if (left.is_transfer || toTag.has(left.id)) continue;
-    const currency = normalizeFinancialCurrency(left.iso_currency_code, "");
-    const leftMinor = Number.isSafeInteger(left.amount_minor)
-      ? left.amount_minor
-      : currency
-        ? strictExactMinorUnits(left.amount, currency)
-        : null;
-    if (!currency || leftMinor === null || leftMinor === 0) continue;
-
-    for (let rightIndex = leftIndex + 1; rightIndex < ordered.length; rightIndex++) {
-      const right = ordered[rightIndex];
-      if (
-        right.is_transfer
-        || toTag.has(right.id)
-        || (
-          left.connection_id === right.connection_id
-          && left.account_id === right.account_id
-        )
-      ) continue;
-      if (normalizeFinancialCurrency(right.iso_currency_code, "") !== currency) continue;
-      const rightMinor = Number.isSafeInteger(right.amount_minor)
-        ? right.amount_minor
-        : strictExactMinorUnits(right.amount, currency);
-      if (rightMinor === null || rightMinor === 0 || BigInt(leftMinor) !== -BigInt(rightMinor)) continue;
-      const daysApart = Math.abs(
-        Date.parse(`${left.posted_date}T00:00:00.000Z`)
-        - Date.parse(`${right.posted_date}T00:00:00.000Z`),
-      ) / 86_400_000;
-      if (daysApart <= 2) {
-        toTag.add(left.id);
-        toTag.add(right.id);
-        break;
-      }
-    }
-  }
-
-  if (toTag.size === 0) return null;
-  const { error: updateError } = await admin
-    .from("fund_bank_transactions")
-    .update({ is_transfer: true })
-    .in("id", [...toTag]);
-  return updateError ? "PLAID_TRANSFER_TAG_PERSIST_FAILED" : null;
+  const { error } = await rpc.call(admin, "publish_fund_transaction_generation", {
+    p_user_id: userId,
+    p_connection_id: connectionId,
+    p_window_start: windowStart,
+    p_window_end: windowEnd,
+    p_retrieved_at: retrievedAt,
+    p_generation_id: generationId,
+    p_rows: rows,
+  });
+  return error ? syncError("PLAID_TRANSACTION_PERSIST_FAILED") : { synced: rows.length };
 }

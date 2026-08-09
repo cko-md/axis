@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const TRANSACTION_HISTORY_DAYS = 90;
@@ -25,8 +24,6 @@ export type TransactionCoverageProof =
       available: true;
       facts: TransactionCoverageFact[];
       lineage_hash: string;
-      /** Only used by deliberately minimal unit-test clients that are not Supabase clients. */
-      synthetic_test_client?: true;
     }
   | {
       available: false;
@@ -106,25 +103,11 @@ function parseFacts(
   return facts.sort((left, right) => left.connection_id.localeCompare(right.connection_id));
 }
 
-function bindFacts(facts: readonly TransactionCoverageFact[]): string {
-  return crypto.createHash("sha256").update(JSON.stringify(facts.map((fact) => ({
-    connection_id: fact.connection_id,
-    provider: fact.provider,
-    component: fact.component,
-    record_count: fact.record_count,
-    retrieved_at: fact.retrieved_at,
-    window_start: fact.window_start,
-    window_end: fact.window_end,
-    generation_id: fact.generation_id,
-    generation_hash: fact.generation_hash,
-  })))).digest("hex");
-}
-
 /**
  * Resolve complete current transaction history centrally. Real Supabase clients
  * use the database verifier, which checks every current linked Plaid connection,
  * the requested window, row count, generation id, and a recomputed SHA-256 fact
- * hash. The table fallback exists for small deterministic unit-test clients.
+ * hash. Missing RPC authority fails closed; tests must implement this contract.
  */
 export async function readCompleteTransactionCoverage(
   client: SupabaseClient,
@@ -139,49 +122,22 @@ export async function readCompleteTransactionCoverage(
   const rpc = (client as unknown as {
     rpc?: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   }).rpc;
-  if (typeof rpc === "function") {
-    const { data, error } = await rpc.call(client, "check_fund_transaction_history_coverage", {
-      p_user_id: userId,
-      p_window_start: windowStart,
-      p_window_end: windowEnd,
-    });
-    if (signal?.aborted) return unavailable();
-    if (error || !Array.isArray(data) || data.length !== 1) return unavailable();
-    const result = data[0] as Record<string, unknown>;
-    if (result.available !== true) return unavailable();
-    const facts = parseFacts(result.coverage, windowStart, windowEnd);
-    if (!facts) return unavailable();
-    if (typeof result.lineage_hash !== "string" || !SHA256.test(result.lineage_hash)) {
-      return unavailable();
-    }
-    return { available: true, facts, lineage_hash: result.lineage_hash };
+  if (typeof rpc !== "function") return unavailable();
+  const { data, error } = await rpc.call(client, "check_fund_transaction_history_coverage", {
+    p_user_id: userId,
+    p_window_start: windowStart,
+    p_window_end: windowEnd,
+  });
+  if (signal?.aborted) return unavailable();
+  if (error || !Array.isArray(data) || data.length !== 1) return unavailable();
+  const result = data[0] as Record<string, unknown>;
+  if (result.available !== true) return unavailable();
+  const facts = parseFacts(result.coverage, windowStart, windowEnd);
+  if (!facts) return unavailable();
+  if (typeof result.lineage_hash !== "string" || !SHA256.test(result.lineage_hash)) {
+    return unavailable();
   }
-
-  try {
-    const { data, error } = await client
-      .from("fund_provider_coverage")
-      .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, window_start, window_end, generation_id, generation_hash")
-      .eq("user_id", userId)
-      .eq("provider", "plaid")
-      .eq("component", "transactions")
-      .eq("availability_status", "available");
-    if (error) return unavailable();
-    const facts = parseFacts(data, windowStart, windowEnd);
-    return facts
-      ? { available: true, facts, lineage_hash: bindFacts(facts) }
-      : unavailable();
-  } catch {
-    // Supabase query builders do not throw while selecting a table. This path
-    // preserves isolated arithmetic tests whose minimal fake client rejects
-    // every table outside the one under test; it is unreachable with the real
-    // server/client implementations.
-    return process.env.NODE_ENV === "test" ? {
-      available: true,
-      facts: [],
-      lineage_hash: crypto.createHash("sha256").update("synthetic-test-client").digest("hex"),
-      synthetic_test_client: true,
-    } : unavailable();
-  }
+  return { available: true, facts, lineage_hash: result.lineage_hash };
 }
 
 export function transactionRowsMatchCoverage(
@@ -189,7 +145,6 @@ export function transactionRowsMatchCoverage(
   proof: TransactionCoverageProof,
 ): boolean {
   if (!proof.available) return false;
-  if (proof.synthetic_test_client) return true;
   const generationByConnection = new Map(
     proof.facts.map((fact) => [fact.connection_id, fact.generation_id]),
   );
@@ -230,12 +185,6 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
     signal,
   );
   if (!proof.available) return null;
-  if (proof.synthetic_test_client) {
-    const query = client.from("fund_bank_transactions").select(select).eq("user_id", userId);
-    const result = await query as unknown as { data: T[] | null; error: unknown };
-    return result.error ? null : { proof, rows: result.data ?? [] };
-  }
-
   const expected = proof.facts.reduce((total, fact) => total + fact.record_count, 0);
   if (expected > MAX_COMPLETE_TRANSACTION_ROWS) return null;
   const earliest = proof.facts.reduce(
@@ -287,7 +236,7 @@ export function coverageLineage(proof: TransactionCoverageProof): {
   }>;
   source_generation_hash: string;
 } | null {
-  if (!proof.available || proof.synthetic_test_client || proof.facts.length === 0) return null;
+  if (!proof.available || proof.facts.length === 0) return null;
   return {
     source_generations: proof.facts.map((fact) => ({
       connection_id: fact.connection_id,
@@ -304,7 +253,6 @@ export function detectedRecurringMatchesCoverage(
 ): boolean {
   if (row.source === "manual") return true;
   return proof.available
-    && !proof.synthetic_test_client
     && typeof row.source_generation_hash === "string"
     && row.source_generation_hash === proof.lineage_hash;
 }

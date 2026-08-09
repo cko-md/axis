@@ -22,7 +22,27 @@ function query(result: { data: unknown[]; error: null }) {
 }
 
 function admin() {
+  const generationId = "11111111-1111-4111-8111-111111111111";
   return {
+    rpc: vi.fn(async (_name: string, params: Record<string, unknown>) => ({
+      data: [{
+        available: true,
+        coverage: [{
+          connection_id: "connection-1",
+          provider: "plaid",
+          component: "transactions",
+          complete: true,
+          record_count: 1,
+          retrieved_at: new Date().toISOString(),
+          window_start: params.p_window_start,
+          window_end: params.p_window_end,
+          generation_id: generationId,
+          generation_hash: "a".repeat(64),
+        }],
+        lineage_hash: "b".repeat(64),
+      }],
+      error: null,
+    })),
     from: vi.fn((table: string) => {
       if (table === "fund_category_budgets") {
         return query({ data: [{ category: "FOOD", monthly_limit: "0.01", currency: "USD" }], error: null });
@@ -35,6 +55,7 @@ function admin() {
             amount: "-90071992547409.91",
             iso_currency_code: "USD",
             connection_id: "connection-1",
+            generation_id: generationId,
             retrieved_at: "2026-07-23T12:00:00.000Z",
           }],
           error: null,

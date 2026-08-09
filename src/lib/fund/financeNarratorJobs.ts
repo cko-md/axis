@@ -172,11 +172,6 @@ export async function detectAndExplainAnomalies(
     || typeof row.retrieved_at !== "string"
     || !row.retrieved_at
   )) return noNotifications();
-  if (
-    coverage.synthetic_test_client
-    && (history ?? []).filter((entry) => entry.posted_date !== today).length === 0
-  ) return noNotifications();
-
   const results: NotifyResult[] = [];
   for (const t of todays) {
     const assessment = assessActivityAnomaly({
