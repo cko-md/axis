@@ -174,8 +174,12 @@ export async function syncPlaidTransactions(
         operation: "sync_transactions",
         timeoutMs: 10_000,
         slowMs: 2_500,
+        // Caller boundaries own one safe capture. This avoids reporting an
+        // intentional parent-signal cancellation as a provider outage.
+        captureFailures: false,
       },
     ).catch(() => null);
+    if (cancellationSignal?.aborted) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
     if (!response?.ok) return syncError("PLAID_TXN_FETCH_FAILED");
 
     let body: { transactions?: unknown; total_transactions?: unknown };
@@ -256,10 +260,18 @@ export async function syncPlaidTransactions(
   const abortable = request as typeof request & {
     abortSignal?: (signal: AbortSignal) => Promise<{ data: unknown; error: unknown }>;
   };
-  const { data, error } = cancellationSignal && typeof abortable.abortSignal === "function"
-    ? await abortable.abortSignal(cancellationSignal)
-    : await request;
+  let publication: { data: unknown; error: unknown };
+  try {
+    publication = cancellationSignal && typeof abortable.abortSignal === "function"
+      ? await abortable.abortSignal(cancellationSignal)
+      : await request;
+  } catch {
+    return cancellationSignal?.aborted
+      ? syncError("PLAID_TXN_DEADLINE_EXCEEDED")
+      : syncError("PLAID_TRANSACTION_PERSIST_FAILED");
+  }
   if (cancellationSignal?.aborted) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
+  const { data, error } = publication;
   if (error || !Array.isArray(data) || data.length !== 1) {
     return syncError("PLAID_TRANSACTION_PERSIST_FAILED");
   }

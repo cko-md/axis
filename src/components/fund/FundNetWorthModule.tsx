@@ -34,6 +34,8 @@ export function FundNetWorthModule() {
   // per-mount fetch.
   const {
     aggregated: holdings,
+    holdingsLoading,
+    holdingsError,
     liabilities,
     liabilitiesLoading,
     liabilitiesError,
@@ -61,6 +63,14 @@ export function FundNetWorthModule() {
           <h2 className="sec">Assets<span className="rule" /><span className="count">Live value unavailable</span></h2>
           <div style={{ marginTop: 10 }}>
             <div className="metricrow"><span className="metric-k">Cash {plaidLinked ? "· Plaid" : ""}</span><span className="metric-v">{formatExactUsd(cash)}</span></div>
+            {holdingsLoading && holdings.length === 0 && (
+              <p style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 8 }}>Loading holdings…</p>
+            )}
+            {holdingsError && (
+              <p role="alert" style={{ fontSize: 12, color: "var(--clay)", marginTop: 8 }}>
+                Holdings could not refresh{holdings.length > 0 ? "; showing the last loaded positions." : "."}
+              </p>
+            )}
             {balanceError && !cashReason && (
               <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 8 }}>Bank balances could not refresh.</p>
             )}

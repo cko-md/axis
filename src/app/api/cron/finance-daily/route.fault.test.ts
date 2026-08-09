@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   detectAndExplainAnomalies: vi.fn(),
   writeWeeklyRecap: vi.fn(),
   writeSubscriptionAudit: vi.fn(),
+  captureException: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: mocks.captureException,
 }));
 
 vi.mock("@/lib/env", () => ({
@@ -253,6 +258,27 @@ describe("finance daily cron fault aggregation", () => {
       usersCompleted: 0,
       userFailures: 1,
     });
+  });
+
+  it("captures operational sync failures using only the normalized safe code", async () => {
+    mocks.syncPlaidTransactions.mockResolvedValue({ error: "PLAID_TXN_FETCH_FAILED" });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Finance daily Plaid sync failed" }),
+      { tags: { area: "fund", stage: "sync", code: "PLAID_TXN_FETCH_FAILED" } },
+    );
+  });
+
+  it("does not report expected parent-deadline cancellation as a provider outage", async () => {
+    mocks.syncPlaidTransactions.mockResolvedValue({ error: "PLAID_TXN_DEADLINE_EXCEEDED" });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.captureException).not.toHaveBeenCalled();
   });
 
   it("marks the run partial when an in-flight user job crosses the wall-clock deadline", async () => {

@@ -136,6 +136,11 @@ export async function GET(req: NextRequest) {
     if ("error" in result) {
       // Safe code only: provider/db errors can contain private request context.
       console.error("[cron/finance-daily] sync failed", { code: "SYNC_FAILED" });
+      if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED") {
+        Sentry.captureException(new Error("Finance daily Plaid sync failed"), {
+          tags: { area: "fund", stage: "sync", code: result.error },
+        });
+      }
       syncErrors++;
     } else {
       syncedConnections++;

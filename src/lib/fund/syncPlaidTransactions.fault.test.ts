@@ -226,4 +226,24 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
     expect(result).toEqual({ error: "PLAID_TXN_DEADLINE_EXCEEDED" });
     expect(db.rpcCalls).toHaveLength(0);
   });
+
+  it("classifies a provider rejection after parent cancellation as deadline exhaustion", async () => {
+    const controller = new AbortController();
+    const db = adminClient();
+    mocks.timedProviderFetch.mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+
+    const result = await syncPlaidTransactions(
+      db.admin,
+      "user-1",
+      "connection-1",
+      "token",
+      controller.signal,
+    );
+
+    expect(result).toEqual({ error: "PLAID_TXN_DEADLINE_EXCEEDED" });
+    expect(db.rpcCalls).toHaveLength(0);
+  });
 });

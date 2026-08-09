@@ -141,6 +141,27 @@ describe("signed-in financial truth UI", () => {
     expect(liabilityCard?.textContent).not.toContain("$0");
   });
 
+  it("labels stale holdings when refresh fails without discarding prior positions", () => {
+    mocks.fundData.mockReturnValue({
+      ...defaultFundData(),
+      aggregated: [{
+        symbol: "AAPL",
+        name: "Apple",
+        shares: 1,
+        cost_basis: 10_000,
+        currency: "USD",
+        sources: ["plaid"],
+        retrieved_at: "2026-07-23T12:00:00.000Z",
+      }],
+      holdingsError: "HOLDINGS_REFRESH_FAILED",
+      holdingsLoading: false,
+    });
+
+    const view = parsedStatic(<FundNetWorthModule />);
+
+    expect(view.textContent).toContain("Holdings could not refresh; showing the last loaded positions.");
+  });
+
   it("labels unavailable position value, P/L, and weight instead of rendering cost basis as live", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       symbol: "AAPL",
