@@ -79,6 +79,8 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     process.env.SPOTIFY_CLIENT_SECRET = "spotify-secret";
     process.env.STRAVA_CLIENT_ID = "strava-client";
     process.env.STRAVA_CLIENT_SECRET = "strava-secret";
+    process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL =
+      "2099-01-01T00:00:00.000Z";
   });
 
   it("binds a terminal marker to the exact OAuth attempt even when token text repeats", () => {
@@ -130,6 +132,7 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     delete process.env.SPOTIFY_CLIENT_SECRET;
     delete process.env.STRAVA_CLIENT_ID;
     delete process.env.STRAVA_CLIENT_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
   });
 
   it.each([

@@ -65,6 +65,8 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     mocks.cookieStore.operations.length = 0;
     process.env.SPOTIFY_CLIENT_ID = "spotify-client";
     process.env.SPOTIFY_CLIENT_SECRET = secret;
+    process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL =
+      "2099-01-01T00:00:00.000Z";
     delete process.env.NEXT_PUBLIC_APP_URL;
   });
 
@@ -72,6 +74,7 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     vi.unstubAllGlobals();
     delete process.env.SPOTIFY_CLIENT_ID;
     delete process.env.SPOTIFY_CLIENT_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
   });
 
   it("requires a current expected subject before issuing OAuth state", async () => {

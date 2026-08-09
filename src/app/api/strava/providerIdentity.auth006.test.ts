@@ -78,6 +78,8 @@ describe("AUTH-006 Strava server identity boundary", () => {
     mocks.getComposioConnection.mockResolvedValue(null);
     process.env.STRAVA_CLIENT_ID = "strava-client";
     process.env.STRAVA_CLIENT_SECRET = secret;
+    process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL =
+      "2099-01-01T00:00:00.000Z";
     delete process.env.NEXT_PUBLIC_APP_URL;
   });
 
@@ -85,6 +87,7 @@ describe("AUTH-006 Strava server identity boundary", () => {
     vi.unstubAllGlobals();
     delete process.env.STRAVA_CLIENT_ID;
     delete process.env.STRAVA_CLIENT_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
   });
 
   it("allows only subject-bound POST initiation and leaves legacy GET fail closed", async () => {
