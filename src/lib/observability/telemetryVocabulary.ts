@@ -19,6 +19,7 @@ export const AXIS_TELEMETRY_VOCABULARY = {
     "authenticate_request",
     "biometric_prompt_status_save",
     "refresh_token",
+    "release_refresh_lease",
     "resolve_optional_session",
   ],
   codes: [
