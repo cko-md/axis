@@ -31,9 +31,9 @@ privilege read-back. Project-level default privileges had granted `anon` broad
 table privileges on historical financial objects and caused the exact
 net-worth view to inherit write-capable grants. RLS still denied anonymous row
 access, but the redundant grant surface violated least privilege. The repair
-revokes `PUBLIC`/`anon` privileges across the financial expansion, makes
-`net_worth_snapshots_exact` explicitly security-invoker and security-barrier,
-and grants only `SELECT` on that view to `authenticated` and `service_role`.
+revokes `PUBLIC`/`anon` privileges across the financial expansion, reasserts
+`net_worth_snapshots_exact` as security-invoker, adds a security barrier, and
+grants only `SELECT` on that view to `authenticated` and `service_role`.
 
 Before applying, capture the complete linked remote migration ledger and a
 current recovery point. Apply each named transaction-wrapped file with a

@@ -3,9 +3,10 @@
 -- Supabase project-level default privileges predate the financial authority
 -- boundary and grant broad table privileges to `anon`. RLS currently blocks
 -- those operations, but financial safety must not depend on that redundant
--- grant surface. The exact net-worth projection also needs an explicit
--- security-invoker contract and select-only grants because CREATE VIEW inherits
--- the project defaults before the narrower GRANT runs.
+-- grant surface. The exact net-worth projection already declares
+-- security-invoker semantics; this repair reasserts that boundary, adds a
+-- security barrier, and removes inherited write-capable grants before restoring
+-- the intended select-only roles.
 
 begin;
 

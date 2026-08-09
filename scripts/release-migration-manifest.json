@@ -4,7 +4,7 @@
   "latest": {
     "version": "20260809220000",
     "file": "supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql",
-    "sha256": "6dcfc9b18e689e2f59f0c49523079b46bd8d31130907c5b5c085210a594743de"
+    "sha256": "8427bbbc495edb38ece6f12095853a6ad5f2d262c2d30360c964c303c6c591da"
   },
   "migrations": [
     {
@@ -475,7 +475,7 @@
     {
       "version": "20260809220000",
       "file": "supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql",
-      "sha256": "6dcfc9b18e689e2f59f0c49523079b46bd8d31130907c5b5c085210a594743de"
+      "sha256": "8427bbbc495edb38ece6f12095853a6ad5f2d262c2d30360c964c303c6c591da"
     }
   ]
 }
