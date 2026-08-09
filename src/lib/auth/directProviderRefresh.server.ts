@@ -175,15 +175,17 @@ export function directProviderRefreshFailureResponse(
   route: string,
 ): Response {
   if (!(error instanceof DirectProviderRefreshError)) throw error;
-  captureRouteError(error, {
-    route,
-    area: "integrations",
-    provider: error.provider,
-    transport: "direct",
-    operation: "refresh_token",
-    status: error.status,
-    code: error.code,
-  });
+  if (error.status >= 500) {
+    captureRouteError(error, {
+      route,
+      area: "integrations",
+      provider: error.provider,
+      transport: "direct",
+      operation: "refresh_token",
+      status: error.status,
+      code: error.code,
+    });
+  }
   return privateJson(
     { error: "PROVIDER_REFRESH_UNAVAILABLE", code: error.code },
     { status: error.status },

@@ -63,4 +63,25 @@ describe("AUTH-006 review finding containment", () => {
       /access_token|refresh_token_value|bearer/i,
     );
   });
+
+  it("returns an expected private 409 without reporting it as a Sentry error", async () => {
+    const response = directProviderRefreshFailureResponse(
+      new DirectProviderRefreshError({
+        provider: "strava",
+        status: 409,
+        code: "PROVIDER_REFRESH_IN_PROGRESS",
+      }),
+      "/api/strava",
+    );
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-store, max-age=0",
+    );
+    await expect(response.json()).resolves.toEqual({
+      error: "PROVIDER_REFRESH_UNAVAILABLE",
+      code: "PROVIDER_REFRESH_IN_PROGRESS",
+    });
+    expect(mocks.captureRouteError).not.toHaveBeenCalled();
+  });
 });
