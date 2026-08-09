@@ -109,13 +109,23 @@
     "Strava OAuth/token routes and shared helper"
    ],
    "root_cause": "Token cookies were keyed only by provider, not by the authenticated Supabase user id, and the OAuth callback did not require an active session before persisting tokens",
-   "fix": "Pending Phase 1 provider-identity composition. PRs #217/#218 implemented owner binding only on codex/phase9-resume-executor; those commits are not ancestors of protected main or this Phase 0 branch.",
-   "regression_test": "PR-level route tests for callback/session-required and owner-mismatch null return",
-   "status": "open",
+   "fix": "Implemented in PR #305: every direct-provider token, refresh, authorization attempt, disconnect cutoff, and failure latch is cryptographically sealed to the current authenticated profile subject and key generation; callbacks require the initiating authenticated subject; stale, missing, forged, cross-account, superseded, and legacy unbound state fails closed; browser call sites bind requests through the authoritative shell subject; private responses are non-cacheable.",
+   "regression_test": "Route, helper, component, middleware, and hosted two-account tests cover matching, missing, forged, stale, cross-account, callback, disconnect, refresh-rotation, supersession, legacy-cookie, private-cache, and cleanup behavior across Spotify, Strava, widget cache/batch/training, and interface preferences.",
+   "status": "fixed",
    "verificationPaths": ["src/app/api/spotify/_lib.ts", "src/app/api/strava/_lib.ts"],
    "closureAfterMainCommit": "44be089b0c42427baa86dd9874ee16161a9252c6",
-   "revision_fixed": null,
-   "verification": "Reopened: GitHub records PRs #217/#218 as merged into codex/phase9-resume-executor, not main; merge-base checks against this branch fail and current Spotify/Strava helpers remain browser-cookie based without an owner argument."
+   "revision_fixed": "PR #305 (merged 2026-08-09)",
+   "mainVerificationCommit": "583794997a7a175f8ee23fa9f7ef386871b16384",
+   "mainVerificationPaths": [
+    "src/lib/auth/providerCookies.server.ts",
+    "src/lib/auth/directProviderCookies.ts",
+    "src/lib/auth/expectedProfileSubject.server.ts",
+    "src/lib/auth/subjectBoundFetch.ts",
+    "src/app/api/spotify/_lib.ts",
+    "src/app/api/strava/_lib.ts",
+    "src/components/layout/ShellProfileContext.tsx"
+   ],
+   "verification": "Canonical source commit 583794997a7a175f8ee23fa9f7ef386871b16384 is an ancestor of production merge 1b2df6b03ba03831a0a596cbd943e8903450f66a and the production content tree matches the independently reviewed source candidate. Exact production deployment dpl_A1VFPmEkkd79hRy4U5iyvntd5xyp was READY at release 1b2df6b03ba03831a0a596cbd943e8903450f66a. Two isolated confirmed synthetic accounts completed the authenticated shell and the Spotify, Strava, widget cache, widget batch, widget training, and interface-preference identity matrices: matching subjects succeeded; missing, forged, stale, and prior-account subjects returned 409; exact preference writes persisted; OAuth initiation succeeded; duplicate/lookalike actions failed closed; invalid callbacks terminated without code/state leakage; account A was absent after switching to account B; and cleanup left zero remnants. Exact-deployment logs for 2026-08-09T08:35:38.282Z through 2026-08-09T08:35:53.999Z contained zero warnings, errors, fatal records, 5xx responses, or sensitive-message hits. Production Sentry for the exact release and window reported zero events, issues, new groups, or unresolved regressions. The committed candidate passed 2889/2889 tests, typecheck, lint, build, bundle budgets, exact-head CI, preview replay, and three independent GO reviews. Sealed external production evidence manifest SHA-256: 0e53caee9c846a28d95ef3c9674b246cf41dd3d4f94622ac84cf7212b6b7ddef."
   },
   {
    "id": "FIN-003",

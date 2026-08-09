@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `2ffe8f50ca95c97bbd56c43af684820a73df9821b02792224523ce62d97ce801` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
+- **State fingerprint:** `ca44f48893ea5fed35daf1f630276dff245650776e09302ab8092ea9b647f4e2` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Source-main tree at derivation:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,14 +33,16 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/state-refresh-auth006`
-- **HEAD:** `bc99114e`
-- **main:** `58379499`
+- **Branch:** `codex/state-close-auth006`
+- **HEAD:** `254d1ebf`
+- **main:** `1b2df6b0`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (1 commit(s))
+### Ahead of source main at derivation (3 commit(s))
 
-- `bc99114e` chore(state): refresh AUTH-006 production state
+- `254d1ebf` docs(state): advance post-AUTH-006 continuation
+- `c24884e2` chore(state): derive AUTH-006 closure
+- `93598646` docs(state): close AUTH-006 on canonical production evidence
 
 ## Waves merged to main
 
@@ -74,7 +76,7 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 ## Defects
 
 - **Total logged:** 50
-- **Open:** 6 (AUTH-006, FIN-003, FIN-004, MUTATION-001, INTEGRATION-002, RATE-001)
+- **Open:** 5 (FIN-003, FIN-004, MUTATION-001, INTEGRATION-002, RATE-001)
 
 ## Gates
 
@@ -83,9 +85,9 @@ _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.js
 - **Tests:** 2889/2889 across 310 files
 - **Bundle:** 4146 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `fb6066ea`
-- **Measured content tree:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
-- **Measured at:** 2026-08-09T07:17:42.207Z
+- **Measured source:** `254d1ebf`
+- **Measured content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
+- **Measured at:** 2026-08-09T18:19:32.472Z
 
 <!-- END GENERATED: derive-program-state -->
 
@@ -111,9 +113,9 @@ pass before any production claim.
 `SSRF-001` and `AUTH-007` are closed by the reviewed authored-state transition
 at `b5b6dd1e`, bound to the exact canonical production deployment, runtime
 replays, logs, Sentry window, and sealed evidence recorded in the defect ledger.
-Continue Phase 1 with `AUTH-006` provider identity, then financial truth/order
-intent, cancellable mutation, generic-mutation containment, and distributed
-auth/rate limits.
+Continue Phase 1 with financial truth/order intent, then cancellable mutation,
+generic-mutation containment, and distributed auth/rate limits. `AUTH-006`
+provider identity is closed by the canonical defect-ledger transition above.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 
