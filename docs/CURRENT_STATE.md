@@ -23,7 +23,7 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `27634576d7447ccd6a2d70cdaea66711d0987c47bf24989087f1a62dad375390` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `2ffe8f50ca95c97bbd56c43af684820a73df9821b02792224523ce62d97ce801` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
 - **Source-main tree at derivation:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
@@ -34,9 +34,13 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/state-refresh-auth006`
-- **HEAD:** `58379499`
+- **HEAD:** `bc99114e`
 - **main:** `58379499`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (1 commit(s))
+
+- `bc99114e` chore(state): refresh AUTH-006 production state
 
 ## Waves merged to main
 

@@ -1,15 +1,20 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T07:58:50.642Z",
+  "derivedAt": "2026-08-09T08:13:27.812Z",
   "git": {
     "branch": "codex/state-refresh-auth006",
-    "head": "583794997a7a175f8ee23fa9f7ef386871b16384",
+    "head": "bc99114e3049b237c7ed1e3f718151a719661c7d",
     "mainHead": "583794997a7a175f8ee23fa9f7ef386871b16384",
     "workingTreeClean": true,
-    "aheadOfMain": [],
+    "aheadOfMain": [
+      {
+        "sha": "bc99114e",
+        "subject": "chore(state): refresh AUTH-006 production state"
+      }
+    ],
     "contentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
     "sourceMainContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
-    "fingerprint": "27634576d7447ccd6a2d70cdaea66711d0987c47bf24989087f1a62dad375390"
+    "fingerprint": "2ffe8f50ca95c97bbd56c43af684820a73df9821b02792224523ce62d97ce801"
   },
   "mergedPrs": [
     {
