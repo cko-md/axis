@@ -254,6 +254,8 @@ export const AXIS_DYNAMIC_TELEMETRY_BASELINE: readonly string[] = [
   "src/app/api/widgets/batch/route.ts|route|shorthand:route",
   "src/app/api/widgets/batch/route.ts|status|property:batchError.status",
   "src/app/api/widgets/batch/route.ts|status|property:res.status",
+  "src/app/api/widgets/cache/route.ts|code|property:error.code",
+  "src/app/api/widgets/cache/route.ts|route|shorthand:route",
   "src/app/api/widgets/daylight/route.ts|fallback|expression:false",
   "src/app/api/widgets/daylight/route.ts|fallback|expression:true",
   "src/app/api/widgets/markets/route.ts|fallback|expression:false",
