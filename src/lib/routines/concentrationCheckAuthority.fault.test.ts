@@ -10,8 +10,17 @@ import {
   routineTaskIdempotencyKey,
 } from "./concentrationCheck";
 
+const marketMocks = vi.hoisted(() => ({
+  fetchSnapshot: vi.fn(),
+  getPolygonApiKey: vi.fn(),
+}));
+
 vi.mock("@/lib/tasks/taskPersistence", () => ({
   createAgentTaskWithActivity: vi.fn(),
+}));
+vi.mock("@/lib/massive/client", () => ({
+  fetchSnapshot: marketMocks.fetchSnapshot,
+  getPolygonApiKey: marketMocks.getPolygonApiKey,
 }));
 
 const TASK_OBJECTIVE =
@@ -38,6 +47,103 @@ const REVIEW_OUTPUT = {
 describe("concentration profile inputs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    marketMocks.getPolygonApiKey.mockReturnValue("market-key");
+    marketMocks.fetchSnapshot.mockResolvedValue({
+      price: "10.00",
+      chg: 0,
+      source: "massive",
+      asOf: "2026-07-23T12:00:00.000Z",
+    });
+  });
+
+  it("fails closed on manual holdings instead of treating cost basis as market value", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
+    const load = concentrationCheckSteps({
+      supabase: concentrationQueryClient({
+        holdings: [{
+          symbol: "AAPL",
+          shares: "1",
+          cost_basis: "999999.00",
+          currency: "USD",
+          authority: "manual",
+          source: "manual",
+          provider: null,
+          provider_record_id: null,
+          connection_id: null,
+          retrieved_at: null,
+          reconciliation_state: null,
+          generation_id: null,
+        }],
+      }),
+      userId: "user-1",
+      maxWeight: 0.25,
+    }).find((step) => step.key === "load_holdings");
+    if (!load) throw new Error("load_holdings step missing");
+
+    await expect(load.run({
+      runId: "run-1",
+      userId: "user-1",
+      resumed: false,
+      idempotencyKey: null,
+      outputs: {},
+    })).rejects.toThrow("CONCENTRATION_HOLDING_PROVENANCE_UNAVAILABLE");
+    expect(marketMocks.fetchSnapshot).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("derives concentration inputs from fresh quotes, never historical basis", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
+    const generationId = "11111111-1111-4111-8111-111111111111";
+    const load = concentrationCheckSteps({
+      supabase: concentrationQueryClient({
+        holdings: [{
+          symbol: "AAPL",
+          shares: "2",
+          cost_basis: "999999.00",
+          currency: "USD",
+          authority: "provider",
+          source: "plaid",
+          provider: "plaid",
+          provider_record_id: "holding-1",
+          connection_id: "connection-1",
+          retrieved_at: "2026-07-23T12:00:00.000Z",
+          reconciliation_state: "matched",
+          generation_id: generationId,
+        }],
+        connections: [{
+          id: "connection-1",
+          provider: "plaid",
+          status: "linked",
+          authority: "provider_verified",
+          verified_at: "2026-07-23T12:00:00.000Z",
+        }],
+        coverage: [{
+          connection_id: "connection-1",
+          provider: "plaid",
+          component: "holdings",
+          complete: true,
+          record_count: 1,
+          retrieved_at: "2026-07-23T12:00:00.000Z",
+          availability_status: "available",
+          generation_id: generationId,
+          generation_hash: "a".repeat(64),
+        }],
+      }),
+      userId: "user-1",
+      maxWeight: 0.25,
+    }).find((step) => step.key === "load_holdings");
+    if (!load) throw new Error("load_holdings step missing");
+
+    await expect(load.run({
+      runId: "run-1",
+      userId: "user-1",
+      resumed: false,
+      idempotencyKey: null,
+      outputs: {},
+    })).resolves.toEqual([{ symbol: "AAPL", value: 20 }]);
+    vi.useRealTimers();
   });
 
   it("converts integer basis points deterministically", () => {
@@ -141,6 +247,29 @@ describe("concentration profile inputs", () => {
     expect(createAgentTaskWithActivity).not.toHaveBeenCalled();
   });
 });
+
+function concentrationQueryClient(input: {
+  holdings: unknown[];
+  connections?: unknown[];
+  coverage?: unknown[];
+}): SupabaseClient<Database> {
+  const rows: Record<string, unknown[]> = {
+    fund_holdings: input.holdings,
+    fund_connections: input.connections ?? [],
+    fund_provider_coverage: input.coverage ?? [],
+  };
+  return {
+    from: vi.fn((table: string) => {
+      const result = { data: rows[table] ?? [], error: null };
+      const chain: Record<string, unknown> = {};
+      chain.select = vi.fn(() => chain);
+      chain.eq = vi.fn(() => chain);
+      chain.limit = vi.fn(() => chain);
+      chain.then = (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve);
+      return chain;
+    }),
+  } as unknown as SupabaseClient<Database>;
+}
 
 function taskQueryClient(input: {
   openObjectives?: string[];

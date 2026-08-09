@@ -14,7 +14,6 @@
     "test:e2e:auth": "AXIS_E2E_AUTH=1 playwright test --project=authenticated --forbid-only",
     "release:validate": "node scripts/validate-release-wave.mjs",
     "release:owner-merge": "node scripts/owner-merge.mjs",
-    "validate:order-intent-db": "node scripts/validate-order-intent-db.mjs",
     "desktop:dev": "electron electron/main.cjs --dev",
     "desktop:start": "electron electron/main.cjs",
     "desktop:test": "node --test electron/*.test.cjs",

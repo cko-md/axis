@@ -43,9 +43,18 @@ Required read-back:
 
 Before the expansion is applied, record aggregate-only checks for invalid
 budget precision/range, duplicate manual-liability identities, duplicate
-provider-holding identities, and legacy delivered outbox rows. Stop if any
-count is non-zero. Do not exercise provider publication or create a provider
-net-worth snapshot from preview while protected-main workers are still live.
+provider-holding identities, and legacy delivered outbox rows. Stop for a
+non-zero invalid-budget or duplicate-identity count. Legacy delivered rows must
+be reconciled by the documented `delivered` → `accepted` conversion and then
+read back; they are not by themselves a stop condition. Separately record
+holdings and liabilities grouped only by source; Stage 1 requires zero
+non-manual holdings and zero non-manual liabilities because protected main can
+still mutate those rows through its legacy owner routes. Record connection,
+transaction, and detected-recurring row counts as aggregate values. Do not
+exercise provider publication, promote an existing legacy snapshot, or create
+a provider net-worth snapshot from preview while protected-main workers are
+still live. The 18 current snapshots remain `legacy_unknown`; only a new exact
+provider recomputation may create or promote current truth.
 
 ## Stage 2 — application
 
@@ -55,7 +64,11 @@ production project. Record the Git SHA, deployment ID and Ready timestamp,
 authenticated Fund workflows, Vercel logs, and a post-traffic Sentry window.
 Pause finance cron/provider publication and Make consumers for the short
 application cutover, then wait past the maximum old request/job lifetime before
-the contract.
+the contract. Retained protected-main uniqueness still forbids some new
+multi-provider identities, including a provider holding that collides with a
+manual symbol and provider transaction identities that collide with legacy
+rows; publication stays disabled until the contract removes those arbiters and
+its collision preflight passes.
 
 The production smoke must prove:
 
@@ -80,7 +93,9 @@ independently review the append-only contract migration. It must:
 - remove `guard_make_outbox_expansion_compatibility` after all old workers are
   drained;
 - remove the protected-main budget, bank-transaction, recurring, and holding
-  conflict arbiters only after the new writers have been observed live;
+  conflict arbiters after the exact app is Ready, old workers are drained, and
+  the aggregate collision preflight is clean; enable and observe new publishers
+  only after this contract commits;
 - drop owner insert/update/delete policies on `fund_connections` and revoke
   owner table DML while retaining only the safe display-column projection;
 - drop owner insert/update/delete policies on `fund_transactions` and revoke
