@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { readCompleteTransactionRows, TRANSACTION_HISTORY_DAYS } from "@/lib/fund/transactionCoverage";
+import { redactRouteError } from "@/lib/observability/redactRouteError";
+import {
+  readCompleteTransactionRows,
+  TRANSACTION_HISTORY_DAYS,
+  type TransactionCoverageProof,
+} from "@/lib/fund/transactionCoverage";
 
 type BankTransactionRow = {
   id: string;
@@ -44,13 +49,28 @@ export async function GET(request: NextRequest) {
     Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000,
   ).toISOString().slice(0, 10);
   const coverageEnd = to ?? today;
-  const complete = await readCompleteTransactionRows<BankTransactionRow>(
-    supabase,
-    user.id,
-    coverageStart,
-    coverageEnd,
-    "*",
-  );
+  let operationalError: unknown = null;
+  let complete: { proof: TransactionCoverageProof; rows: BankTransactionRow[] } | null;
+  try {
+    complete = await readCompleteTransactionRows<BankTransactionRow>(
+      supabase,
+      user.id,
+      coverageStart,
+      coverageEnd,
+      "*",
+      undefined,
+      (error) => { operationalError ??= error; },
+    );
+  } catch (error) {
+    operationalError = error;
+    complete = null;
+  }
+  if (operationalError) {
+    return redactRouteError(operationalError, {
+      route: "fund/bank-transactions",
+      area: "fund",
+    });
+  }
   if (!complete) {
     return NextResponse.json({
       transactions: [],

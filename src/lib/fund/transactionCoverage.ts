@@ -115,6 +115,7 @@ export async function readCompleteTransactionCoverage(
   windowStart: string,
   windowEnd: string,
   signal?: AbortSignal,
+  onOperationalError?: (error: unknown) => void,
 ): Promise<TransactionCoverageProof> {
   if (signal?.aborted) return unavailable();
   if (!dateOnly(windowStart) || !dateOnly(windowEnd) || windowStart > windowEnd) return unavailable();
@@ -123,18 +124,36 @@ export async function readCompleteTransactionCoverage(
     rpc?: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   }).rpc;
   if (typeof rpc !== "function") return unavailable();
-  const { data, error } = await rpc.call(client, "check_fund_transaction_history_coverage", {
-    p_user_id: userId,
-    p_window_start: windowStart,
-    p_window_end: windowEnd,
-  });
+  let response: { data: unknown; error: unknown };
+  try {
+    response = await rpc.call(client, "check_fund_transaction_history_coverage", {
+      p_user_id: userId,
+      p_window_start: windowStart,
+      p_window_end: windowEnd,
+    });
+  } catch (error) {
+    onOperationalError?.(error);
+    return unavailable();
+  }
+  const { data, error } = response;
   if (signal?.aborted) return unavailable();
-  if (error || !Array.isArray(data) || data.length !== 1) return unavailable();
+  if (error) {
+    onOperationalError?.(error);
+    return unavailable();
+  }
+  if (!Array.isArray(data) || data.length !== 1) {
+    onOperationalError?.(new Error("TRANSACTION_COVERAGE_RESPONSE_MALFORMED"));
+    return unavailable();
+  }
   const result = data[0] as Record<string, unknown>;
   if (result.available !== true) return unavailable();
   const facts = parseFacts(result.coverage, windowStart, windowEnd);
-  if (!facts) return unavailable();
+  if (!facts) {
+    onOperationalError?.(new Error("TRANSACTION_COVERAGE_FACTS_MALFORMED"));
+    return unavailable();
+  }
   if (typeof result.lineage_hash !== "string" || !SHA256.test(result.lineage_hash)) {
+    onOperationalError?.(new Error("TRANSACTION_COVERAGE_LINEAGE_MALFORMED"));
     return unavailable();
   }
   return { available: true, facts, lineage_hash: result.lineage_hash };
@@ -176,6 +195,7 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
   requestedEnd: string,
   select: string,
   signal?: AbortSignal,
+  onOperationalError?: (error: unknown) => void,
 ): Promise<{ proof: TransactionCoverageProof; rows: T[] } | null> {
   const proof = await readCompleteTransactionCoverage(
     client,
@@ -183,6 +203,7 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
     requestedStart,
     requestedEnd,
     signal,
+    onOperationalError,
   );
   if (!proof.available) return null;
   const expected = proof.facts.reduce((total, fact) => total + fact.record_count, 0);
@@ -205,20 +226,32 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
         .order("plaid_transaction_id", { ascending: true })
         .range(offset, offset + TRANSACTION_PAGE_SIZE - 1);
       if (signal) query = query.abortSignal(signal);
-      const { data, error } = await query as unknown as {
-          data: T[] | null;
-          error: unknown;
-        };
-      if (error || !data) return null;
+      let response: { data: T[] | null; error: unknown };
+      try {
+        response = await query as unknown as { data: T[] | null; error: unknown };
+      } catch (error) {
+        onOperationalError?.(error);
+        return null;
+      }
+      const { data, error } = response;
+      if (error || !data) {
+        onOperationalError?.(error ?? new Error("TRANSACTION_GENERATION_QUERY_MALFORMED"));
+        return null;
+      }
       factRows.push(...data);
       if (data.length < TRANSACTION_PAGE_SIZE) break;
     }
-    if (factRows.length !== fact.record_count) return null;
+    if (factRows.length !== fact.record_count) {
+      onOperationalError?.(new Error("TRANSACTION_GENERATION_COUNT_MISMATCH"));
+      return null;
+    }
     rows.push(...factRows);
   }
-  return transactionRowsMatchCoverage(rows, proof)
-    ? { proof, rows }
-    : null;
+  if (!transactionRowsMatchCoverage(rows, proof)) {
+    onOperationalError?.(new Error("TRANSACTION_GENERATION_LINEAGE_MISMATCH"));
+    return null;
+  }
+  return { proof, rows };
 }
 
 export function coverageLineage(proof: TransactionCoverageProof): {

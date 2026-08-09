@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ createClient: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  createClient: vi.fn(),
+  redactRouteError: vi.fn(),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("@/lib/observability/redactRouteError", () => ({
+  redactRouteError: mocks.redactRouteError,
+}));
 
 import { NextRequest } from "next/server";
 import { GET } from "./route";
@@ -89,7 +95,7 @@ function supabaseClient() {
   });
   return {
     auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } }, error: null })) },
-    rpc: vi.fn(async () => ({
+    rpc: vi.fn(async (): Promise<{ data: unknown; error: unknown }> => ({
       data: [{
         available: true,
         coverage: [{
@@ -113,7 +119,13 @@ function supabaseClient() {
 }
 
 describe("fund bank-transactions authority boundary", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.redactRouteError.mockImplementation(() => new Response(
+      JSON.stringify({ error: "Internal server error" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    ));
+  });
 
   it("paginates and totals only proof-bound current-generation rows", async () => {
     const client = supabaseClient();
@@ -131,5 +143,19 @@ describe("fund bank-transactions authority boundary", () => {
     });
     expect(body.transactions.map((row: { id: string }) => row.id)).not.toContain("legacy-row");
     expect(body.transactions.map((row: { id: string }) => row.id)).not.toContain("stale-provider-row");
+  });
+
+  it("captures an operational coverage failure and returns non-2xx", async () => {
+    const client = supabaseClient();
+    client.rpc.mockResolvedValueOnce({ data: null, error: new Error("private database outage") });
+    mocks.createClient.mockResolvedValue(client);
+
+    const response = await GET(new NextRequest("https://axis.example/api/fund/bank-transactions"));
+
+    expect(response.status).toBe(500);
+    expect(mocks.redactRouteError).toHaveBeenCalledWith(
+      expect.any(Error),
+      { route: "fund/bank-transactions", area: "fund" },
+    );
   });
 });
