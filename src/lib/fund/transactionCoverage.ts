@@ -187,44 +187,37 @@ export async function readCompleteTransactionRows<T extends TransactionLineageRo
   if (!proof.available) return null;
   const expected = proof.facts.reduce((total, fact) => total + fact.record_count, 0);
   if (expected > MAX_COMPLETE_TRANSACTION_ROWS) return null;
-  const earliest = proof.facts.reduce(
-    (value, fact) => fact.window_start < value ? fact.window_start : value,
-    proof.facts[0].window_start,
-  );
-  const latest = proof.facts.reduce(
-    (value, fact) => fact.window_end > value ? fact.window_end : value,
-    proof.facts[0].window_end,
-  );
   const rows: T[] = [];
-  for (let offset = 0; offset <= expected; offset += TRANSACTION_PAGE_SIZE) {
-    if (signal?.aborted) return null;
-    let query = client
-      .from("fund_bank_transactions")
-      .select(select)
-      .eq("user_id", userId)
-      .gte("posted_date", earliest)
-      .lte("posted_date", latest)
-      .order("connection_id", { ascending: true })
-      .order("plaid_transaction_id", { ascending: true })
-      .range(offset, offset + TRANSACTION_PAGE_SIZE - 1);
-    if (signal) query = query.abortSignal(signal);
-    const { data, error } = await query as unknown as {
-        data: T[] | null;
-        error: unknown;
-      };
-    if (error || !data) return null;
-    rows.push(...data);
-    if (data.length < TRANSACTION_PAGE_SIZE) break;
-    if (rows.length > MAX_COMPLETE_TRANSACTION_ROWS) return null;
+  for (const fact of proof.facts) {
+    const factRows: T[] = [];
+    for (let offset = 0; offset < fact.record_count; offset += TRANSACTION_PAGE_SIZE) {
+      if (signal?.aborted) return null;
+      let query = client
+        .from("fund_bank_transactions")
+        .select(select)
+        .eq("user_id", userId)
+        .eq("provider", "plaid")
+        .eq("authority", "provider")
+        .eq("connection_id", fact.connection_id)
+        .eq("generation_id", fact.generation_id)
+        .gte("posted_date", fact.window_start)
+        .lte("posted_date", fact.window_end)
+        .order("plaid_transaction_id", { ascending: true })
+        .range(offset, offset + TRANSACTION_PAGE_SIZE - 1);
+      if (signal) query = query.abortSignal(signal);
+      const { data, error } = await query as unknown as {
+          data: T[] | null;
+          error: unknown;
+        };
+      if (error || !data) return null;
+      factRows.push(...data);
+      if (data.length < TRANSACTION_PAGE_SIZE) break;
+    }
+    if (factRows.length !== fact.record_count) return null;
+    rows.push(...factRows);
   }
-  const currentRows = rows.filter((row) =>
-    proof.facts.some((fact) =>
-      row.connection_id === fact.connection_id
-      && row.generation_id === fact.generation_id,
-    ),
-  );
-  return transactionRowsMatchCoverage(currentRows, proof)
-    ? { proof, rows: currentRows }
+  return transactionRowsMatchCoverage(rows, proof)
+    ? { proof, rows }
     : null;
 }
 
