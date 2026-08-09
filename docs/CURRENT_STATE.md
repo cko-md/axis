@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `93d1a37c84e9ad089946fce69a2ac60aa2914d3bf136c28ae9ca396330d5bb1a` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
+- **State fingerprint:** `6aa3e5e8f775c7f4eb248012517ed9d8fe4c6f13a596cb094d8db8b4a8ddcb6c` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b`
 - **Source-main tree at derivation:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,26 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/state-refresh-auth006-closure`
-- **HEAD:** `f599019c`
-- **main:** `f599019c`
+- **Branch:** `codex/security-financial-truth-order-intent`
+- **HEAD:** `a1a63ffb`
+- **main:** `35773df6`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (13 commit(s))
+
+- `a1a63ffb` docs(finance): forbid expansion migration replay
+- `4410e694` docs(finance): state exact privilege repair
+- `546bae34` fix(finance): repair expansion privilege boundary
+- `41113820` docs(finance): require strict recurring lineage contract
+- `26ce0f33` docs(finance): close release lifecycle gaps
+- `07fdadb7` test(finance): isolate protected contract transition
+- `ec5380c2` fix(finance): stage backward-compatible authority expansion
+- `5e915284` fix(finance): reject zero-price execution receipts
+- `80fa49c6` fix(finance): close truth and execution invariants
+- `423aa26f` test(fund): prove intent retry deduplication
+- `055aba4f` test(fund): align fault fixtures with authority gates
+- `e6dcb2ab` fix(fund): separate order intent from verified execution
+- `3a14d02b` checkpoint(wip): preserve Phase 1 financial truth remediation
 
 ## Waves merged to main
 
@@ -64,8 +80,8 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Database
 
-- **Tracked migrations:** 91
-- **Latest:** `20260722064615_user_settings_kv.sql`
+- **Tracked migrations:** 94
+- **Latest:** `20260809220000_financial_truth_expansion_privilege_repair.sql`
 
 ## Defects
 
@@ -76,12 +92,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2889/2889 across 310 files
-- **Bundle:** 4146 KB / 4400 KB
+- **Tests:** 3058/3058 across 350 files
+- **Bundle:** 4174 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `254d1ebf`
-- **Measured content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
-- **Measured at:** 2026-08-09T18:19:32.472Z
+- **Measured source:** `a1a63ffb`
+- **Measured content tree:** `f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b`
+- **Measured at:** 2026-08-09T21:57:06.349Z
 
 <!-- END GENERATED: derive-program-state -->
 

@@ -1,17 +1,76 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T19:10:23.452Z",
+  "derivedAt": "2026-08-09T21:57:06.425Z",
   "git": {
-    "branch": "codex/state-refresh-auth006-closure",
-    "head": "f599019cdcf789a5f238106387c54d0ebc8cfc32",
-    "mainHead": "f599019cdcf789a5f238106387c54d0ebc8cfc32",
+    "branch": "codex/security-financial-truth-order-intent",
+    "head": "a1a63ffb67f7566299a0f4744902eb86ea1a71dc",
+    "mainHead": "35773df6e22962fb1ad9a0c1da1036045cc5ac7a",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
+    "aheadOfMain": [
+      {
+        "sha": "a1a63ffb",
+        "subject": "docs(finance): forbid expansion migration replay"
+      },
+      {
+        "sha": "4410e694",
+        "subject": "docs(finance): state exact privilege repair"
+      },
+      {
+        "sha": "546bae34",
+        "subject": "fix(finance): repair expansion privilege boundary"
+      },
+      {
+        "sha": "41113820",
+        "subject": "docs(finance): require strict recurring lineage contract"
+      },
+      {
+        "sha": "26ce0f33",
+        "subject": "docs(finance): close release lifecycle gaps"
+      },
+      {
+        "sha": "07fdadb7",
+        "subject": "test(finance): isolate protected contract transition"
+      },
+      {
+        "sha": "ec5380c2",
+        "subject": "fix(finance): stage backward-compatible authority expansion"
+      },
+      {
+        "sha": "5e915284",
+        "subject": "fix(finance): reject zero-price execution receipts"
+      },
+      {
+        "sha": "80fa49c6",
+        "subject": "fix(finance): close truth and execution invariants"
+      },
+      {
+        "sha": "423aa26f",
+        "subject": "test(fund): prove intent retry deduplication"
+      },
+      {
+        "sha": "055aba4f",
+        "subject": "test(fund): align fault fixtures with authority gates"
+      },
+      {
+        "sha": "e6dcb2ab",
+        "subject": "fix(fund): separate order intent from verified execution"
+      },
+      {
+        "sha": "3a14d02b",
+        "subject": "checkpoint(wip): preserve Phase 1 financial truth remediation"
+      }
+    ],
+    "contentTreeHash": "f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b",
     "sourceMainContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
-    "fingerprint": "93d1a37c84e9ad089946fce69a2ac60aa2914d3bf136c28ae9ca396330d5bb1a"
+    "fingerprint": "6aa3e5e8f775c7f4eb248012517ed9d8fe4c6f13a596cb094d8db8b4a8ddcb6c"
   },
   "mergedPrs": [
+    {
+      "pr": 310,
+      "sha": "35773df6",
+      "subject": "docs(state): refresh AUTH-006 production closure",
+      "committedAt": "2026-08-09T15:29:41-04:00"
+    },
     {
       "pr": 309,
       "sha": "f599019c",
@@ -155,12 +214,6 @@
       "sha": "b2a7faf1",
       "subject": "chore(db): drop the empty legacy Mail/Calendar/Contacts connection tables",
       "committedAt": "2026-07-21T10:47:41-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "6fedaceb",
-      "subject": "chore(integrations): delete the direct-OAuth Mail/Calendar/Contacts adapters (Composio-only)",
-      "committedAt": "2026-07-21T10:34:20-04:00"
     }
   ],
   "waves": [
@@ -302,8 +355,8 @@
     }
   ],
   "migrations": {
-    "count": 91,
-    "latest": "20260722064615_user_settings_kv.sql"
+    "count": 94,
+    "latest": "20260809220000_financial_truth_expansion_privilege_repair.sql"
   },
   "defects": {
     "total": 50,
@@ -319,8 +372,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "254d1ebf90ea7157a326b47f2ad436b504b7a93d",
-    "sourceContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
+    "sourceHead": "a1a63ffb67f7566299a0f4744902eb86ea1a71dc",
+    "sourceContentTreeHash": "f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b",
     "typecheck": {
       "passed": true
     },
@@ -328,23 +381,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2889,
-      "total": 2889,
-      "files": 310,
-      "suites": 853
+      "passed": 3058,
+      "total": 3058,
+      "files": 350,
+      "suites": 934
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4146,
+      "used": 4174,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T18:19:32.472Z"
+    "measuredAt": "2026-08-09T21:57:06.349Z"
   }
 }
