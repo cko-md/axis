@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `6aa3e5e8f775c7f4eb248012517ed9d8fe4c6f13a596cb094d8db8b4a8ddcb6c` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b`
+- **State fingerprint:** `fed9705d50613deff528c912b84c2f9e8d5fa57223920d9e922eb976da4bb8a4` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `16c9406672886aa88a623672e5094644cf0e2e08d3d4497657f6c256dd902dcd`
 - **Source-main tree at derivation:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,31 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/security-financial-truth-order-intent`
-- **HEAD:** `a1a63ffb`
+- **HEAD:** `cacb70e8`
 - **main:** `35773df6`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (13 commit(s))
+### Ahead of source main at derivation (32 commit(s))
 
+- `cacb70e8` chore(observability): pin financial telemetry vocabulary
+- `fa047c38` fix(finance): reject late identity and numeric drift
+- `b22e6a0b` fix(finance): bind notification writes to cancellation
+- `f932c2de` fix(finance): bind exact subject and ticket invariants
+- `3ee3bc2b` fix(finance): abort in-flight cron writes
+- `b68e80e6` fix(finance): close adversarial truth boundaries
+- `43e24edb` fix(finance): fence cancellation observability
+- `eabfe159` fix(finance): close release review boundaries
+- `b1e8ab1a` fix(finance): validate dates and capture unknown failures
+- `e6fe0343` fix(finance): distinguish capacity input and cancellation
+- `b164102a` fix(finance): type coverage operational failures
+- `d96df0b2` fix(finance): propagate coverage verifier failures
+- `e8fced79` fix(finance): reject malformed coverage status
+- `7e63de61` fix(finance): surface transaction proof failures
+- `033b66d0` fix(finance): bind transaction pages to provider proof
+- `28aaf69f` fix(finance): scope coverage pagination to generations
+- `135cc5cc` fix(finance): verify full transaction generations
+- `d7229103` fix(finance): exercise production authority contracts
+- `41d996b2` chore(state): bind financial truth candidate gates
 - `a1a63ffb` docs(finance): forbid expansion migration replay
 - `4410e694` docs(finance): state exact privilege repair
 - `546bae34` fix(finance): repair expansion privilege boundary
@@ -80,8 +99,8 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Database
 
-- **Tracked migrations:** 94
-- **Latest:** `20260809220000_financial_truth_expansion_privilege_repair.sql`
+- **Tracked migrations:** 95
+- **Latest:** `20260809230000_fund_order_intent_limit_notional_repair.sql`
 
 ## Defects
 
@@ -92,12 +111,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 3058/3058 across 350 files
-- **Bundle:** 4174 KB / 4400 KB
+- **Tests:** 3144/3144 across 356 files
+- **Bundle:** 4147 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `a1a63ffb`
-- **Measured content tree:** `f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b`
-- **Measured at:** 2026-08-09T21:57:06.349Z
+- **Measured source:** `cacb70e8`
+- **Measured content tree:** `16c9406672886aa88a623672e5094644cf0e2e08d3d4497657f6c256dd902dcd`
+- **Measured at:** 2026-08-09T23:36:52.790Z
 
 <!-- END GENERATED: derive-program-state -->
 

@@ -1,12 +1,88 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T21:57:06.425Z",
+  "derivedAt": "2026-08-09T23:36:52.869Z",
   "git": {
     "branch": "codex/security-financial-truth-order-intent",
-    "head": "a1a63ffb67f7566299a0f4744902eb86ea1a71dc",
+    "head": "cacb70e8f4dbefc5e838c040f44104ee82da7088",
     "mainHead": "35773df6e22962fb1ad9a0c1da1036045cc5ac7a",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "cacb70e8",
+        "subject": "chore(observability): pin financial telemetry vocabulary"
+      },
+      {
+        "sha": "fa047c38",
+        "subject": "fix(finance): reject late identity and numeric drift"
+      },
+      {
+        "sha": "b22e6a0b",
+        "subject": "fix(finance): bind notification writes to cancellation"
+      },
+      {
+        "sha": "f932c2de",
+        "subject": "fix(finance): bind exact subject and ticket invariants"
+      },
+      {
+        "sha": "3ee3bc2b",
+        "subject": "fix(finance): abort in-flight cron writes"
+      },
+      {
+        "sha": "b68e80e6",
+        "subject": "fix(finance): close adversarial truth boundaries"
+      },
+      {
+        "sha": "43e24edb",
+        "subject": "fix(finance): fence cancellation observability"
+      },
+      {
+        "sha": "eabfe159",
+        "subject": "fix(finance): close release review boundaries"
+      },
+      {
+        "sha": "b1e8ab1a",
+        "subject": "fix(finance): validate dates and capture unknown failures"
+      },
+      {
+        "sha": "e6fe0343",
+        "subject": "fix(finance): distinguish capacity input and cancellation"
+      },
+      {
+        "sha": "b164102a",
+        "subject": "fix(finance): type coverage operational failures"
+      },
+      {
+        "sha": "d96df0b2",
+        "subject": "fix(finance): propagate coverage verifier failures"
+      },
+      {
+        "sha": "e8fced79",
+        "subject": "fix(finance): reject malformed coverage status"
+      },
+      {
+        "sha": "7e63de61",
+        "subject": "fix(finance): surface transaction proof failures"
+      },
+      {
+        "sha": "033b66d0",
+        "subject": "fix(finance): bind transaction pages to provider proof"
+      },
+      {
+        "sha": "28aaf69f",
+        "subject": "fix(finance): scope coverage pagination to generations"
+      },
+      {
+        "sha": "135cc5cc",
+        "subject": "fix(finance): verify full transaction generations"
+      },
+      {
+        "sha": "d7229103",
+        "subject": "fix(finance): exercise production authority contracts"
+      },
+      {
+        "sha": "41d996b2",
+        "subject": "chore(state): bind financial truth candidate gates"
+      },
       {
         "sha": "a1a63ffb",
         "subject": "docs(finance): forbid expansion migration replay"
@@ -60,9 +136,9 @@
         "subject": "checkpoint(wip): preserve Phase 1 financial truth remediation"
       }
     ],
-    "contentTreeHash": "f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b",
+    "contentTreeHash": "16c9406672886aa88a623672e5094644cf0e2e08d3d4497657f6c256dd902dcd",
     "sourceMainContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
-    "fingerprint": "6aa3e5e8f775c7f4eb248012517ed9d8fe4c6f13a596cb094d8db8b4a8ddcb6c"
+    "fingerprint": "fed9705d50613deff528c912b84c2f9e8d5fa57223920d9e922eb976da4bb8a4"
   },
   "mergedPrs": [
     {
@@ -355,8 +431,8 @@
     }
   ],
   "migrations": {
-    "count": 94,
-    "latest": "20260809220000_financial_truth_expansion_privilege_repair.sql"
+    "count": 95,
+    "latest": "20260809230000_fund_order_intent_limit_notional_repair.sql"
   },
   "defects": {
     "total": 50,
@@ -372,8 +448,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "a1a63ffb67f7566299a0f4744902eb86ea1a71dc",
-    "sourceContentTreeHash": "f900894b409d8cbcdcc5ae2d2da32ff18e6b936a9eca040a834aed589256292b",
+    "sourceHead": "cacb70e8f4dbefc5e838c040f44104ee82da7088",
+    "sourceContentTreeHash": "16c9406672886aa88a623672e5094644cf0e2e08d3d4497657f6c256dd902dcd",
     "typecheck": {
       "passed": true
     },
@@ -381,23 +457,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 3058,
-      "total": 3058,
-      "files": 350,
-      "suites": 934
+      "passed": 3144,
+      "total": 3144,
+      "files": 356,
+      "suites": 946
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4174,
+      "used": 4147,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T21:57:06.349Z"
+    "measuredAt": "2026-08-09T23:36:52.790Z"
   }
 }
