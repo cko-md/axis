@@ -12,6 +12,7 @@ import {
 import { savePlaidConnection } from "@/lib/fund/plaidTokens";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 const MAX_BODY_BYTES = 2_048;
 const RATE_LIMIT = 10;
@@ -56,27 +57,12 @@ async function removeItem(
 
 /** Exchanges a public token while enforcing the current single-verified-Item contract. */
 export async function POST(request: NextRequest) {
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try { supabase = await createClient(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  try { authResult = await supabase.auth.getUser(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  const { data: { user }, error: authError } = authResult;
-  if (authError) {
-    captureRouteError(authError, {
-      route: "/api/plaid/exchange",
-      operation: "authenticate",
-      area: "fund",
-      provider: "supabase",
-      status: 503,
-      code: "AUTH_BACKEND_UNAVAILABLE",
-    });
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/exchange", area: "fund" });
+  if (!identity.ok) return NextResponse.json(
+    { error: identity.status === 401 ? "Unauthorized" : identity.code },
+    { status: identity.status },
+  );
+  const { user } = identity;
   const admission = await admitPlaidMutation(user.id, RATE_LIMIT, "axis:plaid-exchange");
   if (admission === "unavailable") {
     return NextResponse.json({ error: "PLAID_LINK_ADMISSION_UNAVAILABLE" }, { status: 503 });

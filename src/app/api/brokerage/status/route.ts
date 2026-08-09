@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 /**
  * Brokerage (Public.com) connectivity status. Generic scaffold behind a
@@ -11,9 +12,17 @@ import { captureRouteError } from "@/lib/observability/captureRouteError";
  */
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, {
+    route: "/api/brokerage/status",
+    area: "fund",
+  });
+  if (!identity.ok) {
+    return NextResponse.json(
+      { error: identity.status === 401 ? "Unauthorized" : identity.code },
+      { status: identity.status },
+    );
+  }
+  const { client: supabase, user } = identity;
 
   const creds = getBrokerageCreds();
   const { data: connections, error } = await supabase

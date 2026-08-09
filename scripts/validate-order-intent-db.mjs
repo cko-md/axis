@@ -9,6 +9,10 @@ const migration = resolve(
   root,
   "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
 );
+const limitNotionalRepair = resolve(
+  root,
+  "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql",
+);
 const baseUrl = new URL(
   process.env.AXIS_ORDER_INTENT_DB_URL
     ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -142,6 +146,7 @@ try {
   created = true;
   run(disposableUrl, baselineSql, { label: "create order-intent baseline" });
   run(disposableUrl, readFileSync(migration, "utf8"), { label: "apply order-intent migration" });
+  run(disposableUrl, readFileSync(limitNotionalRepair, "utf8"), { label: "apply limit-notional repair" });
 
   assertScalar(
     "select (has_table_privilege('service_role','public.fund_order_intents','INSERT') and not has_table_privilege('service_role','public.fund_order_intents','UPDATE') and not has_table_privilege('service_role','public.fund_order_intents','DELETE') and not has_table_privilege('service_role','public.fund_order_intents','TRUNCATE'))::text;",
@@ -210,6 +215,36 @@ try {
       'manual_estimate',1000,'USD','not_submitted'
     );
   `, { label: "service immutable intent insert" });
+  run(disposableUrl, `
+    set role service_role;
+    insert into public.fund_order_intents (
+      id,user_id,provider,action_class,idempotency_key,payload_hash,symbol,side,
+      order_type,quantity_units,quantity_scale,limit_price_minor,
+      reference_price_minor,reference_price_source,estimated_notional_minor,
+      currency,status
+    ) values (
+      'abababab-abab-4bab-8bab-abababababab',
+      '11111111-1111-4111-8111-111111111111',
+      'public','FINANCIAL_EXECUTION','bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc',
+      repeat('b',64),'NVDA','buy','limit',5000000,1000000,13000,null,
+      'unavailable',65000,'USD','not_submitted'
+    );
+  `, { label: "limit intent derives notional without reference quote" });
+  run(disposableUrl, `
+    set role service_role;
+    insert into public.fund_order_intents (
+      id,user_id,provider,action_class,idempotency_key,payload_hash,symbol,side,
+      order_type,quantity_units,quantity_scale,limit_price_minor,
+      reference_price_minor,reference_price_source,estimated_notional_minor,
+      currency,status
+    ) values (
+      'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
+      '11111111-1111-4111-8111-111111111111',
+      'public','FINANCIAL_EXECUTION','dededede-dede-4ede-8ede-dededededede',
+      repeat('c',64),'NVDA','buy','limit',5000000,1000000,13000,12000,
+      'manual_estimate',60000,'USD','not_submitted'
+    );
+  `, { expectFailure: true, label: "reference-price limit notional mismatch denial" });
   run(disposableUrl, `
     update public.fund_order_intents set symbol='MSFT'
     where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

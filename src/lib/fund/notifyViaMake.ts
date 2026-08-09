@@ -79,7 +79,12 @@ type MakeDeliveryDependencies = {
   now?: () => Date;
   randomUUID?: () => string;
   trigger?: typeof triggerWebhook;
+  signal?: AbortSignal;
 };
+
+function ensureDeliveryActive(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException("Finance notification aborted", "AbortError");
+}
 
 function webhookUrlForKind(kind: NotifyKind): string | undefined {
   return optionalEnv(WEBHOOK_ENV_BY_KIND[kind]);
@@ -121,6 +126,7 @@ function dependencies(admin: SupabaseClient, deps: MakeDeliveryDependencies) {
     now: deps.now ?? (() => new Date()),
     randomUUID: deps.randomUUID ?? (() => crypto.randomUUID()),
     trigger: deps.trigger ?? triggerWebhook,
+    signal: deps.signal,
   };
 }
 
@@ -148,6 +154,7 @@ async function deliverClaimedMakeNotification(input: {
   dedupeKeyHash: string;
   deps: ReturnType<typeof dependencies>;
 }): Promise<NotifyResult> {
+  ensureDeliveryActive(input.deps.signal);
   const claimToken = input.deps.randomUUID();
   const claimedAt = input.deps.now().toISOString();
   const claim = await input.deps.store.claim({
@@ -155,6 +162,7 @@ async function deliverClaimedMakeNotification(input: {
     claimToken,
     now: claimedAt,
   });
+  ensureDeliveryActive(input.deps.signal);
   if (!claim.ok) {
     if (claim.code === "database") captureOutboxFailure("outbox_claim", input.payload.kind);
     return {
@@ -177,7 +185,8 @@ async function deliverClaimedMakeNotification(input: {
     body_text: input.payload.bodyText,
     body_html: input.payload.bodyHtml,
     meta: input.payload.meta ?? {},
-  });
+  }, input.deps.signal);
+  ensureDeliveryActive(input.deps.signal);
 
   const completedAt = input.deps.now().toISOString();
   const completion = await input.deps.store.complete({
@@ -258,6 +267,7 @@ export async function notifyViaMake(
   injected: MakeDeliveryDependencies = {},
 ): Promise<NotifyResult> {
   const deps = dependencies(admin, injected);
+  ensureDeliveryActive(deps.signal);
   const dedupeKeyHash = makeOutboxDedupeHash(payload.userId, payload.idempotencyKey);
   const sealed = sealMakeOutboxPayload(payload, dedupeKeyHash);
   if (!sealed.ok) {
@@ -286,6 +296,7 @@ export async function notifyViaMake(
     payloadCiphertext: sealed.data,
     now,
   });
+  ensureDeliveryActive(deps.signal);
   if (!queued.ok) {
     if (queued.code === "duplicate" && queued.existing?.status === "accepted") {
       const auditRecorded = await appendDeliveryAudit(
@@ -371,6 +382,7 @@ export async function notifyViaMake(
     "pending_confirmation",
     { delivery_id: queued.data.id },
   );
+  ensureDeliveryActive(deps.signal);
   if (!preflightRecorded) {
     const outboxRecorded = await markUnattemptedFailure({
       store: deps.store,

@@ -171,4 +171,21 @@ describe("Plaid balance-sheet publication", () => {
       holdings: { status: "unavailable", reason: "payload_incomplete" },
     });
   });
+
+  it("does not downgrade coverage after a provider request is cancelled", async () => {
+    const controller = new AbortController();
+    mocks.plaidRequest.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+    const db = admin();
+
+    await expect(syncPlaidBalanceSheet(
+      db.client,
+      "user-1",
+      connection,
+      controller.signal,
+    )).rejects.toMatchObject({ name: "AbortError" });
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
 });

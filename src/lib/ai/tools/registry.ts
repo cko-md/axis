@@ -95,7 +95,10 @@ async function requireProviderComponentCoverage(
       .eq("component", component)
       .limit(33),
   ]);
-  if (connectionError || coverageError || (connections ?? []).length > 32 || (coverage ?? []).length > 32) {
+  if (connectionError || coverageError) {
+    throw new ToolOperationalError("DATA_QUERY_FAILED");
+  }
+  if ((connections ?? []).length > 32 || (coverage ?? []).length > 32) {
     throw new ToolExecutionError("DATA_UNAVAILABLE");
   }
   const relevant = (connections ?? []).filter((connection) =>
@@ -169,6 +172,14 @@ export class ToolExecutionError extends Error {
   constructor(public readonly code: "DATA_UNAVAILABLE" | "PROVIDER_UNAVAILABLE" | "INVALID_INPUT") {
     super(code);
     this.name = "ToolExecutionError";
+  }
+}
+
+/** Safe operational failures that Advisor must report to observability. */
+export class ToolOperationalError extends Error {
+  constructor(public readonly code: "DATA_QUERY_FAILED" | "PROVIDER_QUERY_FAILED") {
+    super(code);
+    this.name = "ToolOperationalError";
   }
 }
 
@@ -313,7 +324,7 @@ const handlers: Record<string, Handler> = {
     .eq("calculation_version", "financial-truth-v2")
       .order("captured_on", { ascending: false })
       .limit(Number.isFinite(limit) ? limit : 30);
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (error) throw new ToolOperationalError("DATA_QUERY_FAILED");
     return { snapshots: data ?? [] };
   },
 
@@ -370,7 +381,8 @@ const handlers: Record<string, Handler> = {
       supabase.from("fund_category_budgets").select("category, monthly_limit, currency").eq("user_id", userId),
       readToolTransactions(supabase, userId, since, today),
     ]);
-    if (budgetErr || !complete) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (budgetErr) throw new ToolOperationalError("DATA_QUERY_FAILED");
+    if (!complete) throw new ToolExecutionError("DATA_UNAVAILABLE");
     const txns = complete.rows.filter((row) =>
       row.posted_date >= since
       && row.posted_date <= today
@@ -422,7 +434,7 @@ const handlers: Record<string, Handler> = {
       .order("next_expected_date");
     if (input.status) query = query.eq("status", String(input.status));
     const { data, error } = await query;
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (error) throw new ToolOperationalError("DATA_QUERY_FAILED");
     const recurring = data ?? [];
     const detected = recurring.filter((row) => row.source === "detected");
     if (detected.length === 0) {
@@ -450,7 +462,7 @@ const handlers: Record<string, Handler> = {
       .from("fund_holdings")
       .select("symbol, name, shares, cost_basis, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state")
       .eq("user_id", userId);
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (error) throw new ToolOperationalError("DATA_QUERY_FAILED");
     if (validateAuthoritativeHoldings(data ?? [])) {
       throw new ToolExecutionError("DATA_UNAVAILABLE");
     }
@@ -501,26 +513,26 @@ const handlers: Record<string, Handler> = {
       .select("symbol, shares, cost_basis, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state, generation_id")
       .eq("user_id", userId)
       .eq("symbol", symbol);
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (error) throw new ToolOperationalError("DATA_QUERY_FAILED");
 
     const { data: allHoldings, error: allHoldingsError } = await supabase
       .from("fund_holdings")
       .select("symbol, shares, cost_basis, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state, generation_id")
       .eq("user_id", userId)
       .limit(MAX_PORTFOLIO_QUOTE_SYMBOLS + 1);
-    if (allHoldingsError) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (allHoldingsError) throw new ToolOperationalError("DATA_QUERY_FAILED");
     const { data: connections, error: connectionError } = await supabase
       .from("fund_connections")
       .select("id, provider, status, authority, verified_at")
       .eq("user_id", userId)
       .limit(32);
-    if (connectionError) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (connectionError) throw new ToolOperationalError("DATA_QUERY_FAILED");
     const { data: holdingCoverage, error: holdingCoverageError } = await supabase
       .from("fund_provider_coverage")
       .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
       .eq("user_id", userId)
       .eq("component", "holdings");
-    if (holdingCoverageError) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (holdingCoverageError) throw new ToolOperationalError("DATA_QUERY_FAILED");
 
     const sources = [...new Set((holdings ?? []).map((h) => h.source))];
 
@@ -576,7 +588,7 @@ const handlers: Record<string, Handler> = {
       .from("fund_liabilities")
       .select("name, kind, balance, apr, minimum_payment, due_date, source, currency, authority, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state")
       .eq("user_id", userId);
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (error) throw new ToolOperationalError("DATA_QUERY_FAILED");
     const rows = data ?? [];
     if (rows.some((row) =>
       row.authority !== "provider"
@@ -620,7 +632,7 @@ const handlers: Record<string, Handler> = {
       const quote = await fetchSnapshot(symbol);
       return { symbol, available: true, ...quote };
     } catch {
-      return { symbol, available: false, reason: "QUOTE_UNAVAILABLE" };
+      throw new ToolOperationalError("PROVIDER_QUERY_FAILED");
     }
   },
 
@@ -632,13 +644,13 @@ const handlers: Record<string, Handler> = {
       const news = await fetchNews(symbols, Number.isFinite(limit) ? limit : 6);
       return { news, available: true };
     } catch {
-      return { news: [], available: false, reason: "NEWS_UNAVAILABLE" };
+      throw new ToolOperationalError("PROVIDER_QUERY_FAILED");
     }
   },
 
   async get_watchlist({ supabase, userId }) {
     const { data, error } = await supabase.from("fund_watchlist").select("symbol, name").eq("user_id", userId).order("sort_order");
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    if (error) throw new ToolOperationalError("DATA_QUERY_FAILED");
     return { watchlist: data ?? [] };
   },
 
@@ -650,7 +662,7 @@ const handlers: Record<string, Handler> = {
       const hits = await searchTickers(query);
       return { hits, available: true };
     } catch {
-      return { hits: [], available: false, reason: "SEARCH_UNAVAILABLE" };
+      throw new ToolOperationalError("PROVIDER_QUERY_FAILED");
     }
   },
 

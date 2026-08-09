@@ -7,6 +7,7 @@ import {
   minorUnitsToDecimalString,
   multiplyScaledQuantityByDecimalPrice,
   multiplyScaledMinorUnits,
+  strictExactScaledUnits,
   strictMinorUnits,
   strictScaledUnits,
   type FinancialInput,
@@ -46,6 +47,13 @@ describe("financial truth fault boundaries", () => {
     expect(strictScaledUnits("0.0000005", 1_000_000)).toBe(1);
     expect(strictScaledUnits("-0.0000005", 1_000_000)).toBe(-1);
     expect(strictScaledUnits(5e-7, 1_000_000)).toBe(1);
+  });
+
+  it("rejects significant precision beyond an exact requested scale", () => {
+    expect(strictExactScaledUnits("1.000000", 1_000_000)).toBe(1_000_000);
+    expect(strictExactScaledUnits("1.0000000", 1_000_000)).toBe(1_000_000);
+    expect(strictExactScaledUnits("1.0000004", 1_000_000)).toBeNull();
+    expect(strictExactScaledUnits("0.0000005", 1_000_000)).toBeNull();
   });
 
   it("uses the declared currency exponent and rejects unsafe scaled values", () => {

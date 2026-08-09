@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { formatSignedMinorCurrency } from "@/lib/fund/formatMinorCurrency";
 
 type PlaidTxn = {
   id: string;
@@ -25,16 +26,6 @@ const CATEGORY_IC: Record<string, string> = {
   GENERAL_MERCHANDISE: "🛍️",
   INCOME: "🏦",
 };
-
-function fmtAmount(amountMinor: number, currency: string) {
-  const formatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  });
-  const abs = formatter.format(Math.abs(amountMinor) / 100);
-  return amountMinor >= 0 ? `+${abs}` : `−${abs}`;
-}
 
 function fmtDate(iso: string) {
   const d = new Date(iso + "T12:00:00");
@@ -120,7 +111,7 @@ export function FundTransactions() {
                 </div>
               </div>
               <div className={`txn-v${t.amountMinor >= 0 ? " up" : ""}`}>
-                {fmtAmount(t.amountMinor, t.currency)}
+                {formatSignedMinorCurrency(t.amountMinor, t.currency) ?? "Amount unavailable"}
               </div>
             </div>
           ))}

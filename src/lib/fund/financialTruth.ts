@@ -111,6 +111,23 @@ export function strictScaledUnits(value: unknown, scale: number): number | null 
   return Number.isSafeInteger(numeric) ? numeric : null;
 }
 
+/** Parse a decimal only when it is exactly representable at the requested scale. */
+export function strictExactScaledUnits(value: unknown, scale: number): number | null {
+  if (!Number.isSafeInteger(scale) || scale <= 0) return null;
+  const text = decimalText(value);
+  if (!text || text.length > MAX_DECIMAL_INPUT_LENGTH) return null;
+  const match = text.match(/^([+-]?)(\d+)(?:\.(\d*))?$/);
+  if (!match) return null;
+  const [, sign, whole, fraction = ""] = match;
+  const decimals = String(scale).length - 1;
+  if (10 ** decimals !== scale) return null;
+  if (fraction.slice(decimals).replace(/0+$/, "")) return null;
+  const kept = fraction.slice(0, decimals).padEnd(decimals, "0");
+  const units = (BigInt(whole) * BigInt(scale) + BigInt(kept || "0"))
+    * (sign === "-" ? BigInt(-1) : BigInt(1));
+  return safeNumber(units);
+}
+
 function safeNumber(value: bigint): number | null {
   if (value > MAX_SAFE_BIGINT || value < MIN_SAFE_BIGINT) return null;
   return Number(value);

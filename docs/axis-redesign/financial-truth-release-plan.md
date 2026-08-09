@@ -1,7 +1,7 @@
 # Financial truth and order-intent release sequence
 
 FIN-003 and FIN-004 use an explicit expansion → application → contract
-sequence. The three expansion migrations are safe for the currently deployed
+sequence. The four expansion migrations are safe for the currently deployed
 application; the contract must not be applied until the exact compatible
 application revision is Ready in production.
 
@@ -12,6 +12,7 @@ Apply and record only:
 1. `20260723090000_net_worth_snapshots_authority_provenance.sql`
 2. `20260809210000_fund_order_intents_and_execution_receipts.sql`
 3. `20260809220000_financial_truth_expansion_privilege_repair.sql`
+4. `20260809230000_fund_order_intent_limit_notional_repair.sql`
 
 The first migration temporarily preserves the existing owner-scoped
 `fund_connections` DML required by protected main. Its compatibility trigger
@@ -35,19 +36,25 @@ revokes `PUBLIC`/`anon` privileges across the financial expansion, reasserts
 `net_worth_snapshots_exact` as security-invoker, adds a security barrier, and
 grants only `SELECT` on that view to `authenticated` and `service_role`.
 
+The fourth migration is an additive correction to the immutable order-intent
+contract. A limit order derives notional from its limit price even when no
+reference quote is available; a market order continues to derive notional from
+its reference quote. The already-ledgered order-intent migration is not edited
+or replayed.
+
 Before applying any pending file, capture the complete linked remote migration
 ledger and a current recovery point. Verify every already-recorded Stage 1
 version against its reviewed file and evidence hash; never replay it. Apply only
 each still-pending named transaction-wrapped file with a multi-statement
 PostgreSQL client, mark only that exact migration version applied, then capture
 the complete ledger again. Do not use `supabase db push`. For this resumed
-rollout, `20260723090000` and `20260809210000` were already recorded after their
-exact files applied successfully, so only the pending `20260809220000` repair
-was applied and marked.
+rollout, `20260723090000`, `20260809210000`, and `20260809220000` were already
+recorded after their exact files applied successfully. Apply and mark only the
+still-pending `20260809230000` repair after its exact candidate is reviewed.
 
 Required read-back:
 
-- all three versions are present exactly once in the remote migration ledger;
+- all four versions are present exactly once in the remote migration ledger;
 - all new columns, constraints, views, functions, and tables exist;
 - `PUBLIC`/`anon` have no table privileges on the financial expansion objects
   and the exact net-worth view exposes only owner-scoped `SELECT` to

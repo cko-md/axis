@@ -6,6 +6,7 @@ import {
   TRANSACTION_HISTORY_DAYS,
 } from "@/lib/fund/transactionCoverage";
 import { strictExactMinorUnits } from "@/lib/fund/financialTruth";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 type StoredTransaction = {
   id: string;
@@ -23,27 +24,12 @@ type StoredTransaction = {
 
 /** Legacy Fund-card endpoint backed by a proved-complete persisted generation. */
 export async function POST() {
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try { supabase = await createClient(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  try { authResult = await supabase.auth.getUser(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  const { data: { user }, error: authError } = authResult;
-  if (authError) {
-    captureRouteError(new Error("Plaid transaction authentication unavailable"), {
-      route: "/api/plaid/transactions",
-      operation: "authenticate",
-      area: "fund",
-      provider: "supabase",
-      status: 503,
-      code: "AUTH_BACKEND_UNAVAILABLE",
-    });
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/transactions", area: "fund" });
+  if (!identity.ok) return NextResponse.json(
+    { error: identity.status === 401 ? "Unauthorized" : identity.code },
+    { status: identity.status },
+  );
+  const { client: supabase, user } = identity;
 
   const today = new Date().toISOString().slice(0, 10);
   const start = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)

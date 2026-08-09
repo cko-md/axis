@@ -14,6 +14,12 @@ const mocks = vi.hoisted(() => ({
       this.name = "ToolExecutionError";
     }
   },
+  ToolOperationalError: class ToolOperationalError extends Error {
+    constructor(public readonly code: "DATA_QUERY_FAILED" | "PROVIDER_QUERY_FAILED") {
+      super(code);
+      this.name = "ToolOperationalError";
+    }
+  },
 }));
 
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -46,6 +52,7 @@ vi.mock("@/lib/ai/tools/registry", () => ({
   },
   executeTool: mocks.executeTool,
   ToolExecutionError: mocks.ToolExecutionError,
+  ToolOperationalError: mocks.ToolOperationalError,
 }));
 
 import { POST } from "./route";
@@ -221,5 +228,29 @@ describe("fund advisor numerical-claim binding faults", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.captureRouteError).not.toHaveBeenCalled();
+  });
+
+  it("captures a typed operational tool failure", async () => {
+    const db = supabaseClient();
+    mocks.createClient.mockResolvedValue(db.client);
+    const operational = new mocks.ToolOperationalError("DATA_QUERY_FAILED");
+    mocks.executeTool.mockRejectedValue(operational);
+    mocks.anthropicCreate
+      .mockResolvedValueOnce({
+        content: [{ type: "tool_use", id: "tool-1", name: "get_cash_accounts", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "tool_use", id: "citation-1", name: "respond_with_citation", input: {} }],
+      });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.captureRouteError).toHaveBeenCalledWith(operational, {
+      route: "/api/fund/advisor",
+      operation: "execute_financial_tool",
+      area: "fund",
+      status: 500,
+    });
   });
 });

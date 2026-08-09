@@ -476,6 +476,11 @@
       "version": "20260809220000",
       "file": "supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql",
       "sha256": "8427bbbc495edb38ece6f12095853a6ad5f2d262c2d30360c964c303c6c591da"
+    },
+    {
+      "version": "20260809230000",
+      "file": "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql",
+      "sha256": "edd94713796446623e2ab2ffc091f725fe9160e25ff77541a19199e6e245ad33"
     }
   ]
 }

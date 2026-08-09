@@ -21,10 +21,13 @@ function Harness({ children }: { children?: ReactNode }) {
   return children ?? null;
 }
 
-async function mount(plaidMode: "ready-empty" | "http-error" | "network-error") {
+async function mount(
+  plaidMode: "ready-empty" | "http-error" | "network-error",
+  holdingPayload: { rows: unknown[]; aggregated: unknown[] } = { rows: [], aggregated: [] },
+) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === "/api/fund/holdings") return json({ rows: [], aggregated: [] });
+    if (url === "/api/fund/holdings") return json(holdingPayload);
     if (url === "/api/fund/liabilities") {
       if (plaidMode === "network-error") throw new Error("provider unavailable");
       if (plaidMode === "http-error") return json({ error: "provider_error" }, 502);
@@ -88,5 +91,23 @@ describe("Plaid liability availability state", () => {
     expect(value.plaidLiabilitiesState).toBe("ready");
     expect(value.plaidLiabilitiesConnected).toBe(true);
     expect(value.plaidLiabilities).toEqual([]);
+  });
+
+  it("preserves the last successful holdings snapshot when refresh fails", async () => {
+    const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
+    const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };
+    await mount("ready-empty", { rows: [holding], aggregated: [aggregate] });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/fund/holdings") return json({ error: "unavailable" }, 503);
+      return json({ liabilities: [], providerAvailability: [] });
+    });
+
+    await act(async () => {
+      await latest?.refreshHoldings();
+    });
+
+    expect(latest?.holdingsError).toBe(true);
+    expect(latest?.rows).toEqual([holding]);
+    expect(latest?.aggregated).toEqual([aggregate]);
   });
 });

@@ -12,6 +12,7 @@ import {
   CITATION_TOOL,
   executeTool,
   ToolExecutionError,
+  ToolOperationalError,
 } from "@/lib/ai/tools/registry";
 import { TransactionCoverageOperationalError } from "@/lib/fund/transactionCoverage";
 
@@ -205,6 +206,7 @@ export async function POST(req: NextRequest) {
         isError = true;
         if (
           error instanceof TransactionCoverageOperationalError
+          || error instanceof ToolOperationalError
           || !(error instanceof ToolExecutionError)
         ) {
           captureRouteError(error, {

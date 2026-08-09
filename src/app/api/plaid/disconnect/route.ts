@@ -12,6 +12,7 @@ import {
 } from "../_lib";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 1_024;
@@ -19,27 +20,12 @@ const RATE_LIMIT = 5;
 
 /** Disconnects provider authorization before atomically clearing local credentials. */
 export async function POST(request: NextRequest) {
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try { supabase = await createClient(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  try { authResult = await supabase.auth.getUser(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  const { data: { user }, error: authError } = authResult;
-  if (authError) {
-    captureRouteError(authError, {
-      route: "/api/plaid/disconnect",
-      operation: "authenticate",
-      area: "fund",
-      provider: "supabase",
-      status: 503,
-      code: "AUTH_BACKEND_UNAVAILABLE",
-    });
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/disconnect", area: "fund" });
+  if (!identity.ok) return NextResponse.json(
+    { error: identity.status === 401 ? "Unauthorized" : identity.code },
+    { status: identity.status },
+  );
+  const { user } = identity;
 
   const admission = await admitPlaidMutation(user.id, RATE_LIMIT, "axis:plaid-disconnect");
   if (admission === "unavailable") {

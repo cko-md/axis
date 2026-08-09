@@ -47,7 +47,13 @@ export type BalanceSheetPublication =
 type PublicationRpc = (
   name: string,
   params: Record<string, unknown>,
-) => Promise<{ data: unknown; error: unknown }>;
+) => PromiseLike<{ data: unknown; error: unknown }> & {
+  abortSignal?: (signal: AbortSignal) => PromiseLike<{ data: unknown; error: unknown }>;
+};
+
+function ensureSyncActive(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException("Plaid balance-sheet sync aborted", "AbortError");
+}
 
 function stringField(value: unknown, max: number): string | null {
   return typeof value === "string" && value.trim() && value.length <= max
@@ -199,18 +205,24 @@ async function publish(
   connectionId: string,
   retrievedAt: string,
   rows: Array<Record<string, string | null>>,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  ensureSyncActive(signal);
   const rpc = (admin as unknown as { rpc?: PublicationRpc }).rpc;
   if (typeof rpc !== "function") return false;
   const generationId = crypto.randomUUID();
   try {
-    const { data, error } = await rpc.call(admin, functionName, {
+    const request = rpc.call(admin, functionName, {
       p_user_id: userId,
       p_connection_id: connectionId,
       p_retrieved_at: retrievedAt,
       p_generation_id: generationId,
       p_rows: rows,
     });
+    const { data, error } = signal && typeof request.abortSignal === "function"
+      ? await request.abortSignal(signal)
+      : await request;
+    ensureSyncActive(signal);
     const row = Array.isArray(data) && data.length === 1 && isPlainPlaidRecord(data[0])
       ? data[0]
       : null;
@@ -219,6 +231,7 @@ async function publish(
       && typeof row.generation_hash === "string"
       && /^[0-9a-f]{64}$/.test(row.generation_hash);
   } catch {
+    ensureSyncActive(signal);
     return false;
   }
 }
@@ -231,11 +244,13 @@ async function markUnavailable(
   recordCount: number | null,
   retrievedAt: string,
   reason: ComponentUnavailableReason,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  ensureSyncActive(signal);
   const rpc = (admin as unknown as { rpc?: PublicationRpc }).rpc;
   if (typeof rpc !== "function") return false;
   try {
-    const { data, error } = await rpc.call(admin, "mark_fund_provider_component_unavailable", {
+    const request = rpc.call(admin, "mark_fund_provider_component_unavailable", {
       p_user_id: userId,
       p_connection_id: connectionId,
       p_component: component,
@@ -244,8 +259,13 @@ async function markUnavailable(
       p_availability_status: reason === "provider_unavailable" || reason === "publish_failed" ? "error" : "unavailable",
       p_availability_reason: reason,
     });
+    const { data, error } = signal && typeof request.abortSignal === "function"
+      ? await request.abortSignal(signal)
+      : await request;
+    ensureSyncActive(signal);
     return !error && data === true;
   } catch {
+    ensureSyncActive(signal);
     return false;
   }
 }
@@ -262,6 +282,7 @@ export async function syncPlaidBalanceSheet(
   connection: Connection,
   signal?: AbortSignal,
 ): Promise<BalanceSheetPublication> {
+  ensureSyncActive(signal);
   const credentials = getPlaidCreds();
   if (!credentials) return { ok: false, reason: "plaid_not_configured" };
   const deadline = Date.now() + 18_000;
@@ -269,10 +290,12 @@ export async function syncPlaidBalanceSheet(
   const markBoth = async (
     reason: ComponentUnavailableReason,
   ): Promise<{ ok: true; holdings: ComponentPublication; liabilities: ComponentPublication }> => {
+    ensureSyncActive(signal);
     const [holdingMarked, liabilityMarked] = await Promise.all([
-      markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, reason),
-      markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, reason),
+      markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, reason, signal),
+      markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, reason, signal),
     ]);
+    ensureSyncActive(signal);
     return {
       ok: true,
       holdings: {
@@ -286,6 +309,7 @@ export async function syncPlaidBalanceSheet(
     };
   };
   const itemAdmission = await admitPlaidRequest(userId, 12, 500, "axis:plaid-read:balance-sheet-item");
+  ensureSyncActive(signal);
   if (itemAdmission !== "allowed") {
     return markBoth("provider_unavailable");
   }
@@ -298,6 +322,7 @@ export async function syncPlaidBalanceSheet(
       signal,
     });
   } catch {
+    ensureSyncActive(signal);
     return markBoth("provider_unavailable");
   }
   if (!isPlainPlaidRecord(itemData.item)) {
@@ -308,14 +333,15 @@ export async function syncPlaidBalanceSheet(
 
   const refreshHoldings = async (): Promise<ComponentPublication> => {
     if (!products.has("investments")) {
-      const marked = await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "product_not_billed");
+      const marked = await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "product_not_billed", signal);
       return marked
         ? { status: "unavailable", reason: "product_not_billed" }
         : { status: "unavailable", reason: "publish_failed" };
     }
     const admission = await admitPlaidRequest(userId, 12, 500, "axis:plaid-read:holdings");
+    ensureSyncActive(signal);
     if (admission !== "allowed") {
-      await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "provider_unavailable");
+      await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "provider_unavailable", signal);
       return { status: "unavailable", reason: "provider_unavailable" };
     }
     let data: Record<string, unknown>;
@@ -327,7 +353,8 @@ export async function syncPlaidBalanceSheet(
         signal,
       });
     } catch {
-      await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "provider_unavailable");
+      ensureSyncActive(signal);
+      await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "provider_unavailable", signal);
       return { status: "unavailable", reason: "provider_unavailable" };
     }
     const rows = normalizeHoldingRows(data);
@@ -335,7 +362,7 @@ export async function syncPlaidBalanceSheet(
       const count = Array.isArray(data.holdings) && data.holdings.length <= MAX_HOLDINGS
         ? data.holdings.length
         : 0;
-      await markUnavailable(admin, userId, connection.id, "holdings", count, retrievedAt, "payload_incomplete");
+      await markUnavailable(admin, userId, connection.id, "holdings", count, retrievedAt, "payload_incomplete", signal);
       return { status: "unavailable", reason: "payload_incomplete" };
     }
     const published = await publish(
@@ -345,23 +372,25 @@ export async function syncPlaidBalanceSheet(
       connection.id,
       retrievedAt,
       rows,
+      signal,
     );
     if (!published) {
-      await markUnavailable(admin, userId, connection.id, "holdings", rows.length, retrievedAt, "publish_failed");
+      await markUnavailable(admin, userId, connection.id, "holdings", rows.length, retrievedAt, "publish_failed", signal);
       return { status: "unavailable", reason: "publish_failed" };
     }
     return { status: "published", recordCount: rows.length };
   };
   const refreshLiabilities = async (): Promise<ComponentPublication> => {
     if (!products.has("liabilities")) {
-      const marked = await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "product_not_billed");
+      const marked = await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "product_not_billed", signal);
       return marked
         ? { status: "unavailable", reason: "product_not_billed" }
         : { status: "unavailable", reason: "publish_failed" };
     }
     const admission = await admitPlaidRequest(userId, 12, 500, "axis:plaid-read:liabilities");
+    ensureSyncActive(signal);
     if (admission !== "allowed") {
-      await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "provider_unavailable");
+      await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "provider_unavailable", signal);
       return { status: "unavailable", reason: "provider_unavailable" };
     }
     let data: Record<string, unknown>;
@@ -373,7 +402,8 @@ export async function syncPlaidBalanceSheet(
         signal,
       });
     } catch {
-      await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "provider_unavailable");
+      ensureSyncActive(signal);
+      await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "provider_unavailable", signal);
       return { status: "unavailable", reason: "provider_unavailable" };
     }
     const rows = normalizeLiabilityRows(data);
@@ -383,7 +413,7 @@ export async function syncPlaidBalanceSheet(
         ? ["credit", "student", "mortgage"].reduce((count, key) =>
           count + (Array.isArray(liabilityPayload[key]) ? liabilityPayload[key].length : 0), 0)
         : 0;
-      await markUnavailable(admin, userId, connection.id, "liabilities", liabilities, retrievedAt, "payload_incomplete");
+      await markUnavailable(admin, userId, connection.id, "liabilities", liabilities, retrievedAt, "payload_incomplete", signal);
       return { status: "unavailable", reason: "payload_incomplete" };
     }
     const published = await publish(
@@ -393,13 +423,15 @@ export async function syncPlaidBalanceSheet(
       connection.id,
       retrievedAt,
       rows,
+      signal,
     );
     if (!published) {
-      await markUnavailable(admin, userId, connection.id, "liabilities", rows.length, retrievedAt, "publish_failed");
+      await markUnavailable(admin, userId, connection.id, "liabilities", rows.length, retrievedAt, "publish_failed", signal);
       return { status: "unavailable", reason: "publish_failed" };
     }
     return { status: "published", recordCount: rows.length };
   };
   const [holdings, liabilities] = await Promise.all([refreshHoldings(), refreshLiabilities()]);
+  ensureSyncActive(signal);
   return { ok: true, holdings, liabilities };
 }

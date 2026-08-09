@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const migrationFile = "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql";
 const migration = readFileSync(resolve(process.cwd(), migrationFile), "utf8");
+const repairFile = "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql";
+const repair = readFileSync(resolve(process.cwd(), repairFile), "utf8");
 
 describe("order intent and verified execution database contract", () => {
   it("keeps immutable not-submitted intents distinct from fills", () => {
@@ -62,6 +64,22 @@ describe("order intent and verified execution database contract", () => {
       version: "20260809210000",
       file: migrationFile,
       sha256: createHash("sha256").update(migration).digest("hex"),
+    });
+  });
+
+  it("repairs limit-order notional additively without rewriting the ledgered migration", () => {
+    expect(repair).toContain("when order_type = 'limit' then limit_price_minor::numeric");
+    expect(repair).toContain("fund_order_intents_estimated_notional_presence");
+    expect(repair).toContain("order_type = 'limit'");
+    expect(repair).toContain("estimated_notional_minor is not null");
+    const manifest = JSON.parse(readFileSync(
+      resolve(process.cwd(), "scripts/release-migration-manifest.json"),
+      "utf8",
+    )) as { migrations: Array<{ version: string; file: string; sha256: string }> };
+    expect(manifest.migrations.find((candidate) => candidate.file === repairFile)).toEqual({
+      version: "20260809230000",
+      file: repairFile,
+      sha256: createHash("sha256").update(repair).digest("hex"),
     });
   });
 });

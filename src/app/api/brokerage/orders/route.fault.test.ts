@@ -100,6 +100,43 @@ describe("order intent boundary", () => {
     expect(admin.chain.insert).not.toHaveBeenCalledWith(expect.objectContaining({ executed_at: expect.anything() }));
   });
 
+  it("persists limit-price notional even when the reference quote is absent", async () => {
+    const intent = {
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      symbol: "NVDA",
+      side: "buy",
+      quantity_units: 5_000_000,
+      quantity_scale: 1_000_000,
+      limit_price_minor: 13_000,
+      reference_price_minor: null,
+      estimated_notional_minor: 65_000,
+      currency: "USD",
+      status: "not_submitted",
+      created_at: "2026-08-09T21:00:00.000Z",
+    };
+    const admin = successfulAdmin(intent);
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const response = await POST(prepareRequest({
+      order: {
+        symbol: "NVDA",
+        side: "buy",
+        quantity: "5",
+        type: "limit",
+        limitPrice: "130.00",
+        currency: "USD",
+      },
+    }));
+
+    expect(response.status).toBe(201);
+    expect(admin.chain.insert).toHaveBeenCalledWith(expect.objectContaining({
+      order_type: "limit",
+      limit_price_minor: 13_000,
+      reference_price_minor: null,
+      estimated_notional_minor: 65_000,
+    }));
+  });
+
   it("rejects an idempotency-key payload mismatch instead of creating another row", async () => {
     const lookup: Record<string, unknown> = {};
     for (const method of ["select", "eq"]) lookup[method] = vi.fn(() => lookup);

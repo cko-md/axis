@@ -20,7 +20,13 @@ export function FundInvestingModule() {
   const { brokerageConfigured, brokerageStatusState } = usePlaidConnection();
   // FUND-1: holdings come from the shared layout store; mutations call
   // refreshHoldings() so Net Worth/Overview reflect changes with no extra fetch.
-  const { rows, aggregated, refreshHoldings: load } = useFundData();
+  const {
+    rows,
+    aggregated,
+    holdingsLoading,
+    holdingsError,
+    refreshHoldings: load,
+  } = useFundData();
   const [addOpen, setAddOpen] = useState(false);
   const [addSym, setAddSym] = useState("");
   const [addName, setAddName] = useState("");
@@ -93,10 +99,19 @@ export function FundInvestingModule() {
           Brokerage connection status is unavailable. Live submission remains disabled; reviewable intent capture is still available.
         </p>
       )}
+      {holdingsError && aggregated.length > 0 && (
+        <p role="alert" style={{ margin: "0 0 12px", fontSize: 12, color: "var(--clay)" }}>
+          Holdings refresh failed — showing the last successfully loaded positions.
+        </p>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, alignItems: "start" }}>
         <Card tick>
           <h2 className="sec">Holdings<span className="rule" /><span className="count">{aggregated.length} positions</span></h2>
-          {aggregated.length === 0 ? (
+          {holdingsLoading && aggregated.length === 0 ? (
+            <div className="empty-state"><strong>Loading holdings…</strong></div>
+          ) : holdingsError && aggregated.length === 0 ? (
+            <div className="empty-state" role="alert"><strong>Holdings unavailable</strong><p>AXIS could not verify your positions. Retry before relying on portfolio totals.</p></div>
+          ) : aggregated.length === 0 ? (
             <div className="empty-state"><strong>No holdings yet</strong><p>Add your first position to start tracking net worth.</p></div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -145,7 +160,11 @@ export function FundInvestingModule() {
         </Card>
         <Card>
           <h2 className="sec">Allocation<span className="rule" /><span className="count">Current value required</span></h2>
-          {aggregated.length === 0 ? (
+          {holdingsLoading && aggregated.length === 0 ? (
+            <div className="empty-state"><strong>Loading allocation…</strong></div>
+          ) : holdingsError && aggregated.length === 0 ? (
+            <div className="empty-state" role="alert"><strong>Allocation unavailable</strong><p>Holdings could not be verified.</p></div>
+          ) : aggregated.length === 0 ? (
             <div className="empty-state"><strong>No allocation yet</strong><p>Add holdings to see portfolio weights.</p></div>
           ) : (
             <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6, marginTop: 10 }}>
@@ -155,7 +174,11 @@ export function FundInvestingModule() {
         </Card>
         <Card>
           <h2 className="sec">Concentration<span className="rule" /><span className="count">Max {(concentrationLimit * 100).toFixed(0)}%</span></h2>
-          {aggregated.length === 0 ? (
+          {holdingsLoading && aggregated.length === 0 ? (
+            <div className="empty-state"><strong>Loading concentration…</strong></div>
+          ) : holdingsError && aggregated.length === 0 ? (
+            <div className="empty-state" role="alert"><strong>Concentration unavailable</strong><p>Holdings could not be verified.</p></div>
+          ) : aggregated.length === 0 ? (
             <div className="empty-state"><strong>No concentration yet</strong><p>Add holdings to check position weights.</p></div>
           ) : (
             <p style={{ fontSize: 12, color: "var(--clay)", lineHeight: 1.6, marginTop: 10 }}>

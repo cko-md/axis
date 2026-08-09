@@ -31,6 +31,61 @@ describe("public order adapter", () => {
     expect(result.data.warnings).toContain("referencePrice missing; estimated notional is unavailable until quote verification");
   });
 
+  it("binds limit-order notional to the limit price rather than the reference quote", () => {
+    const result = preparePublicOrder({
+      symbol: "nvda",
+      side: "buy",
+      quantity: "5",
+      type: "limit",
+      limitPrice: "130.00",
+      referencePrice: "120.00",
+      currency: "USD",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.estimatedNotionalMinor).toBe(65_000);
+    expect(result.data.estimatedNotional).toBe(650);
+    expect(result.data.ticket?.estimatedNotionalMinor).toBe(65_000);
+  });
+
+  it("derives a limit-order notional without an optional reference quote", () => {
+    const result = preparePublicOrder({
+      symbol: "nvda",
+      side: "buy",
+      quantity: "5",
+      type: "limit",
+      limitPrice: "130.00",
+      currency: "USD",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.referencePriceMinor).toBeNull();
+    expect(result.data.estimatedNotionalMinor).toBe(65_000);
+    expect(result.data.ticket).toMatchObject({
+      referencePrice: null,
+      estimatedNotionalMinor: 65_000,
+    });
+  });
+
+  it.each(["1.0000004", "1.0000005", "1.0000009", "0.0000005"])(
+    "rejects quantity %s instead of rounding immutable intent units",
+    (quantity) => {
+      const result = preparePublicOrder({
+        symbol: "AAPL",
+        side: "buy",
+        quantity,
+        referencePrice: "100.00",
+        currency: "USD",
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.message).toContain("at most 6 decimal places");
+    },
+  );
+
   it("rejects malformed order requests structurally", () => {
     const result = preparePublicOrder({ symbol: "", side: "hold", quantity: 0 });
 

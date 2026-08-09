@@ -11,6 +11,7 @@ import { logRouteTiming, timedProviderFetch } from "@/lib/observability/provider
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { minorUnitsToDecimalString, strictExactMinorUnits } from "@/lib/fund/financialTruth";
 import { admitPlaidRequest } from "@/lib/plaid/admission";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 const BALANCE_DEADLINE_MS = 8_000;
 const BALANCE_CONCURRENCY = 4;
@@ -96,23 +97,12 @@ async function fetchConnectionBalances(
  */
 export async function POST() {
   const routeStartedAt = Date.now();
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try { supabase = await createClient(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  try { authResult = await supabase.auth.getUser(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  const { data: { user }, error: authError } = authResult;
-  if (authError) {
-    captureRouteError(new Error("Plaid balances authentication unavailable"), {
-      route: "/api/plaid/balances", operation: "authenticate", area: "fund",
-      provider: "supabase", status: 503, code: "AUTH_BACKEND_UNAVAILABLE",
-    });
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/balances", area: "fund" });
+  if (!identity.ok) return NextResponse.json(
+    { error: identity.status === 401 ? "Unauthorized" : identity.code },
+    { status: identity.status },
+  );
+  const { user } = identity;
 
   const creds = getPlaidCreds();
   if (!creds) {

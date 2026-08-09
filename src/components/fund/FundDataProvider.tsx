@@ -109,9 +109,13 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
       const res = await fetch("/api/fund/holdings");
       setSignedIn(res.status !== 401);
       const data = (await res.json().catch(() => ({}))) as { rows?: Holding[]; aggregated?: AggregatedHolding[] };
+      if (!res.ok) {
+        setHoldingsError(res.status !== 401);
+        return;
+      }
       setRows(data.rows ?? []);
       setAggregated(data.aggregated ?? []);
-      setHoldingsError(!res.ok && res.status !== 401);
+      setHoldingsError(false);
     } catch {
       setHoldingsError(true);
     } finally {

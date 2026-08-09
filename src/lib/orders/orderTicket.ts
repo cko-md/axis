@@ -15,7 +15,7 @@ import {
   minorUnitsToDecimalString,
   multiplyScaledQuantityByDecimalPrice,
   normalizeFinancialCurrency,
-  strictScaledUnits,
+  strictExactScaledUnits,
 } from "@/lib/fund/financialTruth";
 
 const ORDER_QUANTITY_SCALE = 1_000_000;
@@ -32,7 +32,7 @@ export type OrderTicket = {
   /** Required for a limit order. */
   limitPrice?: number;
   /** Reference price used for the notional estimate (last/mark). */
-  referencePrice: number;
+  referencePrice: number | null;
   /** quantity × (limit price for a limit order, else reference price), cent-exact. */
   estimatedNotional: number;
   estimatedNotionalMinor: number;
@@ -45,7 +45,7 @@ export type OrderTicketInput = {
   quantity: number;
   type?: OrderType;
   limitPrice?: number;
-  referencePrice: number;
+  referencePrice?: number | null;
   currency?: string;
 };
 
@@ -66,19 +66,28 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
   if (input.side !== "buy" && input.side !== "sell") errors.push("side must be buy or sell");
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) errors.push("quantity must be > 0");
   if (type !== "market" && type !== "limit") errors.push("type must be market or limit");
-  if (!Number.isFinite(input.referencePrice) || input.referencePrice < 0) {
+  if (
+    type === "market"
+    && (!Number.isFinite(input.referencePrice) || (input.referencePrice ?? -1) < 0)
+  ) {
     errors.push("referencePrice must be >= 0");
   }
+  if (
+    type === "limit"
+    && input.referencePrice !== undefined
+    && input.referencePrice !== null
+    && (!Number.isFinite(input.referencePrice) || input.referencePrice < 0)
+  ) errors.push("referencePrice must be >= 0 when provided");
   if (type === "limit" && (!Number.isFinite(input.limitPrice ?? NaN) || (input.limitPrice ?? 0) <= 0)) {
     errors.push("limit order requires a positive limitPrice");
   }
   const currency = normalizeFinancialCurrency(input.currency, "");
   if (!currency) errors.push("currency is required and must be supported");
-  const quantityScaled = strictScaledUnits(input.quantity, ORDER_QUANTITY_SCALE);
+  const quantityScaled = strictExactScaledUnits(input.quantity, ORDER_QUANTITY_SCALE);
   if (quantityScaled === null || quantityScaled <= 0) errors.push("quantity precision is invalid");
   if (errors.length > 0) return { ok: false, errors };
 
-  const priceForNotional = type === "limit" ? (input.limitPrice as number) : input.referencePrice;
+  const priceForNotional = type === "limit" ? (input.limitPrice as number) : (input.referencePrice as number);
   const estimatedNotionalMinor = multiplyScaledQuantityByDecimalPrice(
     quantityScaled as number,
     priceForNotional,
@@ -99,7 +108,7 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
       quantity: input.quantity,
       type,
       ...(type === "limit" ? { limitPrice: input.limitPrice } : {}),
-      referencePrice: input.referencePrice,
+      referencePrice: input.referencePrice ?? null,
       estimatedNotional: Number(notionalText),
       estimatedNotionalMinor,
       currency: currency as string,

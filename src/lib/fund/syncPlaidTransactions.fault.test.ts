@@ -200,4 +200,30 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
 
     expect(result).toEqual({ error: "PLAID_TRANSACTION_PERSIST_FAILED" });
   });
+
+  it("does not publish when cancellation lands after the last provider body", async () => {
+    const controller = new AbortController();
+    const db = adminClient();
+    mocks.timedProviderFetch.mockResolvedValue({
+      ok: true,
+      json: async () => {
+        controller.abort();
+        return {
+          transactions: [plaidTransaction()],
+          total_transactions: 1,
+        };
+      },
+    } as Response);
+
+    const result = await syncPlaidTransactions(
+      db.admin,
+      "user-1",
+      "connection-1",
+      "token",
+      controller.signal,
+    );
+
+    expect(result).toEqual({ error: "PLAID_TXN_DEADLINE_EXCEEDED" });
+    expect(db.rpcCalls).toHaveLength(0);
+  });
 });

@@ -351,6 +351,7 @@ export function validateMakeWebhookUrl(raw: string): Result<URL> {
 export async function triggerWebhook(
   webhookUrl: string,
   payload: unknown,
+  signal?: AbortSignal,
 ): Promise<Result<MakeWebhookReceipt>> {
   const validated = validateMakeWebhookUrl(webhookUrl);
   if (!validated.ok) return validated;
@@ -362,7 +363,9 @@ export async function triggerWebhook(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       redirect: "error",
-      signal: AbortSignal.timeout(20_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
+        : AbortSignal.timeout(20_000),
     });
     if (res.ok) return ok({ accepted: true, status: res.status });
 
@@ -377,7 +380,8 @@ export async function triggerWebhook(
       Date.now() - startedAt,
     );
     return { ok: false, error };
-  } catch {
+  } catch (caught) {
+    if (signal?.aborted) throw caught;
     const error = makeError("network", "Make webhook delivery failed", {
       provider: "make",
       retryable: true,

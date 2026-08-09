@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { notifyViaMake } from "@/lib/fund/notifyViaMake";
-import type { NotifyResult } from "@/lib/fund/notifyViaMake";
+import type { NotifyPayload, NotifyResult } from "@/lib/fund/notifyViaMake";
 import { cleanFinanceLabel, shapeRecurringForFinancialNarration } from "@/lib/fund/financeNarratorContext";
 import { activityAnomalyReason, assessActivityAnomaly } from "@/lib/fund/activityRules";
 import { noNotifications, notificationOutcome, type FinanceNotificationOutcome } from "@/lib/fund/notificationOutcome";
@@ -67,6 +67,16 @@ function providerDebitMinor(row: NarratorTransactionRow): number | null {
 
 function ensureJobActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("Finance job aborted", "AbortError");
+}
+
+function notifyWhileActive(
+  admin: SupabaseClient,
+  payload: NotifyPayload,
+  signal?: AbortSignal,
+) {
+  return signal
+    ? notifyViaMake(admin, payload, { signal })
+    : notifyViaMake(admin, payload);
 }
 
 function requiredUsdMinor(value: unknown, currency: unknown = "USD"): number {
@@ -143,7 +153,8 @@ export async function checkBudgetThresholds(
     if (!spent || !limit) throw new Error("FINANCE_INPUT_OUT_OF_RANGE");
     const percent = ((BigInt(spentMinor) * BigInt(100) + BigInt(limitMinor) / BigInt(2)) / BigInt(limitMinor)).toString();
 
-    results.push(await notifyViaMake(admin, {
+    ensureJobActive(signal);
+    results.push(await notifyWhileActive(admin, {
       idempotencyKey: `budget_alert:${userId}:${category}:${currency}:${monthKey}`,
       kind: "budget_alert",
       userId,
@@ -151,7 +162,7 @@ export async function checkBudgetThresholds(
       subject: `Budget alert: ${category} is at ${percent}%`,
       bodyText: `You've spent ${currency} ${spent} of your ${currency} ${limit} ${category} budget this month.`,
       meta: { category, spent, spent_minor: spentMinor, limit, limit_minor: limitMinor, currency },
-    }));
+    }, signal));
   }
   return notificationOutcome(results);
 }
@@ -217,7 +228,8 @@ export async function detectAndExplainAnomalies(
     const isNewMerchant = assessment.reason === "new_merchant_high_amount";
 
     if (userEmail) {
-      results.push(await notifyViaMake(admin, {
+      ensureJobActive(signal);
+      results.push(await notifyWhileActive(admin, {
         idempotencyKey: `anomaly_alert:${userId}:${t.id}`,
         kind: "anomaly_alert",
         userId,
@@ -225,11 +237,12 @@ export async function detectAndExplainAnomalies(
         subject: `Unusual transaction: ${merchant}`,
         bodyText: `Flagged ${reason} at ${merchant} on ${t.posted_date}.`,
         meta: { transaction_id: t.id, amount, currency: assessment.currency, reason: assessment.reason },
-      }));
+      }, signal));
     }
 
     const body = `Flagged a transaction at ${merchant} for ${amount} ${assessment.currency} on ${t.posted_date} — ${reason}.`;
 
+    ensureJobActive(signal);
     const { error: insightError } = await admin.from("ai_insights").insert({
       user_id: userId,
       kind: "anomaly",
@@ -349,6 +362,7 @@ export async function writeWeeklyRecap(
 
   const body = `Net worth ${netWorthChangeMinor >= 0 ? "rose" : "fell"} $${minorUnitsToDecimalString(Math.abs(netWorthChangeMinor), "USD")} this week, now $${todayExact}. Top spend: ${topCategories.map(({ category, total }) => `${category} ($${total})`).join(", ") || "none recorded"}.`;
 
+  ensureJobActive(signal);
   const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "weekly_recap",
@@ -362,7 +376,8 @@ export async function writeWeeklyRecap(
   if (insightError) throw insightError;
 
   if (userEmail) {
-    return notificationOutcome([await notifyViaMake(admin, {
+    ensureJobActive(signal);
+    return notificationOutcome([await notifyWhileActive(admin, {
       idempotencyKey: `weekly_recap:${userId}:${today.captured_on}`,
       kind: "weekly_recap",
       userId,
@@ -370,7 +385,7 @@ export async function writeWeeklyRecap(
       subject: "Your weekly finance recap",
       bodyText: body,
       meta: dataPayload,
-    })]);
+    }, signal)]);
   }
   return noNotifications();
 }
@@ -435,6 +450,7 @@ export async function writeSubscriptionAudit(
   const dataPayload = { stale_subscriptions: shapedStale };
   const body = `${shapedStale.length} recurring charge${shapedStale.length > 1 ? "s" : ""} haven't shown up in a while: ${shapedStale.map((s) => s.merchant_name).join(", ")}. They might be cancelled but still billing, or just renamed on your statement — worth a check.`;
 
+  ensureJobActive(signal);
   const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "subscription_audit",
@@ -448,7 +464,8 @@ export async function writeSubscriptionAudit(
   if (insightError) throw insightError;
 
   if (userEmail) {
-    return notificationOutcome([await notifyViaMake(admin, {
+    ensureJobActive(signal);
+    return notificationOutcome([await notifyWhileActive(admin, {
       idempotencyKey: `subscription_audit:${userId}:${new Date().toISOString().slice(0, 10)}`,
       kind: "subscription_audit",
       userId,
@@ -456,7 +473,7 @@ export async function writeSubscriptionAudit(
       subject: "Subscription audit: a few charges look stale",
       bodyText: body,
       meta: dataPayload,
-    })]);
+    }, signal)]);
   }
   return noNotifications();
 }

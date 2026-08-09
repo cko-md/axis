@@ -275,10 +275,17 @@ describe("finance daily cron fault aggregation", () => {
     expect(mocks.detectRecurring).not.toHaveBeenCalled();
   });
 
-  it("returns a truthful partial outcome when a user job never resolves", async () => {
+  it("waits for an aborted user job to settle before returning the partial outcome", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
-    mocks.snapshotNetWorth.mockImplementation(() => new Promise(() => undefined));
+    let aborted = false;
+    mocks.snapshotNetWorth.mockImplementation((_admin, _userId, signal: AbortSignal) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      }));
 
     const pendingResponse = GET(request());
     await vi.advanceTimersByTimeAsync(50_001);
@@ -293,5 +300,6 @@ describe("finance daily cron fault aggregation", () => {
       userFailures: 1,
       deadlineExceeded: true,
     });
+    expect(aborted).toBe(true);
   });
 });

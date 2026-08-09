@@ -27,15 +27,31 @@ async function runWithinDeadline<T>(
   const remaining = deadline - Date.now();
   if (remaining <= 0) throw new FinanceCronDeadlineError();
   const controller = new AbortController();
+  const operationPromise = operation(controller.signal);
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const timeout = new Promise<never>((_resolve, reject) => {
+  const timeout = new Promise<{ timedOut: true }>((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new FinanceCronDeadlineError());
+      resolve({ timedOut: true });
     }, remaining);
   });
   try {
-    return await Promise.race([operation(controller.signal), timeout]);
+    const outcome = await Promise.race([
+      operationPromise.then((value) => ({ timedOut: false as const, value })),
+      timeout,
+    ]);
+    if (outcome.timedOut) {
+      // Fence the response behind operation settlement. A 503 must never race
+      // a still-running financial write or external notification.
+      try {
+        await operationPromise;
+      } catch {
+        // Deadline remains the public outcome; the operation's own boundary
+        // records actionable failures.
+      }
+      throw new FinanceCronDeadlineError();
+    }
+    return outcome.value;
   } finally {
     if (timer) clearTimeout(timer);
     controller.abort();

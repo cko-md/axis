@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { decrypt } from "@/lib/crypto";
 import { getPlaidCreds } from "@/app/api/plaid/_lib";
 import { fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client";
-import { notifyViaMake } from "@/lib/fund/notifyViaMake";
+import { notifyViaMake, type NotifyPayload } from "@/lib/fund/notifyViaMake";
 import { FRESHNESS_SLAS, classifyFreshness } from "@/lib/fund/provenance";
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import {
@@ -52,6 +52,16 @@ type CashObservation = {
 
 function ensureJobActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("Finance job aborted", "AbortError");
+}
+
+function notifyWhileActive(
+  admin: SupabaseClient,
+  payload: NotifyPayload,
+  signal?: AbortSignal,
+) {
+  return signal
+    ? notifyViaMake(admin, payload, { signal })
+    : notifyViaMake(admin, payload);
 }
 
 function cashObservation(
@@ -579,6 +589,7 @@ export async function snapshotNetWorth(
     provenance: stableProvenance,
   })).digest("hex");
   const computedAt = new Date().toISOString();
+  ensureJobActive(signal);
   const { error: snapshotError } = await admin.from("net_worth_snapshots").upsert(
     {
       user_id: userId,
@@ -709,6 +720,7 @@ export async function detectRecurring(
     const expectedAmount = minorUnitsToDecimalString(Math.abs(last.amountMinor), last.currency);
     if (!expectedAmount) throw new Error("RECURRING_INPUT_AMOUNT_INVALID");
 
+    ensureJobActive(signal);
     const { error: recurringError } = await admin.from("fund_recurring_transactions").upsert(
       {
         user_id: userId,
@@ -793,6 +805,7 @@ export async function writeDailyBrief(
       ? `Net worth is ${changeMinor >= 0 ? "up" : "down"} ${changePercentExact}% since ${weekAgo.captured_on}, now $${todayExact}.`
       : `Net worth ${changeMinor > 0 ? "increased" : changeMinor < 0 ? "decreased" : "changed"} by $${absoluteChangeExact} since ${weekAgo.captured_on}, now $${todayExact}. Percentage change is unavailable because the prior net worth was not positive.`;
 
+  ensureJobActive(signal);
   const { error: insightError } = await admin.from("ai_insights").insert({
     user_id: userId,
     kind: "daily_brief",
@@ -806,7 +819,8 @@ export async function writeDailyBrief(
   if (insightError) throw insightError;
 
   if (userEmail) {
-    const result = await notifyViaMake(admin, {
+    ensureJobActive(signal);
+    const result = await notifyWhileActive(admin, {
       idempotencyKey: `daily_brief:${userId}:${today.captured_on}`,
       kind: "daily_brief",
       userId,
@@ -814,7 +828,7 @@ export async function writeDailyBrief(
       subject: "Your daily finance brief",
       bodyText: body,
       meta: { net_worth: todayExact, change: minorUnitsToDecimalString(changeMinor, "USD") },
-    });
+    }, signal);
     return notificationOutcome([result]);
   }
   return noNotifications();
@@ -855,6 +869,7 @@ export async function sendBillReminders(
       userId,
       historyStart,
       new Date().toISOString().slice(0, 10),
+      signal,
     );
   }
   const results = [];
@@ -868,7 +883,8 @@ export async function sendBillReminders(
     if (amountMinor === null || amount === null || amountMinor < 0) {
       throw new Error("BILL_REMINDER_AMOUNT_INVALID");
     }
-    results.push(await notifyViaMake(admin, {
+    ensureJobActive(signal);
+    results.push(await notifyWhileActive(admin, {
       idempotencyKey: `bill_reminder:${userId}:${bill.merchant_name}:${bill.next_expected_date}`,
       kind: "bill_reminder",
       userId,
@@ -876,7 +892,7 @@ export async function sendBillReminders(
       subject: `Upcoming bill: ${bill.merchant_name}`,
       bodyText: `${bill.merchant_name} (${amount} ${currency}) is expected on ${bill.next_expected_date}.`,
       meta: { merchant: bill.merchant_name, amount, amount_minor: amountMinor, currency, due_date: bill.next_expected_date },
-    }));
+    }, signal));
   }
   return notificationOutcome(results);
 }

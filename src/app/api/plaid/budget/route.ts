@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 import {
   readCompleteTransactionRows,
   TRANSACTION_HISTORY_DAYS,
@@ -53,27 +54,12 @@ function roundedPercent(numerator: number, denominator: number): number {
 
 /** Complete persisted spending joined only to user-authored budget targets. */
 export async function POST() {
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try { supabase = await createClient(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  try { authResult = await supabase.auth.getUser(); } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  const { data: { user }, error: authError } = authResult;
-  if (authError) {
-    captureRouteError(new Error("Plaid budget authentication unavailable"), {
-      route: "/api/plaid/budget",
-      operation: "authenticate",
-      area: "fund",
-      provider: "supabase",
-      status: 503,
-      code: "AUTH_BACKEND_UNAVAILABLE",
-    });
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/budget", area: "fund" });
+  if (!identity.ok) return NextResponse.json(
+    { error: identity.status === 401 ? "Unauthorized" : identity.code },
+    { status: identity.status },
+  );
+  const { client: supabase, user } = identity;
 
   const today = new Date().toISOString().slice(0, 10);
   const coverageStart = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)

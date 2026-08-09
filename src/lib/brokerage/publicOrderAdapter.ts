@@ -9,8 +9,8 @@ import {
 import {
   multiplyScaledMinorUnits,
   normalizeFinancialCurrency,
+  strictExactScaledUnits,
   strictExactMinorUnits,
-  strictScaledUnits,
 } from "@/lib/fund/financialTruth";
 import { toMajorUnitsIn } from "@/lib/fund/currency";
 
@@ -82,7 +82,7 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   const warnings: string[] = [];
   const symbol = typeof input.symbol === "string" ? input.symbol.trim().toUpperCase() : "";
   const side = normalizeSide(input.side);
-  const quantityUnits = strictScaledUnits(input.quantity, PUBLIC_ORDER_QUANTITY_SCALE);
+  const quantityUnits = strictExactScaledUnits(input.quantity, PUBLIC_ORDER_QUANTITY_SCALE);
   const quantity = quantityUnits === null ? null : quantityUnits / PUBLIC_ORDER_QUANTITY_SCALE;
   const type = normalizeOrderType(input.type);
   const currency = normalizeFinancialCurrency(input.currency, "") ?? "";
@@ -111,7 +111,11 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   if (rawReferencePrice !== undefined && rawReferencePrice !== null && rawReferencePrice !== "" && referencePriceMinor === null) {
     errors.push("referencePrice must be a non-negative cent-exact amount");
   }
-  if (referencePrice === null) warnings.push("referencePrice missing; estimated notional is unavailable until quote verification");
+  if (referencePrice === null && type === "market") {
+    warnings.push("referencePrice missing; estimated notional is unavailable until quote verification");
+  } else if (referencePrice === null && type === "limit") {
+    warnings.push("referencePrice missing; limit-to-market comparison is unavailable until quote verification");
+  }
 
   if (errors.length > 0 || !side || quantity === null || quantityUnits === null || !type) {
     return fail("invalid_request", errors.join("; "), { provider: "public", retryable: false });
@@ -120,10 +124,11 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   let ticket: OrderTicket | null = null;
   let estimatedNotional: number | null = null;
   let estimatedNotionalMinor: number | null = null;
-  if (referencePrice !== null && referencePriceMinor !== null) {
+  const notionalPriceMinor = type === "limit" ? limitPriceMinor : referencePriceMinor;
+  if (notionalPriceMinor !== null) {
     estimatedNotionalMinor = multiplyScaledMinorUnits(
       quantityUnits,
-      referencePriceMinor,
+      notionalPriceMinor,
       PUBLIC_ORDER_QUANTITY_SCALE,
     );
     if (estimatedNotionalMinor === null) {

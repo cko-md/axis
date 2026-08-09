@@ -17,6 +17,7 @@ import {
   normalizeOrderIntentIdempotencyKey,
 } from "@/lib/brokerage/orderIntent";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 function normalizeAction(value: unknown): PublicOrderAction | null {
   return value === "prepare" || value === "verify" || value === "submit" ? value : null;
@@ -44,15 +45,17 @@ function errorStatus(code: string): number {
 }
 
 async function authenticatedContext() {
-  try {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error) return { ok: false as const, status: 503, code: "AUTH_UNAVAILABLE" };
-    if (!user) return { ok: false as const, status: 401, code: "Unauthorized" };
-    return { ok: true as const, user, supabase };
-  } catch {
-    return { ok: false as const, status: 503, code: "AUTH_UNAVAILABLE" };
-  }
+  const identity = await resolveRouteIdentity(createClient, {
+    route: "/api/brokerage/orders",
+    area: "fund",
+  });
+  return identity.ok
+    ? { ok: true as const, user: identity.user, supabase: identity.client }
+    : {
+        ok: false as const,
+        status: identity.status,
+        code: identity.status === 401 ? "Unauthorized" : identity.code,
+      };
 }
 
 const INTENT_SELECT = "id, provider, action_class, symbol, side, order_type, quantity_units, quantity_scale, limit_price_minor, reference_price_minor, reference_price_source, estimated_notional_minor, currency, status, created_at";

@@ -215,7 +215,9 @@ export async function syncPlaidTransactions(
   if (expectedTotal === null || rawTransactions.length !== expectedTotal) {
     return syncError("PLAID_TXN_INCOMPLETE");
   }
-  if (Date.now() >= deadline) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
+  if (cancellationSignal?.aborted || Date.now() >= deadline) {
+    return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
+  }
 
   // Retrieval time is stamped only after the final provider body has been
   // received and parsed. A partial/failed page never advances provenance.
@@ -241,7 +243,8 @@ export async function syncPlaidTransactions(
   if (typeof rpc !== "function") {
     return syncError("PLAID_TRANSACTION_ATOMIC_PUBLISH_UNAVAILABLE");
   }
-  const { data, error } = await rpc.call(admin, "publish_fund_transaction_generation", {
+  if (cancellationSignal?.aborted) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
+  const request = rpc.call(admin, "publish_fund_transaction_generation", {
     p_user_id: userId,
     p_connection_id: connectionId,
     p_window_start: windowStart,
@@ -250,6 +253,13 @@ export async function syncPlaidTransactions(
     p_generation_id: generationId,
     p_rows: rows,
   });
+  const abortable = request as typeof request & {
+    abortSignal?: (signal: AbortSignal) => Promise<{ data: unknown; error: unknown }>;
+  };
+  const { data, error } = cancellationSignal && typeof abortable.abortSignal === "function"
+    ? await abortable.abortSignal(cancellationSignal)
+    : await request;
+  if (cancellationSignal?.aborted) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
   if (error || !Array.isArray(data) || data.length !== 1) {
     return syncError("PLAID_TRANSACTION_PERSIST_FAILED");
   }

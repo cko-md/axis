@@ -20,7 +20,7 @@ vi.mock("@/lib/massive/client", () => ({
   searchTickers: vi.fn(),
 }));
 
-import { executeTool } from "./registry";
+import { executeTool, ToolOperationalError } from "./registry";
 
 type QueryResult = { data: unknown[] | null; error: unknown };
 
@@ -148,7 +148,7 @@ describe("AI finance tool fault boundaries", () => {
     });
   });
 
-  it("throws a safe typed error instead of returning zero when portfolio data cannot load", async () => {
+  it("throws an observable safe operational error when portfolio data cannot load", async () => {
     const promise = executeTool(
       "get_position",
       { symbol: "AAPL" },
@@ -159,10 +159,11 @@ describe("AI finance tool fault boundaries", () => {
     );
 
     await expect(promise).rejects.toEqual(expect.objectContaining({
-      name: "ToolExecutionError",
-      code: "DATA_UNAVAILABLE",
-      message: "DATA_UNAVAILABLE",
+      name: "ToolOperationalError",
+      code: "DATA_QUERY_FAILED",
+      message: "DATA_QUERY_FAILED",
     }));
+    await expect(promise).rejects.toBeInstanceOf(ToolOperationalError);
   });
 
   it("fails closed without a server-only provider balance adapter", async () => {

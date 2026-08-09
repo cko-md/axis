@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 /** Retired unsafe order-capture boundary. Use prepare-only /api/brokerage/orders. */
 export async function POST(request: NextRequest) {
   void request;
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try {
-    supabase = await createClient();
-  } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
+  const identity = await resolveRouteIdentity(createClient, {
+    route: "/api/brokerage/order",
+    area: "fund",
+  });
+  if (!identity.ok) {
+    return NextResponse.json(
+      { error: identity.status === 401 ? "Unauthorized" : identity.code },
+      { status: identity.status },
+    );
   }
-  let authResult: Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  try {
-    authResult = await supabase.auth.getUser();
-  } catch {
-    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  }
-  const { data: { user }, error } = authResult;
-  if (error) return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 });
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   return NextResponse.json(
     {
       error: "LEGACY_ORDER_ROUTE_RETIRED",

@@ -9,6 +9,7 @@ import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
 import { ACTIVITY_CATEGORIES } from "@/lib/fund/activityRules";
 import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 import { minorUnitsFor } from "@/lib/fund/currency";
+import { formatSignedMinorCurrency } from "@/lib/fund/formatMinorCurrency";
 
 type BankTxn = {
   id: string;
@@ -32,11 +33,6 @@ type BankTxn = {
 type Budget = { id: string; category: string; monthly_limit: number; currency: string };
 
 const CATEGORIES = ACTIVITY_CATEGORIES;
-
-function fmtAmount(amount: number) {
-  const abs = Math.abs(amount).toFixed(2);
-  return amount >= 0 ? `+$${abs}` : `−$${abs}`;
-}
 
 type Status = "loading" | "ok" | "no-plaid" | "no-account" | "error";
 const TRANSACTION_PAGE_SIZE = 500;
@@ -236,7 +232,11 @@ export function FundSpendingModule() {
                 <input type="checkbox" checked={t.excluded_from_budget} onChange={(e) => patchTxn(t.id, { excluded_from_budget: e.target.checked })} />
                 Exclude
               </label>
-              <div className={`txn-v${t.amount >= 0 ? " up" : ""}`}>{fmtAmount(t.amount)}</div>
+              <div className={`txn-v${(t.amount_minor ?? -1) >= 0 ? " up" : ""}`}>
+                {t.amount_minor === null
+                  ? "Amount unavailable"
+                  : formatSignedMinorCurrency(t.amount_minor, t.iso_currency_code) ?? "Amount unavailable"}
+              </div>
             </div>
           ))}
         </div>

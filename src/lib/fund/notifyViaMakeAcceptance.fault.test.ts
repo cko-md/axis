@@ -112,4 +112,40 @@ describe("Make webhook acceptance boundary", () => {
       delivered_at: null,
     });
   });
+
+  it("does not claim or deliver an event after cancellation lands during enqueue", async () => {
+    const controller = new AbortController();
+    const row = pendingRow();
+    const claim = vi.fn();
+    const trigger = vi.fn();
+    const store = {
+      enqueue: vi.fn(async () => {
+        controller.abort();
+        return { ok: true as const, data: row };
+      }),
+      getOwned: vi.fn(),
+      claim,
+      complete: vi.fn(),
+      failWithoutAttempt: vi.fn(),
+    } as unknown as MakeOutboxStore;
+    const admin = {
+      from: vi.fn(() => ({ insert: vi.fn(async () => ({ error: null })) })),
+    } as unknown as SupabaseClient;
+
+    await expect(notifyViaMake(admin, {
+      idempotencyKey: "daily:user-1:2026-07-23",
+      kind: "daily_brief",
+      userId: "user-1",
+      to: "person@example.com",
+      subject: "Brief",
+      bodyText: "Private body",
+    }, {
+      store,
+      signal: controller.signal,
+      trigger,
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(claim).not.toHaveBeenCalled();
+    expect(trigger).not.toHaveBeenCalled();
+  });
 });
