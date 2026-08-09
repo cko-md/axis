@@ -146,7 +146,20 @@ export async function readCompleteTransactionCoverage(
     return unavailable();
   }
   const result = data[0] as Record<string, unknown>;
-  if (result.available !== true) return unavailable();
+  if (result.available === false) {
+    if (
+      result.reason === "TRANSACTION_HISTORY_UNAVAILABLE"
+      && Array.isArray(result.coverage)
+      && result.coverage.length === 0
+      && result.lineage_hash === null
+    ) return unavailable();
+    onOperationalError?.(new Error("TRANSACTION_COVERAGE_UNAVAILABLE_RESPONSE_MALFORMED"));
+    return unavailable();
+  }
+  if (result.available !== true) {
+    onOperationalError?.(new Error("TRANSACTION_COVERAGE_AVAILABILITY_MALFORMED"));
+    return unavailable();
+  }
   const facts = parseFacts(result.coverage, windowStart, windowEnd);
   if (!facts) {
     onOperationalError?.(new Error("TRANSACTION_COVERAGE_FACTS_MALFORMED"));

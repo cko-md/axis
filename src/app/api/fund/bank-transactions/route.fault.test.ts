@@ -158,4 +158,18 @@ describe("fund bank-transactions authority boundary", () => {
       { route: "fund/bank-transactions", area: "fund" },
     );
   });
+
+  it("captures a malformed coverage response instead of treating it as unavailable", async () => {
+    const client = supabaseClient();
+    client.rpc.mockResolvedValueOnce({ data: [{}], error: null });
+    mocks.createClient.mockResolvedValue(client);
+
+    const response = await GET(new NextRequest("https://axis.example/api/fund/bank-transactions"));
+
+    expect(response.status).toBe(500);
+    expect(mocks.redactRouteError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "TRANSACTION_COVERAGE_AVAILABILITY_MALFORMED" }),
+      { route: "fund/bank-transactions", area: "fund" },
+    );
+  });
 });
