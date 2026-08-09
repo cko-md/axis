@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 95,
+  "migrationCount": 96,
   "latest": {
-    "version": "20260809230000",
-    "file": "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql",
-    "sha256": "05e71269a9c5d72719971a1a0adf5ba425b2e6c9ddc15adbe55d6ac57016193c"
+    "version": "20260809240000",
+    "file": "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql",
+    "sha256": "7c4e91bd4ada09bed490c341d62ca74ee4e5a5696cf1e3ab15f1a0b64fd22077"
   },
   "migrations": [
     {
@@ -481,6 +481,11 @@
       "version": "20260809230000",
       "file": "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql",
       "sha256": "05e71269a9c5d72719971a1a0adf5ba425b2e6c9ddc15adbe55d6ac57016193c"
+    },
+    {
+      "version": "20260809240000",
+      "file": "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql",
+      "sha256": "7c4e91bd4ada09bed490c341d62ca74ee4e5a5696cf1e3ab15f1a0b64fd22077"
     }
   ]
 }

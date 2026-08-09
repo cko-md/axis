@@ -7,6 +7,8 @@ const migrationFile = "supabase/migrations/20260809210000_fund_order_intents_and
 const migration = readFileSync(resolve(process.cwd(), migrationFile), "utf8");
 const repairFile = "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql";
 const repair = readFileSync(resolve(process.cwd(), repairFile), "utf8");
+const cascadeRepairFile = "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql";
+const cascadeRepair = readFileSync(resolve(process.cwd(), cascadeRepairFile), "utf8");
 
 describe("order intent and verified execution database contract", () => {
   it("keeps immutable not-submitted intents distinct from fills", () => {
@@ -82,6 +84,24 @@ describe("order intent and verified execution database contract", () => {
       version: "20260809230000",
       file: repairFile,
       sha256: createHash("sha256").update(repair).digest("hex"),
+    });
+  });
+
+  it("allows only the declared owner-account cascade to remove unexecuted intents", () => {
+    expect(cascadeRepair).toContain("tg_op = 'DELETE'");
+    expect(cascadeRepair).toContain("pg_catalog.pg_trigger_depth() > 1");
+    expect(cascadeRepair).toContain("raise exception 'order intents are immutable'");
+    expect(cascadeRepair).not.toContain("drop trigger");
+    expect(cascadeRepair).not.toContain("disable trigger");
+
+    const manifest = JSON.parse(readFileSync(
+      resolve(process.cwd(), "scripts/release-migration-manifest.json"),
+      "utf8",
+    )) as { migrations: Array<{ version: string; file: string; sha256: string }> };
+    expect(manifest.migrations.find((candidate) => candidate.file === cascadeRepairFile)).toEqual({
+      version: "20260809240000",
+      file: cascadeRepairFile,
+      sha256: createHash("sha256").update(cascadeRepair).digest("hex"),
     });
   });
 });

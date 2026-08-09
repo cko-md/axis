@@ -13,6 +13,10 @@ const limitNotionalRepair = resolve(
   root,
   "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql",
 );
+const userCascadeRepair = resolve(
+  root,
+  "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql",
+);
 const baseUrl = new URL(
   process.env.AXIS_ORDER_INTENT_DB_URL
     ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -172,6 +176,7 @@ try {
     set session_replication_role = origin;
   `, { label: "remove quarantined preflight fixture" });
   run(disposableUrl, readFileSync(limitNotionalRepair, "utf8"), { label: "apply limit-notional repair" });
+  run(disposableUrl, readFileSync(userCascadeRepair, "utf8"), { label: "apply user-cascade repair" });
 
   assertScalar(
     "select (has_table_privilege('service_role','public.fund_order_intents','INSERT') and not has_table_privilege('service_role','public.fund_order_intents','UPDATE') and not has_table_privilege('service_role','public.fund_order_intents','DELETE') and not has_table_privilege('service_role','public.fund_order_intents','TRUNCATE'))::text;",
@@ -274,6 +279,32 @@ try {
     update public.fund_order_intents set symbol='MSFT'
     where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   `, { expectFailure: true, label: "database-owner intent mutation denial" });
+  run(disposableUrl, `
+    delete from public.fund_order_intents
+    where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  `, { expectFailure: true, label: "database-owner intent deletion denial" });
+  run(disposableUrl, `
+    set role service_role;
+    insert into public.fund_order_intents (
+      id,user_id,provider,action_class,idempotency_key,payload_hash,symbol,side,
+      order_type,quantity_units,quantity_scale,limit_price_minor,
+      reference_price_minor,reference_price_source,estimated_notional_minor,
+      currency,status
+    ) values (
+      '23232323-2323-4323-8323-232323232323',
+      '22222222-2222-4222-8222-222222222222',
+      'public','FINANCIAL_EXECUTION','24242424-2424-4424-8424-242424242424',
+      repeat('2',64),'MSFT','buy','market',125000,1000000,null,41050,
+      'manual_estimate',5131,'USD','not_submitted'
+    );
+    reset role;
+    delete from auth.users where id='22222222-2222-4222-8222-222222222222';
+  `, { label: "unexecuted owner account cascade" });
+  assertScalar(
+    "select count(*)::text from public.fund_order_intents where user_id='22222222-2222-4222-8222-222222222222';",
+    "0",
+    "unexecuted owner account leaves no intent remnants",
+  );
   run(disposableUrl, `
     set role service_role;
     insert into public.fund_order_submissions (

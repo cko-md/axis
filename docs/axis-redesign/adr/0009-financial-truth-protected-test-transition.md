@@ -26,17 +26,22 @@ protected main. Their new authority coverage lives only in additive
 
 | Release input | Candidate blob | Candidate SHA-256 |
 |---|---|---|
-| `scripts/release-migration-manifest.json` | `a1b0d89c619e9552619d9bf5f7232118c3c986e3` | `d455465b6f742c68ae99b0c8c607df2e87a2da2c7a5e9e01f2d4ea9fd051b869` |
+| `scripts/release-migration-manifest.json` | `b0d2ce2babca1d7d21dcb21116b28d31f7646d00` | `1d59115cb6f6045efafa658e5c01b89412f5b2a31b400b2c0fda8ce7ea15b9a1` |
 | `supabase/migrations/20260723090000_net_worth_snapshots_authority_provenance.sql` | `3bc0570b1859610bfe72cdea7ccba3b47f353684` | `6351220ccd30ecff6a5f2b4894c8a0a6d4d92a1c3d709044b6a008fb1dc6cc2d` |
 | `supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql` | `1df6e258319c077a6360f8ffb1fe45e6e5ddc60a` | `23bb299b16b5d4205523ab039b42703419b43df50c63261b4db12fdef577f027` |
 | `supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql` | `9dcc7241fdef6450545363ae555a0cb85218a700` | `8427bbbc495edb38ece6f12095853a6ad5f2d262c2d30360c964c303c6c591da` |
 | `supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql` | `4fe75fd65fa6108bdd3952da165e294ffeffe2aa` | `05e71269a9c5d72719971a1a0adf5ba425b2e6c9ddc15adbe55d6ac57016193c` |
+| `supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql` | `ea1341c992bcf7d86327b317186055b3fac1451a` | `7c4e91bd4ada09bed490c341d62ca74ee4e5a5696cf1e3ab15f1a0b64fd22077` |
 
-The manifest declares 95 migrations and binds `20260809230000` as the exact
-latest file. The repair fails closed before replacing constraints if an
+The manifest declares 96 migrations and binds `20260809240000` as the exact
+latest file. The limit-notional repair fails closed before replacing constraints if an
 existing immutable limit intent was derived from a reference quote rather
 than its limit price; such rows require quarantine and owner review, not an
-in-place rewrite.
+in-place rewrite. The account-cascade repair preserves direct intent
+immutability while permitting only the already-declared nested
+`auth.users` foreign-key cascade to remove unexecuted intents; histories with
+submission or execution evidence remain retained by their `ON DELETE RESTRICT`
+owner constraints.
 
 ## Decision
 
@@ -78,7 +83,8 @@ candidate SHA, eight base/candidate blob pairs, and this ADR before running any
 candidate code. It must reject any additional protected test or control-plane
 delta. Two read-only reviewers must independently verify the financial
 fail-closed semantics and the expansion/application/contract migration
-sequence. The complete focused suite, disposable database validators, one
+sequence. The complete focused suite, disposable database validators including
+direct deletion denial and zero-remnant unexecuted-account cleanup, one
 committed-state full gate, exact-head CI, Vercel preview, authenticated workflow
 replay, logs, Sentry window, and migration evidence must be green.
 
