@@ -387,6 +387,24 @@ function providerCredentialCutoffBoundaryForSubject(
     : Math.max(cutoffMs, legacyInitiatedAtMs);
 }
 
+export function nextProviderAuthorizationIssuedAt(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): number {
+  const boundary = providerCredentialCutoffBoundaryForSubject(
+    store,
+    provider,
+    subject,
+    secret,
+  );
+  if (boundary >= Number.MAX_SAFE_INTEGER) {
+    throw new Error("PROVIDER_AUTHORIZATION_TIME_EXHAUSTED");
+  }
+  return boundary + 1;
+}
+
 function providerAttemptCredentialsForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,

@@ -14,6 +14,7 @@ import {
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForAttempt,
   createProviderOwnerSeal,
+  nextProviderAuthorizationIssuedAt,
   providerTokensForSubject,
   replaceProviderTokenCookies,
   replaceProviderTokenCookiesForAttempt,
@@ -479,6 +480,42 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     expect(providerTokensForSubject(store, "strava", subjectA, secret)).toEqual({
       accessToken: null,
       refreshToken: null,
+    });
+  });
+
+  it("orders a later authorization after its visible disconnect cutoff", () => {
+    const store = new MemoryCookieStore();
+    const fastClock = vi.spyOn(Date, "now").mockReturnValue(nowMs + 10);
+    try {
+      clearProviderTokenCookiesForSubject(store, "spotify", subjectA, secret);
+    } finally {
+      fastClock.mockRestore();
+    }
+    const slowClock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    let initiatedAtMs: number;
+    try {
+      initiatedAtMs = nextProviderAuthorizationIssuedAt(
+        store,
+        "spotify",
+        subjectA,
+        secret,
+      );
+    } finally {
+      slowClock.mockRestore();
+    }
+    expect(initiatedAtMs).toBe(nowMs + 11);
+
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "spotify",
+      { accessToken: "new-access", refreshToken: "new-refresh" },
+      subjectA,
+      secret,
+      { providerState: "o".repeat(43), initiatedAtMs },
+    );
+    expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toMatchObject({
+      accessToken: "new-access",
+      refreshToken: "new-refresh",
     });
   });
 

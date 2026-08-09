@@ -14,6 +14,7 @@ import {
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForAttempt,
+  nextProviderAuthorizationIssuedAt,
   peekOAuthPendingStateCookie,
   peekOAuthPendingStateCookieForAttempt,
   replaceProviderTokenCookiesForAttempt,
@@ -214,12 +215,18 @@ async function initiateAuth(req: NextRequest, subject: string) {
     return privateJson({ error: "STRAVA_NOT_CONFIGURED" }, { status: 503 });
   }
   const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
+  const cookieStore = await cookies();
   const { providerState, sealedState } = createOAuthPendingState({
     provider: "strava",
     subject,
     secret: clientSecret,
+    nowMs: nextProviderAuthorizationIssuedAt(
+      cookieStore,
+      "strava",
+      subject,
+      clientSecret,
+    ),
   });
-  const cookieStore = await cookies();
   setOAuthPendingStateCookie(
     cookieStore,
     "strava",

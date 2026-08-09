@@ -5,7 +5,10 @@ import {
   createOAuthPendingState,
   OAUTH_STATE_TTL_SECONDS,
 } from "@/lib/auth/oauthState.server";
-import { setOAuthPendingStateCookie } from "@/lib/auth/providerCookies.server";
+import {
+  nextProviderAuthorizationIssuedAt,
+  setOAuthPendingStateCookie,
+} from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { getAppOrigin } from "@/lib/auth/getAppOrigin";
 import { optionalEnv } from "@/lib/env";
@@ -52,12 +55,18 @@ export async function POST(req: NextRequest) {
   }
 
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
+  const cookieStore = await cookies();
   const { providerState, sealedState } = createOAuthPendingState({
     provider: "spotify",
     subject: identity.subject,
     secret: clientSecret,
+    nowMs: nextProviderAuthorizationIssuedAt(
+      cookieStore,
+      "spotify",
+      identity.subject,
+      clientSecret,
+    ),
   });
-  const cookieStore = await cookies();
   setOAuthPendingStateCookie(
     cookieStore,
     "spotify",
