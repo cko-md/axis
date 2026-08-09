@@ -23,8 +23,8 @@ import {
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import {
   detectedRecurringMatchesCoverage,
+  readCompleteTransactionRows,
   readCompleteTransactionCoverage,
-  transactionRowsMatchCoverage,
   TRANSACTION_HISTORY_DAYS,
 } from "@/lib/fund/transactionCoverage";
 import { classifyFreshness, FRESHNESS_SLAS } from "@/lib/fund/provenance";
@@ -40,6 +40,38 @@ function safeAdd(left: number, right: number): number {
   const total = addMinorUnits(left, right);
   if (total === null) throw new ToolExecutionError("DATA_UNAVAILABLE");
   return total;
+}
+
+const TOOL_TRANSACTION_SELECT = "custom_category, plaid_category, amount, amount_minor, posted_date, iso_currency_code, is_transfer, excluded_from_budget, connection_id, retrieved_at, generation_id, authority";
+
+type ToolTransactionRow = {
+  custom_category: string | null;
+  plaid_category: string | null;
+  amount: unknown;
+  amount_minor: unknown;
+  posted_date: string;
+  iso_currency_code: string | null;
+  is_transfer: boolean;
+  excluded_from_budget: boolean;
+  connection_id: string;
+  retrieved_at: string | null;
+  generation_id: string;
+  authority: unknown;
+};
+
+async function readToolTransactions(
+  supabase: SupabaseClient,
+  userId: string,
+  start: string,
+  end: string,
+) {
+  return readCompleteTransactionRows<ToolTransactionRow>(
+    supabase,
+    userId,
+    start,
+    end,
+    TOOL_TRANSACTION_SELECT,
+  );
 }
 
 type ProviderComponent = "holdings" | "liabilities";
@@ -295,36 +327,23 @@ const handlers: Record<string, Handler> = {
     const since = new Date(Date.now() - rangeDays * 86400000)
       .toISOString()
       .slice(0, 10);
-    const coverage = await readCompleteTransactionCoverage(
-      supabase,
-      userId,
-      since,
-      new Date().toISOString().slice(0, 10),
-    );
-    if (!coverage.available) throw new ToolExecutionError("DATA_UNAVAILABLE");
-    let query = supabase
-      .from("fund_bank_transactions")
-      .select("custom_category, plaid_category, amount, amount_minor, posted_date, iso_currency_code, connection_id, retrieved_at, generation_id, authority")
-      .eq("user_id", userId)
-      .eq("is_transfer", false)
-      .eq("excluded_from_budget", false)
-      .lt("amount", 0)
-      .gte("posted_date", since);
+    const today = new Date().toISOString().slice(0, 10);
+    const complete = await readToolTransactions(supabase, userId, since, today);
+    if (!complete) throw new ToolExecutionError("DATA_UNAVAILABLE");
     const category = input.category ? String(input.category) : null;
-    if (category) {
-      query = query.or(`custom_category.eq.${category},plaid_category.eq.${category}`);
-    }
-    const { data, error } = await query;
-    if (error) throw new ToolExecutionError("DATA_UNAVAILABLE");
-    if (!transactionRowsMatchCoverage(data ?? [], coverage)) {
-      throw new ToolExecutionError("DATA_UNAVAILABLE");
-    }
+    const data = complete.rows.filter((row) =>
+      row.posted_date >= since
+      && row.posted_date <= today
+      && !row.is_transfer
+      && !row.excluded_from_budget
+      && (!category || row.custom_category === category || row.plaid_category === category),
+    );
 
     const byCategory = new Map<string, number>();
-    for (const t of data ?? []) {
-      if (!t.connection_id || !t.retrieved_at) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    for (const t of data) {
+      if (!t.retrieved_at) throw new ToolExecutionError("DATA_UNAVAILABLE");
       const amountMinor = requiredUsdMinor(t.amount, t.iso_currency_code);
-      if (amountMinor >= 0) throw new ToolExecutionError("DATA_UNAVAILABLE");
+      if (amountMinor >= 0) continue;
       const cat = t.custom_category ?? t.plaid_category ?? "uncategorized";
       byCategory.set(cat, safeAdd(byCategory.get(cat) ?? 0, Math.abs(amountMinor)));
     }
@@ -332,7 +351,7 @@ const handlers: Record<string, Handler> = {
       range_days: rangeDays,
       since,
       authority: "provider",
-      coverage: coverage.facts,
+      coverage: complete.proof.facts,
       by_category: [...byCategory.entries()].map(([category, totalMinor]) => ({
         category,
         total: minorUnitsToDecimalString(totalMinor, "USD"),
@@ -346,37 +365,26 @@ const handlers: Record<string, Handler> = {
     const monthStart = new Date();
     monthStart.setDate(1);
     const since = monthStart.toISOString().slice(0, 10);
-    const coverage = await readCompleteTransactionCoverage(
-      supabase,
-      userId,
-      since,
-      new Date().toISOString().slice(0, 10),
-    );
-    if (!coverage.available) throw new ToolExecutionError("DATA_UNAVAILABLE");
-
-    const [{ data: budgets, error: budgetErr }, { data: txns, error: txnErr }] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [{ data: budgets, error: budgetErr }, complete] = await Promise.all([
       supabase.from("fund_category_budgets").select("category, monthly_limit, currency").eq("user_id", userId),
-      supabase
-        .from("fund_bank_transactions")
-        .select("custom_category, plaid_category, amount, amount_minor, iso_currency_code, connection_id, retrieved_at, generation_id, authority")
-        .eq("user_id", userId)
-        .eq("is_transfer", false)
-        .eq("excluded_from_budget", false)
-        .lt("amount", 0)
-        .gte("posted_date", since),
+      readToolTransactions(supabase, userId, since, today),
     ]);
-    if (budgetErr || txnErr) throw new ToolExecutionError("DATA_UNAVAILABLE");
-    if (!transactionRowsMatchCoverage(txns ?? [], coverage)) {
-      throw new ToolExecutionError("DATA_UNAVAILABLE");
-    }
+    if (budgetErr || !complete) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    const txns = complete.rows.filter((row) =>
+      row.posted_date >= since
+      && row.posted_date <= today
+      && !row.is_transfer
+      && !row.excluded_from_budget,
+    );
 
     const spendByCategoryCurrency = new Map<string, number>();
-    for (const t of txns ?? []) {
-      if (!t.connection_id || !t.retrieved_at) throw new ToolExecutionError("DATA_UNAVAILABLE");
+    for (const t of txns) {
+      if (!t.retrieved_at) throw new ToolExecutionError("DATA_UNAVAILABLE");
       const currency = normalizeFinancialCurrency(t.iso_currency_code, "");
       const amountMinor = currency ? strictExactMinorUnits(t.amount, currency) : null;
       if (!currency || amountMinor === null) throw new ToolExecutionError("DATA_UNAVAILABLE");
-      if (amountMinor >= 0) throw new ToolExecutionError("DATA_UNAVAILABLE");
+      if (amountMinor >= 0) continue;
       const cat = t.custom_category ?? t.plaid_category ?? "uncategorized";
       const key = `${cat}\u0000${currency}`;
       spendByCategoryCurrency.set(
@@ -388,7 +396,7 @@ const handlers: Record<string, Handler> = {
     return {
       month_to_date_since: since,
       authority: "provider",
-      coverage: coverage.facts,
+      coverage: complete.proof.facts,
       budgets: (budgets ?? []).map((b) => {
         const currency = normalizeFinancialCurrency(b.currency, "");
         const limitMinor = currency ? strictExactMinorUnits(b.monthly_limit, currency) : null;

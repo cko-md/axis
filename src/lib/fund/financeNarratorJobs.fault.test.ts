@@ -13,7 +13,9 @@ import { checkBudgetThresholds, detectAndExplainAnomalies } from "./financeNarra
 
 function query(result: { data: unknown[]; error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "lt", "gte"]) chain[method] = vi.fn(() => chain);
+  for (const method of ["select", "eq", "lt", "gte", "lte", "order", "range"]) {
+    chain[method] = vi.fn(() => chain);
+  }
   chain.then = (
     resolve: (value: typeof result) => unknown,
     reject: (reason: unknown) => unknown,
@@ -23,6 +25,26 @@ function query(result: { data: unknown[]; error: null }) {
 
 function admin() {
   const generationId = "11111111-1111-4111-8111-111111111111";
+  const today = new Date().toISOString().slice(0, 10);
+  const publishedStart = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const baseTransaction = {
+    custom_category: "FOOD",
+    plaid_category: null,
+    iso_currency_code: "USD",
+    posted_date: today,
+    is_transfer: false,
+    excluded_from_budget: false,
+    connection_id: "connection-1",
+    generation_id: generationId,
+    retrieved_at: new Date().toISOString(),
+  };
+  const transactionRows = [
+    { ...baseTransaction, id: "debit", amount: "-90071992547409.91" },
+    { ...baseTransaction, id: "credit", amount: "100.00" },
+    { ...baseTransaction, id: "transfer", amount: "-100.00", is_transfer: true },
+    { ...baseTransaction, id: "excluded", amount: "-100.00", excluded_from_budget: true },
+    { ...baseTransaction, id: "older", amount: "-100.00", posted_date: publishedStart },
+  ];
   return {
     rpc: vi.fn(async (_name: string, params: Record<string, unknown>) => ({
       data: [{
@@ -32,9 +54,9 @@ function admin() {
           provider: "plaid",
           component: "transactions",
           complete: true,
-          record_count: 1,
+          record_count: transactionRows.length,
           retrieved_at: new Date().toISOString(),
-          window_start: params.p_window_start,
+          window_start: publishedStart,
           window_end: params.p_window_end,
           generation_id: generationId,
           generation_hash: "a".repeat(64),
@@ -48,18 +70,7 @@ function admin() {
         return query({ data: [{ category: "FOOD", monthly_limit: "0.01", currency: "USD" }], error: null });
       }
       if (table === "fund_bank_transactions") {
-        return query({
-          data: [{
-            custom_category: "FOOD",
-            plaid_category: null,
-            amount: "-90071992547409.91",
-            iso_currency_code: "USD",
-            connection_id: "connection-1",
-            generation_id: generationId,
-            retrieved_at: "2026-07-23T12:00:00.000Z",
-          }],
-          error: null,
-        });
+        return query({ data: transactionRows, error: null });
       }
       throw new Error(`Unexpected table ${table}`);
     }),

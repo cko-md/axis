@@ -15,12 +15,55 @@ import {
 } from "@/lib/fund/financialTruth";
 import {
   detectedRecurringMatchesCoverage,
+  readCompleteTransactionRows,
   readCompleteTransactionCoverage,
-  transactionRowsMatchCoverage,
   TRANSACTION_HISTORY_DAYS,
 } from "@/lib/fund/transactionCoverage";
 
 const CADENCE_DAYS: Record<string, number> = { weekly: 7, biweekly: 14, monthly: 30, quarterly: 91, annual: 365 };
+const NARRATOR_TRANSACTION_SELECT = "id, merchant_name, custom_category, plaid_category, amount, amount_minor, iso_currency_code, posted_date, is_transfer, excluded_from_budget, pending, connection_id, retrieved_at, generation_id, authority";
+
+type NarratorTransactionRow = {
+  id: string;
+  merchant_name: string | null;
+  custom_category: string | null;
+  plaid_category: string | null;
+  amount: unknown;
+  amount_minor: unknown;
+  iso_currency_code: string | null;
+  posted_date: string;
+  is_transfer: boolean;
+  excluded_from_budget: boolean;
+  pending: boolean;
+  connection_id: string;
+  retrieved_at: string | null;
+  generation_id: string;
+  authority: unknown;
+};
+
+async function readNarratorTransactions(
+  admin: SupabaseClient,
+  userId: string,
+  start: string,
+  end: string,
+  signal?: AbortSignal,
+) {
+  return readCompleteTransactionRows<NarratorTransactionRow>(
+    admin,
+    userId,
+    start,
+    end,
+    NARRATOR_TRANSACTION_SELECT,
+    signal,
+  );
+}
+
+function providerDebitMinor(row: NarratorTransactionRow): number | null {
+  const currency = normalizeFinancialCurrency(row.iso_currency_code, "");
+  const amountMinor = currency ? strictExactMinorUnits(row.amount, currency) : null;
+  if (!currency || amountMinor === null) throw new Error("FINANCE_INPUT_AMOUNT_INVALID");
+  return amountMinor < 0 ? amountMinor : null;
+}
 
 function ensureJobActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("Finance job aborted", "AbortError");
@@ -57,37 +100,27 @@ export async function checkBudgetThresholds(
   monthStart.setDate(1);
   const since = monthStart.toISOString().slice(0, 10);
   const monthKey = since.slice(0, 7);
-  const coverage = await readCompleteTransactionCoverage(
-    admin,
-    userId,
-    since,
-    new Date().toISOString().slice(0, 10),
-    signal,
-  );
-  if (!coverage.available) return noNotifications();
-
-  const [{ data: budgets, error: budgetError }, { data: txns, error: transactionError }] = await Promise.all([
+  const today = new Date().toISOString().slice(0, 10);
+  const [{ data: budgets, error: budgetError }, complete] = await Promise.all([
     admin.from("fund_category_budgets").select("category, monthly_limit, currency").eq("user_id", userId),
-    admin
-      .from("fund_bank_transactions")
-      .select("custom_category, plaid_category, amount, amount_minor, iso_currency_code, connection_id, retrieved_at, generation_id, authority")
-      .eq("user_id", userId)
-      .eq("is_transfer", false)
-      .eq("excluded_from_budget", false)
-      .lt("amount", 0)
-      .gte("posted_date", since),
+    readNarratorTransactions(admin, userId, since, today, signal),
   ]);
   if (budgetError) throw budgetError;
-  if (transactionError) throw transactionError;
-  if (!transactionRowsMatchCoverage(txns ?? [], coverage)) return noNotifications();
+  if (!complete) return noNotifications();
+  const txns = complete.rows.filter((row) =>
+    row.posted_date >= since
+    && row.posted_date <= today
+    && !row.is_transfer
+    && !row.excluded_from_budget,
+  );
 
   const spendByCategoryCurrency = new Map<string, number>();
   for (const t of txns ?? []) {
-    if (!t.connection_id || !t.retrieved_at) throw new Error("FINANCE_INPUT_PROVENANCE_UNAVAILABLE");
+    if (!t.retrieved_at) throw new Error("FINANCE_INPUT_PROVENANCE_UNAVAILABLE");
     const currency = normalizeFinancialCurrency(t.iso_currency_code, "");
-    const amountMinor = currency ? strictExactMinorUnits(t.amount, currency) : null;
-    if (!currency || amountMinor === null) throw new Error("FINANCE_INPUT_AMOUNT_INVALID");
-    if (amountMinor >= 0) throw new Error("FINANCE_INPUT_SIGN_INVALID");
+    const amountMinor = providerDebitMinor(t);
+    if (!currency) throw new Error("FINANCE_INPUT_AMOUNT_INVALID");
+    if (amountMinor === null) continue;
     const cat = cleanFinanceLabel(t.custom_category ?? t.plaid_category, "uncategorized");
     const key = `${cat}\u0000${currency}`;
     spendByCategoryCurrency.set(
@@ -139,34 +172,19 @@ export async function detectAndExplainAnomalies(
   void _anthropic;
   const since90 = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86400000).toISOString().slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
-  const coverage = await readCompleteTransactionCoverage(admin, userId, since90, today, signal);
-  if (!coverage.available) return noNotifications();
-
-  const { data: history, error: historyError } = await admin
-    .from("fund_bank_transactions")
-    .select("id, merchant_name, amount, amount_minor, iso_currency_code, posted_date, is_transfer, pending, connection_id, retrieved_at, generation_id, authority")
-    .eq("user_id", userId)
-    .eq("is_transfer", false)
-    .lt("amount", 0)
-    .gte("posted_date", since90);
-
-  const { data: todays, error: todayError } = await admin
-    .from("fund_bank_transactions")
-    .select("id, merchant_name, amount, amount_minor, iso_currency_code, posted_date, is_transfer, pending, connection_id, retrieved_at, generation_id, authority")
-    .eq("user_id", userId)
-    .eq("is_transfer", false)
-    .lt("amount", 0)
-    .eq("posted_date", today);
-  if (historyError) throw historyError;
-  if (todayError) throw todayError;
-
-  if (!todays || todays.length === 0) return noNotifications();
-  if (!transactionRowsMatchCoverage([...(history ?? []), ...todays], coverage)) {
-    return noNotifications();
-  }
+  const complete = await readNarratorTransactions(admin, userId, since90, today, signal);
+  if (!complete) return noNotifications();
+  const history = complete.rows.filter((row) =>
+    row.posted_date >= since90
+    && row.posted_date <= today
+    && !row.is_transfer
+    && providerDebitMinor(row) !== null,
+  );
+  const todays = history.filter((row) => row.posted_date === today);
+  if (todays.length === 0) return noNotifications();
   // Missing lineage in either the current row or its comparison population
   // cannot be interpreted as a new merchant or a trustworthy baseline.
-  if ([...(history ?? []), ...todays].some((row) =>
+  if (history.some((row) =>
     typeof row.connection_id !== "string"
     || !row.connection_id
     || typeof row.retrieved_at !== "string"
@@ -181,7 +199,7 @@ export async function detectAndExplainAnomalies(
       currency: t.iso_currency_code,
       isTransfer: t.is_transfer,
       pending: t.pending,
-    }, (history ?? []).filter((entry) => entry.posted_date !== today));
+    }, history.filter((entry) => entry.posted_date !== today));
     const reason = activityAnomalyReason(assessment);
     if (!reason) continue;
     if (!assessment.available || assessment.amountMinor === null) {
@@ -282,27 +300,18 @@ export async function writeWeeklyRecap(
   if (!todayExact || !changeExact) throw new Error("NET_WORTH_HISTORY_INVALID");
 
   const since = weekAgo.captured_on;
-  const { data: txns, error: transactionError } = await admin
-    .from("fund_bank_transactions")
-    .select("custom_category, plaid_category, amount, amount_minor, iso_currency_code, connection_id, retrieved_at, generation_id, authority")
-    .eq("user_id", userId)
-    .eq("is_transfer", false)
-    .lt("amount", 0)
-    .gte("posted_date", since);
-  if (transactionError) throw transactionError;
-  const coverage = await readCompleteTransactionCoverage(
-    admin,
-    userId,
-    since,
-    today.captured_on,
-    signal,
+  const complete = await readNarratorTransactions(admin, userId, since, today.captured_on, signal);
+  if (!complete) return noNotifications();
+  const coverage = complete.proof;
+  const txns = complete.rows.filter((row) =>
+    row.posted_date >= since
+    && row.posted_date <= today.captured_on
+    && !row.is_transfer
+    && providerDebitMinor(row) !== null,
   );
-  if (!coverage.available || !transactionRowsMatchCoverage(txns ?? [], coverage)) {
-    return noNotifications();
-  }
   const spendByCategory = new Map<string, number>();
   for (const t of txns ?? []) {
-    if (!t.connection_id || !t.retrieved_at) throw new Error("FINANCE_INPUT_PROVENANCE_UNAVAILABLE");
+    if (!t.retrieved_at) throw new Error("FINANCE_INPUT_PROVENANCE_UNAVAILABLE");
     const amountMinor = requiredUsdMinor(t.amount, t.iso_currency_code);
     if (amountMinor >= 0) throw new Error("FINANCE_INPUT_SIGN_INVALID");
     const cat = cleanFinanceLabel(t.custom_category ?? t.plaid_category, "uncategorized");

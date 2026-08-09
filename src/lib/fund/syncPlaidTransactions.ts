@@ -15,6 +15,7 @@ const MAX_PAGES = 20;
 const MAX_RECORDS = PAGE_SIZE * MAX_PAGES;
 const SYNC_DEADLINE_MS = 25_000;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 
 type PlaidTxn = {
   transaction_id?: unknown;
@@ -240,7 +241,7 @@ export async function syncPlaidTransactions(
   if (typeof rpc !== "function") {
     return syncError("PLAID_TRANSACTION_ATOMIC_PUBLISH_UNAVAILABLE");
   }
-  const { error } = await rpc.call(admin, "publish_fund_transaction_generation", {
+  const { data, error } = await rpc.call(admin, "publish_fund_transaction_generation", {
     p_user_id: userId,
     p_connection_id: connectionId,
     p_window_start: windowStart,
@@ -249,5 +250,13 @@ export async function syncPlaidTransactions(
     p_generation_id: generationId,
     p_rows: rows,
   });
-  return error ? syncError("PLAID_TRANSACTION_PERSIST_FAILED") : { synced: rows.length };
+  if (error || !Array.isArray(data) || data.length !== 1) {
+    return syncError("PLAID_TRANSACTION_PERSIST_FAILED");
+  }
+  const receipt = data[0] as Record<string, unknown>;
+  return receipt.record_count === rows.length
+    && typeof receipt.generation_hash === "string"
+    && SHA256.test(receipt.generation_hash)
+    ? { synced: rows.length }
+    : syncError("PLAID_TRANSACTION_PERSIST_FAILED");
 }

@@ -64,7 +64,11 @@ function adminClient(rpcError: unknown = null) {
   });
   const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
     rpcCalls.push({ name, params });
-    return { data: null, error: rpcError };
+    const rows = Array.isArray(params.p_rows) ? params.p_rows : [];
+    return {
+      data: [{ record_count: rows.length, generation_hash: "a".repeat(64) }],
+      error: rpcError,
+    };
   });
 
   return {
@@ -179,6 +183,18 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
 
   it("does not report success when atomic publication fails", async () => {
     const db = adminClient({ message: "transaction rolled back" });
+
+    const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
+
+    expect(result).toEqual({ error: "PLAID_TRANSACTION_PERSIST_FAILED" });
+  });
+
+  it("does not report success without an exact publication receipt", async () => {
+    const db = adminClient();
+    (db.admin.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: [{ record_count: 0, generation_hash: "invalid" }],
+      error: null,
+    });
 
     const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 

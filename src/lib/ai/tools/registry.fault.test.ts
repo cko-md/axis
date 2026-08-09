@@ -26,7 +26,7 @@ type QueryResult = { data: unknown[] | null; error: unknown };
 
 function query(result: QueryResult) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "gte", "lte", "order", "limit"]) {
+  for (const method of ["select", "eq", "gte", "lte", "order", "limit", "range"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (
@@ -185,6 +185,70 @@ describe("AI finance tool fault boundaries", () => {
       total_cash: null,
       available: false,
       reason: "CASH_PROVIDER_SERVER_ADAPTER_REQUIRED",
+    });
+  });
+
+  it("verifies the full generation before applying spending filters", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const publishedStart = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+    const generationId = "11111111-1111-4111-8111-111111111111";
+    const base = {
+      custom_category: "FOOD",
+      plaid_category: null,
+      amount_minor: -1000,
+      iso_currency_code: "USD",
+      posted_date: today,
+      is_transfer: false,
+      excluded_from_budget: false,
+      connection_id: "connection-1",
+      retrieved_at: new Date().toISOString(),
+      generation_id: generationId,
+      authority: "provider",
+    };
+    const rows = [
+      { ...base, amount: "-10.00" },
+      { ...base, amount: "5.00", amount_minor: 500 },
+      { ...base, amount: "-20.00", amount_minor: -2000, is_transfer: true },
+      { ...base, amount: "-30.00", amount_minor: -3000, excluded_from_budget: true },
+      { ...base, amount: "-40.00", amount_minor: -4000, posted_date: publishedStart },
+    ];
+    const supabase = {
+      rpc: vi.fn(async () => ({
+        data: [{
+          available: true,
+          coverage: [{
+            connection_id: "connection-1",
+            provider: "plaid",
+            component: "transactions",
+            complete: true,
+            record_count: rows.length,
+            retrieved_at: new Date().toISOString(),
+            window_start: publishedStart,
+            window_end: today,
+            generation_id: generationId,
+            generation_hash: "a".repeat(64),
+          }],
+          lineage_hash: "b".repeat(64),
+        }],
+        error: null,
+      })),
+      from: vi.fn(() => query({ data: rows, error: null })),
+    } as unknown as SupabaseClient;
+
+    const result = await executeTool(
+      "get_spending_by_category",
+      { range_days: 30 },
+      ctx(supabase),
+    );
+
+    expect(result).toMatchObject({
+      authority: "provider",
+      by_category: [{
+        category: "FOOD",
+        total: "10.00",
+        total_minor: 1000,
+        currency: "USD",
+      }],
     });
   });
 });
