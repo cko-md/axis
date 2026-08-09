@@ -39,6 +39,7 @@ afterEach(async () => {
   observed = {};
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("useWidgetData AUTH-006 subject boundary", () => {
@@ -83,5 +84,63 @@ describe("useWidgetData AUTH-006 subject boundary", () => {
       await Promise.resolve();
     });
     expect(observed).toEqual({});
+  });
+
+  it("aborts an interval batch request when the hook unmounts", async () => {
+    vi.useFakeTimers();
+    const intervalBody = deferred<Record<string, unknown>>();
+    let intervalSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_url: URL, init?: RequestInit) => {
+      if (fetchMock.mock.calls.length === 2) {
+        intervalSignal = init?.signal ?? undefined;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => intervalBody.promise,
+        });
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        widgets: {},
+        errors: {},
+        fetchedAt: new Date().toISOString(),
+      }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<Probe state="ready" subject={SUBJECT_A} epoch={1} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(intervalSignal?.aborted).toBe(false);
+
+    await act(async () => root?.unmount());
+    root = null;
+    expect(intervalSignal?.aborted).toBe(true);
+
+    intervalBody.resolve({
+      widgets: {
+        run: {
+          id: "run",
+          status: "ok",
+          value: "private interval result",
+          hint: "private interval hint",
+          fetchedAt: new Date().toISOString(),
+          source: "strava",
+        },
+      },
+      errors: {},
+    });
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });

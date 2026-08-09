@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import {
-  clearProviderCredentialCookiesForSubject,
   providerTokensForSubject,
   replaceRefreshedProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
@@ -68,12 +67,11 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       res.status < 500 &&
       data?.error === "invalid_grant"
     ) {
-      clearProviderCredentialCookiesForSubject(
-        cookieStore,
-        "spotify",
-        subject,
-        clientSecret,
-      );
+      // A refresh response cannot safely compare-and-delete browser cookies:
+      // another same-subject request may already have rotated this exact
+      // credential slot. Preserve the request snapshot so a stale loser cannot
+      // erase the winner; an explicit disconnect or newer OAuth attempt owns
+      // durable cleanup.
       return null;
     }
     if (res.status >= 400) {

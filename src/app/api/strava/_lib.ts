@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import {
-  clearProviderCredentialCookiesForSubject,
   providerTokensForSubject,
   replaceRefreshedProviderTokenCookies,
 } from "@/lib/auth/providerCookies.server";
@@ -68,12 +67,10 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       res.status < 500 &&
       data?.error === "invalid_grant"
     ) {
-      clearProviderCredentialCookiesForSubject(
-        cookieStore,
-        "strava",
-        subject,
-        clientSecret,
-      );
+      // HTTP cookie responses provide no compare-and-swap against a concurrent
+      // refresh that may already have rotated this same credential slot. A
+      // stale invalid_grant response must therefore remain non-mutating; later
+      // OAuth authorization or explicit disconnect performs durable cleanup.
       return null;
     }
     if (res.status >= 400) {

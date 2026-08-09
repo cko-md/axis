@@ -403,7 +403,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       secret: "strava-secret",
       getAccessToken: getStravaAccessToken,
     },
-  ])("treats a definitive $provider refresh rejection as disconnected", async ({
+  ])("treats a definitive $provider refresh rejection as disconnected without mutating its snapshot", async ({
     provider,
     owner,
     access,
@@ -422,8 +422,12 @@ describe("AUTH-006 direct provider token helpers", () => {
     )));
 
     await expect(getAccessToken(userId)).resolves.toBeNull();
-    expect(mocks.cookieStore.values.has(owner)).toBe(false);
+    expect(mocks.cookieStore.values.get(owner)).toBe(
+      createProviderOwnerSeal(provider, subject, secret),
+    );
     expect(mocks.cookieStore.values.has(access)).toBe(false);
-    expect(mocks.cookieStore.values.has(refresh)).toBe(false);
+    expect(mocks.cookieStore.values.get(refresh)).toBe("revoked-refresh");
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+    expect(mocks.cookieStore.delete).not.toHaveBeenCalled();
   });
 });

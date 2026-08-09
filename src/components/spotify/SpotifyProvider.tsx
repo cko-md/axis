@@ -390,12 +390,20 @@ export function SpotifyProvider({
         },
       );
       if (!isCurrent(authority) || controller.signal.aborted) return null;
+      let message: string | undefined;
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as {
+          message?: unknown;
+        } | null;
+        if (!isCurrent(authority) || controller.signal.aborted) return null;
+        if (typeof body?.message === "string") message = body.message;
+      }
       const timer = setTimeout(() => {
         resyncTimersRef.current.delete(timer);
         if (isCurrent(authority)) void poll();
       }, 350);
       resyncTimersRef.current.add(timer);
-      return { response, authority };
+      return { ok: response.ok, authority, message };
     } catch {
       if (isCurrent(authority) && !controller.signal.aborted) {
         stateAuthorityRef.current = authority;
@@ -473,56 +481,25 @@ export function SpotifyProvider({
   const playUris = useCallback(async (uris: string[]) => {
     const result = await post({ action: "play", uris });
     if (!result || !isCurrent(result.authority)) return null;
-    if (result.response.ok) {
-      return isCurrent(result.authority)
-        ? commandResult(result.authority, true)
-        : null;
-    }
-    const body = await result.response.json().catch(() => null) as {
-      message?: unknown;
-    } | null;
-    if (!isCurrent(result.authority)) return null;
     return commandResult(
       result.authority,
-      false,
-      typeof body?.message === "string" ? body.message : undefined,
+      result.ok,
+      result.message,
     );
   }, [isCurrent, post]);
   const playContext = useCallback(async (contextUri: string) => {
     const result = await post({ action: "play", contextUri });
     if (!result || !isCurrent(result.authority)) return null;
-    if (result.response.ok) {
-      return isCurrent(result.authority)
-        ? commandResult(result.authority, true)
-        : null;
-    }
-    const body = await result.response.json().catch(() => null) as {
-      message?: unknown;
-    } | null;
-    if (!isCurrent(result.authority)) return null;
     return commandResult(
       result.authority,
-      false,
-      typeof body?.message === "string" ? body.message : undefined,
+      result.ok,
+      result.message,
     );
   }, [isCurrent, post]);
   const queue = useCallback(async (uri: string) => {
     const result = await post({ action: "queue", uri });
     if (!result || !isCurrent(result.authority)) return null;
-    if (result.response.ok) {
-      return isCurrent(result.authority)
-        ? commandResult(result.authority, true)
-        : null;
-    }
-    try {
-      const body = await result.response.json() as { message?: string };
-      if (!isCurrent(result.authority)) return null;
-      return commandResult(result.authority, false, body.message);
-    } catch {
-      return isCurrent(result.authority)
-        ? commandResult(result.authority, false)
-        : null;
-    }
+    return commandResult(result.authority, result.ok, result.message);
   }, [isCurrent, post]);
 
   const currentAuthority = authorityRef.current;

@@ -180,8 +180,10 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
 
   it("drops a queue error body parsed after the request authority retires", async () => {
     const queueBody = deferred<{ message: string }>();
+    let commandSignal: AbortSignal | undefined;
     const fetchMock = vi.fn((input: URL, init?: RequestInit) => {
       if (input.pathname === "/api/spotify/playback" && init?.method === "POST") {
+        commandSignal = init.signal ?? undefined;
         return Promise.resolve({
           ok: false,
           status: 404,
@@ -222,6 +224,7 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
         </SpotifyProvider>,
       );
     });
+    expect(commandSignal?.aborted).toBe(true);
     queueBody.resolve({ message: "A private provider message" });
     expect(queueResult).toBeDefined();
     await expect(queueResult!).resolves.toBeNull();
@@ -302,8 +305,10 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
 
   it("drops a playback failure body parsed after authority retirement", async () => {
     const playBody = deferred<{ message: string }>();
+    let commandSignal: AbortSignal | undefined;
     const fetchMock = vi.fn((input: URL, init?: RequestInit) => {
       if (input.pathname === "/api/spotify/playback" && init?.method === "POST") {
+        commandSignal = init.signal ?? undefined;
         return Promise.resolve({
           ok: false,
           status: 404,
@@ -339,6 +344,7 @@ describe("SpotifyProvider AUTH-006 authority fencing", () => {
         </SpotifyProvider>,
       );
     });
+    expect(commandSignal?.aborted).toBe(true);
     playBody.resolve({ message: "A private provider message" });
 
     expect(pending).toBeDefined();

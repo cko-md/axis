@@ -91,6 +91,12 @@ export function useWidgetData(
     return current?.subject === authority.subject && current.epoch === authority.epoch;
   }, []);
 
+  const retireWidgetRequests = useCallback(() => {
+    for (const controller of controllersRef.current) controller.abort();
+    controllersRef.current.clear();
+    dataAuthorityRef.current = null;
+  }, []);
+
   useEffect(() => {
     const authority = authorityRef.current;
     if (!authority) {
@@ -132,15 +138,14 @@ export function useWidgetData(
   ]);
 
   useEffect(() => {
-    for (const controller of controllersRef.current) controller.abort();
-    controllersRef.current.clear();
-    dataAuthorityRef.current = null;
+    retireWidgetRequests();
     setData({});
     geoRef.current = DEFAULT_LOCATION;
   }, [
     providerAuthority?.accountState,
     providerAuthority?.authorityEpoch,
     providerAuthority?.subject,
+    retireWidgetRequests,
   ]);
 
   const refreshBatch = useCallback(
@@ -251,6 +256,7 @@ export function useWidgetData(
     return () => {
       controller.abort();
       clearInterval(intervalId);
+      retireWidgetRequests();
     };
     // geoVersion is intentionally included: it bumps once real GPS coordinates
     // land (see the geolocation effect above), so location-dependent widgets
@@ -262,6 +268,7 @@ export function useWidgetData(
     providerAuthority?.authorityEpoch,
     providerAuthority?.subject,
     refreshAll,
+    retireWidgetRequests,
   ]);
 
   const currentAuthority = authorityRef.current;
