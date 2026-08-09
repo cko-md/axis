@@ -105,6 +105,18 @@ describe("AUTH-006 direct provider token helpers", () => {
     expect(mocks.cookieStore.values.get("spotify_access_token")).toBe("bound-access");
   });
 
+  it.each([
+    ["spotify", "SPOTIFY_CLIENT_SECRET", getSpotifyAccessToken],
+    ["strava", "STRAVA_CLIENT_SECRET", getStravaAccessToken],
+  ] as const)("returns disconnected when %s owner sealing is not configured", async (
+    _provider,
+    secretName,
+    getAccessToken,
+  ) => {
+    delete process.env[secretName];
+    await expect(getAccessToken(userId)).resolves.toBeNull();
+  });
+
   it("refreshes an attempt credential without publishing into a shared slot", async () => {
     const providerState = "g".repeat(43);
     replaceProviderTokenCookiesForAttempt(

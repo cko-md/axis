@@ -33,12 +33,13 @@ export function isConfigured(): boolean {
 export async function getAccessToken(userId: string): Promise<string | null> {
   const subject = profileSubjectForUserId(userId);
   const clientSecret = optionalEnv("STRAVA_CLIENT_SECRET") ?? "";
+  const clientId = optionalEnv("STRAVA_CLIENT_ID");
+  if (!clientId || !clientSecret) return null;
   const cookieStore = await cookies();
   const tokens = providerTokensForSubject(cookieStore, "strava", subject, clientSecret);
   if (tokens.accessToken) return tokens.accessToken;
 
-  const clientId = optionalEnv("STRAVA_CLIENT_ID");
-  if (!tokens.refreshToken || !clientId || !clientSecret) return null;
+  if (!tokens.refreshToken) return null;
 
   let exchange: { response: Response; body: {
     access_token?: unknown;

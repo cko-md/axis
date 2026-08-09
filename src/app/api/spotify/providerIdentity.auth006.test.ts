@@ -218,7 +218,13 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     ));
 
     expect(response.status).toBe(200);
-    expect(mocks.cookieStore.values.size).toBe(0);
+    expect(mocks.cookieStore.values.has("spotify_token_owner")).toBe(false);
+    expect(mocks.cookieStore.values.has("spotify_access_token")).toBe(false);
+    expect(mocks.cookieStore.values.has("spotify_refresh_token")).toBe(false);
+    expect(mocks.cookieStore.values.has("spotify_oauth_state")).toBe(false);
+    const cutoff = [...mocks.cookieStore.values.entries()].find(([name]) =>
+      name.startsWith("spotify_token_owner_cut1_"));
+    expect(cutoff?.[1]).toMatch(/^pc1_[A-Za-z0-9_-]{43}$/);
   });
 
   it("publishes owner-bound tokens only after a valid single-use callback", async () => {

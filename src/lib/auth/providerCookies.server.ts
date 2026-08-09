@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { oauthPendingStateCookieName } from "@/lib/auth/directProviderCookies";
 import {
   oauthPendingStateBelongsToSubject,
@@ -66,6 +66,10 @@ const OAUTH_ATTEMPT_VERSION = 1;
 const OAUTH_PROVIDER_STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CREDENTIAL_ATTEMPT_VERSION = 1;
 const CREDENTIAL_ATTEMPT_OWNER_PATTERN = /^pa1_([0-9a-z]+)_([A-Za-z0-9_-]{43})$/;
+const CREDENTIAL_CUTOFF_VERSION = 1;
+const CREDENTIAL_CUTOFF_SUFFIX_PATTERN = /^([0-9a-z]+)_([a-f0-9]{16})$/;
+const CREDENTIAL_CUTOFF_VALUE_PATTERN = /^pc1_[A-Za-z0-9_-]{43}$/;
+const CREDENTIAL_CUTOFF_MAX_AGE = 60 * 60 * 24 * 365;
 
 function options(maxAge: number): CookieOptions {
   return {
@@ -248,11 +252,94 @@ function validProviderAttemptOwnerSeal(
     : null;
 }
 
+function credentialCutoffPrefix(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): string {
+  return `${PROVIDER_COOKIES[provider].owner}_cut${CREDENTIAL_CUTOFF_VERSION}_${subjectCookieSlot(provider, subject, secret)}_`;
+}
+
+function createCredentialCutoffValue(
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+  suffix: string,
+): string {
+  if (!isProfileSubject(subject) || !secret || !CREDENTIAL_CUTOFF_SUFFIX_PATTERN.test(suffix)) {
+    throw new Error("PROVIDER_CREDENTIAL_CUTOFF_INPUT_INVALID");
+  }
+  const digest = createHmac("sha256", ownerSealKey(secret, provider))
+    .update(
+      `axis:direct-provider-credential-cutoff:v${CREDENTIAL_CUTOFF_VERSION}\0${subject}\0${suffix}`,
+    )
+    .digest("base64url");
+  return `pc${CREDENTIAL_CUTOFF_VERSION}_${digest}`;
+}
+
+function providerCredentialCutoffForSubject(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): number | null {
+  const prefix = credentialCutoffPrefix(provider, subject, secret);
+  const valid: Array<{ name: string; cutoffMs: number }> = [];
+  for (const cookie of store.getAll?.() ?? []) {
+    if (!cookie.name.startsWith(prefix)) continue;
+    const suffix = cookie.name.slice(prefix.length);
+    const match = suffix.match(CREDENTIAL_CUTOFF_SUFFIX_PATTERN);
+    if (!match || !match[1] || !CREDENTIAL_CUTOFF_VALUE_PATTERN.test(cookie.value)) {
+      continue;
+    }
+    const cutoffMs = Number.parseInt(match[1], 36);
+    if (!Number.isSafeInteger(cutoffMs) || cutoffMs < 0) continue;
+    const expected = createCredentialCutoffValue(
+      provider,
+      subject,
+      secret,
+      suffix,
+    );
+    const suppliedBytes = Buffer.from(cookie.value);
+    const expectedBytes = Buffer.from(expected);
+    if (
+      suppliedBytes.length === expectedBytes.length &&
+      timingSafeEqual(suppliedBytes, expectedBytes)
+    ) {
+      valid.push({ name: cookie.name, cutoffMs });
+    }
+  }
+  valid.sort((left, right) => right.cutoffMs - left.cutoffMs);
+  const newest = valid[0];
+  if (!newest) return null;
+  for (const stale of valid.slice(1)) {
+    if (stale.cutoffMs < newest.cutoffMs) store.delete(stale.name);
+  }
+  return newest.cutoffMs;
+}
+
+function appendProviderCredentialCutoff(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: string,
+): number {
+  const cutoffMs = Date.now();
+  const suffix = `${cutoffMs.toString(36)}_${randomBytes(8).toString("hex")}`;
+  store.set(
+    `${credentialCutoffPrefix(provider, subject, secret)}${suffix}`,
+    createCredentialCutoffValue(provider, subject, secret, suffix),
+    options(CREDENTIAL_CUTOFF_MAX_AGE),
+  );
+  return cutoffMs;
+}
+
 function providerAttemptCredentialsForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
   subject: string,
   secret: string,
+  cutoffMs: number | null,
 ): {
   accessToken: string | null;
   refreshToken: string | null;
@@ -278,6 +365,13 @@ function providerAttemptCredentialsForSubject(
     );
     if (!credentialAttempt) continue;
     const names = attemptCredentialCookieNames(provider, providerState);
+    if (
+      cutoffMs !== null &&
+      credentialAttempt.initiatedAtMs <= cutoffMs
+    ) {
+      clearCredentialCookiesByName(store, names);
+      continue;
+    }
     candidates.push({
       names,
       accessToken: store.get(names.access)?.value ?? null,
@@ -360,13 +454,23 @@ export function providerTokensForSubject(
   refreshToken: string | null;
   credentialAttempt?: ProviderCredentialAttempt;
 } {
-  const attemptCredentials = providerAttemptCredentialsForSubject(
+  const credentialCutoffMs = providerCredentialCutoffForSubject(
     store,
     provider,
     subject,
     secret,
   );
+  const attemptCredentials = providerAttemptCredentialsForSubject(
+    store,
+    provider,
+    subject,
+    secret,
+    credentialCutoffMs,
+  );
   if (attemptCredentials) return attemptCredentials;
+  if (credentialCutoffMs !== null) {
+    return { accessToken: null, refreshToken: null };
+  }
   const slotNames = subjectCredentialCookieNames(provider, subject, secret);
   const slotOwner = store.get(slotNames.owner)?.value;
   const slotAccessToken = store.get(slotNames.access)?.value ?? null;
@@ -511,6 +615,7 @@ export function clearProviderTokenCookiesForSubject(
   ) {
     store.delete(legacyNames.oauthPendingState);
   }
+  appendProviderCredentialCutoff(store, provider, subject, secret);
 }
 
 function clearProviderCredentialCookies(

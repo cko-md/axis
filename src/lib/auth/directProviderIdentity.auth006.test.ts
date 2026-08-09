@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { validateExpectedProfileSubject } from "./expectedProfileSubject.server";
 import {
   createOAuthPendingState,
@@ -17,6 +17,7 @@ import {
   providerTokensForSubject,
   replaceProviderTokenCookies,
   replaceProviderTokenCookiesForAttempt,
+  replaceRefreshedProviderTokenCookies,
   setOAuthPendingStateCookie,
   type MutableProviderCookieStore,
 } from "./providerCookies.server";
@@ -346,6 +347,90 @@ describe("AUTH-006 direct-provider identity primitives", () => {
     }
 
     expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toMatchObject({
+      accessToken: null,
+      refreshToken: null,
+    });
+  });
+
+  it("does not resurrect pre-disconnect callback or refresh credentials", () => {
+    const store = new MemoryCookieStore();
+    const oldAttempt = {
+      providerState: "j".repeat(43),
+      initiatedAtMs: nowMs,
+    };
+    const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs + 10);
+    try {
+      clearProviderTokenCookiesForSubject(
+        store,
+        "spotify",
+        subjectA,
+        secret,
+      );
+    } finally {
+      clock.mockRestore();
+    }
+
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "spotify",
+      { accessToken: "late-callback", refreshToken: "late-refresh" },
+      subjectA,
+      secret,
+      oldAttempt,
+    );
+    replaceRefreshedProviderTokenCookies(
+      store,
+      "spotify",
+      { accessToken: "later-refresh", refreshToken: "late-refresh" },
+      subjectA,
+      secret,
+      oldAttempt,
+    );
+    expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+
+    const newAttempt = {
+      providerState: "k".repeat(43),
+      initiatedAtMs: nowMs + 11,
+    };
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "spotify",
+      { accessToken: "post-disconnect", refreshToken: "post-refresh" },
+      subjectA,
+      secret,
+      newAttempt,
+    );
+    expect(providerTokensForSubject(store, "spotify", subjectA, secret)).toMatchObject({
+      accessToken: "post-disconnect",
+      refreshToken: "post-refresh",
+      credentialAttempt: newAttempt,
+    });
+  });
+
+  it("selects the newest signed cutoff when disconnect responses arrive out of order", () => {
+    const store = new MemoryCookieStore();
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(nowMs + 20);
+      clearProviderTokenCookiesForSubject(store, "strava", subjectA, secret);
+      clock.mockReturnValue(nowMs + 10);
+      clearProviderTokenCookiesForSubject(store, "strava", subjectA, secret);
+    } finally {
+      clock.mockRestore();
+    }
+    replaceProviderTokenCookiesForAttempt(
+      store,
+      "strava",
+      { accessToken: "between-disconnects" },
+      subjectA,
+      secret,
+      { providerState: "l".repeat(43), initiatedAtMs: nowMs + 15 },
+    );
+
+    expect(providerTokensForSubject(store, "strava", subjectA, secret)).toEqual({
       accessToken: null,
       refreshToken: null,
     });
