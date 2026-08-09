@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `072edcb411465c7ecb7d8e713b9c5982ca95aed4e886ebd95b7d25f469c1e3c8` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `cdb0d441c864cea18adff910120e65134c1609654b3148f3b7bfd3b30f5b7a0a`
+- **State fingerprint:** `b7c65d3951b4b2c73b809a2d5be708987e4b4bef38877075e98ce4e7ca0bf187` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `7563b2d511c7a6218d52a4618dbfeefeee37f0699debd2791e35d6fd8b8699ff`
 - **Source-main tree at derivation:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,17 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/security-auth006-direct-provider-identity`
-- **HEAD:** `d0fca82b`
+- **HEAD:** `c6a44693`
 - **main:** `bf15060f`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (17 commit(s))
+### Ahead of source main at derivation (22 commit(s))
 
+- `c6a44693` chore: register widget cache telemetry route
+- `80519ac2` fix: version refresh rejection and isolate cache lifecycle
+- `927f5d84` fix: seal provider generations and cache hydration
+- `686ef433` fix: contain direct-provider refresh races
+- `0f714fe3` chore(state): record reviewed AUTH-006 gates
 - `d0fca82b` refactor: name provider cutoff ordering explicitly
 - `d1656b4e` fix: separate provider causal order from wall time
 - `1541a4ab` fix: order provider authorization from signed browser state
@@ -96,12 +101,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2859/2859 across 307 files
-- **Bundle:** 4142 KB / 4400 KB
+- **Tests:** 2877/2877 across 309 files
+- **Bundle:** 4146 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `d0fca82b`
-- **Measured content tree:** `cdb0d441c864cea18adff910120e65134c1609654b3148f3b7bfd3b30f5b7a0a`
-- **Measured at:** 2026-08-09T01:27:05.221Z
+- **Measured source:** `c6a44693`
+- **Measured content tree:** `7563b2d511c7a6218d52a4618dbfeefeee37f0699debd2791e35d6fd8b8699ff`
+- **Measured at:** 2026-08-09T06:05:56.320Z
 
 <!-- END GENERATED: derive-program-state -->
 

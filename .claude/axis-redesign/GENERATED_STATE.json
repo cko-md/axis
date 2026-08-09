@@ -1,12 +1,32 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T01:27:05.467Z",
+  "derivedAt": "2026-08-09T06:05:56.388Z",
   "git": {
     "branch": "codex/security-auth006-direct-provider-identity",
-    "head": "d0fca82b48bbe0b10d22f6e7edbab99311c0ab55",
+    "head": "c6a44693383a07592227a44d1859bfc88c44a021",
     "mainHead": "bf15060f3cf681b9932a006d810faa051bf7da76",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "c6a44693",
+        "subject": "chore: register widget cache telemetry route"
+      },
+      {
+        "sha": "80519ac2",
+        "subject": "fix: version refresh rejection and isolate cache lifecycle"
+      },
+      {
+        "sha": "927f5d84",
+        "subject": "fix: seal provider generations and cache hydration"
+      },
+      {
+        "sha": "686ef433",
+        "subject": "fix: contain direct-provider refresh races"
+      },
+      {
+        "sha": "0f714fe3",
+        "subject": "chore(state): record reviewed AUTH-006 gates"
+      },
       {
         "sha": "d0fca82b",
         "subject": "refactor: name provider cutoff ordering explicitly"
@@ -76,9 +96,9 @@
         "subject": "security: isolate direct provider identity"
       }
     ],
-    "contentTreeHash": "cdb0d441c864cea18adff910120e65134c1609654b3148f3b7bfd3b30f5b7a0a",
+    "contentTreeHash": "7563b2d511c7a6218d52a4618dbfeefeee37f0699debd2791e35d6fd8b8699ff",
     "sourceMainContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
-    "fingerprint": "072edcb411465c7ecb7d8e713b9c5982ca95aed4e886ebd95b7d25f469c1e3c8"
+    "fingerprint": "b7c65d3951b4b2c73b809a2d5be708987e4b4bef38877075e98ce4e7ca0bf187"
   },
   "mergedPrs": [
     {
@@ -389,8 +409,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "d0fca82b48bbe0b10d22f6e7edbab99311c0ab55",
-    "sourceContentTreeHash": "cdb0d441c864cea18adff910120e65134c1609654b3148f3b7bfd3b30f5b7a0a",
+    "sourceHead": "c6a44693383a07592227a44d1859bfc88c44a021",
+    "sourceContentTreeHash": "7563b2d511c7a6218d52a4618dbfeefeee37f0699debd2791e35d6fd8b8699ff",
     "typecheck": {
       "passed": true
     },
@@ -398,23 +418,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 2859,
-      "total": 2859,
-      "files": 307,
-      "suites": 847
+      "passed": 2877,
+      "total": 2877,
+      "files": 309,
+      "suites": 851
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4142,
+      "used": 4146,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T01:27:05.221Z"
+    "measuredAt": "2026-08-09T06:05:56.320Z"
   }
 }
