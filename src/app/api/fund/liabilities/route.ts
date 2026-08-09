@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 import {
   minorUnitsToDecimalString,
   normalizeFinancialCurrency,
@@ -30,16 +31,9 @@ function parseDueDate(value: unknown) {
 }
 
 async function authenticate() {
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try {
-    supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error) return { response: NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 }) };
-    if (!user) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-    return { supabase, user };
-  } catch {
-    return { response: NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 }) };
-  }
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/liabilities", area: "fund" });
+  if (!identity.ok) return { response: NextResponse.json({ error: identity.code }, { status: identity.status }) };
+  return { supabase: identity.client, user: identity.user };
 }
 
 function parseRate(value: unknown) {

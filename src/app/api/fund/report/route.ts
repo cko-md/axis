@@ -11,6 +11,7 @@ import {
 import { fetchNews, getPolygonApiKey } from "@/lib/massive/client";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { createClient } from "@/lib/supabase/server";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 const ROUTE = "/api/fund/report";
 
@@ -19,9 +20,9 @@ const ROUTE = "/api/fund/report";
  * evidence only: the model cannot authorize an action or invent a value.
  */
 export async function POST() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: ROUTE, area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const [holdingsResult, watchlistResult, profileResult, connectionsResult, coverageResult] = await Promise.all([
     supabase

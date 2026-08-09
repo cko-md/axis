@@ -5,6 +5,7 @@ import { fetchNews, fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { minorUnitsToDecimalString, scaledUnitsToDecimalString, strictMinorUnits } from "@/lib/fund/financialTruth";
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 import {
   calculateLivePosition,
   fetchPortfolioQuotes,
@@ -19,9 +20,9 @@ import {
 
 /** GET /api/fund/position/:symbol — cost basis, P/L, portfolio weight, quote, news. */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ symbol: string }> }) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/position/[symbol]", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const { symbol: rawSymbol } = await params;
   const symbol = normalizePositionSymbol(rawSymbol);

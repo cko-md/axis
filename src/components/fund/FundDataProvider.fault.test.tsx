@@ -110,4 +110,23 @@ describe("Plaid liability availability state", () => {
     expect(latest?.rows).toEqual([holding]);
     expect(latest?.aggregated).toEqual([aggregate]);
   });
+
+  it("clears cached holdings when authentication is lost", async () => {
+    const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
+    const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };
+    await mount("ready-empty", { rows: [holding], aggregated: [aggregate] });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/fund/holdings") return json({ error: "UNAUTHORIZED" }, 401);
+      return json({ liabilities: [], providerAvailability: [] });
+    });
+
+    await act(async () => {
+      await latest?.refreshHoldings();
+    });
+
+    expect(latest?.signedIn).toBe(false);
+    expect(latest?.holdingsError).toBe(false);
+    expect(latest?.rows).toEqual([]);
+    expect(latest?.aggregated).toEqual([]);
+  });
 });

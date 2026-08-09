@@ -15,4 +15,11 @@ describe("currency-true transaction display", () => {
     expect(formatSignedMinorCurrency(100, "USX")).toBeNull();
     expect(formatSignedMinorCurrency(1.5, "USD")).toBeNull();
   });
+
+  it.each([
+    [Number.MAX_SAFE_INTEGER, "USD", "+$90,071,992,547,409.91"],
+    [Number.MAX_SAFE_INTEGER, "BHD", "+BHD\u00a09,007,199,254,740.991"],
+  ] as const)("preserves every minor unit at the safe-integer boundary for %s %s", (minor, currency, expected) => {
+    expect(formatSignedMinorCurrency(minor, currency)).toBe(expected);
+  });
 });

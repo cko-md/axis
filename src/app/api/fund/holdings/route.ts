@@ -14,6 +14,7 @@ import {
 } from "@/lib/fund/financialTruth";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 type HoldingRow = {
   id: string;
@@ -49,9 +50,9 @@ function normalizeCurrency(currency: string | null | undefined): string | null {
  * `rows` still exposes each source-tagged row individually.
  */
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/holdings", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const { data, error } = await supabase
     .from("fund_holdings")
@@ -139,9 +140,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/holdings", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const parsedBody = await readBoundedJsonBody(request, 8_192);
   if (!parsedBody.ok) {

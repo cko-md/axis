@@ -8,7 +8,9 @@ import {
 } from "@/lib/orders/orderTicket";
 import {
   multiplyScaledMinorUnits,
+  minorUnitsToDecimalString,
   normalizeFinancialCurrency,
+  scaledUnitsToDecimalString,
   strictExactScaledUnits,
   strictExactMinorUnits,
 } from "@/lib/fund/financialTruth";
@@ -38,6 +40,7 @@ export type PreparedPublicOrder = {
   symbol: string;
   side: OrderSide;
   quantity: number;
+  quantityText: string;
   quantityUnits: number;
   quantityScale: typeof PUBLIC_ORDER_QUANTITY_SCALE;
   type: OrderType;
@@ -84,6 +87,9 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   const side = normalizeSide(input.side);
   const quantityUnits = strictExactScaledUnits(input.quantity, PUBLIC_ORDER_QUANTITY_SCALE);
   const quantity = quantityUnits === null ? null : quantityUnits / PUBLIC_ORDER_QUANTITY_SCALE;
+  const quantityText = quantityUnits === null
+    ? null
+    : scaledUnitsToDecimalString(quantityUnits, PUBLIC_ORDER_QUANTITY_SCALE);
   const type = normalizeOrderType(input.type);
   const currency = normalizeFinancialCurrency(input.currency, "") ?? "";
   const rawLimitPrice = input.limitPrice ?? input.limit_price;
@@ -96,20 +102,31 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
     : strictExactMinorUnits(rawReferencePrice, currency);
   const limitPrice = limitPriceMinor === null ? null : toMajorUnitsIn(limitPriceMinor, currency);
   const referencePrice = referencePriceMinor === null ? null : toMajorUnitsIn(referencePriceMinor, currency);
+  const quantityRoundTrip = quantity === null
+    ? null
+    : strictExactScaledUnits(quantity, PUBLIC_ORDER_QUANTITY_SCALE);
+  const limitPriceRoundTrip = limitPrice === null ? null : strictExactMinorUnits(limitPrice, currency);
+  const referencePriceRoundTrip = referencePrice === null ? null : strictExactMinorUnits(referencePrice, currency);
 
   if (!symbol) errors.push("symbol is required");
   if (symbol.length > 12) errors.push("symbol must be 12 characters or fewer");
   if (!side) errors.push("side must be buy or sell");
   if (quantity === null || quantityUnits === null || quantityUnits <= 0) {
     errors.push("quantity must be > 0 with at most 6 decimal places");
+  } else if (quantityRoundTrip !== quantityUnits) {
+    errors.push("quantity is outside the exact numeric compatibility range");
   }
   if (!type) errors.push("type must be market or limit");
   if (!currency) errors.push("currency is required");
   if (type === "limit" && (limitPriceMinor === null || limitPriceMinor <= 0)) {
     errors.push("limit order requires a positive cent-exact limitPrice");
+  } else if (type === "limit" && limitPriceRoundTrip !== limitPriceMinor) {
+    errors.push("limitPrice is outside the exact numeric compatibility range");
   }
   if (rawReferencePrice !== undefined && rawReferencePrice !== null && rawReferencePrice !== "" && referencePriceMinor === null) {
     errors.push("referencePrice must be a non-negative cent-exact amount");
+  } else if (referencePriceMinor !== null && referencePriceRoundTrip !== referencePriceMinor) {
+    errors.push("referencePrice is outside the exact numeric compatibility range");
   }
   if (referencePrice === null && type === "market") {
     warnings.push("referencePrice missing; estimated notional is unavailable until quote verification");
@@ -117,7 +134,7 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
     warnings.push("referencePrice missing; limit-to-market comparison is unavailable until quote verification");
   }
 
-  if (errors.length > 0 || !side || quantity === null || quantityUnits === null || !type) {
+  if (errors.length > 0 || !side || quantity === null || quantityUnits === null || !quantityText || !type) {
     return fail("invalid_request", errors.join("; "), { provider: "public", retryable: false });
   }
 
@@ -141,9 +158,13 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
       symbol,
       side,
       quantity,
+      quantityUnits,
+      quantityScale: PUBLIC_ORDER_QUANTITY_SCALE,
       type,
       ...(limitPrice !== null ? { limitPrice } : {}),
+      ...(limitPriceMinor !== null ? { limitPriceMinor } : {}),
       referencePrice,
+      referencePriceMinor,
       currency,
     });
     if (!ticketResult.ok) {
@@ -155,7 +176,7 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
 
   const summary = ticket
     ? describeOrderTicket(ticket)
-    : `${side === "buy" ? "Buy" : "Sell"} ${quantity} ${symbol} (${type === "limit" ? `limit ${limitPrice}` : "market"})`;
+    : `${side === "buy" ? "Buy" : "Sell"} ${trimDecimalZeros(quantityText)} ${symbol} (${type === "limit" ? `limit ${limitPriceMinor === null ? "unavailable" : minorUnitsToDecimalString(limitPriceMinor, currency)}` : "market"})`;
 
   return ok({
     provider: "public",
@@ -165,6 +186,7 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
     symbol,
     side,
     quantity,
+    quantityText,
     quantityUnits,
     quantityScale: PUBLIC_ORDER_QUANTITY_SCALE,
     type,
@@ -179,6 +201,10 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
     ticket,
     warnings,
   });
+}
+
+function trimDecimalZeros(value: string): string {
+  return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
 }
 
 export function verifyPublicOrder(

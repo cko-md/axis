@@ -8,20 +8,14 @@ import {
 } from "@/lib/fund/financialTruth";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 import { minorUnitsFor } from "@/lib/fund/currency";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 const MAX_MONTHLY_LIMIT_MAJOR = 100_000_000_000;
 
 async function authenticate() {
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try {
-    supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error) return { response: NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 }) };
-    if (!user) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-    return { supabase, user };
-  } catch {
-    return { response: NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 503 }) };
-  }
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/category-budgets/[id]", area: "fund" });
+  if (!identity.ok) return { response: NextResponse.json({ error: identity.code }, { status: identity.status }) };
+  return { supabase: identity.client, user: identity.user };
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

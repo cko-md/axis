@@ -146,6 +146,31 @@ try {
   created = true;
   run(disposableUrl, baselineSql, { label: "create order-intent baseline" });
   run(disposableUrl, readFileSync(migration, "utf8"), { label: "apply order-intent migration" });
+  run(disposableUrl, `
+    set role service_role;
+    insert into public.fund_order_intents (
+      id,user_id,provider,action_class,idempotency_key,payload_hash,symbol,side,
+      order_type,quantity_units,quantity_scale,limit_price_minor,
+      reference_price_minor,reference_price_source,estimated_notional_minor,
+      currency,status
+    ) values (
+      '09090909-0909-4909-8909-090909090909',
+      '11111111-1111-4111-8111-111111111111',
+      'public','FINANCIAL_EXECUTION','08080808-0808-4808-8808-080808080808',
+      repeat('9',64),'NVDA','buy','limit',5000000,1000000,13000,12000,
+      'manual_estimate',60000,'USD','not_submitted'
+    );
+  `, { label: "legacy reference-price-derived limit intent fixture" });
+  run(disposableUrl, readFileSync(limitNotionalRepair, "utf8"), {
+    expectFailure: true,
+    label: "immutable legacy limit-intent preflight",
+  });
+  run(disposableUrl, `
+    reset role;
+    set session_replication_role = replica;
+    truncate table public.fund_order_intents cascade;
+    set session_replication_role = origin;
+  `, { label: "remove quarantined preflight fixture" });
   run(disposableUrl, readFileSync(limitNotionalRepair, "utf8"), { label: "apply limit-notional repair" });
 
   assertScalar(

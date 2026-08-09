@@ -328,4 +328,28 @@ describe("finance daily cron fault aggregation", () => {
     });
     expect(aborted).toBe(true);
   });
+
+  it("returns a truthful deadline outcome when an operation never settles", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
+    mocks.snapshotNetWorth.mockImplementation(() => new Promise(() => undefined));
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(52_001);
+    const response = await pendingResponse;
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      ok: false,
+      outcome: "partial",
+      usersCompleted: 0,
+      userFailures: 1,
+      deadlineExceeded: true,
+    });
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Finance daily job did not settle after cancellation" }),
+      { tags: { area: "fund", stage: "deadline", code: "ABORT_SETTLEMENT_EXCEEDED" } },
+    );
+  });
 });

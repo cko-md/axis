@@ -110,6 +110,12 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
       setSignedIn(res.status !== 401);
       const data = (await res.json().catch(() => ({}))) as { rows?: Holding[]; aggregated?: AggregatedHolding[] };
       if (!res.ok) {
+        if (res.status === 401) {
+          // Authentication loss is a privacy boundary, not a stale-data case.
+          // Never retain a previous subject's financial rows after it.
+          setRows([]);
+          setAggregated([]);
+        }
         setHoldingsError(res.status !== 401);
         return;
       }

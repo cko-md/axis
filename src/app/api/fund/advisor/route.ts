@@ -15,6 +15,7 @@ import {
   ToolOperationalError,
 } from "@/lib/ai/tools/registry";
 import { TransactionCoverageOperationalError } from "@/lib/fund/transactionCoverage";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 /**
  * FIN-502: Advisor chat — the only conversational entry point with real
@@ -79,9 +80,9 @@ function bindCitation(input: Record<string, unknown>, evidence: readonly ToolEvi
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/advisor", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const apiKey = optionalEnv("ANTHROPIC_API_KEY");
   if (!apiKey) {

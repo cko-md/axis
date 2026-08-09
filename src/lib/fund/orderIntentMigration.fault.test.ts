@@ -69,6 +69,8 @@ describe("order intent and verified execution database contract", () => {
 
   it("repairs limit-order notional additively without rewriting the ledgered migration", () => {
     expect(repair).toContain("when order_type = 'limit' then limit_price_minor::numeric");
+    expect(repair).toContain("FIN_ORDER_INTENT_PREFLIGHT_FAILED");
+    expect(repair).toContain("Existing immutable limit intents disagree with limit-price notional");
     expect(repair).toContain("fund_order_intents_estimated_notional_presence");
     expect(repair).toContain("order_type = 'limit'");
     expect(repair).toContain("estimated_notional_minor is not null");

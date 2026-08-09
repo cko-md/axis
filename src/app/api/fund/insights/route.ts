@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 /**
  * GET /api/fund/insights — persisted daily brief / weekly recap (replaces
@@ -9,9 +10,9 @@ import { redactRouteError } from "@/lib/observability/redactRouteError";
  * richer rows here once it exists.
  */
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/insights", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const kind = request.nextUrl.searchParams.get("kind");
   let query = supabase

@@ -12,6 +12,7 @@ const MAX_SYNC_CONNECTIONS = 100;
 const MAX_DISCOVERY_ROWS_PER_TABLE = 500;
 const MAX_USERS_PER_RUN = 250;
 const CRON_WALL_CLOCK_MS = 50_000;
+const ABORT_SETTLEMENT_GRACE_MS = 2_000;
 
 class FinanceCronDeadlineError extends Error {
   constructor() {
@@ -41,13 +42,20 @@ async function runWithinDeadline<T>(
       timeout,
     ]);
     if (outcome.timedOut) {
-      // Fence the response behind operation settlement. A 503 must never race
-      // a still-running financial write or external notification.
-      try {
-        await operationPromise;
-      } catch {
-        // Deadline remains the public outcome; the operation's own boundary
-        // records actionable failures.
+      // Every job re-checks this signal after awaited reads and before later
+      // writes/notifications. Drain normal cancellation, but do not let an
+      // unabortable provider/client promise hang the cron indefinitely.
+      const settled = await Promise.race([
+        operationPromise.then(
+          () => true,
+          () => true,
+        ),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), ABORT_SETTLEMENT_GRACE_MS)),
+      ]);
+      if (!settled) {
+        Sentry.captureException(new Error("Finance daily job did not settle after cancellation"), {
+          tags: { area: "fund", stage: "deadline", code: "ABORT_SETTLEMENT_EXCEEDED" },
+        });
       }
       throw new FinanceCronDeadlineError();
     }

@@ -6,6 +6,27 @@
 begin;
 
 do $$
+begin
+  if exists (
+    select 1
+    from public.fund_order_intents
+    where order_type = 'limit'
+      and (
+        estimated_notional_minor is null
+        or estimated_notional_minor <> round(
+          quantity_units::numeric * limit_price_minor::numeric / quantity_scale
+        )::bigint
+      )
+  ) then
+    raise exception using
+      errcode = 'check_violation',
+      message = 'FIN_ORDER_INTENT_PREFLIGHT_FAILED',
+      detail = 'Existing immutable limit intents disagree with limit-price notional; quarantine and review them before applying this migration.';
+  end if;
+end;
+$$;
+
+do $$
 declare
   affected record;
 begin

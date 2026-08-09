@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 /**
  * Net-worth time series.
@@ -12,9 +13,9 @@ import { createClient } from "@/lib/supabase/server";
  */
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/networth", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
 
   const since = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
   const { data, error } = await supabase

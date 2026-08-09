@@ -10,9 +10,14 @@ export function formatSignedMinorCurrency(
   if (!normalized || !Number.isSafeInteger(amountMinor)) return null;
   const exact = minorUnitsToDecimalString(Math.abs(amountMinor), normalized);
   if (!exact) return null;
+  const [, fraction] = exact.split(".");
+  const whole = BigInt(exact.split(".")[0]);
   const rendered = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: normalized,
-  }).format(Number(exact));
+  }).formatToParts(whole).map((part) => {
+    if (part.type === "fraction") return fraction ?? part.value;
+    return part.value;
+  }).join("");
   return amountMinor >= 0 ? `+${rendered}` : `−${rendered}`;
 }

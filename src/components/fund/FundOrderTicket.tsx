@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { Card } from "@/components/ui/Card";
+import { scaledUnitsToDecimalString } from "@/lib/fund/financialTruth";
 
 type IntentSummary = {
   id: string;
@@ -31,7 +32,9 @@ interface Props {
 }
 
 function displayQuantity(intent: IntentSummary) {
-  return intent.quantity_units / intent.quantity_scale;
+  const exact = scaledUnitsToDecimalString(intent.quantity_units, intent.quantity_scale);
+  if (!exact) return "—";
+  return exact.includes(".") ? exact.replace(/0+$/, "").replace(/\.$/, "") : exact;
 }
 
 /**

@@ -13,8 +13,10 @@
 
 import {
   minorUnitsToDecimalString,
+  multiplyScaledMinorUnits,
   multiplyScaledQuantityByDecimalPrice,
   normalizeFinancialCurrency,
+  scaledUnitsToDecimalString,
   strictExactScaledUnits,
 } from "@/lib/fund/financialTruth";
 
@@ -28,13 +30,19 @@ export type OrderTicket = {
   side: OrderSide;
   /** Shares (> 0). */
   quantity: number;
+  quantityUnits: number;
+  quantityScale: number;
+  quantityText: string;
   type: OrderType;
   /** Required for a limit order. */
   limitPrice?: number;
+  limitPriceMinor?: number;
+  limitPriceText?: string;
   /** Reference price used for the notional estimate (last/mark). */
   referencePrice: number | null;
   /** quantity × (limit price for a limit order, else reference price), cent-exact. */
   estimatedNotional: number;
+  estimatedNotionalText: string;
   estimatedNotionalMinor: number;
   currency: string;
 };
@@ -43,9 +51,13 @@ export type OrderTicketInput = {
   symbol: string;
   side: OrderSide;
   quantity: number;
+  quantityUnits?: number;
+  quantityScale?: number;
   type?: OrderType;
   limitPrice?: number;
+  limitPriceMinor?: number;
   referencePrice?: number | null;
+  referencePriceMinor?: number | null;
   currency?: string;
 };
 
@@ -83,17 +95,23 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
   }
   const currency = normalizeFinancialCurrency(input.currency, "");
   if (!currency) errors.push("currency is required and must be supported");
-  const quantityScaled = strictExactScaledUnits(input.quantity, ORDER_QUANTITY_SCALE);
+  const quantityScale = input.quantityScale ?? ORDER_QUANTITY_SCALE;
+  const quantityScaled = input.quantityUnits ?? strictExactScaledUnits(input.quantity, quantityScale);
   if (quantityScaled === null || quantityScaled <= 0) errors.push("quantity precision is invalid");
+  const quantityText = quantityScaled === null ? null : scaledUnitsToDecimalString(quantityScaled, quantityScale);
+  if (!quantityText) errors.push("quantity representation is unavailable");
   if (errors.length > 0) return { ok: false, errors };
 
   const priceForNotional = type === "limit" ? (input.limitPrice as number) : (input.referencePrice as number);
-  const estimatedNotionalMinor = multiplyScaledQuantityByDecimalPrice(
-    quantityScaled as number,
-    priceForNotional,
-    ORDER_QUANTITY_SCALE,
-    currency as string,
-  );
+  const exactPriceMinor = type === "limit" ? input.limitPriceMinor : input.referencePriceMinor;
+  const estimatedNotionalMinor = exactPriceMinor !== undefined && exactPriceMinor !== null
+    ? multiplyScaledMinorUnits(quantityScaled as number, exactPriceMinor, quantityScale)
+    : multiplyScaledQuantityByDecimalPrice(
+        quantityScaled as number,
+        priceForNotional,
+        quantityScale,
+        currency as string,
+      );
   if (estimatedNotionalMinor === null || estimatedNotionalMinor <= 0) {
     return { ok: false, errors: ["estimated notional is unavailable"] };
   }
@@ -106,10 +124,20 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
       symbol,
       side: input.side,
       quantity: input.quantity,
+      quantityUnits: quantityScaled as number,
+      quantityScale,
+      quantityText: quantityText as string,
       type,
-      ...(type === "limit" ? { limitPrice: input.limitPrice } : {}),
+      ...(type === "limit" ? {
+        limitPrice: input.limitPrice,
+        ...(input.limitPriceMinor !== undefined ? {
+          limitPriceMinor: input.limitPriceMinor,
+          limitPriceText: minorUnitsToDecimalString(input.limitPriceMinor, currency as string) ?? undefined,
+        } : {}),
+      } : {}),
       referencePrice: input.referencePrice ?? null,
       estimatedNotional: Number(notionalText),
+      estimatedNotionalText: notionalText,
       estimatedNotionalMinor,
       currency: currency as string,
     },
@@ -118,6 +146,10 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
 
 /** One-line human description of a ticket, for the approval summary. */
 export function describeOrderTicket(t: OrderTicket): string {
-  const px = t.type === "limit" ? `limit ${t.limitPrice}` : "market";
-  return `${t.side === "buy" ? "Buy" : "Sell"} ${t.quantity} ${t.symbol} (${px})`;
+  const px = t.type === "limit" ? `limit ${t.limitPriceText ?? t.limitPrice}` : "market";
+  return `${t.side === "buy" ? "Buy" : "Sell"} ${trimDecimalZeros(t.quantityText)} ${t.symbol} (${px})`;
+}
+
+function trimDecimalZeros(value: string): string {
+  return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
 }
