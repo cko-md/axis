@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
       const value = mocks.cookieStore.values.get(name);
       return value === undefined ? undefined : { name, value };
     }),
+    getAll: vi.fn(() => [...mocks.cookieStore.values].map(([name, value]) => ({ name, value }))),
     set: vi.fn((name: string, value: string) => {
       mocks.cookieStore.operations.push(`set:${name}`);
       mocks.cookieStore.values.set(name, value);
@@ -225,6 +226,42 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     const cutoff = [...mocks.cookieStore.values.entries()].find(([name]) =>
       name.startsWith("spotify_token_owner_cut1_"));
     expect(cutoff?.[1]).toMatch(/^pc1_[A-Za-z0-9_-]{43}$/);
+  });
+
+  it("fails disconnect visibly without owner sealing and preserves browser state", async () => {
+    const nonce = "u".repeat(43);
+    for (const name of [
+      "spotify_access_token",
+      "spotify_refresh_token",
+      "spotify_token_owner",
+      "spotify_oauth_state",
+      `spotify_access_token_a1_${nonce}`,
+      `spotify_refresh_token_a1_${nonce}`,
+      `spotify_token_owner_a1_${nonce}`,
+      `spotify_oauth_state_a1_${nonce}`,
+      "spotify_access_token_s1_subject-slot",
+      "spotify_refresh_token_s1_subject-slot",
+      "spotify_token_owner_s1_subject-slot",
+      "spotify_token_owner_cut1_subject-slot_cutoff",
+    ]) {
+      mocks.cookieStore.values.set(name, "opaque");
+    }
+    const before = new Map(mocks.cookieStore.values);
+    delete process.env.SPOTIFY_CLIENT_SECRET;
+    authenticatedAs(userA);
+
+    const response = await disconnectSpotify(new Request(
+      "https://axis.test/api/spotify/disconnect",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+      },
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "PROVIDER_NOT_CONFIGURED" });
+    expect(mocks.cookieStore.values).toEqual(before);
+    expect(mocks.cookieStore.operations).toEqual([]);
   });
 
   it("publishes owner-bound tokens only after a valid single-use callback", async () => {

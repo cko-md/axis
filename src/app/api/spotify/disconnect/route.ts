@@ -1,9 +1,6 @@
 import { cookies } from "next/headers";
 import { validateExpectedProfileSubject } from "@/lib/auth/expectedProfileSubject.server";
-import {
-  clearProviderTokenCookies,
-  clearProviderTokenCookiesForSubject,
-} from "@/lib/auth/providerCookies.server";
+import { clearProviderTokenCookiesForSubject } from "@/lib/auth/providerCookies.server";
 import { privateJson } from "@/lib/auth/privateNoStore";
 import { optionalEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -18,15 +15,17 @@ export async function POST(req: Request) {
 
   const cookieStore = await cookies();
   const secret = optionalEnv("SPOTIFY_CLIENT_SECRET");
-  if (secret) {
-    clearProviderTokenCookiesForSubject(
-      cookieStore,
-      "spotify",
-      identity.subject,
-      secret,
+  if (!secret) {
+    return privateJson(
+      { error: "PROVIDER_NOT_CONFIGURED" },
+      { status: 503 },
     );
-  } else {
-    clearProviderTokenCookies(cookieStore, "spotify");
   }
+  clearProviderTokenCookiesForSubject(
+    cookieStore,
+    "spotify",
+    identity.subject,
+    secret,
+  );
   return privateJson({ ok: true, connected: false });
 }

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
       const value = mocks.cookieStore.values.get(name);
       return value === undefined ? undefined : { name, value };
     }),
+    getAll: vi.fn(() => [...mocks.cookieStore.values].map(([name, value]) => ({ name, value }))),
     set: vi.fn((name: string, value: string) => {
       mocks.cookieStore.operations.push(`set:${name}`);
       mocks.cookieStore.values.set(name, value);
@@ -222,6 +223,42 @@ describe("AUTH-006 Strava server identity boundary", () => {
     ));
     expect(duplicateCallback.status).toBe(400);
     expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("fails disconnect visibly without owner sealing and preserves browser state", async () => {
+    const nonce = "u".repeat(43);
+    for (const name of [
+      "strava_access_token",
+      "strava_refresh_token",
+      "strava_token_owner",
+      "strava_oauth_state",
+      `strava_access_token_a1_${nonce}`,
+      `strava_refresh_token_a1_${nonce}`,
+      `strava_token_owner_a1_${nonce}`,
+      `strava_oauth_state_a1_${nonce}`,
+      "strava_access_token_s1_subject-slot",
+      "strava_refresh_token_s1_subject-slot",
+      "strava_token_owner_s1_subject-slot",
+      "strava_token_owner_cut1_subject-slot_cutoff",
+    ]) {
+      mocks.cookieStore.values.set(name, "opaque");
+    }
+    const before = new Map(mocks.cookieStore.values);
+    delete process.env.STRAVA_CLIENT_SECRET;
+    authenticatedAs(userA);
+
+    const response = await POST(new NextRequest(
+      "https://axis.test/api/strava?action=disconnect",
+      {
+        method: "POST",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: subjectA },
+      },
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "PROVIDER_NOT_CONFIGURED" });
+    expect(mocks.cookieStore.values).toEqual(before);
+    expect(mocks.cookieStore.operations).toEqual([]);
   });
 
   it("consumes pending state before route-level authentication failure", async () => {

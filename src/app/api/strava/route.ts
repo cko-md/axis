@@ -11,7 +11,6 @@ import {
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderExchangeJson } from "@/lib/auth/directProviderFetch.server";
 import {
-  clearProviderTokenCookies,
   clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
   consumeOAuthPendingStateCookieForAttempt,
@@ -253,16 +252,18 @@ export async function POST(req: NextRequest) {
   if (actions.length === 1 && actions[0] === "disconnect") {
     const cookieStore = await cookies();
     const secret = optionalEnv("STRAVA_CLIENT_SECRET");
-    if (secret) {
-      clearProviderTokenCookiesForSubject(
-        cookieStore,
-        "strava",
-        identity.subject,
-        secret,
+    if (!secret) {
+      return privateJson(
+        { error: "PROVIDER_NOT_CONFIGURED" },
+        { status: 503 },
       );
-    } else {
-      clearProviderTokenCookies(cookieStore, "strava");
     }
+    clearProviderTokenCookiesForSubject(
+      cookieStore,
+      "strava",
+      identity.subject,
+      secret,
+    );
     return privateJson({ connected: false });
   }
   return privateJson(
