@@ -111,9 +111,9 @@ pass before any production claim.
 `SSRF-001` and `AUTH-007` are closed by the reviewed authored-state transition
 at `b5b6dd1e`, bound to the exact canonical production deployment, runtime
 replays, logs, Sentry window, and sealed evidence recorded in the defect ledger.
-Continue Phase 1 with `AUTH-006` provider identity, then financial truth/order
-intent, cancellable mutation, generic-mutation containment, and distributed
-auth/rate limits.
+Continue Phase 1 with financial truth/order intent, then cancellable mutation,
+generic-mutation containment, and distributed auth/rate limits. `AUTH-006`
+provider identity is closed by the canonical defect-ledger transition above.
 
 ### 2026-07-20 session: shutdown hardening, 15.10 spike, Brickrise repairs, PG core
 
