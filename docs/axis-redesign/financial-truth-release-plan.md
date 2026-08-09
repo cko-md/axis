@@ -1,7 +1,7 @@
 # Financial truth and order-intent release sequence
 
 FIN-003 and FIN-004 use an explicit expansion → application → contract
-sequence. The two expansion migrations are safe for the currently deployed
+sequence. The three expansion migrations are safe for the currently deployed
 application; the contract must not be applied until the exact compatible
 application revision is Ready in production.
 
@@ -11,6 +11,7 @@ Apply and record only:
 
 1. `20260723090000_net_worth_snapshots_authority_provenance.sql`
 2. `20260809210000_fund_order_intents_and_execution_receipts.sql`
+3. `20260809220000_financial_truth_expansion_privilege_repair.sql`
 
 The first migration temporarily preserves the existing owner-scoped
 `fund_connections` DML required by protected main. Its compatibility trigger
@@ -25,6 +26,15 @@ an old worker remain explicitly non-authoritative. A legacy Make `delivered`
 write is coerced to `accepted`, preserving availability without fabricating
 delivery confirmation.
 
+The third migration is an additive repair required by the live Stage 1
+privilege read-back. Project-level default privileges had granted `anon` broad
+table privileges on historical financial objects and caused the exact
+net-worth view to inherit write-capable grants. RLS still denied anonymous row
+access, but the redundant grant surface violated least privilege. The repair
+revokes `PUBLIC`/`anon` privileges across the financial expansion, makes
+`net_worth_snapshots_exact` explicitly security-invoker and security-barrier,
+and grants only `SELECT` on that view to `authenticated` and `service_role`.
+
 Before applying, capture the complete linked remote migration ledger and a
 current recovery point. Apply each named transaction-wrapped file with a
 multi-statement PostgreSQL client, mark only that exact migration version
@@ -32,8 +42,11 @@ applied, then capture the complete ledger again. Do not use `supabase db push`.
 
 Required read-back:
 
-- both versions are present exactly once in the remote migration ledger;
+- all three versions are present exactly once in the remote migration ledger;
 - all new columns, constraints, views, functions, and tables exist;
+- `PUBLIC`/`anon` have no table privileges on the financial expansion objects
+  and the exact net-worth view exposes only owner-scoped `SELECT` to
+  `authenticated`/`service_role` under security-invoker semantics;
 - provider publication RPCs and receipt materialization remain service-only;
 - order intents and receipts are immutable;
 - owner RLS remains owner-scoped;

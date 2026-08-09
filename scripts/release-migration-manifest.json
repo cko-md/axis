@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 93,
+  "migrationCount": 94,
   "latest": {
-    "version": "20260809210000",
-    "file": "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
-    "sha256": "23bb299b16b5d4205523ab039b42703419b43df50c63261b4db12fdef577f027"
+    "version": "20260809220000",
+    "file": "supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql",
+    "sha256": "6dcfc9b18e689e2f59f0c49523079b46bd8d31130907c5b5c085210a594743de"
   },
   "migrations": [
     {
@@ -471,6 +471,11 @@
       "version": "20260809210000",
       "file": "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql",
       "sha256": "23bb299b16b5d4205523ab039b42703419b43df50c63261b4db12fdef577f027"
+    },
+    {
+      "version": "20260809220000",
+      "file": "supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql",
+      "sha256": "6dcfc9b18e689e2f59f0c49523079b46bd8d31130907c5b5c085210a594743de"
     }
   ]
 }
