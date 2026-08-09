@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import {
   providerTokensForSubject,
@@ -40,6 +40,18 @@ function cookieStore(): MutableProviderCookieStore & { values: Map<string, strin
 
 describe("AUTH-006 late hosted-review containment", () => {
   const subject = profileSubjectForUserId("late-review-user");
+
+  beforeEach(() => {
+    process.env.DIRECT_PROVIDER_COOKIE_SECRET =
+      "axis-test-direct-provider-cookie-secret-v2";
+    process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL =
+      "2099-01-01T00:00:00.000Z";
+  });
+
+  afterEach(() => {
+    delete process.env.DIRECT_PROVIDER_COOKIE_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
+  });
 
   it("permits exactly one exchange for concurrent copies of a refresh generation", async () => {
     let exchanges = 0;

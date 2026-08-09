@@ -10,6 +10,7 @@ import { describeDirectProviderConnectFailure } from "@/lib/auth/directProviderC
 import {
   DirectProviderRefreshError,
   directProviderRefreshFailureResponse,
+  resetDirectProviderRefreshLeaseTestState,
   setDirectProviderRefreshCoordinatorForTests,
   withDirectProviderRefreshLease,
 } from "@/lib/auth/directProviderRefresh.server";
@@ -57,8 +58,8 @@ describe("AUTH-006 review finding containment", () => {
   });
 
   afterEach(() => {
-    process.env.DIRECT_PROVIDER_COOKIE_SECRET =
-      "axis-test-direct-provider-cookie-secret-v2";
+    delete process.env.DIRECT_PROVIDER_COOKIE_SECRET;
+    resetDirectProviderRefreshLeaseTestState();
   });
 
   it.each([

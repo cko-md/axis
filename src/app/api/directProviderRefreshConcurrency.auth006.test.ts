@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import { directProviderCookieKeyring } from "@/lib/auth/directProviderKeyring.server";
+import { resetDirectProviderRefreshLeaseTestState } from "@/lib/auth/directProviderRefresh.server";
 import {
   markProviderRefreshRejectedForSubject,
   providerTokensForSubject,
@@ -79,6 +80,8 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     process.env.SPOTIFY_CLIENT_SECRET = "spotify-secret";
     process.env.STRAVA_CLIENT_ID = "strava-client";
     process.env.STRAVA_CLIENT_SECRET = "strava-secret";
+    process.env.DIRECT_PROVIDER_COOKIE_SECRET =
+      "axis-test-direct-provider-cookie-secret-v2";
     process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL =
       "2099-01-01T00:00:00.000Z";
   });
@@ -132,7 +135,9 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
     delete process.env.SPOTIFY_CLIENT_SECRET;
     delete process.env.STRAVA_CLIENT_ID;
     delete process.env.STRAVA_CLIENT_SECRET;
+    delete process.env.DIRECT_PROVIDER_COOKIE_SECRET;
     delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
+    resetDirectProviderRefreshLeaseTestState();
   });
 
   it.each([
