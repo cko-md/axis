@@ -1,138 +1,23 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T07:17:42.293Z",
+  "derivedAt": "2026-08-09T07:58:50.642Z",
   "git": {
-    "branch": "codex/security-auth006-direct-provider-identity",
-    "head": "fb6066eab2556a26d7d81f914b000fef6747077f",
-    "mainHead": "bf15060f3cf681b9932a006d810faa051bf7da76",
+    "branch": "codex/state-refresh-auth006",
+    "head": "583794997a7a175f8ee23fa9f7ef386871b16384",
+    "mainHead": "583794997a7a175f8ee23fa9f7ef386871b16384",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "fb6066ea",
-        "subject": "chore: review refresh cleanup telemetry"
-      },
-      {
-        "sha": "7207c194",
-        "subject": "test: preserve trusted setup boundary"
-      },
-      {
-        "sha": "65ac9795",
-        "subject": "test: localize provider migration window"
-      },
-      {
-        "sha": "ef41d767",
-        "subject": "fix: close direct provider rotation gaps"
-      },
-      {
-        "sha": "1241c1c6",
-        "subject": "fix: remove authenticated legacy cookie copies"
-      },
-      {
-        "sha": "2cdc7587",
-        "subject": "fix: classify refresh contention as expected"
-      },
-      {
-        "sha": "b02d0e16",
-        "subject": "fix: fence provider rotation and signing keys"
-      },
-      {
-        "sha": "4a3fc8e6",
-        "subject": "chore(state): record reviewed AUTH-006 gates"
-      },
-      {
-        "sha": "c6a44693",
-        "subject": "chore: register widget cache telemetry route"
-      },
-      {
-        "sha": "80519ac2",
-        "subject": "fix: version refresh rejection and isolate cache lifecycle"
-      },
-      {
-        "sha": "927f5d84",
-        "subject": "fix: seal provider generations and cache hydration"
-      },
-      {
-        "sha": "686ef433",
-        "subject": "fix: contain direct-provider refresh races"
-      },
-      {
-        "sha": "0f714fe3",
-        "subject": "chore(state): record reviewed AUTH-006 gates"
-      },
-      {
-        "sha": "d0fca82b",
-        "subject": "refactor: name provider cutoff ordering explicitly"
-      },
-      {
-        "sha": "d1656b4e",
-        "subject": "fix: separate provider causal order from wall time"
-      },
-      {
-        "sha": "1541a4ab",
-        "subject": "fix: order provider authorization from signed browser state"
-      },
-      {
-        "sha": "b26559af",
-        "subject": "fix: derive disconnect cutoffs from signed attempts"
-      },
-      {
-        "sha": "30aeed25",
-        "subject": "fix: fail closed when disconnect sealing is unavailable"
-      },
-      {
-        "sha": "1ffc25cf",
-        "subject": "fix: make provider disconnect durable"
-      },
-      {
-        "sha": "7dac3b1b",
-        "subject": "fix: preserve newest provider authorization intent"
-      },
-      {
-        "sha": "5b2e5704",
-        "subject": "fix: isolate each provider authorization attempt"
-      },
-      {
-        "sha": "3a197268",
-        "subject": "fix: consume only verified provider callbacks"
-      },
-      {
-        "sha": "66e2feac",
-        "subject": "fix: isolate pending provider authorization state"
-      },
-      {
-        "sha": "4453289d",
-        "subject": "fix: preserve newer provider authorization state"
-      },
-      {
-        "sha": "29a6c825",
-        "subject": "fix: contain direct provider lifecycle failures"
-      },
-      {
-        "sha": "9662fda3",
-        "subject": "chore(state): record AUTH-006 source gates"
-      },
-      {
-        "sha": "31ff2529",
-        "subject": "fix: preserve provider command authority"
-      },
-      {
-        "sha": "f3e2b8e4",
-        "subject": "fix: fence provider bodies and action feedback"
-      },
-      {
-        "sha": "5f0d938c",
-        "subject": "fix: close direct provider race conditions"
-      },
-      {
-        "sha": "f793b62a",
-        "subject": "security: isolate direct provider identity"
-      }
-    ],
+    "aheadOfMain": [],
     "contentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
-    "sourceMainContentTreeHash": "3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb",
-    "fingerprint": "a4bb8bfe88f60f5c4958196cb69cf59516755b16db3d04a85e987c6ca2073e5d"
+    "sourceMainContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
+    "fingerprint": "27634576d7447ccd6a2d70cdaea66711d0987c47bf24989087f1a62dad375390"
   },
   "mergedPrs": [
+    {
+      "pr": 305,
+      "sha": "58379499",
+      "subject": "AUTH-006: isolate direct-provider identity and lifecycle authority",
+      "committedAt": "2026-08-09T03:58:04-04:00"
+    },
     {
       "pr": 304,
       "sha": "bf15060f",
@@ -276,12 +161,6 @@
       "sha": "8be88199",
       "subject": "chore(supabase): track downloaded fund_bank_transactions provenance snippets",
       "committedAt": "2026-07-21T10:07:51-04:00"
-    },
-    {
-      "pr": 264,
-      "sha": "28e4b879",
-      "subject": "docs(envoys): add worker future backlog + Linear-style slices (EW-1..EW-10)",
-      "committedAt": "2026-07-21T10:07:48-04:00"
     }
   ],
   "waves": [

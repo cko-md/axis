@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `a4bb8bfe88f60f5c4958196cb69cf59516755b16db3d04a85e987c6ca2073e5d` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `27634576d7447ccd6a2d70cdaea66711d0987c47bf24989087f1a62dad375390` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
-- **Source-main tree at derivation:** `3e138be22ca9af83e1f93c0e8ffbd19d439e01c6a1e0232becd413e8b5d7bbeb`
+- **Source-main tree at derivation:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,43 +33,10 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/security-auth006-direct-provider-identity`
-- **HEAD:** `fb6066ea`
-- **main:** `bf15060f`
+- **Branch:** `codex/state-refresh-auth006`
+- **HEAD:** `58379499`
+- **main:** `58379499`
 - **Working tree:** clean
-
-### Ahead of source main at derivation (30 commit(s))
-
-- `fb6066ea` chore: review refresh cleanup telemetry
-- `7207c194` test: preserve trusted setup boundary
-- `65ac9795` test: localize provider migration window
-- `ef41d767` fix: close direct provider rotation gaps
-- `1241c1c6` fix: remove authenticated legacy cookie copies
-- `2cdc7587` fix: classify refresh contention as expected
-- `b02d0e16` fix: fence provider rotation and signing keys
-- `4a3fc8e6` chore(state): record reviewed AUTH-006 gates
-- `c6a44693` chore: register widget cache telemetry route
-- `80519ac2` fix: version refresh rejection and isolate cache lifecycle
-- `927f5d84` fix: seal provider generations and cache hydration
-- `686ef433` fix: contain direct-provider refresh races
-- `0f714fe3` chore(state): record reviewed AUTH-006 gates
-- `d0fca82b` refactor: name provider cutoff ordering explicitly
-- `d1656b4e` fix: separate provider causal order from wall time
-- `1541a4ab` fix: order provider authorization from signed browser state
-- `b26559af` fix: derive disconnect cutoffs from signed attempts
-- `30aeed25` fix: fail closed when disconnect sealing is unavailable
-- `1ffc25cf` fix: make provider disconnect durable
-- `7dac3b1b` fix: preserve newest provider authorization intent
-- `5b2e5704` fix: isolate each provider authorization attempt
-- `3a197268` fix: consume only verified provider callbacks
-- `66e2feac` fix: isolate pending provider authorization state
-- `4453289d` fix: preserve newer provider authorization state
-- `29a6c825` fix: contain direct provider lifecycle failures
-- `9662fda3` chore(state): record AUTH-006 source gates
-- `31ff2529` fix: preserve provider command authority
-- `f3e2b8e4` fix: fence provider bodies and action feedback
-- `5f0d938c` fix: close direct provider race conditions
-- `f793b62a` security: isolate direct provider identity
 
 ## Waves merged to main
 
