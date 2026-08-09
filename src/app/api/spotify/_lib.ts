@@ -43,6 +43,7 @@ export async function getAccessToken(userId: string): Promise<string | null> {
     access_token?: unknown;
     refresh_token?: unknown;
     expires_in?: unknown;
+    error?: unknown;
   } | null };
   try {
     exchange = await directProviderExchangeJson(TOKEN_URL, {
@@ -61,20 +62,26 @@ export async function getAccessToken(userId: string): Promise<string | null> {
   }
   const { response: res, body: data } = exchange;
   if (!res.ok) {
-    if (res.status === 429 || res.status >= 500) {
+    if (
+      res.status >= 400 &&
+      res.status < 500 &&
+      data?.error === "invalid_grant"
+    ) {
+      clearProviderTokenCookiesForSubject(
+        cookieStore,
+        "spotify",
+        subject,
+        clientSecret,
+      );
+      return null;
+    }
+    if (res.status >= 400) {
       throw new DirectProviderRefreshError({
         provider: "spotify",
         status: 502,
         code: "PROVIDER_REFRESH_UNAVAILABLE",
       });
     }
-    clearProviderTokenCookiesForSubject(
-      cookieStore,
-      "spotify",
-      subject,
-      clientSecret,
-    );
-    return null;
   }
   const fresh = typeof data?.access_token === "string" ? data.access_token : null;
   if (!fresh) {

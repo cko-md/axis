@@ -134,7 +134,14 @@ describe("AUTH-006 Strava server identity boundary", () => {
     mocks.cookieStore.values.set("strava_token_owner", subjectA);
     mocks.cookieStore.values.set("strava_access_token", "access");
     mocks.cookieStore.values.set("strava_refresh_token", "refresh");
-    mocks.cookieStore.values.set("strava_oauth_state", "sealed-pending-state");
+    mocks.cookieStore.values.set(
+      "strava_oauth_state",
+      createOAuthPendingState({
+        provider: "strava",
+        subject: subjectA,
+        secret,
+      }).sealedState,
+    );
 
     const legacyDisconnect = await GET(new NextRequest(
       "https://axis.test/api/strava?action=disconnect",

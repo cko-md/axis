@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import { createOAuthPendingState } from "@/lib/auth/oauthState.server";
 import { createProviderOwnerSeal } from "@/lib/auth/providerCookies.server";
 import { DirectProviderRefreshError } from "@/lib/auth/directProviderRefresh.server";
 
@@ -164,6 +165,67 @@ describe("AUTH-006 direct provider token helpers", () => {
     {
       provider: "spotify" as const,
       owner: "spotify_token_owner",
+      access: "spotify_access_token",
+      refresh: "spotify_refresh_token",
+      pending: "spotify_oauth_state",
+      secret: "spotify-secret",
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      owner: "strava_token_owner",
+      access: "strava_access_token",
+      refresh: "strava_refresh_token",
+      pending: "strava_oauth_state",
+      secret: "strava-secret",
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("preserves B when a late $provider invalid_grant lands during B OAuth", async ({
+    provider,
+    owner,
+    access,
+    refresh,
+    pending,
+    secret,
+    getAccessToken,
+  }) => {
+    const userB = "provider-user-b";
+    const subjectB = profileSubjectForUserId(userB);
+    mocks.cookieStore.values.set(owner, createProviderOwnerSeal(provider, subject, secret));
+    mocks.cookieStore.values.set(refresh, "refresh-a");
+    const exchange = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn(() => exchange.promise));
+
+    const lateRefresh = getAccessToken(userId);
+    await Promise.resolve();
+    mocks.cookieStore.values.set(owner, createProviderOwnerSeal(provider, subjectB, secret));
+    mocks.cookieStore.values.set(access, "access-b");
+    mocks.cookieStore.values.set(refresh, "refresh-b");
+    const { sealedState } = createOAuthPendingState({
+      provider,
+      subject: subjectB,
+      secret,
+      nonce: "b".repeat(43),
+    });
+    mocks.cookieStore.values.set(pending, sealedState);
+    exchange.resolve(new Response(JSON.stringify({ error: "invalid_grant" }), {
+      status: 400,
+    }));
+
+    await expect(lateRefresh).resolves.toBeNull();
+    expect(mocks.cookieStore.values.get(owner)).toBe(
+      createProviderOwnerSeal(provider, subjectB, secret),
+    );
+    expect(mocks.cookieStore.values.get(access)).toBe("access-b");
+    expect(mocks.cookieStore.values.get(refresh)).toBe("refresh-b");
+    expect(mocks.cookieStore.values.get(pending)).toBe(sealedState);
+    await expect(getAccessToken(userB)).resolves.toBe("access-b");
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
+      owner: "spotify_token_owner",
       refresh: "spotify_refresh_token",
       secret: "spotify-secret",
       getAccessToken: getSpotifyAccessToken,
@@ -247,6 +309,43 @@ describe("AUTH-006 direct provider token helpers", () => {
     {
       provider: "spotify" as const,
       owner: "spotify_token_owner",
+      refresh: "spotify_refresh_token",
+      secret: "spotify-secret",
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      owner: "strava_token_owner",
+      refresh: "strava_refresh_token",
+      secret: "strava-secret",
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("preserves $provider credentials for non-revocation 4xx failures", async ({
+    provider,
+    owner,
+    refresh,
+    secret,
+    getAccessToken,
+  }) => {
+    const ownerSeal = createProviderOwnerSeal(provider, subject, secret);
+    mocks.cookieStore.values.set(owner, ownerSeal);
+    mocks.cookieStore.values.set(refresh, "refresh-a");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: "invalid_client",
+    }), { status: 401 })));
+
+    await expect(getAccessToken(userId)).rejects.toMatchObject({
+      status: 502,
+      code: "PROVIDER_REFRESH_UNAVAILABLE",
+    } satisfies Partial<DirectProviderRefreshError>);
+    expect(mocks.cookieStore.values.get(owner)).toBe(ownerSeal);
+    expect(mocks.cookieStore.values.get(refresh)).toBe("refresh-a");
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
+      owner: "spotify_token_owner",
       access: "spotify_access_token",
       refresh: "spotify_refresh_token",
       secret: "spotify-secret",
@@ -273,9 +372,10 @@ describe("AUTH-006 direct provider token helpers", () => {
       createProviderOwnerSeal(provider, subject, secret),
     );
     mocks.cookieStore.values.set(refresh, "revoked-refresh");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
-      status: 400,
-    })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: "invalid_grant" }),
+      { status: 400 },
+    )));
 
     await expect(getAccessToken(userId)).resolves.toBeNull();
     expect(mocks.cookieStore.values.has(owner)).toBe(false);

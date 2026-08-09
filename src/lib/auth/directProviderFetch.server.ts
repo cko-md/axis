@@ -18,7 +18,6 @@ export async function directProviderExchangeJson<T>(
       cache: "no-store",
       signal: controller.signal,
     });
-    if (!response.ok) return { response, body: null };
     try {
       return { response, body: await response.json() as T };
     } catch (error) {

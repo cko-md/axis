@@ -120,7 +120,14 @@ describe("AUTH-006 Spotify server identity boundary", () => {
   });
 
   it("consumes pending state before route-level authentication failure", async () => {
-    mocks.cookieStore.values.set("spotify_oauth_state", "sealed-pending-state");
+    mocks.cookieStore.values.set(
+      "spotify_oauth_state",
+      createOAuthPendingState({
+        provider: "spotify",
+        subject: subjectA,
+        secret,
+      }).sealedState,
+    );
     mocks.createClient.mockResolvedValue({
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
@@ -146,7 +153,14 @@ describe("AUTH-006 Spotify server identity boundary", () => {
     );
     mocks.cookieStore.values.set("spotify_access_token", "access");
     mocks.cookieStore.values.set("spotify_refresh_token", "refresh");
-    mocks.cookieStore.values.set("spotify_oauth_state", "sealed-pending-state");
+    mocks.cookieStore.values.set(
+      "spotify_oauth_state",
+      createOAuthPendingState({
+        provider: "spotify",
+        subject: subjectA,
+        secret,
+      }).sealedState,
+    );
 
     const response = await disconnectSpotify(new Request(
       "https://axis.test/api/spotify/disconnect",

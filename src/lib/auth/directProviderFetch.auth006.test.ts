@@ -39,14 +39,16 @@ describe("AUTH-006 bounded provider exchanges", () => {
     });
   });
 
-  it("keeps the deadline active through a stalled response body", async () => {
+  it.each([true, false])(
+    "keeps the deadline active through a stalled response body (ok=%s)",
+    async (ok) => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;
     vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       signal = init?.signal ?? undefined;
       return Promise.resolve({
-        ok: true,
-        status: 200,
+        ok,
+        status: ok ? 200 : 400,
         json: () => new Promise(() => undefined),
       });
     }));
@@ -60,5 +62,6 @@ describe("AUTH-006 bounded provider exchanges", () => {
 
     await rejection;
     expect(signal?.aborted).toBe(true);
-  });
+    },
+  );
 });

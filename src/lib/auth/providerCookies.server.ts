@@ -1,6 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { oauthPendingStateCookieName } from "@/lib/auth/directProviderCookies";
-import type { DirectOAuthProvider } from "@/lib/auth/oauthState.server";
+import {
+  oauthPendingStateBelongsToSubject,
+  type DirectOAuthProvider,
+} from "@/lib/auth/oauthState.server";
 import { isProfileSubject } from "@/lib/auth/profileSubject";
 
 type CookieValue = { value: string } | undefined;
@@ -223,7 +226,7 @@ export function clearProviderTokenCookies(
   store.delete(names.oauthPendingState);
 }
 
-/** Clears only the authenticated subject's credential slot and matching legacy tuple. */
+/** Clears only state authenticated as belonging to the exact subject. */
 export function clearProviderTokenCookiesForSubject(
   store: MutableProviderCookieStore,
   provider: DirectOAuthProvider,
@@ -240,7 +243,17 @@ export function clearProviderTokenCookiesForSubject(
   ) {
     clearProviderCredentialCookies(store, provider);
   }
-  store.delete(legacyNames.oauthPendingState);
+  const pendingState = store.get(legacyNames.oauthPendingState)?.value ?? null;
+  if (
+    oauthPendingStateBelongsToSubject({
+      provider,
+      subject,
+      secret,
+      sealedState: pendingState,
+    })
+  ) {
+    store.delete(legacyNames.oauthPendingState);
+  }
 }
 
 function clearProviderCredentialCookies(

@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { validateExpectedProfileSubject } from "./expectedProfileSubject.server";
 import {
   createOAuthPendingState,
+  oauthPendingStateBelongsToSubject,
   OAUTH_STATE_TTL_SECONDS,
   verifyOAuthPendingState,
 } from "./oauthState.server";
 import { EXPECTED_PROFILE_SUBJECT_HEADER } from "./profileSubject";
 import { profileSubjectForUserId } from "./profileSubject.server";
 import {
+  clearProviderTokenCookiesForSubject,
   consumeOAuthPendingStateCookie,
   createProviderOwnerSeal,
   providerTokensForSubject,
@@ -126,6 +128,36 @@ describe("AUTH-006 direct-provider identity primitives", () => {
       sealedState,
       nowMs: nowMs + OAUTH_STATE_TTL_SECONDS * 1_000,
     })).toBe(false);
+    expect(oauthPendingStateBelongsToSubject({
+      provider: "spotify",
+      subject: subjectA,
+      secret,
+      sealedState,
+      nowMs,
+    })).toBe(true);
+    expect(oauthPendingStateBelongsToSubject({
+      provider: "spotify",
+      subject: subjectB,
+      secret,
+      sealedState,
+      nowMs,
+    })).toBe(false);
+  });
+
+  it("clears pending OAuth state only when its signed subject matches", () => {
+    const store = new MemoryCookieStore();
+    const pendingB = createOAuthPendingState({
+      provider: "spotify",
+      subject: subjectB,
+      secret,
+    }).sealedState;
+    store.values.set("spotify_oauth_state", pendingB);
+
+    clearProviderTokenCookiesForSubject(store, "spotify", subjectA, secret);
+    expect(store.values.get("spotify_oauth_state")).toBe(pendingB);
+
+    clearProviderTokenCookiesForSubject(store, "spotify", subjectB, secret);
+    expect(store.values.has("spotify_oauth_state")).toBe(false);
   });
 
   it("never exposes one subject's provider tokens to another subject", () => {

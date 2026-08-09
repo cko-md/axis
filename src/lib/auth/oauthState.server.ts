@@ -23,6 +23,14 @@ type OAuthStatePayload = {
   exp: number;
 };
 
+type VerifiedOAuthStateOptions = {
+  provider: DirectOAuthProvider;
+  subject: string;
+  secret: string;
+  sealedState: string | null;
+  nowMs?: number;
+};
+
 function signingKey(secret: string, provider: DirectOAuthProvider): Buffer {
   return createHmac("sha256", secret)
     .update(`axis:oauth-state:key:v${STATE_VERSION}:${provider}`)
@@ -82,27 +90,20 @@ export function createOAuthPendingState(options: {
   };
 }
 
-export function verifyOAuthPendingState(options: {
-  provider: DirectOAuthProvider;
-  subject: string;
-  secret: string;
-  providerState: string | null;
-  sealedState: string | null;
-  nowMs?: number;
-}): boolean {
-  const { provider, subject, secret, providerState, sealedState } = options;
+function verifiedOAuthStatePayload(
+  options: VerifiedOAuthStateOptions,
+): OAuthStatePayload | null {
+  const { provider, subject, secret, sealedState } = options;
   if (
     !secret ||
     !isProfileSubject(subject) ||
-    !providerState ||
-    !NONCE_PATTERN.test(providerState) ||
     !sealedState ||
     sealedState.length > MAX_STATE_LENGTH
   ) {
-    return false;
+    return null;
   }
   const parts = sealedState.split(".");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   try {
     const suppliedSignature = Buffer.from(parts[1], "base64url");
     const expectedSignature = signature(parts[0], secret, provider);
@@ -110,19 +111,20 @@ export function verifyOAuthPendingState(options: {
       suppliedSignature.length !== expectedSignature.length ||
       !timingSafeEqual(suppliedSignature, expectedSignature)
     ) {
-      return false;
+      return null;
     }
     const parsed = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const payload = parsed as Record<string, unknown>;
-    if (!exactPayloadKeys(payload)) return false;
+    if (!exactPayloadKeys(payload)) return null;
     const now = Math.floor((options.nowMs ?? Date.now()) / 1000);
-    return (
+    if (
       payload.v === STATE_VERSION &&
       payload.purpose === STATE_PURPOSE &&
       payload.provider === provider &&
       payload.subject === subject &&
-      payload.nonce === providerState &&
+      typeof payload.nonce === "string" &&
+      NONCE_PATTERN.test(payload.nonce) &&
       typeof payload.iat === "number" &&
       Number.isSafeInteger(payload.iat) &&
       typeof payload.exp === "number" &&
@@ -130,8 +132,25 @@ export function verifyOAuthPendingState(options: {
       payload.exp - payload.iat === OAUTH_STATE_TTL_SECONDS &&
       payload.iat <= now &&
       now < payload.exp
-    );
+    ) {
+      return payload as OAuthStatePayload;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function oauthPendingStateBelongsToSubject(
+  options: VerifiedOAuthStateOptions,
+): boolean {
+  return verifiedOAuthStatePayload(options) !== null;
+}
+
+export function verifyOAuthPendingState(options: VerifiedOAuthStateOptions & {
+  providerState: string | null;
+}): boolean {
+  const { providerState } = options;
+  if (!providerState || !NONCE_PATTERN.test(providerState)) return false;
+  return verifiedOAuthStatePayload(options)?.nonce === providerState;
 }
