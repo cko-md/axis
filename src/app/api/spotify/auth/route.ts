@@ -57,7 +57,10 @@ export async function POST(req: NextRequest) {
 
   const redirectUri = `${getAppOrigin(req)}/api/spotify/callback`;
   const cookieStore = await cookies();
-  const cookieKeyring = directProviderCookieKeyring(clientSecret);
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("SPOTIFY_CLIENT_SECRET_PREVIOUS"),
+  );
   const { providerState, sealedState } = createOAuthPendingState({
     provider: "spotify",
     subject: identity.subject,

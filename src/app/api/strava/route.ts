@@ -125,7 +125,10 @@ async function completeCallback(
   if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
     return callbackFailure(req, "not_configured", 503);
   }
-  const cookieKeyring = directProviderCookieKeyring(clientSecret);
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("STRAVA_CLIENT_SECRET_PREVIOUS"),
+  );
 
   const subject = profileSubjectForUserId(userId);
   const providerState = req.nextUrl.searchParams.get("state");
@@ -219,7 +222,10 @@ async function initiateAuth(req: NextRequest, subject: string) {
   }
   const redirectUri = `${getAppOrigin(req)}/api/strava?action=callback`;
   const cookieStore = await cookies();
-  const cookieKeyring = directProviderCookieKeyring(clientSecret);
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("STRAVA_CLIENT_SECRET_PREVIOUS"),
+  );
   const { providerState, sealedState } = createOAuthPendingState({
     provider: "strava",
     subject,
@@ -269,7 +275,10 @@ export async function POST(req: NextRequest) {
         { status: 503 },
       );
     }
-    const cookieKeyring = directProviderCookieKeyring(secret);
+    const cookieKeyring = directProviderCookieKeyring(
+      secret,
+      optionalEnv("STRAVA_CLIENT_SECRET_PREVIOUS"),
+    );
     clearProviderTokenCookiesForSubject(
       cookieStore,
       "strava",

@@ -76,7 +76,10 @@ export async function GET(req: NextRequest) {
   if (!clientId || !clientSecret || !optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET")) {
     return fail(req, "not_configured", 503);
   }
-  const cookieKeyring = directProviderCookieKeyring(clientSecret);
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("SPOTIFY_CLIENT_SECRET_PREVIOUS"),
+  );
 
   const providerState = req.nextUrl.searchParams.get("state");
   const subject = profileSubjectForUserId(user.id);

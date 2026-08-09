@@ -89,6 +89,13 @@ function currentCookieKey(secret: DirectProviderCookieKeyInput): DirectProviderC
   return normalizeDirectProviderCookieKeyring(secret).current;
 }
 
+function sameCookieKey(
+  left: DirectProviderCookieKey,
+  right: DirectProviderCookieKey,
+): boolean {
+  return left.version === right.version && left.secret === right.secret;
+}
+
 function oauthSigningSecret(secret: DirectProviderCookieKeyInput): string {
   return normalizeDirectProviderCookieKeyring(secret).current.secret;
 }
@@ -97,10 +104,7 @@ function oauthLegacySigningSecrets(
   secret: DirectProviderCookieKeyInput,
 ): readonly string[] {
   const keyring = normalizeDirectProviderCookieKeyring(secret);
-  return [
-    ...keyring.legacy.map((key) => key.secret),
-    keyring.oauthSecret,
-  ].filter((candidate, index, all) =>
+  return keyring.legacy.map((key) => key.secret).filter((candidate, index, all) =>
     candidate !== keyring.current.secret && all.indexOf(candidate) === index);
 }
 
@@ -397,13 +401,13 @@ function createProviderAttemptOwnerSeal(
   return `pa${key.version}_${encodedOrder}_${digest}`;
 }
 
-function validProviderAttemptOwnerSeal(
+function verifiedProviderAttemptOwnerSeal(
   supplied: string | undefined,
   provider: DirectOAuthProvider,
   subject: string,
   secret: DirectProviderCookieKeyInput,
   providerState: string,
-): ProviderCredentialAttempt | null {
+): { attempt: ProviderCredentialAttempt; key: DirectProviderCookieKey } | null {
   const match = supplied?.match(CREDENTIAL_ATTEMPT_OWNER_PATTERN);
   if (!match || !match[1] || !match[2] || !match[3]) return null;
   const version = Number(match[1]);
@@ -422,9 +426,25 @@ function validProviderAttemptOwnerSeal(
     const suppliedBytes = Buffer.from(supplied!);
     const expectedBytes = Buffer.from(expected);
     if (suppliedBytes.length === expectedBytes.length &&
-      timingSafeEqual(suppliedBytes, expectedBytes)) return attempt;
+      timingSafeEqual(suppliedBytes, expectedBytes)) return { attempt, key };
   }
   return null;
+}
+
+function validProviderAttemptOwnerSeal(
+  supplied: string | undefined,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: DirectProviderCookieKeyInput,
+  providerState: string,
+): ProviderCredentialAttempt | null {
+  return verifiedProviderAttemptOwnerSeal(
+    supplied,
+    provider,
+    subject,
+    secret,
+    providerState,
+  )?.attempt ?? null;
 }
 
 function credentialCutoffPrefix(
@@ -460,7 +480,11 @@ function providerCredentialCutoffForSubject(
   subject: string,
   secret: DirectProviderCookieKeyInput,
 ): number | null {
-  const valid: Array<{ name: string; cutoffOrder: number }> = [];
+  const valid: Array<{
+    name: string;
+    cutoffOrder: number;
+    key: DirectProviderCookieKey;
+  }> = [];
   for (const key of cookieKeys(secret)) {
     const prefix = credentialCutoffPrefix(provider, subject, secret, key);
     for (const cookie of store.getAll?.() ?? []) {
@@ -484,15 +508,27 @@ function providerCredentialCutoffForSubject(
         suppliedBytes.length === expectedBytes.length &&
         timingSafeEqual(suppliedBytes, expectedBytes)
       ) {
-        valid.push({ name: cookie.name, cutoffOrder });
+        valid.push({ name: cookie.name, cutoffOrder, key });
       }
     }
   }
   valid.sort((left, right) => right.cutoffOrder - left.cutoffOrder);
   const newest = valid[0];
   if (!newest) return null;
-  for (const stale of valid.slice(1)) {
-    store.delete(stale.name);
+  const currentKey = currentCookieKey(secret);
+  if (!sameCookieKey(newest.key, currentKey)) {
+    appendProviderCredentialCutoff(
+      store,
+      provider,
+      subject,
+      secret,
+      newest.cutoffOrder,
+    );
+  }
+  for (const stale of valid) {
+    if (!sameCookieKey(stale.key, currentKey) || stale !== newest) {
+      store.delete(stale.name);
+    }
   }
   return newest.cutoffOrder;
 }
@@ -604,19 +640,21 @@ function providerAttemptCredentialsForSubject(
     accessToken: string | null;
     refreshToken: string | null;
     credentialAttempt: ProviderCredentialAttempt;
+    verifiedKey: DirectProviderCookieKey;
   }> = [];
   for (const cookie of store.getAll?.() ?? []) {
     if (!cookie.name.startsWith(ownerPrefix)) continue;
     const providerState = cookie.name.slice(ownerPrefix.length);
     if (!OAUTH_PROVIDER_STATE_PATTERN.test(providerState)) continue;
-    const credentialAttempt = validProviderAttemptOwnerSeal(
+    const verifiedOwner = verifiedProviderAttemptOwnerSeal(
       cookie.value,
       provider,
       subject,
       secret,
       providerState,
     );
-    if (!credentialAttempt) continue;
+    if (!verifiedOwner) continue;
+    const credentialAttempt = verifiedOwner.attempt;
     const names = attemptCredentialCookieNames(provider, providerState);
     if (
       cutoffOrder !== null &&
@@ -630,6 +668,7 @@ function providerAttemptCredentialsForSubject(
       accessToken: store.get(names.access)?.value ?? null,
       refreshToken: store.get(names.refresh)?.value ?? null,
       credentialAttempt,
+      verifiedKey: verifiedOwner.key,
     });
   }
   candidates.sort((left, right) => {
@@ -647,10 +686,9 @@ function providerAttemptCredentialsForSubject(
   });
   const selected = candidates[0];
   if (!selected) return null;
-  const selectedOwner = store.get(selected.names.owner)?.value;
   if (
     selected.accessToken &&
-    !selectedOwner?.startsWith(`pa${currentCookieKey(secret).version}_`)
+    !sameCookieKey(selected.verifiedKey, currentCookieKey(secret))
   ) {
     replaceProviderTokenCookiesForAttempt(
       store,
@@ -689,15 +727,15 @@ export function createProviderOwnerSeal(
   return `po${key.version}_${digest}`;
 }
 
-function validOwnerSeal(
+function verifiedOwnerSeal(
   supplied: string | undefined,
   provider: DirectOAuthProvider,
   subject: string,
   secret: DirectProviderCookieKeyInput,
-): boolean {
+): DirectProviderCookieKey | null {
   const match = supplied?.match(OWNER_SEAL_PATTERN);
   if (!match?.[1] || !isProfileSubject(subject)) {
-    return false;
+    return null;
   }
   const version = Number(match[1]);
   for (const key of cookieKeys(secret)) {
@@ -706,9 +744,49 @@ function validOwnerSeal(
     const suppliedBytes = Buffer.from(supplied!);
     const expectedBytes = Buffer.from(expected);
     if (suppliedBytes.length === expectedBytes.length &&
-      timingSafeEqual(suppliedBytes, expectedBytes)) return true;
+      timingSafeEqual(suppliedBytes, expectedBytes)) return key;
   }
-  return false;
+  return null;
+}
+
+function validOwnerSeal(
+  supplied: string | undefined,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: DirectProviderCookieKeyInput,
+): boolean {
+  return verifiedOwnerSeal(supplied, provider, subject, secret) !== null;
+}
+
+function clearObsoleteAuthenticatedCredentialCopies(
+  store: MutableProviderCookieStore,
+  provider: DirectOAuthProvider,
+  subject: string,
+  secret: DirectProviderCookieKeyInput,
+): void {
+  const currentKey = currentCookieKey(secret);
+  for (const key of cookieKeys(secret)) {
+    if (sameCookieKey(key, currentKey)) continue;
+    const names = subjectCredentialCookieNames(provider, subject, secret, key);
+    const verifiedKey = verifiedOwnerSeal(
+      store.get(names.owner)?.value,
+      provider,
+      subject,
+      secret,
+    );
+    if (verifiedKey && sameCookieKey(verifiedKey, key)) {
+      clearCredentialCookiesByName(store, names);
+    }
+  }
+  const sharedNames = PROVIDER_COOKIES[provider];
+  if (currentKey.version === 2 && validOwnerSeal(
+    store.get(sharedNames.owner)?.value,
+    provider,
+    subject,
+    secret,
+  )) {
+    clearProviderCredentialCookies(store, provider);
+  }
 }
 
 export function providerTokensForSubject(
@@ -743,10 +821,11 @@ export function providerTokensForSubject(
     const slotOwner = store.get(slotNames.owner)?.value;
     const slotAccessToken = store.get(slotNames.access)?.value ?? null;
     const slotRefreshToken = store.get(slotNames.refresh)?.value ?? null;
-    if (validOwnerSeal(slotOwner, provider, subject, secret)) {
+    const verifiedKey = verifiedOwnerSeal(slotOwner, provider, subject, secret);
+    if (verifiedKey && sameCookieKey(verifiedKey, key)) {
       const currentKey = currentCookieKey(secret);
       if (
-        (key.version !== currentKey.version || key.secret !== currentKey.secret) &&
+        !sameCookieKey(key, currentKey) &&
         slotAccessToken
       ) {
         const currentNames = subjectCredentialCookieNames(provider, subject, secret);
@@ -762,16 +841,13 @@ export function providerTokensForSubject(
           secret,
         );
         clearCredentialCookiesByName(store, slotNames);
-        const sharedNames = PROVIDER_COOKIES[provider];
-        if (validOwnerSeal(
-          store.get(sharedNames.owner)?.value,
-          provider,
-          subject,
-          secret,
-        )) {
-          clearProviderCredentialCookies(store, provider);
-        }
       }
+      clearObsoleteAuthenticatedCredentialCopies(
+        store,
+        provider,
+        subject,
+        secret,
+      );
       return {
         accessToken: slotAccessToken,
         refreshToken: slotRefreshToken,
@@ -867,12 +943,13 @@ export function providerRefreshGenerationForSubject(
         secret,
         key,
       );
-      if (validOwnerSeal(
+      const verifiedKey = verifiedOwnerSeal(
         store.get(subjectNames.owner)?.value,
         provider,
         subject,
         secret,
-      )) {
+      );
+      if (verifiedKey && sameCookieKey(verifiedKey, key)) {
         names = subjectNames;
         break;
       }
@@ -933,7 +1010,30 @@ export function providerRefreshRejectedForSubject(
     const suppliedBytes = Buffer.from(supplied!);
     const expectedBytes = Buffer.from(expected);
     if (suppliedBytes.length === expectedBytes.length &&
-      timingSafeEqual(suppliedBytes, expectedBytes)) return true;
+      timingSafeEqual(suppliedBytes, expectedBytes)) {
+      const currentKey = currentCookieKey(secret);
+      if (!sameCookieKey(key, currentKey)) {
+        markProviderRefreshRejectedForSubject(
+          store,
+          provider,
+          subject,
+          secret,
+          refreshToken,
+          refreshGeneration,
+          attempt,
+        );
+        store.delete(providerRefreshRejectionCookieName(
+          provider,
+          subject,
+          secret,
+          refreshToken,
+          refreshGeneration,
+          attempt,
+          key,
+        ));
+      }
+      return true;
+    }
   }
   return false;
 }
@@ -1294,6 +1394,12 @@ export function replaceRefreshedProviderTokenCookies(
       provider,
       subjectCredentialCookieNames(provider, subject, secret),
       tokens,
+      subject,
+      secret,
+    );
+    clearObsoleteAuthenticatedCredentialCopies(
+      store,
+      provider,
       subject,
       secret,
     );

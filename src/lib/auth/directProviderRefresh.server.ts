@@ -32,15 +32,42 @@ export class DirectProviderRefreshError extends Error {
   }
 }
 
-const REFRESH_LEASE_TTL_MS = 15_000;
-const REFRESH_CONSUMED_TTL_SECONDS = 30;
+const REFRESH_LEASE_TTL_MS = 60_000;
+const REFRESH_CONSUMED_TTL_SECONDS = 60;
 const testLocks = new Set<string>();
 const testConsumed = new Map<string, number>();
+
+type RefreshCoordinator = {
+  exists(key: string): Promise<number>;
+  set(
+    key: string,
+    value: string,
+    options: { nx?: true; px?: number; ex?: number },
+  ): Promise<unknown>;
+  eval(
+    script: string,
+    keys: string[],
+    args: string[],
+  ): Promise<unknown>;
+};
+
+let testCoordinator: RefreshCoordinator | null = null;
+
+/** Injects the production coordinator protocol without network access in tests. */
+export function setDirectProviderRefreshCoordinatorForTests(
+  coordinator: RefreshCoordinator | null,
+): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("DIRECT_PROVIDER_REFRESH_TEST_COORDINATOR_FORBIDDEN");
+  }
+  testCoordinator = coordinator;
+}
 
 export function resetDirectProviderRefreshLeaseTestState(): void {
   if (process.env.NODE_ENV !== "test") return;
   testLocks.clear();
   testConsumed.clear();
+  testCoordinator = null;
 }
 
 function refreshLeaseKey(options: {
@@ -50,20 +77,92 @@ function refreshLeaseKey(options: {
   refreshGeneration: string;
   providerState?: string;
 }): string {
-  const secret = optionalEnv("DIRECT_PROVIDER_COOKIE_SECRET");
-  if (!secret) {
-    throw new DirectProviderRefreshError({
-      provider: options.provider,
-      status: 503,
-      code: "PROVIDER_COOKIE_KEY_NOT_CONFIGURED",
-    });
-  }
-  const digest = createHmac("sha256", secret)
+  // The provider refresh token is already a high-entropy secret. Using it only
+  // as the local HMAC key keeps Redis identifiers opaque while making the
+  // namespace invariant across AXIS cookie-signing-key rotations.
+  const digest = createHmac("sha256", options.refreshToken)
     .update(
-      `axis:direct-provider-refresh-lease:v1\0${options.provider}\0${options.subject}\0${options.providerState ?? "subject-slot"}\0${options.refreshGeneration}\0${options.refreshToken}`,
+      `axis:direct-provider-refresh-lease:v2\0${options.provider}\0${options.subject}\0${options.providerState ?? "subject-slot"}\0${options.refreshGeneration}`,
     )
     .digest("hex");
-  return `axis:provider-refresh:v1:${digest}`;
+  return `axis:provider-refresh:v2:${digest}`;
+}
+
+function coordinatorCleanupError(
+  provider: "spotify" | "strava",
+  cause: unknown,
+): void {
+  const error = new DirectProviderRefreshError({
+    provider,
+    status: 503,
+    code: "PROVIDER_REFRESH_COORDINATOR_UNAVAILABLE",
+    cause,
+  });
+  captureRouteError(error, {
+    route: "/internal/direct-provider-refresh",
+    area: "integrations",
+    provider,
+    transport: "direct",
+    operation: "release_refresh_lease",
+    status: 503,
+    code: error.code,
+  });
+}
+
+async function coordinatedRefresh<T>(
+  redis: RefreshCoordinator,
+  baseKey: string,
+  provider: "spotify" | "strava",
+  operation: () => Promise<T>,
+): Promise<T> {
+  const lockKey = `${baseKey}:lock`;
+  const consumedKey = `${baseKey}:consumed`;
+  if (await redis.exists(consumedKey)) {
+    throw new DirectProviderRefreshError({
+      provider,
+      status: 409,
+      code: "PROVIDER_REFRESH_IN_PROGRESS",
+    });
+  }
+  const owner = randomBytes(18).toString("base64url");
+  const acquired = await redis.set(lockKey, owner, {
+    nx: true,
+    px: REFRESH_LEASE_TTL_MS,
+  });
+  if (acquired !== "OK") {
+    throw new DirectProviderRefreshError({
+      provider,
+      status: 409,
+      code: "PROVIDER_REFRESH_IN_PROGRESS",
+    });
+  }
+  try {
+    // Commit the exact generation as consumed before the irreversible provider
+    // exchange. Any failure here is still safe to surface because no token has
+    // rotated. After this succeeds, cleanup is strictly best-effort.
+    const consumed = await redis.set(consumedKey, "1", {
+      nx: true,
+      ex: REFRESH_CONSUMED_TTL_SECONDS,
+    });
+    if (consumed !== "OK") {
+      throw new DirectProviderRefreshError({
+        provider,
+        status: 409,
+        code: "PROVIDER_REFRESH_IN_PROGRESS",
+      });
+    }
+    return await operation();
+  } finally {
+    try {
+      await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+        [lockKey],
+        [owner],
+      );
+    } catch (error) {
+      coordinatorCleanupError(provider, error);
+    }
+  }
 }
 
 async function withTestRefreshLease<T>(
@@ -80,10 +179,9 @@ async function withTestRefreshLease<T>(
     });
   }
   testLocks.add(key);
+  testConsumed.set(key, Date.now() + REFRESH_CONSUMED_TTL_SECONDS * 1_000);
   try {
-    const value = await operation();
-    testConsumed.set(key, Date.now() + REFRESH_CONSUMED_TTL_SECONDS * 1_000);
-    return value;
+    return await operation();
   } finally {
     testLocks.delete(key);
   }
@@ -106,11 +204,11 @@ export async function withDirectProviderRefreshLease<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const baseKey = refreshLeaseKey(options);
-  if (process.env.NODE_ENV === "test") {
+  if (process.env.NODE_ENV === "test" && !testCoordinator) {
     return withTestRefreshLease(options.provider, baseKey, operation);
   }
-  if (!optionalEnv("UPSTASH_REDIS_REST_URL") ||
-    !optionalEnv("UPSTASH_REDIS_REST_TOKEN")) {
+  if (!testCoordinator && (!optionalEnv("UPSTASH_REDIS_REST_URL") ||
+    !optionalEnv("UPSTASH_REDIS_REST_TOKEN"))) {
     throw new DirectProviderRefreshError({
       provider: options.provider,
       status: 503,
@@ -118,47 +216,12 @@ export async function withDirectProviderRefreshLease<T>(
     });
   }
   try {
-    const { Redis } = await import("@upstash/redis");
-    const redis = Redis.fromEnv();
-    const lockKey = `${baseKey}:lock`;
-    const consumedKey = `${baseKey}:consumed`;
-    if (await redis.exists(consumedKey)) {
-      throw new DirectProviderRefreshError({
-        provider: options.provider,
-        status: 409,
-        code: "PROVIDER_REFRESH_IN_PROGRESS",
-      });
+    let redis = testCoordinator;
+    if (!redis) {
+      const { Redis } = await import("@upstash/redis");
+      redis = Redis.fromEnv() as unknown as RefreshCoordinator;
     }
-    const owner = randomBytes(18).toString("base64url");
-    const acquired = await redis.set(lockKey, owner, {
-      nx: true,
-      px: REFRESH_LEASE_TTL_MS,
-    });
-    if (acquired !== "OK") {
-      throw new DirectProviderRefreshError({
-        provider: options.provider,
-        status: 409,
-        code: "PROVIDER_REFRESH_IN_PROGRESS",
-      });
-    }
-    try {
-      if (await redis.exists(consumedKey)) {
-        throw new DirectProviderRefreshError({
-          provider: options.provider,
-          status: 409,
-          code: "PROVIDER_REFRESH_IN_PROGRESS",
-        });
-      }
-      const value = await operation();
-      await redis.set(consumedKey, "1", { ex: REFRESH_CONSUMED_TTL_SECONDS });
-      return value;
-    } finally {
-      await redis.eval(
-        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-        [lockKey],
-        [owner],
-      );
-    }
+    return await coordinatedRefresh(redis, baseKey, options.provider, operation);
   } catch (error) {
     if (error instanceof DirectProviderRefreshError) throw error;
     throw new DirectProviderRefreshError({
@@ -175,17 +238,15 @@ export function directProviderRefreshFailureResponse(
   route: string,
 ): Response {
   if (!(error instanceof DirectProviderRefreshError)) throw error;
-  if (error.status >= 500) {
-    captureRouteError(error, {
-      route,
-      area: "integrations",
-      provider: error.provider,
-      transport: "direct",
-      operation: "refresh_token",
-      status: error.status,
-      code: error.code,
-    });
-  }
+  captureRouteError(error, {
+    route,
+    area: "integrations",
+    provider: error.provider,
+    transport: "direct",
+    operation: "refresh_token",
+    status: error.status,
+    code: error.code,
+  });
   return privateJson(
     { error: "PROVIDER_REFRESH_UNAVAILABLE", code: error.code },
     { status: error.status },

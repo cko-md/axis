@@ -3,6 +3,7 @@ import {
   clearProviderRefreshRejectionForGeneration,
   markProviderRefreshRejectedForSubject,
   peekProviderTokensForSubject,
+  providerTokensForSubject,
   providerRefreshGenerationForSubject,
   providerRefreshRejectedForSubject,
   replaceRefreshedProviderTokenCookies,
@@ -50,10 +51,20 @@ export async function getAccessToken(userId: string): Promise<string | null> {
       code: "PROVIDER_COOKIE_KEY_NOT_CONFIGURED",
     });
   }
-  const cookieKeyring = directProviderCookieKeyring(clientSecret);
+  const cookieKeyring = directProviderCookieKeyring(
+    clientSecret,
+    optionalEnv("SPOTIFY_CLIENT_SECRET_PREVIOUS"),
+  );
   const cookieStore = await cookies();
   const tokens = peekProviderTokensForSubject(cookieStore, "spotify", subject, cookieKeyring);
-  if (tokens.accessToken) return tokens.accessToken;
+  if (tokens.accessToken) {
+    return providerTokensForSubject(
+      cookieStore,
+      "spotify",
+      subject,
+      cookieKeyring,
+    ).accessToken;
+  }
 
   if (!tokens.refreshToken) return null;
   const refreshGeneration = providerRefreshGenerationForSubject(

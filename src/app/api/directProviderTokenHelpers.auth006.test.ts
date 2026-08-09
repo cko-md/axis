@@ -5,7 +5,10 @@ import {
   createProviderOwnerSeal,
   replaceProviderTokenCookiesForAttempt,
 } from "@/lib/auth/providerCookies.server";
-import { DirectProviderRefreshError } from "@/lib/auth/directProviderRefresh.server";
+import {
+  DirectProviderRefreshError,
+  resetDirectProviderRefreshLeaseTestState,
+} from "@/lib/auth/directProviderRefresh.server";
 
 const mocks = vi.hoisted(() => ({
   cookieStore: {
@@ -102,7 +105,8 @@ describe("AUTH-006 direct provider token helpers", () => {
 
     await expect(getSpotifyAccessToken(userId)).resolves.toBe("bound-access");
     await expect(getSpotifyAccessToken("different-user")).resolves.toBeNull();
-    expect(mocks.cookieStore.values.get("spotify_access_token")).toBe("bound-access");
+    expect(mocks.cookieStore.values.has("spotify_access_token")).toBe(false);
+    expect([...mocks.cookieStore.values.values()]).toContain("bound-access");
   });
 
   it.each([
@@ -202,7 +206,8 @@ describe("AUTH-006 direct provider token helpers", () => {
 
     await expect(getAccessToken(userB)).resolves.toBe("access-b");
     expect(providerFetch).toHaveBeenCalledTimes(1);
-    expect(mocks.cookieStore.values.get(access)).toBe("access-b");
+    expect(mocks.cookieStore.values.has(access)).toBe(false);
+    expect([...mocks.cookieStore.values.values()]).toContain("access-b");
   });
 
   it.each([
@@ -342,6 +347,7 @@ describe("AUTH-006 direct provider token helpers", () => {
       status: 502,
       code: "PROVIDER_REFRESH_UNAVAILABLE",
     } satisfies Partial<DirectProviderRefreshError>);
+    resetDirectProviderRefreshLeaseTestState();
     await expect(getAccessToken(userId)).rejects.toMatchObject({
       status: 502,
       code: "PROVIDER_REFRESH_INVALID_RESPONSE",

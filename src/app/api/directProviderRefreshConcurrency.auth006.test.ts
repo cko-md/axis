@@ -135,6 +135,37 @@ describe("AUTH-006 concurrent direct-provider refresh containment", () => {
   it.each([
     {
       provider: "spotify" as const,
+      getAccessToken: getSpotifyAccessToken,
+    },
+    {
+      provider: "strava" as const,
+      getAccessToken: getStravaAccessToken,
+    },
+  ])("migrates authenticated $provider v1 credentials on the live access path", async ({
+    provider,
+    getAccessToken,
+  }) => {
+    const store = cookieStore();
+    replaceProviderTokenCookies(store, provider, {
+      accessToken: `${provider}-legacy-access`,
+      refreshToken: `${provider}-legacy-refresh`,
+    }, subject, `${provider}-secret`);
+    store.operations.length = 0;
+    mocks.stores.push(store);
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    await expect(getAccessToken(userId)).resolves.toBe(`${provider}-legacy-access`);
+    expect(providerFetch).not.toHaveBeenCalled();
+    expect([...store.values.keys()].some((name) => name.includes("_s2_"))).toBe(true);
+    expect([...store.values.keys()].some((name) => name.includes("_s1_"))).toBe(false);
+    expect(store.values.has(`${provider}_access_token`)).toBe(false);
+    expect(store.values.has(`${provider}_refresh_token`)).toBe(false);
+  });
+
+  it.each([
+    {
+      provider: "spotify" as const,
       owner: "spotify_token_owner",
       secret: "spotify-secret",
       freshAccess: "spotify-access-v2",

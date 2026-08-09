@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import {
   providerTokensForSubject,
+  providerRefreshGenerationForSubject,
+  providerRefreshRejectedForSubject,
+  markProviderRefreshRejectedForSubject,
+  clearProviderTokenCookiesForSubject,
   replaceProviderTokenCookies,
   replaceProviderTokenCookiesForAttempt,
   type MutableProviderCookieStore,
@@ -78,7 +82,6 @@ describe("AUTH-006 late hosted-review containment", () => {
     const migrationKeyring: DirectProviderCookieKeyring = {
       current: { version: 2, secret: "stable-axis-cookie-key" },
       legacy: [{ version: 1, secret: "old-provider-secret" }],
-      oauthSecret: "old-provider-secret",
     };
     expect(providerTokensForSubject(
       store,
@@ -92,7 +95,6 @@ describe("AUTH-006 late hosted-review containment", () => {
     const rotatedProviderKeyring: DirectProviderCookieKeyring = {
       current: { version: 2, secret: "stable-axis-cookie-key" },
       legacy: [{ version: 1, secret: "new-provider-secret" }],
-      oauthSecret: "new-provider-secret",
     };
     expect(providerTokensForSubject(
       store,
@@ -117,7 +119,6 @@ describe("AUTH-006 late hosted-review containment", () => {
     const keyring: DirectProviderCookieKeyring = {
       current: { version: 2, secret: "stable-axis-cookie-key" },
       legacy: [{ version: 1, secret: "old-provider-secret" }],
-      oauthSecret: "old-provider-secret",
     };
     expect(providerTokensForSubject(store, "strava", subject, keyring)).toMatchObject({
       accessToken: "upper-access",
@@ -127,6 +128,103 @@ describe("AUTH-006 late hosted-review containment", () => {
     expect(store.values.get(`strava_token_owner_a1_${upper.providerState}`))
       .toMatch(/^pa2_/);
     expect(store.values.has(`strava_token_owner_a1_${lower.providerState}`)).toBe(false);
+  });
+
+  it("re-signs previous-v2 attempt credentials, generations, rejections, and cutoffs", () => {
+    const store = cookieStore();
+    const attempt = { providerState: "c".repeat(43), authorizationOrder: 300 };
+    const oldKeyring: DirectProviderCookieKeyring = {
+      current: { version: 2, secret: "axis-key-old" },
+      legacy: [],
+    };
+    replaceProviderTokenCookiesForAttempt(store, "strava", {
+      accessToken: "old-v2-access",
+      refreshToken: "old-v2-refresh",
+    }, subject, oldKeyring, attempt);
+    const oldOwnerName = `strava_token_owner_a1_${attempt.providerState}`;
+    const oldOwner = store.values.get(oldOwnerName);
+    const oldGeneration = providerRefreshGenerationForSubject(
+      store,
+      "strava",
+      subject,
+      oldKeyring,
+      attempt,
+    );
+    markProviderRefreshRejectedForSubject(
+      store,
+      "strava",
+      subject,
+      oldKeyring,
+      "old-v2-refresh",
+      oldGeneration,
+      attempt,
+    );
+
+    const rotatingKeyring: DirectProviderCookieKeyring = {
+      current: { version: 2, secret: "axis-key-new" },
+      legacy: [{ version: 2, secret: "axis-key-old" }],
+    };
+    expect(providerRefreshRejectedForSubject(
+      store,
+      "strava",
+      subject,
+      rotatingKeyring,
+      "old-v2-refresh",
+      oldGeneration,
+      attempt,
+    )).toBe(true);
+    const currentOnly: DirectProviderCookieKeyring = {
+      current: { version: 2, secret: "axis-key-new" },
+      legacy: [],
+    };
+    expect(providerRefreshRejectedForSubject(
+      store,
+      "strava",
+      subject,
+      currentOnly,
+      "old-v2-refresh",
+      oldGeneration,
+      attempt,
+    )).toBe(true);
+    expect(providerTokensForSubject(store, "strava", subject, rotatingKeyring))
+      .toMatchObject({
+        accessToken: "old-v2-access",
+        refreshToken: "old-v2-refresh",
+        credentialAttempt: attempt,
+      });
+    expect(store.values.get(oldOwnerName)).not.toBe(oldOwner);
+
+    const newGeneration = providerRefreshGenerationForSubject(
+      store,
+      "strava",
+      subject,
+      currentOnly,
+      attempt,
+    );
+    expect(newGeneration).not.toBe("legacy");
+    expect(providerTokensForSubject(store, "strava", subject, currentOnly))
+      .toMatchObject({ accessToken: "old-v2-access", refreshToken: "old-v2-refresh" });
+
+    clearProviderTokenCookiesForSubject(store, "strava", subject, oldKeyring);
+    expect(providerTokensForSubject(store, "strava", subject, rotatingKeyring))
+      .toEqual({ accessToken: null, refreshToken: null });
+    expect(providerTokensForSubject(store, "strava", subject, currentOnly))
+      .toEqual({ accessToken: null, refreshToken: null });
+  });
+
+  it("retires provider-secret v1 verification at an explicit deadline", () => {
+    const prior = process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
+    try {
+      process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL = "2000-01-01T00:00:00.000Z";
+      expect(directProviderCookieKeyring("captured-provider-secret").legacy)
+        .not.toContainEqual({ version: 1, secret: "captured-provider-secret" });
+      process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL = "not-a-date";
+      expect(() => directProviderCookieKeyring("provider-secret"))
+        .toThrow("DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL_INVALID");
+    } finally {
+      if (prior === undefined) delete process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL;
+      else process.env.DIRECT_PROVIDER_COOKIE_V1_ACCEPT_UNTIL = prior;
+    }
   });
 
   it("fails closed when the stable application cookie key is absent", () => {

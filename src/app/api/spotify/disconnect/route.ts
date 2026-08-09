@@ -22,7 +22,10 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const cookieKeyring = directProviderCookieKeyring(secret);
+  const cookieKeyring = directProviderCookieKeyring(
+    secret,
+    optionalEnv("SPOTIFY_CLIENT_SECRET_PREVIOUS"),
+  );
   clearProviderTokenCookiesForSubject(
     cookieStore,
     "spotify",
