@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
   anthropicCreate: vi.fn(),
   executeTool: vi.fn(),
   captureRouteError: vi.fn(),
+  ToolExecutionError: class ToolExecutionError extends Error {
+    constructor(public readonly code: "DATA_UNAVAILABLE" | "PROVIDER_UNAVAILABLE" | "INVALID_INPUT") {
+      super(code);
+      this.name = "ToolExecutionError";
+    }
+  },
 }));
 
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -39,6 +45,7 @@ vi.mock("@/lib/ai/tools/registry", () => ({
     input_schema: { type: "object", properties: {} },
   },
   executeTool: mocks.executeTool,
+  ToolExecutionError: mocks.ToolExecutionError,
 }));
 
 import { POST } from "./route";
@@ -172,5 +179,47 @@ describe("fund advisor numerical-claim binding faults", () => {
 
     expect(body.citation).toMatchObject({ numeric_claims_verified: false });
     expect(body.text).not.toBe("Your available cash is one hundred dollars.");
+  });
+
+  it("captures an unexpected financial-tool exception before returning the safe tool error", async () => {
+    const db = supabaseClient();
+    mocks.createClient.mockResolvedValue(db.client);
+    const unexpected = new Error("database transport failed");
+    mocks.executeTool.mockRejectedValue(unexpected);
+    mocks.anthropicCreate
+      .mockResolvedValueOnce({
+        content: [{ type: "tool_use", id: "tool-1", name: "get_cash_accounts", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "tool_use", id: "citation-1", name: "respond_with_citation", input: {} }],
+      });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.captureRouteError).toHaveBeenCalledWith(unexpected, {
+      route: "/api/fund/advisor",
+      operation: "execute_financial_tool",
+      area: "fund",
+      status: 500,
+    });
+  });
+
+  it("keeps an expected typed tool-domain failure out of Sentry", async () => {
+    const db = supabaseClient();
+    mocks.createClient.mockResolvedValue(db.client);
+    mocks.executeTool.mockRejectedValue(new mocks.ToolExecutionError("DATA_UNAVAILABLE"));
+    mocks.anthropicCreate
+      .mockResolvedValueOnce({
+        content: [{ type: "tool_use", id: "tool-1", name: "get_cash_accounts", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "tool_use", id: "citation-1", name: "respond_with_citation", input: {} }],
+      });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.captureRouteError).not.toHaveBeenCalled();
   });
 });

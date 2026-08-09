@@ -7,7 +7,12 @@ import { optionalEnv } from "@/lib/env";
 import { memoryRateLimit } from "@/lib/ratelimit";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import type { Json } from "@/lib/supabase/database.types";
-import { TOOLS, CITATION_TOOL, executeTool } from "@/lib/ai/tools/registry";
+import {
+  TOOLS,
+  CITATION_TOOL,
+  executeTool,
+  ToolExecutionError,
+} from "@/lib/ai/tools/registry";
 import { TransactionCoverageOperationalError } from "@/lib/fund/transactionCoverage";
 
 /**
@@ -198,7 +203,10 @@ export async function POST(req: NextRequest) {
         output = await executeTool(block.name, block.input as Record<string, unknown>, { supabase, userId: user.id });
       } catch (error) {
         isError = true;
-        if (error instanceof TransactionCoverageOperationalError) {
+        if (
+          error instanceof TransactionCoverageOperationalError
+          || !(error instanceof ToolExecutionError)
+        ) {
           captureRouteError(error, {
             route: "/api/fund/advisor",
             operation: "execute_financial_tool",

@@ -64,7 +64,10 @@ function operational(code: string): never {
 function dateOnly(value: unknown): string | null {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(parsed) ? value : null;
+  return Number.isFinite(parsed)
+    && new Date(parsed).toISOString().slice(0, 10) === value
+    ? value
+    : null;
 }
 
 function parseFacts(

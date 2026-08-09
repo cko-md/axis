@@ -115,6 +115,39 @@ describe("transaction coverage completeness", () => {
     )).rejects.toThrow("TRANSACTION_GENERATION_LIMIT_EXCEEDED");
   });
 
+  it.each([
+    "2026-02-29",
+    "2026-02-30",
+    "2026-02-31",
+    "2026-04-31",
+  ])("rejects the calendar-impossible date %s", async (invalidDate) => {
+    await expect(readCompleteTransactionCoverage(
+      { rpc: vi.fn() } as unknown as SupabaseClient,
+      "user-1",
+      invalidDate,
+      "2026-07-23",
+    )).rejects.toThrow("TRANSACTION_COVERAGE_WINDOW_INVALID");
+  });
+
+  it("accepts a real leap day", async () => {
+    const rpc = vi.fn(async () => ({
+      data: [{
+        available: false,
+        reason: "TRANSACTION_HISTORY_UNAVAILABLE",
+        coverage: [],
+        lineage_hash: null,
+      }],
+      error: null,
+    }));
+
+    await expect(readCompleteTransactionCoverage(
+      { rpc } as unknown as SupabaseClient,
+      "user-1",
+      "2024-02-29",
+      "2024-03-01",
+    )).resolves.toMatchObject({ available: false });
+  });
+
   it.each(["reject", "resolve-error"] as const)(
     "keeps a mid-flight generation-query abort quiet when the query %s path fires",
     async (mode) => {

@@ -185,4 +185,17 @@ describe("fund bank-transactions authority boundary", () => {
     expect(await response.json()).toEqual({ error: "INVALID_QUERY" });
     expect(mocks.redactRouteError).not.toHaveBeenCalled();
   });
+
+  it("rejects a calendar-impossible date as a client error without Sentry noise", async () => {
+    const client = supabaseClient();
+    mocks.createClient.mockResolvedValue(client);
+
+    const response = await GET(new NextRequest(
+      "https://axis.example/api/fund/bank-transactions?from=2026-02-31",
+    ));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "INVALID_QUERY" });
+    expect(mocks.redactRouteError).not.toHaveBeenCalled();
+  });
 });
