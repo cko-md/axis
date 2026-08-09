@@ -23,9 +23,9 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `ca44f48893ea5fed35daf1f630276dff245650776e09302ab8092ea9b647f4e2` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **State fingerprint:** `93d1a37c84e9ad089946fce69a2ac60aa2914d3bf136c28ae9ca396330d5bb1a` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
 - **Content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
-- **Source-main tree at derivation:** `1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39`
+- **Source-main tree at derivation:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
 
@@ -33,16 +33,10 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/state-close-auth006`
-- **HEAD:** `254d1ebf`
-- **main:** `1b2df6b0`
+- **Branch:** `codex/state-refresh-auth006-closure`
+- **HEAD:** `f599019c`
+- **main:** `f599019c`
 - **Working tree:** clean
-
-### Ahead of source main at derivation (3 commit(s))
-
-- `254d1ebf` docs(state): advance post-AUTH-006 continuation
-- `c24884e2` chore(state): derive AUTH-006 closure
-- `93598646` docs(state): close AUTH-006 on canonical production evidence
 
 ## Waves merged to main
 

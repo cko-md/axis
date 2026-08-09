@@ -1,30 +1,23 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T18:19:32.556Z",
+  "derivedAt": "2026-08-09T19:10:23.452Z",
   "git": {
-    "branch": "codex/state-close-auth006",
-    "head": "254d1ebf90ea7157a326b47f2ad436b504b7a93d",
-    "mainHead": "1b2df6b03ba03831a0a596cbd943e8903450f66a",
+    "branch": "codex/state-refresh-auth006-closure",
+    "head": "f599019cdcf789a5f238106387c54d0ebc8cfc32",
+    "mainHead": "f599019cdcf789a5f238106387c54d0ebc8cfc32",
     "workingTreeClean": true,
-    "aheadOfMain": [
-      {
-        "sha": "254d1ebf",
-        "subject": "docs(state): advance post-AUTH-006 continuation"
-      },
-      {
-        "sha": "c24884e2",
-        "subject": "chore(state): derive AUTH-006 closure"
-      },
-      {
-        "sha": "93598646",
-        "subject": "docs(state): close AUTH-006 on canonical production evidence"
-      }
-    ],
+    "aheadOfMain": [],
     "contentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
-    "sourceMainContentTreeHash": "1346bdbefa4ffbc291ec50a6709bee4fbdd9d1d3e0d7160782f0c50f8cefbb39",
-    "fingerprint": "ca44f48893ea5fed35daf1f630276dff245650776e09302ab8092ea9b647f4e2"
+    "sourceMainContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
+    "fingerprint": "93d1a37c84e9ad089946fce69a2ac60aa2914d3bf136c28ae9ca396330d5bb1a"
   },
   "mergedPrs": [
+    {
+      "pr": 309,
+      "sha": "f599019c",
+      "subject": "docs(state): close AUTH-006 on canonical production evidence",
+      "committedAt": "2026-08-09T15:09:23-04:00"
+    },
     {
       "pr": 308,
       "sha": "1b2df6b0",
@@ -168,12 +161,6 @@
       "sha": "6fedaceb",
       "subject": "chore(integrations): delete the direct-OAuth Mail/Calendar/Contacts adapters (Composio-only)",
       "committedAt": "2026-07-21T10:34:20-04:00"
-    },
-    {
-      "pr": 262,
-      "sha": "6833e60e",
-      "subject": "feat(icons): native macOS squircle app icon — cerulean line-art, cinematic depth",
-      "committedAt": "2026-07-21T10:07:55-04:00"
     }
   ],
   "waves": [
