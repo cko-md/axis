@@ -147,5 +147,6 @@ describe("Make webhook acceptance boundary", () => {
 
     expect(claim).not.toHaveBeenCalled();
     expect(trigger).not.toHaveBeenCalled();
+    expect(store.enqueue).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
   });
 });

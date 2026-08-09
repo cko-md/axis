@@ -128,6 +128,10 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
   }
   const notionalText = minorUnitsToDecimalString(estimatedNotionalMinor, currency as string);
   if (!notionalText) return { ok: false, errors: ["estimated notional is unavailable"] };
+  const estimatedNotional = Number(notionalText);
+  if (strictExactMinorUnits(estimatedNotional, currency as string) !== estimatedNotionalMinor) {
+    return { ok: false, errors: ["estimated notional is outside the exact numeric compatibility range"] };
+  }
 
   return {
     ok: true,
@@ -147,7 +151,7 @@ export function buildOrderTicket(input: OrderTicketInput): OrderTicketResult {
         } : {}),
       } : {}),
       referencePrice: input.referencePrice ?? null,
-      estimatedNotional: Number(notionalText),
+      estimatedNotional,
       estimatedNotionalText: notionalText,
       estimatedNotionalMinor,
       currency: currency as string,

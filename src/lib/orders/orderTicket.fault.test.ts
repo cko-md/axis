@@ -55,4 +55,21 @@ describe("order ticket exact intent boundaries", () => {
       currency: "USD",
     })).toMatchObject({ ok: false, errors: expect.arrayContaining(["limitPrice and limitPriceMinor disagree"]) });
   });
+
+  it("rejects a notional whose compatibility number would lose one minor unit", () => {
+    expect(buildOrderTicket({
+      symbol: "BRK.A",
+      side: "buy",
+      quantity: 2,
+      quantityUnits: 2_000_000,
+      quantityScale: 1_000_000,
+      type: "limit",
+      limitPrice: 45_035_996_272_704.98,
+      limitPriceMinor: 4_503_599_627_270_498,
+      currency: "USD",
+    })).toMatchObject({
+      ok: false,
+      errors: expect.arrayContaining(["estimated notional is outside the exact numeric compatibility range"]),
+    });
+  });
 });

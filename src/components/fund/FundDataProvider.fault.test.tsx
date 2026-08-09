@@ -144,6 +144,24 @@ describe("Plaid liability availability state", () => {
     expect(latest?.aggregated).toEqual([]);
   });
 
+  it("clears cached holdings when the server detects a subject mismatch", async () => {
+    const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
+    const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };
+    await mount("ready-empty", { rows: [holding], aggregated: [aggregate] });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/fund/holdings") return json({ error: "SUBJECT_CHANGED" }, 409);
+      return json({ liabilities: [], providerAvailability: [] });
+    });
+
+    await act(async () => {
+      await latest?.refreshHoldings();
+    });
+
+    expect(latest?.holdingsError).toBe(true);
+    expect(latest?.rows).toEqual([]);
+    expect(latest?.aggregated).toEqual([]);
+  });
+
   it("never exposes subject A holdings after a direct switch to subject B fails", async () => {
     const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
     const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };

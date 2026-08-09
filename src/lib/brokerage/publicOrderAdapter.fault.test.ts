@@ -29,4 +29,19 @@ describe("public order adapter exact representation faults", () => {
     if (result.ok) return;
     expect(result.error.message).toContain("exact numeric compatibility range");
   });
+
+  it("rejects a notional whose compatibility number would lose one cent", () => {
+    const result = preparePublicOrder({
+      symbol: "BRK.A",
+      side: "buy",
+      quantity: "2",
+      type: "limit",
+      limitPrice: "45035996272704.98",
+      currency: "USD",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toContain("estimated notional is outside the exact numeric compatibility range");
+  });
 });
