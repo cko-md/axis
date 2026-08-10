@@ -82,16 +82,30 @@ describe("Massive quote provider-time provenance", () => {
       .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T22:00:01.000Z"))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         results: [{ c: 102, o: 90, v: 1000, t: Date.parse("2026-07-23T04:00:00.000Z") }],
-      }), { status: 200 }));
+      }), { status: 200 }))
+      .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T22:00:02.000Z"));
     const quote = await fetchSnapshot("AAPL");
 
     expect(quote).toMatchObject({
       price: 102,
       marketSession: "closed",
       latestCompletedSession: true,
-      observedAt: "2026-07-23T22:00:01.000Z",
+      observedAt: "2026-07-23T22:00:02.000Z",
       snapshotUpdatedAt: "2026-07-23T20:01:00.000Z",
     });
+  });
+
+  it("rejects a closed-to-open transition during latest-session retrieval", async () => {
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T22:00:00.000Z"))
+      .mockResolvedValueOnce(snapshotResponse(Date.parse("2026-07-23T19:59:00.000Z") * 1_000_000))
+      .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T22:00:01.000Z"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        results: [{ c: 102, o: 90, v: 1000, t: Date.parse("2026-07-23T04:00:00.000Z") }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(marketStatus("open", "2026-07-24T13:30:00.000Z"));
+
+    await expect(fetchSnapshot("AAPL")).rejects.toThrow("MARKET_SESSION_CHANGED");
   });
 
   it("rejects a market-session transition during snapshot retrieval", async () => {

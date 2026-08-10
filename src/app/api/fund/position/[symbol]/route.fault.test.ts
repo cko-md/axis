@@ -248,4 +248,25 @@ describe("position route live-value faults", () => {
     expect(body.liveReason).toBe("HOLDING_COVERAGE_UNAVAILABLE");
     expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
   });
+
+  it("rejects a 33rd connection instead of validating a truncated coverage universe", async () => {
+    const connections = Array.from({ length: 33 }, (_, index) => ({
+      id: `connection-${index}`,
+      provider: "plaid",
+      status: "linked",
+      authority: "provider_verified",
+      verified_at: new Date().toISOString(),
+    }));
+    mocks.createClient.mockResolvedValue(client(
+      { data: [aapl], error: null },
+      { data: [aapl], error: null },
+      { data: connections, error: null },
+    ));
+
+    const response = await invoke();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ reason: "COVERAGE_VERIFICATION_LIMIT_EXCEEDED" });
+    expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
+  });
 });

@@ -44,13 +44,13 @@ export async function POST(request: NextRequest) {
       .from("fund_connections")
       .select("id, provider, status, authority, verified_at")
       .eq("user_id", user.id)
-      .limit(32),
+      .limit(33),
     supabase
       .from("fund_provider_coverage")
       .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
       .eq("user_id", user.id)
       .eq("component", "holdings")
-      .limit(33),
+      .limit(34),
   ]);
 
   const readError = holdingsResult.error
@@ -66,6 +66,9 @@ export async function POST(request: NextRequest) {
   const candidateRows = holdingsResult.data ?? [];
   if (candidateRows.length > MAX_REPORT_VERIFICATION_ROWS) {
     return NextResponse.json({ error: "PORTFOLIO_CONTEXT_UNAVAILABLE", reason: "HOLDINGS_VERIFICATION_LIMIT_EXCEEDED" }, { status: 409 });
+  }
+  if ((connectionsResult.data ?? []).length > 32 || (coverageResult.data ?? []).length > 33) {
+    return NextResponse.json({ error: "PORTFOLIO_CONTEXT_UNAVAILABLE", reason: "COVERAGE_VERIFICATION_LIMIT_EXCEEDED" }, { status: 409 });
   }
   // The query is provider-only; keep this defensive filter so a mocked or
   // drifted data boundary cannot let manual/legacy claims poison or enter the

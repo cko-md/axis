@@ -31,14 +31,13 @@ describe("financial truth contract-completion migration", () => {
     expect(sql).toContain("pg_advisory_xact_lock");
   });
 
-  it("is the exact append-only latest manifest entry", () => {
+  it("remains an exact append-only manifest entry", () => {
     const manifest = JSON.parse(readFileSync(
       resolve(process.cwd(), "scripts/release-migration-manifest.json"),
       "utf8",
-    )) as { migrationCount: number; latest: { file: string; sha256: string }; migrations: Array<{ file: string }> };
+    )) as { migrationCount: number; latest: { file: string; sha256: string }; migrations: Array<{ file: string; sha256: string }> };
     const digest = createHash("sha256").update(sql).digest("hex");
-    expect(manifest.migrationCount).toBe(97);
-    expect(manifest.latest).toEqual({ file, version: "20260809250000", sha256: digest });
-    expect(manifest.migrations.at(-1)?.file).toBe(file);
+    expect(manifest.migrationCount).toBe(98);
+    expect(manifest.migrations.find((entry) => entry.file === file)?.sha256).toBe(digest);
   });
 });

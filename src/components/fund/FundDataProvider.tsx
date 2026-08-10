@@ -96,6 +96,7 @@ export function useFundData(): FundData {
 export function FundDataProvider({ children }: { children: ReactNode }) {
   const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
   const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
   const currentSubjectRef = useRef(currentSubject);
   const authorityEpochRef = useRef(authorityEpoch);
   currentSubjectRef.current = currentSubject;
@@ -109,12 +110,16 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
   const [holdingsProviderUnavailable, setHoldingsProviderUnavailable] = useState(false);
   const [holdingsProviderUnavailableReason, setHoldingsProviderUnavailableReason] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(true);
-  const [holdingsSubject, setHoldingsSubject] = useState<string | null>(null);
+  const [holdingsIdentity, setHoldingsIdentity] = useState<string | null>(null);
+  const holdingsIdentityRef = useRef(holdingsIdentity);
+  holdingsIdentityRef.current = holdingsIdentity;
 
   const [liabilities, setLiabilities] = useState<Liability[]>([]);
   const [liabilitiesLoading, setLiabilitiesLoading] = useState(true);
   const [liabilitiesError, setLiabilitiesError] = useState(false);
-  const [liabilitiesSubject, setLiabilitiesSubject] = useState<string | null>(null);
+  const [liabilitiesIdentity, setLiabilitiesIdentity] = useState<string | null>(null);
+  const liabilitiesIdentityRef = useRef(liabilitiesIdentity);
+  liabilitiesIdentityRef.current = liabilitiesIdentity;
 
   const [plaidLiabilities, setPlaidLiabilities] = useState<PlaidLiability[]>([]);
   const [plaidLiabilitiesState, setPlaidLiabilitiesState] = useState<"loading" | "ready" | "unavailable">("loading");
@@ -130,7 +135,7 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
       setAggregated([]);
       setHoldingsProviderUnavailable(false);
       setHoldingsProviderUnavailableReason(null);
-      setHoldingsSubject(null);
+      setHoldingsIdentity(null);
       setSignedIn(accountState !== "signed-out");
       setHoldingsLoading(false);
       return;
@@ -154,15 +159,16 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
       };
       if (!isCurrent()) return;
       if (!res.ok) {
-        if (res.status === 401 || res.status === 409) {
+        const expectedIdentity = `${expectedSubject}:${expectedEpoch}`;
+        if (res.status === 401 || res.status === 409 || holdingsIdentityRef.current !== expectedIdentity) {
           // Authentication loss is a privacy boundary, not a stale-data case.
           // Never retain a previous subject's financial rows after it.
           setRows([]);
           setAggregated([]);
-          setHoldingsSubject(null);
           setHoldingsProviderUnavailable(false);
           setHoldingsProviderUnavailableReason(null);
         }
+        setHoldingsIdentity(expectedIdentity);
         setHoldingsError(res.status !== 401);
         return;
       }
@@ -174,10 +180,20 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
           ? data.providerUnavailableReason
           : null,
       );
-      setHoldingsSubject(expectedSubject);
+      setHoldingsIdentity(`${expectedSubject}:${expectedEpoch}`);
       setHoldingsError(false);
     } catch {
-      if (isCurrent()) setHoldingsError(true);
+      if (isCurrent()) {
+        const expectedIdentity = `${expectedSubject}:${expectedEpoch}`;
+        if (holdingsIdentityRef.current !== expectedIdentity) {
+          setRows([]);
+          setAggregated([]);
+          setHoldingsProviderUnavailable(false);
+          setHoldingsProviderUnavailableReason(null);
+        }
+        setHoldingsIdentity(expectedIdentity);
+        setHoldingsError(true);
+      }
     } finally {
       if (isCurrent()) setHoldingsLoading(false);
     }
@@ -191,7 +207,7 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
     if (!expectedSubject) {
       setLiabilities([]);
       setPlaidLiabilities([]);
-      setLiabilitiesSubject(null);
+      setLiabilitiesIdentity(null);
       setPlaidLiabilitiesConnected(null);
       setPlaidLiabilitiesState("unavailable");
       setLiabilitiesLoading(false);
@@ -219,7 +235,7 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
         setPlaidLiabilitiesConnected(null);
         setPlaidLiabilitiesState("unavailable");
         setLiabilitiesError(true);
-        setLiabilitiesSubject(null);
+        setLiabilitiesIdentity(`${expectedSubject}:${expectedEpoch}`);
         return;
       }
       const all = data.liabilities ?? [];
@@ -248,12 +264,16 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
           : "ready",
       );
       setLiabilitiesError(false);
-      setLiabilitiesSubject(expectedSubject);
+      setLiabilitiesIdentity(`${expectedSubject}:${expectedEpoch}`);
     } catch {
       if (isCurrent()) {
+        const expectedIdentity = `${expectedSubject}:${expectedEpoch}`;
         setLiabilitiesError(true);
-        setPlaidLiabilities([]);
-        setLiabilitiesSubject(null);
+        if (liabilitiesIdentityRef.current !== expectedIdentity) {
+          setLiabilities([]);
+          setPlaidLiabilities([]);
+        }
+        setLiabilitiesIdentity(expectedIdentity);
         setPlaidLiabilitiesConnected(null);
         setPlaidLiabilitiesState("unavailable");
       }
@@ -276,35 +296,37 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshHoldings, refreshLiabilities]);
 
-  const visibleRows = holdingsSubject === currentSubject ? rows : [];
-  const visibleAggregated = holdingsSubject === currentSubject ? aggregated : [];
-  const visibleHoldingsProviderUnavailable = holdingsSubject === currentSubject
+  const holdingsCurrent = holdingsIdentity === currentIdentity;
+  const liabilitiesCurrent = liabilitiesIdentity === currentIdentity;
+  const visibleRows = holdingsCurrent ? rows : [];
+  const visibleAggregated = holdingsCurrent ? aggregated : [];
+  const visibleHoldingsProviderUnavailable = holdingsCurrent
     ? holdingsProviderUnavailable
     : false;
-  const visibleHoldingsProviderUnavailableReason = holdingsSubject === currentSubject
+  const visibleHoldingsProviderUnavailableReason = holdingsCurrent
     ? holdingsProviderUnavailableReason
     : null;
-  const visibleLiabilities = liabilitiesSubject === currentSubject ? liabilities : [];
-  const visiblePlaidLiabilities = liabilitiesSubject === currentSubject ? plaidLiabilities : [];
+  const visibleLiabilities = liabilitiesCurrent ? liabilities : [];
+  const visiblePlaidLiabilities = liabilitiesCurrent ? plaidLiabilities : [];
 
   return (
     <FundDataContext.Provider
       value={{
         rows: visibleRows,
         aggregated: visibleAggregated,
-        holdingsLoading,
-        holdingsError,
+        holdingsLoading: holdingsCurrent ? holdingsLoading : true,
+        holdingsError: holdingsCurrent ? holdingsError : false,
         holdingsProviderUnavailable: visibleHoldingsProviderUnavailable,
         holdingsProviderUnavailableReason: visibleHoldingsProviderUnavailableReason,
-        signedIn,
+        signedIn: holdingsCurrent ? signedIn : accountState === "ready",
         refreshHoldings,
         liabilities: visibleLiabilities,
-        liabilitiesLoading,
-        liabilitiesError,
+        liabilitiesLoading: liabilitiesCurrent ? liabilitiesLoading : true,
+        liabilitiesError: liabilitiesCurrent ? liabilitiesError : false,
         refreshLiabilities,
         plaidLiabilities: visiblePlaidLiabilities,
-        plaidLiabilitiesState,
-        plaidLiabilitiesConnected,
+        plaidLiabilitiesState: liabilitiesCurrent ? plaidLiabilitiesState : "loading",
+        plaidLiabilitiesConnected: liabilitiesCurrent ? plaidLiabilitiesConnected : null,
         refreshPlaidLiabilities,
       }}
     >

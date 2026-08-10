@@ -49,19 +49,23 @@ function read(data: unknown) {
   return chain;
 }
 
-function client(recordCount: number, holdingRows: unknown[] = holdings(11)) {
+function client(
+  recordCount: number,
+  holdingRows: unknown[] = holdings(11),
+  connectionRows: unknown[] = [{
+    id: "connection-1",
+    provider: "plaid",
+    status: "linked",
+    authority: "provider_verified",
+    verified_at: NOW,
+  }],
+) {
   const inserts: unknown[] = [];
   const from = vi.fn((table: string) => {
     if (table === "fund_holdings") return read(holdingRows);
     if (table === "fund_watchlist") return read([]);
     if (table === "profiles") return read({ ai_provider: "auto" });
-    if (table === "fund_connections") return read([{
-      id: "connection-1",
-      provider: "plaid",
-      status: "linked",
-      authority: "provider_verified",
-      verified_at: NOW,
-    }]);
+    if (table === "fund_connections") return read(connectionRows);
     if (table === "fund_provider_coverage") return read([{
       connection_id: "connection-1",
       provider: "plaid",
@@ -144,5 +148,24 @@ describe("market report complete-generation verification", () => {
     const prompt = JSON.parse(mocks.aiGenerate.mock.calls[0][0].userMessage) as { holdings: Array<{ symbol: string }> };
     expect(prompt.holdings).toHaveLength(10);
     expect(prompt.holdings.some((holding) => holding.symbol === "MANUAL")).toBe(false);
+  });
+
+  it("rejects a 33rd connection instead of validating a truncated coverage universe", async () => {
+    const connections = Array.from({ length: 33 }, (_, index) => ({
+      id: `connection-${index}`,
+      provider: "plaid",
+      status: "linked",
+      authority: "provider_verified",
+      verified_at: NOW,
+    }));
+    const supabase = client(11, holdings(11), connections);
+    mocks.createClient.mockResolvedValue(supabase);
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ reason: "COVERAGE_VERIFICATION_LIMIT_EXCEEDED" });
+    expect(mocks.aiGenerate).not.toHaveBeenCalled();
+    expect(supabase.inserts).toHaveLength(0);
   });
 });

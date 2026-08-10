@@ -192,9 +192,13 @@ export async function fetchSnapshot(sym: string, signal?: AbortSignal): Promise<
   // latest completed US trading session. Never relabel a stale last trade as
   // current merely because the snapshot itself was observed later.
   const previous = await fetchPrevQuote(sym, signal);
+  const completedSessionStatus = await fetchUsMarketStatus(signal);
+  if (completedSessionStatus.session !== "closed") {
+    throw new Error("MARKET_SESSION_CHANGED");
+  }
   return {
     ...previous,
-    observedAt: confirmedStatus.observedAt,
+    observedAt: completedSessionStatus.observedAt,
     snapshotUpdatedAt,
     marketSession: "closed",
     latestCompletedSession: true,

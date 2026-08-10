@@ -51,15 +51,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .from("fund_connections")
     .select("id, provider, status, authority, verified_at")
     .eq("user_id", user.id)
-    .limit(32);
+    .limit(33);
   if (connectionError) return redactRouteError(connectionError, { route: "fund/position/[symbol]", area: "fund" });
   const { data: coverage, error: coverageError } = await supabase
     .from("fund_provider_coverage")
     .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
     .eq("user_id", user.id)
     .eq("component", "holdings")
-    .limit(33);
+    .limit(34);
   if (coverageError) return redactRouteError(coverageError, { route: "fund/position/[symbol]", area: "fund" });
+  if ((connections ?? []).length > 32 || (coverage ?? []).length > 33) {
+    return NextResponse.json(
+      { error: "POSITION_CONTEXT_UNAVAILABLE", reason: "COVERAGE_VERIFICATION_LIMIT_EXCEEDED" },
+      { status: 409 },
+    );
+  }
 
   const sources = [...new Set((holdings ?? []).map((h) => h.source))];
 

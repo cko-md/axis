@@ -70,6 +70,8 @@ export function FundSpendingModule() {
   const currentSubjectRef = useRef(currentSubject);
   const authorityEpochRef = useRef(authorityEpoch);
   const loadGenerationRef = useRef(0);
+  const mutationGenerationRef = useRef(0);
+  const mutationControllerRef = useRef<AbortController | null>(null);
   currentSubjectRef.current = currentSubject;
   authorityEpochRef.current = authorityEpoch;
   const [txns, setTxns] = useState<BankTxn[]>([]);
@@ -84,10 +86,47 @@ export function FundSpendingModule() {
   const [addBudgetOpen, setAddBudgetOpen] = useState(false);
   const [newBudgetCategory, setNewBudgetCategory] = useState<string>(CATEGORIES[0]);
   const [newBudgetLimit, setNewBudgetLimit] = useState("200");
+  const [draftIdentity, setDraftIdentity] = useState<string | null>(currentIdentity);
   const [txnsIdentity, setTxnsIdentity] = useState<string | null>(null);
   const [budgetsIdentity, setBudgetsIdentity] = useState<string | null>(null);
   const txnsIdentityRef = useRef(txnsIdentity);
   txnsIdentityRef.current = txnsIdentity;
+
+  const ownsDraft = draftIdentity === currentIdentity;
+  const activeSearch = ownsDraft ? search : "";
+  const activeCategoryFilter = ownsDraft ? categoryFilter : "";
+  const activeUnreviewedOnly = ownsDraft ? unreviewedOnly : false;
+
+  useEffect(() => {
+    ++mutationGenerationRef.current;
+    mutationControllerRef.current?.abort();
+    mutationControllerRef.current = null;
+    setSearch("");
+    setCategoryFilter("");
+    setUnreviewedOnly(false);
+    setAddBudgetOpen(false);
+    setNewBudgetCategory(CATEGORIES[0]);
+    setNewBudgetLimit("200");
+    setDraftIdentity(currentIdentity);
+    return () => {
+      mutationControllerRef.current?.abort();
+      mutationControllerRef.current = null;
+    };
+  }, [currentIdentity]);
+
+  function beginMutation(expectedSubject: string, expectedEpoch: number) {
+    const generation = ++mutationGenerationRef.current;
+    mutationControllerRef.current?.abort();
+    const controller = new AbortController();
+    mutationControllerRef.current = controller;
+    return {
+      controller,
+      isCurrent: () => !controller.signal.aborted
+        && mutationGenerationRef.current === generation
+        && currentSubjectRef.current === expectedSubject
+        && authorityEpochRef.current === expectedEpoch,
+    };
+  }
 
   useEffect(() => {
     txnsRef.current = txns;
@@ -117,9 +156,9 @@ export function FundSpendingModule() {
     setNotice(null);
     try {
       const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (categoryFilter) params.set("category", categoryFilter);
-      if (unreviewedOnly) params.set("reviewed", "false");
+      if (activeSearch) params.set("search", activeSearch);
+      if (activeCategoryFilter) params.set("category", activeCategoryFilter);
+      if (activeUnreviewedOnly) params.set("reviewed", "false");
       params.set("limit", String(TRANSACTION_PAGE_SIZE));
       const loaded: BankTxn[] = [];
       let lineageHash: string | null = null;
@@ -171,7 +210,7 @@ export function FundSpendingModule() {
     } finally {
       if (isCurrent()) setRefreshing(false);
     }
-  }, [authorityEpoch, categoryFilter, currentSubject, search, unreviewedOnly]);
+  }, [activeCategoryFilter, activeSearch, activeUnreviewedOnly, authorityEpoch, currentSubject]);
 
   useEffect(() => {
     void load();
@@ -196,7 +235,10 @@ export function FundSpendingModule() {
     return () => { active = false; };
   }, [authorityEpoch, currentSubject]);
 
-  const visibleTxns = txnsIdentity === currentIdentity ? txns : [];
+  const visibleTxns = useMemo(
+    () => txnsIdentity === currentIdentity ? txns : [],
+    [currentIdentity, txns, txnsIdentity],
+  );
   const visibleBudgets = budgetsIdentity === currentIdentity ? budgets : [];
   const visibleStatus = txnsIdentity === currentIdentity ? status : "loading";
   const visibleNotice = txnsIdentity === currentIdentity ? notice : null;
@@ -221,61 +263,101 @@ export function FundSpendingModule() {
     const expectedSubject = currentSubject;
     const expectedEpoch = authorityEpoch;
     if (!expectedSubject || txnsIdentity !== currentIdentity) return false;
-    const res = await subjectBoundFetch(expectedSubject, `/api/fund/bank-transactions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (currentSubjectRef.current !== expectedSubject || authorityEpochRef.current !== expectedEpoch) return false;
-    if (!res.ok) {
-      toast("Couldn't save change.", "error", "Spending");
+    const { controller, isCurrent } = beginMutation(expectedSubject, expectedEpoch);
+    try {
+      const res = await subjectBoundFetch(expectedSubject, `/api/fund/bank-transactions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+        signal: controller.signal,
+      });
+      if (!isCurrent()) return false;
+      if (!res.ok) {
+        toast("Couldn't save change.", "error", "Spending");
+        return false;
+      }
+      setTxns((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+      return true;
+    } catch {
+      if (isCurrent()) toast("Couldn't save change.", "error", "Spending");
       return false;
     }
-    setTxns((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-    return true;
   }
 
   async function addBudget() {
-    const limit = Number(newBudgetLimit);
-    if (!Number.isFinite(limit) || limit <= 0) return;
     const expectedSubject = currentSubject;
     const expectedEpoch = authorityEpoch;
-    if (!expectedSubject) return;
-    const res = await subjectBoundFetch(expectedSubject, "/api/fund/category-budgets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category: newBudgetCategory, monthly_limit: limit, currency: "USD" }),
-    });
-    if (currentSubjectRef.current !== expectedSubject || authorityEpochRef.current !== expectedEpoch) return;
-    if (!res.ok) { toast("Couldn't save budget.", "error", "Spending"); return; }
-    const data = await res.json();
-    setBudgets((prev) => [
-      ...prev.filter((b) => !(b.category === newBudgetCategory && b.currency === "USD")),
-      data.budget,
-    ]);
-    setBudgetsIdentity(`${expectedSubject}:${expectedEpoch}`);
-    setAddBudgetOpen(false);
+    if (!expectedSubject || !ownsDraft) return;
+    const category = newBudgetCategory;
+    const limit = Number(newBudgetLimit);
+    if (!Number.isFinite(limit) || limit <= 0) return;
+    const { controller, isCurrent } = beginMutation(expectedSubject, expectedEpoch);
+    try {
+      const res = await subjectBoundFetch(expectedSubject, "/api/fund/category-budgets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, monthly_limit: limit, currency: "USD" }),
+        signal: controller.signal,
+      });
+      if (!isCurrent()) return;
+      const data = await res.json().catch(() => ({}));
+      if (!isCurrent()) return;
+      if (!res.ok || !data.budget) {
+        toast("Couldn't save budget.", "error", "Spending");
+        return;
+      }
+      setBudgets((prev) => [
+        ...prev.filter((b) => !(b.category === category && b.currency === "USD")),
+        data.budget,
+      ]);
+      setBudgetsIdentity(`${expectedSubject}:${expectedEpoch}`);
+      setAddBudgetOpen(false);
+    } catch {
+      if (isCurrent()) toast("Couldn't save budget.", "error", "Spending");
+    }
   }
+
+  const claimDraft = () => {
+    if (ownsDraft) return;
+    setDraftIdentity(currentIdentity);
+    setSearch("");
+    setCategoryFilter("");
+    setUnreviewedOnly(false);
+    setAddBudgetOpen(false);
+    setNewBudgetCategory(CATEGORIES[0]);
+    setNewBudgetLimit("200");
+  };
+
+  const openBudgetDraft = () => {
+    setDraftIdentity(currentIdentity);
+    setNewBudgetCategory(CATEGORIES[0]);
+    setNewBudgetLimit("200");
+    setAddBudgetOpen(true);
+  };
+
+  const visibleAddBudgetOpen = ownsDraft && addBudgetOpen;
+  const visibleBudgetCategory = ownsDraft ? newBudgetCategory : CATEGORIES[0];
+  const visibleBudgetLimit = ownsDraft ? newBudgetLimit : "200";
 
   return (
     <div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={activeSearch}
+          onChange={(e) => { claimDraft(); setSearch(e.target.value); }}
           placeholder="Search merchant…"
           style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 6, padding: "8px 11px", color: "var(--ink)", fontFamily: "var(--mono)", fontSize: 11, outline: "none", minWidth: 180 }}
         />
         <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
+          value={activeCategoryFilter}
+          onChange={(e) => { claimDraft(); setCategoryFilter(e.target.value); }}
           style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 6, padding: "8px 11px", color: "var(--ink)", fontSize: 11 }}
         >
           <option value="">All categories</option>
           {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
         </select>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--ink-dim)" }}>
-          <input type="checkbox" checked={unreviewedOnly} onChange={(e) => setUnreviewedOnly(e.target.checked)} />
+          <input type="checkbox" checked={activeUnreviewedOnly} onChange={(e) => { claimDraft(); setUnreviewedOnly(e.target.checked); }} />
           Unreviewed only
         </label>
       </div>
@@ -359,13 +441,13 @@ export function FundSpendingModule() {
             );
           })}
         </div>
-        <button type="button" className="feed-manage" style={{ marginTop: 14 }} onClick={() => setAddBudgetOpen(true)}>
+        <button type="button" className="feed-manage" style={{ marginTop: 14 }} onClick={openBudgetDraft}>
           Set a budget
         </button>
       </Card>
 
       <Modal
-        open={addBudgetOpen}
+        open={visibleAddBudgetOpen}
         onClose={() => setAddBudgetOpen(false)}
         title="Set category budget"
         footer={<>
@@ -375,16 +457,16 @@ export function FundSpendingModule() {
       >
         <div className="space-y-3">
           <select
-            value={newBudgetCategory}
-            onChange={(e) => setNewBudgetCategory(e.target.value)}
+            value={visibleBudgetCategory}
+            onChange={(e) => { claimDraft(); setNewBudgetCategory(e.target.value); }}
             className="w-full rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm"
           >
             {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
           </select>
           <input
             type="number" min="0" step="any"
-            value={newBudgetLimit}
-            onChange={(e) => setNewBudgetLimit(e.target.value)}
+            value={visibleBudgetLimit}
+            onChange={(e) => { claimDraft(); setNewBudgetLimit(e.target.value); }}
             placeholder="Monthly limit ($)"
             className="w-full rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm"
           />

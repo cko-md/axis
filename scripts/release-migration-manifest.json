@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 97,
+  "migrationCount": 98,
   "latest": {
-    "version": "20260809250000",
-    "file": "supabase/migrations/20260809250000_financial_truth_contract_completion.sql",
-    "sha256": "46dcf11c7f1c73ed5cf3f168aa715048b722dabb6702c3818e46b068e22430dd"
+    "version": "20260809260000",
+    "file": "supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql",
+    "sha256": "e68e400721a12236d67898acf43c4fd178533bbfa003a85bafa0d537e7699161"
   },
   "migrations": [
     {
@@ -491,6 +491,11 @@
       "version": "20260809250000",
       "file": "supabase/migrations/20260809250000_financial_truth_contract_completion.sql",
       "sha256": "46dcf11c7f1c73ed5cf3f168aa715048b722dabb6702c3818e46b068e22430dd"
+    },
+    {
+      "version": "20260809260000",
+      "file": "supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql",
+      "sha256": "e68e400721a12236d67898acf43c4fd178533bbfa003a85bafa0d537e7699161"
     }
   ]
 }
