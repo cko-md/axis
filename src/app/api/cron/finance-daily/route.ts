@@ -23,12 +23,6 @@ function normalizeFailureCode(value: string, fallback: string) {
   return /^[A-Z0-9_]{1,64}$/.test(value) ? value : fallback;
 }
 
-function captureControlPlaneTimeout(stage: string, code: string) {
-  Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
-    tags: { area: "fund", stage, code },
-  });
-}
-
 class FinanceCronDeadlineError extends Error {
   constructor(readonly settlementConfirmed = true) {
     super("FINANCE_CRON_DEADLINE_EXCEEDED");
@@ -209,7 +203,9 @@ export async function GET(req: NextRequest) {
           cancellationUnconfirmed = true;
           releaseLease = false;
           if (Date.now() >= deadline) deadlineExceeded = true;
-          captureControlPlaneTimeout("connection_discovery", "CONNECTION_CLAIM_TIMEOUT");
+          Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+            tags: { area: "fund", stage: "connection_discovery", code: "CONNECTION_CLAIM_TIMEOUT" },
+          });
         } else {
           connectionClaim.error = error;
           cancellationUnconfirmed = true;
@@ -338,7 +334,9 @@ export async function GET(req: NextRequest) {
         cancellationUnconfirmed = true;
         releaseLease = false;
         if (error instanceof FinanceCronDeadlineError) {
-          captureControlPlaneTimeout("connection_failure", "CONNECTION_FAILURE_RPC_TIMEOUT");
+          Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+            tags: { area: "fund", stage: "connection_failure", code: "CONNECTION_FAILURE_RPC_TIMEOUT" },
+          });
         } else {
           Sentry.captureException(new Error("Finance daily connection failure persistence failed"), {
             tags: { area: "fund", stage: "connection_failure", code: "CONNECTION_FAILURE_RPC_REJECTED" },
@@ -381,7 +379,9 @@ export async function GET(req: NextRequest) {
       cancellationUnconfirmed = true;
       releaseLease = false;
       if (error instanceof FinanceCronDeadlineError) {
-        captureControlPlaneTimeout("connection_ack", "CONNECTION_ACK_TIMEOUT");
+        Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+          tags: { area: "fund", stage: "connection_ack", code: "CONNECTION_ACK_TIMEOUT" },
+        });
       } else {
         Sentry.captureException(new Error("Finance daily connection acknowledgement failed"), {
           tags: { area: "fund", stage: "connection_ack", code: "CONNECTION_ACK_RPC_REJECTED" },
@@ -453,7 +453,9 @@ export async function GET(req: NextRequest) {
       cancellationUnconfirmed = true;
       releaseLease = false;
       if (error instanceof FinanceCronDeadlineError) {
-        captureControlPlaneTimeout("user_discovery", "USER_CLAIM_TIMEOUT");
+        Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+          tags: { area: "fund", stage: "user_discovery", code: "USER_CLAIM_TIMEOUT" },
+        });
       }
       if (Date.now() >= deadline) {
         deadlineExceeded = true;
@@ -495,7 +497,9 @@ export async function GET(req: NextRequest) {
       cancellationUnconfirmed = true;
       releaseLease = false;
       if (error instanceof FinanceCronDeadlineError) {
-        captureControlPlaneTimeout("user_failure", "USER_FAILURE_RPC_TIMEOUT");
+        Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+          tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RPC_TIMEOUT" },
+        });
       }
       if (Date.now() >= deadline) {
         deadlineExceeded = true;
@@ -666,7 +670,9 @@ export async function GET(req: NextRequest) {
           cancellationUnconfirmed = true;
           releaseLease = false;
           if (error instanceof FinanceCronDeadlineError) {
-            captureControlPlaneTimeout("user_ack", "USER_ACK_TIMEOUT");
+            Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+              tags: { area: "fund", stage: "user_ack", code: "USER_ACK_TIMEOUT" },
+            });
           } else {
             Sentry.captureException(new Error("Finance daily user acknowledgement failed"), {
               tags: { area: "fund", stage: "user_ack", code: "USER_ACK_RPC_REJECTED" },
