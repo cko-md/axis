@@ -6,10 +6,14 @@ const mocks = vi.hoisted(() => ({
   timedProviderFetch: vi.fn(),
 }));
 
-vi.mock("@/app/api/plaid/_lib", () => ({
-  getPlaidCreds: mocks.getPlaidCreds,
-  plaidHost: () => "https://plaid.invalid",
-}));
+vi.mock("@/app/api/plaid/_lib", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/app/api/plaid/_lib")>();
+  return {
+    ...actual,
+    getPlaidCreds: mocks.getPlaidCreds,
+    plaidHost: () => "https://plaid.invalid",
+  };
+});
 vi.mock("@/lib/observability/providerTiming", () => ({
   timedProviderFetch: mocks.timedProviderFetch,
 }));
@@ -88,7 +92,7 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
       secret: "secret",
       env: "sandbox",
     });
-    mocks.timedProviderFetch.mockResolvedValue(
+    mocks.timedProviderFetch.mockImplementation(async () =>
       plaidResponse([plaidTransaction()]),
     );
   });
@@ -109,7 +113,7 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
 
   it("does not fabricate USD when the provider omits transaction currency", async () => {
     const db = adminClient();
-    mocks.timedProviderFetch.mockResolvedValue(
+    mocks.timedProviderFetch.mockImplementation(async () =>
       plaidResponse([plaidTransaction({ iso_currency_code: null })]),
     );
 
@@ -139,17 +143,63 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
 
   it("does not claim success until every reported provider page is consumed", async () => {
     const db = adminClient();
+    const firstPage = Array.from({ length: 500 }, (_, index) =>
+      plaidTransaction({ transaction_id: `transaction-${index}` }),
+    );
     mocks.timedProviderFetch
-      .mockResolvedValueOnce(plaidResponse([plaidTransaction()], 251))
-      .mockResolvedValueOnce(plaidResponse([], 251));
+      .mockResolvedValueOnce(plaidResponse(firstPage, 501))
+      .mockResolvedValueOnce(plaidResponse([], 501));
 
     await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 
     expect(mocks.timedProviderFetch).toHaveBeenCalledTimes(2);
     const secondInit = mocks.timedProviderFetch.mock.calls[1]?.[1] as { body: string };
     expect(JSON.parse(secondInit.body)).toMatchObject({
-      options: { count: 250, offset: 250 },
+      options: { count: 500, offset: 500 },
     });
+  });
+
+  it("rejects a stable-count delete/insert mutation between complete offset generations", async () => {
+    const db = adminClient();
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(plaidResponse([plaidTransaction({ transaction_id: "old" })]))
+      .mockResolvedValueOnce(plaidResponse([plaidTransaction({ transaction_id: "replacement" })]));
+
+    const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
+
+    expect(result).toEqual({ error: "PLAID_TXN_GENERATION_CHANGED" });
+    expect(db.rpcCalls).toHaveLength(0);
+  });
+
+  it("rejects an oversized declared provider page before publication", async () => {
+    const db = adminClient();
+    const response = plaidResponse([plaidTransaction()]);
+    response.headers.set("content-length", String(4 * 1024 * 1024 + 1));
+    mocks.timedProviderFetch.mockResolvedValueOnce(response);
+
+    const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
+
+    expect(result).toEqual({ error: "PLAID_INVALID_RESPONSE" });
+    expect(db.rpcCalls).toHaveLength(0);
+  });
+
+  it("rejects a chunked provider page that crosses the decompressed byte cap", async () => {
+    const db = adminClient();
+    const oversized = new Uint8Array(4 * 1024 * 1024 + 1).fill(32);
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(oversized);
+        controller.close();
+      },
+      cancel,
+    }), { status: 200 });
+    mocks.timedProviderFetch.mockResolvedValueOnce(response);
+
+    const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
+
+    expect(result).toEqual({ error: "PLAID_INVALID_RESPONSE" });
+    expect(db.rpcCalls).toHaveLength(0);
   });
 
   it("publishes the complete generation through the atomic database contract", async () => {
@@ -204,16 +254,17 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
   it("does not publish when cancellation lands after the last provider body", async () => {
     const controller = new AbortController();
     const db = adminClient();
-    mocks.timedProviderFetch.mockResolvedValue({
-      ok: true,
-      json: async () => {
+    const encoded = new TextEncoder().encode(JSON.stringify({
+      transactions: [plaidTransaction()],
+      total_transactions: 1,
+    }));
+    mocks.timedProviderFetch.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+      pull(stream) {
+        stream.enqueue(encoded);
         controller.abort();
-        return {
-          transactions: [plaidTransaction()],
-          total_transactions: 1,
-        };
+        stream.close();
       },
-    } as Response);
+    }), { status: 200 }));
 
     const result = await syncPlaidTransactions(
       db.admin,
