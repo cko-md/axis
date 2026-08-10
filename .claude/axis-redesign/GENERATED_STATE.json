@@ -1,12 +1,24 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T23:36:52.869Z",
+  "derivedAt": "2026-08-10T00:10:47.066Z",
   "git": {
     "branch": "codex/security-financial-truth-order-intent",
-    "head": "cacb70e8f4dbefc5e838c040f44104ee82da7088",
+    "head": "5b9f6a50e1ee93f9fa690d6be1aae1d3b16735d5",
     "mainHead": "35773df6e22962fb1ad9a0c1da1036045cc5ac7a",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "5b9f6a50",
+        "subject": "fix(finance): bind cleanup to owner cascade"
+      },
+      {
+        "sha": "9fe63bb6",
+        "subject": "fix(finance): preserve immutable account cleanup"
+      },
+      {
+        "sha": "afddabdb",
+        "subject": "chore(state): bind financial truth candidate gates"
+      },
       {
         "sha": "cacb70e8",
         "subject": "chore(observability): pin financial telemetry vocabulary"
@@ -136,9 +148,9 @@
         "subject": "checkpoint(wip): preserve Phase 1 financial truth remediation"
       }
     ],
-    "contentTreeHash": "16c9406672886aa88a623672e5094644cf0e2e08d3d4497657f6c256dd902dcd",
+    "contentTreeHash": "cd21a6ac546d887149b1002e082107a6e5e05f43a338eb619b873ab30139ce7a",
     "sourceMainContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
-    "fingerprint": "fed9705d50613deff528c912b84c2f9e8d5fa57223920d9e922eb976da4bb8a4"
+    "fingerprint": "dab56ca380c81ae822e5aab94043febfb7f0d056128fbc896cbd34f483f40f92"
   },
   "mergedPrs": [
     {
@@ -431,8 +443,8 @@
     }
   ],
   "migrations": {
-    "count": 95,
-    "latest": "20260809230000_fund_order_intent_limit_notional_repair.sql"
+    "count": 96,
+    "latest": "20260809240000_fund_order_intent_user_cascade_repair.sql"
   },
   "defects": {
     "total": 50,
@@ -448,8 +460,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "cacb70e8f4dbefc5e838c040f44104ee82da7088",
-    "sourceContentTreeHash": "16c9406672886aa88a623672e5094644cf0e2e08d3d4497657f6c256dd902dcd",
+    "sourceHead": "5b9f6a50e1ee93f9fa690d6be1aae1d3b16735d5",
+    "sourceContentTreeHash": "cd21a6ac546d887149b1002e082107a6e5e05f43a338eb619b873ab30139ce7a",
     "typecheck": {
       "passed": true
     },
@@ -457,8 +469,8 @@
       "passed": true
     },
     "tests": {
-      "passed": 3144,
-      "total": 3144,
+      "passed": 3145,
+      "total": 3145,
       "files": 356,
       "suites": 946
     },
@@ -474,6 +486,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T23:36:52.790Z"
+    "measuredAt": "2026-08-10T00:10:46.960Z"
   }
 }
