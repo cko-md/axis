@@ -110,6 +110,10 @@ export async function POST(request: NextRequest) {
   const auth = await authenticate();
   if ("response" in auth) return auth.response;
   const { supabase, user } = auth;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const parsedBody = await readBoundedJsonBody(request, 8_192);
   if (!parsedBody.ok) {

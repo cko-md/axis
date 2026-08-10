@@ -198,6 +198,10 @@ export async function POST(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/holdings", area: "fund" });
   if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const parsedBody = await readBoundedJsonBody(request, 8_192);
   if (!parsedBody.ok) {

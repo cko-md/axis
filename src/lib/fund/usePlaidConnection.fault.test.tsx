@@ -218,4 +218,57 @@ describe("signed-in Plaid cash availability", () => {
       expect(new Headers(init?.headers).get("x-axis-expected-profile-subject")).toBe(SUBJECT_A);
     }
   });
+
+  it("does not retain a delayed subject A Link token after switching to B", async () => {
+    const value = await mount([]);
+    let resolveToken: ((value: unknown) => void) | null = null;
+    const delayedToken = new Promise((resolve) => { resolveToken = resolve; });
+    vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/plaid/link")) return { ok: true, json: () => delayedToken } as Response;
+      if (url.endsWith("/api/plaid/status")) return response({ configured: true, linked: false });
+      if (url.endsWith("/api/brokerage/status")) return response({ configured: false });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const pending = value.connectBank();
+    await act(async () => { await Promise.resolve(); });
+
+    mocks.shellProfile.mockReturnValue({ state: "ready", profile: { subject: SUBJECT_B }, authorityEpoch: 2 });
+    await act(async () => { root?.render(<Harness />); await Promise.resolve(); });
+    await act(async () => { resolveToken?.({ link_token: "subject-a-token" }); await pending; });
+
+    expect(mocks.plaidOptions?.token).not.toBe("subject-a-token");
+    expect(mocks.openPlaidLink).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a delayed subject A exchange success and toast under B", async () => {
+    const value = await mount([]);
+    vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/plaid/link")) return response({ link_token: "subject-a-token" });
+      if (url.endsWith("/api/plaid/status")) return response({ configured: true, linked: false });
+      if (url.endsWith("/api/brokerage/status")) return response({ configured: false });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    await act(async () => { await value.connectBank(); });
+    const onSuccess = mocks.plaidOptions?.onSuccess;
+    expect(onSuccess).toBeTypeOf("function");
+    let resolveExchange: ((value: Response) => void) | null = null;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/plaid/exchange")) return new Promise<Response>((resolve) => { resolveExchange = resolve; });
+      if (url.endsWith("/api/plaid/status")) return response({ configured: true, linked: false });
+      if (url.endsWith("/api/brokerage/status")) return response({ configured: false });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const pending = onSuccess?.("public-token", { institution: { name: "Bank" } });
+    await act(async () => { await Promise.resolve(); });
+
+    mocks.shellProfile.mockReturnValue({ state: "ready", profile: { subject: SUBJECT_B }, authorityEpoch: 2 });
+    await act(async () => { root?.render(<Harness />); await Promise.resolve(); });
+    await act(async () => { resolveExchange?.(response({ ok: true })); await pending; });
+
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.stringContaining("Bank linked"), "success", "Plaid");
+    expect(latest?.plaidLinked).toBe(false);
+  });
 });

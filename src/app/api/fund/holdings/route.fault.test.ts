@@ -9,7 +9,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 
-import { GET } from "./route";
+import { GET, POST } from "./route";
 
 const CONNECTION_ID = "11111111-1111-4111-8111-111111111111";
 const GENERATION_ID = "22222222-2222-4222-8222-222222222222";
@@ -130,6 +130,24 @@ describe("holdings read authority boundary", () => {
 
     const response = await GET(new NextRequest("http://axis.test/api/fund/holdings", {
       headers: { "x-axis-expected-profile-subject": `ps1_${"f".repeat(64)}` },
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "SUBJECT_CHANGED" });
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale opaque subject before creating a manual holding", async () => {
+    const supabase = client();
+    mocks.createClient.mockResolvedValue(supabase);
+
+    const response = await POST(new NextRequest("http://axis.test/api/fund/holdings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-axis-expected-profile-subject": `ps1_${"f".repeat(64)}`,
+      },
+      body: JSON.stringify({ symbol: "AAPL", name: "Apple", shares: "1", cost_basis: "1.00", currency: "USD" }),
     }));
 
     expect(response.status).toBe(409);

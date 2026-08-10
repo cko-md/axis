@@ -9,7 +9,6 @@ import { detectRecurring, sendBillReminders, snapshotNetWorth, writeDailyBrief }
 import { checkBudgetThresholds, detectAndExplainAnomalies, writeSubscriptionAudit, writeWeeklyRecap } from "@/lib/fund/financeNarratorJobs";
 
 const MAX_SYNC_CONNECTIONS = 100;
-const MAX_DISCOVERY_ROWS_PER_TABLE = 500;
 const MAX_USERS_PER_RUN = 250;
 const CRON_WALL_CLOCK_MS = 50_000;
 const ABORT_SETTLEMENT_GRACE_MS = 2_000;
@@ -96,48 +95,20 @@ export async function GET(req: NextRequest) {
   }
   const deadline = Date.now() + CRON_WALL_CLOCK_MS;
 
-  const cursorResult = await admin
-    .from("finance_cron_cursors")
-    .select("last_connection_id")
-    .eq("job_key", "finance-daily-plaid-sync")
-    .maybeSingle();
-  const lastConnectionId = typeof cursorResult.data?.last_connection_id === "string"
-    ? cursorResult.data.last_connection_id
-    : null;
-  let connectionQuery = admin
-    .from("fund_connections")
-    .select("id, user_id, access_token_enc")
-    .eq("provider", "plaid")
-    .eq("status", "linked")
-    .eq("authority", "provider_verified")
-    .order("id", { ascending: true });
-  if (lastConnectionId) connectionQuery = connectionQuery.gt("id", lastConnectionId);
-  const tail = await connectionQuery.limit(MAX_SYNC_CONNECTIONS + 1);
-  let connections = tail.data ?? [];
-  let connectionsError = cursorResult.error ?? tail.error;
-  if (!connectionsError && lastConnectionId && connections.length < MAX_SYNC_CONNECTIONS + 1) {
-    const head = await admin
-      .from("fund_connections")
-      .select("id, user_id, access_token_enc")
-      .eq("provider", "plaid")
-      .eq("status", "linked")
-      .eq("authority", "provider_verified")
-      .lt("id", lastConnectionId)
-      .order("id", { ascending: true })
-      .limit(MAX_SYNC_CONNECTIONS + 1 - connections.length);
-    connectionsError = head.error;
-    connections = [...connections, ...(head.data ?? [])];
-  }
+  const connectionClaim = await admin.rpc("claim_finance_cron_connections", {
+    p_limit: MAX_SYNC_CONNECTIONS,
+  });
+  const connections = connectionClaim.data ?? [];
+  const connectionsError = connectionClaim.error;
 
   let syncedConnections = 0;
   let syncErrors = connectionsError ? 1 : 0;
   let deadlineExceeded = false;
-  const connectionLimitExceeded = connections.length > MAX_SYNC_CONNECTIONS;
-  if (connectionLimitExceeded) syncErrors += 1;
+  const connectionLimitExceeded = false;
   if (connectionsError) {
     Sentry.captureException(new Error("Finance daily connection discovery failed"), { tags: { area: "fund", stage: "connection_discovery", code: "CONNECTION_QUERY_FAILED" } });
   }
-  for (const c of connections.slice(0, MAX_SYNC_CONNECTIONS)) {
+  for (const c of connections) {
     if (Date.now() >= deadline) {
       deadlineExceeded = true;
       syncErrors += 1;
@@ -172,19 +143,6 @@ export async function GET(req: NextRequest) {
         } else if (result) syncedConnections++;
       }
     }
-    const cursorWrite = await admin.from("finance_cron_cursors").upsert({
-      job_key: "finance-daily-plaid-sync",
-      last_connection_id: c.id,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "job_key" });
-    if (cursorWrite.error) {
-      Sentry.captureException(new Error("Finance daily cursor advance failed"), {
-        tags: { area: "fund", stage: "connection_cursor", code: "CURSOR_WRITE_FAILED" },
-      });
-      syncErrors++;
-      deadlineExceeded = true;
-      break;
-    }
     if (Date.now() >= deadline) {
       deadlineExceeded = true;
       syncErrors += 1;
@@ -212,22 +170,16 @@ export async function GET(req: NextRequest) {
     }, { status: 503 });
   }
 
-  const discovery = await Promise.all([
-    admin.from("fund_connections").select("user_id").eq("status", "linked").eq("authority", "provider_verified").limit(MAX_DISCOVERY_ROWS_PER_TABLE + 1),
-    admin.from("fund_holdings").select("user_id").limit(MAX_DISCOVERY_ROWS_PER_TABLE + 1),
-    admin.from("fund_liabilities").select("user_id").limit(MAX_DISCOVERY_ROWS_PER_TABLE + 1),
-    admin.from("fund_bank_transactions").select("user_id").limit(MAX_DISCOVERY_ROWS_PER_TABLE + 1),
-    admin.from("fund_category_budgets").select("user_id").limit(MAX_DISCOVERY_ROWS_PER_TABLE + 1),
-    admin.from("fund_recurring_transactions").select("user_id").limit(MAX_DISCOVERY_ROWS_PER_TABLE + 1),
-  ]);
-  const discoveryLimitExceeded = discovery.some((result) => (result.data ?? []).length > MAX_DISCOVERY_ROWS_PER_TABLE);
-  const discoveryErrors = discovery.filter((result) => result.error).length + (discoveryLimitExceeded ? 1 : 0);
+  const userClaim = await admin.rpc("claim_finance_cron_users", {
+    p_limit: MAX_USERS_PER_RUN,
+  });
+  const discoveryLimitExceeded = false;
+  const discoveryErrors = userClaim.error ? 1 : 0;
   if (discoveryErrors > 0) {
     Sentry.captureException(new Error("Finance daily user discovery failed"), { tags: { area: "fund", stage: "user_discovery", code: "USER_DISCOVERY_QUERY_FAILED" } });
   }
-  const discoveredUserIds = [...new Set(discovery.flatMap((result) => (result.data ?? []).map((row) => row.user_id)))];
-  const userLimitExceeded = discoveredUserIds.length > MAX_USERS_PER_RUN;
-  const userIds = discoveredUserIds.slice(0, MAX_USERS_PER_RUN);
+  const userIds = (userClaim.data ?? []).map((row: { user_id: string }) => row.user_id);
+  const userLimitExceeded = false;
 
   let usersCompleted = 0;
   let userFailures = 0;

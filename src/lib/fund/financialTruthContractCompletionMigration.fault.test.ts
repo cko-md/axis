@@ -26,6 +26,9 @@ describe("financial truth contract-completion migration", () => {
     expect(sql).toContain("and existing.source = 'detected'");
     expect(sql).toContain("set status = 'cancelled'");
     expect(sql).toContain("create table if not exists public.finance_cron_cursors");
+    expect(sql).toContain("claim_finance_cron_connections");
+    expect(sql).toContain("claim_finance_cron_users");
+    expect(sql).toContain("pg_advisory_xact_lock");
   });
 
   it("is the exact append-only latest manifest entry", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -8,11 +8,22 @@ import { useToast } from "@/components/ui/Toast";
 import { fmtUsd } from "@/lib/store/fund-defaults";
 import { addMinorUnits, strictMinorUnits } from "@/lib/fund/financialTruth";
 import { useFundData, type Liability } from "@/components/fund/FundDataProvider";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
 
 export function FundLiabilities() {
   const { toast } = useToast();
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const mutationGenerationRef = useRef(0);
+  const mutationControllerRef = useRef<AbortController | null>(null);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   // FUND-1: liabilities come from the shared layout store; mutations call
   // refreshLiabilities() so Cashflow/Net Worth/Overview stay consistent.
   const {
@@ -27,7 +38,46 @@ export function FundLiabilities() {
   const [balance, setBalance] = useState("");
   const [minimumPayment, setMinimumPayment] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [draftIdentity, setDraftIdentity] = useState<string | null>(currentIdentity);
+
+  useEffect(() => {
+    ++mutationGenerationRef.current;
+    mutationControllerRef.current?.abort();
+    mutationControllerRef.current = null;
+    setOpen(false);
+    setName("");
+    setKind(KINDS[0]);
+    setBalance("");
+    setMinimumPayment("");
+    setDueDate("");
+    setDraftIdentity(currentIdentity);
+    return () => {
+      mutationControllerRef.current?.abort();
+      mutationControllerRef.current = null;
+    };
+  }, [currentIdentity]);
+
+  function beginMutation(expectedSubject: string, expectedEpoch: number) {
+    const generation = ++mutationGenerationRef.current;
+    mutationControllerRef.current?.abort();
+    const controller = new AbortController();
+    mutationControllerRef.current = controller;
+    return {
+      controller,
+      isCurrent: () => !controller.signal.aborted
+        && mutationGenerationRef.current === generation
+        && currentSubjectRef.current === expectedSubject
+        && authorityEpochRef.current === expectedEpoch,
+    };
+  }
+
   async function add() {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    if (!expectedSubject || draftIdentity !== currentIdentity) {
+      toast("Sign in again before adding a liability.", "error", "Cash Flow");
+      return;
+    }
     const balanceNum = Number(balance);
     const minimumPaymentNum = minimumPayment ? Number(minimumPayment) : null;
     if (!name.trim() || !Number.isFinite(balanceNum) || balanceNum < 0) {
@@ -38,37 +88,71 @@ export function FundLiabilities() {
       toast("Enter a valid minimum payment.", "warn", "Cash Flow");
       return;
     }
-    const res = await fetch("/api/fund/liabilities", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name, kind, balance: balanceNum,
-        minimum_payment: minimumPaymentNum,
-        due_date: dueDate || null,
-        currency: "USD",
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error ?? "Couldn't save liability.", "error", "Cash Flow");
-      return;
+    const { controller, isCurrent } = beginMutation(expectedSubject, expectedEpoch);
+    try {
+      const res = await subjectBoundFetch(expectedSubject, "/api/fund/liabilities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          name, kind, balance: balanceNum,
+          minimum_payment: minimumPaymentNum,
+          due_date: dueDate || null,
+          currency: "USD",
+        }),
+      });
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (!isCurrent()) return;
+        toast(err.error ?? "Couldn't save liability.", "error", "Cash Flow");
+        return;
+      }
+      await load();
+      if (!isCurrent()) return;
+      setOpen(false);
+      setName(""); setBalance(""); setMinimumPayment(""); setDueDate("");
+    } catch {
+      if (isCurrent()) toast("Couldn't save liability.", "error", "Cash Flow");
     }
-    await load();
-    setOpen(false);
-    setName(""); setBalance(""); setMinimumPayment(""); setDueDate("");
   }
 
   async function remove(liability: Liability) {
     if (!window.confirm(`Remove ${liability.name} from liabilities?`)) return;
-    const res = await fetch(`/api/fund/liabilities/${liability.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error ?? "Couldn't remove liability.", "error", "Cash Flow");
-      return;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    if (!expectedSubject) return;
+    const { controller, isCurrent } = beginMutation(expectedSubject, expectedEpoch);
+    try {
+      const res = await subjectBoundFetch(expectedSubject, `/api/fund/liabilities/${liability.id}`, {
+        method: "DELETE",
+        signal: controller.signal,
+      });
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (!isCurrent()) return;
+        toast(err.error ?? "Couldn't remove liability.", "error", "Cash Flow");
+        return;
+      }
+      await load();
+      if (!isCurrent()) return;
+      toast("Liability removed.", "info", "Cash Flow");
+    } catch {
+      if (isCurrent()) toast("Couldn't remove liability.", "error", "Cash Flow");
     }
-    await load();
-    toast("Liability removed.", "info", "Cash Flow");
   }
+
+  const visibleOpen = draftIdentity === currentIdentity && open;
+  const openAddLiability = () => {
+    setDraftIdentity(currentIdentity);
+    setName("");
+    setKind(KINDS[0]);
+    setBalance("");
+    setMinimumPayment("");
+    setDueDate("");
+    setOpen(true);
+  };
 
   const total = (() => {
     if (liabilitiesLoading || liabilitiesError) return null;
@@ -106,12 +190,12 @@ export function FundLiabilities() {
           ))
         )}
       </div>
-      <button type="button" className="feed-manage" style={{ marginTop: 14 }} onClick={() => setOpen(true)}>
+      <button type="button" className="feed-manage" style={{ marginTop: 14 }} onClick={openAddLiability}>
         Add liability
       </button>
 
       <Modal
-        open={open}
+        open={visibleOpen}
         onClose={() => setOpen(false)}
         title="Add liability"
         footer={<>

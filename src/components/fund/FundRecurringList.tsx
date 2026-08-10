@@ -24,6 +24,7 @@ export function FundRecurringList() {
   const currentSubjectRef = useRef(currentSubject);
   const authorityEpochRef = useRef(authorityEpoch);
   const generationRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
   currentSubjectRef.current = currentSubject;
   authorityEpochRef.current = authorityEpoch;
   const [recurring, setRecurring] = useState<Recurring[]>([]);
@@ -35,7 +36,9 @@ export function FundRecurringList() {
     const expectedSubject = currentSubject;
     const expectedEpoch = authorityEpoch;
     const generation = ++generationRef.current;
+    controllerRef.current?.abort();
     const controller = new AbortController();
+    controllerRef.current = controller;
     setRecurring([]);
     setLoaded(false);
     setRecurringIdentity(null);
@@ -65,7 +68,11 @@ export function FundRecurringList() {
 
   useEffect(() => {
     void load();
-    return () => { generationRef.current += 1; };
+    return () => {
+      generationRef.current += 1;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+    };
   }, [load]);
 
   async function setStatus(id: string, status: "cancelled" | "active") {

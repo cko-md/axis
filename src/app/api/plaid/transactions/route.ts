@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import {
@@ -7,6 +7,8 @@ import {
 } from "@/lib/fund/transactionCoverage";
 import { strictExactMinorUnits } from "@/lib/fund/financialTruth";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 type StoredTransaction = {
   id: string;
@@ -23,13 +25,17 @@ type StoredTransaction = {
 };
 
 /** Legacy Fund-card endpoint backed by a proved-complete persisted generation. */
-export async function POST() {
+export async function POST(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/transactions", area: "fund" });
   if (!identity.ok) return NextResponse.json(
     { error: identity.status === 401 ? "Unauthorized" : identity.code },
     { status: identity.status },
   );
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const start = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)

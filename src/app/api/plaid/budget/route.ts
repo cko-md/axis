@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
@@ -11,6 +11,8 @@ import {
   minorUnitsToDecimalString,
   strictExactMinorUnits,
 } from "@/lib/fund/financialTruth";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const CATEGORY_LABELS: Record<string, string> = {
   FOOD_AND_DRINK: "Dining",
@@ -53,13 +55,17 @@ function roundedPercent(numerator: number, denominator: number): number {
 }
 
 /** Complete persisted spending joined only to user-authored budget targets. */
-export async function POST() {
+export async function POST(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/budget", area: "fund" });
   if (!identity.ok) return NextResponse.json(
     { error: identity.status === 401 ? "Unauthorized" : identity.code },
     { status: identity.status },
   );
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const coverageStart = new Date(Date.now() - TRANSACTION_HISTORY_DAYS * 86_400_000)

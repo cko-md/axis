@@ -40,7 +40,7 @@ vi.mock("@/lib/plaid/admission", () => ({
   admitPlaidRequest: mocks.admitPlaidRequest,
 }));
 
-import { snapshotNetWorth, writeDailyBrief } from "./financeDailyJobs";
+import { collapseRecurringCandidateRows, snapshotNetWorth, writeDailyBrief } from "./financeDailyJobs";
 
 const NOW = "2026-07-23T12:00:00.000Z";
 
@@ -157,13 +157,6 @@ function makeAdmin(overrides: {
   };
 }
 
-function plaidResponse(accounts: unknown[]) {
-  return new Response(JSON.stringify({ accounts }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 const freshSnapshot: FinancialSnapshotOutcome = {
   status: "fresh",
   authority: "provider",
@@ -217,6 +210,16 @@ describe("finance daily job financial-truth faults", () => {
       auditRecorded: true,
       outboxRecorded: true,
     });
+  });
+
+  it("drops ambiguous duplicate recurring identities before the atomic upsert", () => {
+    const rows = collapseRecurringCandidateRows([
+      { merchant_name: "Merchant", currency: "USD", expected_amount: "10.00" },
+      { merchant_name: "Merchant", currency: "USD", expected_amount: "12.00" },
+      { merchant_name: "Other", currency: "USD", expected_amount: "5.00" },
+    ]);
+
+    expect(rows).toEqual([{ merchant_name: "Other", currency: "USD", expected_amount: "5.00" }]);
   });
 
   it("persists an exact provider snapshot, including a legitimate zero cash balance", async () => {

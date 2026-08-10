@@ -172,11 +172,147 @@ grant execute on function public.reconcile_fund_recurring_generation(uuid,jsonb,
 create table if not exists public.finance_cron_cursors (
   job_key text primary key,
   last_connection_id uuid,
+  last_user_id uuid,
   updated_at timestamptz not null default now(),
-  check (job_key = 'finance-daily-plaid-sync')
+  check (job_key in ('finance-daily-plaid-sync', 'finance-daily-user-jobs'))
 );
+alter table public.finance_cron_cursors
+  add column if not exists last_user_id uuid;
+alter table public.finance_cron_cursors
+  drop constraint if exists finance_cron_cursors_job_key_check;
+alter table public.finance_cron_cursors
+  add constraint finance_cron_cursors_job_key_check
+  check (job_key in ('finance-daily-plaid-sync', 'finance-daily-user-jobs'));
 alter table public.finance_cron_cursors enable row level security;
 revoke all on table public.finance_cron_cursors from public, anon, authenticated;
 grant select, insert, update on table public.finance_cron_cursors to service_role;
+
+create or replace function public.claim_finance_cron_connections(p_limit integer)
+returns table(id uuid, user_id uuid, access_token_enc text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cursor uuid;
+  v_ids uuid[];
+begin
+  if p_limit is null or p_limit < 1 or p_limit > 100 then
+    raise exception 'invalid finance cron connection claim limit' using errcode = '22023';
+  end if;
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('finance-daily-plaid-sync', 0)
+  );
+  insert into public.finance_cron_cursors(job_key)
+  values ('finance-daily-plaid-sync')
+  on conflict (job_key) do nothing;
+  select cursor.last_connection_id into v_cursor
+  from public.finance_cron_cursors cursor
+  where cursor.job_key = 'finance-daily-plaid-sync'
+  for update;
+
+  select pg_catalog.array_agg(candidate.id order by candidate.ordinal)
+  into v_ids
+  from (
+    select connection.id,
+      pg_catalog.row_number() over (
+        order by
+          case when v_cursor is null or connection.id > v_cursor then 0 else 1 end,
+          connection.id
+      ) as ordinal
+    from public.fund_connections connection
+    where connection.provider = 'plaid'
+      and connection.status = 'linked'
+      and connection.authority = 'provider_verified'
+    order by
+      case when v_cursor is null or connection.id > v_cursor then 0 else 1 end,
+      connection.id
+    limit p_limit
+  ) candidate;
+
+  if coalesce(pg_catalog.array_length(v_ids, 1), 0) > 0 then
+    update public.finance_cron_cursors cursor
+    set last_connection_id = v_ids[pg_catalog.array_length(v_ids, 1)],
+        updated_at = pg_catalog.now()
+    where cursor.job_key = 'finance-daily-plaid-sync';
+  end if;
+
+  return query
+  select connection.id, connection.user_id, connection.access_token_enc
+  from pg_catalog.unnest(coalesce(v_ids, array[]::uuid[])) with ordinality claimed(id, ordinal)
+  join public.fund_connections connection on connection.id = claimed.id
+  order by claimed.ordinal;
+end;
+$$;
+revoke all on function public.claim_finance_cron_connections(integer)
+  from public, anon, authenticated;
+grant execute on function public.claim_finance_cron_connections(integer)
+  to service_role;
+
+create or replace function public.claim_finance_cron_users(p_limit integer)
+returns table(user_id uuid)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cursor uuid;
+  v_ids uuid[];
+begin
+  if p_limit is null or p_limit < 1 or p_limit > 250 then
+    raise exception 'invalid finance cron user claim limit' using errcode = '22023';
+  end if;
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('finance-daily-user-jobs', 0)
+  );
+  insert into public.finance_cron_cursors(job_key)
+  values ('finance-daily-user-jobs')
+  on conflict (job_key) do nothing;
+  select cursor.last_user_id into v_cursor
+  from public.finance_cron_cursors cursor
+  where cursor.job_key = 'finance-daily-user-jobs'
+  for update;
+
+  with discovered as (
+    select connection.user_id from public.fund_connections connection where connection.status = 'linked' and connection.authority = 'provider_verified'
+    union select holding.user_id from public.fund_holdings holding
+    union select liability.user_id from public.fund_liabilities liability
+    union select txn.user_id from public.fund_bank_transactions txn
+    union select budget.user_id from public.fund_category_budgets budget
+    union select recurring.user_id from public.fund_recurring_transactions recurring
+  )
+  select pg_catalog.array_agg(candidate.user_id order by candidate.ordinal)
+  into v_ids
+  from (
+    select discovered.user_id,
+      pg_catalog.row_number() over (
+        order by
+          case when v_cursor is null or discovered.user_id > v_cursor then 0 else 1 end,
+          discovered.user_id
+      ) as ordinal
+    from discovered
+    order by
+      case when v_cursor is null or discovered.user_id > v_cursor then 0 else 1 end,
+      discovered.user_id
+    limit p_limit
+  ) candidate;
+
+  if coalesce(pg_catalog.array_length(v_ids, 1), 0) > 0 then
+    update public.finance_cron_cursors cursor
+    set last_user_id = v_ids[pg_catalog.array_length(v_ids, 1)],
+        updated_at = pg_catalog.now()
+    where cursor.job_key = 'finance-daily-user-jobs';
+  end if;
+
+  return query
+  select claimed.id
+  from pg_catalog.unnest(coalesce(v_ids, array[]::uuid[])) with ordinality claimed(id, ordinal)
+  order by claimed.ordinal;
+end;
+$$;
+revoke all on function public.claim_finance_cron_users(integer)
+  from public, anon, authenticated;
+grant execute on function public.claim_finance_cron_users(integer)
+  to service_role;
 
 commit;

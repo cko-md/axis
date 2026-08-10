@@ -104,8 +104,21 @@ function adminClient(options: {
     }
     throw new Error(`Unexpected table ${table}`);
   });
+  const rpc = vi.fn(async (name: string) => {
+    if (name === "claim_finance_cron_connections") {
+      return options.connections ?? {
+        data: [{ id: "connection-1", user_id: USER_ID, access_token_enc: "encrypted" }],
+        error: null,
+      };
+    }
+    if (name === "claim_finance_cron_users") {
+      return options.users ?? { data: [{ user_id: USER_ID }], error: null };
+    }
+    throw new Error(`Unexpected RPC ${name}`);
+  });
   return {
     from,
+    rpc,
     auth: {
       admin: {
         getUserById: vi.fn(async () => options.authError
@@ -247,8 +260,8 @@ describe("finance daily cron fault aggregation", () => {
       ok: false,
       outcome: "partial",
       discoveryErrors: 1,
-      authLookupFailures: 1,
-      usersProcessed: 1,
+      authLookupFailures: 0,
+      usersProcessed: 0,
       usersCompleted: 0,
     });
     expect(mocks.snapshotNetWorth).not.toHaveBeenCalled();
@@ -357,6 +370,34 @@ describe("finance daily cron fault aggregation", () => {
     expect(mocks.captureException).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Finance daily job did not settle after cancellation" }),
       { tags: { area: "fund", stage: "deadline", code: "ABORT_SETTLEMENT_EXCEEDED" } },
+    );
+  });
+
+  it("visits the 101st connection on the next durable claim instead of starving it", async () => {
+    const connections = Array.from({ length: 101 }, (_, index) => ({
+      id: `connection-${String(index + 1).padStart(3, "0")}`,
+      user_id: USER_ID,
+      access_token_enc: "encrypted",
+    }));
+    let cursor = 0;
+    const admin = adminClient({ users: { data: [], error: null } });
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "claim_finance_cron_users") return { data: [], error: null };
+      const claimed = Array.from({ length: 100 }, (_, offset) => connections[(cursor + offset) % connections.length]);
+      cursor = (cursor + 100) % connections.length;
+      return { data: claimed, error: null };
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    expect((await GET(request())).status).toBe(200);
+    expect(mocks.syncPlaidTransactions).not.toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), "connection-101", expect.anything(), expect.anything(),
+    );
+    mocks.syncPlaidTransactions.mockClear();
+
+    expect((await GET(request())).status).toBe(200);
+    expect(mocks.syncPlaidTransactions).toHaveBeenCalledWith(
+      expect.anything(), USER_ID, "connection-101", "provider-token", expect.any(AbortSignal),
     );
   });
 });

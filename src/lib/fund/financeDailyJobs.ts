@@ -623,6 +623,21 @@ export async function snapshotNetWorth(
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
 
+export function collapseRecurringCandidateRows<T extends { merchant_name: string; currency: string }>(
+  candidateRows: readonly T[],
+): T[] {
+  const candidatesByIdentity = new Map<string, T[]>();
+  for (const row of candidateRows) {
+    const key = `${row.merchant_name}\u0000${row.currency}`;
+    const current = candidatesByIdentity.get(key) ?? [];
+    current.push(row);
+    candidatesByIdentity.set(key, current);
+  }
+  return [...candidatesByIdentity.values()]
+    .filter((rows) => rows.length === 1)
+    .map((rows) => rows[0]);
+}
+
 function inferCadence(avgGapDays: number): Cadence {
   if (avgGapDays <= 10) return "weekly";
   if (avgGapDays <= 17) return "biweekly";
@@ -755,16 +770,7 @@ export async function detectRecurring(
   // same merchant/currency produces multiple independently recurring amount
   // patterns, publishing both would make one upsert touch the same row twice.
   // Treat that identity as ambiguous and publish neither pattern.
-  const candidatesByIdentity = new Map<string, typeof candidateRows>();
-  for (const row of candidateRows) {
-    const key = `${row.merchant_name}\u0000${row.currency}`;
-    const current = candidatesByIdentity.get(key) ?? [];
-    current.push(row);
-    candidatesByIdentity.set(key, current);
-  }
-  const detectedRows = [...candidatesByIdentity.values()]
-    .filter((rows) => rows.length === 1)
-    .map((rows) => rows[0]);
+  const detectedRows = collapseRecurringCandidateRows(candidateRows);
 
   ensureJobActive(signal);
   const rpc = (admin as unknown as {

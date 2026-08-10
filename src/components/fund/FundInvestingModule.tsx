@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,8 @@ import { FundSparkline } from "@/components/fund/FundSparkline";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
 import { reconciliationView } from "@/lib/fund/reconciliationView";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 function formatHoldingCost(value: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value);
@@ -17,6 +19,15 @@ function formatHoldingCost(value: number, currency: string): string {
 
 export function FundInvestingModule() {
   const { toast } = useToast();
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const mutationGenerationRef = useRef(0);
+  const mutationControllerRef = useRef<AbortController | null>(null);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   const { brokerageConfigured, brokerageStatusState } = usePlaidConnection();
   // FUND-1: holdings come from the shared layout store; mutations call
   // refreshHoldings() so Net Worth/Overview reflect changes with no extra fetch.
@@ -32,9 +43,46 @@ export function FundInvestingModule() {
   const [addName, setAddName] = useState("");
   const [addShares, setAddShares] = useState("1");
   const [addCost, setAddCost] = useState("0");
+  const [draftIdentity, setDraftIdentity] = useState<string | null>(currentIdentity);
   const concentrationLimit = 0.25;
 
+  useEffect(() => {
+    ++mutationGenerationRef.current;
+    mutationControllerRef.current?.abort();
+    mutationControllerRef.current = null;
+    setAddOpen(false);
+    setAddSym("");
+    setAddName("");
+    setAddShares("1");
+    setAddCost("0");
+    setDraftIdentity(currentIdentity);
+    return () => {
+      mutationControllerRef.current?.abort();
+      mutationControllerRef.current = null;
+    };
+  }, [currentIdentity]);
+
+  function beginMutation(expectedSubject: string, expectedEpoch: number) {
+    const generation = ++mutationGenerationRef.current;
+    mutationControllerRef.current?.abort();
+    const controller = new AbortController();
+    mutationControllerRef.current = controller;
+    return {
+      controller,
+      isCurrent: () => !controller.signal.aborted
+        && mutationGenerationRef.current === generation
+        && currentSubjectRef.current === expectedSubject
+        && authorityEpochRef.current === expectedEpoch,
+    };
+  }
+
   async function addHolding() {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    if (!expectedSubject || draftIdentity !== currentIdentity) {
+      toast("Sign in again before adding a holding.", "error", "Investing");
+      return;
+    }
     const symbol = addSym.trim().toUpperCase();
     const shares = Number(addShares);
     const costBasis = Number(addCost);
@@ -50,45 +98,78 @@ export function FundInvestingModule() {
       toast("Enter a valid cost basis.", "warn", "Investing");
       return;
     }
-    const res = await fetch("/api/fund/holdings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbol,
-        name: addName.trim() || symbol,
-        shares,
-        cost_basis: costBasis,
-        currency: "USD",
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error ?? "Couldn't add holding.", "error", "Investing");
-      return;
+    const { controller, isCurrent } = beginMutation(expectedSubject, expectedEpoch);
+    try {
+      const res = await subjectBoundFetch(expectedSubject, "/api/fund/holdings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          symbol,
+          name: addName.trim() || symbol,
+          shares,
+          cost_basis: costBasis,
+          currency: "USD",
+        }),
+      });
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (!isCurrent()) return;
+        toast(err.error ?? "Couldn't add holding.", "error", "Investing");
+        return;
+      }
+      await load();
+      if (!isCurrent()) return;
+      setAddOpen(false);
+      setAddSym(""); setAddName(""); setAddShares("1"); setAddCost("0");
+    } catch {
+      if (isCurrent()) toast("Couldn't add holding.", "error", "Investing");
     }
-    await load();
-    setAddOpen(false);
-    setAddSym(""); setAddName(""); setAddShares("1"); setAddCost("0");
   }
 
   async function removeHolding(id: string) {
     const row = rows.find((r) => r.id === id);
     const label = row ? `${row.symbol} (${row.source})` : "this holding";
     if (!window.confirm(`Remove ${label} from holdings?`)) return;
-    const res = await fetch(`/api/fund/holdings/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error ?? "Couldn't remove holding.", "error", "Investing");
-      return;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    if (!expectedSubject) return;
+    const { controller, isCurrent } = beginMutation(expectedSubject, expectedEpoch);
+    try {
+      const res = await subjectBoundFetch(expectedSubject, `/api/fund/holdings/${id}`, {
+        method: "DELETE",
+        signal: controller.signal,
+      });
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (!isCurrent()) return;
+        toast(err.error ?? "Couldn't remove holding.", "error", "Investing");
+        return;
+      }
+      await load();
+      if (!isCurrent()) return;
+      toast("Holding removed.", "info", "Investing");
+    } catch {
+      if (isCurrent()) toast("Couldn't remove holding.", "error", "Investing");
     }
-    await load();
-    toast("Holding removed.", "info", "Investing");
   }
+
+  const visibleAddOpen = draftIdentity === currentIdentity && addOpen;
+  const openAddHolding = () => {
+    setDraftIdentity(currentIdentity);
+    setAddSym("");
+    setAddName("");
+    setAddShares("1");
+    setAddCost("0");
+    setAddOpen(true);
+  };
 
   return (
     <div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        <button type="button" className="feed-manage" onClick={() => setAddOpen(true)}>Add holding</button>
+        <button type="button" className="feed-manage" onClick={openAddHolding}>Add holding</button>
       </div>
 
       {aggregated[0] && <FundSparkline symbol={aggregated[0].symbol} />}
@@ -190,7 +271,7 @@ export function FundInvestingModule() {
       </div>
 
       <Modal
-        open={addOpen}
+        open={visibleAddOpen}
         onClose={() => setAddOpen(false)}
         title="Add holding"
         footer={<>

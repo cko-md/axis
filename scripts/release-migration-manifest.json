@@ -4,7 +4,7 @@
   "latest": {
     "version": "20260809250000",
     "file": "supabase/migrations/20260809250000_financial_truth_contract_completion.sql",
-    "sha256": "6da39ef58dcb581c448003192220b6f2d36dfa7a7c36c3ad988e756a0ec90378"
+    "sha256": "46dcf11c7f1c73ed5cf3f168aa715048b722dabb6702c3818e46b068e22430dd"
   },
   "migrations": [
     {
@@ -490,7 +490,7 @@
     {
       "version": "20260809250000",
       "file": "supabase/migrations/20260809250000_financial_truth_contract_completion.sql",
-      "sha256": "6da39ef58dcb581c448003192220b6f2d36dfa7a7c36c3ad988e756a0ec90378"
+      "sha256": "46dcf11c7f1c73ed5cf3f168aa715048b722dabb6702c3818e46b068e22430dd"
     }
   ]
 }
