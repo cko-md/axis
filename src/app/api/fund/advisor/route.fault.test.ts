@@ -157,6 +157,49 @@ describe("fund advisor numerical-claim binding faults", () => {
       .not.toContain("$123.45");
   });
 
+  it("returns explicitly unverified educational prose for a preclassified conceptual question", async () => {
+    const db = supabaseClient();
+    mocks.createClient.mockResolvedValue(db.client);
+    mocks.anthropicCreate.mockResolvedValue({
+      content: [{ type: "text", text: "A price-to-earnings ratio compares a share price with earnings per share." }],
+    });
+
+    const response = await POST(request("What is a P/E ratio?"));
+    const body = await response.json();
+
+    expect(body.text).toContain("price-to-earnings ratio");
+    expect(body.response_metadata).toEqual({ conceptual: true, personal: false, verified: false });
+    expect(mocks.executeTool).not.toHaveBeenCalled();
+    expect(mocks.anthropicCreate).not.toHaveBeenCalled();
+  });
+
+  it("never lets model output or conversation context author conceptual prose", async () => {
+    const db = supabaseClient();
+    mocks.createClient.mockResolvedValue(db.client);
+    mocks.anthropicCreate.mockResolvedValue({
+      content: [{ type: "text", text: "Your portfolio is worth one million dollars." }],
+    });
+
+    const body = await (await POST(request("Explain diversification"))).json();
+
+    expect(body.text).toContain("spreads exposure across assets");
+    expect(body.text).not.toContain("Your portfolio");
+    expect(mocks.anthropicCreate).not.toHaveBeenCalled();
+  });
+
+  it("serves deterministic conceptual education without an Anthropic key", async () => {
+    const db = supabaseClient();
+    mocks.createClient.mockResolvedValue(db.client);
+    mocks.optionalEnv.mockReturnValue(undefined);
+
+    const response = await POST(request("What is an expense ratio?"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.text).toContain("recurring annual fund operating cost");
+    expect(mocks.anthropicCreate).not.toHaveBeenCalled();
+  });
+
   it("does not mark spelled-out numerical claims as server-verified", async () => {
     const db = supabaseClient();
     mocks.createClient.mockResolvedValue(db.client);

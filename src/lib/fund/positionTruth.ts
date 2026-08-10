@@ -7,6 +7,7 @@ import {
 } from "./financialTruth";
 import { classifyFreshness, FRESHNESS_SLAS } from "./provenance";
 import { MICRO_SHARES_PER_SHARE } from "./taxLots";
+import { normalizeUsEquitySymbol } from "./equitySymbol";
 
 export type LivePositionReason =
   | "POSITION_NOT_FOUND"
@@ -42,6 +43,10 @@ export type PositionQuoteInput = {
   chg: unknown;
   source?: unknown;
   asOf?: unknown;
+  observedAt?: unknown;
+  snapshotUpdatedAt?: unknown;
+  marketSession?: unknown;
+  latestCompletedSession?: unknown;
 } | null;
 export type PositionConnectionInput = {
   id: unknown;
@@ -66,12 +71,8 @@ export type PositionCoverageInput = {
 export const MAX_PORTFOLIO_QUOTE_SYMBOLS = 25;
 const QUOTE_CONCURRENCY = 4;
 const QUOTE_DEADLINE_MS = 8_000;
-const SYMBOL = /^[A-Z][A-Z0-9.-]{0,14}$/;
-
 export function normalizePositionSymbol(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const symbol = value.trim().toUpperCase();
-  return SYMBOL.test(symbol) ? symbol : null;
+  return normalizeUsEquitySymbol(value);
 }
 
 /** Provider calls are allowed only for rows whose DB-enforced authority is complete. */
@@ -166,12 +167,44 @@ export function quoteIsAuthoritative(
   quote: PositionQuoteInput | undefined,
   now = Date.now(),
 ): quote is NonNullable<PositionQuoteInput> {
-  return Boolean(
-    quote &&
-    quote.source === "massive" &&
-    typeof quote.asOf === "string" &&
-    classifyFreshness(quote.asOf, FRESHNESS_SLAS.marketPrice, now) === "fresh",
-  );
+  if (
+    !quote
+    || quote.source !== "massive"
+    || typeof quote.asOf !== "string"
+    || typeof quote.observedAt !== "string"
+  ) return false;
+  const eventAt = Date.parse(quote.asOf);
+  const observedAt = Date.parse(quote.observedAt);
+  const priceMinor = strictMinorUnits(quote.price, "USD");
+  const snapshotAt = typeof quote.snapshotUpdatedAt === "string"
+    ? Date.parse(quote.snapshotUpdatedAt)
+    : Number.NaN;
+  if (
+    !Number.isFinite(eventAt)
+    || !Number.isFinite(observedAt)
+    || eventAt > now + 60_000
+    || observedAt > now + 60_000
+    || now - observedAt > 5 * 60_000
+    || priceMinor === null
+    || priceMinor <= 0
+    || typeof quote.chg !== "number"
+    || !Number.isFinite(quote.chg)
+  ) return false;
+  if (quote.marketSession === "open" || quote.marketSession === "continuous") {
+    return Number.isFinite(snapshotAt)
+      && snapshotAt >= eventAt
+      && snapshotAt <= observedAt + 60_000
+      && observedAt - snapshotAt <= FRESHNESS_SLAS.marketPrice.freshWithinMs
+      && now - eventAt <= FRESHNESS_SLAS.marketPrice.freshWithinMs;
+  }
+  return quote.marketSession === "closed"
+    && quote.latestCompletedSession === true
+    && typeof quote.snapshotUpdatedAt === "string"
+    && Number.isFinite(snapshotAt)
+    && snapshotAt >= eventAt
+    && snapshotAt <= observedAt + 60_000
+    && observedAt - snapshotAt <= 8 * 24 * 60 * 60_000
+    && now - eventAt <= 8 * 24 * 60 * 60_000;
 }
 
 /** Bounded, shared quote fan-out for the position API and AI tool. */
@@ -275,6 +308,8 @@ export function calculateLivePosition(
     const quote = quotes.get(holding.symbol);
     if (quantity === null || quantity <= 0) return unavailable("DATA_UNAVAILABLE", sharesMicro, costBasisMinor);
     if (!quote) return unavailable(holding.symbol === targetSymbol ? "QUOTE_UNAVAILABLE" : "PORTFOLIO_QUOTES_INCOMPLETE", sharesMicro, costBasisMinor);
+    const quotePriceMinor = strictMinorUnits(quote.price, "USD");
+    if (quotePriceMinor === null || quotePriceMinor <= 0) return unavailable("QUOTE_INVALID", sharesMicro, costBasisMinor);
     if (!quoteIsAuthoritative(quote)) return unavailable("QUOTE_PROVENANCE_INVALID", sharesMicro, costBasisMinor);
     const valueMinor = multiplyScaledQuantityByDecimalPrice(
       quantity,

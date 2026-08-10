@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPlaidCreds } from "../_lib";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 /**
  * Plaid connectivity status. Mirrors /api/massive/status: returns a clean
@@ -10,13 +12,17 @@ import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
  * so the UI can render a "Connect bank via Plaid" affordance with no errors.
  */
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/status", area: "fund" });
   if (!identity.ok) return NextResponse.json(
     { error: identity.status === 401 ? "Unauthorized" : identity.code },
     { status: identity.status },
   );
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const creds = getPlaidCreds();
 

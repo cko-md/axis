@@ -29,7 +29,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
   }
   const body = parsedBody.value;
-  const currency = normalizeFinancialCurrency(body.currency, "USD");
+  let currency = body.currency === undefined
+    ? null
+    : normalizeFinancialCurrency(body.currency, "");
+  if (body.currency === undefined) {
+    const existing = await supabase
+      .from("fund_category_budgets")
+      .select("currency")
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (existing.error) {
+      return redactRouteError(existing.error, { route: "fund/category-budgets/[id]", area: "fund" });
+    }
+    if (!existing.data) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    currency = normalizeFinancialCurrency(existing.data.currency, "");
+  }
   const monthlyLimitMinor = currency ? strictExactMinorUnits(body.monthly_limit, currency) : null;
   const monthlyLimit = monthlyLimitMinor === null || !currency
     ? null

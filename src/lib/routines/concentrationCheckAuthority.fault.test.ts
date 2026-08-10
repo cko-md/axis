@@ -53,6 +53,9 @@ describe("concentration profile inputs", () => {
       chg: 0,
       source: "massive",
       asOf: "2026-07-23T12:00:00.000Z",
+      observedAt: "2026-07-23T12:00:00.000Z",
+      snapshotUpdatedAt: "2026-07-23T12:00:00.000Z",
+      marketSession: "open",
     });
   });
 
@@ -144,6 +147,40 @@ describe("concentration profile inputs", () => {
       outputs: {},
     })).resolves.toEqual([{ symbol: "AAPL", value: 20 }]);
     vi.useRealTimers();
+  });
+
+  it("rejects non-USD holdings before any quote or task side effect", async () => {
+    const generationId = "11111111-1111-4111-8111-111111111111";
+    const load = concentrationCheckSteps({
+      supabase: concentrationQueryClient({
+        holdings: [{
+          symbol: "AAPL",
+          shares: "2",
+          currency: "EUR",
+          authority: "provider",
+          source: "plaid",
+          provider: "plaid",
+          provider_record_id: "holding-1",
+          connection_id: "connection-1",
+          retrieved_at: new Date().toISOString(),
+          reconciliation_state: "matched",
+          generation_id: generationId,
+        }],
+      }),
+      userId: "user-1",
+      maxWeight: 0.25,
+    }).find((step) => step.key === "load_holdings");
+    if (!load) throw new Error("load_holdings step missing");
+
+    await expect(load.run({
+      runId: "run-1",
+      userId: "user-1",
+      resumed: false,
+      idempotencyKey: null,
+      outputs: {},
+    })).rejects.toThrow("CONCENTRATION_CURRENCY_UNSUPPORTED");
+    expect(marketMocks.fetchSnapshot).not.toHaveBeenCalled();
+    expect(createAgentTaskWithActivity).not.toHaveBeenCalled();
   });
 
   it("converts integer basis points deterministically", () => {

@@ -53,6 +53,18 @@ function item(billed: string[], consented: string[] = []) {
   };
 }
 
+function accounts(types: string[]) {
+  return {
+    request_id: "accounts",
+    item: { item_id: "item-1" },
+    accounts: types.map((type, index) => ({
+      account_id: `account-${index}`,
+      type,
+      subtype: type === "investment" ? "brokerage" : type === "credit" ? "credit card" : "checking",
+    })),
+  };
+}
+
 function holdingPayload(costBasis: unknown = "10.00", quantity: unknown = "1.25") {
   return {
     request_id: "holdings",
@@ -96,23 +108,44 @@ describe("Plaid balance-sheet publication", () => {
     mocks.admitPlaidRequest.mockResolvedValue("allowed");
   });
 
-  it("never treats consent alone as autonomous billing authority", async () => {
-    mocks.plaidRequest.mockResolvedValueOnce(item([], ["investments", "liabilities"]));
+  it("uses explicit Link consent and applicable account types before calling balance-sheet products", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item([], ["investments", "liabilities"]))
+      .mockResolvedValueOnce(accounts(["investment", "credit"]))
+      .mockResolvedValueOnce(holdingPayload())
+      .mockResolvedValueOnce(liabilityPayload());
     const db = admin();
     const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
 
     expect(result).toMatchObject({
       ok: true,
-      holdings: { status: "unavailable", reason: "product_not_billed" },
-      liabilities: { status: "unavailable", reason: "product_not_billed" },
+      holdings: { status: "published", recordCount: 1 },
+      liabilities: { status: "published", recordCount: 1 },
     });
-    expect(mocks.plaidRequest).toHaveBeenCalledTimes(1);
+    expect(mocks.plaidRequest).toHaveBeenCalledTimes(4);
     expect(db.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes complete empty generations only after inventory proves no applicable accounts", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item([], ["investments", "liabilities"]))
+      .mockResolvedValueOnce(accounts(["depository"]));
+    const db = admin();
+
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "published", recordCount: 0 },
+      liabilities: { status: "published", recordCount: 0 },
+    });
+    expect(mocks.plaidRequest).toHaveBeenCalledTimes(2);
   });
 
   it("publishes a billed holdings component while marking liabilities independently unavailable", async () => {
     mocks.plaidRequest
       .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
       .mockResolvedValueOnce(holdingPayload());
     const db = admin();
     const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
@@ -131,6 +164,7 @@ describe("Plaid balance-sheet publication", () => {
   it("fails closed on malformed RPC success and records the failed attempt", async () => {
     mocks.plaidRequest
       .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
       .mockResolvedValueOnce(holdingPayload());
     const db = admin((name) =>
       name === "publish_fund_holding_generation"
@@ -148,6 +182,7 @@ describe("Plaid balance-sheet publication", () => {
   it("rejects non-null malformed optional liability money instead of converting it to absence", async () => {
     mocks.plaidRequest
       .mockResolvedValueOnce(item(["liabilities"]))
+      .mockResolvedValueOnce(accounts(["credit"]))
       .mockResolvedValueOnce(liabilityPayload("25.001"));
     const db = admin();
     const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
@@ -162,6 +197,7 @@ describe("Plaid balance-sheet publication", () => {
   it("does not claim complete holdings when a provider row lacks a valuing fact", async () => {
     mocks.plaidRequest
       .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
       .mockResolvedValueOnce(holdingPayload(null));
     const db = admin();
     const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
@@ -175,6 +211,7 @@ describe("Plaid balance-sheet publication", () => {
   it("rejects provider quantities that require rounding at the persisted share scale", async () => {
     mocks.plaidRequest
       .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
       .mockResolvedValueOnce(holdingPayload("10.00", "1.0000004"));
     const db = admin();
 
@@ -190,6 +227,7 @@ describe("Plaid balance-sheet publication", () => {
   it("accepts exact provider quantities with insignificant trailing zeroes", async () => {
     mocks.plaidRequest
       .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
       .mockResolvedValueOnce(holdingPayload("10.00", "1.0000000"));
     const db = admin();
 

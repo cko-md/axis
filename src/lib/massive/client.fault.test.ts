@@ -14,11 +14,16 @@ vi.mock("@/lib/env", () => ({
 
 import { fetchSnapshot, massiveRequest } from "./client";
 
-function snapshotResponse(timestamp?: number) {
+function marketStatus(market: "open" | "closed", serverTime: string) {
+  return new Response(JSON.stringify({ market, serverTime }), { status: 200 });
+}
+
+function snapshotResponse(timestamp?: number, updated = Date.now() * 1_000_000) {
   return new Response(JSON.stringify({
     ticker: {
       day: { c: 100, o: 90 },
       lastTrade: { p: 101, ...(timestamp === undefined ? {} : { t: timestamp }) },
+      updated,
     },
   }), {
     status: 200,
@@ -34,18 +39,25 @@ describe("Massive quote provider-time provenance", () => {
 
   it("retains the provider event timestamp rather than Axis retrieval time", async () => {
     const providerTime = Date.parse("2026-07-23T11:59:00.000Z");
-    mocks.timedProviderFetch.mockResolvedValue(snapshotResponse(providerTime * 1_000_000));
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(marketStatus("open", "2026-07-23T12:00:00.000Z"))
+      .mockResolvedValueOnce(snapshotResponse(providerTime * 1_000_000))
+      .mockResolvedValueOnce(marketStatus("open", "2026-07-23T12:00:01.000Z"));
 
     const quote = await fetchSnapshot("AAPL");
 
     expect(quote).toMatchObject({
       source: "massive",
       asOf: "2026-07-23T11:59:00.000Z",
+      observedAt: "2026-07-23T12:00:01.000Z",
+      marketSession: "open",
     });
   });
 
   it("rejects a quote with no provider event timestamp", async () => {
-    mocks.timedProviderFetch.mockResolvedValue(snapshotResponse());
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(marketStatus("open", "2026-07-23T12:00:00.000Z"))
+      .mockResolvedValueOnce(snapshotResponse());
 
     await expect(fetchSnapshot("AAPL")).rejects.toThrow(
       "QUOTE_TIMESTAMP_UNAVAILABLE",
@@ -54,11 +66,42 @@ describe("Massive quote provider-time provenance", () => {
 
   it("rejects a provider timestamp in the future", async () => {
     const future = (Date.now() + 120_000) * 1_000_000;
-    mocks.timedProviderFetch.mockResolvedValue(snapshotResponse(future));
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(marketStatus("open", "2026-07-23T12:00:00.000Z"))
+      .mockResolvedValueOnce(snapshotResponse(future));
 
     await expect(fetchSnapshot("AAPL")).rejects.toThrow(
       "QUOTE_TIMESTAMP_UNAVAILABLE",
     );
+  });
+
+  it("uses the provider latest-completed-session bar after market close", async () => {
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T22:00:00.000Z"))
+      .mockResolvedValueOnce(snapshotResponse(Date.parse("2026-07-23T19:59:00.000Z") * 1_000_000, Date.parse("2026-07-23T20:01:00.000Z") * 1_000_000))
+      .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T22:00:01.000Z"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        results: [{ c: 102, o: 90, v: 1000, t: Date.parse("2026-07-23T04:00:00.000Z") }],
+      }), { status: 200 }));
+    const quote = await fetchSnapshot("AAPL");
+
+    expect(quote).toMatchObject({
+      price: 102,
+      marketSession: "closed",
+      latestCompletedSession: true,
+      observedAt: "2026-07-23T22:00:01.000Z",
+      snapshotUpdatedAt: "2026-07-23T20:01:00.000Z",
+    });
+  });
+
+  it("rejects a market-session transition during snapshot retrieval", async () => {
+    const providerTime = Date.parse("2026-07-23T11:59:00.000Z");
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(marketStatus("closed", "2026-07-23T12:00:00.000Z"))
+      .mockResolvedValueOnce(snapshotResponse(providerTime * 1_000_000))
+      .mockResolvedValueOnce(marketStatus("open", "2026-07-23T12:00:01.000Z"));
+
+    await expect(fetchSnapshot("AAPL")).rejects.toThrow("MARKET_SESSION_CHANGED");
   });
 
   it("keeps provider credentials out of URLs, errors, and observability metadata", async () => {

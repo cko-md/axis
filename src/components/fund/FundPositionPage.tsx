@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { FundSparkline } from "@/components/fund/FundSparkline";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 function formatExactUsd(value: string | null): string {
   if (value === null) return "—";
@@ -28,18 +30,59 @@ type PositionData = {
 };
 
 export function FundPositionPage({ symbol }: { symbol: string }) {
-  const [data, setData] = useState<PositionData | null>(null);
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const generationRef = useRef(0);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
+  const [positionData, setPositionData] = useState<PositionData | null>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
+  const [dataIdentity, setDataIdentity] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/fund/position/${symbol}`)
-      .then(async (r) => ({ ok: r.ok, data: await r.json() as PositionData }))
-      .then(({ ok, data: d }) => { if (!ok) throw new Error("POSITION_UNAVAILABLE"); setData(d); setStatus("ok"); })
-      .catch(() => setStatus("error"));
-  }, [symbol]);
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const generation = ++generationRef.current;
+    const controller = new AbortController();
+    setPositionData(null);
+    setDataIdentity(null);
+    setStatus("loading");
+    if (!expectedSubject) {
+      setStatus("error");
+      return () => controller.abort();
+    }
+    const isCurrent = () => !controller.signal.aborted
+      && generationRef.current === generation
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
+    void subjectBoundFetch(expectedSubject, `/api/fund/position/${symbol}`, { signal: controller.signal })
+      .then(async (r) => {
+        if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
+        const body = await r.json() as PositionData;
+        if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
+        if (!r.ok) throw new Error("POSITION_UNAVAILABLE");
+        setPositionData(body);
+        setDataIdentity(`${expectedSubject}:${expectedEpoch}`);
+        setStatus("ok");
+      })
+      .catch(() => {
+        if (isCurrent()) {
+          setDataIdentity(`${expectedSubject}:${expectedEpoch}`);
+          setStatus("error");
+        }
+      });
+    return () => controller.abort();
+  }, [authorityEpoch, currentSubject, symbol]);
 
-  if (status === "loading") return <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>;
-  if (status === "error" || !data) return <p style={{ fontSize: 12, color: "var(--clay)" }}>Could not load this position.</p>;
+  const visibleData = dataIdentity === currentIdentity ? positionData : null;
+  const visibleStatus = dataIdentity === currentIdentity ? status : "loading";
+
+  if (visibleStatus === "loading") return <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>;
+  if (visibleStatus === "error" || !visibleData) return <p style={{ fontSize: 12, color: "var(--clay)" }}>Could not load this position.</p>;
+  const data = visibleData;
 
   return (
     <div>

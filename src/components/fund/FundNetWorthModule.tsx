@@ -36,6 +36,8 @@ export function FundNetWorthModule() {
     aggregated: holdings,
     holdingsLoading,
     holdingsError,
+    holdingsProviderUnavailable,
+    holdingsProviderUnavailableReason,
     liabilities,
     liabilitiesLoading,
     liabilitiesError,
@@ -52,9 +54,7 @@ export function FundNetWorthModule() {
     <div>
       <Card tick>
         <div className="seclabel">Net Worth</div>
-        <div className="bigmetric" style={{ fontSize: 30 }}>—</div>
-        <p style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 8 }}>Live net worth requires complete provider coverage.</p>
-        <NetWorthChart signedIn={signedIn} showLiabilities />
+        <NetWorthChart signedIn={signedIn} showLiabilities showHeadline />
       </Card>
 
       <div className="divider" />
@@ -69,6 +69,11 @@ export function FundNetWorthModule() {
             {holdingsError && (
               <p role="alert" style={{ fontSize: 12, color: "var(--clay)", marginTop: 8 }}>
                 Holdings could not refresh{holdings.length > 0 ? "; showing the last loaded positions." : "."}
+              </p>
+            )}
+            {holdingsProviderUnavailable && (
+              <p role="status" style={{ fontSize: 12, color: "var(--clay)", marginTop: 8 }}>
+                Provider holdings excluded: {holdingsProviderUnavailableReason ?? "coverage unavailable"}.
               </p>
             )}
             {balanceError && !cashReason && (

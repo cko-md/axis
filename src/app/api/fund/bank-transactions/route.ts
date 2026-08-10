@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import {
   readCompleteTransactionRows,
   TRANSACTION_HISTORY_DAYS,
@@ -43,6 +45,10 @@ export async function GET(request: NextRequest) {
     );
   }
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const params = request.nextUrl.searchParams;
   const category = params.get("category");
@@ -82,6 +88,7 @@ export async function GET(request: NextRequest) {
       transactions: [],
       completeness: "unavailable",
       verifiedEmpty: false,
+      lineageHash: null,
       page: { offset, limit, total: null, hasMore: false },
     });
   }
@@ -105,6 +112,7 @@ export async function GET(request: NextRequest) {
     transactions,
     completeness: "complete_source_page",
     verifiedEmpty: total === 0,
+    lineageHash: complete.proof.available ? complete.proof.lineage_hash : null,
     page: {
       offset,
       limit,

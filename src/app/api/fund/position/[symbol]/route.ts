@@ -6,6 +6,8 @@ import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { minorUnitsToDecimalString, scaledUnitsToDecimalString, strictMinorUnits } from "@/lib/fund/financialTruth";
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 import {
   calculateLivePosition,
   fetchPortfolioQuotes,
@@ -19,10 +21,14 @@ import {
 } from "@/lib/fund/positionTruth";
 
 /** GET /api/fund/position/:symbol — cost basis, P/L, portfolio weight, quote, news. */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ symbol: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ symbol: string }> }) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/position/[symbol]", area: "fund" });
   if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const { symbol: rawSymbol } = await params;
   const symbol = normalizePositionSymbol(rawSymbol);
@@ -65,6 +71,15 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     : validateAuthoritativeHoldings(allHoldings ?? [])
       ?? validateCurrentConnectionBindings(allHoldings ?? [], connections ?? [])
       ?? validateHoldingCoverage(allHoldings ?? [], connections ?? [], coverage ?? []);
+  if (getPolygonApiKey()) {
+    try {
+      news = await fetchNews([symbol], 6);
+    } catch {
+      Sentry.captureException(new Error("Fund position news fetch failed"), {
+        tags: { area: "fund", provider: "polygon", operation: "position_news" },
+      });
+    }
+  }
   if (getPolygonApiKey() && (holdings ?? []).length > 0 && !quoteCoverageReason) {
     const quoteResult = await fetchPortfolioQuotes((allHoldings ?? []).map((holding) => holding.symbol), fetchSnapshot);
     quotes = quoteResult.quotes;
@@ -73,13 +88,6 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     quote = quoteIsAuthoritative(targetQuote) && typeof targetQuote.price === "number" && typeof targetQuote.chg === "number"
       ? targetQuote as { price: number; chg: number; source?: unknown; asOf?: unknown }
       : null;
-    try {
-      news = await fetchNews([symbol], 6);
-    } catch {
-      Sentry.captureException(new Error("Fund position news fetch failed"), {
-        tags: { area: "fund", provider: "polygon", operation: "position_news" },
-      });
-    }
   }
 
   const metrics = calculateLivePosition(symbol, allHoldings ?? [], quotes, Boolean(getPolygonApiKey()), quoteCoverageReason);

@@ -2,19 +2,28 @@
 
 import React, { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   openPlaidLink: vi.fn(),
+  shellProfile: vi.fn(),
+  plaidOptions: null as null | { token?: string | null; onSuccess?: (...args: unknown[]) => unknown },
 }));
 
 vi.mock("react-plaid-link", () => ({
-  usePlaidLink: () => ({ open: mocks.openPlaidLink, ready: false }),
+  usePlaidLink: (options: { token?: string | null; onSuccess?: (...args: unknown[]) => unknown }) => {
+    mocks.plaidOptions = options;
+    return { open: mocks.openPlaidLink, ready: false };
+  },
 }));
 vi.mock("@/components/ui/Toast", () => ({
   useToast: () => ({ toast: mocks.toast }),
   ToastProvider: ({ children }: { children: ReactNode }) => children,
+}));
+vi.mock("@/components/layout/ShellProfileContext", () => ({
+  useShellProfile: mocks.shellProfile,
 }));
 
 import { usePlaidConnection } from "./usePlaidConnection";
@@ -28,6 +37,9 @@ let latest: HookValue | null = null;
 function response(data: unknown) {
   return { ok: true, json: async () => data } as Response;
 }
+
+const SUBJECT_A = `ps1_${"a".repeat(64)}`;
+const SUBJECT_B = `ps1_${"b".repeat(64)}`;
 
 function Harness() {
   latest = usePlaidConnection();
@@ -45,9 +57,9 @@ async function settle() {
 async function mount(accounts: unknown[]) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === "/api/plaid/status") return response({ configured: true, linked: true });
-    if (url === "/api/brokerage/status") return response({ configured: false });
-    if (url === "/api/plaid/balances") return response({
+    if (url.endsWith("/api/plaid/status")) return response({ configured: true, linked: true });
+    if (url.endsWith("/api/brokerage/status")) return response({ configured: false });
+    if (url.endsWith("/api/plaid/balances")) return response({
       configured: true,
       completeness: "complete",
       accounts,
@@ -67,6 +79,11 @@ async function mount(accounts: unknown[]) {
 describe("signed-in Plaid cash availability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.shellProfile.mockReturnValue({
+      state: "ready",
+      profile: { subject: SUBJECT_A },
+      authorityEpoch: 1,
+    });
     latest = null;
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -155,5 +172,50 @@ describe("signed-in Plaid cash availability", () => {
     expect(latest?.cashReason).toBe("PLAID_BALANCES_FAILED");
     expect(latest?.bankAccounts).toEqual([]);
     expect(latest?.balanceError).toBe(true);
+  });
+
+  it("masks subject A cash immediately and ignores delayed A bodies after switching to B", async () => {
+    const value = await mount([{
+      name: "Checking A", mask: "1234", subtype: "checking", type: "depository",
+      current: "25.00", currentMinor: 2_500, currency: "USD",
+    }]);
+    expect(value.cash).toBe("25.00");
+    let resolveBStatus: ((value: unknown) => void) | null = null;
+    const delayedBStatus = new Promise((resolve) => { resolveBStatus = resolve; });
+    vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/plaid/status")) return { ok: true, json: () => delayedBStatus } as Response;
+      if (url.endsWith("/api/brokerage/status")) return response({ configured: false });
+      if (url.endsWith("/api/plaid/balances")) return response({ configured: true, completeness: "complete", accounts: [] });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    mocks.shellProfile.mockReturnValue({
+      state: "ready",
+      profile: { subject: SUBJECT_B },
+      authorityEpoch: 2,
+    });
+    flushSync(() => { root?.render(<Harness />); });
+
+    expect(latest?.cash).toBeNull();
+    expect(latest?.bankAccounts).toEqual([]);
+    expect(latest?.plaidStatusState).toBe("loading");
+    await act(async () => {
+      resolveBStatus?.({ configured: true, linked: false });
+      await Promise.resolve();
+    });
+    expect(latest?.cash).toBeNull();
+  });
+
+  it("adds the exact expected-subject header to status and balance requests", async () => {
+    await mount([]);
+
+    const protectedCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) =>
+      /\/api\/(?:plaid|brokerage)\//.test(String(input)),
+    );
+    expect(protectedCalls.length).toBeGreaterThan(0);
+    for (const [, init] of protectedCalls) {
+      expect(new Headers(init?.headers).get("x-axis-expected-profile-subject")).toBe(SUBJECT_A);
+    }
   });
 });

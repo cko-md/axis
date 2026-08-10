@@ -13,6 +13,8 @@ import { savePlaidConnection } from "@/lib/fund/plaidTokens";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const MAX_BODY_BYTES = 2_048;
 const RATE_LIMIT = 10;
@@ -63,6 +65,10 @@ export async function POST(request: NextRequest) {
     { status: identity.status },
   );
   const { user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
   const admission = await admitPlaidMutation(user.id, RATE_LIMIT, "axis:plaid-exchange");
   if (admission === "unavailable") {
     return NextResponse.json({ error: "PLAID_LINK_ADMISSION_UNAVAILABLE" }, { status: 503 });
@@ -173,13 +179,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "PLAID_LINK_FAILED" }, { status: 502 });
   }
 
-  const saved = await savePlaidConnection(
+  const saveResult = await savePlaidConnection(
     user.id,
     plaidData.access_token,
     plaidData.item_id,
     typeof body.institution === "string" ? body.institution : null,
   );
-  if (!saved) {
+  if (saveResult !== "saved") {
     const cleaned = await removeItem(creds, plaidData.access_token);
     if (!cleaned) {
       captureRouteError(new Error("Plaid failed-link cleanup failed"), {
@@ -237,7 +243,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "PLAID_CLEANUP_REQUIRED" }, { status: 503 });
       }
     }
-    return NextResponse.json({ error: "PLAID_LINK_SAVE_FAILED" }, { status: 502 });
+    return saveResult === "single_item_conflict"
+      ? NextResponse.json({ error: "PLAID_SINGLE_ITEM_LIMIT" }, { status: 409 })
+      : NextResponse.json({ error: "PLAID_LINK_SAVE_FAILED" }, { status: 502 });
   }
   return NextResponse.json({ ok: true });
 }

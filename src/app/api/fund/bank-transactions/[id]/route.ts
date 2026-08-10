@@ -4,6 +4,8 @@ import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 import type { Database } from "@/lib/supabase/database.types";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const PATCHABLE = [
   "custom_category",
@@ -63,6 +65,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/bank-transactions/[id]", area: "fund" });
   if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const { id } = await params;
   const parsedBody = await readBoundedJsonBody(request, 8_192);

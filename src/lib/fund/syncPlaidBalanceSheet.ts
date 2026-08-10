@@ -11,10 +11,10 @@ import {
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import { isPlainPlaidRecord, plaidRequest } from "@/lib/plaid/request";
 import { admitPlaidRequest } from "@/lib/plaid/admission";
+import { normalizeUsEquitySymbol } from "@/lib/fund/equitySymbol";
 
 const MAX_HOLDINGS = 512;
 const MAX_LIABILITIES = 256;
-const SYMBOL = /^[A-Z][A-Z0-9.-]{0,14}$/;
 
 type Connection = {
   id: string;
@@ -61,15 +61,31 @@ function stringField(value: unknown, max: number): string | null {
     : null;
 }
 
-function billedProducts(item: Record<string, unknown>): Set<string> | null {
+function productSet(value: unknown): Set<string> | null {
   const products = new Set<string>();
-  const value = item.billed_products;
   if (!Array.isArray(value) || value.length > 64) return null;
   for (const product of value) {
     if (typeof product !== "string" || product.length < 1 || product.length > 64) return null;
     products.add(product);
   }
   return products;
+}
+
+function accountApplicability(data: Record<string, unknown>): { holdings: boolean; liabilities: boolean } | null {
+  if (!Array.isArray(data.accounts) || data.accounts.length > 256) return null;
+  const seen = new Set<string>();
+  let holdings = false;
+  let liabilities = false;
+  for (const candidate of data.accounts) {
+    if (!isPlainPlaidRecord(candidate)) return null;
+    const accountId = stringField(candidate.account_id, 256);
+    const type = stringField(candidate.type, 64);
+    if (!accountId || !type || seen.has(accountId)) return null;
+    seen.add(accountId);
+    if (type === "investment") holdings = true;
+    if (type === "credit" || type === "loan") liabilities = true;
+  }
+  return { holdings, liabilities };
 }
 
 function normalizeHoldingRows(data: Record<string, unknown>) {
@@ -83,9 +99,9 @@ function normalizeHoldingRows(data: Record<string, unknown>) {
   for (const candidate of data.securities) {
     if (!isPlainPlaidRecord(candidate)) return null;
     const securityId = stringField(candidate.security_id, 256);
-    const symbol = stringField(candidate.ticker_symbol, 15)?.toUpperCase() ?? null;
+    const symbol = normalizeUsEquitySymbol(candidate.ticker_symbol);
     const name = stringField(candidate.name, 256);
-    if (!securityId || !symbol || !SYMBOL.test(symbol) || !name || securities.has(securityId)) return null;
+    if (!securityId || !symbol || !name || securities.has(securityId)) return null;
     securities.set(securityId, { symbol, name });
   }
   const rows: Array<Record<string, string>> = [];
@@ -273,8 +289,9 @@ async function markUnavailable(
 /**
  * Refreshes the two provider-authoritative balance-sheet components and
  * publishes each as one atomic generation. It never requests or adds a Plaid
- * product. Publication proceeds only when Item metadata proves the product was
- * already billed; consent alone is not authority for an autonomous billable read.
+ * product. Link consent plus a complete account inventory determines whether
+ * each endpoint is applicable; empty generations are published only when that
+ * inventory proves there are no applicable accounts.
  */
 export async function syncPlaidBalanceSheet(
   admin: SupabaseClient,
@@ -328,14 +345,38 @@ export async function syncPlaidBalanceSheet(
   if (!isPlainPlaidRecord(itemData.item)) {
     return markBoth("payload_incomplete");
   }
-  const products = billedProducts(itemData.item);
-  if (!products) return markBoth("payload_incomplete");
+  const billed = productSet(itemData.item.billed_products);
+  const consented = productSet(itemData.item.consented_products);
+  if (!billed || !consented) return markBoth("payload_incomplete");
+  const productAllowed = (product: "investments" | "liabilities") =>
+    billed.has(product) || consented.has(product);
+
+  let accountsData: Record<string, unknown>;
+  try {
+    accountsData = await plaidRequest(credentials, "/accounts/get", connection.accessToken, {}, {
+      deadline,
+      expectedItemId: connection.itemId,
+      maxResponseBytes: 512_000,
+      signal,
+    });
+  } catch {
+    ensureSyncActive(signal);
+    return markBoth("provider_unavailable");
+  }
+  const applicable = accountApplicability(accountsData);
+  if (!applicable) return markBoth("payload_incomplete");
 
   const refreshHoldings = async (): Promise<ComponentPublication> => {
-    if (!products.has("investments")) {
+    if (!productAllowed("investments")) {
       const marked = await markUnavailable(admin, userId, connection.id, "holdings", null, retrievedAt, "product_not_billed", signal);
       return marked
         ? { status: "unavailable", reason: "product_not_billed" }
+        : { status: "unavailable", reason: "publish_failed" };
+    }
+    if (!applicable.holdings) {
+      const published = await publish(admin, "publish_fund_holding_generation", userId, connection.id, retrievedAt, [], signal);
+      return published
+        ? { status: "published", recordCount: 0 }
         : { status: "unavailable", reason: "publish_failed" };
     }
     const admission = await admitPlaidRequest(userId, 12, 500, "axis:plaid-read:holdings");
@@ -381,10 +422,16 @@ export async function syncPlaidBalanceSheet(
     return { status: "published", recordCount: rows.length };
   };
   const refreshLiabilities = async (): Promise<ComponentPublication> => {
-    if (!products.has("liabilities")) {
+    if (!productAllowed("liabilities")) {
       const marked = await markUnavailable(admin, userId, connection.id, "liabilities", null, retrievedAt, "product_not_billed", signal);
       return marked
         ? { status: "unavailable", reason: "product_not_billed" }
+        : { status: "unavailable", reason: "publish_failed" };
+    }
+    if (!applicable.liabilities) {
+      const published = await publish(admin, "publish_fund_liability_generation", userId, connection.id, retrievedAt, [], signal);
+      return published
+        ? { status: "published", recordCount: 0 }
         : { status: "unavailable", reason: "publish_failed" };
     }
     const admission = await admitPlaidRequest(userId, 12, 500, "axis:plaid-read:liabilities");

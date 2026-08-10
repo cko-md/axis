@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { FundBudget } from "@/components/fund/FundBudget";
 import { FundLiabilities } from "@/components/fund/FundLiabilities";
 import { FundRecurringList } from "@/components/fund/FundRecurringList";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { addMinorUnits, minorUnitsToDecimalString, strictMinorUnits } from "@/lib/fund/financialTruth";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 type BankTxn = {
   amount: unknown;
@@ -49,22 +51,41 @@ function transactionTotals(rows: readonly BankTxn[]): { incomeMinor: number; spe
   return { incomeMinor, spendMinor };
 }
 
-async function loadCompleteTransactions(since: string): Promise<BankTxn[]> {
+async function loadCompleteTransactions(
+  since: string,
+  subject: string,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+): Promise<BankTxn[]> {
   const rows: BankTxn[] = [];
   const pageSize = 500;
+  let lineageHash: string | null = null;
   for (let offset = 0; offset < 20_000; offset += pageSize) {
-    const response = await fetch(
+    const response = await subjectBoundFetch(
+      subject,
       `/api/fund/bank-transactions?from=${since}&limit=${pageSize}&offset=${offset}`,
+      { signal },
     );
+    if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
     if (!response.ok) throw new Error("transactions");
     const body = await response.json() as {
       transactions?: BankTxn[];
       completeness?: string;
+      lineageHash?: unknown;
       page?: { hasMore?: boolean };
     };
-    if (body.completeness !== "complete_source_page" || !Array.isArray(body.transactions)) {
+    if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
+    if (
+      body.completeness !== "complete_source_page"
+      || !Array.isArray(body.transactions)
+      || typeof body.lineageHash !== "string"
+      || !/^[0-9a-f]{64}$/.test(body.lineageHash)
+      || (lineageHash !== null && lineageHash !== body.lineageHash)
+    ) {
       throw new Error("transaction coverage");
     }
+    lineageHash = body.lineageHash;
+    if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
     rows.push(...body.transactions);
     if (!body.page?.hasMore) return rows;
   }
@@ -72,6 +93,14 @@ async function loadCompleteTransactions(since: string): Promise<BankTxn[]> {
 }
 
 export function FundCashflowModule() {
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const requestGenerationRef = useRef(0);
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   const {
     plaidConfigured,
     plaidLinked,
@@ -85,16 +114,34 @@ export function FundCashflowModule() {
   const [incomeMinor, setIncomeMinor] = useState<number | null>(null);
   const [spendMinor, setSpendMinor] = useState<number | null>(null);
   const [cashflowNotice, setCashflowNotice] = useState<string | null>(null);
+  const [cashflowIdentity, setCashflowIdentity] = useState<string | null>(null);
 
   useEffect(() => {
+    const requestGeneration = ++requestGenerationRef.current;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const controller = new AbortController();
+    setIncomeMinor(null);
+    setSpendMinor(null);
+    setCashflowNotice(null);
+    if (!expectedSubject) return () => controller.abort();
+    const isCurrent = () =>
+      !controller.signal.aborted
+      && requestGenerationRef.current === requestGeneration
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
     const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     Promise.allSettled([
-      loadCompleteTransactions(since),
-      fetch("/api/fund/recurring").then((r) => {
+      loadCompleteTransactions(since, expectedSubject, controller.signal, isCurrent),
+      subjectBoundFetch(expectedSubject, "/api/fund/recurring", { signal: controller.signal }).then(async (r) => {
+        if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
         if (!r.ok) throw new Error("recurring");
-        return r.json();
+        const body = await r.json();
+        if (!isCurrent()) throw new DOMException("stale subject", "AbortError");
+        return body;
       }),
     ]).then(([txnResult, recurringResult]) => {
+      if (!isCurrent()) return;
       const failed = [
         txnResult.status === "rejected" ? "transactions" : null,
         recurringResult.status === "rejected" ? "recurring" : null,
@@ -104,18 +151,30 @@ export function FundCashflowModule() {
         ? txnResult.value.filter((transaction) => !transaction.is_transfer)
         : null;
       const totals = txns ? transactionTotals(txns) : null;
+      if (!isCurrent()) return;
       setIncomeMinor(totals?.incomeMinor ?? null);
       setSpendMinor(totals?.spendMinor ?? null);
       if (txnResult.status === "fulfilled" && !totals) failed.push("transaction coverage");
 
       setCashflowNotice(failed.length ? `Partial refresh — ${failed.join(", ")} unavailable.` : null);
-    }).catch(() => setCashflowNotice("Cash flow could not refresh."));
-  }, []);
+      setCashflowIdentity(`${expectedSubject}:${expectedEpoch}`);
+    }).catch(() => {
+      if (isCurrent()) {
+        setCashflowNotice("Cash flow could not refresh.");
+        setCashflowIdentity(`${expectedSubject}:${expectedEpoch}`);
+      }
+    });
+    return () => controller.abort();
+  }, [authorityEpoch, currentSubject]);
 
   // This view combines manual recurring/minimum-payment entries with live
   // cash, so it is not an authoritative investment-capacity calculation.
-  const runwayMonths = cashMinor !== null && spendMinor !== null && spendMinor > 0
-    ? cashMinor / spendMinor
+  const ownsCashflow = cashflowIdentity === currentIdentity;
+  const visibleIncomeMinor = ownsCashflow ? incomeMinor : null;
+  const visibleSpendMinor = ownsCashflow ? spendMinor : null;
+  const visibleCashflowNotice = ownsCashflow ? cashflowNotice : null;
+  const runwayMonths = cashMinor !== null && visibleSpendMinor !== null && visibleSpendMinor > 0
+    ? cashMinor / visibleSpendMinor
     : null;
 
   return (
@@ -160,11 +219,11 @@ export function FundCashflowModule() {
       <div className="ftop">
         <Card tick>
           <div className="seclabel">Income · 30d</div>
-          <div className="bigmetric">{formatUsdMinor(incomeMinor)}</div>
+          <div className="bigmetric">{formatUsdMinor(visibleIncomeMinor)}</div>
         </Card>
         <Card>
           <div className="seclabel">Spend · 30d</div>
-          <div className="bigmetric">{formatUsdMinor(spendMinor)}</div>
+          <div className="bigmetric">{formatUsdMinor(visibleSpendMinor)}</div>
         </Card>
         <Card>
           <div className="seclabel">Safe to invest</div>
@@ -183,8 +242,8 @@ export function FundCashflowModule() {
           Bank balances could not refresh — showing saved cash flow data.
         </p>
       )}
-      {cashflowNotice && (
-        <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--clay)" }}>{cashflowNotice}</p>
+      {visibleCashflowNotice && (
+        <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--clay)" }}>{visibleCashflowNotice}</p>
       )}
 
       <div className="divider" />

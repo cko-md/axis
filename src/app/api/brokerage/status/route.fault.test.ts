@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -43,7 +44,7 @@ describe("brokerage connection authority status", () => {
       authority: "legacy_unknown",
     }]));
 
-    expect(await (await GET()).json()).toMatchObject({
+    expect(await (await GET(new NextRequest("http://axis.test/api/brokerage/status"))).json()).toMatchObject({
       linked: false,
       reconnectRequired: true,
       connectionCount: 0,

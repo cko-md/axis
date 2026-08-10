@@ -59,7 +59,8 @@ type QueryResult = { data: unknown; error: unknown };
 
 function query(result: QueryResult) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "limit"]) chain[method] = vi.fn(() => chain);
+  for (const method of ["select", "eq", "limit", "order", "gt", "lt"]) chain[method] = vi.fn(() => chain);
+  chain.maybeSingle = vi.fn(async () => result);
   chain.then = (
     resolve: (value: QueryResult) => unknown,
     reject: (reason: unknown) => unknown,
@@ -75,6 +76,12 @@ function adminClient(options: {
 } = {}) {
   let connectionReads = 0;
   const from = vi.fn((table: string) => {
+    if (table === "finance_cron_cursors") {
+      return {
+        ...query({ data: null, error: null }),
+        upsert: vi.fn(async () => ({ error: null })),
+      };
+    }
     if (table === "fund_connections") {
       const result = connectionReads++ === 0
         ? options.connections ?? {

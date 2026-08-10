@@ -197,6 +197,8 @@ describe("finance daily job financial-truth faults", () => {
       chg: 0,
       source: "massive",
       asOf: NOW,
+      observedAt: NOW,
+      marketSession: "open",
     });
     mocks.plaidRequest.mockResolvedValue({
       request_id: "request",

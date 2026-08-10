@@ -16,6 +16,13 @@ vi.mock("@/lib/fund/usePlaidConnection", () => ({
 vi.mock("@/components/fund/FundDataProvider", () => ({
   useFundData: mocks.fundData,
 }));
+vi.mock("@/components/layout/ShellProfileContext", () => ({
+  useShellProfile: () => ({
+    state: "ready",
+    profile: { subject: `ps1_${"a".repeat(64)}` },
+    authorityEpoch: 1,
+  }),
+}));
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     auth: { getUser: vi.fn(async () => ({ data: { user: null } })) },
@@ -25,7 +32,9 @@ vi.mock("@/components/ui/Card", () => ({
   Card: ({ children }: { children: ReactNode }) => <section data-card>{children}</section>,
 }));
 vi.mock("@/components/fund/NetWorthChart", () => ({
-  NetWorthChart: () => <div data-net-worth-chart />,
+  NetWorthChart: ({ showHeadline }: { showHeadline?: boolean }) => (
+    <div data-net-worth-chart>{showHeadline ? <>—<span>Net worth unavailable</span></> : null}</div>
+  ),
 }));
 vi.mock("@/components/fund/FundSparkline", () => ({
   FundSparkline: () => <div data-sparkline />,
@@ -62,6 +71,10 @@ function defaultFundData() {
     plaidLiabilities: [],
     aggregated: [],
     signedIn: true,
+    holdingsLoading: false,
+    holdingsError: false,
+    holdingsProviderUnavailable: false,
+    holdingsProviderUnavailableReason: null,
   };
 }
 
@@ -112,12 +125,26 @@ describe("signed-in financial truth UI", () => {
     const text = view.textContent ?? "";
 
     expect(text).toContain("Net Worth—");
-    expect(text).toContain("Live net worth requires complete provider coverage");
+    expect(text).toContain("Net worth unavailable");
     expect(text).toContain("Invested cost basis");
     expect(text).toContain("Cash—");
     expect(text).toContain("Cash unavailable: PLAID_BALANCES_FAILED");
     expect(text).toContain("Cost basis · live movers unavailable");
     expect(text).not.toContain("Top Movers");
+  });
+
+  it("visibly distinguishes excluded provider holdings from a true empty portfolio", () => {
+    mocks.fundData.mockReturnValue({
+      ...defaultFundData(),
+      holdingsProviderUnavailable: true,
+      holdingsProviderUnavailableReason: "HOLDING_COVERAGE_UNAVAILABLE",
+    });
+
+    const overview = parsedStatic(<OverviewModule />);
+    const netWorth = parsedStatic(<FundNetWorthModule />);
+
+    expect(overview.textContent).toContain("Provider holdings excluded: HOLDING_COVERAGE_UNAVAILABLE");
+    expect(netWorth.textContent).toContain("Provider holdings excluded: HOLDING_COVERAGE_UNAVAILABLE");
   });
 
   it("renders a missing provider liability as unavailable instead of numeric zero", () => {

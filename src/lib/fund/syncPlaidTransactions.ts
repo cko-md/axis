@@ -11,8 +11,9 @@ import { TRANSACTION_HISTORY_DAYS } from "@/lib/fund/transactionCoverage";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 
 const PAGE_SIZE = 500;
-const MAX_PAGES = 10;
+const MAX_PAGES = 20;
 const MAX_RECORDS = PAGE_SIZE * MAX_PAGES;
+const MAX_MUTATION_RESTARTS = 3;
 const MAX_PAGE_RESPONSE_BYTES = 4 * 1024 * 1024;
 const SYNC_DEADLINE_MS = 25_000;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -51,22 +52,6 @@ type PublishedTransaction = {
 
 function syncError(code: string): { error: string } {
   return { error: code };
-}
-
-function transactionGenerationFingerprint(
-  transactions: readonly PlaidTxn[],
-  windowStart: string,
-  windowEnd: string,
-): string | { error: string } {
-  const canonical: Array<Omit<PublishedTransaction, "generation_id" | "retrieved_at">> = [];
-  for (const transaction of transactions) {
-    const normalized = normalizeTransaction(transaction, "generation", "retrieved", windowStart, windowEnd);
-    if ("error" in normalized) return normalized;
-    const { generation_id: _generationId, retrieved_at: _retrievedAt, ...facts } = normalized;
-    canonical.push(facts);
-  }
-  canonical.sort((left, right) => left.plaid_transaction_id.localeCompare(right.plaid_transaction_id));
-  return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 function normalizeTransaction(
@@ -159,20 +144,20 @@ export async function syncPlaidTransactions(
   const windowEnd = end.toISOString().slice(0, 10);
   const generationId = crypto.randomUUID();
   async function fetchCompleteGeneration(): Promise<PlaidTxn[] | { error: string }> {
-    const transactions: PlaidTxn[] = [];
-    const seen = new Set<string>();
-    let expectedTotal: number | null = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let attempt = 0; attempt < MAX_MUTATION_RESTARTS; attempt++) {
+      const transactions = new Map<string, PlaidTxn>();
+      let cursor: string | null = null;
+      let changeCount = 0;
+      for (let page = 0; page < MAX_PAGES; page++) {
       if (cancellationSignal?.aborted || Date.now() >= deadline) {
         return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
       }
-      const offset = page * PAGE_SIZE;
       const remainingMs = Math.max(1, Math.min(10_000, deadline - Date.now()));
       const requestSignal = cancellationSignal
         ? AbortSignal.any([cancellationSignal, AbortSignal.timeout(remainingMs)])
         : AbortSignal.timeout(remainingMs);
       const response = await timedProviderFetch(
-        `${plaidHost(plaidCredentials.env)}/transactions/get`,
+        `${plaidHost(plaidCredentials.env)}/transactions/sync`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -181,9 +166,9 @@ export async function syncPlaidTransactions(
             client_id: plaidCredentials.clientId,
             secret: plaidCredentials.secret,
             access_token: accessToken,
-            start_date: windowStart,
-            end_date: windowEnd,
-            options: { count: PAGE_SIZE, offset },
+            count: PAGE_SIZE,
+            ...(cursor ? { cursor } : {}),
+            options: { include_personal_finance_category: true },
           }),
         },
         {
@@ -196,57 +181,63 @@ export async function syncPlaidTransactions(
         },
       ).catch(() => null);
       if (cancellationSignal?.aborted) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
-      if (!response?.ok) return syncError("PLAID_TXN_FETCH_FAILED");
+      if (!response?.ok) {
+        const errorBody = response ? await readBoundedPlaidJson(response, MAX_PAGE_RESPONSE_BYTES) : null;
+        if (errorBody?.error_code === "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION") break;
+        return syncError("PLAID_TXN_FETCH_FAILED");
+      }
 
       const body = await readBoundedPlaidJson(response, MAX_PAGE_RESPONSE_BYTES);
       if (cancellationSignal?.aborted) return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
       if (
         !body
-        || !Array.isArray(body.transactions)
-        || !Number.isSafeInteger(body.total_transactions)
-        || (body.total_transactions as number) < 0
-        || (body.total_transactions as number) > MAX_RECORDS
-        || body.transactions.length > PAGE_SIZE
+        || !Array.isArray(body.added)
+        || !Array.isArray(body.modified)
+        || !Array.isArray(body.removed)
+        || typeof body.has_more !== "boolean"
+        || typeof body.next_cursor !== "string"
+        || body.next_cursor.length < 1
+        || body.next_cursor.length > 1_024
+        || body.added.length + body.modified.length + body.removed.length > PAGE_SIZE
       ) return syncError("PLAID_INVALID_RESPONSE");
-      const total = body.total_transactions as number;
-      if (expectedTotal === null) expectedTotal = total;
-      if (expectedTotal !== total) return syncError("PLAID_TXN_GENERATION_CHANGED");
-
-      for (const candidate of body.transactions) {
-        if (!candidate || typeof candidate !== "object") return syncError("PLAID_INVALID_RESPONSE");
+      const apply = (candidate: unknown) => {
+        if (!candidate || typeof candidate !== "object") return false;
         const transactionId = (candidate as PlaidTxn).transaction_id;
-        if (typeof transactionId !== "string" || !transactionId.trim() || seen.has(transactionId)) {
-          return syncError("PLAID_INVALID_RESPONSE");
-        }
-        seen.add(transactionId);
-        transactions.push(candidate as PlaidTxn);
-        if (transactions.length > MAX_RECORDS) return syncError("PLAID_TXN_RECORD_LIMIT_EXCEEDED");
+        if (typeof transactionId !== "string" || !transactionId.trim()) return false;
+        transactions.set(transactionId, candidate as PlaidTxn);
+        return true;
+      };
+      for (const candidate of [...body.added, ...body.modified]) {
+        if (!apply(candidate)) return syncError("PLAID_INVALID_RESPONSE");
       }
-
-      if (offset + PAGE_SIZE >= total) break;
-      if (body.transactions.length === 0 || page === MAX_PAGES - 1) {
-        return syncError("PLAID_TXN_INCOMPLETE");
+      for (const candidate of body.removed) {
+        if (!candidate || typeof candidate !== "object") return syncError("PLAID_INVALID_RESPONSE");
+        const transactionId = (candidate as { transaction_id?: unknown }).transaction_id;
+        if (typeof transactionId !== "string" || !transactionId.trim()) return syncError("PLAID_INVALID_RESPONSE");
+        transactions.delete(transactionId);
       }
+      changeCount += body.added.length + body.modified.length + body.removed.length;
+      if (changeCount > MAX_RECORDS || transactions.size > MAX_RECORDS) {
+        return syncError("PLAID_TXN_RECORD_LIMIT_EXCEEDED");
+      }
+      cursor = body.next_cursor;
+      if (!body.has_more) {
+        return [...transactions.values()].filter((transaction) =>
+          typeof transaction.date === "string"
+          && transaction.date >= windowStart
+          && transaction.date <= windowEnd,
+        );
+      }
+      if (page === MAX_PAGES - 1) return syncError("PLAID_TXN_INCOMPLETE");
+      }
+      // Plaid requires restarting from the original cursor when a mutation
+      // occurs during pagination. Starting without a cursor reconstructs the
+      // full current Item generation; no mixed pages are ever published.
     }
-    return expectedTotal !== null && transactions.length === expectedTotal
-      ? transactions
-      : syncError("PLAID_TXN_INCOMPLETE");
+    return syncError("PLAID_TXN_GENERATION_CHANGED");
   }
-
-  // Offset pagination has no provider generation token. Read the complete,
-  // bounded window twice and publish only when the normalized fact set is
-  // identical. A delete/insert mutation with an unchanged count is therefore
-  // rejected instead of combining two provider generations.
-  const first = await fetchCompleteGeneration();
-  if ("error" in first) return first;
-  const firstFingerprint = transactionGenerationFingerprint(first, windowStart, windowEnd);
-  if (typeof firstFingerprint !== "string") return firstFingerprint;
-  const second = await fetchCompleteGeneration();
-  if ("error" in second) return second;
-  const secondFingerprint = transactionGenerationFingerprint(second, windowStart, windowEnd);
-  if (typeof secondFingerprint !== "string") return secondFingerprint;
-  if (firstFingerprint !== secondFingerprint) return syncError("PLAID_TXN_GENERATION_CHANGED");
-  const rawTransactions = second;
+  const rawTransactions = await fetchCompleteGeneration();
+  if ("error" in rawTransactions) return rawTransactions;
   if (cancellationSignal?.aborted || Date.now() >= deadline) {
     return syncError("PLAID_TXN_DEADLINE_EXCEEDED");
   }

@@ -15,6 +15,7 @@ import {
   strictExactMinorUnits,
 } from "@/lib/fund/financialTruth";
 import { toMajorUnitsIn } from "@/lib/fund/currency";
+import { normalizeUsEquitySymbol } from "@/lib/fund/equitySymbol";
 
 export const PUBLIC_ORDER_QUANTITY_SCALE = 1_000_000;
 
@@ -83,7 +84,7 @@ function normalizeSide(value: unknown): OrderSide | null {
 export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPublicOrder> {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const symbol = typeof input.symbol === "string" ? input.symbol.trim().toUpperCase() : "";
+  const symbol = normalizeUsEquitySymbol(input.symbol) ?? "";
   const side = normalizeSide(input.side);
   const quantityUnits = strictExactScaledUnits(input.quantity, PUBLIC_ORDER_QUANTITY_SCALE);
   const quantity = quantityUnits === null ? null : quantityUnits / PUBLIC_ORDER_QUANTITY_SCALE;
@@ -108,8 +109,7 @@ export function preparePublicOrder(input: PublicOrderInput): Result<PreparedPubl
   const limitPriceRoundTrip = limitPrice === null ? null : strictExactMinorUnits(limitPrice, currency);
   const referencePriceRoundTrip = referencePrice === null ? null : strictExactMinorUnits(referencePrice, currency);
 
-  if (!symbol) errors.push("symbol is required");
-  if (symbol.length > 12) errors.push("symbol must be 12 characters or fewer");
+  if (!symbol) errors.push("symbol must be a canonical US equity ticker");
   if (!side) errors.push("side must be buy or sell");
   if (quantity === null || quantityUnits === null || quantityUnits <= 0) {
     errors.push("quantity must be > 0 with at most 6 decimal places");

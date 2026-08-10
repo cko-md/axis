@@ -17,6 +17,12 @@ import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
 import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
+import {
+  validateAuthoritativeHoldings,
+  validateCurrentConnectionBindings,
+  validateHoldingCoverage,
+} from "@/lib/fund/positionTruth";
+import { normalizeUsEquitySymbol } from "@/lib/fund/equitySymbol";
 
 type HoldingRow = {
   id: string;
@@ -29,6 +35,10 @@ type HoldingRow = {
   reconciliation_state: ReconciliationState | null;
   retrieved_at: string | null;
   authority: "provider" | "manual" | "legacy_unknown";
+  provider: string | null;
+  provider_record_id: string | null;
+  connection_id: string | null;
+  generation_id: string | null;
 };
 
 /** Oldest of two nullable ISO timestamps (the conservative freshness anchor). */
@@ -62,13 +72,49 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("fund_holdings")
-    .select("id, symbol, name, shares, cost_basis, source, authority, sort_order, currency, reconciliation_state, retrieved_at")
+    .select("id, symbol, name, shares, cost_basis, source, authority, sort_order, currency, reconciliation_state, retrieved_at, provider, provider_record_id, connection_id, generation_id")
     .eq("user_id", user.id)
     .order("sort_order");
 
   if (error) return redactRouteError(error, { route: "fund/holdings", area: "fund" });
   const allRows = (data ?? []) as HoldingRow[];
-  const rows = allRows.filter((row) => row.authority === "provider" || row.authority === "manual");
+  const [connectionsResult, coverageResult] = await Promise.all([
+    supabase
+      .from("fund_connections")
+      .select("id, provider, status, authority, verified_at")
+      .eq("user_id", user.id)
+      .limit(33),
+    supabase
+      .from("fund_provider_coverage")
+      .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
+      .eq("user_id", user.id)
+      .eq("component", "holdings")
+      .limit(34),
+  ]);
+  if (connectionsResult.error) return redactRouteError(connectionsResult.error, { route: "fund/holdings", area: "fund" });
+  if (coverageResult.error) return redactRouteError(coverageResult.error, { route: "fund/holdings", area: "fund" });
+  if ((connectionsResult.data ?? []).length > 32 || (coverageResult.data ?? []).length > 33) {
+    return NextResponse.json(
+      { error: "HOLDING_COVERAGE_UNAVAILABLE", reason: "COVERAGE_VERIFICATION_LIMIT_EXCEEDED" },
+      { status: 409 },
+    );
+  }
+  const providerRows = allRows.filter((row) => row.authority === "provider");
+  const connections = connectionsResult.data ?? [];
+  const applicableConnections = connections.filter((connection) =>
+    (connection.provider === "plaid" || connection.provider === "public")
+    && connection.status === "linked"
+    && connection.authority === "provider_verified",
+  );
+  const providerCoverageReason = providerRows.length === 0 && applicableConnections.length === 0
+    ? null
+    : validateAuthoritativeHoldings(providerRows)
+      ?? validateCurrentConnectionBindings(providerRows, connections)
+      ?? validateHoldingCoverage(providerRows, connections, coverageResult.data ?? []);
+  const providerRowsAvailable = providerCoverageReason === null;
+  const rows = allRows.filter((row) =>
+    row.authority === "manual" || (row.authority === "provider" && providerRowsAvailable),
+  );
 
   // Reconcile per symbol across sources (pure, deterministic, minor-unit).
   const reconciliation = reconcileHoldings(rows);
@@ -139,7 +185,10 @@ export async function GET(request: NextRequest) {
     {
       rows,
       aggregated: [...bySymbol.values()],
-      legacyUnavailableCount: allRows.length - rows.length,
+      legacyUnavailableCount: allRows.filter((row) => row.authority === "legacy_unknown").length,
+      withheldProviderCount: providerRowsAvailable ? 0 : providerRows.length,
+      providerUnavailable: !providerRowsAvailable,
+      providerUnavailableReason: providerCoverageReason,
     },
     { headers: { "cache-control": "private, no-store" } },
   );
@@ -155,7 +204,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
   }
   const body = parsedBody.value;
-  const symbol = String(body.symbol ?? "").trim().toUpperCase();
+  const symbol = normalizeUsEquitySymbol(body.symbol);
   const currency = normalizeFinancialCurrency(body.currency, "");
   const sharesMicro = strictScaledUnits(body.shares, 1_000_000);
   const costBasisMinor = currency ? strictExactMinorUnits(body.cost_basis, currency) : null;
@@ -166,7 +215,6 @@ export async function POST(request: NextRequest) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (
     !symbol
-    || !/^[A-Z][A-Z0-9.-]{0,14}$/.test(symbol)
     || !name
     || name.length > 256
     || !currency

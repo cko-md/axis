@@ -12,6 +12,7 @@ import {
   strictExactMinorUnits,
   strictScaledUnits,
 } from "@/lib/fund/financialTruth";
+import { validateLiabilityCoverage } from "@/lib/fund/liabilityTruth";
 
 const KINDS = ["credit_card", "mortgage", "auto_loan", "student_loan", "personal_loan", "other"];
 const MAX_MONEY = 1_000_000_000_000;
@@ -58,25 +59,49 @@ export async function GET(request: NextRequest) {
   const [
     { data, error },
     { data: coverage, error: coverageError },
+    { data: connections, error: connectionsError },
   ] = await Promise.all([
     supabase
       .from("fund_liabilities")
-      .select("id, name, kind, balance, apr, minimum_payment, due_date, currency, source, authority, retrieved_at")
+      .select("id, name, kind, balance, apr, minimum_payment, due_date, currency, source, authority, retrieved_at, provider, provider_record_id, connection_id, generation_id, reconciliation_state")
       .eq("user_id", user.id)
       .in("authority", ["manual", "provider"])
       .order("balance", { ascending: false }),
     supabase
       .from("fund_provider_coverage")
-      .select("complete, retrieved_at, last_attempt_at, availability_status, availability_reason")
+      .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
       .eq("user_id", user.id)
       .eq("provider", "plaid")
-      .eq("component", "liabilities"),
+      .eq("component", "liabilities")
+      .limit(33),
+    supabase
+      .from("fund_connections")
+      .select("id, provider, status, authority, verified_at")
+      .eq("user_id", user.id)
+      .eq("provider", "plaid")
+      .limit(33),
   ]);
 
   if (error) return redactRouteError(error, { route: "fund/liabilities", area: "fund" });
   if (coverageError) return redactRouteError(coverageError, { route: "fund/liabilities", area: "fund" });
+  if (connectionsError) return redactRouteError(connectionsError, { route: "fund/liabilities", area: "fund" });
+  if ((coverage ?? []).length > 32 || (connections ?? []).length > 32) {
+    return NextResponse.json({ error: "LIABILITY_COVERAGE_UNAVAILABLE", reason: "COVERAGE_VERIFICATION_LIMIT_EXCEEDED" }, { status: 409 });
+  }
+  const allRows = data ?? [];
+  const providerRows = allRows.filter((row) => row.authority === "provider");
+  const providerUnavailableReason = validateLiabilityCoverage(providerRows, connections ?? [], coverage ?? []);
+  const liabilities = allRows.filter((row) =>
+    row.authority === "manual" || (row.authority === "provider" && providerUnavailableReason === null),
+  );
   return NextResponse.json(
-    { liabilities: data ?? [], providerAvailability: coverage ?? [] },
+    {
+      liabilities,
+      providerAvailability: coverage ?? [],
+      providerUnavailable: providerUnavailableReason !== null,
+      providerUnavailableReason,
+      withheldProviderCount: providerUnavailableReason === null ? 0 : providerRows.length,
+    },
     { headers: { "cache-control": "private, no-store" } },
   );
 }

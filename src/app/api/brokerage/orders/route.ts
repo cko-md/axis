@@ -18,6 +18,8 @@ import {
 } from "@/lib/brokerage/orderIntent";
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 function normalizeAction(value: unknown): PublicOrderAction | null {
   return value === "prepare" || value === "verify" || value === "submit" ? value : null;
@@ -44,24 +46,29 @@ function errorStatus(code: string): number {
   return 502;
 }
 
-async function authenticatedContext() {
+async function authenticatedContext(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, {
     route: "/api/brokerage/orders",
     area: "fund",
   });
-  return identity.ok
-    ? { ok: true as const, user: identity.user, supabase: identity.client }
-    : {
-        ok: false as const,
-        status: identity.status,
-        code: identity.status === 401 ? "Unauthorized" : identity.code,
-      };
+  if (identity.ok) {
+    const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+    if (expectedSubject && expectedSubject !== profileSubjectForUserId(identity.user.id)) {
+      return { ok: false as const, status: 409, code: "SUBJECT_CHANGED" };
+    }
+    return { ok: true as const, user: identity.user, supabase: identity.client };
+  }
+  return {
+    ok: false as const,
+    status: identity.status,
+    code: identity.status === 401 ? "Unauthorized" : identity.code,
+  };
 }
 
 const INTENT_SELECT = "id, provider, action_class, symbol, side, order_type, quantity_units, quantity_scale, limit_price_minor, reference_price_minor, reference_price_source, estimated_notional_minor, currency, status, created_at";
 
-export async function GET() {
-  const auth = await authenticatedContext();
+export async function GET(request: NextRequest) {
+  const auth = await authenticatedContext(request);
   if (!auth.ok) return NextResponse.json({ error: auth.code }, { status: auth.status });
 
   const { data, error } = await auth.supabase
@@ -93,7 +100,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
-  const auth = await authenticatedContext();
+  const auth = await authenticatedContext(request);
   if (!auth.ok) return NextResponse.json({ error: auth.code }, { status: auth.status });
 
   const parsedBody = await readBoundedJsonBody(request, 8_192);

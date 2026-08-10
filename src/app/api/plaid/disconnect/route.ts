@@ -13,6 +13,8 @@ import {
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { timedProviderFetch } from "@/lib/observability/providerTiming";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 1_024;
@@ -26,6 +28,10 @@ export async function POST(request: NextRequest) {
     { status: identity.status },
   );
   const { user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const admission = await admitPlaidMutation(user.id, RATE_LIMIT, "axis:plaid-disconnect");
   if (admission === "unavailable") {

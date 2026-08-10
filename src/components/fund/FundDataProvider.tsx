@@ -68,6 +68,9 @@ type FundData = {
   aggregated: AggregatedHolding[];
   holdingsLoading: boolean;
   holdingsError: boolean;
+  /** Provider holdings excluded because their complete generation cannot be proven. */
+  holdingsProviderUnavailable: boolean;
+  holdingsProviderUnavailableReason: string | null;
   /** false only when the holdings fetch returned 401 — used to gate signed-out UI. */
   signedIn: boolean;
   refreshHoldings: () => Promise<void>;
@@ -103,6 +106,8 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
   const [aggregated, setAggregated] = useState<AggregatedHolding[]>([]);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
   const [holdingsError, setHoldingsError] = useState(false);
+  const [holdingsProviderUnavailable, setHoldingsProviderUnavailable] = useState(false);
+  const [holdingsProviderUnavailableReason, setHoldingsProviderUnavailableReason] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(true);
   const [holdingsSubject, setHoldingsSubject] = useState<string | null>(null);
 
@@ -123,6 +128,8 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
     if (!expectedSubject) {
       setRows([]);
       setAggregated([]);
+      setHoldingsProviderUnavailable(false);
+      setHoldingsProviderUnavailableReason(null);
       setHoldingsSubject(null);
       setSignedIn(accountState !== "signed-out");
       setHoldingsLoading(false);
@@ -139,7 +146,12 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
       });
       if (!isCurrent()) return;
       setSignedIn(res.status !== 401);
-      const data = (await res.json().catch(() => ({}))) as { rows?: Holding[]; aggregated?: AggregatedHolding[] };
+      const data = (await res.json().catch(() => ({}))) as {
+        rows?: Holding[];
+        aggregated?: AggregatedHolding[];
+        providerUnavailable?: unknown;
+        providerUnavailableReason?: unknown;
+      };
       if (!isCurrent()) return;
       if (!res.ok) {
         if (res.status === 401 || res.status === 409) {
@@ -148,12 +160,20 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
           setRows([]);
           setAggregated([]);
           setHoldingsSubject(null);
+          setHoldingsProviderUnavailable(false);
+          setHoldingsProviderUnavailableReason(null);
         }
         setHoldingsError(res.status !== 401);
         return;
       }
       setRows(data.rows ?? []);
       setAggregated(data.aggregated ?? []);
+      setHoldingsProviderUnavailable(data.providerUnavailable === true);
+      setHoldingsProviderUnavailableReason(
+        data.providerUnavailable === true && typeof data.providerUnavailableReason === "string"
+          ? data.providerUnavailableReason
+          : null,
+      );
       setHoldingsSubject(expectedSubject);
       setHoldingsError(false);
     } catch {
@@ -190,6 +210,7 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
       const data = (await res.json().catch(() => ({}))) as {
         liabilities?: Liability[];
         providerAvailability?: Array<{ availability_status?: string; availability_reason?: string | null }>;
+        providerUnavailable?: unknown;
       };
       if (!isCurrent()) return;
       if (!res.ok) {
@@ -221,7 +242,8 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
         all.some((liability) => liability.authority === "provider") || providerAttempts.length > 0,
       );
       setPlaidLiabilitiesState(
-        providerAttempts.some((attempt) => attempt.availability_status !== "available")
+        data.providerUnavailable === true
+          || providerAttempts.some((attempt) => attempt.availability_status !== "available")
           ? "unavailable"
           : "ready",
       );
@@ -256,6 +278,12 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
 
   const visibleRows = holdingsSubject === currentSubject ? rows : [];
   const visibleAggregated = holdingsSubject === currentSubject ? aggregated : [];
+  const visibleHoldingsProviderUnavailable = holdingsSubject === currentSubject
+    ? holdingsProviderUnavailable
+    : false;
+  const visibleHoldingsProviderUnavailableReason = holdingsSubject === currentSubject
+    ? holdingsProviderUnavailableReason
+    : null;
   const visibleLiabilities = liabilitiesSubject === currentSubject ? liabilities : [];
   const visiblePlaidLiabilities = liabilitiesSubject === currentSubject ? plaidLiabilities : [];
 
@@ -266,6 +294,8 @@ export function FundDataProvider({ children }: { children: ReactNode }) {
         aggregated: visibleAggregated,
         holdingsLoading,
         holdingsError,
+        holdingsProviderUnavailable: visibleHoldingsProviderUnavailable,
+        holdingsProviderUnavailableReason: visibleHoldingsProviderUnavailableReason,
         signedIn,
         refreshHoldings,
         liabilities: visibleLiabilities,

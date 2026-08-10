@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -45,7 +46,7 @@ describe("Plaid connection authority status", () => {
       authority: "legacy_unknown",
     }]));
 
-    const response = await GET();
+    const response = await GET(new NextRequest("http://axis.test/api/plaid/status"));
 
     expect(await response.json()).toMatchObject({
       linked: false,
@@ -64,7 +65,7 @@ describe("Plaid connection authority status", () => {
       authority: "provider_verified",
     }]));
 
-    expect(await (await GET()).json()).toMatchObject({
+    expect(await (await GET(new NextRequest("http://axis.test/api/plaid/status"))).json()).toMatchObject({
       linked: true,
       reconnectRequired: false,
       connectionCount: 1,
@@ -74,7 +75,7 @@ describe("Plaid connection authority status", () => {
   it("returns unavailable rather than a false disconnected state on database failure", async () => {
     mocks.createClient.mockResolvedValue(client([], new Error("database unavailable")));
 
-    const response = await GET();
+    const response = await GET(new NextRequest("http://axis.test/api/plaid/status"));
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({

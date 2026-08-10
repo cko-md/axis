@@ -94,6 +94,13 @@ export interface QuoteResult {
   source: "massive";
   /** Provider event time. Quotes without one are rejected as unavailable. */
   asOf: string;
+  /** Provider market-status observation time, distinct from the price event. */
+  observedAt: string;
+  /** Provider snapshot update time when the snapshot endpoint supplied one. */
+  snapshotUpdatedAt?: string;
+  marketSession: "open" | "closed" | "continuous";
+  /** True only when /prev supplied the latest completed US session bar. */
+  latestCompletedSession?: true;
   ts?: number;
 }
 
@@ -114,8 +121,20 @@ export async function fetchPrevQuote(sym: string, signal?: AbortSignal): Promise
     vol: bar.v,
     source: "massive",
     asOf,
+    observedAt: asOf,
+    marketSession: "continuous",
     ts: bar.t,
   };
+}
+
+async function fetchUsMarketStatus(signal?: AbortSignal): Promise<{ session: "open" | "closed"; observedAt: string }> {
+  const status = await massiveRequest<{ market?: unknown; serverTime?: unknown }>("/v1/marketstatus/now", {}, signal);
+  const session = status.market === "open" ? "open" : status.market === "closed" ? "closed" : null;
+  const observedAt = typeof status.serverTime === "string" ? new Date(status.serverTime) : null;
+  if (!session || !observedAt || !Number.isFinite(observedAt.getTime()) || observedAt.getTime() > Date.now() + 60_000) {
+    throw new Error("MARKET_SESSION_UNAVAILABLE");
+  }
+  return { session, observedAt: observedAt.toISOString() };
 }
 
 export async function fetchSnapshot(sym: string, signal?: AbortSignal): Promise<QuoteResult> {
@@ -123,6 +142,7 @@ export async function fetchSnapshot(sym: string, signal?: AbortSignal): Promise<
   if (mapSymbol(sym).startsWith("X:")) {
     return fetchPrevQuote(sym, signal);
   }
+  const marketStatus = await fetchUsMarketStatus(signal);
   const j = await massiveRequest<{
     ticker?: {
       day?: { c: number; o: number };
@@ -136,11 +156,49 @@ export async function fetchSnapshot(sym: string, signal?: AbortSignal): Promise<
   );
   const t = j.ticker;
   if (!t?.day) throw new Error(`No snapshot for ${sym}`);
-  const p = t.lastTrade?.p ?? t.day.c;
-  const chg = t.day.o ? ((p - t.day.o) / t.day.o) * 100 : 0;
-  const providerTime = providerTimestamp(t.lastTrade?.t ?? t.updated);
-  if (!providerTime) throw new Error("QUOTE_TIMESTAMP_UNAVAILABLE");
-  return { price: p, chg, source: "massive", asOf: providerTime };
+  const snapshotUpdatedAt = providerTimestamp(t.updated);
+  if (!snapshotUpdatedAt) throw new Error("QUOTE_SNAPSHOT_TIMESTAMP_UNAVAILABLE");
+  const openPriceEventAt = marketStatus.session === "open"
+    ? providerTimestamp(t.lastTrade?.t)
+    : null;
+  const openPrice = marketStatus.session === "open"
+    && typeof t.lastTrade?.p === "number"
+    && Number.isFinite(t.lastTrade.p)
+    ? t.lastTrade.p
+    : null;
+  if (
+    marketStatus.session === "open"
+    && (!openPriceEventAt || openPrice === null)
+  ) throw new Error("QUOTE_TIMESTAMP_UNAVAILABLE");
+  const confirmedStatus = await fetchUsMarketStatus(signal);
+  if (confirmedStatus.session !== marketStatus.session) {
+    throw new Error("MARKET_SESSION_CHANGED");
+  }
+  if (confirmedStatus.session === "open") {
+    const priceEventAt = openPriceEventAt as string;
+    const chg = t.day.o ? (((openPrice as number) - t.day.o) / t.day.o) * 100 : 0;
+    return {
+      price: openPrice as number,
+      chg,
+      source: "massive",
+      asOf: priceEventAt,
+      observedAt: confirmedStatus.observedAt,
+      snapshotUpdatedAt,
+      marketSession: "open",
+    };
+  }
+
+  // Outside the live session, /prev is the provider-backed proof of the
+  // latest completed US trading session. Never relabel a stale last trade as
+  // current merely because the snapshot itself was observed later.
+  const previous = await fetchPrevQuote(sym, signal);
+  return {
+    ...previous,
+    observedAt: confirmedStatus.observedAt,
+    snapshotUpdatedAt,
+    marketSession: "closed",
+    latestCompletedSession: true,
+  };
 }
 
 export interface AggBar {

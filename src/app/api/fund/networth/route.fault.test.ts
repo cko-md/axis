@@ -79,7 +79,7 @@ describe("net-worth authority boundary", () => {
     const supabase = client([legacy, provider]);
     mocks.createClient.mockResolvedValue(supabase);
 
-    const response = await GET();
+    const response = await GET(new NextRequest("http://axis.test/api/fund/networth"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ snapshots: [provider] });
@@ -107,7 +107,7 @@ describe("net-worth authority boundary", () => {
   it("returns an error instead of fabricated empty or zero snapshots on database failure", async () => {
     mocks.createClient.mockResolvedValue(client([], new Error("database unavailable")));
 
-    const response = await GET();
+    const response = await GET(new NextRequest("http://axis.test/api/fund/networth"));
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "SNAPSHOTS_UNAVAILABLE" });

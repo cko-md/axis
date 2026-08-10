@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
 import { captureRouteError } from "@/lib/observability/captureRouteError";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 /**
  * Brokerage (Public.com) connectivity status. Generic scaffold behind a
@@ -11,7 +13,7 @@ import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
  * implies that live submission is enabled; this phase stores intents only.
  */
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, {
     route: "/api/brokerage/status",
     area: "fund",
@@ -23,6 +25,10 @@ export async function GET() {
     );
   }
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const creds = getBrokerageCreds();
   const { data: connections, error } = await supabase

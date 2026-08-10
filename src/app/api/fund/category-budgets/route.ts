@@ -9,6 +9,8 @@ import {
 import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
 import { minorUnitsFor } from "@/lib/fund/currency";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const MAX_MONTHLY_LIMIT_MAJOR = 100_000_000_000;
 
@@ -18,10 +20,14 @@ async function authenticate() {
   return { supabase: identity.client, user: identity.user };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await authenticate();
   if ("response" in auth) return auth.response;
   const { supabase, user } = auth;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   let result;
   try {
@@ -42,6 +48,10 @@ export async function POST(request: NextRequest) {
   const auth = await authenticate();
   if ("response" in auth) return auth.response;
   const { supabase, user } = auth;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const parsedBody = await readBoundedJsonBody(request, 4_096);
   if (!parsedBody.ok) {

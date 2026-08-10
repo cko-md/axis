@@ -38,11 +38,15 @@ function plaidTransaction(overrides: Record<string, unknown> = {}) {
 
 function plaidResponse(
   transactions: unknown[],
-  totalTransactions = transactions.length,
+  hasMore = false,
+  nextCursor = "cursor-next",
 ) {
   return new Response(JSON.stringify({
-    transactions,
-    total_transactions: totalTransactions,
+    added: transactions,
+    modified: [],
+    removed: [],
+    has_more: hasMore,
+    next_cursor: nextCursor,
   }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -128,17 +132,16 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
     expect(db.rpcCalls).toHaveLength(0);
   });
 
-  it("requests the 90-day anomaly window rather than a 30-day subset", async () => {
+  it("uses cursor-bound transactions sync rather than mutable offsets", async () => {
     const db = adminClient();
 
     await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 
     const init = mocks.timedProviderFetch.mock.calls[0]?.[1] as { body: string };
-    const requestBody = JSON.parse(init.body) as { start_date: string; end_date: string };
-    const requestedDays = (
-      Date.parse(requestBody.end_date) - Date.parse(requestBody.start_date)
-    ) / 86_400_000;
-    expect(requestedDays).toBeGreaterThanOrEqual(90);
+    const requestBody = JSON.parse(init.body) as Record<string, unknown>;
+    expect(requestBody).toMatchObject({ count: 500, options: { include_personal_finance_category: true } });
+    expect(requestBody).not.toHaveProperty("offset");
+    expect(String(mocks.timedProviderFetch.mock.calls[0]?.[0])).toContain("/transactions/sync");
   });
 
   it("does not claim success until every reported provider page is consumed", async () => {
@@ -147,23 +150,32 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
       plaidTransaction({ transaction_id: `transaction-${index}` }),
     );
     mocks.timedProviderFetch
-      .mockResolvedValueOnce(plaidResponse(firstPage, 501))
-      .mockResolvedValueOnce(plaidResponse([], 501));
+      .mockResolvedValueOnce(plaidResponse(firstPage, true, "cursor-page-2"))
+      .mockResolvedValueOnce(plaidResponse([], false, "cursor-complete"));
 
     await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 
     expect(mocks.timedProviderFetch).toHaveBeenCalledTimes(2);
     const secondInit = mocks.timedProviderFetch.mock.calls[1]?.[1] as { body: string };
     expect(JSON.parse(secondInit.body)).toMatchObject({
-      options: { count: 500, offset: 500 },
+      cursor: "cursor-page-2",
+      count: 500,
     });
   });
 
-  it("rejects a stable-count delete/insert mutation between complete offset generations", async () => {
+  it("restarts and rejects repeated mutation during cursor pagination without publication", async () => {
     const db = adminClient();
-    mocks.timedProviderFetch
-      .mockResolvedValueOnce(plaidResponse([plaidTransaction({ transaction_id: "old" })]))
-      .mockResolvedValueOnce(plaidResponse([plaidTransaction({ transaction_id: "replacement" })]));
+    const mutation = new Response(JSON.stringify({
+      error_code: "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION",
+    }), { status: 400, headers: { "content-type": "application/json" } });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      mocks.timedProviderFetch
+        .mockResolvedValueOnce(plaidResponse([
+          plaidTransaction({ transaction_id: "old" }),
+          plaidTransaction({ transaction_id: "replacement" }),
+        ], true, `cursor-${attempt}`))
+        .mockResolvedValueOnce(mutation.clone());
+    }
 
     const result = await syncPlaidTransactions(db.admin, "user-1", "connection-1", "token");
 
@@ -255,8 +267,11 @@ describe("Plaid transaction ingestion financial-truth faults", () => {
     const controller = new AbortController();
     const db = adminClient();
     const encoded = new TextEncoder().encode(JSON.stringify({
-      transactions: [plaidTransaction()],
-      total_transactions: 1,
+      added: [plaidTransaction()],
+      modified: [],
+      removed: [],
+      has_more: false,
+      next_cursor: "cursor-next",
     }));
     mocks.timedProviderFetch.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
       pull(stream) {

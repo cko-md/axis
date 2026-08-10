@@ -68,9 +68,16 @@ describe("Plaid credential-store authority", () => {
     expect(mocks.captureException).not.toHaveBeenCalledWith(raw, expect.anything());
 
     mocks.createAdminClient.mockReturnValueOnce(client([], null, raw));
-    await expect(savePlaidConnection("user", "token", "item", null)).resolves.toBe(false);
+    await expect(savePlaidConnection("user", "token", "item", null)).resolves.toBe("failed");
     expect(mocks.captureException).not.toHaveBeenCalledWith(raw, expect.anything());
     expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("secret-token");
     expect(JSON.stringify(mocks.captureException.mock.calls)).not.toContain("user@example.com");
+  });
+
+  it("classifies the database single-item winner without exposing raw conflict details", async () => {
+    mocks.createAdminClient.mockReturnValueOnce(client([], null, { code: "23505", message: "unique violation" }));
+
+    await expect(savePlaidConnection("user", "token", "item", null))
+      .resolves.toBe("single_item_conflict");
   });
 });

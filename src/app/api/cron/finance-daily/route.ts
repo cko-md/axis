@@ -96,62 +96,94 @@ export async function GET(req: NextRequest) {
   }
   const deadline = Date.now() + CRON_WALL_CLOCK_MS;
 
-  const { data: connections, error: connectionsError } = await admin
+  const cursorResult = await admin
+    .from("finance_cron_cursors")
+    .select("last_connection_id")
+    .eq("job_key", "finance-daily-plaid-sync")
+    .maybeSingle();
+  const lastConnectionId = typeof cursorResult.data?.last_connection_id === "string"
+    ? cursorResult.data.last_connection_id
+    : null;
+  let connectionQuery = admin
     .from("fund_connections")
     .select("id, user_id, access_token_enc")
     .eq("provider", "plaid")
     .eq("status", "linked")
     .eq("authority", "provider_verified")
-    .limit(MAX_SYNC_CONNECTIONS + 1);
+    .order("id", { ascending: true });
+  if (lastConnectionId) connectionQuery = connectionQuery.gt("id", lastConnectionId);
+  const tail = await connectionQuery.limit(MAX_SYNC_CONNECTIONS + 1);
+  let connections = tail.data ?? [];
+  let connectionsError = cursorResult.error ?? tail.error;
+  if (!connectionsError && lastConnectionId && connections.length < MAX_SYNC_CONNECTIONS + 1) {
+    const head = await admin
+      .from("fund_connections")
+      .select("id, user_id, access_token_enc")
+      .eq("provider", "plaid")
+      .eq("status", "linked")
+      .eq("authority", "provider_verified")
+      .lt("id", lastConnectionId)
+      .order("id", { ascending: true })
+      .limit(MAX_SYNC_CONNECTIONS + 1 - connections.length);
+    connectionsError = head.error;
+    connections = [...connections, ...(head.data ?? [])];
+  }
 
   let syncedConnections = 0;
   let syncErrors = connectionsError ? 1 : 0;
   let deadlineExceeded = false;
-  const connectionLimitExceeded = (connections ?? []).length > MAX_SYNC_CONNECTIONS;
+  const connectionLimitExceeded = connections.length > MAX_SYNC_CONNECTIONS;
   if (connectionLimitExceeded) syncErrors += 1;
   if (connectionsError) {
     Sentry.captureException(new Error("Finance daily connection discovery failed"), { tags: { area: "fund", stage: "connection_discovery", code: "CONNECTION_QUERY_FAILED" } });
   }
-  for (const c of (connections ?? []).slice(0, MAX_SYNC_CONNECTIONS)) {
+  for (const c of connections.slice(0, MAX_SYNC_CONNECTIONS)) {
     if (Date.now() >= deadline) {
       deadlineExceeded = true;
       syncErrors += 1;
       break;
     }
-    if (!c.access_token_enc) {
-      syncErrors++;
-      continue;
-    }
-    const accessToken = decrypt(c.access_token_enc);
-    if (!accessToken) {
-      syncErrors++;
-      continue;
-    }
-    let result: Awaited<ReturnType<typeof syncPlaidTransactions>>;
-    try {
-      result = await syncPlaidTransactions(
-        admin,
-        c.user_id,
-        c.id,
-        accessToken,
-        AbortSignal.timeout(Math.max(1, deadline - Date.now())),
-      );
-    } catch {
-      Sentry.captureException(new Error("Finance daily Plaid sync failed"), { tags: { area: "fund", stage: "sync", code: "SYNC_UNEXPECTED_FAILURE" } });
-      syncErrors++;
-      continue;
-    }
-    if ("error" in result) {
-      // Safe code only: provider/db errors can contain private request context.
-      console.error("[cron/finance-daily] sync failed", { code: "SYNC_FAILED" });
-      if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED") {
-        Sentry.captureException(new Error("Finance daily Plaid sync failed"), {
-          tags: { area: "fund", stage: "sync", code: result.error },
-        });
+    if (!c.access_token_enc) syncErrors++;
+    else {
+      const accessToken = decrypt(c.access_token_enc);
+      if (!accessToken) syncErrors++;
+      else {
+        let result: Awaited<ReturnType<typeof syncPlaidTransactions>> | null = null;
+        try {
+          result = await syncPlaidTransactions(
+            admin,
+            c.user_id,
+            c.id,
+            accessToken,
+            AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+          );
+        } catch {
+          Sentry.captureException(new Error("Finance daily Plaid sync failed"), { tags: { area: "fund", stage: "sync", code: "SYNC_UNEXPECTED_FAILURE" } });
+          syncErrors++;
+        }
+        if (result && "error" in result) {
+          console.error("[cron/finance-daily] sync failed", { code: "SYNC_FAILED" });
+          if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED") {
+            Sentry.captureException(new Error("Finance daily Plaid sync failed"), {
+              tags: { area: "fund", stage: "sync", code: result.error },
+            });
+          }
+          syncErrors++;
+        } else if (result) syncedConnections++;
       }
+    }
+    const cursorWrite = await admin.from("finance_cron_cursors").upsert({
+      job_key: "finance-daily-plaid-sync",
+      last_connection_id: c.id,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "job_key" });
+    if (cursorWrite.error) {
+      Sentry.captureException(new Error("Finance daily cursor advance failed"), {
+        tags: { area: "fund", stage: "connection_cursor", code: "CURSOR_WRITE_FAILED" },
+      });
       syncErrors++;
-    } else {
-      syncedConnections++;
+      deadlineExceeded = true;
+      break;
     }
     if (Date.now() >= deadline) {
       deadlineExceeded = true;

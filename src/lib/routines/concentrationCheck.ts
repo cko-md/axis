@@ -64,6 +64,9 @@ export function concentrationCheckSteps(input: {
         if (holdings.length > MAX_PORTFOLIO_QUOTE_SYMBOLS) {
           throw new Error("CONCENTRATION_PORTFOLIO_QUOTE_LIMIT_EXCEEDED");
         }
+        if (holdings.some((holding) => holding.currency !== "USD")) {
+          throw new Error("CONCENTRATION_CURRENCY_UNSUPPORTED");
+        }
 
         const [connectionsResult, coverageResult] = await Promise.all([
           supabase

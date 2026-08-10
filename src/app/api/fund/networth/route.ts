@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createClient } from "@/lib/supabase/server";
 import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 /**
  * Net-worth time series.
@@ -12,10 +14,14 @@ import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
  * values and must never become historical financial records.
  */
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/networth", area: "fund" });
   if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
   const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const since = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
   const { data, error } = await supabase

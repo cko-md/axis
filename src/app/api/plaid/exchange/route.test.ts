@@ -79,7 +79,7 @@ describe("Plaid public-token exchange", () => {
     mocks.createAdminClient.mockReturnValue(admin().client);
     mocks.admitPlaidMutation.mockResolvedValue("allowed");
     mocks.getPlaidCreds.mockReturnValue({ clientId: "client", secret: "secret", env: "sandbox" });
-    mocks.savePlaidConnection.mockResolvedValue(true);
+    mocks.savePlaidConnection.mockResolvedValue("saved");
     mocks.timedProviderFetch.mockResolvedValue(new Response(JSON.stringify({
       access_token: "access-token",
       item_id: "item-id",
@@ -117,7 +117,7 @@ describe("Plaid public-token exchange", () => {
   });
 
   it("removes the new Item and proves no active local row after ambiguous save failure", async () => {
-    mocks.savePlaidConnection.mockResolvedValueOnce(false);
+    mocks.savePlaidConnection.mockResolvedValueOnce("failed");
     mocks.timedProviderFetch
       .mockResolvedValueOnce(new Response(JSON.stringify({
         access_token: "access-token",
@@ -129,8 +129,25 @@ describe("Plaid public-token exchange", () => {
     expect(mocks.timedProviderFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("removes the concurrent loser Item and returns the atomic single-item conflict", async () => {
+    mocks.savePlaidConnection.mockResolvedValueOnce("single_item_conflict");
+    mocks.timedProviderFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "access-token",
+        item_id: "item-id",
+        request_id: "exchange-request",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ request_id: "remove-request" }), { status: 200 }));
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "PLAID_SINGLE_ITEM_LIMIT" });
+    expect(mocks.timedProviderFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("returns high-signal cleanup-required when provider compensation cannot be proved", async () => {
-    mocks.savePlaidConnection.mockResolvedValueOnce(false);
+    mocks.savePlaidConnection.mockResolvedValueOnce("failed");
     mocks.timedProviderFetch
       .mockResolvedValueOnce(new Response(JSON.stringify({
         access_token: "access-token",

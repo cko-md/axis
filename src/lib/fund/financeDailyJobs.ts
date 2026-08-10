@@ -682,7 +682,7 @@ export async function detectRecurring(
     ),
   );
   const lineage = coverageLineage(proof);
-  if (!lineage || txns.length < 2) return;
+  if (!lineage) return;
 
   const groups = new Map<string, {
     merchant: string;
@@ -720,6 +720,14 @@ export async function detectRecurring(
     (manualRows ?? []).map((row) => `${row.merchant_name}|${row.currency}`),
   );
 
+  const candidateRows: Array<{
+    merchant_name: string;
+    expected_amount: string;
+    currency: string;
+    cadence: string;
+    last_seen_date: string;
+    next_expected_date: string;
+  }> = [];
   for (const group of groups.values()) {
     if (group.length < 2) continue;
     if (manualKeys.has(`${group[0].merchant}|${group[0].currency}`)) continue;
@@ -731,28 +739,54 @@ export async function detectRecurring(
     const expectedAmount = minorUnitsToDecimalString(Math.abs(last.amountMinor), last.currency);
     if (!expectedAmount) throw new Error("RECURRING_INPUT_AMOUNT_INVALID");
 
-    ensureJobActive(signal);
-    const recurringWrite = admin.from("fund_recurring_transactions").upsert(
-      {
-        user_id: userId,
-        merchant_name: last.merchant,
-        expected_amount: expectedAmount,
-        currency: last.currency,
-        cadence: inferCadence(avgGap),
-        last_seen_date: last.date,
-        next_expected_date: new Date(new Date(last.date).getTime() + avgGap * 86400000)
-          .toISOString()
-          .slice(0, 10),
-        source: "detected",
-        source_generations: lineage.source_generations,
-        source_generation_hash: lineage.source_generation_hash,
-        status: "active",
-      },
-      { onConflict: "user_id,merchant_name,currency,source", ignoreDuplicates: false },
-    );
-    const { error: recurringError } = await awaitJobQuery(recurringWrite, signal);
-    if (recurringError) throw recurringError;
+    candidateRows.push({
+      merchant_name: last.merchant,
+      expected_amount: expectedAmount,
+      currency: last.currency,
+      cadence: inferCadence(avgGap),
+      last_seen_date: last.date,
+      next_expected_date: new Date(new Date(last.date).getTime() + avgGap * 86400000)
+        .toISOString()
+        .slice(0, 10),
+    });
   }
+
+  // The database conflict identity intentionally excludes amount. If the
+  // same merchant/currency produces multiple independently recurring amount
+  // patterns, publishing both would make one upsert touch the same row twice.
+  // Treat that identity as ambiguous and publish neither pattern.
+  const candidatesByIdentity = new Map<string, typeof candidateRows>();
+  for (const row of candidateRows) {
+    const key = `${row.merchant_name}\u0000${row.currency}`;
+    const current = candidatesByIdentity.get(key) ?? [];
+    current.push(row);
+    candidatesByIdentity.set(key, current);
+  }
+  const detectedRows = [...candidatesByIdentity.values()]
+    .filter((rows) => rows.length === 1)
+    .map((rows) => rows[0]);
+
+  ensureJobActive(signal);
+  const rpc = (admin as unknown as {
+    rpc?: (
+      name: string,
+      params: Record<string, unknown>,
+    ) => PromiseLike<{ data: unknown; error: unknown }> & {
+      abortSignal?: (abortSignal: AbortSignal) => PromiseLike<{ data: unknown; error: unknown }>;
+    };
+  }).rpc;
+  if (typeof rpc !== "function") throw new Error("RECURRING_RECONCILIATION_UNAVAILABLE");
+  const request = rpc.call(admin, "reconcile_fund_recurring_generation", {
+    p_user_id: userId,
+    p_source_generations: lineage.source_generations,
+    p_source_generation_hash: lineage.source_generation_hash,
+    p_rows: detectedRows,
+  });
+  const result = signal && typeof request.abortSignal === "function"
+    ? await request.abortSignal(signal)
+    : await request;
+  ensureJobActive(signal);
+  if (result.error || result.data !== true) throw new Error("RECURRING_RECONCILIATION_FAILED");
 }
 
 /**

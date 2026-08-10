@@ -180,7 +180,15 @@ describe("position route live-value faults", () => {
       }], error: null },
     ));
     mocks.fetchSnapshot.mockImplementation(async (symbol: string) => {
-      if (symbol === "AAPL") return { price: 75, chg: 1, source: "massive", asOf: new Date().toISOString() };
+      if (symbol === "AAPL") return {
+        price: 75,
+        chg: 1,
+        source: "massive",
+        asOf: new Date().toISOString(),
+        observedAt: new Date().toISOString(),
+        snapshotUpdatedAt: new Date().toISOString(),
+        marketSession: "open",
+      };
       throw new Error("MSFT quote unavailable");
     });
 
@@ -211,6 +219,33 @@ describe("position route live-value faults", () => {
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "POSITION_DATA_UNAVAILABLE" });
+    expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("returns symbol news independently when portfolio coverage is unavailable", async () => {
+    mocks.fetchNews.mockResolvedValue([{ title: "Apple update", url: "https://news.test/apple" }]);
+    mocks.createClient.mockResolvedValue(client(
+      { data: [aapl], error: null },
+      { data: [aapl], error: null },
+      undefined,
+      { data: [{
+        connection_id: "connection-1",
+        provider: "plaid",
+        component: "holdings",
+        complete: true,
+        availability_status: "error",
+        record_count: 1,
+        retrieved_at: new Date().toISOString(),
+        generation_id: "44444444-4444-4444-8444-444444444444",
+        generation_hash: "a".repeat(64),
+      }], error: null },
+    ));
+
+    const body = await (await invoke()).json();
+
+    expect(body.news).toEqual([{ title: "Apple update", url: "https://news.test/apple" }]);
+    expect(body.liveAvailable).toBe(false);
+    expect(body.liveReason).toBe("HOLDING_COVERAGE_UNAVAILABLE");
     expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
   });
 });

@@ -107,6 +107,21 @@ describe("Plaid liability availability state", () => {
     expect(value.plaidLiabilities).toEqual([]);
   });
 
+  it("exposes incomplete provider coverage while preserving manual holdings", async () => {
+    const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
+    const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };
+    const value = await mount("ready-empty", {
+      rows: [holding],
+      aggregated: [aggregate],
+      providerUnavailable: true,
+      providerUnavailableReason: "HOLDING_COVERAGE_UNAVAILABLE",
+    } as Parameters<typeof mount>[1]);
+
+    expect(value.rows).toEqual([holding]);
+    expect(value.holdingsProviderUnavailable).toBe(true);
+    expect(value.holdingsProviderUnavailableReason).toBe("HOLDING_COVERAGE_UNAVAILABLE");
+  });
+
   it("preserves the last successful holdings snapshot when refresh fails", async () => {
     const holding = { id: "holding-1", symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, source: "manual" };
     const aggregate = { symbol: "AAPL", name: "Apple", shares: 1, cost_basis: 100, sources: ["manual"] };

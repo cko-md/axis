@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { addMinorUnits, minorUnitsToDecimalString, scaledUnitsToDecimalString, strictMinorUnits, strictScaledUnits } from "@/lib/fund/financialTruth";
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import { Card } from "@/components/ui/Card";
 import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
+import { useFundData } from "@/components/fund/FundDataProvider";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 type Insight = { id: string; title: string; body: string; confidence: string };
 type OverviewHolding = { id?: string; symbol: string; name: string; shares: string; costBasisMinor: number };
@@ -29,6 +31,14 @@ function formatExactUsd(value: string | null): string {
 }
 
 export function OverviewModule() {
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const briefGenerationRef = useRef(0);
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   const {
     plaidConfigured,
     plaidLinked,
@@ -44,69 +54,76 @@ export function OverviewModule() {
     balanceError,
   } =
     usePlaidConnection();
-  // FUND-1: liabilities come from the shared layout store (the same
-  // /api/fund/liabilities data Net Worth + Cashflow use), not a separate fetch.
-  const [signedIn, setSignedIn] = useState(false);
-  const [holdings, setHoldings] = useState<OverviewHolding[]>([]);
-  const [investedCostBasisMinor, setInvestedCostBasisMinor] = useState<number | null>(null);
-  const [holdingsState, setHoldingsState] = useState<"loading" | "empty" | "ready" | "unavailable">("loading");
+  const {
+    aggregated,
+    holdingsLoading,
+    holdingsError,
+    holdingsProviderUnavailable,
+    holdingsProviderUnavailableReason,
+    signedIn,
+  } = useFundData();
   const [brief, setBrief] = useState<Insight | null>(null);
+  const [briefIdentity, setBriefIdentity] = useState<string | null>(null);
 
-  const loadHoldings = useCallback(async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setSignedIn(true);
-    const { data, error } = await supabase
-      .from("fund_holdings")
-      .select("id, symbol, name, shares, cost_basis, currency")
-      .eq("user_id", user.id)
-      .order("sort_order");
-    if (error || !data) {
-      setInvestedCostBasisMinor(null);
-      setHoldingsState("unavailable");
-      return;
-    }
-    if (data.length === 0) {
-      setHoldings([]);
-      setInvestedCostBasisMinor(0);
-      setHoldingsState("empty");
-      return;
-    }
+  const holdingsPresentation = useMemo(() => {
     let totalMinor = 0;
     const parsed: OverviewHolding[] = [];
-    for (const row of data) {
+    for (const row of aggregated) {
       const sharesMicro = strictScaledUnits(row.shares, MICRO_SHARES_PER_SHARE);
-      const basisMinor = row.currency === "USD" ? strictMinorUnits(row.cost_basis, "USD") : null;
+      const basisMinor = row.currency === "USD" && row.cost_basis !== null
+        ? strictMinorUnits(row.cost_basis, "USD")
+        : null;
       const nextTotal = basisMinor === null ? null : addMinorUnits(totalMinor, basisMinor);
       const shares = sharesMicro === null ? null : scaledUnitsToDecimalString(sharesMicro, MICRO_SHARES_PER_SHARE);
       if (shares === null || basisMinor === null || nextTotal === null) {
-        setHoldings([]);
-        setInvestedCostBasisMinor(null);
-        setHoldingsState("unavailable");
-        return;
+        return { holdings: [] as OverviewHolding[], totalMinor: null, invalid: true };
       }
       totalMinor = nextTotal;
       parsed.push({
-        id: row.id,
         symbol: row.symbol,
         name: row.name,
         shares,
         costBasisMinor: basisMinor,
       });
     }
-    setHoldings(parsed);
-    setInvestedCostBasisMinor(totalMinor);
-    setHoldingsState("ready");
-  }, []);
+    return { holdings: parsed, totalMinor, invalid: false };
+  }, [aggregated]);
+  const holdings = holdingsPresentation.holdings;
+  const investedCostBasisMinor = holdingsPresentation.totalMinor;
+  const holdingsState = holdingsLoading
+    ? "loading"
+    : holdingsError || holdingsPresentation.invalid
+      ? "unavailable"
+      : holdings.length === 0
+        ? "empty"
+        : "ready";
 
   useEffect(() => {
-    void loadHoldings();
-    fetch("/api/fund/insights?kind=daily_brief")
-      .then((r) => r.json())
-      .then((d: { insights?: Insight[] }) => setBrief(d.insights?.[0] ?? null))
-      .catch(() => null);
-  }, [loadHoldings]);
+    const generation = ++briefGenerationRef.current;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const controller = new AbortController();
+    setBrief(null);
+    if (!expectedSubject) return () => controller.abort();
+    const isCurrent = () =>
+      !controller.signal.aborted
+      && briefGenerationRef.current === generation
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
+    void (async () => {
+      const response = await subjectBoundFetch(expectedSubject, "/api/fund/insights?kind=daily_brief", {
+        signal: controller.signal,
+      }).catch(() => null);
+      if (!isCurrent() || !response?.ok) return;
+      const data = await response.json().catch(() => null) as { insights?: Insight[] } | null;
+      if (!isCurrent()) return;
+      setBrief(data?.insights?.[0] ?? null);
+      setBriefIdentity(`${expectedSubject}:${expectedEpoch}`);
+    })();
+    return () => controller.abort();
+  }, [authorityEpoch, currentSubject]);
+
+  const visibleBrief = briefIdentity === currentIdentity ? brief : null;
 
   return (
     <div>
@@ -125,11 +142,7 @@ export function OverviewModule() {
       <div className="fund-hero">
         <Card tick>
           <div className="seclabel">Net Worth</div>
-          <div className="bigmetric" style={{ fontSize: 30 }}>—</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
-            Live net worth requires complete provider coverage
-          </div>
-          <NetWorthChart signedIn={signedIn} />
+          <NetWorthChart signedIn={signedIn} showHeadline />
         </Card>
         <Card>
           <div className="seclabel">Invested cost basis</div>
@@ -137,6 +150,11 @@ export function OverviewModule() {
           {holdingsState === "unavailable" && (
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
               Cost basis unavailable: incomplete or mixed-currency coverage
+            </div>
+          )}
+          {holdingsProviderUnavailable && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
+              Provider holdings excluded: {holdingsProviderUnavailableReason ?? "coverage unavailable"}
             </div>
           )}
         </Card>
@@ -220,11 +238,16 @@ export function OverviewModule() {
               </tbody>
             </table>
           )}
+          {holdingsProviderUnavailable && (
+            <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 10 }}>
+              Provider holdings excluded: {holdingsProviderUnavailableReason ?? "coverage unavailable"}.
+            </p>
+          )}
         </Card>
         <Card>
-          <h2 className="sec">Daily Brief<span className="rule" /><span className="count">{brief ? brief.confidence : "—"}</span></h2>
+          <h2 className="sec">Daily Brief<span className="rule" /><span className="count">{visibleBrief ? visibleBrief.confidence : "—"}</span></h2>
           <p style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.65, marginTop: 10 }}>
-            {brief ? brief.body : "No brief yet — the finance-daily job writes one once net-worth history accrues."}
+            {visibleBrief ? visibleBrief.body : "No brief yet — the finance-daily job writes one once net-worth history accrues."}
           </p>
         </Card>
       </div>

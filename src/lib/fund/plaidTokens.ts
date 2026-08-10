@@ -36,6 +36,7 @@ export type PlaidAccessConnection = {
   institution: string | null;
   accessToken: string;
 };
+export type PlaidConnectionSaveResult = "saved" | "single_item_conflict" | "failed";
 
 /**
  * Returns zero or one verified Plaid connection. Invalid rows, duplicate
@@ -125,13 +126,13 @@ export async function savePlaidConnection(
   accessToken: string,
   itemId: string,
   institution: string | null,
-): Promise<boolean> {
+): Promise<PlaidConnectionSaveResult> {
   const accessEnc = encrypt(accessToken);
   if (!accessEnc) {
     Sentry.captureException(new Error("Plaid token encryption failed"), {
       tags: { area: "fund", provider: "plaid", operation: "save_token", code: "encryption_failed" },
     });
-    return false;
+    return "failed";
   }
 
   let supabase: ReturnType<typeof createAdminClient>;
@@ -139,11 +140,11 @@ export async function savePlaidConnection(
     supabase = createAdminClient();
   } catch {
     captureCredentialStoreFailure("save_token", "admin_client_failed");
-    return false;
+    return "failed";
   }
   if (!supabase) {
     captureCredentialStoreFailure("save_token", "admin_client_unavailable");
-    return false;
+    return "failed";
   }
   const verifiedAt = new Date().toISOString();
   const { error } = await supabase.from("fund_connections").upsert(
@@ -162,10 +163,16 @@ export async function savePlaidConnection(
   );
 
   if (error) {
+    if (
+      typeof error === "object"
+      && error !== null
+      && "code" in error
+      && error.code === "23505"
+    ) return "single_item_conflict";
     captureCredentialStoreFailure("save_token", "upsert_failed");
-    return false;
+    return "failed";
   }
-  return true;
+  return "saved";
 }
 
 /** Marks a Plaid connection as revoked (soft delete, mirrors status check constraint). */

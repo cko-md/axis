@@ -234,7 +234,7 @@ describe("order intent boundary", () => {
     const client = authClient([{ id: "intent-1", status: "not_submitted" }]);
     mocks.createClient.mockResolvedValue(client);
 
-    const response = await GET();
+    const response = await GET(new NextRequest("http://axis.test/api/brokerage/orders"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ intents: [{ id: "intent-1", status: "not_submitted" }] });

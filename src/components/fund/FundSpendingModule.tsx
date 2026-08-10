@@ -11,6 +11,8 @@ import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 import { minorUnitsFor } from "@/lib/fund/currency";
 import { formatSignedMinorCurrency } from "@/lib/fund/formatMinorCurrency";
 import { addMinorUnits } from "@/lib/fund/financialTruth";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 type BankTxn = {
   id: string;
@@ -62,6 +64,14 @@ export function aggregateBudgetSpend(
 
 export function FundSpendingModule() {
   const { toast } = useToast();
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const loadGenerationRef = useRef(0);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   const [txns, setTxns] = useState<BankTxn[]>([]);
   const txnsRef = useRef<BankTxn[]>([]);
   const [status, setStatus] = useState<Status>("loading");
@@ -74,13 +84,35 @@ export function FundSpendingModule() {
   const [addBudgetOpen, setAddBudgetOpen] = useState(false);
   const [newBudgetCategory, setNewBudgetCategory] = useState<string>(CATEGORIES[0]);
   const [newBudgetLimit, setNewBudgetLimit] = useState("200");
+  const [txnsIdentity, setTxnsIdentity] = useState<string | null>(null);
+  const [budgetsIdentity, setBudgetsIdentity] = useState<string | null>(null);
+  const txnsIdentityRef = useRef(txnsIdentity);
+  txnsIdentityRef.current = txnsIdentity;
 
   useEffect(() => {
     txnsRef.current = txns;
   }, [txns]);
 
   const load = useCallback(async () => {
-    if (txnsRef.current.length === 0) setStatus("loading");
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const expectedIdentity = expectedSubject ? `${expectedSubject}:${expectedEpoch}` : null;
+    const generation = ++loadGenerationRef.current;
+    const controller = new AbortController();
+    const hadCurrentRows = txnsIdentityRef.current === expectedIdentity && txnsRef.current.length > 0;
+    if (!expectedSubject) {
+      setTxns([]);
+      setTxnsIdentity(null);
+      setStatus("error");
+      setNotice("Sign in to view transactions.");
+      setRefreshing(false);
+      return;
+    }
+    const isCurrent = () => !controller.signal.aborted
+      && loadGenerationRef.current === generation
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
+    if (!hadCurrentRows) setStatus("loading");
     setRefreshing(true);
     setNotice(null);
     try {
@@ -90,70 +122,111 @@ export function FundSpendingModule() {
       if (unreviewedOnly) params.set("reviewed", "false");
       params.set("limit", String(TRANSACTION_PAGE_SIZE));
       const loaded: BankTxn[] = [];
+      let lineageHash: string | null = null;
       for (let offset = 0; offset < MAX_TRANSACTION_ROWS; offset += TRANSACTION_PAGE_SIZE) {
         params.set("offset", String(offset));
-        const res = await fetch(`/api/fund/bank-transactions?${params}`);
-        if (res.status === 401) { setStatus("error"); return; }
+        const res = await subjectBoundFetch(expectedSubject, `/api/fund/bank-transactions?${params}`, { signal: controller.signal });
+        if (!isCurrent()) return;
+        if (res.status === 401) { setStatus("error"); setTxnsIdentity(expectedIdentity); return; }
         if (!res.ok) throw new Error("TRANSACTION_HISTORY_UNAVAILABLE");
         const data = await res.json() as {
           transactions?: BankTxn[];
           completeness?: string;
+          lineageHash?: unknown;
           page?: { hasMore?: boolean };
         };
-        if (data.completeness !== "complete_source_page" || !Array.isArray(data.transactions)) {
+        if (!isCurrent()) return;
+        if (
+          data.completeness !== "complete_source_page"
+          || !Array.isArray(data.transactions)
+          || typeof data.lineageHash !== "string"
+          || !/^[0-9a-f]{64}$/.test(data.lineageHash)
+          || (lineageHash !== null && lineageHash !== data.lineageHash)
+        ) {
           throw new Error("TRANSACTION_HISTORY_INCOMPLETE");
         }
+        lineageHash = data.lineageHash;
         loaded.push(...data.transactions);
         if (!data.page?.hasMore) break;
         if (offset + TRANSACTION_PAGE_SIZE >= MAX_TRANSACTION_ROWS) {
           throw new Error("TRANSACTION_HISTORY_LIMIT_EXCEEDED");
         }
       }
+      if (!isCurrent()) return;
       setTxns(loaded);
+      setTxnsIdentity(expectedIdentity);
       setStatus("ok");
       setNotice(null);
     } catch {
-      if (txnsRef.current.length > 0) {
+      if (!isCurrent()) return;
+      if (hadCurrentRows) {
         setStatus("ok");
         setNotice("Transaction refresh failed — showing last loaded results.");
       } else {
+        setTxns([]);
+        setTxnsIdentity(expectedIdentity);
         setStatus("error");
         setNotice("Complete transaction history is unavailable; no totals are shown.");
       }
     } finally {
-      setRefreshing(false);
+      if (isCurrent()) setRefreshing(false);
     }
-  }, [search, categoryFilter, unreviewedOnly]);
+  }, [authorityEpoch, categoryFilter, currentSubject, search, unreviewedOnly]);
 
-  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    fetch("/api/fund/category-budgets")
-      .then((r) => r.json())
-      .then((d: { budgets?: Budget[] }) => setBudgets(d.budgets ?? []))
-      .catch(() => null);
-  }, []);
+    void load();
+    return () => { loadGenerationRef.current += 1; };
+  }, [load]);
+  useEffect(() => {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    let active = true;
+    setBudgets([]);
+    setBudgetsIdentity(null);
+    if (!expectedSubject) return () => { active = false; };
+    void subjectBoundFetch(expectedSubject, "/api/fund/category-budgets")
+      .then(async (response) => ({ response, body: await response.json() as { budgets?: Budget[] } }))
+      .then(({ response, body }) => {
+        if (!active || currentSubjectRef.current !== expectedSubject || authorityEpochRef.current !== expectedEpoch) return;
+        if (!response.ok) throw new Error("BUDGETS_UNAVAILABLE");
+        setBudgets(body.budgets ?? []);
+        setBudgetsIdentity(`${expectedSubject}:${expectedEpoch}`);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [authorityEpoch, currentSubject]);
 
-  const spendByCategoryCurrency = useMemo(() => aggregateBudgetSpend(txns), [txns]);
+  const visibleTxns = txnsIdentity === currentIdentity ? txns : [];
+  const visibleBudgets = budgetsIdentity === currentIdentity ? budgets : [];
+  const visibleStatus = txnsIdentity === currentIdentity ? status : "loading";
+  const visibleNotice = txnsIdentity === currentIdentity ? notice : null;
+  const visibleRefreshing = txnsIdentity === currentIdentity && refreshing;
+
+  const spendByCategoryCurrency = useMemo(() => aggregateBudgetSpend(visibleTxns), [visibleTxns]);
 
   // Most recent real retrieval time across the loaded rows, for the freshness
   // badge. Only defined once at least one row actually carries a retrieved_at —
   // no fabricated "as of" (mirrors NetWorthChart's honest-signal rule).
   const latestRetrievedAt = useMemo(() => {
     let latest: number | null = null;
-    for (const t of txns) {
+    for (const t of visibleTxns) {
       if (!t.retrieved_at) continue;
       const ms = Date.parse(t.retrieved_at);
       if (Number.isFinite(ms) && (latest === null || ms > latest)) latest = ms;
     }
     return latest === null ? null : new Date(latest).toISOString();
-  }, [txns]);
+  }, [visibleTxns]);
 
   async function patchTxn(id: string, patch: Partial<BankTxn>) {
-    const res = await fetch(`/api/fund/bank-transactions/${id}`, {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    if (!expectedSubject || txnsIdentity !== currentIdentity) return false;
+    const res = await subjectBoundFetch(expectedSubject, `/api/fund/bank-transactions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
+    if (currentSubjectRef.current !== expectedSubject || authorityEpochRef.current !== expectedEpoch) return false;
     if (!res.ok) {
       toast("Couldn't save change.", "error", "Spending");
       return false;
@@ -165,17 +238,22 @@ export function FundSpendingModule() {
   async function addBudget() {
     const limit = Number(newBudgetLimit);
     if (!Number.isFinite(limit) || limit <= 0) return;
-    const res = await fetch("/api/fund/category-budgets", {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    if (!expectedSubject) return;
+    const res = await subjectBoundFetch(expectedSubject, "/api/fund/category-budgets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category: newBudgetCategory, monthly_limit: limit, currency: "USD" }),
     });
+    if (currentSubjectRef.current !== expectedSubject || authorityEpochRef.current !== expectedEpoch) return;
     if (!res.ok) { toast("Couldn't save budget.", "error", "Spending"); return; }
     const data = await res.json();
     setBudgets((prev) => [
       ...prev.filter((b) => !(b.category === newBudgetCategory && b.currency === "USD")),
       data.budget,
     ]);
+    setBudgetsIdentity(`${expectedSubject}:${expectedEpoch}`);
     setAddBudgetOpen(false);
   }
 
@@ -211,17 +289,17 @@ export function FundSpendingModule() {
               <FreshnessBadge retrievedAt={latestRetrievedAt} sla={FRESHNESS_SLAS.accountBalance} />
             </span>
           )}
-          <span className="count">{txns.length}</span>
+          <span className="count">{visibleTxns.length}</span>
         </h2>
         <div style={{ marginTop: 10 }}>
-          {refreshing && txns.length > 0 && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Refreshing…</p>}
-          {notice && <p style={{ fontSize: 12, color: "var(--clay)" }}>{notice}</p>}
-          {status === "loading" && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
-          {status === "error" && <p style={{ fontSize: 12, color: "var(--clay)" }}>{notice ?? "Transactions are unavailable."}</p>}
-          {status === "ok" && txns.length === 0 && (
+          {visibleRefreshing && visibleTxns.length > 0 && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Refreshing…</p>}
+          {visibleNotice && <p style={{ fontSize: 12, color: "var(--clay)" }}>{visibleNotice}</p>}
+          {visibleStatus === "loading" && <p style={{ fontSize: 12, color: "var(--ink-faint)" }}>Loading…</p>}
+          {visibleStatus === "error" && <p style={{ fontSize: 12, color: "var(--clay)" }}>{visibleNotice ?? "Transactions are unavailable."}</p>}
+          {visibleStatus === "ok" && visibleTxns.length === 0 && (
             <div className="empty-state"><strong>No transactions</strong><p>Link a bank on the Cash Flow page, or adjust filters.</p></div>
           )}
-          {status === "ok" && txns.filter((t) => !t.is_transfer).map((t) => (
+          {visibleStatus === "ok" && visibleTxns.filter((t) => !t.is_transfer).map((t) => (
             <div key={t.id} className="txn" style={{ alignItems: "center" }}>
               <div className="txn-b">
                 <div className="txn-t">
@@ -258,9 +336,9 @@ export function FundSpendingModule() {
       <div className="divider" />
 
       <Card>
-        <h2 className="sec">Category Budgets<span className="rule" /><span className="count">{budgets.length}</span></h2>
+        <h2 className="sec">Category Budgets<span className="rule" /><span className="count">{visibleBudgets.length}</span></h2>
         <div style={{ marginTop: 10 }}>
-          {budgets.map((b) => {
+          {visibleBudgets.map((b) => {
             const spendKey = `${b.category}\u0000${b.currency}`;
             const spentMinor = spendByCategoryCurrency.has(spendKey)
               ? spendByCategoryCurrency.get(spendKey) ?? null

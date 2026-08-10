@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   calculateLivePosition,
   fetchPortfolioQuotes,
+  quoteIsAuthoritative,
   validateHoldingCoverage,
   type PositionHoldingInput,
   type PositionQuoteInput,
@@ -13,13 +14,62 @@ const holdings: PositionHoldingInput[] = [
 ];
 
 function quotes(entries: Array<[string, PositionQuoteInput]>) {
+  const now = new Date().toISOString();
   return new Map<string, PositionQuoteInput>(entries.map(([symbol, quote]) => [
     symbol,
-    quote ? { ...quote, source: "massive", asOf: new Date().toISOString() } : null,
+    quote ? {
+      ...quote,
+      source: "massive",
+      asOf: now,
+      observedAt: now,
+      snapshotUpdatedAt: now,
+      marketSession: "open",
+    } : null,
   ]));
 }
 
 describe("live position financial-truth faults", () => {
+  const now = Date.parse("2026-08-09T20:00:00.000Z");
+
+  it("requires a fresh provider event during an open market session", () => {
+    expect(quoteIsAuthoritative({
+      price: "100.00",
+      chg: 1,
+      source: "massive",
+      asOf: "2026-08-09T19:59:00.000Z",
+      observedAt: "2026-08-09T20:00:00.000Z",
+      snapshotUpdatedAt: "2026-08-09T19:59:30.000Z",
+      marketSession: "open",
+    }, now)).toBe(true);
+    expect(quoteIsAuthoritative({
+      price: "100.00",
+      chg: 1,
+      source: "massive",
+      asOf: "2026-08-09T19:00:00.000Z",
+      observedAt: "2026-08-09T20:00:00.000Z",
+      snapshotUpdatedAt: "2026-08-09T19:59:30.000Z",
+      marketSession: "open",
+    }, now)).toBe(false);
+  });
+
+  it("accepts only a recent latest-completed-session bar while the market is closed", () => {
+    const closed = {
+      price: "100.00",
+      chg: 1,
+      source: "massive",
+      observedAt: "2026-08-09T20:00:00.000Z",
+      snapshotUpdatedAt: "2026-08-09T19:59:00.000Z",
+      marketSession: "closed",
+      latestCompletedSession: true,
+    } as const;
+    expect(quoteIsAuthoritative({ ...closed, asOf: "2026-08-04T04:00:00.000Z" }, now)).toBe(true);
+    expect(quoteIsAuthoritative({ ...closed, asOf: "2026-07-31T04:00:00.000Z" }, now)).toBe(false);
+    expect(quoteIsAuthoritative({ ...closed, asOf: "2026-08-10T20:02:00.000Z" }, now)).toBe(false);
+    expect(quoteIsAuthoritative({ ...closed, asOf: "2026-08-08T04:00:00.000Z", latestCompletedSession: false }, now)).toBe(false);
+    expect(quoteIsAuthoritative({ ...closed, asOf: "2026-08-08T04:00:00.000Z", snapshotUpdatedAt: undefined }, now)).toBe(false);
+    expect(quoteIsAuthoritative({ ...closed, asOf: "2026-08-08T04:00:00.000Z", snapshotUpdatedAt: "2000-01-01T00:00:00.000Z" }, now)).toBe(false);
+  });
+
   it("rejects incomplete holding coverage before quotes can be authoritative", () => {
     const generation = "11111111-1111-4111-8111-111111111111";
     const coveredHoldings = [
@@ -154,7 +204,14 @@ describe("live position financial-truth faults", () => {
     const result = await pending;
     expect(result).toMatchObject({ reason: "QUOTE_DEADLINE_EXCEEDED" });
     expect(result.quotes.size).toBe(0);
-    finish?.({ price: 10, chg: 0, source: "massive", asOf: new Date().toISOString() });
+    finish?.({
+      price: 10,
+      chg: 0,
+      source: "massive",
+      asOf: new Date().toISOString(),
+      observedAt: new Date().toISOString(),
+      marketSession: "open",
+    });
     await Promise.resolve();
     expect(result.quotes.size).toBe(0);
     vi.useRealTimers();
