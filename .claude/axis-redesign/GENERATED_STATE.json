@@ -1,12 +1,60 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-10T00:10:47.066Z",
+  "derivedAt": "2026-08-10T04:30:43.959Z",
   "git": {
     "branch": "codex/security-financial-truth-order-intent",
-    "head": "5b9f6a50e1ee93f9fa690d6be1aae1d3b16735d5",
+    "head": "56ba03df8c0ae05ddf9ff9d47d400e567ecbe204",
     "mainHead": "35773df6e22962fb1ad9a0c1da1036045cc5ac7a",
     "workingTreeClean": true,
     "aheadOfMain": [
+      {
+        "sha": "56ba03df",
+        "subject": "fix(finance): pin cron telemetry vocabulary"
+      },
+      {
+        "sha": "f8948f27",
+        "subject": "test(finance): complete cron control fault matrix"
+      },
+      {
+        "sha": "24d37fe7",
+        "subject": "fix(finance): close strict contract boundaries"
+      },
+      {
+        "sha": "efcc6cb0",
+        "subject": "fix(finance): bound cron phase execution"
+      },
+      {
+        "sha": "8b2fe09b",
+        "subject": "fix(finance): preserve deadline fairness"
+      },
+      {
+        "sha": "90daafab",
+        "subject": "fix(finance): fence cron retries and expiry"
+      },
+      {
+        "sha": "5061c4c3",
+        "subject": "fix(finance): lease cron and seal contract"
+      },
+      {
+        "sha": "8e4347ea",
+        "subject": "fix(finance): close mutation and scheduler races"
+      },
+      {
+        "sha": "a64ea009",
+        "subject": "fix(finance): enforce provider truth and subject isolation"
+      },
+      {
+        "sha": "51016d4b",
+        "subject": "fix(finance): reject mutable Plaid page generations"
+      },
+      {
+        "sha": "15baea42",
+        "subject": "fix(finance): reject deterministic value drift"
+      },
+      {
+        "sha": "7cb2c651",
+        "subject": "chore(state): bind cascade repair gates"
+      },
       {
         "sha": "5b9f6a50",
         "subject": "fix(finance): bind cleanup to owner cascade"
@@ -148,9 +196,9 @@
         "subject": "checkpoint(wip): preserve Phase 1 financial truth remediation"
       }
     ],
-    "contentTreeHash": "cd21a6ac546d887149b1002e082107a6e5e05f43a338eb619b873ab30139ce7a",
+    "contentTreeHash": "12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8",
     "sourceMainContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
-    "fingerprint": "dab56ca380c81ae822e5aab94043febfb7f0d056128fbc896cbd34f483f40f92"
+    "fingerprint": "c9c8bda0040c4cb7bf48afe5ea014bcf74ef32cfad972d97ed70b60f0ca5414f"
   },
   "mergedPrs": [
     {
@@ -443,8 +491,8 @@
     }
   ],
   "migrations": {
-    "count": 96,
-    "latest": "20260809240000_fund_order_intent_user_cascade_repair.sql"
+    "count": 100,
+    "latest": "20260809280000_financial_truth_strict_contract.sql"
   },
   "defects": {
     "total": 50,
@@ -460,8 +508,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "5b9f6a50e1ee93f9fa690d6be1aae1d3b16735d5",
-    "sourceContentTreeHash": "cd21a6ac546d887149b1002e082107a6e5e05f43a338eb619b873ab30139ce7a",
+    "sourceHead": "56ba03df8c0ae05ddf9ff9d47d400e567ecbe204",
+    "sourceContentTreeHash": "12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8",
     "typecheck": {
       "passed": true
     },
@@ -469,23 +517,23 @@
       "passed": true
     },
     "tests": {
-      "passed": 3145,
-      "total": 3145,
-      "files": 356,
-      "suites": 946
+      "passed": 3284,
+      "total": 3284,
+      "files": 373,
+      "suites": 980
     },
     "build": {
       "passed": true,
       "cleanOutput": true
     },
     "bundleKb": {
-      "used": 4147,
+      "used": 4146,
       "budget": 4400
     },
     "routeIsolatedBundleKb": {
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-10T00:10:46.960Z"
+    "measuredAt": "2026-08-10T04:30:43.773Z"
   }
 }

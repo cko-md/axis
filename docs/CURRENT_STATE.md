@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `dab56ca380c81ae822e5aab94043febfb7f0d056128fbc896cbd34f483f40f92` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `cd21a6ac546d887149b1002e082107a6e5e05f43a338eb619b873ab30139ce7a`
+- **State fingerprint:** `c9c8bda0040c4cb7bf48afe5ea014bcf74ef32cfad972d97ed70b60f0ca5414f` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8`
 - **Source-main tree at derivation:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -34,12 +34,24 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
 - **Branch:** `codex/security-financial-truth-order-intent`
-- **HEAD:** `5b9f6a50`
+- **HEAD:** `56ba03df`
 - **main:** `35773df6`
 - **Working tree:** clean
 
-### Ahead of source main at derivation (35 commit(s))
+### Ahead of source main at derivation (47 commit(s))
 
+- `56ba03df` fix(finance): pin cron telemetry vocabulary
+- `f8948f27` test(finance): complete cron control fault matrix
+- `24d37fe7` fix(finance): close strict contract boundaries
+- `efcc6cb0` fix(finance): bound cron phase execution
+- `8b2fe09b` fix(finance): preserve deadline fairness
+- `90daafab` fix(finance): fence cron retries and expiry
+- `5061c4c3` fix(finance): lease cron and seal contract
+- `8e4347ea` fix(finance): close mutation and scheduler races
+- `a64ea009` fix(finance): enforce provider truth and subject isolation
+- `51016d4b` fix(finance): reject mutable Plaid page generations
+- `15baea42` fix(finance): reject deterministic value drift
+- `7cb2c651` chore(state): bind cascade repair gates
 - `5b9f6a50` fix(finance): bind cleanup to owner cascade
 - `9fe63bb6` fix(finance): preserve immutable account cleanup
 - `afddabdb` chore(state): bind financial truth candidate gates
@@ -102,8 +114,8 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Database
 
-- **Tracked migrations:** 96
-- **Latest:** `20260809240000_fund_order_intent_user_cascade_repair.sql`
+- **Tracked migrations:** 100
+- **Latest:** `20260809280000_financial_truth_strict_contract.sql`
 
 ## Defects
 
@@ -114,12 +126,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 3145/3145 across 356 files
-- **Bundle:** 4147 KB / 4400 KB
+- **Tests:** 3284/3284 across 373 files
+- **Bundle:** 4146 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `5b9f6a50`
-- **Measured content tree:** `cd21a6ac546d887149b1002e082107a6e5e05f43a338eb619b873ab30139ce7a`
-- **Measured at:** 2026-08-10T00:10:46.960Z
+- **Measured source:** `56ba03df`
+- **Measured content tree:** `12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8`
+- **Measured at:** 2026-08-10T04:30:43.773Z
 
 <!-- END GENERATED: derive-program-state -->
 
