@@ -9,6 +9,10 @@ const migration = resolve(
   root,
   "supabase/migrations/20260723090000_net_worth_snapshots_authority_provenance.sql",
 );
+const strictContractMigration = resolve(
+  root,
+  "supabase/migrations/20260809280000_financial_truth_strict_contract.sql",
+);
 const baseUrl = new URL(
   process.env.AXIS_FINANCIAL_TRUTH_DB_URL
     ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -103,6 +107,26 @@ create policy "fund_connections_insert_own" on public.fund_connections for inser
 create policy "fund_connections_update_own" on public.fund_connections for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "fund_connections_delete_own" on public.fund_connections for delete using (auth.uid() = user_id);
 grant all on public.fund_connections to authenticated, service_role;
+
+create table public.fund_transactions (
+  id uuid primary key default extensions.gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  symbol text not null,
+  type text not null,
+  shares numeric not null,
+  price numeric not null,
+  transaction_date date not null default current_date
+);
+alter table public.fund_transactions enable row level security;
+create policy "fund_transactions_select_own" on public.fund_transactions
+  for select using (auth.uid() = user_id);
+create policy "fund_transactions_insert_own" on public.fund_transactions
+  for insert with check (auth.uid() = user_id);
+create policy "fund_transactions_update_own" on public.fund_transactions
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "fund_transactions_delete_own" on public.fund_transactions
+  for delete using (auth.uid() = user_id);
+grant all on public.fund_transactions to authenticated, service_role;
 
 create table public.fund_bank_transactions (
   id uuid primary key default extensions.gen_random_uuid(),
@@ -1063,6 +1087,187 @@ try {
     "delivered:true:true",
     "verified delivery survives reapply",
   );
+
+  run(
+    disposableUrl,
+    readFileSync(strictContractMigration, "utf8"),
+    { label: "apply strict financial-truth contract" },
+  );
+  assertScalar(
+    `select count(*)::text from pg_catalog.pg_trigger
+      where not tgisinternal
+        and tgname in (
+          'guard_fund_connection_expansion_compatibility',
+          'guard_make_outbox_expansion_compatibility'
+        );`,
+    "0",
+    "expansion compatibility triggers removed",
+  );
+  assertScalar(
+    `select (
+      pg_catalog.to_regprocedure('public.guard_fund_connection_expansion_compatibility()') is null
+      and pg_catalog.to_regprocedure('public.guard_make_outbox_expansion_compatibility()') is null
+    )::text;`,
+    "true",
+    "expansion compatibility functions removed",
+  );
+  assertScalar(
+    `select count(*)::text
+      from public.fund_recurring_transactions
+      where source='detected'
+        and (
+          source_generations is null
+          or source_generation_hash is null
+          or jsonb_typeof(source_generations) <> 'array'
+          or jsonb_array_length(source_generations) = 0
+          or source_generation_hash !~ '^[0-9a-f]{64}$'
+        );`,
+    "0",
+    "user-visible detected recurring rows all have lineage",
+  );
+  assertScalar(
+    `select count(*)::text
+      from public.fund_recurring_lineage_quarantine
+      where quarantine_reason='missing_authoritative_provider_lineage'
+        and row_payload->>'merchant_name'='Legacy detected';`,
+    "1",
+    "lineage-less detected recurring row quarantined without fabrication",
+  );
+  assertScalar(
+    `select (
+      pg_get_constraintdef(oid) not like '%source_generations IS NULL AND source_generation_hash IS NULL%'
+      and pg_get_constraintdef(oid) like '%source_generations IS NOT NULL%'
+      and pg_get_constraintdef(oid) like '%source_generation_hash IS NOT NULL%'
+      and pg_get_constraintdef(oid) like '%jsonb_array_length(source_generations) > 0%'
+    )::text
+    from pg_catalog.pg_constraint
+    where conrelid='public.fund_recurring_transactions'::regclass
+      and conname='fund_recurring_transactions_lineage_contract';`,
+    "true",
+    "strict detected recurring lineage constraint",
+  );
+  assertScalar(
+    `select count(*)::text
+      from pg_catalog.pg_constraint
+      where conrelid='public.fund_recurring_lineage_quarantine'::regclass
+        and contype='f'
+        and confrelid='auth.users'::regclass
+        and confdeltype='c';`,
+    "1",
+    "quarantine owner cascade integrity",
+  );
+  assertScalar(
+    `select count(*)::text from pg_catalog.pg_constraint
+      where conrelid in (
+        'public.fund_category_budgets'::regclass,
+        'public.fund_bank_transactions'::regclass,
+        'public.fund_recurring_transactions'::regclass,
+        'public.fund_holdings'::regclass
+      )
+      and conname in (
+        'fund_category_budgets_user_id_category_key',
+        'fund_bank_transactions_user_id_plaid_transaction_id_key',
+        'fund_recurring_transactions_user_merchant_uniq',
+        'fund_holdings_user_id_symbol_key'
+      );`,
+    "0",
+    "legacy conflict arbiters removed",
+  );
+  assertScalar(
+    `select (
+      not has_table_privilege('authenticated','public.fund_connections','INSERT,UPDATE,DELETE')
+      and not has_column_privilege('authenticated','public.fund_connections','access_token_enc','SELECT')
+      and has_column_privilege('authenticated','public.fund_connections','institution','SELECT')
+      and not has_table_privilege('authenticated','public.fund_transactions','INSERT,UPDATE,DELETE')
+      and not has_table_privilege('service_role','public.fund_transactions','INSERT,UPDATE,DELETE')
+    )::text;`,
+    "true",
+    "browser and service direct-DML contract",
+  );
+  assertScalar(
+    `set role authenticated;
+      set request.jwt.claim.role='authenticated';
+      set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+      select count(id)::text from public.fund_connections;`,
+    "1",
+    "owner connection display remains readable",
+  );
+  assertScalar(
+    `set role authenticated;
+      set request.jwt.claim.role='authenticated';
+      set request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';
+      select count(id)::text from public.fund_connections;`,
+    "0",
+    "foreign connection display remains isolated",
+  );
+  run(disposableUrl, `
+    set session_replication_role='replica';
+    insert into public.fund_recurring_transactions (
+      user_id,merchant_name,expected_amount,currency,cadence,source,
+      source_generations,source_generation_hash
+    ) values (
+      '11111111-1111-4111-8111-111111111111',
+      'Trigger bypass null lineage','8.00','USD','monthly','detected',null,null
+    );
+  `, { expectFailure: true, label: "strict lineage check under trigger bypass" });
+  run(disposableUrl, `
+    set role service_role;
+    set request.jwt.claim.role='service_role';
+    insert into public.fund_recurring_transactions (
+      user_id,merchant_name,expected_amount,currency,cadence,source,
+      source_generations,source_generation_hash
+    ) values (
+      '11111111-1111-4111-8111-111111111111',
+      'Forged lineage-less row','9.00','USD','monthly','detected',null,null
+    );
+  `, { expectFailure: true, label: "service direct detected recurring insert without lineage" });
+  run(disposableUrl, `
+    set role service_role;
+    set request.jwt.claim.role='service_role';
+    insert into public.fund_recurring_transactions (
+      user_id,merchant_name,expected_amount,currency,cadence,source,
+      source_generations,source_generation_hash
+    )
+    select
+      '11111111-1111-4111-8111-111111111111',
+      'Forged lineage array','7.00','USD','monthly','detected',
+      '[{"forged":true}]'::jsonb,verified.lineage_hash
+    from public.check_fund_transaction_history_coverage(
+      '11111111-1111-4111-8111-111111111111',current_date-90,current_date
+    ) verified
+    where verified.available;
+  `, { expectFailure: true, label: "forged recurring coverage array denial" });
+  run(disposableUrl, `
+    set role service_role;
+    set request.jwt.claim.role='service_role';
+    insert into public.fund_recurring_transactions (
+      user_id,merchant_name,expected_amount,currency,cadence,source,
+      source_generations,source_generation_hash
+    )
+    select
+      '11111111-1111-4111-8111-111111111111',
+      'Exact post-contract lineage','7.00','USD','monthly','detected',
+      verified.coverage,verified.lineage_hash
+    from public.check_fund_transaction_history_coverage(
+      '11111111-1111-4111-8111-111111111111',current_date-90,current_date
+    ) verified
+    where verified.available;
+  `, { label: "exact post-contract recurring lineage publication" });
+  assertScalar(
+    `select count(*)::text from public.fund_recurring_transactions
+      where merchant_name='Exact post-contract lineage'
+        and source='detected'
+        and source_generations is not null
+        and source_generation_hash ~ '^[0-9a-f]{64}$';`,
+    "1",
+    "exact post-contract recurring lineage read-back",
+  );
+  run(disposableUrl, `
+    set role authenticated;
+    set request.jwt.claim.role='authenticated';
+    set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+    select * from public.fund_recurring_lineage_quarantine;
+  `, { expectFailure: true, label: "owner quarantine read denial" });
 
   console.log(`Financial-truth DB validation passed in disposable database ${databaseName}.`);
 } finally {

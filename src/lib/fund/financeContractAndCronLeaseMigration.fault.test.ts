@@ -45,14 +45,14 @@ describe("finance contract and durable cron lease migration", () => {
     expect(sql).toContain("set last_user_id = p_user_id");
   });
 
-  it("is the exact latest append-only manifest entry", () => {
+  it("keeps the failure-isolation repair as an exact append-only manifest entry", () => {
     const raw = readFileSync(resolve(process.cwd(), latestFile), "utf8");
     const manifest = JSON.parse(readFileSync(
       resolve(process.cwd(), "scripts/release-migration-manifest.json"),
       "utf8",
-    )) as { migrationCount: number; latest: { version: string; file: string; sha256: string } };
-    expect(manifest.migrationCount).toBe(99);
-    expect(manifest.latest).toEqual({
+    )) as { migrationCount: number; migrations: Array<{ version: string; file: string; sha256: string }> };
+    expect(manifest.migrationCount).toBe(100);
+    expect(manifest.migrations.find((entry) => entry.file === latestFile)).toEqual({
       version: "20260809270000",
       file: latestFile,
       sha256: createHash("sha256").update(raw).digest("hex"),

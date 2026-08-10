@@ -13,6 +13,7 @@ const MAX_USERS_PER_RUN = 250;
 const CRON_WALL_CLOCK_MS = 50_000;
 const CONNECTION_PHASE_BUDGET_MS = 25_000;
 const CONNECTION_ITEM_DEADLINE_MS = 20_000;
+const CONTROL_PLANE_RPC_DEADLINE_MS = 5_000;
 const ABORT_SETTLEMENT_GRACE_MS = 2_000;
 const CRON_LEASE_SECONDS = 120;
 const USER_JOB_DEADLINE_MS = 20_000;
@@ -20,6 +21,12 @@ type FailureDisposition = "retry_scheduled" | "quarantined";
 
 function normalizeFailureCode(value: string, fallback: string) {
   return /^[A-Z0-9_]{1,64}$/.test(value) ? value : fallback;
+}
+
+function captureControlPlaneTimeout(stage: string, code: string) {
+  Sentry.captureException(new Error("Finance daily control-plane RPC timed out"), {
+    tags: { area: "fund", stage, code },
+  });
 }
 
 class FinanceCronDeadlineError extends Error {
@@ -74,6 +81,20 @@ async function runWithinDeadline<T>(
   }
 }
 
+async function runRpcWithinDeadline<T>(
+  deadline: number,
+  requestFactory: () => PromiseLike<T>,
+): Promise<T> {
+  return runWithinDeadline(deadline, async (signal) => {
+    const request = requestFactory() as PromiseLike<T> & {
+      abortSignal?: (abortSignal: AbortSignal) => PromiseLike<T>;
+    };
+    return await (typeof request.abortSignal === "function"
+      ? request.abortSignal(signal)
+      : request);
+  });
+}
+
 /**
  * Vercel cron: nightly safety net for everything the Plaid webhook
  * (/api/plaid/webhook) should have already caught, plus the work that has
@@ -108,11 +129,42 @@ export async function GET(req: NextRequest) {
   const runStartedAt = Date.now();
   const deadline = runStartedAt + CRON_WALL_CLOCK_MS;
   const connectionPhaseDeadline = runStartedAt + CONNECTION_PHASE_BUDGET_MS;
+  const controlPlaneDeadline = (absoluteDeadline: number) => Math.min(
+    absoluteDeadline,
+    Date.now() + CONTROL_PLANE_RPC_DEADLINE_MS,
+  );
   const runId = crypto.randomUUID();
-  const lease = await admin.rpc("acquire_finance_cron_run", {
-    p_run_id: runId,
-    p_lease_seconds: CRON_LEASE_SECONDS,
-  });
+  let lease: { data: unknown; error: unknown };
+  try {
+    lease = await runRpcWithinDeadline(
+      controlPlaneDeadline(deadline),
+      () => admin.rpc("acquire_finance_cron_run", {
+        p_run_id: runId,
+        p_lease_seconds: CRON_LEASE_SECONDS,
+      }),
+    );
+  } catch (error) {
+    const controlPlaneTimedOut = error instanceof FinanceCronDeadlineError;
+    // An aborted client request cannot prove whether the remote lease RPC
+    // committed. Never start work after an indeterminate acquisition; any
+    // acquired lease is allowed to expire and fence a successor meanwhile.
+    const cancellationUnconfirmed = true;
+    Sentry.captureException(new Error("Finance daily lease acquisition did not complete"), {
+      tags: {
+        area: "fund",
+        stage: "lease",
+        code: cancellationUnconfirmed ? "LEASE_ACQUIRE_UNCONFIRMED" : "LEASE_ACQUIRE_FAILED",
+      },
+    });
+    return NextResponse.json({
+      ok: false,
+      outcome: "systemic_failure",
+      error: "FINANCE_CRON_LEASE_UNAVAILABLE",
+      deadlineExceeded: Date.now() >= deadline,
+      controlPlaneTimedOut,
+      cancellationUnconfirmed,
+    }, { status: 503 });
+  }
   if (lease.error) {
     Sentry.captureException(new Error("Finance daily lease acquisition failed"), {
       tags: { area: "fund", stage: "lease", code: "LEASE_ACQUIRE_FAILED" },
@@ -134,19 +186,51 @@ export async function GET(req: NextRequest) {
       }, { status: 503 });
     }
 
-    const connectionClaim = await admin.rpc("claim_finance_cron_connections", {
-      p_run_id: runId,
-      p_limit: MAX_SYNC_CONNECTIONS,
-    });
-    const connections = connectionClaim.data ?? [];
+    let deadlineExceeded = false;
+    let connectionPhaseDeferred = Date.now() >= connectionPhaseDeadline;
+    let cancellationUnconfirmed = false;
+    let connectionClaim: { data: Array<{ id: string; user_id: string; access_token_enc: string | null }> | null; error: unknown } = {
+      data: [],
+      error: null,
+    };
+    if (!connectionPhaseDeferred) {
+      try {
+        connectionClaim = await runRpcWithinDeadline(
+          controlPlaneDeadline(connectionPhaseDeadline),
+          () => admin.rpc("claim_finance_cron_connections", {
+            p_run_id: runId,
+            p_limit: MAX_SYNC_CONNECTIONS,
+          }),
+        ) as typeof connectionClaim;
+      } catch (error) {
+        if (error instanceof FinanceCronDeadlineError) {
+          // A settled client abort does not prove the remote PostgreSQL
+          // transaction stopped. Retain the lease until expiry.
+          cancellationUnconfirmed = true;
+          releaseLease = false;
+          if (Date.now() >= deadline) deadlineExceeded = true;
+          captureControlPlaneTimeout("connection_discovery", "CONNECTION_CLAIM_TIMEOUT");
+        } else {
+          connectionClaim.error = error;
+          cancellationUnconfirmed = true;
+          releaseLease = false;
+        }
+      }
+    }
+    if (Date.now() >= deadline) {
+      deadlineExceeded = true;
+      releaseLease = false;
+    } else if (Date.now() >= connectionPhaseDeadline) {
+      connectionPhaseDeferred = true;
+    }
+    const connections = connectionPhaseDeferred || deadlineExceeded || cancellationUnconfirmed
+      ? []
+      : connectionClaim.data ?? [];
     const connectionsError = connectionClaim.error;
 
     let syncedConnections = 0;
     let syncErrors = connectionsError ? 1 : 0;
-    let deadlineExceeded = false;
-    let connectionClaimIncomplete = Boolean(connectionsError);
-    let connectionPhaseDeferred = Date.now() >= connectionPhaseDeadline;
-    let cancellationUnconfirmed = false;
+    let connectionClaimIncomplete = Boolean(connectionsError) || cancellationUnconfirmed;
     let connectionQuarantined = 0;
     const connectionLimitExceeded = false;
     if (connectionsError) {
@@ -239,12 +323,35 @@ export async function GET(req: NextRequest) {
     }
     if (!synchronized) {
       if (deadlineExceeded || connectionPhaseDeferred || cancellationUnconfirmed || !failureCode) break;
-      const failure = await admin.rpc("fail_finance_cron_item", {
-        p_run_id: runId,
-        p_phase: "connections",
-        p_item_id: c.id,
-        p_error_code: failureCode,
-      });
+      let failure: { data: unknown; error: unknown };
+      try {
+        failure = await runRpcWithinDeadline(
+          controlPlaneDeadline(deadline),
+          () => admin.rpc("fail_finance_cron_item", {
+            p_run_id: runId,
+            p_phase: "connections",
+            p_item_id: c.id,
+            p_error_code: failureCode,
+          }),
+        );
+      } catch (error) {
+        cancellationUnconfirmed = true;
+        releaseLease = false;
+        if (error instanceof FinanceCronDeadlineError) {
+          captureControlPlaneTimeout("connection_failure", "CONNECTION_FAILURE_RPC_TIMEOUT");
+        } else {
+          Sentry.captureException(new Error("Finance daily connection failure persistence failed"), {
+            tags: { area: "fund", stage: "connection_failure", code: "CONNECTION_FAILURE_RPC_REJECTED" },
+          });
+        }
+        if (Date.now() >= deadline) deadlineExceeded = true;
+        break;
+      }
+      if (Date.now() >= deadline) {
+        deadlineExceeded = true;
+        releaseLease = false;
+        break;
+      }
       const disposition = failure.data as FailureDisposition | null;
       if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
         Sentry.captureException(new Error("Finance daily connection failure persistence failed"), {
@@ -261,10 +368,33 @@ export async function GET(req: NextRequest) {
       }
       continue;
     }
-    const ack = await admin.rpc("ack_finance_cron_connection", {
-      p_run_id: runId,
-      p_connection_id: c.id,
-    });
+    let ack: { data: unknown; error: unknown };
+    try {
+      ack = await runRpcWithinDeadline(
+        controlPlaneDeadline(deadline),
+        () => admin.rpc("ack_finance_cron_connection", {
+          p_run_id: runId,
+          p_connection_id: c.id,
+        }),
+      );
+    } catch (error) {
+      cancellationUnconfirmed = true;
+      releaseLease = false;
+      if (error instanceof FinanceCronDeadlineError) {
+        captureControlPlaneTimeout("connection_ack", "CONNECTION_ACK_TIMEOUT");
+      } else {
+        Sentry.captureException(new Error("Finance daily connection acknowledgement failed"), {
+          tags: { area: "fund", stage: "connection_ack", code: "CONNECTION_ACK_RPC_REJECTED" },
+        });
+      }
+      if (Date.now() >= deadline) deadlineExceeded = true;
+      break;
+    }
+    if (Date.now() >= deadline) {
+      deadlineExceeded = true;
+      releaseLease = false;
+      break;
+    }
     if (ack.error || ack.data !== true) {
       Sentry.captureException(new Error("Finance daily connection acknowledgement failed"), {
         tags: { area: "fund", stage: "connection_ack", code: "CONNECTION_ACK_FAILED" },
@@ -306,10 +436,35 @@ export async function GET(req: NextRequest) {
     }, { status: 503 });
     }
 
-    const userClaim = await admin.rpc("claim_finance_cron_users", {
-      p_run_id: runId,
-      p_limit: MAX_USERS_PER_RUN,
-    });
+    let userClaim: { data: Array<{ user_id: string }> | null; error: unknown } = {
+      data: [],
+      error: null,
+    };
+    try {
+      userClaim = await runRpcWithinDeadline(
+        controlPlaneDeadline(deadline),
+        () => admin.rpc("claim_finance_cron_users", {
+          p_run_id: runId,
+          p_limit: MAX_USERS_PER_RUN,
+        }),
+      ) as typeof userClaim;
+    } catch (error) {
+      userClaim.error = error;
+      cancellationUnconfirmed = true;
+      releaseLease = false;
+      if (error instanceof FinanceCronDeadlineError) {
+        captureControlPlaneTimeout("user_discovery", "USER_CLAIM_TIMEOUT");
+      }
+      if (Date.now() >= deadline) {
+        deadlineExceeded = true;
+        releaseLease = false;
+      }
+    }
+    if (Date.now() >= deadline) {
+      deadlineExceeded = true;
+      releaseLease = false;
+      userClaim.data = [];
+    }
   const discoveryLimitExceeded = false;
   const discoveryErrors = userClaim.error ? 1 : 0;
   if (discoveryErrors > 0) {
@@ -325,12 +480,37 @@ export async function GET(req: NextRequest) {
   let authLookupFailures = 0;
   let userQuarantined = 0;
   const persistUserFailure = async (userId: string, errorCode: string) => {
-    const failure = await admin.rpc("fail_finance_cron_item", {
-      p_run_id: runId,
-      p_phase: "users",
-      p_item_id: userId,
-      p_error_code: errorCode,
-    });
+    let failure: { data: unknown; error: unknown };
+    try {
+      failure = await runRpcWithinDeadline(
+        controlPlaneDeadline(deadline),
+        () => admin.rpc("fail_finance_cron_item", {
+          p_run_id: runId,
+          p_phase: "users",
+          p_item_id: userId,
+          p_error_code: errorCode,
+        }),
+      );
+    } catch (error) {
+      cancellationUnconfirmed = true;
+      releaseLease = false;
+      if (error instanceof FinanceCronDeadlineError) {
+        captureControlPlaneTimeout("user_failure", "USER_FAILURE_RPC_TIMEOUT");
+      }
+      if (Date.now() >= deadline) {
+        deadlineExceeded = true;
+        releaseLease = false;
+      }
+      Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
+        tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
+      });
+      return false;
+    }
+    if (Date.now() >= deadline) {
+      deadlineExceeded = true;
+      releaseLease = false;
+      return false;
+    }
     const disposition = failure.data as FailureDisposition | null;
     if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
       Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
@@ -364,10 +544,10 @@ export async function GET(req: NextRequest) {
       authUser = authResult.data;
       authUserError = authResult.error;
     } catch (error) {
-      if (error instanceof FinanceCronDeadlineError && Date.now() >= deadline) {
+      if (Date.now() >= deadline) {
         deadlineExceeded = true;
         userFailures += userIds.length - index;
-        if (!error.settlementConfirmed) {
+        if (error instanceof FinanceCronDeadlineError && !error.settlementConfirmed) {
           cancellationUnconfirmed = true;
         }
         releaseLease = false;
@@ -385,6 +565,12 @@ export async function GET(req: NextRequest) {
       continue;
     }
     if (authUserError) {
+      if (Date.now() >= deadline) {
+        deadlineExceeded = true;
+        userFailures += userIds.length - index;
+        releaseLease = false;
+        break;
+      }
       authLookupFailures++;
       userFailures += 1;
       Sentry.captureException(new Error("Finance daily user lookup failed"), { tags: { area: "fund", stage: "user_lookup", code: "AUTH_USER_LOOKUP_FAILED" } });
@@ -397,6 +583,8 @@ export async function GET(req: NextRequest) {
       break;
     }
     const userEmail = authUser?.user?.email ?? null;
+    let userAckStarted = false;
+    let userAckResponseReceived = false;
 
     try {
       const ensureWithinDeadline = () => {
@@ -442,25 +630,59 @@ export async function GET(req: NextRequest) {
       );
       ensureWithinDeadline();
       notificationFailures += budgetAlerts.failed + anomalies.failed + weeklyRecap.failed + subscriptionAudit.failed;
-      const ack = await admin.rpc("ack_finance_cron_user", {
-        p_run_id: runId,
-        p_user_id: userId,
-      });
+      userAckStarted = true;
+      const ack = await runRpcWithinDeadline(
+        controlPlaneDeadline(deadline),
+        () => admin.rpc("ack_finance_cron_user", {
+          p_run_id: runId,
+          p_user_id: userId,
+        }),
+      );
+      userAckResponseReceived = true;
+      if (Date.now() >= deadline) {
+        deadlineExceeded = true;
+        releaseLease = false;
+        userFailures += userIds.length - index;
+        break;
+      }
       if (ack.error || ack.data !== true) {
         throw new Error("FINANCE_CRON_USER_ACK_FAILED");
       }
       usersCompleted += 1;
     } catch (error) {
+      if (Date.now() >= deadline) {
+        deadlineExceeded = true;
+        userFailures += userIds.length - index;
+        if ((userAckStarted && !userAckResponseReceived)
+          || (error instanceof FinanceCronDeadlineError && !error.settlementConfirmed)) {
+          cancellationUnconfirmed = true;
+        }
+        releaseLease = false;
+        break;
+      }
+      if (userAckStarted) {
+        userFailures += 1;
+        if (!userAckResponseReceived) {
+          cancellationUnconfirmed = true;
+          releaseLease = false;
+          if (error instanceof FinanceCronDeadlineError) {
+            captureControlPlaneTimeout("user_ack", "USER_ACK_TIMEOUT");
+          } else {
+            Sentry.captureException(new Error("Finance daily user acknowledgement failed"), {
+              tags: { area: "fund", stage: "user_ack", code: "USER_ACK_RPC_REJECTED" },
+            });
+          }
+        }
+        Sentry.captureException(new Error("Finance daily user acknowledgement failed"), {
+          tags: { area: "fund", stage: "user_ack", code: "USER_ACK_FAILED" },
+        });
+        break;
+      }
       if (error instanceof FinanceCronDeadlineError) {
         if (!error.settlementConfirmed) {
           cancellationUnconfirmed = true;
           releaseLease = false;
           userFailures += 1;
-          break;
-        }
-        if (Date.now() >= deadline) {
-          deadlineExceeded = true;
-          userFailures += userIds.length - index;
           break;
         }
         userFailures += 1;
@@ -503,10 +725,29 @@ export async function GET(req: NextRequest) {
     }, { status: partial ? 503 : 200 });
   } finally {
     if (releaseLease) {
-      const release = await admin.rpc("release_finance_cron_run", { p_run_id: runId });
-      if (release.error || release.data !== true) {
+      try {
+        // Cleanup receives a small independent budget because a lease acquired
+        // just before the wall-clock boundary still needs a best-effort release.
+        // An indeterminate release is safe: the database lease expires and all
+        // later mutations remain token-fenced.
+        const release = await runRpcWithinDeadline(
+          Date.now() + CONTROL_PLANE_RPC_DEADLINE_MS,
+          () => admin.rpc("release_finance_cron_run", { p_run_id: runId }),
+        );
+        if (release.error || release.data !== true) {
+          Sentry.captureException(new Error("Finance daily lease release failed"), {
+            tags: { area: "fund", stage: "lease", code: "LEASE_RELEASE_FAILED" },
+          });
+        }
+      } catch (error) {
         Sentry.captureException(new Error("Finance daily lease release failed"), {
-          tags: { area: "fund", stage: "lease", code: "LEASE_RELEASE_FAILED" },
+          tags: {
+            area: "fund",
+            stage: "lease",
+            code: error instanceof FinanceCronDeadlineError
+              ? "LEASE_RELEASE_DEADLINE_EXCEEDED"
+              : "LEASE_RELEASE_FAILED",
+          },
         });
       }
     }

@@ -394,7 +394,8 @@ try {
       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       encode(extensions.digest('account-1','sha256'),'hex'),
       'provider-order-1','fill-limit',repeat('1',64),100000,1100,0,
-      now(),now()
+      (select acknowledged_at + interval '1 second' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+      (select acknowledged_at + interval '2 seconds' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
     )->>'outcome';
   `, "limit_price_violated", "limit-price enforcement");
   assertScalar(`
@@ -405,7 +406,8 @@ try {
       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       encode(extensions.digest('account-1','sha256'),'hex'),
       'provider-order-1','fill-time',repeat('2',64),100000,900,0,
-      now()+interval '2 minutes',now()
+      (select acknowledged_at + interval '2 minutes' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+      (select acknowledged_at from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
     )->>'outcome';
   `, "invalid_chronology", "receipt chronology enforcement");
   assertScalar(`
@@ -416,7 +418,8 @@ try {
       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       encode(extensions.digest('account-1','sha256'),'hex'),
       'provider-order-1','fill-1',repeat('3',64),600000,900,5,
-      now(),now()
+      (select acknowledged_at + interval '3 seconds' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+      (select acknowledged_at + interval '4 seconds' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
     )->>'outcome';
   `, "created", "first verified partial fill");
   assertScalar(`
@@ -439,7 +442,8 @@ try {
       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       encode(extensions.digest('account-1','sha256'),'hex'),
       'provider-order-1','fill-2',repeat('4',64),500000,900,0,
-      now(),now()
+      (select acknowledged_at + interval '5 seconds' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+      (select acknowledged_at + interval '6 seconds' from public.fund_order_submissions where id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
     )->>'outcome';
   `, "quantity_exceeded", "cumulative fill cap");
   assertScalar(

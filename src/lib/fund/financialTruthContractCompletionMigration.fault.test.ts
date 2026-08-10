@@ -37,7 +37,7 @@ describe("financial truth contract-completion migration", () => {
       "utf8",
     )) as { migrationCount: number; latest: { file: string; sha256: string }; migrations: Array<{ file: string; sha256: string }> };
     const digest = createHash("sha256").update(sql).digest("hex");
-    expect(manifest.migrationCount).toBe(99);
+    expect(manifest.migrationCount).toBe(100);
     expect(manifest.migrations.find((entry) => entry.file === file)?.sha256).toBe(digest);
   });
 });

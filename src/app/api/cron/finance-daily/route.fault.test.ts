@@ -57,6 +57,21 @@ const USER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type QueryResult = { data: unknown; error: unknown };
 
+function abortablePendingRpc(): Promise<QueryResult> & {
+  abortSignal: (signal: AbortSignal) => PromiseLike<QueryResult>;
+} {
+  const pending = new Promise<QueryResult>(() => undefined);
+  return Object.assign(pending, {
+    abortSignal: (signal: AbortSignal) => new Promise<QueryResult>((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => reject(new DOMException("aborted", "AbortError")),
+        { once: true },
+      );
+    }),
+  });
+}
+
 function query(result: QueryResult) {
   const chain: Record<string, unknown> = {};
   for (const method of ["select", "eq", "limit", "order", "gt", "lt"]) chain[method] = vi.fn(() => chain);
@@ -583,6 +598,95 @@ describe("finance daily cron fault aggregation", () => {
     expect(admin.rpc).toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
   });
 
+  it("bounds an indeterminate lease acquisition and never claims work", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      outcome: "systemic_failure",
+      controlPlaneTimedOut: true,
+      cancellationUnconfirmed: true,
+      deadlineExceeded: false,
+    });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_connections", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("retains the lease when connection claim cancellation is unconfirmed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true, usersProcessed: 0 });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("retains the lease when the connection-claim client settles on abort", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") return abortablePendingRpc();
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(5_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("does not enter the user phase after a delayed empty connection claim crosses the wall clock", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run") return { data: true, error: null };
+      if (name === "claim_finance_cron_connections") {
+        vi.setSystemTime(new Date("2026-08-09T12:01:00.000Z"));
+        return { data: [], error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ deadlineExceeded: true, usersProcessed: 0 });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
   it("stops before later work when lease-bound acknowledgement is rejected", async () => {
     const admin = adminClient({ users: { data: [{ user_id: USER_ID }], error: null } });
     admin.rpc.mockImplementation(async (name: string) => {
@@ -639,6 +743,78 @@ describe("finance daily cron fault aggregation", () => {
     expect(admin.rpc).toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
     expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: USER_ID }));
     expect(admin.rpc).toHaveBeenCalledWith("release_finance_cron_run", expect.objectContaining({ p_run_id: expect.any(String) }));
+  });
+
+  it("stops and retains the lease when connection failure persistence does not settle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") {
+        return Promise.resolve({ data: [{ id: "connection-poison", user_id: USER_ID, access_token_enc: null }], error: null });
+      }
+      if (name === "fail_finance_cron_item") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("stops and retains the lease when connection acknowledgement does not settle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") {
+        return Promise.resolve({ data: [{ id: "connection-good", user_id: USER_ID, access_token_enc: "encrypted" }], error: null });
+      }
+      if (name === "ack_finance_cron_connection") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("retains the lease when an acknowledgement client settles on abort", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") {
+        return Promise.resolve({ data: [{ id: "connection-good", user_id: USER_ID, access_token_enc: "encrypted" }], error: null });
+      }
+      if (name === "ack_finance_cron_connection") return abortablePendingRpc();
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(5_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
   });
 
   it("isolates a poison user and completes the later user in the same run", async () => {
@@ -765,5 +941,115 @@ describe("finance daily cron fault aggregation", () => {
     }));
     expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: laterUser }));
     expect(admin.rpc).toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("does not consume a user failure attempt after a generic job error crosses the wall clock", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient({ connections: { data: [], error: null } });
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.snapshotNetWorth.mockImplementation(async () => {
+      vi.setSystemTime(new Date("2026-08-09T12:01:00.000Z"));
+      throw new Error("late failure");
+    });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ deadlineExceeded: true });
+    expect(admin.rpc).not.toHaveBeenCalledWith("fail_finance_cron_item", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("retains the lease when user acknowledgement cancellation is unconfirmed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient({ connections: { data: [], error: null } });
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") return Promise.resolve({ data: [], error: null });
+      if (name === "claim_finance_cron_users") return Promise.resolve({ data: [{ user_id: USER_ID }], error: null });
+      if (name === "ack_finance_cron_user") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true, usersCompleted: 0 });
+    expect(admin.rpc).not.toHaveBeenCalledWith("fail_finance_cron_item", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("retains the lease when user claim cancellation is unconfirmed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient({ connections: { data: [], error: null } });
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") return Promise.resolve({ data: [], error: null });
+      if (name === "claim_finance_cron_users") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true, usersCompleted: 0 });
+    expect(mocks.snapshotNetWorth).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("retains the lease when user failure persistence cancellation is unconfirmed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient({ connections: { data: [], error: null }, authError: new Error("auth unavailable") });
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections") return Promise.resolve({ data: [], error: null });
+      if (name === "claim_finance_cron_users") return Promise.resolve({ data: [{ user_id: USER_ID }], error: null });
+      if (name === "fail_finance_cron_item") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ cancellationUnconfirmed: true, userFailures: 1 });
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("bounds lease release cleanup and reports the indeterminate release", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient({ connections: { data: [], error: null }, users: { data: [], error: null } });
+    admin.rpc.mockImplementation((name: string) => {
+      if (name === "acquire_finance_cron_run") return Promise.resolve({ data: true, error: null });
+      if (name === "claim_finance_cron_connections" || name === "claim_finance_cron_users") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      if (name === "release_finance_cron_run") return new Promise(() => undefined);
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(7_001);
+    const response = await pendingResponse;
+
+    expect(response.status).toBe(200);
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Finance daily lease release failed" }),
+      { tags: { area: "fund", stage: "lease", code: "LEASE_RELEASE_DEADLINE_EXCEEDED" } },
+    );
   });
 });

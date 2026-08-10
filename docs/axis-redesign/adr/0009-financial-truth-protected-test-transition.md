@@ -26,7 +26,7 @@ protected main. Their new authority coverage lives only in additive
 
 | Release input | Candidate blob | Candidate SHA-256 |
 |---|---|---|
-| `scripts/release-migration-manifest.json` | `bbe51b99e40576c930f85849f4102a0225a68110` | `a51115e2d85e00ef585535193b200b9bcd47a125dd19dc9ee10f39b07d34aec0` |
+| `scripts/release-migration-manifest.json` | `547134ae55046131206911cb0d9e2e1b0de9b8ef` | `52bac3d6e9b9dcd6a2f7b07ba17642a6981c591ddd318cfe20c41e944720de1f` |
 | `supabase/migrations/20260723090000_net_worth_snapshots_authority_provenance.sql` | `3bc0570b1859610bfe72cdea7ccba3b47f353684` | `6351220ccd30ecff6a5f2b4894c8a0a6d4d92a1c3d709044b6a008fb1dc6cc2d` |
 | `supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql` | `1df6e258319c077a6360f8ffb1fe45e6e5ddc60a` | `23bb299b16b5d4205523ab039b42703419b43df50c63261b4db12fdef577f027` |
 | `supabase/migrations/20260809220000_financial_truth_expansion_privilege_repair.sql` | `9dcc7241fdef6450545363ae555a0cb85218a700` | `8427bbbc495edb38ece6f12095853a6ad5f2d262c2d30360c964c303c6c591da` |
@@ -35,8 +35,9 @@ protected main. Their new authority coverage lives only in additive
 | `supabase/migrations/20260809250000_financial_truth_contract_completion.sql` | `89738d7deaf6b0efe07e9d32c448acb208efd271` | `46dcf11c7f1c73ed5cf3f168aa715048b722dabb6702c3818e46b068e22430dd` |
 | `supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql` | `79130d63d0638826d5045d56536d3bb7562b9134` | `e68e400721a12236d67898acf43c4fd178533bbfa003a85bafa0d537e7699161` |
 | `supabase/migrations/20260809270000_finance_cron_failure_isolation.sql` | `5fca524ccb9e5fcdd3c0472971db23b793213051` | `c7f471b1921870e564ea506668dc02a136f2fa089401abb8b6c501a8c9c52d60` |
+| `supabase/migrations/20260809280000_financial_truth_strict_contract.sql` | `1489f5d213304c3245fadae7198dfd2c32f59ef3` | `c0df568fde1c51e08311b88d67da5374797d8d26ef44505fa813c258543e77c4` |
 
-The manifest declares 99 migrations and binds `20260809270000` as the exact
+The manifest declares 100 migrations and binds `20260809280000` as the exact
 latest file. The limit-notional repair fails closed before replacing constraints if an
 existing immutable limit intent was derived from a reference quote rather
 than its limit price; such rows require quarantine and owner review, not an
@@ -51,6 +52,13 @@ The contract-completion migrations remove browser mutation of provider
 connections and executed transactions, require exact provider lineage for
 detected recurring facts, retire the merchant-only recurring conflict arbiter,
 and make the finance-daily scheduler lease-, token-, and acknowledgement-bound.
+The strict post-application contract removes both expansion-only compatibility
+triggers and their functions; quarantines lineage-less detected recurring rows
+without inventing lineage; requires a non-null, non-empty lineage array and its
+exact coverage hash; removes the protected-main budget, bank-transaction,
+recurring, and holding conflict arbiters only after their six replacement
+indexes are valid; and reasserts connection display-only and executed-
+transaction read-only browser privileges.
 The append-only failure-isolation repair fences every claim, acknowledgement,
 and negative acknowledgement by locking the exact live lease and unfinished
 claim through its cursor mutation. A normalized item failure advances the fair
@@ -70,6 +78,11 @@ after its bound even if its transport promise remains unresolved. Any
 mutation-capable operation still active after cancellation grace stops the run,
 consumes no attempt, and retains the lease until database expiry, preventing a
 successor from overlapping unknown side effects.
+Every lease-bound control-plane RPC is separately bounded. A client-side abort
+never proves a remote PostgreSQL mutation stopped: any timed-out or transport-
+rejected acquire, claim, acknowledgement, or negative acknowledgement therefore
+stops later work and retains the lease until expiry. Cleanup is independently
+bounded and may only release the exact still-owned run token.
 
 ## Decision
 
@@ -107,8 +120,8 @@ main. Additive fault tests remain subject to ordinary review.
 ## One-use external executor requirements
 
 An independently pinned executor must verify the exact protected base SHA,
-candidate SHA, eight base/candidate blob pairs, all three final contract migrations,
-the 99-entry manifest, and this ADR before running any
+candidate SHA, eight base/candidate blob pairs, all four final contract migrations,
+the 100-entry manifest, and this ADR before running any
 candidate code. It must reject any additional protected test or control-plane
 delta. Two read-only reviewers must independently verify the financial
 fail-closed semantics and the expansion/application/contract migration
