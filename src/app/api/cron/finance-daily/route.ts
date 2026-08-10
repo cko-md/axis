@@ -13,6 +13,11 @@ const MAX_USERS_PER_RUN = 250;
 const CRON_WALL_CLOCK_MS = 50_000;
 const ABORT_SETTLEMENT_GRACE_MS = 2_000;
 const CRON_LEASE_SECONDS = 120;
+type FailureDisposition = "retry_scheduled" | "quarantined";
+
+function normalizeFailureCode(value: string, fallback: string) {
+  return /^[A-Z0-9_]{1,64}$/.test(value) ? value : fallback;
+}
 
 class FinanceCronDeadlineError extends Error {
   constructor() {
@@ -94,6 +99,10 @@ export async function GET(req: NextRequest) {
   if (!isMakeOutboxEncryptionReady()) {
     return NextResponse.json({ ok: false, outcome: "systemic_failure", error: "OUTBOX_ENCRYPTION_UNAVAILABLE" }, { status: 503 });
   }
+  // Count lease-acquisition latency against the route budget. The database
+  // lease is longer than this absolute deadline, so provider work cannot
+  // continue into a successor run even if the RPC response is delayed.
+  const deadline = Date.now() + CRON_WALL_CLOCK_MS;
   const runId = crypto.randomUUID();
   const lease = await admin.rpc("acquire_finance_cron_run", {
     p_run_id: runId,
@@ -111,7 +120,14 @@ export async function GET(req: NextRequest) {
   let releaseLease = true;
 
   try {
-    const deadline = Date.now() + CRON_WALL_CLOCK_MS;
+    if (Date.now() >= deadline) {
+      return NextResponse.json({
+        ok: false,
+        outcome: "partial",
+        error: "FINANCE_CRON_DEADLINE_EXCEEDED",
+        deadlineExceeded: true,
+      }, { status: 503 });
+    }
 
     const connectionClaim = await admin.rpc("claim_finance_cron_connections", {
       p_run_id: runId,
@@ -124,6 +140,7 @@ export async function GET(req: NextRequest) {
     let syncErrors = connectionsError ? 1 : 0;
     let deadlineExceeded = false;
     let connectionClaimIncomplete = Boolean(connectionsError);
+    let connectionQuarantined = 0;
     const connectionLimitExceeded = false;
     if (connectionsError) {
       Sentry.captureException(new Error("Finance daily connection discovery failed"), { tags: { area: "fund", stage: "connection_discovery", code: "CONNECTION_QUERY_FAILED" } });
@@ -136,15 +153,22 @@ export async function GET(req: NextRequest) {
       break;
     }
     let synchronized = false;
+    let failureCode: string | null = null;
     if (!c.access_token_enc) {
       syncErrors++;
-      connectionClaimIncomplete = true;
+      failureCode = "TOKEN_MISSING";
+      Sentry.captureException(new Error("Finance daily connection token missing"), {
+        tags: { area: "fund", stage: "sync", code: failureCode },
+      });
     }
     else {
       const accessToken = decrypt(c.access_token_enc);
       if (!accessToken) {
         syncErrors++;
-        connectionClaimIncomplete = true;
+        failureCode = "TOKEN_DECRYPT_FAILED";
+        Sentry.captureException(new Error("Finance daily connection token unavailable"), {
+          tags: { area: "fund", stage: "sync", code: failureCode },
+        });
       }
       else {
         let result: Awaited<ReturnType<typeof syncPlaidTransactions>> | null = null;
@@ -159,7 +183,7 @@ export async function GET(req: NextRequest) {
         } catch {
           Sentry.captureException(new Error("Finance daily Plaid sync failed"), { tags: { area: "fund", stage: "sync", code: "SYNC_UNEXPECTED_FAILURE" } });
           syncErrors++;
-          connectionClaimIncomplete = true;
+          failureCode = "SYNC_UNEXPECTED_FAILURE";
         }
         if (result && "error" in result) {
           console.error("[cron/finance-daily] sync failed", { code: "SYNC_FAILED" });
@@ -169,14 +193,42 @@ export async function GET(req: NextRequest) {
             });
           }
           syncErrors++;
-          connectionClaimIncomplete = true;
+          if (result.error === "PLAID_TXN_DEADLINE_EXCEEDED") {
+            deadlineExceeded = true;
+            connectionClaimIncomplete = true;
+          } else {
+            failureCode = normalizeFailureCode(result.error, "SYNC_FAILED");
+          }
         } else if (result) {
           syncedConnections++;
           synchronized = true;
         }
       }
     }
-    if (!synchronized) break;
+    if (!synchronized) {
+      if (deadlineExceeded || !failureCode) break;
+      const failure = await admin.rpc("fail_finance_cron_item", {
+        p_run_id: runId,
+        p_phase: "connections",
+        p_item_id: c.id,
+        p_error_code: failureCode,
+      });
+      const disposition = failure.data as FailureDisposition | null;
+      if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
+        Sentry.captureException(new Error("Finance daily connection failure persistence failed"), {
+          tags: { area: "fund", stage: "connection_failure", code: "CONNECTION_FAILURE_RECORD_FAILED" },
+        });
+        connectionClaimIncomplete = true;
+        break;
+      }
+      if (disposition === "quarantined") {
+        connectionQuarantined += 1;
+        Sentry.captureException(new Error("Finance daily connection quarantined"), {
+          tags: { area: "fund", stage: "connection_failure", code: "CONNECTION_QUARANTINED" },
+        });
+      }
+      continue;
+    }
     const ack = await admin.rpc("ack_finance_cron_connection", {
       p_run_id: runId,
       p_connection_id: c.id,
@@ -211,6 +263,8 @@ export async function GET(req: NextRequest) {
       authLookupFailures: 0,
       snapshotDeclined: 0,
       notificationFailures: 0,
+      connectionQuarantined,
+      userQuarantined: 0,
       connectionLimitExceeded,
       discoveryLimitExceeded: false,
       userLimitExceeded: false,
@@ -235,6 +289,7 @@ export async function GET(req: NextRequest) {
   let snapshotDeclined = 0;
   let notificationFailures = 0;
   let authLookupFailures = 0;
+  let userQuarantined = 0;
     for (let index = 0; index < userIds.length; index++) {
     if (Date.now() >= deadline) {
       deadlineExceeded = true;
@@ -245,9 +300,28 @@ export async function GET(req: NextRequest) {
     const { data: authUser, error: authUserError } = await admin.auth.admin.getUserById(userId);
     if (authUserError) {
       authLookupFailures++;
-      userFailures += userIds.length - index;
+      userFailures += 1;
       Sentry.captureException(new Error("Finance daily user lookup failed"), { tags: { area: "fund", stage: "user_lookup", code: "AUTH_USER_LOOKUP_FAILED" } });
-      break;
+      const failure = await admin.rpc("fail_finance_cron_item", {
+        p_run_id: runId,
+        p_phase: "users",
+        p_item_id: userId,
+        p_error_code: "AUTH_USER_LOOKUP_FAILED",
+      });
+      const disposition = failure.data as FailureDisposition | null;
+      if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
+        Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
+          tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
+        });
+        break;
+      }
+      if (disposition === "quarantined") {
+        userQuarantined += 1;
+        Sentry.captureException(new Error("Finance daily user quarantined"), {
+          tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
+        });
+      }
+      continue;
     }
     if (Date.now() >= deadline) {
       deadlineExceeded = true;
@@ -316,7 +390,26 @@ export async function GET(req: NextRequest) {
       }
       userFailures += 1;
       Sentry.captureException(new Error("Finance daily user job failed"), { tags: { area: "fund", stage: "user_job", code: "USER_JOB_FAILED" } });
-      break;
+      const failure = await admin.rpc("fail_finance_cron_item", {
+        p_run_id: runId,
+        p_phase: "users",
+        p_item_id: userId,
+        p_error_code: "USER_JOB_FAILED",
+      });
+      const disposition = failure.data as FailureDisposition | null;
+      if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
+        Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
+          tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
+        });
+        break;
+      }
+      if (disposition === "quarantined") {
+        userQuarantined += 1;
+        Sentry.captureException(new Error("Finance daily user quarantined"), {
+          tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
+        });
+      }
+      continue;
     }
     }
 
@@ -335,6 +428,8 @@ export async function GET(req: NextRequest) {
     authLookupFailures,
     snapshotDeclined,
     notificationFailures,
+    connectionQuarantined,
+    userQuarantined,
     connectionLimitExceeded,
     discoveryLimitExceeded,
     userLimitExceeded,

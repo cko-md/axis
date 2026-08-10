@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "migrationCount": 98,
+  "migrationCount": 99,
   "latest": {
-    "version": "20260809260000",
-    "file": "supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql",
-    "sha256": "e68e400721a12236d67898acf43c4fd178533bbfa003a85bafa0d537e7699161"
+    "version": "20260809270000",
+    "file": "supabase/migrations/20260809270000_finance_cron_failure_isolation.sql",
+    "sha256": "c7f471b1921870e564ea506668dc02a136f2fa089401abb8b6c501a8c9c52d60"
   },
   "migrations": [
     {
@@ -496,6 +496,11 @@
       "version": "20260809260000",
       "file": "supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql",
       "sha256": "e68e400721a12236d67898acf43c4fd178533bbfa003a85bafa0d537e7699161"
+    },
+    {
+      "version": "20260809270000",
+      "file": "supabase/migrations/20260809270000_finance_cron_failure_isolation.sql",
+      "sha256": "c7f471b1921870e564ea506668dc02a136f2fa089401abb8b6c501a8c9c52d60"
     }
   ]
 }

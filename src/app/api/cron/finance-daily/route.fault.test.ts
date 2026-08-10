@@ -118,6 +118,9 @@ function adminClient(options: {
     if (name === "claim_finance_cron_users") {
       return options.users ?? { data: [{ user_id: USER_ID }], error: null };
     }
+    if (name === "fail_finance_cron_item") {
+      return { data: "retry_scheduled", error: null };
+    }
     if (name === "ack_finance_cron_connection" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
       return { data: true, error: null };
     }
@@ -128,9 +131,12 @@ function adminClient(options: {
     rpc,
     auth: {
       admin: {
-        getUserById: vi.fn(async () => options.authError
-          ? { data: null, error: options.authError }
-          : { data: { user: { id: USER_ID, email: "person@example.com" } }, error: null }),
+        getUserById: vi.fn(async (userId: string) => {
+          void userId;
+          return options.authError
+            ? { data: null, error: options.authError }
+            : { data: { user: { id: USER_ID, email: "person@example.com" } }, error: null };
+        }),
       },
     },
   };
@@ -429,13 +435,122 @@ describe("finance daily cron fault aggregation", () => {
     expect(mocks.syncPlaidTransactions).not.toHaveBeenCalled();
   });
 
-  it("does not acknowledge failed connection work and releases it for retry", async () => {
-    const admin = adminClient({ users: { data: [], error: null } });
+  it("counts delayed lease acquisition against the absolute route deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run") {
+        vi.setSystemTime(new Date("2026-08-09T12:01:00.000Z"));
+        return { data: true, error: null };
+      }
+      if (name === "release_finance_cron_run") return { data: true, error: null };
+      throw new Error(`Unexpected RPC ${name}`);
+    });
     mocks.createAdminClient.mockReturnValue(admin);
-    mocks.syncPlaidTransactions.mockResolvedValue({ error: "PLAID_TXN_FETCH_FAILED" });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      outcome: "partial",
+      error: "FINANCE_CRON_DEADLINE_EXCEEDED",
+      deadlineExceeded: true,
+    });
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_connections", expect.anything());
+    expect(admin.rpc).toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("stops before later work when lease-bound acknowledgement is rejected", async () => {
+    const admin = adminClient({ users: { data: [{ user_id: USER_ID }], error: null } });
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run" || name === "release_finance_cron_run") return { data: true, error: null };
+      if (name === "claim_finance_cron_connections") {
+        return { data: [
+          { id: "connection-one", user_id: USER_ID, access_token_enc: "encrypted" },
+          { id: "connection-two", user_id: USER_ID, access_token_enc: "encrypted" },
+        ], error: null };
+      }
+      if (name === "ack_finance_cron_connection") return { data: false, error: null };
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.syncPlaidTransactions).toHaveBeenCalledTimes(1);
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+  });
+
+  it("persists failed connection work, continues later connections, and still runs the user phase", async () => {
+    const admin = adminClient({ users: { data: [], error: null } });
+    admin.rpc.mockImplementation(async (name: string, args?: Record<string, unknown>) => {
+      if (name === "acquire_finance_cron_run" || name === "ack_finance_cron_connection" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
+        return { data: true, error: null };
+      }
+      if (name === "fail_finance_cron_item") return { data: "retry_scheduled", error: null };
+      if (name === "claim_finance_cron_connections") {
+        return {
+          data: [
+            { id: "connection-poison", user_id: USER_ID, access_token_enc: "poison" },
+            { id: "connection-good", user_id: USER_ID, access_token_enc: "good" },
+          ],
+          error: null,
+        };
+      }
+      if (name === "claim_finance_cron_users") return { data: [{ user_id: USER_ID }], error: null };
+      throw new Error(`Unexpected RPC ${name} ${JSON.stringify(args)}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.decrypt.mockImplementation((value: string) => value === "poison" ? "poison-token" : "good-token");
+    mocks.syncPlaidTransactions.mockImplementation(async (_admin, _userId, connectionId: string) =>
+      connectionId === "connection-poison" ? { error: "PLAID_TXN_FETCH_FAILED" } : { synced: 1 });
 
     expect((await GET(request())).status).toBe(503);
-    expect(admin.rpc).not.toHaveBeenCalledWith("ack_finance_cron_connection", expect.anything());
+    expect(admin.rpc).toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({
+      p_phase: "connections",
+      p_item_id: "connection-poison",
+      p_error_code: "PLAID_TXN_FETCH_FAILED",
+    }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_connection", expect.objectContaining({ p_connection_id: "connection-good" }));
+    expect(admin.rpc).toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: USER_ID }));
     expect(admin.rpc).toHaveBeenCalledWith("release_finance_cron_run", expect.objectContaining({ p_run_id: expect.any(String) }));
+  });
+
+  it("isolates a poison user and completes the later user in the same run", async () => {
+    const poisonUser = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+    const goodUser = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+    const admin = adminClient({ connections: { data: [], error: null } });
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
+        return { data: true, error: null };
+      }
+      if (name === "fail_finance_cron_item") return { data: "retry_scheduled", error: null };
+      if (name === "claim_finance_cron_connections") return { data: [], error: null };
+      if (name === "claim_finance_cron_users") {
+        return { data: [{ user_id: poisonUser }, { user_id: goodUser }], error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    admin.auth.admin.getUserById.mockImplementation(async (userId: string) =>
+      userId === poisonUser
+        ? { data: null, error: new Error("synthetic auth failure") }
+        : { data: { user: { id: goodUser, email: "good@example.invalid" } }, error: null });
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ usersProcessed: 2, usersCompleted: 1, userFailures: 1, authLookupFailures: 1 });
+    expect(admin.rpc).toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({
+      p_phase: "users",
+      p_item_id: poisonUser,
+      p_error_code: "AUTH_USER_LOOKUP_FAILED",
+    }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: goodUser }));
+    expect(mocks.snapshotNetWorth).toHaveBeenCalledWith(expect.anything(), goodUser, expect.any(AbortSignal));
   });
 });

@@ -7,7 +7,7 @@ const sql = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql"),
   "utf8",
 ).toLowerCase();
-const file = "supabase/migrations/20260809260000_finance_contract_and_cron_lease.sql";
+const latestFile = "supabase/migrations/20260809270000_finance_cron_failure_isolation.sql";
 
 describe("finance contract and durable cron lease migration", () => {
   it("removes browser execution DML and the obsolete recurring arbiter", () => {
@@ -46,15 +46,15 @@ describe("finance contract and durable cron lease migration", () => {
   });
 
   it("is the exact latest append-only manifest entry", () => {
-    const raw = readFileSync(resolve(process.cwd(), file), "utf8");
+    const raw = readFileSync(resolve(process.cwd(), latestFile), "utf8");
     const manifest = JSON.parse(readFileSync(
       resolve(process.cwd(), "scripts/release-migration-manifest.json"),
       "utf8",
     )) as { migrationCount: number; latest: { version: string; file: string; sha256: string } };
-    expect(manifest.migrationCount).toBe(98);
+    expect(manifest.migrationCount).toBe(99);
     expect(manifest.latest).toEqual({
-      version: "20260809260000",
-      file,
+      version: "20260809270000",
+      file: latestFile,
       sha256: createHash("sha256").update(raw).digest("hex"),
     });
   });
