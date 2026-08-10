@@ -60,10 +60,16 @@ a later success clears that state. Deadline or lease loss consumes no attempt.
 Backed-off or quarantined work cannot starve later connections or users, direct
 `service_role` cursor DML is revoked, and stale calls blocked across lease expiry
 cannot return work or move a cursor after takeover. The prior cursor-only service
-RPC overloads are not executable after the final contract. The route distinguishes
-Plaid's 25-second item deadline and a 20-second user-item deadline from the
-50-second whole-run deadline: an item deadline is durably backed off so later
-owners continue, while genuine whole-run deadline loss consumes no attempt.
+RPC overloads are not executable after the final contract. The route reserves
+user-phase capacity with a 25-second connection-phase budget, bounds both
+connection and user items at 20 seconds from their first asynchronous boundary,
+and distinguishes those item limits from the 50-second whole-run deadline. A
+settled item timeout is durably backed off so later owners continue; a genuine
+whole-run deadline consumes no attempt. A read-only auth lookup may be deferred
+after its bound even if its transport promise remains unresolved. Any
+mutation-capable operation still active after cancellation grace stops the run,
+consumes no attempt, and retains the lease until database expiry, preventing a
+successor from overlapping unknown side effects.
 
 ## Decision
 

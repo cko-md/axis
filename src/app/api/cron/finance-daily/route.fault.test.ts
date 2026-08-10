@@ -361,6 +361,76 @@ describe("finance daily cron fault aggregation", () => {
     expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
   });
 
+  it("retains the lease and stops when a connection does not settle after cancellation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run") return { data: true, error: null };
+      if (name === "claim_finance_cron_connections") {
+        return { data: [
+          { id: "connection-hung", user_id: USER_ID, access_token_enc: "encrypted" },
+          { id: "connection-later", user_id: USER_ID, access_token_enc: "encrypted" },
+        ], error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.syncPlaidTransactions.mockImplementation(() => new Promise(() => undefined));
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(22_001);
+    const response = await pendingResponse;
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ cancellationUnconfirmed: true, usersProcessed: 0 });
+    expect(mocks.syncPlaidTransactions).toHaveBeenCalledTimes(1);
+    expect(admin.rpc).not.toHaveBeenCalledWith("fail_finance_cron_item", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
+  });
+
+  it("reserves user capacity when slow connections exhaust the connection phase", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
+        return { data: true, error: null };
+      }
+      if (name === "fail_finance_cron_item") return { data: "retry_scheduled", error: null };
+      if (name === "claim_finance_cron_connections") {
+        return { data: [
+          { id: "connection-slow-one", user_id: USER_ID, access_token_enc: "encrypted" },
+          { id: "connection-slow-two", user_id: USER_ID, access_token_enc: "encrypted" },
+        ], error: null };
+      }
+      if (name === "claim_finance_cron_users") return { data: [{ user_id: USER_ID }], error: null };
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.syncPlaidTransactions.mockImplementation((_admin, _userId, _connectionId, _token, signal: AbortSignal) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      }));
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(20_001);
+    await vi.advanceTimersByTimeAsync(5_001);
+    const response = await pendingResponse;
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ connectionPhaseDeferred: true, usersCompleted: 1, deadlineExceeded: false });
+    expect(admin.rpc).toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({
+      p_item_id: "connection-slow-one",
+      p_error_code: "PLAID_TXN_DEADLINE_EXCEEDED",
+    }));
+    expect(admin.rpc).not.toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({ p_item_id: "connection-slow-two" }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: USER_ID }));
+  });
+
   it("marks the run partial when an in-flight user job crosses the wall-clock deadline", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
@@ -410,6 +480,8 @@ describe("finance daily cron fault aggregation", () => {
   });
 
   it("returns a truthful deadline outcome when an operation never settles", async () => {
+    const admin = adminClient();
+    mocks.createAdminClient.mockReturnValue(admin);
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
     mocks.snapshotNetWorth.mockImplementation(() => new Promise(() => undefined));
@@ -426,15 +498,14 @@ describe("finance daily cron fault aggregation", () => {
       usersCompleted: 0,
       userFailures: 1,
       deadlineExceeded: false,
+      cancellationUnconfirmed: true,
     });
     expect(mocks.captureException).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Finance daily job did not settle after cancellation" }),
       { tags: { area: "fund", stage: "deadline", code: "ABORT_SETTLEMENT_EXCEEDED" } },
     );
-    expect(mocks.captureException).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Finance daily user item deadline exceeded" }),
-      { tags: { area: "fund", stage: "user_job", code: "USER_JOB_DEADLINE_EXCEEDED" } },
-    );
+    expect(admin.rpc).not.toHaveBeenCalledWith("fail_finance_cron_item", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
   });
 
   it("visits the 101st connection on the next durable claim instead of starving it", async () => {
@@ -652,5 +723,47 @@ describe("finance daily cron fault aggregation", () => {
       p_error_code: "USER_JOB_DEADLINE_EXCEEDED",
     }));
     expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: laterUser }));
+  });
+
+  it("bounds a hanging read-only auth lookup and completes the later user", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const slowUser = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+    const laterUser = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
+    const admin = adminClient({ connections: { data: [], error: null } });
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
+        return { data: true, error: null };
+      }
+      if (name === "fail_finance_cron_item") return { data: "retry_scheduled", error: null };
+      if (name === "claim_finance_cron_connections") return { data: [], error: null };
+      if (name === "claim_finance_cron_users") {
+        return { data: [{ user_id: slowUser }, { user_id: laterUser }], error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    admin.auth.admin.getUserById.mockImplementation((userId: string) =>
+      userId === slowUser
+        ? new Promise(() => undefined)
+        : Promise.resolve({
+          data: { user: { id: laterUser, email: "later@example.invalid" } },
+          error: null,
+        }));
+    mocks.createAdminClient.mockReturnValue(admin);
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(22_001);
+    const response = await pendingResponse;
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ usersProcessed: 2, usersCompleted: 1, authLookupFailures: 1 });
+    expect(admin.rpc).toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({
+      p_phase: "users",
+      p_item_id: slowUser,
+      p_error_code: "AUTH_USER_LOOKUP_DEADLINE_EXCEEDED",
+    }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: laterUser }));
+    expect(admin.rpc).toHaveBeenCalledWith("release_finance_cron_run", expect.anything());
   });
 });

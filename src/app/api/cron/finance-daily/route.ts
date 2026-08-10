@@ -11,6 +11,8 @@ import { checkBudgetThresholds, detectAndExplainAnomalies, writeSubscriptionAudi
 const MAX_SYNC_CONNECTIONS = 100;
 const MAX_USERS_PER_RUN = 250;
 const CRON_WALL_CLOCK_MS = 50_000;
+const CONNECTION_PHASE_BUDGET_MS = 25_000;
+const CONNECTION_ITEM_DEADLINE_MS = 20_000;
 const ABORT_SETTLEMENT_GRACE_MS = 2_000;
 const CRON_LEASE_SECONDS = 120;
 const USER_JOB_DEADLINE_MS = 20_000;
@@ -21,7 +23,7 @@ function normalizeFailureCode(value: string, fallback: string) {
 }
 
 class FinanceCronDeadlineError extends Error {
-  constructor() {
+  constructor(readonly settlementConfirmed = true) {
     super("FINANCE_CRON_DEADLINE_EXCEEDED");
     this.name = "FinanceCronDeadlineError";
   }
@@ -63,7 +65,7 @@ async function runWithinDeadline<T>(
           tags: { area: "fund", stage: "deadline", code: "ABORT_SETTLEMENT_EXCEEDED" },
         });
       }
-      throw new FinanceCronDeadlineError();
+      throw new FinanceCronDeadlineError(settled);
     }
     return outcome.value;
   } finally {
@@ -103,7 +105,9 @@ export async function GET(req: NextRequest) {
   // Count lease-acquisition latency against the route budget. The database
   // lease is longer than this absolute deadline, so provider work cannot
   // continue into a successor run even if the RPC response is delayed.
-  const deadline = Date.now() + CRON_WALL_CLOCK_MS;
+  const runStartedAt = Date.now();
+  const deadline = runStartedAt + CRON_WALL_CLOCK_MS;
+  const connectionPhaseDeadline = runStartedAt + CONNECTION_PHASE_BUDGET_MS;
   const runId = crypto.randomUUID();
   const lease = await admin.rpc("acquire_finance_cron_run", {
     p_run_id: runId,
@@ -141,6 +145,8 @@ export async function GET(req: NextRequest) {
     let syncErrors = connectionsError ? 1 : 0;
     let deadlineExceeded = false;
     let connectionClaimIncomplete = Boolean(connectionsError);
+    let connectionPhaseDeferred = Date.now() >= connectionPhaseDeadline;
+    let cancellationUnconfirmed = false;
     let connectionQuarantined = 0;
     const connectionLimitExceeded = false;
     if (connectionsError) {
@@ -151,6 +157,10 @@ export async function GET(req: NextRequest) {
       deadlineExceeded = true;
       syncErrors += 1;
       connectionClaimIncomplete = true;
+      break;
+    }
+    if (Date.now() >= connectionPhaseDeadline) {
+      connectionPhaseDeferred = true;
       break;
     }
     let synchronized = false;
@@ -173,20 +183,31 @@ export async function GET(req: NextRequest) {
       }
       else {
         let result: Awaited<ReturnType<typeof syncPlaidTransactions>> | null = null;
-        const connectionSignal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+        const connectionItemDeadline = Math.min(
+          connectionPhaseDeadline,
+          Date.now() + CONNECTION_ITEM_DEADLINE_MS,
+        );
         try {
-          result = await syncPlaidTransactions(
-            admin,
-            c.user_id,
-            c.id,
-            accessToken,
-            connectionSignal,
+          result = await runWithinDeadline(
+            connectionItemDeadline,
+            (signal) => syncPlaidTransactions(admin, c.user_id, c.id, accessToken, signal),
           );
-        } catch {
+        } catch (error) {
           syncErrors++;
-          if (connectionSignal.aborted || Date.now() >= deadline) {
+          if (error instanceof FinanceCronDeadlineError && !error.settlementConfirmed) {
+            cancellationUnconfirmed = true;
+            connectionClaimIncomplete = true;
+            releaseLease = false;
+          } else if (Date.now() >= deadline) {
             deadlineExceeded = true;
             connectionClaimIncomplete = true;
+          } else if (error instanceof FinanceCronDeadlineError && Date.now() >= connectionPhaseDeadline) {
+            connectionPhaseDeferred = true;
+          } else if (error instanceof FinanceCronDeadlineError) {
+            failureCode = "PLAID_TXN_DEADLINE_EXCEEDED";
+            Sentry.captureException(new Error("Finance daily Plaid sync failed"), {
+              tags: { area: "fund", stage: "sync", code: failureCode },
+            });
           } else {
             Sentry.captureException(new Error("Finance daily Plaid sync failed"), { tags: { area: "fund", stage: "sync", code: "SYNC_UNEXPECTED_FAILURE" } });
             failureCode = "SYNC_UNEXPECTED_FAILURE";
@@ -194,8 +215,9 @@ export async function GET(req: NextRequest) {
         }
         if (result && "error" in result) {
           console.error("[cron/finance-daily] sync failed", { code: "SYNC_FAILED" });
-          const parentDeadlineExceeded = connectionSignal.aborted || Date.now() >= deadline;
-          if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED" || !parentDeadlineExceeded) {
+          const parentDeadlineExceeded = Date.now() >= deadline;
+          const phaseDeadlineExceeded = Date.now() >= connectionPhaseDeadline;
+          if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED" || (!parentDeadlineExceeded && !phaseDeadlineExceeded)) {
             Sentry.captureException(new Error("Finance daily Plaid sync failed"), {
               tags: { area: "fund", stage: "sync", code: result.error },
             });
@@ -204,6 +226,8 @@ export async function GET(req: NextRequest) {
           if (result.error === "PLAID_TXN_DEADLINE_EXCEEDED" && parentDeadlineExceeded) {
             deadlineExceeded = true;
             connectionClaimIncomplete = true;
+          } else if (result.error === "PLAID_TXN_DEADLINE_EXCEEDED" && phaseDeadlineExceeded) {
+            connectionPhaseDeferred = true;
           } else {
             failureCode = normalizeFailureCode(result.error, "SYNC_FAILED");
           }
@@ -214,7 +238,7 @@ export async function GET(req: NextRequest) {
       }
     }
     if (!synchronized) {
-      if (deadlineExceeded || !failureCode) break;
+      if (deadlineExceeded || connectionPhaseDeferred || cancellationUnconfirmed || !failureCode) break;
       const failure = await admin.rpc("fail_finance_cron_item", {
         p_run_id: runId,
         p_phase: "connections",
@@ -257,7 +281,7 @@ export async function GET(req: NextRequest) {
     }
     }
 
-    if (deadlineExceeded || connectionClaimIncomplete) {
+    if (deadlineExceeded || connectionClaimIncomplete || cancellationUnconfirmed) {
       if (deadlineExceeded) releaseLease = false;
       return NextResponse.json({
       ok: false,
@@ -272,6 +296,8 @@ export async function GET(req: NextRequest) {
       snapshotDeclined: 0,
       notificationFailures: 0,
       connectionQuarantined,
+      connectionPhaseDeferred,
+      cancellationUnconfirmed,
       userQuarantined: 0,
       connectionLimitExceeded,
       discoveryLimitExceeded: false,
@@ -298,6 +324,28 @@ export async function GET(req: NextRequest) {
   let notificationFailures = 0;
   let authLookupFailures = 0;
   let userQuarantined = 0;
+  const persistUserFailure = async (userId: string, errorCode: string) => {
+    const failure = await admin.rpc("fail_finance_cron_item", {
+      p_run_id: runId,
+      p_phase: "users",
+      p_item_id: userId,
+      p_error_code: errorCode,
+    });
+    const disposition = failure.data as FailureDisposition | null;
+    if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
+      Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
+        tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
+      });
+      return false;
+    }
+    if (disposition === "quarantined") {
+      userQuarantined += 1;
+      Sentry.captureException(new Error("Finance daily user quarantined"), {
+        tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
+      });
+    }
+    return true;
+  };
     for (let index = 0; index < userIds.length; index++) {
     if (Date.now() >= deadline) {
       deadlineExceeded = true;
@@ -305,30 +353,42 @@ export async function GET(req: NextRequest) {
       break;
     }
     const userId = userIds[index];
-    const { data: authUser, error: authUserError } = await admin.auth.admin.getUserById(userId);
+    const userDeadline = Math.min(deadline, Date.now() + USER_JOB_DEADLINE_MS);
+    let authUser: { user?: { email?: string | null } | null } | null = null;
+    let authUserError: unknown = null;
+    try {
+      const authResult = await runWithinDeadline(
+        userDeadline,
+        () => admin.auth.admin.getUserById(userId),
+      );
+      authUser = authResult.data;
+      authUserError = authResult.error;
+    } catch (error) {
+      if (error instanceof FinanceCronDeadlineError && Date.now() >= deadline) {
+        deadlineExceeded = true;
+        userFailures += userIds.length - index;
+        if (!error.settlementConfirmed) {
+          cancellationUnconfirmed = true;
+        }
+        releaseLease = false;
+        break;
+      }
+      authLookupFailures++;
+      userFailures += 1;
+      const errorCode = error instanceof FinanceCronDeadlineError
+        ? "AUTH_USER_LOOKUP_DEADLINE_EXCEEDED"
+        : "AUTH_USER_LOOKUP_FAILED";
+      Sentry.captureException(new Error("Finance daily user lookup failed"), {
+        tags: { area: "fund", stage: "user_lookup", code: errorCode },
+      });
+      if (!await persistUserFailure(userId, errorCode)) break;
+      continue;
+    }
     if (authUserError) {
       authLookupFailures++;
       userFailures += 1;
       Sentry.captureException(new Error("Finance daily user lookup failed"), { tags: { area: "fund", stage: "user_lookup", code: "AUTH_USER_LOOKUP_FAILED" } });
-      const failure = await admin.rpc("fail_finance_cron_item", {
-        p_run_id: runId,
-        p_phase: "users",
-        p_item_id: userId,
-        p_error_code: "AUTH_USER_LOOKUP_FAILED",
-      });
-      const disposition = failure.data as FailureDisposition | null;
-      if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
-        Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
-          tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
-        });
-        break;
-      }
-      if (disposition === "quarantined") {
-        userQuarantined += 1;
-        Sentry.captureException(new Error("Finance daily user quarantined"), {
-          tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
-        });
-      }
+      if (!await persistUserFailure(userId, "AUTH_USER_LOOKUP_FAILED")) break;
       continue;
     }
     if (Date.now() >= deadline) {
@@ -339,7 +399,6 @@ export async function GET(req: NextRequest) {
     const userEmail = authUser?.user?.email ?? null;
 
     try {
-      const userDeadline = Math.min(deadline, Date.now() + USER_JOB_DEADLINE_MS);
       const ensureWithinDeadline = () => {
         if (Date.now() >= userDeadline) throw new FinanceCronDeadlineError();
       };
@@ -393,6 +452,12 @@ export async function GET(req: NextRequest) {
       usersCompleted += 1;
     } catch (error) {
       if (error instanceof FinanceCronDeadlineError) {
+        if (!error.settlementConfirmed) {
+          cancellationUnconfirmed = true;
+          releaseLease = false;
+          userFailures += 1;
+          break;
+        }
         if (Date.now() >= deadline) {
           deadlineExceeded = true;
           userFailures += userIds.length - index;
@@ -402,55 +467,19 @@ export async function GET(req: NextRequest) {
         Sentry.captureException(new Error("Finance daily user item deadline exceeded"), {
           tags: { area: "fund", stage: "user_job", code: "USER_JOB_DEADLINE_EXCEEDED" },
         });
-        const failure = await admin.rpc("fail_finance_cron_item", {
-          p_run_id: runId,
-          p_phase: "users",
-          p_item_id: userId,
-          p_error_code: "USER_JOB_DEADLINE_EXCEEDED",
-        });
-        const disposition = failure.data as FailureDisposition | null;
-        if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
-          Sentry.captureException(new Error("Finance daily user deadline persistence failed"), {
-            tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
-          });
-          break;
-        }
-        if (disposition === "quarantined") {
-          userQuarantined += 1;
-          Sentry.captureException(new Error("Finance daily user quarantined"), {
-            tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
-          });
-        }
+        if (!await persistUserFailure(userId, "USER_JOB_DEADLINE_EXCEEDED")) break;
         continue;
       }
       userFailures += 1;
       Sentry.captureException(new Error("Finance daily user job failed"), { tags: { area: "fund", stage: "user_job", code: "USER_JOB_FAILED" } });
-      const failure = await admin.rpc("fail_finance_cron_item", {
-        p_run_id: runId,
-        p_phase: "users",
-        p_item_id: userId,
-        p_error_code: "USER_JOB_FAILED",
-      });
-      const disposition = failure.data as FailureDisposition | null;
-      if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
-        Sentry.captureException(new Error("Finance daily user failure persistence failed"), {
-          tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
-        });
-        break;
-      }
-      if (disposition === "quarantined") {
-        userQuarantined += 1;
-        Sentry.captureException(new Error("Finance daily user quarantined"), {
-          tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
-        });
-      }
+      if (!await persistUserFailure(userId, "USER_JOB_FAILED")) break;
       continue;
     }
     }
 
     if (Date.now() >= deadline) deadlineExceeded = true;
     if (deadlineExceeded) releaseLease = false;
-    const partial = syncErrors > 0 || discoveryErrors > 0 || authLookupFailures > 0 || userFailures > 0 || snapshotDeclined > 0 || notificationFailures > 0 || userLimitExceeded || deadlineExceeded;
+    const partial = syncErrors > 0 || discoveryErrors > 0 || authLookupFailures > 0 || userFailures > 0 || snapshotDeclined > 0 || notificationFailures > 0 || userLimitExceeded || deadlineExceeded || connectionPhaseDeferred || cancellationUnconfirmed;
     return NextResponse.json({
     ok: !partial,
     outcome: partial ? "partial" : "complete",
@@ -464,6 +493,8 @@ export async function GET(req: NextRequest) {
     snapshotDeclined,
     notificationFailures,
     connectionQuarantined,
+    connectionPhaseDeferred,
+    cancellationUnconfirmed,
     userQuarantined,
     connectionLimitExceeded,
     discoveryLimitExceeded,
