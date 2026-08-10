@@ -1,7 +1,23 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/database.types";
+import {
+  addMinorUnits,
+  minorUnitsToDecimalString,
+  multiplyScaledQuantityByDecimalPrice,
+  strictScaledUnits,
+} from "@/lib/fund/financialTruth";
 import { sumBy } from "@/lib/fund/money";
+import { fetchSnapshot, getPolygonApiKey } from "@/lib/massive/client";
+import {
+  fetchPortfolioQuotes,
+  MAX_PORTFOLIO_QUOTE_SYMBOLS,
+  quoteIsAuthoritative,
+  validateAuthoritativeHoldings,
+  validateCurrentConnectionBindings,
+  validateHoldingCoverage,
+} from "@/lib/fund/positionTruth";
+import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import {
   breachObjective,
   reviewConcentration,
@@ -38,17 +54,74 @@ export function concentrationCheckSteps(input: {
       key: "load_holdings",
       input: () => ({}),
       run: async () => {
-        const { data, error } = await supabase
+        const { data: holdings, error } = await supabase
           .from("fund_holdings")
-          .select("symbol, cost_basis")
-          .eq("user_id", userId);
+          .select("symbol, shares, currency, authority, source, provider, provider_record_id, connection_id, retrieved_at, reconciliation_state, generation_id")
+          .eq("user_id", userId)
+          .limit(MAX_PORTFOLIO_QUOTE_SYMBOLS + 1);
         if (error) throw new Error("HOLDINGS_UNAVAILABLE");
-
-        const bySymbol = new Map<string, number>();
-        for (const row of data ?? []) {
-          bySymbol.set(row.symbol, (bySymbol.get(row.symbol) ?? 0) + Number(row.cost_basis));
+        if (!holdings?.length) return [];
+        if (holdings.length > MAX_PORTFOLIO_QUOTE_SYMBOLS) {
+          throw new Error("CONCENTRATION_PORTFOLIO_QUOTE_LIMIT_EXCEEDED");
         }
-        return [...bySymbol.entries()].map(([symbol, value]) => ({ symbol, value }));
+        if (holdings.some((holding) => holding.currency !== "USD")) {
+          throw new Error("CONCENTRATION_CURRENCY_UNSUPPORTED");
+        }
+
+        const [connectionsResult, coverageResult] = await Promise.all([
+          supabase
+            .from("fund_connections")
+            .select("id, provider, status, authority, verified_at")
+            .eq("user_id", userId)
+            .limit(32),
+          supabase
+            .from("fund_provider_coverage")
+            .select("connection_id, provider, component, complete, record_count, retrieved_at, last_attempt_at, availability_status, availability_reason, generation_id, generation_hash")
+            .eq("user_id", userId)
+            .eq("component", "holdings")
+            .limit(33),
+        ]);
+        if (connectionsResult.error || coverageResult.error) {
+          throw new Error("CONCENTRATION_PROVENANCE_UNAVAILABLE");
+        }
+        const authorityFailure = validateAuthoritativeHoldings(holdings)
+          ?? validateCurrentConnectionBindings(holdings, connectionsResult.data ?? [])
+          ?? validateHoldingCoverage(holdings, connectionsResult.data ?? [], coverageResult.data ?? []);
+        if (authorityFailure) throw new Error(`CONCENTRATION_${authorityFailure}`);
+        if (!getPolygonApiKey()) throw new Error("CONCENTRATION_QUOTE_NOT_CONFIGURED");
+
+        const quoteResult = await fetchPortfolioQuotes(
+          holdings.map((holding) => holding.symbol),
+          fetchSnapshot,
+        );
+        if (quoteResult.reason) throw new Error(`CONCENTRATION_${quoteResult.reason}`);
+
+        const bySymbolMinor = new Map<string, number>();
+        for (const holding of holdings) {
+          const quantity = strictScaledUnits(holding.shares, MICRO_SHARES_PER_SHARE);
+          const quote = quoteResult.quotes.get(holding.symbol);
+          if (quantity === null || quantity <= 0 || !quoteIsAuthoritative(quote)) {
+            throw new Error("CONCENTRATION_CURRENT_VALUE_UNAVAILABLE");
+          }
+          const valueMinor = multiplyScaledQuantityByDecimalPrice(
+            quantity,
+            quote.price,
+            MICRO_SHARES_PER_SHARE,
+            "USD",
+          );
+          const combined = valueMinor === null
+            ? null
+            : addMinorUnits(bySymbolMinor.get(holding.symbol) ?? 0, valueMinor);
+          if (combined === null || combined <= 0) {
+            throw new Error("CONCENTRATION_CURRENT_VALUE_INVALID");
+          }
+          bySymbolMinor.set(holding.symbol, combined);
+        }
+        return [...bySymbolMinor.entries()].map(([symbol, valueMinor]) => {
+          const value = minorUnitsToDecimalString(valueMinor, "USD");
+          if (value === null) throw new Error("CONCENTRATION_CURRENT_VALUE_INVALID");
+          return { symbol, value: Number(value) };
+        });
       },
     },
     {

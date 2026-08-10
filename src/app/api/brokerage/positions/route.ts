@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBrokerageCreds } from "../_lib";
 import { logRouteTiming, timedProviderFetch } from "@/lib/observability/providerTiming";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 const PUBLIC_API_BASE = "https://api.public.com";
 
@@ -15,9 +16,8 @@ const PUBLIC_API_BASE = "https://api.public.com";
  */
 export async function GET() {
   const routeStartedAt = Date.now();
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/brokerage/positions", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
 
   const creds = getBrokerageCreds();
   if (!creds?.accountId) {

@@ -1,0 +1,108 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const migrationFile = "supabase/migrations/20260809210000_fund_order_intents_and_execution_receipts.sql";
+const migration = readFileSync(resolve(process.cwd(), migrationFile), "utf8");
+const repairFile = "supabase/migrations/20260809230000_fund_order_intent_limit_notional_repair.sql";
+const repair = readFileSync(resolve(process.cwd(), repairFile), "utf8");
+const cascadeRepairFile = "supabase/migrations/20260809240000_fund_order_intent_user_cascade_repair.sql";
+const cascadeRepair = readFileSync(resolve(process.cwd(), cascadeRepairFile), "utf8");
+
+describe("order intent and verified execution database contract", () => {
+  it("keeps immutable not-submitted intents distinct from fills", () => {
+    expect(migration).toContain("create table if not exists public.fund_order_intents");
+    expect(migration).toContain("unique (user_id, idempotency_key)");
+    expect(migration).toContain("check (status = 'not_submitted')");
+    expect(migration).toContain("payload_hash text not null check (payload_hash ~ '^[0-9a-f]{64}$')");
+    expect(migration).toContain("grant select on table public.fund_order_intents to authenticated");
+    expect(migration).toContain("order intents are immutable");
+    expect(migration).toContain("grant select, insert on table public.fund_order_intents to service_role");
+    expect(migration).not.toContain("grant insert on table public.fund_order_intents to authenticated");
+    expect(migration).not.toContain("grant all on table public.fund_order_intents to service_role");
+  });
+
+  it("allows a provider execution only through a unique immutable fill receipt", () => {
+    expect(migration).toContain("create table if not exists public.fund_order_submissions");
+    expect(migration).toContain("revoke all on table public.fund_order_submissions from public, anon, authenticated, service_role");
+    expect(migration).toContain("create table if not exists public.fund_execution_receipts");
+    expect(migration).toContain("unique (provider, provider_account_ref_hash, provider_fill_id)");
+    expect(migration).toContain("verified execution receipts are immutable");
+    expect(migration).toContain("execution_authority = 'provider_verified'");
+    expect(migration).toContain("execution_receipt_id is not null");
+    expect(migration).toContain("execution does not match verified receipt");
+    expect(migration).toContain("provider-verified executions are immutable");
+    expect(migration).toContain("revoke insert, update, delete, truncate on table public.fund_transactions from authenticated");
+    expect(migration).toContain("revoke insert, update, delete, truncate on table public.fund_transactions from service_role");
+    expect(migration).toContain("grant insert, update, delete on table public.fund_transactions to authenticated");
+    expect(migration).toContain("temporary path can\n-- never manufacture a verified execution");
+    expect(migration).toContain("revoke all on table public.fund_execution_receipts from service_role");
+    expect(migration).not.toContain("grant all on table public.fund_execution_receipts to service_role");
+  });
+
+  it("exposes one service-only idempotent receipt materialization boundary", () => {
+    expect(migration).toMatch(
+      /record_verified_fund_execution[\s\S]*?security definer[\s\S]*?set search_path = ''/,
+    );
+    expect(migration).toContain("if auth.role() <> 'service_role' then");
+    expect(migration).toContain("approval.action_class <> 'FINANCIAL_EXECUTION'");
+    expect(migration).toContain("submission.provider_account_ref_hash <> p_provider_account_ref_hash");
+    expect(migration).toContain("p_retrieved_at < p_executed_at");
+    expect(migration).toContain("p_price_minor <= 0");
+    expect(migration).toContain("price_minor bigint not null check (price_minor > 0)");
+    expect(migration).toContain("return jsonb_build_object('outcome', 'limit_price_violated')");
+    expect(migration).toContain("existing_fill_units + p_filled_quantity_units > intent.quantity_units");
+    expect(migration).toContain("on conflict do nothing");
+    expect(migration).toContain("on conflict (execution_receipt_id) where execution_receipt_id is not null do nothing");
+    expect(migration).toContain("grant execute on function public.record_verified_fund_execution");
+
+    const manifest = JSON.parse(readFileSync(
+      resolve(process.cwd(), "scripts/release-migration-manifest.json"),
+      "utf8",
+    )) as { migrations: Array<{ version: string; file: string; sha256: string }> };
+    const entry = manifest.migrations.find((candidate) => candidate.file === migrationFile);
+    expect(entry).toEqual({
+      version: "20260809210000",
+      file: migrationFile,
+      sha256: createHash("sha256").update(migration).digest("hex"),
+    });
+  });
+
+  it("repairs limit-order notional additively without rewriting the ledgered migration", () => {
+    expect(repair).toContain("when order_type = 'limit' then limit_price_minor::numeric");
+    expect(repair).toContain("FIN_ORDER_INTENT_PREFLIGHT_FAILED");
+    expect(repair).toContain("Existing immutable limit intents disagree with limit-price notional");
+    expect(repair).toContain("fund_order_intents_estimated_notional_presence");
+    expect(repair).toContain("order_type = 'limit'");
+    expect(repair).toContain("estimated_notional_minor is not null");
+    const manifest = JSON.parse(readFileSync(
+      resolve(process.cwd(), "scripts/release-migration-manifest.json"),
+      "utf8",
+    )) as { migrations: Array<{ version: string; file: string; sha256: string }> };
+    expect(manifest.migrations.find((candidate) => candidate.file === repairFile)).toEqual({
+      version: "20260809230000",
+      file: repairFile,
+      sha256: createHash("sha256").update(repair).digest("hex"),
+    });
+  });
+
+  it("allows only the declared owner-account cascade to remove unexecuted intents", () => {
+    expect(cascadeRepair).toContain("tg_op = 'DELETE'");
+    expect(cascadeRepair).toContain("pg_catalog.pg_trigger_depth() = 2");
+    expect(cascadeRepair).toContain("select 1 from auth.users where id = old.user_id");
+    expect(cascadeRepair).toContain("raise exception 'order intents are immutable'");
+    expect(cascadeRepair).not.toContain("drop trigger");
+    expect(cascadeRepair).not.toContain("disable trigger");
+
+    const manifest = JSON.parse(readFileSync(
+      resolve(process.cwd(), "scripts/release-migration-manifest.json"),
+      "utf8",
+    )) as { migrations: Array<{ version: string; file: string; sha256: string }> };
+    expect(manifest.migrations.find((candidate) => candidate.file === cascadeRepairFile)).toEqual({
+      version: "20260809240000",
+      file: cascadeRepairFile,
+      sha256: createHash("sha256").update(cascadeRepair).digest("hex"),
+    });
+  });
+});

@@ -1,17 +1,212 @@
 {
   "$schema": "derived — do not hand-edit; run scripts/derive-program-state.mjs",
-  "derivedAt": "2026-08-09T19:10:23.452Z",
+  "derivedAt": "2026-08-10T04:30:43.959Z",
   "git": {
-    "branch": "codex/state-refresh-auth006-closure",
-    "head": "f599019cdcf789a5f238106387c54d0ebc8cfc32",
-    "mainHead": "f599019cdcf789a5f238106387c54d0ebc8cfc32",
+    "branch": "codex/security-financial-truth-order-intent",
+    "head": "56ba03df8c0ae05ddf9ff9d47d400e567ecbe204",
+    "mainHead": "35773df6e22962fb1ad9a0c1da1036045cc5ac7a",
     "workingTreeClean": true,
-    "aheadOfMain": [],
-    "contentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
+    "aheadOfMain": [
+      {
+        "sha": "56ba03df",
+        "subject": "fix(finance): pin cron telemetry vocabulary"
+      },
+      {
+        "sha": "f8948f27",
+        "subject": "test(finance): complete cron control fault matrix"
+      },
+      {
+        "sha": "24d37fe7",
+        "subject": "fix(finance): close strict contract boundaries"
+      },
+      {
+        "sha": "efcc6cb0",
+        "subject": "fix(finance): bound cron phase execution"
+      },
+      {
+        "sha": "8b2fe09b",
+        "subject": "fix(finance): preserve deadline fairness"
+      },
+      {
+        "sha": "90daafab",
+        "subject": "fix(finance): fence cron retries and expiry"
+      },
+      {
+        "sha": "5061c4c3",
+        "subject": "fix(finance): lease cron and seal contract"
+      },
+      {
+        "sha": "8e4347ea",
+        "subject": "fix(finance): close mutation and scheduler races"
+      },
+      {
+        "sha": "a64ea009",
+        "subject": "fix(finance): enforce provider truth and subject isolation"
+      },
+      {
+        "sha": "51016d4b",
+        "subject": "fix(finance): reject mutable Plaid page generations"
+      },
+      {
+        "sha": "15baea42",
+        "subject": "fix(finance): reject deterministic value drift"
+      },
+      {
+        "sha": "7cb2c651",
+        "subject": "chore(state): bind cascade repair gates"
+      },
+      {
+        "sha": "5b9f6a50",
+        "subject": "fix(finance): bind cleanup to owner cascade"
+      },
+      {
+        "sha": "9fe63bb6",
+        "subject": "fix(finance): preserve immutable account cleanup"
+      },
+      {
+        "sha": "afddabdb",
+        "subject": "chore(state): bind financial truth candidate gates"
+      },
+      {
+        "sha": "cacb70e8",
+        "subject": "chore(observability): pin financial telemetry vocabulary"
+      },
+      {
+        "sha": "fa047c38",
+        "subject": "fix(finance): reject late identity and numeric drift"
+      },
+      {
+        "sha": "b22e6a0b",
+        "subject": "fix(finance): bind notification writes to cancellation"
+      },
+      {
+        "sha": "f932c2de",
+        "subject": "fix(finance): bind exact subject and ticket invariants"
+      },
+      {
+        "sha": "3ee3bc2b",
+        "subject": "fix(finance): abort in-flight cron writes"
+      },
+      {
+        "sha": "b68e80e6",
+        "subject": "fix(finance): close adversarial truth boundaries"
+      },
+      {
+        "sha": "43e24edb",
+        "subject": "fix(finance): fence cancellation observability"
+      },
+      {
+        "sha": "eabfe159",
+        "subject": "fix(finance): close release review boundaries"
+      },
+      {
+        "sha": "b1e8ab1a",
+        "subject": "fix(finance): validate dates and capture unknown failures"
+      },
+      {
+        "sha": "e6fe0343",
+        "subject": "fix(finance): distinguish capacity input and cancellation"
+      },
+      {
+        "sha": "b164102a",
+        "subject": "fix(finance): type coverage operational failures"
+      },
+      {
+        "sha": "d96df0b2",
+        "subject": "fix(finance): propagate coverage verifier failures"
+      },
+      {
+        "sha": "e8fced79",
+        "subject": "fix(finance): reject malformed coverage status"
+      },
+      {
+        "sha": "7e63de61",
+        "subject": "fix(finance): surface transaction proof failures"
+      },
+      {
+        "sha": "033b66d0",
+        "subject": "fix(finance): bind transaction pages to provider proof"
+      },
+      {
+        "sha": "28aaf69f",
+        "subject": "fix(finance): scope coverage pagination to generations"
+      },
+      {
+        "sha": "135cc5cc",
+        "subject": "fix(finance): verify full transaction generations"
+      },
+      {
+        "sha": "d7229103",
+        "subject": "fix(finance): exercise production authority contracts"
+      },
+      {
+        "sha": "41d996b2",
+        "subject": "chore(state): bind financial truth candidate gates"
+      },
+      {
+        "sha": "a1a63ffb",
+        "subject": "docs(finance): forbid expansion migration replay"
+      },
+      {
+        "sha": "4410e694",
+        "subject": "docs(finance): state exact privilege repair"
+      },
+      {
+        "sha": "546bae34",
+        "subject": "fix(finance): repair expansion privilege boundary"
+      },
+      {
+        "sha": "41113820",
+        "subject": "docs(finance): require strict recurring lineage contract"
+      },
+      {
+        "sha": "26ce0f33",
+        "subject": "docs(finance): close release lifecycle gaps"
+      },
+      {
+        "sha": "07fdadb7",
+        "subject": "test(finance): isolate protected contract transition"
+      },
+      {
+        "sha": "ec5380c2",
+        "subject": "fix(finance): stage backward-compatible authority expansion"
+      },
+      {
+        "sha": "5e915284",
+        "subject": "fix(finance): reject zero-price execution receipts"
+      },
+      {
+        "sha": "80fa49c6",
+        "subject": "fix(finance): close truth and execution invariants"
+      },
+      {
+        "sha": "423aa26f",
+        "subject": "test(fund): prove intent retry deduplication"
+      },
+      {
+        "sha": "055aba4f",
+        "subject": "test(fund): align fault fixtures with authority gates"
+      },
+      {
+        "sha": "e6dcb2ab",
+        "subject": "fix(fund): separate order intent from verified execution"
+      },
+      {
+        "sha": "3a14d02b",
+        "subject": "checkpoint(wip): preserve Phase 1 financial truth remediation"
+      }
+    ],
+    "contentTreeHash": "12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8",
     "sourceMainContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
-    "fingerprint": "93d1a37c84e9ad089946fce69a2ac60aa2914d3bf136c28ae9ca396330d5bb1a"
+    "fingerprint": "c9c8bda0040c4cb7bf48afe5ea014bcf74ef32cfad972d97ed70b60f0ca5414f"
   },
   "mergedPrs": [
+    {
+      "pr": 310,
+      "sha": "35773df6",
+      "subject": "docs(state): refresh AUTH-006 production closure",
+      "committedAt": "2026-08-09T15:29:41-04:00"
+    },
     {
       "pr": 309,
       "sha": "f599019c",
@@ -155,12 +350,6 @@
       "sha": "b2a7faf1",
       "subject": "chore(db): drop the empty legacy Mail/Calendar/Contacts connection tables",
       "committedAt": "2026-07-21T10:47:41-04:00"
-    },
-    {
-      "pr": null,
-      "sha": "6fedaceb",
-      "subject": "chore(integrations): delete the direct-OAuth Mail/Calendar/Contacts adapters (Composio-only)",
-      "committedAt": "2026-07-21T10:34:20-04:00"
     }
   ],
   "waves": [
@@ -302,8 +491,8 @@
     }
   ],
   "migrations": {
-    "count": 91,
-    "latest": "20260722064615_user_settings_kv.sql"
+    "count": 100,
+    "latest": "20260809280000_financial_truth_strict_contract.sql"
   },
   "defects": {
     "total": 50,
@@ -319,8 +508,8 @@
   "gates": {
     "measured": true,
     "contract": "exact committed source: typecheck, lint, full unit suite, clean Next production build, aggregate bundle budget",
-    "sourceHead": "254d1ebf90ea7157a326b47f2ad436b504b7a93d",
-    "sourceContentTreeHash": "5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd",
+    "sourceHead": "56ba03df8c0ae05ddf9ff9d47d400e567ecbe204",
+    "sourceContentTreeHash": "12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8",
     "typecheck": {
       "passed": true
     },
@@ -328,10 +517,10 @@
       "passed": true
     },
     "tests": {
-      "passed": 2889,
-      "total": 2889,
-      "files": 310,
-      "suites": 853
+      "passed": 3284,
+      "total": 3284,
+      "files": 373,
+      "suites": 980
     },
     "build": {
       "passed": true,
@@ -345,6 +534,6 @@
       "used": 1964,
       "budget": 3000
     },
-    "measuredAt": "2026-08-09T18:19:32.472Z"
+    "measuredAt": "2026-08-10T04:30:43.773Z"
   }
 }

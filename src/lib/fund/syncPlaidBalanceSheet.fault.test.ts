@@ -1,0 +1,258 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+const mocks = vi.hoisted(() => ({
+  getPlaidCreds: vi.fn(),
+  plaidRequest: vi.fn(),
+  admitPlaidRequest: vi.fn(),
+}));
+
+vi.mock("@/app/api/plaid/_lib", () => ({
+  getPlaidCreds: mocks.getPlaidCreds,
+}));
+vi.mock("@/lib/plaid/request", () => ({
+  plaidRequest: mocks.plaidRequest,
+  isPlainPlaidRecord: (value: unknown) =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value),
+}));
+vi.mock("@/lib/plaid/admission", () => ({
+  admitPlaidRequest: mocks.admitPlaidRequest,
+}));
+
+import { syncPlaidBalanceSheet } from "./syncPlaidBalanceSheet";
+
+const connection = {
+  id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  accessToken: "token",
+  itemId: "item-1",
+};
+
+function admin(rpcImpl?: (name: string, params: Record<string, unknown>) => unknown) {
+  const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => ({
+    data: rpcImpl
+      ? rpcImpl(name, params)
+      : name.startsWith("publish_")
+        ? [{
+            record_count: Array.isArray(params.p_rows) ? params.p_rows.length : -1,
+            generation_hash: "a".repeat(64),
+          }]
+        : true,
+    error: null,
+  }));
+  return { client: { rpc } as unknown as SupabaseClient, rpc };
+}
+
+function item(billed: string[], consented: string[] = []) {
+  return {
+    request_id: "request",
+    item: {
+      item_id: "item-1",
+      billed_products: billed,
+      consented_products: consented,
+    },
+  };
+}
+
+function accounts(types: string[]) {
+  return {
+    request_id: "accounts",
+    item: { item_id: "item-1" },
+    accounts: types.map((type, index) => ({
+      account_id: `account-${index}`,
+      type,
+      subtype: type === "investment" ? "brokerage" : type === "credit" ? "credit card" : "checking",
+    })),
+  };
+}
+
+function holdingPayload(costBasis: unknown = "10.00", quantity: unknown = "1.25") {
+  return {
+    request_id: "holdings",
+    item: { item_id: "item-1" },
+    securities: [{ security_id: "security-1", ticker_symbol: "AAPL", name: "Apple" }],
+    holdings: [{
+      account_id: "account-1",
+      security_id: "security-1",
+      quantity,
+      cost_basis: costBasis,
+      iso_currency_code: "USD",
+    }],
+  };
+}
+
+function liabilityPayload(minimumPayment: unknown = "25.00") {
+  return {
+    request_id: "liabilities",
+    item: { item_id: "item-1" },
+    accounts: [{
+      account_id: "credit-1",
+      name: "Card",
+      balances: { current: "100.00", iso_currency_code: "USD" },
+    }],
+    liabilities: {
+      credit: [{
+        account_id: "credit-1",
+        minimum_payment_amount: minimumPayment,
+        next_payment_due_date: "2026-08-01",
+      }],
+      student: [],
+      mortgage: [],
+    },
+  };
+}
+
+describe("Plaid balance-sheet publication", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getPlaidCreds.mockReturnValue({ clientId: "client", secret: "secret", env: "sandbox" });
+    mocks.admitPlaidRequest.mockResolvedValue("allowed");
+  });
+
+  it("uses explicit Link consent and applicable account types before calling balance-sheet products", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item([], ["investments", "liabilities"]))
+      .mockResolvedValueOnce(accounts(["investment", "credit"]))
+      .mockResolvedValueOnce(holdingPayload())
+      .mockResolvedValueOnce(liabilityPayload());
+    const db = admin();
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "published", recordCount: 1 },
+      liabilities: { status: "published", recordCount: 1 },
+    });
+    expect(mocks.plaidRequest).toHaveBeenCalledTimes(4);
+    expect(db.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes complete empty generations only after inventory proves no applicable accounts", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item([], ["investments", "liabilities"]))
+      .mockResolvedValueOnce(accounts(["depository"]));
+    const db = admin();
+
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "published", recordCount: 0 },
+      liabilities: { status: "published", recordCount: 0 },
+    });
+    expect(mocks.plaidRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes a billed holdings component while marking liabilities independently unavailable", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
+      .mockResolvedValueOnce(holdingPayload());
+    const db = admin();
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "published", recordCount: 1 },
+      liabilities: { status: "unavailable", reason: "product_not_billed" },
+    });
+    expect(db.rpc.mock.calls.map(([name]) => name)).toEqual(expect.arrayContaining([
+      "publish_fund_holding_generation",
+      "mark_fund_provider_component_unavailable",
+    ]));
+  });
+
+  it("fails closed on malformed RPC success and records the failed attempt", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
+      .mockResolvedValueOnce(holdingPayload());
+    const db = admin((name) =>
+      name === "publish_fund_holding_generation"
+        ? [{ record_count: 1, generation_hash: "not-a-hash" }]
+        : true,
+    );
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "unavailable", reason: "publish_failed" },
+    });
+  });
+
+  it("rejects non-null malformed optional liability money instead of converting it to absence", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["liabilities"]))
+      .mockResolvedValueOnce(accounts(["credit"]))
+      .mockResolvedValueOnce(liabilityPayload("25.001"));
+    const db = admin();
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      liabilities: { status: "unavailable", reason: "payload_incomplete" },
+    });
+    expect(db.rpc.mock.calls.some(([name]) => name === "publish_fund_liability_generation")).toBe(false);
+  });
+
+  it("does not claim complete holdings when a provider row lacks a valuing fact", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
+      .mockResolvedValueOnce(holdingPayload(null));
+    const db = admin();
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "unavailable", reason: "payload_incomplete" },
+    });
+  });
+
+  it("rejects provider quantities that require rounding at the persisted share scale", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
+      .mockResolvedValueOnce(holdingPayload("10.00", "1.0000004"));
+    const db = admin();
+
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "unavailable", reason: "payload_incomplete" },
+    });
+    expect(db.rpc.mock.calls.some(([name]) => name === "publish_fund_holding_generation")).toBe(false);
+  });
+
+  it("accepts exact provider quantities with insignificant trailing zeroes", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(accounts(["investment"]))
+      .mockResolvedValueOnce(holdingPayload("10.00", "1.0000000"));
+    const db = admin();
+
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "published", recordCount: 1 },
+    });
+  });
+
+  it("does not downgrade coverage after a provider request is cancelled", async () => {
+    const controller = new AbortController();
+    mocks.plaidRequest.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+    const db = admin();
+
+    await expect(syncPlaidBalanceSheet(
+      db.client,
+      "user-1",
+      connection,
+      controller.signal,
+    )).rejects.toMatchObject({ name: "AbortError" });
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+});

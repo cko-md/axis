@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
 
 // FUND-1: shared fund data store. Holdings and liabilities were each fetched
 // independently by 3–5 subroute modules (Investing, Net Worth, Overview,
@@ -10,15 +12,26 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 // and shares it. Editor modules call the exposed refresh() after mutating so
 // every subroute stays consistent without redundant network round-trips.
 
-export type Holding = { id: string; symbol: string; name: string; shares: number; cost_basis: number; source: string; retrieved_at?: string | null };
-export type AggregatedHolding = {
+export type Holding = {
+  id: string;
   symbol: string;
   name: string;
   shares: number;
   cost_basis: number;
+  source: string;
+  authority?: "provider" | "manual";
+  retrieved_at?: string | null;
+};
+export type AggregatedHolding = {
+  symbol: string;
+  name: string;
+  shares: number;
+  cost_basis: number | null;
   sources: string[];
+  currencies?: string[];
   /** Shared currency for this symbol, or null when constituent rows differ. */
   currency?: string | null;
+  total_reason?: "mixed_currency_without_fx" | "invalid_amount" | null;
   /** Oldest constituent retrieved_at (conservative freshness anchor). */
   retrieved_at?: string | null;
   /** Cross-source reconciliation state; null until the symbol has ≥2 sources. */
@@ -32,10 +45,14 @@ export type Liability = {
   apr: number | null;
   minimum_payment: number | null;
   due_date: string | null;
+  currency?: string | null;
+  source?: string;
+  authority?: "provider" | "manual";
+  retrieved_at?: string | null;
 };
-// Bank-linked liabilities from the §10 Plaid adapter (/api/plaid/liabilities) —
-// provenance-aware, so each carries a retrieved_at for a FreshnessBadge, unlike
-// manually-tracked liabilities.
+// Provider liabilities are read from the same persisted source of truth as
+// manual liabilities. Live provider refresh is owned by the bounded finance
+// reconciler and never triggered implicitly by mounting a client layout.
 export type PlaidLiability = {
   accountId: string;
   type: string;
@@ -51,6 +68,9 @@ type FundData = {
   aggregated: AggregatedHolding[];
   holdingsLoading: boolean;
   holdingsError: boolean;
+  /** Provider holdings excluded because their complete generation cannot be proven. */
+  holdingsProviderUnavailable: boolean;
+  holdingsProviderUnavailableReason: string | null;
   /** false only when the holdings fetch returned 401 — used to gate signed-out UI. */
   signedIn: boolean;
   refreshHoldings: () => Promise<void>;
@@ -60,6 +80,8 @@ type FundData = {
   refreshLiabilities: () => Promise<void>;
   /** Bank-linked (Plaid) liabilities with provenance/freshness. Empty when unlinked. */
   plaidLiabilities: PlaidLiability[];
+  plaidLiabilitiesState: "loading" | "ready" | "unavailable";
+  plaidLiabilitiesConnected: boolean | null;
   refreshPlaidLiabilities: () => Promise<void>;
 };
 
@@ -72,98 +94,239 @@ export function useFundData(): FundData {
 }
 
 export function FundDataProvider({ children }: { children: ReactNode }) {
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
+  const holdingsRequestRef = useRef(0);
+  const liabilitiesRequestRef = useRef(0);
   const [rows, setRows] = useState<Holding[]>([]);
   const [aggregated, setAggregated] = useState<AggregatedHolding[]>([]);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
   const [holdingsError, setHoldingsError] = useState(false);
+  const [holdingsProviderUnavailable, setHoldingsProviderUnavailable] = useState(false);
+  const [holdingsProviderUnavailableReason, setHoldingsProviderUnavailableReason] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(true);
+  const [holdingsIdentity, setHoldingsIdentity] = useState<string | null>(null);
+  const holdingsIdentityRef = useRef(holdingsIdentity);
+  holdingsIdentityRef.current = holdingsIdentity;
 
   const [liabilities, setLiabilities] = useState<Liability[]>([]);
   const [liabilitiesLoading, setLiabilitiesLoading] = useState(true);
   const [liabilitiesError, setLiabilitiesError] = useState(false);
+  const [liabilitiesIdentity, setLiabilitiesIdentity] = useState<string | null>(null);
+  const liabilitiesIdentityRef = useRef(liabilitiesIdentity);
+  liabilitiesIdentityRef.current = liabilitiesIdentity;
 
   const [plaidLiabilities, setPlaidLiabilities] = useState<PlaidLiability[]>([]);
+  const [plaidLiabilitiesState, setPlaidLiabilitiesState] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [plaidLiabilitiesConnected, setPlaidLiabilitiesConnected] = useState<boolean | null>(null);
 
   const refreshHoldings = useCallback(async () => {
+    const requestGeneration = ++holdingsRequestRef.current;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
     setHoldingsLoading(true);
+    if (!expectedSubject) {
+      setRows([]);
+      setAggregated([]);
+      setHoldingsProviderUnavailable(false);
+      setHoldingsProviderUnavailableReason(null);
+      setHoldingsIdentity(null);
+      setSignedIn(accountState !== "signed-out");
+      setHoldingsLoading(false);
+      return;
+    }
+    const isCurrent = () =>
+      holdingsRequestRef.current === requestGeneration
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
     try {
-      const res = await fetch("/api/fund/holdings");
+      const res = await fetch("/api/fund/holdings", {
+        cache: "no-store",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: expectedSubject },
+      });
+      if (!isCurrent()) return;
       setSignedIn(res.status !== 401);
-      const data = (await res.json().catch(() => ({}))) as { rows?: Holding[]; aggregated?: AggregatedHolding[] };
+      const data = (await res.json().catch(() => ({}))) as {
+        rows?: Holding[];
+        aggregated?: AggregatedHolding[];
+        providerUnavailable?: unknown;
+        providerUnavailableReason?: unknown;
+      };
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        const expectedIdentity = `${expectedSubject}:${expectedEpoch}`;
+        if (res.status === 401 || res.status === 409 || holdingsIdentityRef.current !== expectedIdentity) {
+          // Authentication loss is a privacy boundary, not a stale-data case.
+          // Never retain a previous subject's financial rows after it.
+          setRows([]);
+          setAggregated([]);
+          setHoldingsProviderUnavailable(false);
+          setHoldingsProviderUnavailableReason(null);
+        }
+        setHoldingsIdentity(expectedIdentity);
+        setHoldingsError(res.status !== 401);
+        return;
+      }
       setRows(data.rows ?? []);
       setAggregated(data.aggregated ?? []);
-      setHoldingsError(!res.ok && res.status !== 401);
+      setHoldingsProviderUnavailable(data.providerUnavailable === true);
+      setHoldingsProviderUnavailableReason(
+        data.providerUnavailable === true && typeof data.providerUnavailableReason === "string"
+          ? data.providerUnavailableReason
+          : null,
+      );
+      setHoldingsIdentity(`${expectedSubject}:${expectedEpoch}`);
+      setHoldingsError(false);
     } catch {
-      setHoldingsError(true);
+      if (isCurrent()) {
+        const expectedIdentity = `${expectedSubject}:${expectedEpoch}`;
+        if (holdingsIdentityRef.current !== expectedIdentity) {
+          setRows([]);
+          setAggregated([]);
+          setHoldingsProviderUnavailable(false);
+          setHoldingsProviderUnavailableReason(null);
+        }
+        setHoldingsIdentity(expectedIdentity);
+        setHoldingsError(true);
+      }
     } finally {
-      setHoldingsLoading(false);
+      if (isCurrent()) setHoldingsLoading(false);
     }
-  }, []);
+  }, [accountState, authorityEpoch, currentSubject]);
 
   const refreshLiabilities = useCallback(async () => {
+    const requestGeneration = ++liabilitiesRequestRef.current;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
     setLiabilitiesLoading(true);
-    try {
-      const res = await fetch("/api/fund/liabilities");
-      const data = (await res.json().catch(() => ({}))) as { liabilities?: Liability[] };
-      setLiabilities(data.liabilities ?? []);
-      setLiabilitiesError(!res.ok);
-    } catch {
-      setLiabilitiesError(true);
-    } finally {
+    if (!expectedSubject) {
+      setLiabilities([]);
+      setPlaidLiabilities([]);
+      setLiabilitiesIdentity(null);
+      setPlaidLiabilitiesConnected(null);
+      setPlaidLiabilitiesState("unavailable");
       setLiabilitiesLoading(false);
+      return;
     }
-  }, []);
+    const isCurrent = () =>
+      liabilitiesRequestRef.current === requestGeneration
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
+    try {
+      const res = await fetch("/api/fund/liabilities", {
+        cache: "no-store",
+        headers: { [EXPECTED_PROFILE_SUBJECT_HEADER]: expectedSubject },
+      });
+      if (!isCurrent()) return;
+      const data = (await res.json().catch(() => ({}))) as {
+        liabilities?: Liability[];
+        providerAvailability?: Array<{ availability_status?: string; availability_reason?: string | null }>;
+        providerUnavailable?: unknown;
+      };
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        setLiabilities([]);
+        setPlaidLiabilities([]);
+        setPlaidLiabilitiesConnected(null);
+        setPlaidLiabilitiesState("unavailable");
+        setLiabilitiesError(true);
+        setLiabilitiesIdentity(`${expectedSubject}:${expectedEpoch}`);
+        return;
+      }
+      const all = data.liabilities ?? [];
+      setLiabilities(all.filter((liability) => liability.authority === "manual"));
+      setPlaidLiabilities(
+        all
+          .filter((liability) => liability.authority === "provider")
+          .map((liability) => ({
+            accountId: liability.id,
+            type: liability.kind,
+            name: liability.name,
+            balanceCurrent: liability.balance,
+            currency: liability.currency ?? "",
+            nextPaymentDueDate: liability.due_date,
+            retrievedAt: liability.retrieved_at ?? null,
+          })),
+      );
+      const providerAttempts = data.providerAvailability ?? [];
+      setPlaidLiabilitiesConnected(
+        all.some((liability) => liability.authority === "provider") || providerAttempts.length > 0,
+      );
+      setPlaidLiabilitiesState(
+        data.providerUnavailable === true
+          || providerAttempts.some((attempt) => attempt.availability_status !== "available")
+          ? "unavailable"
+          : "ready",
+      );
+      setLiabilitiesError(false);
+      setLiabilitiesIdentity(`${expectedSubject}:${expectedEpoch}`);
+    } catch {
+      if (isCurrent()) {
+        const expectedIdentity = `${expectedSubject}:${expectedEpoch}`;
+        setLiabilitiesError(true);
+        if (liabilitiesIdentityRef.current !== expectedIdentity) {
+          setLiabilities([]);
+          setPlaidLiabilities([]);
+        }
+        setLiabilitiesIdentity(expectedIdentity);
+        setPlaidLiabilitiesConnected(null);
+        setPlaidLiabilitiesState("unavailable");
+      }
+    } finally {
+      if (isCurrent()) setLiabilitiesLoading(false);
+    }
+  }, [authorityEpoch, currentSubject]);
 
   const refreshPlaidLiabilities = useCallback(async () => {
-    try {
-      const res = await fetch("/api/plaid/liabilities");
-      // The adapter returns domain Liabilities with provenance nested; flatten
-      // retrievedAt up for the badge. Non-ok / unlinked → empty (soft failure).
-      const data = (await res.json().catch(() => ({}))) as {
-        liabilities?: Array<{
-          accountId: string; type: string; name: string | null;
-          balanceCurrent: number | null; currency: string; nextPaymentDueDate: string | null;
-          provenance?: { retrievedAt?: string | null };
-        }>;
-      };
-      setPlaidLiabilities(
-        res.ok
-          ? (data.liabilities ?? []).map((l) => ({
-              accountId: l.accountId,
-              type: l.type,
-              name: l.name,
-              balanceCurrent: l.balanceCurrent,
-              currency: l.currency,
-              nextPaymentDueDate: l.nextPaymentDueDate,
-              retrievedAt: l.provenance?.retrievedAt ?? null,
-            }))
-          : [],
-      );
-    } catch {
-      setPlaidLiabilities([]);
-    }
-  }, []);
+    setPlaidLiabilitiesState("loading");
+    await refreshLiabilities();
+  }, [refreshLiabilities]);
 
   useEffect(() => {
     void refreshHoldings();
     void refreshLiabilities();
-    void refreshPlaidLiabilities();
-  }, [refreshHoldings, refreshLiabilities, refreshPlaidLiabilities]);
+    return () => {
+      holdingsRequestRef.current += 1;
+      liabilitiesRequestRef.current += 1;
+    };
+  }, [refreshHoldings, refreshLiabilities]);
+
+  const holdingsCurrent = holdingsIdentity === currentIdentity;
+  const liabilitiesCurrent = liabilitiesIdentity === currentIdentity;
+  const visibleRows = holdingsCurrent ? rows : [];
+  const visibleAggregated = holdingsCurrent ? aggregated : [];
+  const visibleHoldingsProviderUnavailable = holdingsCurrent
+    ? holdingsProviderUnavailable
+    : false;
+  const visibleHoldingsProviderUnavailableReason = holdingsCurrent
+    ? holdingsProviderUnavailableReason
+    : null;
+  const visibleLiabilities = liabilitiesCurrent ? liabilities : [];
+  const visiblePlaidLiabilities = liabilitiesCurrent ? plaidLiabilities : [];
 
   return (
     <FundDataContext.Provider
       value={{
-        rows,
-        aggregated,
-        holdingsLoading,
-        holdingsError,
-        signedIn,
+        rows: visibleRows,
+        aggregated: visibleAggregated,
+        holdingsLoading: holdingsCurrent ? holdingsLoading : true,
+        holdingsError: holdingsCurrent ? holdingsError : false,
+        holdingsProviderUnavailable: visibleHoldingsProviderUnavailable,
+        holdingsProviderUnavailableReason: visibleHoldingsProviderUnavailableReason,
+        signedIn: holdingsCurrent ? signedIn : accountState === "ready",
         refreshHoldings,
-        liabilities,
-        liabilitiesLoading,
-        liabilitiesError,
+        liabilities: visibleLiabilities,
+        liabilitiesLoading: liabilitiesCurrent ? liabilitiesLoading : true,
+        liabilitiesError: liabilitiesCurrent ? liabilitiesError : false,
         refreshLiabilities,
-        plaidLiabilities,
+        plaidLiabilities: visiblePlaidLiabilities,
+        plaidLiabilitiesState: liabilitiesCurrent ? plaidLiabilitiesState : "loading",
+        plaidLiabilitiesConnected: liabilitiesCurrent ? plaidLiabilitiesConnected : null,
         refreshPlaidLiabilities,
       }}
     >

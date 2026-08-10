@@ -1,18 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const VALID_STATUS = ["active", "cancelled", "irregular"];
 
 /** PATCH /api/fund/recurring/:id — confirm or cancel a detected recurring charge. */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/recurring/[id]", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  if (!VALID_STATUS.includes(body.status)) {
+  const parsedBody = await readBoundedJsonBody(request, 2_048);
+  if (!parsedBody.ok) {
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+  }
+  const body = parsedBody.value;
+  if (typeof body.status !== "string" || !VALID_STATUS.includes(body.status)) {
     return NextResponse.json({ error: "INVALID_STATUS" }, { status: 400 });
   }
 

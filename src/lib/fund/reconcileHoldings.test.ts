@@ -73,14 +73,14 @@ describe("reconcileHoldings", () => {
     expect(out.get("BP")!.state).toBe("pending");
   });
 
-  it("defaults a missing/blank currency to USD and still reconciles", () => {
+  it("keeps missing currency unavailable instead of defaulting to USD", () => {
     const out = reconcileHoldings([
       { symbol: "AMZN", source: "manual", cost_basis: 100 },
       { symbol: "AMZN", source: "plaid", cost_basis: 100, currency: "" },
     ]);
     const amzn = out.get("AMZN")!;
-    expect(amzn.state).toBe("matched");
-    expect(amzn.currency).toBe("USD");
+    expect(amzn.state).toBe("pending");
+    expect(amzn.currency).toBeNull();
   });
 
   it("normalizes currency case before comparing", () => {

@@ -40,11 +40,13 @@ export type NotifyFailureReason =
   | "ALREADY_QUEUED"
   | "NOT_REPLAYABLE"
   | "AUDIT_WRITE_FAILED"
-  | "DELIVERY_FAILED";
+  | "DELIVERY_FAILED"
+  | "DELIVERY_UNCONFIRMED";
 
 export type NotifyResult =
   | {
       sent: true;
+      accepted: true;
       status: number;
       deliveryId: string;
       deduped: boolean;
@@ -53,9 +55,21 @@ export type NotifyResult =
     }
   | {
       sent: false;
+      accepted?: false;
       reason: NotifyFailureReason;
       retryable: boolean;
       deliveryId?: string;
+      auditRecorded: boolean;
+      outboxRecorded: boolean;
+    }
+  | {
+      sent: false;
+      accepted: true;
+      reason: "DELIVERY_UNCONFIRMED";
+      retryable: false;
+      status: number;
+      deliveryId: string;
+      deduped: boolean;
       auditRecorded: boolean;
       outboxRecorded: boolean;
     };
@@ -65,7 +79,12 @@ type MakeDeliveryDependencies = {
   now?: () => Date;
   randomUUID?: () => string;
   trigger?: typeof triggerWebhook;
+  signal?: AbortSignal;
 };
+
+function ensureDeliveryActive(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException("Finance notification aborted", "AbortError");
+}
 
 function webhookUrlForKind(kind: NotifyKind): string | undefined {
   return optionalEnv(WEBHOOK_ENV_BY_KIND[kind]);
@@ -88,14 +107,23 @@ async function appendDeliveryAudit(
   dedupeKeyHash: string,
   result: "success" | "failure" | "pending_confirmation",
   metadata: Record<string, unknown> = {},
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const { error } = await admin.from("audit_logs").insert({
+  ensureDeliveryActive(signal);
+  const query = admin.from("audit_logs").insert({
     user_id: payload.userId,
     actor: "system",
     action: `notify.${payload.kind}`,
     payload: { dedupe_key_hash: dedupeKeyHash, ...metadata },
     result,
   });
+  const abortable = query as typeof query & {
+    abortSignal?: (activeSignal: AbortSignal) => Promise<{ error: unknown }>;
+  };
+  const { error } = signal && typeof abortable.abortSignal === "function"
+    ? await abortable.abortSignal(signal)
+    : await query;
+  ensureDeliveryActive(signal);
   if (!error) return true;
   captureOutboxFailure("notification_audit", payload.kind);
   return false;
@@ -107,6 +135,7 @@ function dependencies(admin: SupabaseClient, deps: MakeDeliveryDependencies) {
     now: deps.now ?? (() => new Date()),
     randomUUID: deps.randomUUID ?? (() => crypto.randomUUID()),
     trigger: deps.trigger ?? triggerWebhook,
+    signal: deps.signal,
   };
 }
 
@@ -116,12 +145,16 @@ async function markUnattemptedFailure(input: {
   errorCode: string;
   now: string;
   kind: NotifyKind;
+  signal?: AbortSignal;
 }) {
+  ensureDeliveryActive(input.signal);
   const result = await input.store.failWithoutAttempt({
     row: input.row,
     errorCode: input.errorCode,
     now: input.now,
+    signal: input.signal,
   });
+  ensureDeliveryActive(input.signal);
   if (!result.ok) captureOutboxFailure("outbox_finalize", input.kind);
   return result.ok;
 }
@@ -134,13 +167,16 @@ async function deliverClaimedMakeNotification(input: {
   dedupeKeyHash: string;
   deps: ReturnType<typeof dependencies>;
 }): Promise<NotifyResult> {
+  ensureDeliveryActive(input.deps.signal);
   const claimToken = input.deps.randomUUID();
   const claimedAt = input.deps.now().toISOString();
   const claim = await input.deps.store.claim({
     row: input.row,
     claimToken,
     now: claimedAt,
+    signal: input.deps.signal,
   });
+  ensureDeliveryActive(input.deps.signal);
   if (!claim.ok) {
     if (claim.code === "database") captureOutboxFailure("outbox_claim", input.payload.kind);
     return {
@@ -163,7 +199,8 @@ async function deliverClaimedMakeNotification(input: {
     body_text: input.payload.bodyText,
     body_html: input.payload.bodyHtml,
     meta: input.payload.meta ?? {},
-  });
+  }, input.deps.signal);
+  ensureDeliveryActive(input.deps.signal);
 
   const completedAt = input.deps.now().toISOString();
   const completion = await input.deps.store.complete({
@@ -177,7 +214,9 @@ async function deliverClaimedMakeNotification(input: {
           ...(delivery.error.status !== undefined ? { status: delivery.error.status } : {}),
         },
     now: completedAt,
+    signal: input.deps.signal,
   });
+  ensureDeliveryActive(input.deps.signal);
   if (!completion.ok) captureOutboxFailure("outbox_finalize", input.payload.kind);
 
   if (!delivery.ok) {
@@ -192,6 +231,7 @@ async function deliverClaimedMakeNotification(input: {
         status: delivery.error.status ?? null,
         retryable: delivery.error.retryable,
       },
+      input.deps.signal,
     );
     return {
       sent: false,
@@ -203,15 +243,33 @@ async function deliverClaimedMakeNotification(input: {
     };
   }
 
+  const confirmedDelivered = completion.ok
+    && completion.data.status === "delivered"
+    && typeof completion.data.delivered_at === "string";
   const auditRecorded = await appendDeliveryAudit(
     input.admin,
     input.payload,
     input.dedupeKeyHash,
-    "success",
+    confirmedDelivered ? "success" : "pending_confirmation",
     { delivery_id: input.row.id, status: delivery.data.status },
+    input.deps.signal,
   );
+  if (confirmedDelivered) {
+    return {
+      sent: true,
+      accepted: true,
+      status: delivery.data.status,
+      deliveryId: input.row.id,
+      deduped: false,
+      auditRecorded,
+      outboxRecorded: true,
+    };
+  }
   return {
-    sent: true,
+    sent: false,
+    accepted: true,
+    reason: "DELIVERY_UNCONFIRMED",
+    retryable: false,
     status: delivery.data.status,
     deliveryId: input.row.id,
     deduped: false,
@@ -227,6 +285,7 @@ export async function notifyViaMake(
   injected: MakeDeliveryDependencies = {},
 ): Promise<NotifyResult> {
   const deps = dependencies(admin, injected);
+  ensureDeliveryActive(deps.signal);
   const dedupeKeyHash = makeOutboxDedupeHash(payload.userId, payload.idempotencyKey);
   const sealed = sealMakeOutboxPayload(payload, dedupeKeyHash);
   if (!sealed.ok) {
@@ -237,6 +296,7 @@ export async function notifyViaMake(
       dedupeKeyHash,
       "failure",
       { error_code: "outbox_encryption_unavailable" },
+      deps.signal,
     );
     return {
       sent: false,
@@ -254,15 +314,49 @@ export async function notifyViaMake(
     dedupeKeyHash,
     payloadCiphertext: sealed.data,
     now,
+    signal: deps.signal,
   });
+  ensureDeliveryActive(deps.signal);
   if (!queued.ok) {
+    if (queued.code === "duplicate" && queued.existing?.status === "accepted") {
+      const auditRecorded = await appendDeliveryAudit(
+        admin,
+        payload,
+        dedupeKeyHash,
+        "pending_confirmation",
+        { delivery_id: queued.existing.id, deduped: true, delivery_attempted: false },
+        deps.signal,
+      );
+      return {
+        sent: false,
+        accepted: true,
+        reason: "DELIVERY_UNCONFIRMED",
+        retryable: false,
+        status: queued.existing.last_http_status ?? 202,
+        deliveryId: queued.existing.id,
+        deduped: true,
+        auditRecorded,
+        outboxRecorded: true,
+      };
+    }
     if (queued.code === "duplicate" && queued.existing?.status === "delivered") {
+      // Record a distinct audit observation: this invocation verified a prior
+      // delivery but did not submit a second notification.
+      const auditRecorded = await appendDeliveryAudit(
+        admin,
+        payload,
+        dedupeKeyHash,
+        "success",
+        { delivery_id: queued.existing.id, deduped: true, delivery_attempted: false },
+        deps.signal,
+      );
       return {
         sent: true,
+        accepted: true,
         status: queued.existing.last_http_status ?? 200,
         deliveryId: queued.existing.id,
         deduped: true,
-        auditRecorded: true,
+        auditRecorded,
         outboxRecorded: true,
       };
     }
@@ -285,6 +379,7 @@ export async function notifyViaMake(
       errorCode: "webhook_not_configured",
       now: deps.now().toISOString(),
       kind: payload.kind,
+      signal: deps.signal,
     });
     const auditRecorded = await appendDeliveryAudit(
       admin,
@@ -292,6 +387,7 @@ export async function notifyViaMake(
       dedupeKeyHash,
       "pending_confirmation",
       { delivery_id: queued.data.id, reason: "webhook_not_configured" },
+      deps.signal,
     );
     return {
       sent: false,
@@ -309,7 +405,9 @@ export async function notifyViaMake(
     dedupeKeyHash,
     "pending_confirmation",
     { delivery_id: queued.data.id },
+    deps.signal,
   );
+  ensureDeliveryActive(deps.signal);
   if (!preflightRecorded) {
     const outboxRecorded = await markUnattemptedFailure({
       store: deps.store,
@@ -317,6 +415,7 @@ export async function notifyViaMake(
       errorCode: "audit_write_failed",
       now: deps.now().toISOString(),
       kind: payload.kind,
+      signal: deps.signal,
     });
     return {
       sent: false,
@@ -365,6 +464,7 @@ export async function replayMakeNotification(
       errorCode: "payload_decryption_failed",
       now: deps.now().toISOString(),
       kind: row.event_type,
+      signal: deps.signal,
     });
     return {
       sent: false,
@@ -384,6 +484,7 @@ export async function replayMakeNotification(
       errorCode: "webhook_not_configured",
       now: deps.now().toISOString(),
       kind: opened.data.kind,
+      signal: deps.signal,
     });
     return {
       sent: false,
@@ -401,6 +502,7 @@ export async function replayMakeNotification(
     row.dedupe_key_hash,
     "pending_confirmation",
     { delivery_id: row.id, replay: true },
+    deps.signal,
   );
   if (!preflightRecorded) {
     return {

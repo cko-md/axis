@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 import type { Database } from "@/lib/supabase/database.types";
 import { redactRouteError } from "@/lib/observability/redactRouteError";
+import { readBoundedJsonBody } from "@/lib/http/readBoundedJsonBody";
+import { EXPECTED_PROFILE_SUBJECT_HEADER } from "@/lib/auth/profileSubject";
+import { profileSubjectForUserId } from "@/lib/auth/profileSubject.server";
 
 const PATCHABLE = [
   "custom_category",
   "tags",
-  "is_transfer",
   "excluded_from_budget",
   "reviewed",
   "notes",
-  "amount",
 ] as const;
 
 const CATEGORY_RE = /^[A-Z0-9_ -]{1,80}$/;
@@ -38,7 +40,7 @@ function buildPatch(body: Record<string, unknown>) {
     }
   }
 
-  for (const key of ["is_transfer", "excluded_from_budget", "reviewed"] as const) {
+  for (const key of ["excluded_from_budget", "reviewed"] as const) {
     if (key in body) {
       if (typeof body[key] !== "boolean") return { error: "INVALID_BOOLEAN" };
       patch[key] = body[key];
@@ -55,23 +57,25 @@ function buildPatch(body: Record<string, unknown>) {
     }
   }
 
-  if ("amount" in body) {
-    const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || Math.abs(amount) > 1_000_000_000) return { error: "INVALID_AMOUNT" };
-    patch.amount = amount;
-  }
-
   return { patch };
 }
 
 /** PATCH /api/fund/bank-transactions/:id — categorize, tag, exclude, mark reviewed. */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/fund/bank-transactions/[id]", area: "fund" });
+  if (!identity.ok) return NextResponse.json({ error: identity.code }, { status: identity.status });
+  const { client: supabase, user } = identity;
+  const expectedSubject = request.headers.get(EXPECTED_PROFILE_SUBJECT_HEADER);
+  if (expectedSubject && expectedSubject !== profileSubjectForUserId(user.id)) {
+    return NextResponse.json({ error: "SUBJECT_CHANGED" }, { status: 409 });
+  }
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
+  const parsedBody = await readBoundedJsonBody(request, 8_192);
+  if (!parsedBody.ok) {
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+  }
+  const body = parsedBody.value;
   const allowed = new Set<string>(PATCHABLE);
   if (Object.keys(body).some((key) => !allowed.has(key))) {
     return NextResponse.json({ error: "INVALID_FIELD" }, { status: 400 });

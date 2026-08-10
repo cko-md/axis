@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ModuleInteractiveHero } from "@/components/ui/axis/ModuleInteractiveHero";
 import { FundSubNav } from "@/components/fund/FundSubNav";
@@ -13,6 +13,8 @@ import {
 } from "@/lib/fund/connectionHealth";
 import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 import { semanticToneColor, type SemanticToneKey } from "@/lib/design/statusTokens";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 const PAGE_LABELS: Record<string, string> = {
   "/fund": "Overview",
@@ -36,6 +38,11 @@ type ProviderStatusResponse = {
   provider?: string;
   source?: string;
   latestConnection?: {
+    institution?: string | null;
+    status?: string | null;
+    updatedAt?: string | null;
+  } | null;
+  connection?: {
     institution?: string | null;
     status?: string | null;
     updatedAt?: string | null;
@@ -83,60 +90,104 @@ const HEALTH_TONE_STYLES: Record<ConnectionHealthTone, { color: string; border: 
 
 export function FundPremiumShell({ children }: Props) {
   const pathname = usePathname();
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const statusGenerationRef = useRef(0);
+  const statusControllerRef = useRef<AbortController | null>(null);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   const [providers, setProviders] = useState<ProviderStatuses>({
     polygon: EMPTY_STATUS,
     plaid: EMPTY_STATUS,
     publicCom: EMPTY_STATUS,
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
 
   const refreshStatuses = useCallback(async () => {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const generation = ++statusGenerationRef.current;
+    statusControllerRef.current?.abort();
+    const controller = new AbortController();
+    statusControllerRef.current = controller;
     setRefreshing(true);
+    setStatusIdentity(null);
+    if (!expectedSubject) {
+      setProviders({ polygon: EMPTY_STATUS, plaid: EMPTY_STATUS, publicCom: EMPTY_STATUS });
+      setRefreshing(false);
+      return;
+    }
+    const isCurrent = () => !controller.signal.aborted
+      && statusGenerationRef.current === generation
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
     try {
       const [massive, plaid, brokerage] = await Promise.all([
-        fetch("/api/massive/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
-        fetch("/api/plaid/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
-        fetch("/api/brokerage/status").then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
+        fetch("/api/massive/status", { signal: controller.signal, cache: "no-store" }).then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
+        subjectBoundFetch(expectedSubject, "/api/plaid/status", { signal: controller.signal }).then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
+        subjectBoundFetch(expectedSubject, "/api/brokerage/status", { signal: controller.signal }).then((r) => r.json()).catch(() => ({ error: "STATUS_UNAVAILABLE" })),
       ]);
-      setProviders({ polygon: massive, plaid, publicCom: brokerage });
+      if (!isCurrent()) return;
+      setProviders({
+        polygon: massive,
+        plaid: { ...plaid, latestConnection: plaid.latestConnection ?? plaid.connection ?? null },
+        publicCom: brokerage,
+      });
+      setStatusIdentity(`${expectedSubject}:${expectedEpoch}`);
     } finally {
-      setRefreshing(false);
+      if (isCurrent()) setRefreshing(false);
     }
-  }, []);
+  }, [authorityEpoch, currentSubject]);
 
   useEffect(() => {
     void refreshStatuses();
+    return () => {
+      statusControllerRef.current?.abort();
+      statusControllerRef.current = null;
+    };
   }, [refreshStatuses]);
+
+  const visibleProviders = useMemo<ProviderStatuses>(() => statusIdentity === currentIdentity
+    ? providers
+    : { polygon: EMPTY_STATUS, plaid: EMPTY_STATUS, publicCom: EMPTY_STATUS },
+  [currentIdentity, providers, statusIdentity]);
+  const visibleRefreshing = currentIdentity !== null && statusIdentity !== currentIdentity
+    ? true
+    : refreshing;
 
   const providerHealth = useMemo<ConnectionHealth[]>(() => [
     deriveConnectionHealth({
       provider: "plaid",
       label: "Plaid",
-      configured: !!providers.plaid.configured,
-      linked: providers.plaid.linked,
-      lastSyncedAt: providers.plaid.latestConnection?.updatedAt ?? null,
-      error: !!providers.plaid.error || providers.plaid.latestConnection?.status === "error",
+      configured: !!visibleProviders.plaid.configured,
+      linked: visibleProviders.plaid.linked,
+      lastSyncedAt: visibleProviders.plaid.latestConnection?.updatedAt ?? null,
+      error: !!visibleProviders.plaid.error || visibleProviders.plaid.latestConnection?.status === "error",
       freshnessSla: FRESHNESS_SLAS.accountBalance,
     }),
     deriveConnectionHealth({
       provider: "public",
       label: "Public",
-      configured: !!providers.publicCom.configured,
-      linked: providers.publicCom.linked,
-      lastSyncedAt: providers.publicCom.latestConnection?.updatedAt ?? null,
-      error: !!providers.publicCom.error || providers.publicCom.latestConnection?.status === "error",
+      configured: !!visibleProviders.publicCom.configured,
+      linked: visibleProviders.publicCom.linked,
+      lastSyncedAt: visibleProviders.publicCom.latestConnection?.updatedAt ?? null,
+      error: !!visibleProviders.publicCom.error || visibleProviders.publicCom.latestConnection?.status === "error",
       freshnessSla: FRESHNESS_SLAS.holdings,
     }),
     deriveConnectionHealth({
       provider: "polygon",
       label: "Polygon",
-      configured: !!providers.polygon.configured,
-      linked: providers.polygon.linked,
-      lastSyncedAt: providers.polygon.latestConnection?.updatedAt ?? null,
-      error: !!providers.polygon.error,
+      configured: !!visibleProviders.polygon.configured,
+      linked: visibleProviders.polygon.linked,
+      lastSyncedAt: visibleProviders.polygon.latestConnection?.updatedAt ?? null,
+      error: !!visibleProviders.polygon.error,
       freshnessSla: FRESHNESS_SLAS.marketPrice,
     }),
-  ], [providers]);
+  ], [visibleProviders]);
 
   const activeLabel = Object.entries(PAGE_LABELS).find(([href]) =>
     href === "/fund" ? pathname === "/fund" : pathname.startsWith(href),
@@ -175,7 +226,7 @@ export function FundPremiumShell({ children }: Props) {
           },
         ]}
         actions={[
-          { label: refreshing ? "Refreshing…" : "Refresh status", onClick: () => void refreshStatuses(), disabled: refreshing },
+          { label: visibleRefreshing ? "Refreshing…" : "Refresh status", onClick: () => void refreshStatuses(), disabled: visibleRefreshing },
           { label: "Watchlist", href: "/fund/watchlist" },
           { label: "Connections", href: "/control-room" },
         ]}

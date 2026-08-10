@@ -1,4 +1,13 @@
 import type { NewsItem } from "@/lib/massive/client";
+import {
+  validateAuthoritativeHoldings,
+  validateCurrentConnectionBindings,
+  validateHoldingCoverage,
+  type LivePositionReason,
+  type PositionConnectionInput,
+  type PositionCoverageInput,
+  type PositionHoldingInput,
+} from "@/lib/fund/positionTruth";
 
 export type MarketReportSource = {
   title: string;
@@ -18,6 +27,25 @@ export type MarketReportHolding = {
 const MAX_SOURCES = 6;
 const MAX_HOLDINGS = 10;
 const MAX_WATCHLIST = 5;
+
+export function authoritativeMarketReportHoldings(
+  holdings: readonly (PositionHoldingInput & { name?: string | null })[],
+  connections: readonly PositionConnectionInput[],
+  coverage: readonly PositionCoverageInput[],
+): {
+  holdings: Array<{ symbol: string; name?: string | null }>;
+  reason: LivePositionReason | "HOLDINGS_NOT_AVAILABLE" | null;
+} {
+  if (holdings.length === 0) return { holdings: [], reason: "HOLDINGS_NOT_AVAILABLE" };
+  const reason = validateAuthoritativeHoldings(holdings)
+    ?? validateCurrentConnectionBindings(holdings, connections)
+    ?? validateHoldingCoverage(holdings, connections, coverage);
+  if (reason) return { holdings: [], reason };
+  return {
+    holdings: holdings.map(({ symbol, name }) => ({ symbol, name })),
+    reason: null,
+  };
+}
 
 function normalizeSymbol(value: string): string {
   return value.trim().toUpperCase();

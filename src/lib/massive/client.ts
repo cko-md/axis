@@ -6,6 +6,22 @@ const GAP_MS = 280;
 
 let lastRequest = 0;
 
+function providerTimestamp(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  // Polygon timestamps may be seconds, milliseconds, microseconds, or
+  // nanoseconds depending on endpoint. Normalize by magnitude, then reject
+  // impossible/future values rather than substituting Axis retrieval time.
+  let milliseconds = value;
+  if (value < 10_000_000_000) milliseconds = value * 1_000;
+  else if (value > 10_000_000_000_000_000) milliseconds = value / 1_000_000;
+  else if (value > 10_000_000_000_000) milliseconds = value / 1_000;
+  const earliest = Date.UTC(2000, 0, 1);
+  if (!Number.isFinite(milliseconds) || milliseconds < earliest || milliseconds > Date.now() + 60_000) {
+    return null;
+  }
+  return new Date(milliseconds).toISOString();
+}
+
 export function getPolygonApiKey(): string | undefined {
   return getPolygonApiKeyEnv();
 }
@@ -19,6 +35,7 @@ export function mapSymbol(sym: string): string {
 export async function massiveRequest<T>(
   path: string,
   params: Record<string, string> = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   const apiKey = getPolygonApiKey();
   if (!apiKey) {
@@ -26,13 +43,27 @@ export async function massiveRequest<T>(
   }
 
   const wait = Math.max(0, GAP_MS - (Date.now() - lastRequest));
-  if (wait) await new Promise((r) => setTimeout(r, wait));
+  if (wait) {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, wait);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("Massive request aborted", "AbortError"));
+      }, { once: true });
+    });
+  }
+  if (signal?.aborted) throw new DOMException("Massive request aborted", "AbortError");
   lastRequest = Date.now();
 
-  const qs = new URLSearchParams({ ...params, apiKey });
+  const qs = new URLSearchParams(params);
+  const url = `${BASE}${path}${qs.size > 0 ? `?${qs}` : ""}`;
   const res = await timedProviderFetch(
-    `${BASE}${path}?${qs}`,
-    { next: { revalidate: 60 } },
+    url,
+    {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      next: { revalidate: 60 },
+      signal,
+    },
     {
       area: "fund",
       provider: "polygon",
@@ -60,47 +91,118 @@ export interface QuoteResult {
   chg: number;
   open?: number;
   vol?: number;
-  source: "live";
+  source: "massive";
+  /** Provider event time. Quotes without one are rejected as unavailable. */
+  asOf: string;
+  /** Provider market-status observation time, distinct from the price event. */
+  observedAt: string;
+  /** Provider snapshot update time when the snapshot endpoint supplied one. */
+  snapshotUpdatedAt?: string;
+  marketSession: "open" | "closed" | "continuous";
+  /** True only when /prev supplied the latest completed US session bar. */
+  latestCompletedSession?: true;
   ts?: number;
 }
 
-export async function fetchPrevQuote(sym: string): Promise<QuoteResult> {
+export async function fetchPrevQuote(sym: string, signal?: AbortSignal): Promise<QuoteResult> {
   const j = await massiveRequest<{
     results?: Array<{ c: number; o: number; v: number; t: number }>;
   }>(`/v2/aggs/ticker/${encodeURIComponent(mapSymbol(sym))}/prev`, {
     adjusted: "true",
-  });
+  }, signal);
   const bar = j.results?.[0];
   if (!bar) throw new Error(`No quote for ${sym}`);
+  const asOf = providerTimestamp(bar.t);
+  if (!asOf) throw new Error("QUOTE_TIMESTAMP_UNAVAILABLE");
   return {
     price: bar.c,
     chg: bar.o ? ((bar.c - bar.o) / bar.o) * 100 : 0,
     open: bar.o,
     vol: bar.v,
-    source: "live",
+    source: "massive",
+    asOf,
+    observedAt: asOf,
+    marketSession: "continuous",
     ts: bar.t,
   };
 }
 
-export async function fetchSnapshot(sym: string): Promise<QuoteResult> {
+async function fetchUsMarketStatus(signal?: AbortSignal): Promise<{ session: "open" | "closed"; observedAt: string }> {
+  const status = await massiveRequest<{ market?: unknown; serverTime?: unknown }>("/v1/marketstatus/now", {}, signal);
+  const session = status.market === "open" ? "open" : status.market === "closed" ? "closed" : null;
+  const observedAt = typeof status.serverTime === "string" ? new Date(status.serverTime) : null;
+  if (!session || !observedAt || !Number.isFinite(observedAt.getTime()) || observedAt.getTime() > Date.now() + 60_000) {
+    throw new Error("MARKET_SESSION_UNAVAILABLE");
+  }
+  return { session, observedAt: observedAt.toISOString() };
+}
+
+export async function fetchSnapshot(sym: string, signal?: AbortSignal): Promise<QuoteResult> {
   // The snapshot endpoint is US-stocks only; crypto falls back to prev-day aggregates
   if (mapSymbol(sym).startsWith("X:")) {
-    return fetchPrevQuote(sym);
+    return fetchPrevQuote(sym, signal);
   }
+  const marketStatus = await fetchUsMarketStatus(signal);
   const j = await massiveRequest<{
     ticker?: {
       day?: { c: number; o: number };
-      lastTrade?: { p: number };
+      lastTrade?: { p: number; t?: number };
+      updated?: number;
     };
   }>(
     `/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(mapSymbol(sym))}`,
     {},
+    signal,
   );
   const t = j.ticker;
   if (!t?.day) throw new Error(`No snapshot for ${sym}`);
-  const p = t.lastTrade?.p ?? t.day.c;
-  const chg = t.day.o ? ((p - t.day.o) / t.day.o) * 100 : 0;
-  return { price: p, chg, source: "live" };
+  const snapshotUpdatedAt = providerTimestamp(t.updated);
+  if (!snapshotUpdatedAt) throw new Error("QUOTE_SNAPSHOT_TIMESTAMP_UNAVAILABLE");
+  const openPriceEventAt = marketStatus.session === "open"
+    ? providerTimestamp(t.lastTrade?.t)
+    : null;
+  const openPrice = marketStatus.session === "open"
+    && typeof t.lastTrade?.p === "number"
+    && Number.isFinite(t.lastTrade.p)
+    ? t.lastTrade.p
+    : null;
+  if (
+    marketStatus.session === "open"
+    && (!openPriceEventAt || openPrice === null)
+  ) throw new Error("QUOTE_TIMESTAMP_UNAVAILABLE");
+  const confirmedStatus = await fetchUsMarketStatus(signal);
+  if (confirmedStatus.session !== marketStatus.session) {
+    throw new Error("MARKET_SESSION_CHANGED");
+  }
+  if (confirmedStatus.session === "open") {
+    const priceEventAt = openPriceEventAt as string;
+    const chg = t.day.o ? (((openPrice as number) - t.day.o) / t.day.o) * 100 : 0;
+    return {
+      price: openPrice as number,
+      chg,
+      source: "massive",
+      asOf: priceEventAt,
+      observedAt: confirmedStatus.observedAt,
+      snapshotUpdatedAt,
+      marketSession: "open",
+    };
+  }
+
+  // Outside the live session, /prev is the provider-backed proof of the
+  // latest completed US trading session. Never relabel a stale last trade as
+  // current merely because the snapshot itself was observed later.
+  const previous = await fetchPrevQuote(sym, signal);
+  const completedSessionStatus = await fetchUsMarketStatus(signal);
+  if (completedSessionStatus.session !== "closed") {
+    throw new Error("MARKET_SESSION_CHANGED");
+  }
+  return {
+    ...previous,
+    observedAt: completedSessionStatus.observedAt,
+    snapshotUpdatedAt,
+    marketSession: "closed",
+    latestCompletedSession: true,
+  };
 }
 
 export interface AggBar {

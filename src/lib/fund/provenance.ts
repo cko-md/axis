@@ -13,7 +13,10 @@
  * classification logic those columns will feed.
  */
 
-import { toMinorUnits } from "./money";
+import {
+  normalizeFinancialCurrency,
+  strictExactMinorUnits,
+} from "./financialTruth";
 
 /** Reconciliation status of a value against a second source of truth. */
 export type ReconciliationState =
@@ -28,6 +31,8 @@ export type ReconciliationState =
 export type Provenance = {
   /** Source system, e.g. "plaid", "public", "manual", "polygon". */
   provider: string;
+  /** Stable local connection identity when one provider has multiple links. */
+  connectionId?: string;
   /** The provider's own record id, for idempotency and audit trails. */
   providerRecordId?: string;
   /** ISO-8601 timestamp the value was retrieved from the provider. */
@@ -116,6 +121,7 @@ export function reconcileAmount(
   expected: number | string | null | undefined,
   observed: number | string | null | undefined,
   toleranceMinor = 0,
+  currency = "",
 ): ReconciliationState {
   const hasExpected = expected != null && expected !== "";
   const hasObserved = observed != null && observed !== "";
@@ -123,6 +129,10 @@ export function reconcileAmount(
   if (!hasExpected && !hasObserved) return "missing";
   if (!hasExpected || !hasObserved) return "partial";
 
-  const diff = Math.abs(toMinorUnits(expected) - toMinorUnits(observed));
+  const normalized = normalizeFinancialCurrency(currency, "");
+  const expectedMinor = normalized ? strictExactMinorUnits(expected, normalized) : null;
+  const observedMinor = normalized ? strictExactMinorUnits(observed, normalized) : null;
+  if (expectedMinor === null || observedMinor === null) return "conflicting";
+  const diff = Math.abs(expectedMinor - observedMinor);
   return diff <= Math.abs(toleranceMinor) ? "matched" : "conflicting";
 }

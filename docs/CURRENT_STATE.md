@@ -23,8 +23,8 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 ## Repository state identity
 
-- **State fingerprint:** `93d1a37c84e9ad089946fce69a2ac60aa2914d3bf136c28ae9ca396330d5bb1a` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
-- **Content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
+- **State fingerprint:** `c9c8bda0040c4cb7bf48afe5ea014bcf74ef32cfad972d97ed70b60f0ca5414f` (committed tree plus bound provenance/gate evidence; only the two generated state artifacts are excluded)
+- **Content tree:** `12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8`
 - **Source-main tree at derivation:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
 - **Production release rule:** source-main alignment is evaluated by Vercel at deploy time; this snapshot records the derivation-time source-main tree and does not claim current alignment after a merge.
 - An equivalent squash/merge preserves every rendered derived fact. A new numeric wave or other fact change requires a protected state refresh.
@@ -33,10 +33,60 @@ _Deterministically derived from committed repository content. Do not hand-edit t
 
 _Informational origin of this snapshot. The fingerprint, not commit topology, establishes currency after an equivalent squash or merge._
 
-- **Branch:** `codex/state-refresh-auth006-closure`
-- **HEAD:** `f599019c`
-- **main:** `f599019c`
+- **Branch:** `codex/security-financial-truth-order-intent`
+- **HEAD:** `56ba03df`
+- **main:** `35773df6`
 - **Working tree:** clean
+
+### Ahead of source main at derivation (47 commit(s))
+
+- `56ba03df` fix(finance): pin cron telemetry vocabulary
+- `f8948f27` test(finance): complete cron control fault matrix
+- `24d37fe7` fix(finance): close strict contract boundaries
+- `efcc6cb0` fix(finance): bound cron phase execution
+- `8b2fe09b` fix(finance): preserve deadline fairness
+- `90daafab` fix(finance): fence cron retries and expiry
+- `5061c4c3` fix(finance): lease cron and seal contract
+- `8e4347ea` fix(finance): close mutation and scheduler races
+- `a64ea009` fix(finance): enforce provider truth and subject isolation
+- `51016d4b` fix(finance): reject mutable Plaid page generations
+- `15baea42` fix(finance): reject deterministic value drift
+- `7cb2c651` chore(state): bind cascade repair gates
+- `5b9f6a50` fix(finance): bind cleanup to owner cascade
+- `9fe63bb6` fix(finance): preserve immutable account cleanup
+- `afddabdb` chore(state): bind financial truth candidate gates
+- `cacb70e8` chore(observability): pin financial telemetry vocabulary
+- `fa047c38` fix(finance): reject late identity and numeric drift
+- `b22e6a0b` fix(finance): bind notification writes to cancellation
+- `f932c2de` fix(finance): bind exact subject and ticket invariants
+- `3ee3bc2b` fix(finance): abort in-flight cron writes
+- `b68e80e6` fix(finance): close adversarial truth boundaries
+- `43e24edb` fix(finance): fence cancellation observability
+- `eabfe159` fix(finance): close release review boundaries
+- `b1e8ab1a` fix(finance): validate dates and capture unknown failures
+- `e6fe0343` fix(finance): distinguish capacity input and cancellation
+- `b164102a` fix(finance): type coverage operational failures
+- `d96df0b2` fix(finance): propagate coverage verifier failures
+- `e8fced79` fix(finance): reject malformed coverage status
+- `7e63de61` fix(finance): surface transaction proof failures
+- `033b66d0` fix(finance): bind transaction pages to provider proof
+- `28aaf69f` fix(finance): scope coverage pagination to generations
+- `135cc5cc` fix(finance): verify full transaction generations
+- `d7229103` fix(finance): exercise production authority contracts
+- `41d996b2` chore(state): bind financial truth candidate gates
+- `a1a63ffb` docs(finance): forbid expansion migration replay
+- `4410e694` docs(finance): state exact privilege repair
+- `546bae34` fix(finance): repair expansion privilege boundary
+- `41113820` docs(finance): require strict recurring lineage contract
+- `26ce0f33` docs(finance): close release lifecycle gaps
+- `07fdadb7` test(finance): isolate protected contract transition
+- `ec5380c2` fix(finance): stage backward-compatible authority expansion
+- `5e915284` fix(finance): reject zero-price execution receipts
+- `80fa49c6` fix(finance): close truth and execution invariants
+- `423aa26f` test(fund): prove intent retry deduplication
+- `055aba4f` test(fund): align fault fixtures with authority gates
+- `e6dcb2ab` fix(fund): separate order intent from verified execution
+- `3a14d02b` checkpoint(wip): preserve Phase 1 financial truth remediation
 
 ## Waves merged to main
 
@@ -64,8 +114,8 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 ## Database
 
-- **Tracked migrations:** 91
-- **Latest:** `20260722064615_user_settings_kv.sql`
+- **Tracked migrations:** 100
+- **Latest:** `20260809280000_financial_truth_strict_contract.sql`
 
 ## Defects
 
@@ -76,12 +126,12 @@ Every row above is **merged**. A wave listed here is done; do not restart it.
 
 _Local source evidence is persisted in `.claude/axis-redesign/GENERATED_STATE.json` and bound into the state fingerprint. It is not the hosted production-readiness gate. A normal derive preserves a measured pass only when the content-tree hash is identical; otherwise it marks the evidence stale. `--gates` runs typecheck, lint, the full unit suite, a clean production build, and the aggregate bundle budget._
 
-- **Tests:** 2889/2889 across 310 files
+- **Tests:** 3284/3284 across 373 files
 - **Bundle:** 4146 KB / 4400 KB
 - **Route-isolated game bundle:** 1964 KB / 3000 KB
-- **Measured source:** `254d1ebf`
-- **Measured content tree:** `5851fe2c9c86152ac6246c06aa89bf106bdc19a3a15525c07ed1ca85d37cfdfd`
-- **Measured at:** 2026-08-09T18:19:32.472Z
+- **Measured source:** `56ba03df`
+- **Measured content tree:** `12a27750eb7f0b830133dc42b382d514c2288f21a37ffb303996358e39331ad8`
+- **Measured at:** 2026-08-10T04:30:43.773Z
 
 <!-- END GENERATED: derive-program-state -->
 

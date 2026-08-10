@@ -1,4 +1,4 @@
-import { toMajorUnits, toMinorUnits } from "./money";
+import { minorUnitsToDecimalString, normalizeFinancialCurrency, strictMinorUnits } from "./financialTruth";
 
 /** Categories Axis exposes for spending review and budget assignment. */
 export const ACTIVITY_CATEGORIES = [
@@ -76,9 +76,10 @@ export type ActivityAnomalyInput = {
 export type ActivityAnomalyReason = "new_merchant_high_amount" | "merchant_amount_outlier";
 
 export type ActivityAnomalyAssessment = {
+  available: boolean;
   flagged: boolean;
   reason: ActivityAnomalyReason | null;
-  amountMinor: number;
+  amountMinor: number | null;
   currency: string;
   merchantKey: string | null;
   sampleCount: number;
@@ -105,11 +106,6 @@ export const DEFAULT_USD_ACTIVITY_ANOMALY_RULES: ActivityAnomalyRules = {
   outlierMultiplierDenominator: 1,
 };
 
-function normalizeCurrency(value: string | null | undefined): string {
-  const normalized = value?.trim().toUpperCase();
-  return normalized || "USD";
-}
-
 /** Stable comparison key; it never overwrites the provider merchant label. */
 export function normalizeActivityMerchantKey(value: string | null | undefined): string | null {
   const normalized = value
@@ -131,11 +127,29 @@ export function assessActivityAnomaly(
   history: readonly ActivityAnomalyInput[],
   rules: ActivityAnomalyRules = DEFAULT_USD_ACTIVITY_ANOMALY_RULES,
 ): ActivityAnomalyAssessment {
-  const rawAmountMinor = toMinorUnits(transaction.amount);
-  const amountMinor = Math.abs(rawAmountMinor);
-  const currency = normalizeCurrency(transaction.currency);
+  // Omitted currency is the legacy/manual function default. Provider-shaped
+  // callers pass an explicit string or null; null/unknown remains unavailable.
+  const normalizedCurrency = normalizeFinancialCurrency(
+    transaction.currency,
+    transaction.currency === undefined ? "USD" : "",
+  );
+  const currency = normalizedCurrency ?? "USD";
+  const rulesValid = normalizeFinancialCurrency(rules.newMerchantThresholdCurrency, "") !== null
+    && Number.isSafeInteger(rules.newMerchantThresholdMinor)
+    && rules.newMerchantThresholdMinor >= 0
+    && Number.isSafeInteger(rules.minimumMerchantSamples)
+    && rules.minimumMerchantSamples >= 1
+    && Number.isSafeInteger(rules.outlierMultiplierNumerator)
+    && rules.outlierMultiplierNumerator > 0
+    && Number.isSafeInteger(rules.outlierMultiplierDenominator)
+    && rules.outlierMultiplierDenominator > 0;
+  const rawAmountMinor = normalizedCurrency && rulesValid
+    ? strictMinorUnits(transaction.amount, normalizedCurrency)
+    : null;
+  const amountMinor = rawAmountMinor === null ? null : Math.abs(rawAmountMinor);
   const merchantKey = normalizeActivityMerchantKey(transaction.merchantName);
   const empty: ActivityAnomalyAssessment = {
+    available: rawAmountMinor !== null,
     flagged: false,
     reason: null,
     amountMinor,
@@ -145,27 +159,44 @@ export function assessActivityAnomaly(
     baselineAverageMinor: null,
   };
 
-  if (!merchantKey || transaction.isTransfer || transaction.pending || rawAmountMinor >= 0) return empty;
+  if (
+    rawAmountMinor === null ||
+    amountMinor === null ||
+    !merchantKey ||
+    transaction.isTransfer ||
+    transaction.pending ||
+    rawAmountMinor >= 0
+  ) return empty;
 
-  const comparableAmounts = history.flatMap((entry) => {
-    if (entry.id === transaction.id || entry.isTransfer || entry.pending) return [];
-    if (normalizeCurrency(entry.currency) !== currency) return [];
-    if (normalizeActivityMerchantKey(entry.merchantName) !== merchantKey) return [];
-    const rawMinor = toMinorUnits(entry.amount);
-    return rawMinor < 0 ? [Math.abs(rawMinor)] : [];
-  });
+  const comparableAmounts: number[] = [];
+  for (const entry of history) {
+    if (entry.id === transaction.id || entry.isTransfer || entry.pending) continue;
+    const entryCurrency = normalizeFinancialCurrency(
+      entry.currency,
+      entry.currency === undefined ? "USD" : "",
+    );
+    if (entryCurrency !== currency) continue;
+    if (normalizeActivityMerchantKey(entry.merchantName) !== merchantKey) continue;
+    const rawMinor = strictMinorUnits(entry.amount, currency);
+    if (rawMinor === null) return { ...empty, available: false };
+    if (rawMinor < 0) comparableAmounts.push(Math.abs(rawMinor));
+  }
 
   if (comparableAmounts.length === 0) {
-    const flagged = currency === normalizeCurrency(rules.newMerchantThresholdCurrency)
+    const flagged = currency === normalizeFinancialCurrency(rules.newMerchantThresholdCurrency, "")
       && amountMinor > rules.newMerchantThresholdMinor;
     return { ...empty, flagged, reason: flagged ? "new_merchant_high_amount" : null };
   }
 
-  const totalMinor = comparableAmounts.reduce((total, value) => total + value, 0);
-  const baselineAverageMinor = Math.round(totalMinor / comparableAmounts.length);
+  const totalMinorBig = comparableAmounts.reduce((total, value) => total + BigInt(value), BigInt(0));
+  if (totalMinorBig > BigInt(Number.MAX_SAFE_INTEGER)) return { ...empty, available: false };
+  const countBig = BigInt(comparableAmounts.length);
+  const baselineAverageBig = (totalMinorBig + countBig / BigInt(2)) / countBig;
+  if (baselineAverageBig > BigInt(Number.MAX_SAFE_INTEGER)) return { ...empty, available: false };
+  const baselineAverageMinor = Number(baselineAverageBig);
   const isOutlier = comparableAmounts.length >= rules.minimumMerchantSamples
-    && amountMinor * comparableAmounts.length * rules.outlierMultiplierDenominator
-      > totalMinor * rules.outlierMultiplierNumerator;
+    && BigInt(amountMinor) * countBig * BigInt(rules.outlierMultiplierDenominator)
+      > totalMinorBig * BigInt(rules.outlierMultiplierNumerator);
 
   return {
     ...empty,
@@ -177,11 +208,13 @@ export function assessActivityAnomaly(
 }
 
 export function activityAnomalyReason(assessment: ActivityAnomalyAssessment): string | null {
-  if (!assessment.flagged || !assessment.reason) return null;
-  const amount = `${toMajorUnits(assessment.amountMinor).toFixed(2)} ${assessment.currency}`;
+  if (!assessment.available || assessment.amountMinor === null || !assessment.flagged || !assessment.reason) return null;
+  const amount = `${minorUnitsToDecimalString(assessment.amountMinor, assessment.currency)} ${assessment.currency}`;
   if (assessment.reason === "new_merchant_high_amount") {
     return `first recorded transaction at this merchant, ${amount}`;
   }
-  const baseline = `${toMajorUnits(assessment.baselineAverageMinor ?? 0).toFixed(2)} ${assessment.currency}`;
+  const baselineMinor = assessment.baselineAverageMinor;
+  if (baselineMinor === null) return null;
+  const baseline = `${minorUnitsToDecimalString(baselineMinor, assessment.currency)} ${assessment.currency}`;
   return `${amount} versus a trailing average of ${baseline} at this merchant`;
 }

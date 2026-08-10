@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 type Insight = {
   ic: string;
@@ -20,28 +22,73 @@ type Budget = {
 };
 
 export function FundBudget() {
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const generationRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
   const [insights, setInsights] = useState<Insight[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [status, setStatus] = useState<"loading" | "ok" | "no-plaid" | "no-account" | "error">(
     "loading",
   );
+  const [dataIdentity, setDataIdentity] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const generation = ++generationRef.current;
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setInsights([]);
+    setBudgets([]);
+    setStatus("loading");
+    setDataIdentity(null);
+    if (!expectedSubject) return;
+    const isCurrent = () => !controller.signal.aborted
+      && generationRef.current === generation
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
     try {
-      const res = await fetch("/api/plaid/budget", { method: "POST" });
+      const res = await subjectBoundFetch(expectedSubject, "/api/plaid/budget", {
+        method: "POST",
+        signal: controller.signal,
+      });
+      if (!isCurrent()) return;
       const data = await res.json();
+      if (!isCurrent()) return;
+      const identity = `${expectedSubject}:${expectedEpoch}`;
+      setDataIdentity(identity);
       if (!data.configured) { setStatus("no-plaid"); return; }
       if (data.error === "NO_LINKED_ACCOUNT") { setStatus("no-account"); return; }
-      if (data.error) { setStatus("error"); return; }
+      if (!res.ok || data.error) { setStatus("error"); return; }
       setInsights(data.insights ?? []);
       setBudgets(data.budgets ?? []);
       setStatus("ok");
     } catch {
-      setStatus("error");
+      if (isCurrent()) {
+        setDataIdentity(`${expectedSubject}:${expectedEpoch}`);
+        setStatus("error");
+      }
     }
-  }, []);
+  }, [authorityEpoch, currentSubject]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => {
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+    };
+  }, [load]);
+
+  const visibleStatus = dataIdentity === currentIdentity ? status : "loading";
+  const visibleInsights = dataIdentity === currentIdentity ? insights : [];
+  const visibleBudgets = dataIdentity === currentIdentity ? budgets : [];
 
   return (
     <Card>
@@ -51,31 +98,31 @@ export function FundBudget() {
         <span className="count">Plaid · This month</span>
       </h2>
 
-      {status === "loading" && (
+      {visibleStatus === "loading" && (
         <p style={{ marginTop: 10, fontSize: 12, color: "var(--ink-faint)" }}>
           Analyzing spending…
         </p>
       )}
-      {status === "no-plaid" && (
+      {visibleStatus === "no-plaid" && (
         <p style={{ marginTop: 10, fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
           Add PLAID_CLIENT_ID and PLAID_SECRET in Vercel to see live budget intelligence.
         </p>
       )}
-      {status === "no-account" && (
+      {visibleStatus === "no-account" && (
         <p style={{ marginTop: 10, fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.6 }}>
           Link a bank account to see budget insights.
         </p>
       )}
-      {status === "error" && (
+      {visibleStatus === "error" && (
         <p style={{ marginTop: 10, fontSize: 12, color: "var(--clay)" }}>
           Could not load budget data. Try again later.
         </p>
       )}
 
-      {status === "ok" && (
+      {visibleStatus === "ok" && (
         <>
           <div style={{ marginTop: 10 }}>
-            {insights.map((t) => (
+            {visibleInsights.map((t) => (
               <div key={t.title} className="txn">
                 <div className="txn-ic" style={t.icColor ? { color: t.icColor } : undefined}>
                   {t.ic}
@@ -88,9 +135,9 @@ export function FundBudget() {
               </div>
             ))}
           </div>
-          {budgets.length > 0 && (
+          {visibleBudgets.length > 0 && (
             <div style={{ marginTop: 14 }}>
-              {budgets.map((b) => (
+              {visibleBudgets.map((b) => (
                 <div key={b.label} className="budgetbar">
                   <div className="bl">
                     <span>{b.label}</span>

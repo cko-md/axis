@@ -1,137 +1,253 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { fmtUsd, holdingGain, holdingValue, type HoldingRow } from "@/lib/store/fund-defaults";
-import { sumBy, sumMoney } from "@/lib/fund/money";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { addMinorUnits, minorUnitsToDecimalString, scaledUnitsToDecimalString, strictMinorUnits, strictScaledUnits } from "@/lib/fund/financialTruth";
+import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import { Card } from "@/components/ui/Card";
 import { NetWorthChart } from "@/components/fund/NetWorthChart";
 import { usePlaidConnection } from "@/lib/fund/usePlaidConnection";
 import { useFundData } from "@/components/fund/FundDataProvider";
+import { useShellProfile } from "@/components/layout/ShellProfileContext";
+import { subjectBoundFetch } from "@/lib/auth/subjectBoundFetch";
 
 type Insight = { id: string; title: string; body: string; confidence: string };
+type OverviewHolding = { id?: string; symbol: string; name: string; shares: string; costBasisMinor: number };
+
+function formatUsdMinor(value: number | null): string {
+  if (value === null) return "—";
+  const decimal = minorUnitsToDecimalString(value, "USD");
+  if (!decimal) return "—";
+  const negative = decimal.startsWith("-");
+  const [whole, fraction] = (negative ? decimal.slice(1) : decimal).split(".");
+  return `${negative ? "-" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
+}
+
+function formatExactUsd(value: string | null): string {
+  if (value === null) return "—";
+  const match = value.match(/^(-?)(\d+)\.(\d{2})$/);
+  return match
+    ? `${match[1]}$${match[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${match[3]}`
+    : "—";
+}
 
 export function OverviewModule() {
-  const { plaidConfigured, plaidLinked, bankAccounts, cash, connectBank, brokerageConfigured, balanceError } =
+  const { state: accountState, profile, authorityEpoch = 0 } = useShellProfile();
+  const currentSubject = accountState === "ready" ? profile?.subject ?? null : null;
+  const currentSubjectRef = useRef(currentSubject);
+  const authorityEpochRef = useRef(authorityEpoch);
+  const briefGenerationRef = useRef(0);
+  const currentIdentity = currentSubject ? `${currentSubject}:${authorityEpoch}` : null;
+  currentSubjectRef.current = currentSubject;
+  authorityEpochRef.current = authorityEpoch;
+  const {
+    plaidConfigured,
+    plaidLinked,
+    plaidReconnectRequired,
+    plaidStatusState,
+    brokerageStatusState,
+    bankAccounts,
+    cash,
+    cashReason,
+    connectBank,
+    recoverBankConnection,
+    brokerageConfigured,
+    balanceError,
+  } =
     usePlaidConnection();
-  // FUND-1: liabilities come from the shared layout store (the same
-  // /api/fund/liabilities data Net Worth + Cashflow use), not a separate fetch.
-  const { liabilities: liabilityRows } = useFundData();
-  const liabilities = sumBy(liabilityRows, (l) => l.balance);
-  const [signedIn, setSignedIn] = useState(false);
-  const [holdings, setHoldings] = useState<HoldingRow[]>([]);
+  const {
+    aggregated,
+    holdingsLoading,
+    holdingsError,
+    holdingsProviderUnavailable,
+    holdingsProviderUnavailableReason,
+    signedIn,
+  } = useFundData();
   const [brief, setBrief] = useState<Insight | null>(null);
+  const [briefIdentity, setBriefIdentity] = useState<string | null>(null);
 
-  const loadHoldings = useCallback(async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setSignedIn(true);
-    const { data } = await supabase
-      .from("fund_holdings")
-      .select("id, symbol, name, shares, cost_basis")
-      .eq("user_id", user.id)
-      .order("sort_order");
-    if (data) {
-      setHoldings(data.map((r) => ({ id: r.id, symbol: r.symbol, name: r.name, shares: Number(r.shares), cost_basis: Number(r.cost_basis) })));
+  const holdingsPresentation = useMemo(() => {
+    let totalMinor = 0;
+    const parsed: OverviewHolding[] = [];
+    for (const row of aggregated) {
+      const sharesMicro = strictScaledUnits(row.shares, MICRO_SHARES_PER_SHARE);
+      const basisMinor = row.currency === "USD" && row.cost_basis !== null
+        ? strictMinorUnits(row.cost_basis, "USD")
+        : null;
+      const nextTotal = basisMinor === null ? null : addMinorUnits(totalMinor, basisMinor);
+      const shares = sharesMicro === null ? null : scaledUnitsToDecimalString(sharesMicro, MICRO_SHARES_PER_SHARE);
+      if (shares === null || basisMinor === null || nextTotal === null) {
+        return { holdings: [] as OverviewHolding[], totalMinor: null, invalid: true };
+      }
+      totalMinor = nextTotal;
+      parsed.push({
+        symbol: row.symbol,
+        name: row.name,
+        shares,
+        costBasisMinor: basisMinor,
+      });
     }
-  }, []);
+    return { holdings: parsed, totalMinor, invalid: false };
+  }, [aggregated]);
+  const holdings = holdingsPresentation.holdings;
+  const investedCostBasisMinor = holdingsPresentation.totalMinor;
+  const holdingsState = holdingsLoading
+    ? "loading"
+    : holdingsError || holdingsPresentation.invalid
+      ? "unavailable"
+      : holdings.length === 0
+        ? "empty"
+        : "ready";
 
   useEffect(() => {
-    void loadHoldings();
-    fetch("/api/fund/insights?kind=daily_brief")
-      .then((r) => r.json())
-      .then((d: { insights?: Insight[] }) => setBrief(d.insights?.[0] ?? null))
-      .catch(() => null);
-  }, [loadHoldings]);
+    const generation = ++briefGenerationRef.current;
+    const expectedSubject = currentSubject;
+    const expectedEpoch = authorityEpoch;
+    const controller = new AbortController();
+    setBrief(null);
+    if (!expectedSubject) return () => controller.abort();
+    const isCurrent = () =>
+      !controller.signal.aborted
+      && briefGenerationRef.current === generation
+      && currentSubjectRef.current === expectedSubject
+      && authorityEpochRef.current === expectedEpoch;
+    void (async () => {
+      const response = await subjectBoundFetch(expectedSubject, "/api/fund/insights?kind=daily_brief", {
+        signal: controller.signal,
+      }).catch(() => null);
+      if (!isCurrent() || !response?.ok) return;
+      const data = await response.json().catch(() => null) as { insights?: Insight[] } | null;
+      if (!isCurrent()) return;
+      setBrief(data?.insights?.[0] ?? null);
+      setBriefIdentity(`${expectedSubject}:${expectedEpoch}`);
+    })();
+    return () => controller.abort();
+  }, [authorityEpoch, currentSubject]);
 
-  const invested = sumBy(holdings, holdingValue);
-  const netWorth = sumMoney([invested, cash, -liabilities]);
+  const visibleBrief = briefIdentity === currentIdentity ? brief : null;
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <button type="button" className="selectbox" style={{ background: "none" }} onClick={connectBank} title="Connect a brokerage or bank">
+        <button type="button" className="selectbox" style={{ background: "none" }} onClick={connectBank} title="Connect a bank with Plaid">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M3 7h18v12H3zM3 11h18" />
           </svg>
-          {brokerageConfigured ? "Public ✓" : "Public"} · {plaidConfigured ? "Plaid ✓" : "Plaid"}
+          {plaidStatusState === "loading" ? "Plaid …" : plaidStatusState === "unavailable" ? "Plaid unavailable" : plaidConfigured ? "Plaid ✓" : "Connect Plaid"}
         </button>
+        <span className="selectbox" title="Public brokerage status">
+          {brokerageStatusState === "loading" ? "Public …" : brokerageStatusState === "unavailable" ? "Public unavailable" : brokerageConfigured ? "Public ✓" : "Public not connected"}
+        </span>
       </div>
 
       <div className="fund-hero">
         <Card tick>
           <div className="seclabel">Net Worth</div>
-          <div className="bigmetric" style={{ fontSize: 30 }}>{fmtUsd(netWorth)}</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--up)", marginTop: 4 }}>
-            Cash {fmtUsd(cash)} · Liabilities {fmtUsd(liabilities)}
-          </div>
-          <NetWorthChart cash={cash} invested={invested} liabilities={liabilities} netWorth={netWorth} signedIn={signedIn} />
+          <NetWorthChart signedIn={signedIn} showHeadline />
         </Card>
         <Card>
-          <div className="seclabel">Invested</div>
-          <div className="bigmetric">{fmtUsd(invested)}</div>
+          <div className="seclabel">Invested cost basis</div>
+          <div className="bigmetric">{formatUsdMinor(investedCostBasisMinor)}</div>
+          {holdingsState === "unavailable" && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
+              Cost basis unavailable: incomplete or mixed-currency coverage
+            </div>
+          )}
+          {holdingsProviderUnavailable && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
+              Provider holdings excluded: {holdingsProviderUnavailableReason ?? "coverage unavailable"}
+            </div>
+          )}
         </Card>
         <Card>
           <div className="seclabel">Cash</div>
-          <div className="bigmetric">{fmtUsd(cash)}</div>
+          <div className="bigmetric">{formatExactUsd(cash)}</div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
             {bankAccounts.length
               ? `${bankAccounts.length} account${bankAccounts.length === 1 ? "" : "s"} · Plaid`
-              : plaidLinked
+              : plaidStatusState === "unavailable"
+                ? "Plaid connection status unavailable"
+                : plaidStatusState === "loading"
+                  ? "Checking Plaid connection…"
+                  : plaidLinked
                 ? "Plaid connected"
                 : signedIn
                   ? "No bank linked"
                 : "Sign in to connect"}
           </div>
-          {balanceError && (
+          {balanceError && !cashReason && (
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
               Balance refresh failed
             </div>
           )}
-          {bankAccounts.length ? (
-            bankAccounts.map((a) => (
+          {cashReason && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
+              Cash unavailable: {cashReason}
+            </div>
+          )}
+          {plaidReconnectRequired && (
+            <>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", marginTop: 4 }}>
+                This Plaid authorization is unverified. Disconnect it before creating a fresh link.
+              </div>
+              <button type="button" className="feed-manage" style={{ marginTop: 10 }} onClick={recoverBankConnection}>
+                Disconnect and relink Plaid
+              </button>
+            </>
+          )}
+          {bankAccounts.filter((account) => account.type === "depository").length ? (
+            bankAccounts.filter((account) => account.type === "depository").map((a) => (
               <div key={a.name + (a.mask ?? "")} className="metricrow" style={{ marginTop: 8 }}>
                 <span className="metric-k">{a.name}{a.mask ? ` ··${a.mask}` : ""}</span>
-                <span className="metric-v">{a.current != null ? fmtUsd(a.current) : "—"}</span>
+                <span className="metric-v">{formatExactUsd(a.current)}</span>
               </div>
             ))
-          ) : signedIn ? (
+          ) : signedIn && plaidStatusState === "ready" && !plaidReconnectRequired ? (
             <button type="button" className="feed-manage" style={{ marginTop: 14 }} onClick={connectBank}>
               {plaidConfigured ? "Link a bank" : "Connect bank · Plaid"}
             </button>
           ) : null}
+          {bankAccounts.some((account) => account.type !== "depository") && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 8 }}>
+              Non-depository accounts are excluded from Cash until their provider components are reconciled.
+            </div>
+          )}
         </Card>
       </div>
 
       <div className="divider" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
         <Card tick>
-          <h2 className="sec">Top Movers<span className="rule" /><span className="count">Today</span></h2>
-          {holdings.length === 0 ? (
+          <h2 className="sec">Holdings<span className="rule" /><span className="count">Cost basis · live movers unavailable</span></h2>
+          {holdingsState === "loading" ? (
+            <p style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 10 }}>Loading holdings…</p>
+          ) : holdingsState === "unavailable" ? (
+            <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 10 }}>Holdings unavailable: incomplete or mixed-currency coverage.</p>
+          ) : holdingsState === "empty" ? (
             <p style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 10 }}>No holdings yet — add some on the Investing page.</p>
           ) : (
             <table className="holdings" style={{ marginTop: 8 }}>
               <tbody>
-                {holdings.slice(0, 4).map((h) => {
-                  const gain = holdingGain(h);
-                  return (
+                {holdings.slice(0, 4).map((h) => (
                     <tr key={h.symbol}>
                       <td>{h.symbol}</td>
                       <td>{h.name}</td>
-                      <td>{fmtUsd(holdingValue(h))}</td>
-                      <td className={gain >= 0 ? "up" : "down"}>{gain >= 0 ? "▴" : "▾"} {Math.abs(gain).toFixed(1)}%</td>
+                      <td>{formatUsdMinor(h.costBasisMinor)}</td>
+                      <td style={{ color: "var(--ink-faint)" }}>Cost basis</td>
                     </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           )}
+          {holdingsProviderUnavailable && (
+            <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 10 }}>
+              Provider holdings excluded: {holdingsProviderUnavailableReason ?? "coverage unavailable"}.
+            </p>
+          )}
         </Card>
         <Card>
-          <h2 className="sec">Daily Brief<span className="rule" /><span className="count">{brief ? brief.confidence : "—"}</span></h2>
+          <h2 className="sec">Daily Brief<span className="rule" /><span className="count">{visibleBrief ? visibleBrief.confidence : "—"}</span></h2>
           <p style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.65, marginTop: 10 }}>
-            {brief ? brief.body : "No brief yet — the finance-daily job writes one once net-worth history accrues."}
+            {visibleBrief ? visibleBrief.body : "No brief yet — the finance-daily job writes one once net-worth history accrues."}
           </p>
         </Card>
       </div>

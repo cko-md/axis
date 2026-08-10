@@ -7,7 +7,10 @@
  * Normalization is pure and unit-tested; the adapter does the fetch/join.
  */
 
-import { parseMoney } from "@/lib/fund/money";
+import {
+  minorUnitsToDecimalString,
+  strictExactMinorUnits,
+} from "@/lib/fund/financialTruth";
 import {
   classifyFreshness,
   FRESHNESS_SLAS,
@@ -23,8 +26,10 @@ export type Liability = {
   name: string | null;
   /** Outstanding balance (major units, from the account), if known. */
   balanceCurrent: number | null;
+  balanceCurrentMinor: number | null;
   currency: string;
   lastPaymentAmount: number | null;
+  lastPaymentAmountMinor: number | null;
   nextPaymentDueDate: string | null;
   isOverdue: boolean | null;
   provenance: Provenance;
@@ -54,11 +59,19 @@ export type RawLiabilityEntry = {
 
 export type NormalizeLiabilityOptions = {
   provider?: string;
+  connectionId?: string;
   now?: number;
 };
 
-function numOrNull(v: number | null | undefined): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? parseMoney(v) : null;
+function exactMoneyOrNull(
+  value: number | null | undefined,
+  currency: string,
+): { major: number | null; minor: number | null } {
+  if (value === null || value === undefined) return { major: null, minor: null };
+  const minor = strictExactMinorUnits(value, currency);
+  const text = minor === null ? null : minorUnitsToDecimalString(minor, currency);
+  if (minor === null || text === null) throw new Error("PLAID_LIABILITY_AMOUNT_INVALID");
+  return { major: Number(text), minor };
 }
 
 /**
@@ -79,17 +92,28 @@ export function normalizeLiabilities(
   for (const type of types) {
     for (const entry of raw[type] ?? []) {
       const acct = accountsById[entry.account_id] ?? {};
-      const currency = acct.currency ?? "USD";
+      const currency = acct.currency ?? null;
+      if (!currency) throw new Error("PLAID_LIABILITY_CURRENCY_UNAVAILABLE");
+      const balance = exactMoneyOrNull(acct.balanceCurrent, currency);
+      const lastPayment = exactMoneyOrNull(entry.last_payment_amount, currency);
       out.push({
         accountId: entry.account_id,
         type,
         name: acct.name ?? null,
-        balanceCurrent: numOrNull(acct.balanceCurrent),
+        balanceCurrent: balance.major,
+        balanceCurrentMinor: balance.minor,
         currency,
-        lastPaymentAmount: numOrNull(entry.last_payment_amount),
+        lastPaymentAmount: lastPayment.major,
+        lastPaymentAmountMinor: lastPayment.minor,
         nextPaymentDueDate: entry.next_payment_due_date ?? null,
         isOverdue: entry.is_overdue ?? null,
-        provenance: { provider, providerRecordId: entry.account_id, retrievedAt, currency },
+        provenance: {
+          provider,
+          ...(opts.connectionId ? { connectionId: opts.connectionId } : {}),
+          providerRecordId: entry.account_id,
+          retrievedAt,
+          currency,
+        },
         freshness: classifyFreshness(retrievedAt, FRESHNESS_SLAS.accountBalance, now),
       });
     }

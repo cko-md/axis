@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveAccountAdapter } from "@/lib/plaid/adapter";
 import type { IntegrationErrorCode } from "@/lib/integrations/types";
+import { resolveRouteIdentity } from "@/lib/auth/routeIdentity";
 
 /**
  * Normalized account balances via the §10 account adapter — returns domain
@@ -25,9 +26,12 @@ const STATUS_FOR_CODE: Partial<Record<IntegrationErrorCode, number>> = {
 };
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = await resolveRouteIdentity(createClient, { route: "/api/plaid/accounts", area: "fund" });
+  if (!identity.ok) return NextResponse.json(
+    { error: identity.status === 401 ? "Unauthorized" : identity.code },
+    { status: identity.status },
+  );
+  const { user } = identity;
 
   const adapter = resolveAccountAdapter();
   const result = await adapter.getAccounts(user.id);
