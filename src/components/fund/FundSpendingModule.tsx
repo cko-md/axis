@@ -10,6 +10,7 @@ import { ACTIVITY_CATEGORIES } from "@/lib/fund/activityRules";
 import { FRESHNESS_SLAS } from "@/lib/fund/provenance";
 import { minorUnitsFor } from "@/lib/fund/currency";
 import { formatSignedMinorCurrency } from "@/lib/fund/formatMinorCurrency";
+import { addMinorUnits } from "@/lib/fund/financialTruth";
 
 type BankTxn = {
   id: string;
@@ -37,6 +38,27 @@ const CATEGORIES = ACTIVITY_CATEGORIES;
 type Status = "loading" | "ok" | "no-plaid" | "no-account" | "error";
 const TRANSACTION_PAGE_SIZE = 500;
 const MAX_TRANSACTION_ROWS = 20_000;
+
+export function aggregateBudgetSpend(
+  transactions: readonly BankTxn[],
+): Map<string, number | null> {
+  const totals = new Map<string, number | null>();
+  for (const transaction of transactions) {
+    if (
+      transaction.is_transfer
+      || transaction.excluded_from_budget
+      || transaction.amount >= 0
+      || transaction.amount_minor === null
+    ) continue;
+    const category = transaction.custom_category ?? transaction.plaid_category ?? "OTHER";
+    const key = `${category}\u0000${transaction.iso_currency_code}`;
+    const previous = totals.get(key);
+    if (previous === null) continue;
+    const next = addMinorUnits(previous ?? 0, Math.abs(transaction.amount_minor));
+    totals.set(key, next);
+  }
+  return totals;
+}
 
 export function FundSpendingModule() {
   const { toast } = useToast();
@@ -111,16 +133,7 @@ export function FundSpendingModule() {
       .catch(() => null);
   }, []);
 
-  const spendByCategoryCurrency = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const t of txns) {
-      if (t.is_transfer || t.excluded_from_budget || t.amount >= 0 || t.amount_minor === null) continue;
-      const cat = t.custom_category ?? t.plaid_category ?? "OTHER";
-      const key = `${cat}\u0000${t.iso_currency_code}`;
-      map.set(key, (map.get(key) ?? 0) + Math.abs(t.amount_minor));
-    }
-    return map;
-  }, [txns]);
+  const spendByCategoryCurrency = useMemo(() => aggregateBudgetSpend(txns), [txns]);
 
   // Most recent real retrieval time across the loaded rows, for the freshness
   // badge. Only defined once at least one row actually carries a retrieved_at —
@@ -248,18 +261,21 @@ export function FundSpendingModule() {
         <h2 className="sec">Category Budgets<span className="rule" /><span className="count">{budgets.length}</span></h2>
         <div style={{ marginTop: 10 }}>
           {budgets.map((b) => {
-            const spentMinor = spendByCategoryCurrency.get(`${b.category}\u0000${b.currency}`) ?? 0;
-            const spent = spentMinor / minorUnitsFor(b.currency);
-            const pct = b.monthly_limit ? (spent / b.monthly_limit) * 100 : 0;
+            const spendKey = `${b.category}\u0000${b.currency}`;
+            const spentMinor = spendByCategoryCurrency.has(spendKey)
+              ? spendByCategoryCurrency.get(spendKey) ?? null
+              : 0;
+            const spent = spentMinor === null ? null : spentMinor / minorUnitsFor(b.currency);
+            const pct = spent === null ? null : b.monthly_limit ? (spent / b.monthly_limit) * 100 : 0;
             const format = new Intl.NumberFormat("en-US", { style: "currency", currency: b.currency });
             return (
               <div key={b.id} className="budgetbar">
                 <div className="bl">
                   <span>{b.category.replace(/_/g, " ")}</span>
-                  <span className="bv">{format.format(spent)} / {format.format(b.monthly_limit)}</span>
+                  <span className="bv">{spent === null ? "Spend unavailable" : `${format.format(spent)} / ${format.format(b.monthly_limit)}`}</span>
                 </div>
                 <div className="track">
-                  <div className={pct > 100 ? "over" : pct < 70 ? "good" : ""} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  <div className={pct === null ? "" : pct > 100 ? "over" : pct < 70 ? "good" : ""} style={{ width: pct === null ? "0%" : `${Math.min(pct, 100)}%` }} />
                 </div>
               </div>
             );

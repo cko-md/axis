@@ -5,8 +5,8 @@ import {
   minorUnitsToDecimalString,
   normalizeFinancialCurrency,
   scaledUnitsToDecimalString,
+  strictExactScaledUnits,
   strictExactMinorUnits,
-  strictScaledUnits,
 } from "@/lib/fund/financialTruth";
 import { MICRO_SHARES_PER_SHARE } from "@/lib/fund/taxLots";
 import { isPlainPlaidRecord, plaidRequest } from "@/lib/plaid/request";
@@ -96,7 +96,7 @@ function normalizeHoldingRows(data: Record<string, unknown>) {
     const accountId = stringField(candidate.account_id, 256);
     const security = securityId ? securities.get(securityId) : null;
     const currency = normalizeFinancialCurrency(candidate.iso_currency_code, "");
-    const sharesMicro = strictScaledUnits(candidate.quantity, MICRO_SHARES_PER_SHARE);
+    const sharesMicro = strictExactScaledUnits(candidate.quantity, MICRO_SHARES_PER_SHARE);
     const basisMinor = currency ? strictExactMinorUnits(candidate.cost_basis, currency) : null;
     const providerRecordId = accountId && securityId ? `${accountId}:${securityId}` : null;
     if (

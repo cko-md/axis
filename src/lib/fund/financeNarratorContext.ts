@@ -1,4 +1,9 @@
-import { minorUnitsToDecimalString, strictMinorUnits } from "./financialTruth";
+import {
+  minorUnitsToDecimalString,
+  normalizeFinancialCurrency,
+  strictExactMinorUnits,
+  strictMinorUnits,
+} from "./financialTruth";
 
 const MAX_FINANCE_LABEL_CHARS = 120;
 const MAX_RECURRING_ITEMS = 10;
@@ -21,10 +26,18 @@ export function safeMoney(value: unknown): number {
 }
 
 /** Exact fail-closed contract used by all financial narration payloads. */
-export function strictNarrationMoney(value: unknown): { amount: string; amountMinor: number } | null {
-  const amountMinor = strictMinorUnits(value, "USD");
-  const amount = amountMinor === null ? null : minorUnitsToDecimalString(amountMinor, "USD");
-  return amount === null || amountMinor === null ? null : { amount, amountMinor };
+export function strictNarrationMoney(
+  value: unknown,
+  currencyValue: unknown = "USD",
+): { amount: string; amountMinor: number; currency: string } | null {
+  const currency = normalizeFinancialCurrency(currencyValue, "");
+  const amountMinor = currency ? strictExactMinorUnits(value, currency) : null;
+  const amount = currency && amountMinor !== null
+    ? minorUnitsToDecimalString(amountMinor, currency)
+    : null;
+  return amount === null || amountMinor === null || !currency
+    ? null
+    : { amount, amountMinor, currency };
 }
 
 export function shapeRecurringForNarration<T extends { merchant_name?: unknown; expected_amount?: unknown; cadence?: unknown; last_seen_date?: unknown }>(
@@ -38,15 +51,16 @@ export function shapeRecurringForNarration<T extends { merchant_name?: unknown; 
   }));
 }
 
-export function shapeRecurringForFinancialNarration<T extends { merchant_name?: unknown; expected_amount?: unknown; cadence?: unknown; last_seen_date?: unknown }>(
+export function shapeRecurringForFinancialNarration<T extends { merchant_name?: unknown; expected_amount?: unknown; currency?: unknown; cadence?: unknown; last_seen_date?: unknown }>(
   rows: T[] | null | undefined,
-): Array<{ merchant_name: string; expected_amount: string | null; expected_amount_minor: number | null; cadence: string; last_seen_date: string | null }> {
+): Array<{ merchant_name: string; expected_amount: string | null; expected_amount_minor: number | null; currency: string | null; cadence: string; last_seen_date: string | null }> {
   return (rows ?? []).slice(0, MAX_RECURRING_ITEMS).map((row) => {
-    const money = strictNarrationMoney(row.expected_amount);
+    const money = strictNarrationMoney(row.expected_amount, row.currency);
     return {
       merchant_name: cleanFinanceLabel(row.merchant_name, "Unknown merchant"),
       expected_amount: money?.amount ?? null,
       expected_amount_minor: money?.amountMinor ?? null,
+      currency: money?.currency ?? null,
       cadence: cleanFinanceLabel(row.cadence, "unknown"),
       last_seen_date: typeof row.last_seen_date === "string" ? row.last_seen_date.slice(0, 40) : null,
     };

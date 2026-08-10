@@ -53,7 +53,7 @@ function item(billed: string[], consented: string[] = []) {
   };
 }
 
-function holdingPayload(costBasis: unknown = "10.00") {
+function holdingPayload(costBasis: unknown = "10.00", quantity: unknown = "1.25") {
   return {
     request_id: "holdings",
     item: { item_id: "item-1" },
@@ -61,7 +61,7 @@ function holdingPayload(costBasis: unknown = "10.00") {
     holdings: [{
       account_id: "account-1",
       security_id: "security-1",
-      quantity: "1.25",
+      quantity,
       cost_basis: costBasis,
       iso_currency_code: "USD",
     }],
@@ -169,6 +169,35 @@ describe("Plaid balance-sheet publication", () => {
     expect(result).toMatchObject({
       ok: true,
       holdings: { status: "unavailable", reason: "payload_incomplete" },
+    });
+  });
+
+  it("rejects provider quantities that require rounding at the persisted share scale", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(holdingPayload("10.00", "1.0000004"));
+    const db = admin();
+
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "unavailable", reason: "payload_incomplete" },
+    });
+    expect(db.rpc.mock.calls.some(([name]) => name === "publish_fund_holding_generation")).toBe(false);
+  });
+
+  it("accepts exact provider quantities with insignificant trailing zeroes", async () => {
+    mocks.plaidRequest
+      .mockResolvedValueOnce(item(["investments"]))
+      .mockResolvedValueOnce(holdingPayload("10.00", "1.0000000"));
+    const db = admin();
+
+    const result = await syncPlaidBalanceSheet(db.client, "user-1", connection);
+
+    expect(result).toMatchObject({
+      ok: true,
+      holdings: { status: "published", recordCount: 1 },
     });
   });
 
