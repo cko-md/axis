@@ -305,13 +305,60 @@ describe("finance daily cron fault aggregation", () => {
     );
   });
 
-  it("does not report expected parent-deadline cancellation as a provider outage", async () => {
-    mocks.syncPlaidTransactions.mockResolvedValue({ error: "PLAID_TXN_DEADLINE_EXCEEDED" });
+  it("backs off an item-local Plaid deadline and continues into the user phase", async () => {
+    const admin = adminClient();
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run" || name === "ack_finance_cron_connection" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
+        return { data: true, error: null };
+      }
+      if (name === "fail_finance_cron_item") return { data: "retry_scheduled", error: null };
+      if (name === "claim_finance_cron_connections") {
+        return { data: [
+          { id: "connection-slow", user_id: USER_ID, access_token_enc: "encrypted" },
+          { id: "connection-later", user_id: USER_ID, access_token_enc: "encrypted" },
+        ], error: null };
+      }
+      if (name === "claim_finance_cron_users") return { data: [{ user_id: USER_ID }], error: null };
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.syncPlaidTransactions
+      .mockResolvedValueOnce({ error: "PLAID_TXN_DEADLINE_EXCEEDED" })
+      .mockResolvedValueOnce({ synced: 1 });
 
     const response = await GET(request());
 
     expect(response.status).toBe(503);
-    expect(mocks.captureException).not.toHaveBeenCalled();
+    expect(admin.rpc).toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({
+      p_phase: "connections",
+      p_item_id: "connection-slow",
+      p_error_code: "PLAID_TXN_DEADLINE_EXCEEDED",
+    }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_connection", expect.objectContaining({ p_connection_id: "connection-later" }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: USER_ID }));
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Finance daily Plaid sync failed" }),
+      { tags: { area: "fund", stage: "sync", code: "PLAID_TXN_DEADLINE_EXCEEDED" } },
+    );
+  });
+
+  it("does not consume a failure attempt when the parent route deadline is exhausted", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const admin = adminClient();
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.syncPlaidTransactions.mockImplementation(async () => {
+      vi.setSystemTime(new Date("2026-08-09T12:01:00.000Z"));
+      return { error: "PLAID_TXN_DEADLINE_EXCEEDED" };
+    });
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ deadlineExceeded: true });
+    expect(admin.rpc).not.toHaveBeenCalledWith("fail_finance_cron_item", expect.anything());
+    expect(admin.rpc).not.toHaveBeenCalledWith("claim_finance_cron_users", expect.anything());
   });
 
   it("marks the run partial when an in-flight user job crosses the wall-clock deadline", async () => {
@@ -357,7 +404,7 @@ describe("finance daily cron fault aggregation", () => {
       outcome: "partial",
       usersCompleted: 0,
       userFailures: 1,
-      deadlineExceeded: true,
+      deadlineExceeded: false,
     });
     expect(aborted).toBe(true);
   });
@@ -378,11 +425,15 @@ describe("finance daily cron fault aggregation", () => {
       outcome: "partial",
       usersCompleted: 0,
       userFailures: 1,
-      deadlineExceeded: true,
+      deadlineExceeded: false,
     });
     expect(mocks.captureException).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Finance daily job did not settle after cancellation" }),
       { tags: { area: "fund", stage: "deadline", code: "ABORT_SETTLEMENT_EXCEEDED" } },
+    );
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Finance daily user item deadline exceeded" }),
+      { tags: { area: "fund", stage: "user_job", code: "USER_JOB_DEADLINE_EXCEEDED" } },
     );
   });
 
@@ -552,5 +603,54 @@ describe("finance daily cron fault aggregation", () => {
     }));
     expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: goodUser }));
     expect(mocks.snapshotNetWorth).toHaveBeenCalledWith(expect.anything(), goodUser, expect.any(AbortSignal));
+  });
+
+  it("backs off a hanging user at its item deadline and completes the later user", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T12:00:00.000Z"));
+    const slowUser = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
+    const laterUser = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
+    const admin = adminClient({ connections: { data: [], error: null } });
+    admin.rpc.mockImplementation(async (name: string) => {
+      if (name === "acquire_finance_cron_run" || name === "ack_finance_cron_user" || name === "release_finance_cron_run") {
+        return { data: true, error: null };
+      }
+      if (name === "fail_finance_cron_item") return { data: "retry_scheduled", error: null };
+      if (name === "claim_finance_cron_connections") return { data: [], error: null };
+      if (name === "claim_finance_cron_users") {
+        return { data: [{ user_id: slowUser }, { user_id: laterUser }], error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    admin.auth.admin.getUserById.mockImplementation(async (userId: string) => ({
+      data: { user: { id: userId, email: `${userId.slice(-1)}@example.invalid` } },
+      error: null,
+    }));
+    mocks.createAdminClient.mockReturnValue(admin);
+    mocks.snapshotNetWorth.mockImplementation((_admin, userId: string, signal: AbortSignal) => {
+      if (userId === laterUser) return Promise.resolve(freshSnapshot);
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    });
+
+    const pendingResponse = GET(request());
+    await vi.advanceTimersByTimeAsync(20_001);
+    const response = await pendingResponse;
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      usersProcessed: 2,
+      usersCompleted: 1,
+      userFailures: 1,
+      deadlineExceeded: false,
+    });
+    expect(admin.rpc).toHaveBeenCalledWith("fail_finance_cron_item", expect.objectContaining({
+      p_phase: "users",
+      p_item_id: slowUser,
+      p_error_code: "USER_JOB_DEADLINE_EXCEEDED",
+    }));
+    expect(admin.rpc).toHaveBeenCalledWith("ack_finance_cron_user", expect.objectContaining({ p_user_id: laterUser }));
   });
 });

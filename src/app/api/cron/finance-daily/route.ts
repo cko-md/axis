@@ -13,6 +13,7 @@ const MAX_USERS_PER_RUN = 250;
 const CRON_WALL_CLOCK_MS = 50_000;
 const ABORT_SETTLEMENT_GRACE_MS = 2_000;
 const CRON_LEASE_SECONDS = 120;
+const USER_JOB_DEADLINE_MS = 20_000;
 type FailureDisposition = "retry_scheduled" | "quarantined";
 
 function normalizeFailureCode(value: string, fallback: string) {
@@ -172,28 +173,35 @@ export async function GET(req: NextRequest) {
       }
       else {
         let result: Awaited<ReturnType<typeof syncPlaidTransactions>> | null = null;
+        const connectionSignal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
         try {
           result = await syncPlaidTransactions(
             admin,
             c.user_id,
             c.id,
             accessToken,
-            AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+            connectionSignal,
           );
         } catch {
-          Sentry.captureException(new Error("Finance daily Plaid sync failed"), { tags: { area: "fund", stage: "sync", code: "SYNC_UNEXPECTED_FAILURE" } });
           syncErrors++;
-          failureCode = "SYNC_UNEXPECTED_FAILURE";
+          if (connectionSignal.aborted || Date.now() >= deadline) {
+            deadlineExceeded = true;
+            connectionClaimIncomplete = true;
+          } else {
+            Sentry.captureException(new Error("Finance daily Plaid sync failed"), { tags: { area: "fund", stage: "sync", code: "SYNC_UNEXPECTED_FAILURE" } });
+            failureCode = "SYNC_UNEXPECTED_FAILURE";
+          }
         }
         if (result && "error" in result) {
           console.error("[cron/finance-daily] sync failed", { code: "SYNC_FAILED" });
-          if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED") {
+          const parentDeadlineExceeded = connectionSignal.aborted || Date.now() >= deadline;
+          if (result.error !== "PLAID_TXN_DEADLINE_EXCEEDED" || !parentDeadlineExceeded) {
             Sentry.captureException(new Error("Finance daily Plaid sync failed"), {
               tags: { area: "fund", stage: "sync", code: result.error },
             });
           }
           syncErrors++;
-          if (result.error === "PLAID_TXN_DEADLINE_EXCEEDED") {
+          if (result.error === "PLAID_TXN_DEADLINE_EXCEEDED" && parentDeadlineExceeded) {
             deadlineExceeded = true;
             connectionClaimIncomplete = true;
           } else {
@@ -331,45 +339,46 @@ export async function GET(req: NextRequest) {
     const userEmail = authUser?.user?.email ?? null;
 
     try {
+      const userDeadline = Math.min(deadline, Date.now() + USER_JOB_DEADLINE_MS);
       const ensureWithinDeadline = () => {
-        if (Date.now() >= deadline) throw new FinanceCronDeadlineError();
+        if (Date.now() >= userDeadline) throw new FinanceCronDeadlineError();
       };
       const snapshot = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => snapshotNetWorth(admin, userId, signal),
       );
       ensureWithinDeadline();
       if (snapshot.status !== "fresh" || snapshot.authority !== "provider") snapshotDeclined += 1;
-      await runWithinDeadline(deadline, (signal) => detectRecurring(admin, userId, signal));
+      await runWithinDeadline(userDeadline, (signal) => detectRecurring(admin, userId, signal));
       ensureWithinDeadline();
       const brief = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => writeDailyBrief(admin, userId, userEmail, snapshot, signal),
       );
       ensureWithinDeadline();
       const reminders = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => sendBillReminders(admin, userId, userEmail, signal),
       );
       ensureWithinDeadline();
       notificationFailures += brief.failed + reminders.failed;
       const budgetAlerts = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => checkBudgetThresholds(admin, userId, userEmail, signal),
       );
       ensureWithinDeadline();
       const anomalies = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => detectAndExplainAnomalies(admin, userId, userEmail, null, signal),
       );
       ensureWithinDeadline();
       const weeklyRecap = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => writeWeeklyRecap(admin, userId, userEmail, null, snapshot, signal),
       );
       ensureWithinDeadline();
       const subscriptionAudit = await runWithinDeadline(
-        deadline,
+        userDeadline,
         (signal) => writeSubscriptionAudit(admin, userId, userEmail, null, signal),
       );
       ensureWithinDeadline();
@@ -384,9 +393,35 @@ export async function GET(req: NextRequest) {
       usersCompleted += 1;
     } catch (error) {
       if (error instanceof FinanceCronDeadlineError) {
-        deadlineExceeded = true;
-        userFailures += userIds.length - index;
-        break;
+        if (Date.now() >= deadline) {
+          deadlineExceeded = true;
+          userFailures += userIds.length - index;
+          break;
+        }
+        userFailures += 1;
+        Sentry.captureException(new Error("Finance daily user item deadline exceeded"), {
+          tags: { area: "fund", stage: "user_job", code: "USER_JOB_DEADLINE_EXCEEDED" },
+        });
+        const failure = await admin.rpc("fail_finance_cron_item", {
+          p_run_id: runId,
+          p_phase: "users",
+          p_item_id: userId,
+          p_error_code: "USER_JOB_DEADLINE_EXCEEDED",
+        });
+        const disposition = failure.data as FailureDisposition | null;
+        if (failure.error || (disposition !== "retry_scheduled" && disposition !== "quarantined")) {
+          Sentry.captureException(new Error("Finance daily user deadline persistence failed"), {
+            tags: { area: "fund", stage: "user_failure", code: "USER_FAILURE_RECORD_FAILED" },
+          });
+          break;
+        }
+        if (disposition === "quarantined") {
+          userQuarantined += 1;
+          Sentry.captureException(new Error("Finance daily user quarantined"), {
+            tags: { area: "fund", stage: "user_failure", code: "USER_QUARANTINED" },
+          });
+        }
+        continue;
       }
       userFailures += 1;
       Sentry.captureException(new Error("Finance daily user job failed"), { tags: { area: "fund", stage: "user_job", code: "USER_JOB_FAILED" } });
